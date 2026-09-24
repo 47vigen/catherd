@@ -16,21 +16,51 @@ import type { BackendStatus } from "./backends.ts";
 
 export const NOTIFY: NotifyMoment[] = ["milestone", "finish", "blocked"];
 const BACKENDS: Backend[] = ["claude", "codex", "opencode"];
+const HARNESS_BACKENDS: Array<"codex" | "opencode"> = ["codex", "opencode"];
 
 export type BudgetField = "minutes" | "tokens" | "usd";
 export const BUDGET_FIELDS: BudgetField[] = ["minutes", "tokens", "usd"];
 
-export type Row =
+/** The left pane's rows (ROLES/ROUTING/HARNESS/BUDGET/FAILOVER/NOTIFY): a fixed skeleton,
+ * independent of what is open or filtered. Everything else ("detail" rows) belongs to the
+ * right pane, and only exists for whichever top row is currently selected. */
+export type TopRow =
   | { kind: "role"; role: Role }
-  | { kind: "backend"; role: Role; backend: Backend }
-  | { kind: "harness"; role: Role; backend: "codex" | "opencode" }
-  | { kind: "model"; role: Role; model: CatalogModel }
-  | { kind: "effort"; role: Role; model: CatalogModel; effort: string }
   | { kind: "objective" }
   | { kind: "lock" }
-  | { kind: "budget"; field: BudgetField }
-  | { kind: "failover"; rung: RungId }
+  | { kind: "harness"; backend: "codex" | "opencode" }
+  | { kind: "budget-summary" }
+  | { kind: "failover-summary" }
   | { kind: "notify"; moment: NotifyMoment };
+
+export type DetailRow =
+  | { kind: "backend"; role: Role; backend: Backend }
+  | { kind: "model"; role: Role; model: CatalogModel }
+  | { kind: "effort"; role: Role; model: CatalogModel; effort: string }
+  | { kind: "budget"; field: BudgetField }
+  | { kind: "failover"; rung: RungId };
+
+export type Row = TopRow | DetailRow;
+
+export type Section = "ROLES" | "ROUTING" | "HARNESS" | "BUDGET" | "FAILOVER" | "NOTIFY";
+
+export function sectionOf(r: TopRow): Section {
+  switch (r.kind) {
+    case "role":
+      return "ROLES";
+    case "objective":
+    case "lock":
+      return "ROUTING";
+    case "harness":
+      return "HARNESS";
+    case "budget-summary":
+      return "BUDGET";
+    case "failover-summary":
+      return "FAILOVER";
+    case "notify":
+      return "NOTIFY";
+  }
+}
 
 export type Toggled = { profile: Profile } | { needsTreatLike: RungId } | { refused: string };
 
@@ -39,8 +69,9 @@ export function rowId(r: Row): string {
     case "role":
       return `role:${r.role}`;
     case "backend":
+      return `backend:${r.role}:${r.backend}`;
     case "harness":
-      return `${r.kind}:${r.role}:${r.backend}`;
+      return `harness:${r.backend}`;
     case "model":
       return `model:${r.role}:${r.model.id}`;
     case "effort":
@@ -56,6 +87,8 @@ export function rowId(r: Row): string {
   }
 }
 
+/** The `open` key a role/model row expands under `space`/`→`. Only these two kinds fold —
+ * budget and failover always show their whole detail once selected, and harness has none. */
 export function openKey(r: Row): string | null {
   if (r.kind === "role") return `role:${r.role}`;
   if (r.kind === "model" || r.kind === "effort") return `model:${r.role}:${r.model.id}`;
@@ -69,33 +102,50 @@ export function readySet(backends: BackendStatus[]): Set<Backend> {
   ]);
 }
 
-export function rows(p: Profile, c: Catalog, open: ReadonlySet<string>, filter = ""): Row[] {
-  const f = filter.toLowerCase();
-  const out: Row[] = [];
-  for (const role of ROLES) {
-    out.push({ kind: "role", role });
-    if (!f && !open.has(`role:${role}`)) continue;
-    const models = c.models.filter((m) => capableFor(role, m) && m.id.toLowerCase().includes(f));
-    for (const backend of BACKENDS) {
-      const group = models.filter((m) => m.backend === backend);
-      if (group.length === 0) continue;
-      out.push({ kind: "backend", role, backend });
-      if (backend !== "claude") out.push({ kind: "harness", role, backend });
-      for (const model of group) {
-        out.push({ kind: "model", role, model });
-        if (!open.has(`model:${role}:${model.id}`)) continue;
-        for (const effort of model.efforts) out.push({ kind: "effort", role, model, effort });
-      }
-    }
-  }
-  out.push(
+/** The left pane: always these 17 rows, in this order, regardless of `open` or a filter. */
+export function topLevelRows(): TopRow[] {
+  return [
+    ...ROLES.map((role): TopRow => ({ kind: "role", role })),
     { kind: "objective" },
     { kind: "lock" },
-    ...BUDGET_FIELDS.map((field): Row => ({ kind: "budget", field })),
-    ...enabledFailoverRungs(p, c).map((rung): Row => ({ kind: "failover", rung })),
-    ...NOTIFY.map((moment): Row => ({ kind: "notify", moment })),
-  );
+    ...HARNESS_BACKENDS.map((backend): TopRow => ({ kind: "harness", backend })),
+    { kind: "budget-summary" },
+    { kind: "failover-summary" },
+    ...NOTIFY.map((moment): TopRow => ({ kind: "notify", moment })),
+  ];
+}
+
+/** The right pane for a selected role: its capable models grouped by backend, open to their
+ * effort ladder once expanded — the harness toggle no longer lives here, it is its own top row. */
+export function roleDetailRows(
+  p: Profile,
+  c: Catalog,
+  role: Role,
+  open: ReadonlySet<string>,
+  filter = "",
+): DetailRow[] {
+  const f = filter.toLowerCase();
+  const out: DetailRow[] = [];
+  const models = c.models.filter((m) => capableFor(role, m) && m.id.toLowerCase().includes(f));
+  for (const backend of BACKENDS) {
+    const group = models.filter((m) => m.backend === backend);
+    if (group.length === 0) continue;
+    out.push({ kind: "backend", role, backend });
+    for (const model of group) {
+      out.push({ kind: "model", role, model });
+      if (!open.has(`model:${role}:${model.id}`)) continue;
+      for (const effort of model.efforts) out.push({ kind: "effort", role, model, effort });
+    }
+  }
   return out;
+}
+
+export function budgetDetailRows(): DetailRow[] {
+  return BUDGET_FIELDS.map((field) => ({ kind: "budget", field }));
+}
+
+export function failoverDetailRows(p: Profile, c: Catalog): DetailRow[] {
+  return enabledFailoverRungs(p, c).map((rung) => ({ kind: "failover", rung }));
 }
 
 /** spec §11b: every codex/opencode rung ticked by a currently-enabled role gets a failover row. */
@@ -124,6 +174,25 @@ export function failoverOptions(c: Catalog, rung: RungId): RungId[] {
     .sort();
 }
 
+/** "no cap" or e.g. "30 min · $5" — the BUDGET row's one-line left-pane summary. `sep` is the
+ * caller's glyph("dot", ui.plain) — this module stays presentation-neutral, so it takes the
+ * separator rather than importing theme.ts's plain/unicode split itself. */
+export function budgetSummary(p: Profile, sep = " · "): string {
+  const b = p.budget;
+  const parts = [
+    b?.minutes !== undefined ? `${b.minutes} min` : null,
+    b?.tokens !== undefined ? `${Math.round(b.tokens / 1000)}k tok` : null,
+    b?.usd !== undefined ? `$${b.usd}` : null,
+  ].filter((x): x is string => x !== null);
+  return parts.length > 0 ? parts.join(sep) : "no cap";
+}
+
+/** "none" or "N set" — the FAILOVER row's one-line left-pane summary. */
+export function failoverSummary(p: Profile): string {
+  const n = Object.keys(p.failover ?? {}).length;
+  return n === 0 ? "none" : `${n} set`;
+}
+
 export function isTicked(p: Profile, r: Row): boolean {
   switch (r.kind) {
     case "role":
@@ -134,9 +203,6 @@ export function isTicked(p: Profile, r: Row): boolean {
       return (p.roles[r.role].models[r.model.id]?.length ?? 0) > 0;
     case "effort":
       return p.roles[r.role].models[r.model.id]?.includes(r.effort) ?? false;
-    case "budget":
-    case "failover":
-      return false;
     case "notify":
       return p.notify.includes(r.moment);
     default:
@@ -205,7 +271,9 @@ export function toggle(p: Profile, c: Catalog, r: Row, ready: ReadonlySet<Backen
       return { profile: p };
     case "budget":
     case "failover":
-      // These open their own editor/picker in the Matrix component instead of toggling.
+    case "budget-summary":
+    case "failover-summary":
+      // budget/failover open their own editor/picker in the Matrix component instead of toggling.
       return { profile: p };
   }
 }

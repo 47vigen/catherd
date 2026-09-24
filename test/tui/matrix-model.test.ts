@@ -1,16 +1,23 @@
 import { describe, expect, it } from "bun:test";
 import { defaultProfile } from "../../src/profile/profile.ts";
 import {
+  budgetDetailRows,
+  budgetSummary,
+  type DetailRow,
   enabledFailoverRungs,
+  failoverDetailRows,
   failoverOptions,
+  failoverSummary,
   isTicked,
   nextLock,
   readySet,
   type Row,
   rowId,
-  rows,
+  roleDetailRows,
+  sectionOf,
   ticked,
   toggle,
+  topLevelRows,
   type Toggled,
   treatLikeOptions,
 } from "../../src/tui/matrix-model.ts";
@@ -18,9 +25,9 @@ import { catalogFixture, NOT_READY, READY } from "./helpers.ts";
 
 const c = catalogFixture();
 const ready = readySet(READY);
-const open = new Set(["role:worker", "model:worker:gpt-6-luna", "model:worker:gpt-6-sol"]);
+const open = new Set(["model:worker:gpt-6-luna", "model:worker:gpt-6-sol"]);
 
-function find(rs: Row[], id: string): Row {
+function find(rs: DetailRow[], id: string): DetailRow {
   const r = rs.find((x) => rowId(x) === id);
   if (!r) throw new Error(`no row ${id}`);
   return r;
@@ -32,8 +39,8 @@ function profileOf(t: Toggled) {
 }
 
 describe("matrix model", () => {
-  it("lists one row per role, then objective, lock, budget, failover and the notify moments", () => {
-    expect(rows(defaultProfile(), c, new Set()).map(rowId)).toEqual([
+  it("lists a fixed left pane: 8 roles, objective, lock, both harnesses, budget, failover, notify", () => {
+    expect(topLevelRows().map(rowId)).toEqual([
       "role:architect",
       "role:verifier",
       "role:worker",
@@ -44,59 +51,56 @@ describe("matrix model", () => {
       "role:researcher",
       "objective",
       "lock",
-      "budget:minutes",
-      "budget:tokens",
-      "budget:usd",
-      "failover:gpt-6-luna#high",
-      "failover:gpt-6-sol#high",
-      "failover:gpt-6-sol#medium",
-      "failover:gpt-6-sol#xhigh",
+      "harness:codex",
+      "harness:opencode",
+      "budget-summary",
+      "failover-summary",
       "notify:milestone",
       "notify:finish",
       "notify:blocked",
     ]);
   });
 
-  it("opens a role into capable models grouped by backend, with the harness toggle under each backend", () => {
-    const ids = rows(defaultProfile(), c, new Set(["role:artist", "model:artist:gpt-6-sol"])).map(rowId);
-    const i = ids.indexOf("role:artist");
-    expect(ids.slice(i, i + 8)).toEqual([
-      "role:artist",
+  it("groups the left pane's rows under their headings", () => {
+    const top = topLevelRows();
+    expect(sectionOf(top[0] as Row & { kind: "role" })).toBe("ROLES");
+    expect(top.map(sectionOf)).toEqual([
+      ...Array(8).fill("ROLES"),
+      "ROUTING",
+      "ROUTING",
+      "HARNESS",
+      "HARNESS",
+      "BUDGET",
+      "FAILOVER",
+      "NOTIFY",
+      "NOTIFY",
+      "NOTIFY",
+    ]);
+  });
+
+  it("opens a role's detail into capable models grouped by backend, with no harness row inside it", () => {
+    const ids = roleDetailRows(defaultProfile(), c, "artist", new Set(["model:artist:gpt-6-sol"])).map(rowId);
+    expect(ids).toEqual([
       "backend:artist:codex",
-      "harness:artist:codex",
       "model:artist:gpt-6-sol",
       "effort:artist:gpt-6-sol#medium",
       "effort:artist:gpt-6-sol#high",
       "effort:artist:gpt-6-sol#xhigh",
-      "role:writer",
     ]);
-  });
-
-  it("puts no harness toggle under claude, and one under codex and under opencode", () => {
-    const ids = rows(defaultProfile(), c, new Set(["role:worker"])).map(rowId);
-    expect(ids.filter((id) => id.startsWith("harness:"))).toEqual([
-      "harness:worker:codex",
-      "harness:worker:opencode",
-    ]);
-    expect(ids.indexOf("harness:worker:codex")).toBe(ids.indexOf("backend:worker:codex") + 1);
   });
 
   it("never offers a model the role cannot use", () => {
-    const models = rows(defaultProfile(), c, new Set(["role:ui-reviewer"]))
+    const models = roleDetailRows(defaultProfile(), c, "ui-reviewer", new Set())
       .filter((r) => r.kind === "model")
       .map(rowId);
     expect(models).toEqual(["model:ui-reviewer:claude-opus-5-5", "model:ui-reviewer:gpt-6-sol"]);
   });
 
-  it("filters models by id, case-insensitively, opening every role while it filters", () => {
-    const models = rows(defaultProfile(), c, new Set(), "QWEN")
+  it("filters a role's models by id, case-insensitively", () => {
+    const models = roleDetailRows(defaultProfile(), c, "worker", new Set(), "QWEN")
       .filter((r) => r.kind === "model")
       .map(rowId);
-    expect(models).toEqual(
-      ["architect", "verifier", "worker", "reviewer", "writer", "researcher"].map(
-        (r) => `model:${r}:openrouter/qwen/qwen3-coder`,
-      ),
-    );
+    expect(models).toEqual(["model:worker:openrouter/qwen/qwen3-coder"]);
   });
 
   it("keeps the worker on, and turns any other role off and back on", () => {
@@ -112,14 +116,15 @@ describe("matrix model", () => {
 
   it("unticks an effort, drops the model with its last effort, and leaves the input alone", () => {
     const p = defaultProfile();
-    const next = profileOf(toggle(p, c, find(rows(p, c, open), "effort:worker:gpt-6-luna#high"), ready));
+    const row = find(roleDetailRows(p, c, "worker", open), "effort:worker:gpt-6-luna#high");
+    const next = profileOf(toggle(p, c, row, ready));
     expect(next.roles.worker.models["gpt-6-luna"]).toBeUndefined();
     expect(p.roles.worker.models["gpt-6-luna"]).toEqual(["high"]);
   });
 
   it("ticks a scored effort back in catalog order", () => {
     const p = defaultProfile();
-    const row = find(rows(p, c, open), "effort:worker:gpt-6-sol#high");
+    const row = find(roleDetailRows(p, c, "worker", open), "effort:worker:gpt-6-sol#high");
     const without = profileOf(toggle(p, c, row, ready));
     expect(without.roles.worker.models["gpt-6-sol"]).toEqual(["medium", "xhigh"]);
     expect(profileOf(toggle(without, c, row, ready)).roles.worker.models["gpt-6-sol"]).toEqual([
@@ -130,7 +135,7 @@ describe("matrix model", () => {
   });
 
   it("asks for a treat-like before it ticks an unscored effort, and ticks it once one exists", () => {
-    const row = find(rows(defaultProfile(), c, open), "effort:worker:gpt-6-luna#xhigh");
+    const row = find(roleDetailRows(defaultProfile(), c, "worker", open), "effort:worker:gpt-6-luna#xhigh");
     expect(toggle(defaultProfile(), c, row, ready)).toEqual({ needsTreatLike: "gpt-6-luna#xhigh" });
     const liked = { ...c, treatLike: { "gpt-6-luna#xhigh": "gpt-6-sol#high" } };
     expect(profileOf(toggle(defaultProfile(), liked, row, ready)).roles.worker.models["gpt-6-luna"]).toEqual([
@@ -142,7 +147,7 @@ describe("matrix model", () => {
   it("refuses to tick on a backend that is not ready, but still unticks there", () => {
     const notReady = readySet(NOT_READY);
     expect([...notReady]).toEqual(["claude"]);
-    const rs = rows(defaultProfile(), c, open);
+    const rs = roleDetailRows(defaultProfile(), c, "worker", open);
     expect(toggle(defaultProfile(), c, find(rs, "effort:worker:gpt-6-sol#high"), notReady)).toHaveProperty(
       "profile",
     );
@@ -151,12 +156,12 @@ describe("matrix model", () => {
     });
   });
 
-  it("flips a harness between native and isolated for the whole profile", () => {
+  it("flips a harness between native and isolated for the whole profile, independent of any role", () => {
     const p = defaultProfile();
     expect(p.harness.codex.isolated).toBe(false);
-    const iso = profileOf(toggle(p, c, { kind: "harness", role: "worker", backend: "codex" }, ready));
+    const iso = profileOf(toggle(p, c, { kind: "harness", backend: "codex" }, ready));
     expect(iso.harness).toEqual({ codex: { isolated: true }, opencode: { isolated: false } });
-    expect(isTicked(iso, { kind: "harness", role: "artist", backend: "codex" })).toBe(true);
+    expect(isTicked(iso, { kind: "harness", backend: "codex" })).toBe(true);
   });
 
   it("flips the objective, cycles the lock slots, and toggles notify moments in order", () => {
@@ -182,6 +187,12 @@ describe("matrix model", () => {
       "gpt-6-sol#high",
       "gpt-6-sol#medium",
       "gpt-6-sol#xhigh",
+    ]);
+    expect(failoverDetailRows(defaultProfile(), c).map(rowId)).toEqual([
+      "failover:gpt-6-luna#high",
+      "failover:gpt-6-sol#high",
+      "failover:gpt-6-sol#medium",
+      "failover:gpt-6-sol#xhigh",
     ]);
   });
 
@@ -210,6 +221,21 @@ describe("matrix model", () => {
     const p = defaultProfile();
     expect(toggle(p, c, { kind: "budget", field: "minutes" }, ready)).toEqual({ profile: p });
     expect(toggle(p, c, { kind: "failover", rung: "gpt-6-sol#medium" }, ready)).toEqual({ profile: p });
+    expect(toggle(p, c, { kind: "budget-summary" }, ready)).toEqual({ profile: p });
+    expect(toggle(p, c, { kind: "failover-summary" }, ready)).toEqual({ profile: p });
+  });
+
+  it("summarizes the budget as its caps, or 'no cap' with none set", () => {
+    const p = defaultProfile();
+    expect(budgetSummary(p)).toBe("no cap");
+    expect(budgetSummary({ ...p, budget: { minutes: 30, usd: 5 } })).toBe("30 min · $5");
+    expect(budgetDetailRows().map(rowId)).toEqual(["budget:minutes", "budget:tokens", "budget:usd"]);
+  });
+
+  it("summarizes failover as a count", () => {
+    const p = defaultProfile();
+    expect(failoverSummary(p)).toBe("none");
+    expect(failoverSummary({ ...p, failover: { "gpt-6-sol#medium": "claude-opus-5-5#high" } })).toBe("1 set");
   });
 
   it("reports what is ticked", () => {
