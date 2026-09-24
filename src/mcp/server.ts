@@ -6,12 +6,14 @@ import { VERSION } from "../version.ts";
 import { registerDispatch } from "./dispatch.ts";
 import { registerLaneTools } from "./lane-tools.ts";
 import { registerRunTools } from "./run-tools.ts";
+import { registerSetupTools } from "./setup-tools.ts";
 
 export function buildServer(): McpServer {
   const server = new McpServer({ name: "catherd", version: VERSION });
   registerRunTools(server);
   registerLaneTools(server);
   registerDispatch(server);
+  registerSetupTools(server);
   return server;
 }
 
