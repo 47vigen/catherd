@@ -179,9 +179,13 @@ interface ModelsDevModel {
   status?: string;
   modalities?: { input?: string[]; output?: string[] };
   limit?: { context?: number };
-  reasoning_options?: { type: string; values?: string[] }[];
+  // models.dev lists a bare "no effort" option as null alongside the named efforts.
+  reasoning_options?: { type: string; values?: (string | null)[] }[];
 }
-export type ModelsDevApi = Record<string, { models?: Record<string, ModelsDevModel> } | undefined>;
+export type ModelsDevApi = Record<
+  string,
+  { id?: string; models?: Record<string, ModelsDevModel> } | undefined
+>;
 
 export function trimModelsDev(api: ModelsDevApi, fetchedAt: string): ModelsDevSnapshot {
   const models: ModelsDevSnapshot["models"] = {};
@@ -195,7 +199,9 @@ export function trimModelsDev(api: ModelsDevApi, fetchedAt: string): ModelsDevSn
         imageOut,
         reasoning: m.reasoning ?? false,
         context: m.limit?.context ?? 0,
-        efforts: m.reasoning_options?.find((r) => r.type === "effort")?.values ?? [],
+        efforts: (m.reasoning_options?.find((r) => r.type === "effort")?.values ?? []).filter(
+          (v): v is string => typeof v === "string",
+        ),
       };
     }
   }
