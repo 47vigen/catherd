@@ -5,7 +5,7 @@ import { defineCommand, runMain } from "citty";
 import { lockCommand } from "./core/lock.ts";
 import { mcpCommand } from "./mcp/commands.ts";
 import { catalogCommand } from "./routing/commands.ts";
-import { editorRun } from "./tui/commands.ts";
+import { editorRun, initCommand } from "./tui/commands.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
@@ -13,7 +13,7 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 
 export const main = defineCommand({
   meta: { name: "catherd", version: pkg.version, description: "Herds coding agents." },
-  subCommands: { lock: lockCommand, catalog: catalogCommand, mcp: mcpCommand },
+  subCommands: { lock: lockCommand, catalog: catalogCommand, mcp: mcpCommand, init: initCommand },
   run: editorRun,
 });
 

@@ -1,8 +1,15 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
+import { defineCommand } from "citty";
 import { createElement, type ReactNode } from "react";
 import { Editor } from "./editor.tsx";
+import { Init } from "./init.tsx";
 import { detectUi } from "./theme.ts";
+
+const uiArgs = {
+  plain: { type: "boolean", description: "ASCII only: a text fallback for every glyph" },
+  "reduced-motion": { type: "boolean", description: "No animation" },
+} as const;
 
 export const isBare = (rawArgs: string[]): boolean => rawArgs.every((a) => a.startsWith("-"));
 
@@ -24,3 +31,12 @@ export async function editorRun({ rawArgs }: { rawArgs: string[] }): Promise<voi
   if (!isBare(rawArgs)) return;
   process.exitCode = await mount(createElement(Editor, { ui: detectUi(rawArgs) }));
 }
+
+export const initCommand = defineCommand({
+  meta: { name: "init", description: "First run: the Jev key, your backends, and a profile" },
+  args: uiArgs,
+  async run({ rawArgs }) {
+    const code = await mount(createElement(Init, { ui: detectUi(rawArgs) }));
+    process.exitCode = process.exitCode || code;
+  },
+});
