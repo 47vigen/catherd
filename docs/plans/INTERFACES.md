@@ -16,12 +16,17 @@ The four plans are written in parallel, and each one imports from the others onl
   - `writeState(dir, StateSnapshot)`, `appendLedger(dir, row)`
   - `LiveMarker`, `writeLive`, `clearLive`, `readLive(dir)`
   - `Run = { dir, id, meta: RunMeta }`
+- `src/types.ts` additions: `HarnessConfig`, `Profile.harness: { codex; opencode }`, and `RunRecord.isolated: boolean` (spec §8.2).
 - `src/core/codex.ts`:
-  - `DispatchOpts`
-  - `runCodex(o) → Promise<RunRecord>`, `codexHome()`
+  - `DispatchOpts`, including `isolated?: boolean` (default false = native)
+  - `runCodex(o) → Promise<RunRecord>`
+  - `userCodexHome()` is `${CODEX_HOME:-~/.codex}`; `codexHome()` is catherd's isolated home, used only when isolated.
+- `src/core/opencode.ts`: also exports `opencodeConfigHome()`, the empty config home for isolated runs.
 - `src/core/opencode.ts`: `runOpencode(o) → Promise<RunRecord>`.
 - `src/core/reconcile.ts`: `reconcileLive(dir) → { finished, stillRunning }`, `pidAlive(pid)`.
-- `src/core/lock.ts`: `heavySlots(setting)`, `acquire(slots, label)`, and the citty command `lockCommand`.
+- `src/core/lock.ts`: `heavySlots(setting)`, `acquire(slots, label) → { slot, release(): Promise<void> }`, `LOCK_STALE_MS`, and the citty command `lockCommand`.
+- `src/cli.ts` exports `main`, the citty root command.
+- `LiveMarker.isolated: boolean`.
 - `test/helpers.ts`: `withHome()`, `tempRepo()`, `fakeBinPath()`.
 
 ## Plan 2 — routing and profiles (`docs/plans/2026-09-24-02-routing.md`)
