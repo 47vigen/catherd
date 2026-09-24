@@ -46,25 +46,19 @@ export function opencodeArgs(o: DispatchOpts, brief: string): string[] {
   ];
 }
 
-async function api(cwd: string, ...a: string[]): Promise<string> {
-  // env must be explicit: Bun.spawn's default env is a snapshot from when this process launched,
-  // not the current process.env, so a runtime PATH/FAKE_* override would otherwise be invisible here.
-  const proc = Bun.spawn(["opencode", "api", ...a], {
-    cwd,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return out;
+function api(cwd: string, ...a: string[]): string {
+  // env must be explicit: Bun's default env is a snapshot from when this process launched, not
+  // the current process.env, so a runtime PATH/FAKE_* override would otherwise be invisible here.
+  const proc = Bun.spawnSync(["opencode", "api", ...a], { cwd, env: process.env, stdout: "pipe" });
+  return proc.stdout?.toString("utf8") ?? "";
 }
 
 /** Verified live on opencode 2.0.15: no "status":"running" field exists. `.data` is newest-first;
  * the session is idle iff the newest entry has `type: "idle"`, and busy otherwise (an in-flight
  * assistant message, still streaming a tool). */
-async function sessionBusy(cwd: string, session: string): Promise<boolean> {
+function sessionBusy(cwd: string, session: string): boolean {
   try {
-    const res = JSON.parse((await api(cwd, "GET", `/api/session/${session}/message`)) || "{}");
+    const res = JSON.parse(api(cwd, "GET", `/api/session/${session}/message`) || "{}");
     return res?.data?.[0]?.type !== "idle";
   } catch {
     return false;
@@ -89,12 +83,12 @@ function parse(lines: string[]) {
   return { session, texts, errors };
 }
 
-export async function finalizeOpencode(
+export function finalizeOpencode(
   runDir: string,
   live: LiveMarker,
   code: number | null,
   timedOut = false,
-): Promise<RunRecord> {
+): RunRecord {
   const p = rolePaths(runDir, live.name);
   const ev = parse(readLines(p.jsonl));
   const session = ev.session ?? live.thread;
@@ -103,9 +97,7 @@ export async function finalizeOpencode(
   let cost = 0;
   if (session) {
     try {
-      cost = Number(
-        JSON.parse((await api(live.cwd, "GET", `/api/session/${session}`)) || "{}")?.data?.cost ?? 0,
-      );
+      cost = Number(JSON.parse(api(live.cwd, "GET", `/api/session/${session}`) || "{}")?.data?.cost ?? 0);
     } catch {
       cost = 0;
     }
@@ -162,27 +154,19 @@ export async function runOpencode(o: DispatchOpts): Promise<RunRecord> {
   let timedOut = false;
   let kill: (() => void) | null = null;
   let live: LiveMarker | null = null;
-  let checking = false;
 
   // A quiet session that the server says is not running a tool is stuck: interrupt it server-side
   // (killing the client alone leaves it running and editing files), then stop the client.
   const watchdog = setInterval(
     () => {
-      if (Date.now() - lastEventAt < idleMs || checking) return;
-      checking = true;
-      void (async () => {
-        try {
-          if (session && (await sessionBusy(o.cwd, session))) {
-            lastEventAt = Date.now();
-            return;
-          }
-          timedOut = true;
-          if (session) await api(o.cwd, "POST", `/api/session/${session}/interrupt`);
-          kill?.();
-        } finally {
-          checking = false;
-        }
-      })();
+      if (Date.now() - lastEventAt < idleMs) return;
+      if (session && sessionBusy(o.cwd, session)) {
+        lastEventAt = Date.now();
+        return;
+      }
+      timedOut = true;
+      if (session) api(o.cwd, "POST", `/api/session/${session}/interrupt`);
+      kill?.();
     },
     Math.min(1000, idleMs),
   );
