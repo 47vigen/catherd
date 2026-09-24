@@ -19,6 +19,14 @@ export function ownedFilesOf(laneText: string): string[] {
   return [];
 }
 
+export function fastCheckOf(laneText: string): string | null {
+  for (const line of laneText.split("\n")) {
+    const m = /^\s*[*_]*fast check[*_]*\s*:[*_]*\s*(.*)$/i.exec(line);
+    if (m) return (m[1] ?? "").trim().replace(/^`+|`+$/g, "") || null;
+  }
+  return null;
+}
+
 export function readLane(runDir: string, lane: string): string {
   if (!ID.test(lane)) throw new Error(`catherd: bad lane id "${lane}"`);
   const file = join(runDir, "lanes", `${lane}.md`);

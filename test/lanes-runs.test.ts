@@ -3,7 +3,14 @@ import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { appendRoute, currentRoute, ownedFilesOf, readLane, type LaneRoute } from "../src/core/lanes.ts";
+import {
+  appendRoute,
+  currentRoute,
+  fastCheckOf,
+  ownedFilesOf,
+  readLane,
+  type LaneRoute,
+} from "../src/core/lanes.ts";
 import { createRun, writeLive } from "../src/core/runstore.ts";
 import { backendOf, findRun, refreshState, runFile } from "../src/mcp/runs.ts";
 import { loadCatalog } from "../src/routing/catalog.ts";
@@ -33,6 +40,14 @@ describe("lane files", () => {
     ]);
     expect(ownedFilesOf("**Owns:** src/b.ts")).toEqual(["src/b.ts"]);
     expect(ownedFilesOf("# no owners here")).toEqual([]);
+  });
+
+  test("reads the Fast check: line in its plain and bold forms", () => {
+    expect(fastCheckOf("Owns: a.ts\nFast check: pnpm vitest run test/a.test.ts\n")).toBe(
+      "pnpm vitest run test/a.test.ts",
+    );
+    expect(fastCheckOf("**Fast check:** `true`")).toBe("true");
+    expect(fastCheckOf("# no fast check here")).toBeNull();
   });
 
   test("refuses a lane id that is a path", () => {

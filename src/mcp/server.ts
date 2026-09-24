@@ -5,6 +5,7 @@ import { listRuns } from "../core/runstore.ts";
 import { VERSION } from "../version.ts";
 import { registerDispatch } from "./dispatch.ts";
 import { registerLaneTools } from "./lane-tools.ts";
+import { registerPreflight } from "./preflight.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
 
@@ -14,6 +15,7 @@ export function buildServer(): McpServer {
   registerLaneTools(server);
   registerDispatch(server);
   registerSetupTools(server);
+  registerPreflight(server);
   return server;
 }
 
