@@ -53,6 +53,7 @@ export async function press(input: MockInput, ...keys: string[]): Promise<void> 
 
 export const down = (n: number): string[] => Array<string>(n).fill(KEY.down);
 
+/** OpenTUI's captureCharFrame pads every row to the requested width, so trailing blanks are cropped first. */
 export function widest(frame = ""): number {
-  return Math.max(0, ...frame.split("\n").map((line) => stringWidth(line)));
+  return Math.max(0, ...frame.split("\n").map((line) => stringWidth(line.replace(/\s+$/, ""))));
 }

@@ -1,0 +1,10 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Header puts the conductor cat beside the wordmark and the title 1`] = `
+" /\\_/\\  .  catherd                                                              
+(=^.^=)/   herds coding agents                                                  
+ (")(")    profiles · default                                                   
+                                                                                
+                                                                                
+"
+`;
