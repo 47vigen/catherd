@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendRoute, CLIMB_REASONS, currentRoute, ID } from "../core/lanes.ts";
 import { appendLedger } from "../core/runstore.ts";
+import { budgetStatus, summarizeRun } from "../core/status.ts";
 import { runsRoot } from "../paths.ts";
 import { agentName } from "../profile/agents.ts";
 import { activeProfileName, loadProfile } from "../profile/profile.ts";
@@ -72,6 +73,7 @@ export function registerLaneTools(server: McpServer): void {
         catalog,
         role: a.role,
         laneText: readFileSync(file, "utf8"),
+        budget: { spentFraction: budgetStatus(summarizeRun(run).totals, profile.budget)?.fraction ?? 0 },
       });
       appendRoute(run.dir, {
         at: new Date().toISOString(),
