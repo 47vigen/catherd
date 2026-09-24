@@ -117,7 +117,7 @@ describe("Init", () => {
 
   it("accepts the default profile on Enter, saves it, and prints the plugin steps", async () => {
     const d = fakeDeps();
-    const setup = await testRender(<Init ui={UI} deps={d} />, { width: 100, height: 24 });
+    const setup = await testRender(<Init ui={UI} deps={d} />, { width: 80, height: 24 });
     await setup.renderOnce();
     await press(setup.mockInput, GOOD, KEY.enter);
     await waitFor(() => {
@@ -127,7 +127,7 @@ describe("Init", () => {
     await press(setup.mockInput, KEY.enter);
     await waitFor(() => {
       setup.renderOnce();
-      return setup.captureCharFrame().includes("=^ω^=");
+      return setup.captureCharFrame().includes("Press any key to finish.");
     });
     // "done" is a resting screen the user reads before a key exits it, so the frame is still
     // there to check now — pressing a key here would tear down the renderer immediately.

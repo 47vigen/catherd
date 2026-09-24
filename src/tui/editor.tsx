@@ -1,4 +1,3 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useEffect, useState } from "react";
 import { type HarnessCost, harnessCosts } from "../core/harness.ts";
@@ -13,10 +12,10 @@ import {
 import { loadCatalog } from "../routing/catalog.ts";
 import type { Catalog, Profile } from "../types.ts";
 import { type BackendStatus, detectBackends } from "./backends.ts";
-import { Matrix } from "./matrix.tsx";
+import { matrixHint, Matrix } from "./matrix.tsx";
 import { deleteProfile, nameError, saveAndActivate } from "./profiles.ts";
-import { face, glyph, type Mood, tint, type Ui } from "./theme.ts";
-import { CatSpinner, Header, Screen } from "./ui.tsx";
+import { glyph, tint, type Ui } from "./theme.ts";
+import { CatSpinner, Frame } from "./ui.tsx";
 
 export interface EditorDeps {
   loadCatalog: () => Catalog;
@@ -33,6 +32,9 @@ const editorDeps: EditorDeps = {
 };
 
 type Ask = "new" | "copy" | "delete" | "quit" | null;
+
+const extraHint = (plain: boolean) =>
+  `p next profile ${glyph("dot", plain)} n new ${glyph("dot", plain)} c copy ${glyph("dot", plain)} x delete`;
 
 function openBook(): { profiles: Profile[]; idx: number } {
   const names = listProfiles();
@@ -60,9 +62,9 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
   const [errors, setErrors] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [ask, setAsk] = useState<Ask>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const profile = book.profiles[book.idx] as Profile;
   const pink = tint("pink", ui.depth);
-  const dot = ` ${glyph("dot", ui.plain)} `;
 
   useEffect(() => {
     d.detectBackends().then(setBackends, () => setBackends([]));
@@ -150,23 +152,15 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
     }
   });
 
-  const mood: Mood =
-    backends === null
-      ? "working"
-      : errors.length > 0
-        ? "failed"
-        : dirty.has(profile.name)
-          ? "waiting"
-          : "good";
+  const title = `profiles ${glyph("dot", ui.plain)} ${profile.name}${profile.name === active ? "" : " (unsaved elsewhere)"}`;
+  const status = `profile ${profile.name} ${book.idx + 1}/${book.profiles.length}${
+    profile.name === active ? " (active)" : ""
+  }${dirty.has(profile.name) ? " (unsaved)" : ""}`;
 
   return (
-    <Screen>
-      <Header ui={ui} mood={mood} title={`profiles${dot}${profile.name}`} />
+    <Frame ui={ui} title={title} hint={matrixHint(ui, "save", showHelp, extraHint(ui.plain))}>
       <text wrapMode="none" truncate>
-        {`profile ${profile.name} ${book.idx + 1}/${book.profiles.length}${
-          profile.name === active ? " (active)" : ""
-        }${dirty.has(profile.name) ? " (unsaved)" : ""}`}
-        <span attributes={TextAttributes.DIM}>{`${dot}p next${dot}n new${dot}c copy${dot}x delete`}</span>
+        {status}
       </text>
       {backends === null ? (
         <CatSpinner ui={ui} label="sniffing out codex and opencode" />
@@ -178,6 +172,7 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
           catalog={catalog}
           backends={backends}
           costs={costs}
+          errors={errors}
           reloadCatalog={d.loadCatalog}
           onChange={put}
           onCatalog={setCatalog}
@@ -185,6 +180,7 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
           onQuit={() => (dirty.size > 0 ? setAsk("quit") : exit())}
           onKey={onKey}
           active={ask === null}
+          onToggleHelp={() => setShowHelp((v) => !v)}
         />
       )}
       {ask === "new" || ask === "copy" ? (
@@ -206,16 +202,11 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
           {`Unsaved changes in ${[...dirty].join(", ")}. q quits without saving, any other key stays.`}
         </text>
       ) : null}
-      {errors.map((e) => (
-        <text key={e} fg={pink} wrapMode="none" truncate>
-          {`${face("failed", ui.plain)} ${e}`}
-        </text>
-      ))}
       {note ? (
         <text wrapMode="none" truncate>
           {note}
         </text>
       ) : null}
-    </Screen>
+    </Frame>
   );
 }

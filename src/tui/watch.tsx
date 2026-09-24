@@ -5,19 +5,16 @@ import { useEffect, useRef, useState } from "react";
 import { type BudgetStatus, formatBudget, type RunSummary, summarizeRun } from "../core/status.ts";
 import { listRuns, readJsonl, readRunRecords, type Run } from "../core/runstore.ts";
 import type { RunRecord, RungId } from "../types.ts";
-import { face, glyph, type Mood, tint, type Ui } from "./theme.ts";
-import { CatSpinner, Header, Screen, gradientLetters } from "./ui.tsx";
+import { face, glyph, tint, type Ui } from "./theme.ts";
+import { CatSpinner, DetailPane, Frame, gradientLetters, ListLine } from "./ui.tsx";
 import {
   budgetTone,
   climbs,
   jevLine,
   type JevLine,
   liveLine,
-  milestoneLine,
   plainBudgetBar,
-  recordLine,
   runLine,
-  runMood,
 } from "./watch-model.ts";
 
 export interface WatchDeps {
@@ -36,7 +33,7 @@ const watchDeps: WatchDeps = {
 
 // ponytail: only the 20 newest runs are summarized each poll; add paging when someone keeps more than that live
 const MAX_RUNS = 20;
-const SHOWN = 6;
+const LEFT_HEIGHT = 12;
 
 interface Item {
   run: Run;
@@ -71,7 +68,7 @@ function BudgetBar({ ui, budget }: { ui: Ui; budget: BudgetStatus }) {
       <text
         wrapMode="none"
         truncate
-      >{`    ${plainBudgetBar(budget.fraction, width)} ${formatBudget(budget)}`}</text>
+      >{`${plainBudgetBar(budget.fraction, width)} ${formatBudget(budget)}`}</text>
     );
   }
   const filled = Math.round(Math.max(0, Math.min(1, budget.fraction)) * width);
@@ -83,7 +80,6 @@ function BudgetBar({ ui, budget }: { ui: Ui; budget: BudgetStatus }) {
     : gradientLetters("█".repeat(filled));
   return (
     <text wrapMode="none" truncate>
-      {"    "}
       {cells.map((cell, i) => (
         // biome-ignore lint: index key is stable, the bar never reorders
         <span key={i} fg={cell.fg}>
@@ -96,66 +92,58 @@ function BudgetBar({ ui, budget }: { ui: Ui; budget: BudgetStatus }) {
   );
 }
 
-function RunBlock({ ui, it, here }: { ui: Ui; it: Item; here: boolean }) {
-  const cur = here ? glyph("cursor", ui.plain) : " ";
+/** The right pane for the highlighted run: its live lanes, recent climbs, Jev decisions and the
+ * budget bar — the run's records and raw state text stay out (they were noise, spec §item 4). */
+function RunDetail({ ui, it, climbed, deps }: { ui: Ui; it: Item; climbed: string[]; deps: WatchDeps }) {
+  const pink = tint("pink", ui.depth);
   if (!it.summary) {
     return (
-      <text wrapMode="none" truncate attributes={TextAttributes.DIM}>
-        {`${cur} ${face("failed", ui.plain)} ${it.run.id} ${glyph("dot", ui.plain)} unreadable: ${it.error}`}
-      </text>
+      <DetailPane ui={ui} title={it.run.id} subtitle="unreadable">
+        <text fg={pink} wrapMode="none" truncate>
+          {`${face("failed", ui.plain)} ${it.error}`}
+        </text>
+      </DetailPane>
     );
   }
   const s = it.summary;
-  const ginger = tint("ginger", ui.depth);
-  const pink = tint("pink", ui.depth);
+  const jev = deps.readJev(it.run.dir);
   return (
-    <box style={{ flexDirection: "column" }}>
-      <text
-        wrapMode="none"
-        truncate
-        attributes={here ? TextAttributes.BOLD : TextAttributes.NONE}
-      >{`${cur} ${runLine(s, ui.plain)}`}</text>
-      {s.live.map((l) => (
-        <text key={l.name} wrapMode="none" truncate fg={ginger}>{`    ${liveLine(l, ui.plain)}`}</text>
-      ))}
-      {s.milestones.map((m) => (
-        <text key={m} wrapMode="none" truncate fg={pink}>{`    ${milestoneLine(m, ui.plain)}`}</text>
-      ))}
-      {s.budget ? <BudgetBar ui={ui} budget={s.budget} /> : null}
-    </box>
-  );
-}
-
-function Detail({ ui, run, summary, deps }: { ui: Ui; run: Run; summary: RunSummary; deps: WatchDeps }) {
-  const records = deps.readRunRecords(run.dir);
-  const jev = deps.readJev(run.dir);
-  const dot = ` ${glyph("dot", ui.plain)} `;
-  const ginger = tint("ginger", ui.depth);
-  return (
-    <box style={{ flexDirection: "column" }}>
-      <text
-        wrapMode="none"
-        truncate
-        attributes={TextAttributes.DIM}
-      >{`${run.meta.repo}${dot}${run.id}`}</text>
-      <text fg={ginger} attributes={TextAttributes.BOLD}>
-        state
+    <DetailPane ui={ui} title={s.title} subtitle={it.run.meta.repo}>
+      {s.live.length > 0 ? (
+        s.live.map((l) => (
+          <text key={l.name} wrapMode="none" truncate>
+            {liveLine(l, ui.plain)}
+          </text>
+        ))
+      ) : (
+        <text attributes={TextAttributes.DIM}>no lane is running right now</text>
+      )}
+      {climbed.length > 0 ? (
+        <>
+          <text> </text>
+          {climbed.map((c, i) => (
+            <text key={`c${i}`} fg={pink} wrapMode="none" truncate>
+              {c}
+            </text>
+          ))}
+        </>
+      ) : null}
+      <text> </text>
+      <text attributes={TextAttributes.DIM}>
+        {`jev ${glyph("dot", ui.plain)} ${s.jev.decisions} decisions ${glyph("dot", ui.plain)} ${s.jev.fallbacks} fell back`}
       </text>
-      {summary.stateTail.map((l, i) => (
-        <text key={`s${i}`} wrapMode="none" truncate>{`  ${l}`}</text>
+      {jev.slice(-4).map((e, i) => (
+        <text key={`j${i}`} wrapMode="none" truncate>
+          {jevLine(e, ui.plain)}
+        </text>
       ))}
-      <text fg={ginger} attributes={TextAttributes.BOLD}>{`records${dot}${records.length}`}</text>
-      {records.slice(-8).map((r, i) => (
-        <text key={`r${i}`} wrapMode="none" truncate>{`  ${recordLine(r, ui.plain)}`}</text>
-      ))}
-      <text fg={ginger} attributes={TextAttributes.BOLD}>
-        {`jev${dot}${summary.jev.decisions} decisions${dot}${summary.jev.fallbacks} fell back`}
-      </text>
-      {jev.slice(-6).map((e, i) => (
-        <text key={`j${i}`} wrapMode="none" truncate>{`  ${jevLine(e, ui.plain)}`}</text>
-      ))}
-      <text attributes={TextAttributes.DIM}>{`esc back${dot}q quit`}</text>
-    </box>
+      {s.budget ? (
+        <>
+          <text> </text>
+          <BudgetBar ui={ui} budget={s.budget} />
+        </>
+      ) : null}
+    </DetailPane>
   );
 }
 
@@ -174,7 +162,6 @@ export function Watch({
   const [state, setState] = useState<{ items: Item[]; problem: string | null } | null>(null);
   const [climbed, setClimbed] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
-  const [open, setOpen] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -192,67 +179,58 @@ export function Watch({
 
   const items = state?.items ?? [];
   const at = Math.min(cursor, Math.max(0, items.length - 1));
-  const detail = items.find((it) => it.run.dir === open);
+  const leftStart = Math.max(0, Math.min(at - Math.floor(LEFT_HEIGHT / 2), items.length - LEFT_HEIGHT));
 
   useKeyboard((key) => {
     if (key.sequence === "q") {
       renderer.destroy();
       return;
     }
-    if (detail) {
-      if (key.name === "escape" || key.name === "left" || key.name === "return") setOpen(null);
-      return;
-    }
-    const it = items[at];
     if (key.name === "up") setCursor(Math.max(0, at - 1));
     else if (key.name === "down") setCursor(Math.min(items.length - 1, at + 1));
-    else if (key.name === "return" && it?.summary) setOpen(it.run.dir);
   });
 
-  const summaries = items.flatMap((it) => (it.summary ? [it.summary] : []));
-  const mood: Mood =
-    state === null || summaries.some((s) => s.live.length > 0)
-      ? "working"
-      : state.problem || items.some((it) => it.error) || summaries.some((s) => runMood(s) === "failed")
-        ? "failed"
-        : items.length > 0
-          ? "good"
-          : "waiting";
-  const dot = ` ${glyph("dot", ui.plain)} `;
   const pink = tint("pink", ui.depth);
-  const start = Math.max(0, Math.min(at - Math.floor(SHOWN / 2), items.length - SHOWN));
+  const title = `Watch ${glyph("dot", ui.plain)} ${items.length} runs`;
+  const hint = `${glyph("keys", ui.plain)} navigate   q quit   refreshes every ${intervalMs / 1000} s`;
+
+  if (state?.problem) {
+    return (
+      <Frame ui={ui} title={title} hint="q quit">
+        <text fg={pink} wrapMode="none" truncate>{`${face("failed", ui.plain)} ${state.problem}`}</text>
+      </Frame>
+    );
+  }
 
   return (
-    <Screen>
-      <Header
-        ui={ui}
-        mood={mood}
-        title={detail ? `watch${dot}${detail.run.meta.title}` : `watch${dot}${items.length} runs`}
-      />
-      {detail?.summary ? (
-        <Detail ui={ui} run={detail.run} summary={detail.summary} deps={d} />
+    <Frame ui={ui} title={title} hint={hint}>
+      {state === null ? (
+        <CatSpinner ui={ui} label="reading the runs" />
+      ) : items.length === 0 ? (
+        <text>No runs yet. Start one with /catherd in Claude Code.</text>
       ) : (
-        <box style={{ flexDirection: "column" }}>
-          {state === null ? <CatSpinner ui={ui} label="reading the runs" /> : null}
-          {state?.problem ? (
-            <text fg={pink} wrapMode="none" truncate>{`${face("failed", ui.plain)} ${state.problem}`}</text>
-          ) : null}
-          {state !== null && !state.problem && items.length === 0 ? (
-            <text>No runs yet. Start one with /catherd in Claude Code.</text>
-          ) : null}
-          {items.slice(start, start + SHOWN).map((it, i) => (
-            <RunBlock key={it.run.dir} ui={ui} it={it} here={start + i === at} />
-          ))}
-          {climbed.map((c, i) => (
-            <text key={`c${i}`} fg={pink} wrapMode="none" truncate>
-              {c}
+        <box style={{ flexDirection: "row" }}>
+          <box style={{ flexDirection: "column", width: 24 }}>
+            <text fg={pink} attributes={TextAttributes.BOLD}>
+              RUNS
             </text>
-          ))}
-          <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
-            {`${glyph("keys", ui.plain)} move${dot}enter details${dot}q quit${dot}refreshes every ${intervalMs / 1000} s`}
-          </text>
+            {items.slice(leftStart, leftStart + LEFT_HEIGHT).map((it, i) => (
+              <ListLine
+                key={it.run.dir}
+                ui={ui}
+                selected={leftStart + i === at}
+                dim={!it.summary}
+                text={
+                  it.summary
+                    ? runLine(it.summary, ui.plain)
+                    : `${face("failed", ui.plain)} ${it.run.id} ${glyph("dot", ui.plain)} unreadable: ${it.error}`
+                }
+              />
+            ))}
+          </box>
+          {items[at] ? <RunDetail ui={ui} it={items[at]} climbed={climbed} deps={d} /> : null}
         </box>
       )}
-    </Screen>
+    </Frame>
   );
 }

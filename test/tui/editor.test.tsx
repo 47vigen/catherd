@@ -8,6 +8,9 @@ import { Editor } from "../../src/tui/editor.tsx";
 import { withHome } from "../helpers.ts";
 import { catalogFixture, down, KEY, press, READY, UI } from "./helpers.ts";
 
+// Left pane: architect(0) verifier(1) worker(2) ... objective(8) ...
+const toWorker = down(2);
+
 const save = mock();
 const deps = { loadCatalog: catalogFixture, detectBackends: async () => READY, harnessCosts: () => [], save };
 
@@ -40,11 +43,12 @@ describe("Editor", () => {
 
   it("shows validation errors inline and saves nothing", async () => {
     const { captureCharFrame, mockInput, renderOnce } = await mounted();
-    // worker open: 7 gpt-6-sol, 8 gpt-6-luna; space on a ticked model clears it
-    await press(mockInput, ...down(2), KEY.right, ...down(5), KEY.space, KEY.down, KEY.space, KEY.enter);
+    // worker's detail: backend:claude(0) model:claude-opus-5-5(1) backend:codex(2)
+    // model:gpt-6-sol(3) model:gpt-6-luna(4) ...; space on a ticked model clears it.
+    await press(mockInput, ...toWorker, KEY.right, ...down(3), KEY.space, KEY.down, KEY.space, KEY.enter);
     await renderOnce();
     expect(save).not.toHaveBeenCalled();
-    expect(captureCharFrame()).toContain("=x.x=");
+    expect(captureCharFrame()).toContain("worker: no usable model is enabled");
   });
 
   it("switches between saved profiles with p", async () => {
@@ -56,7 +60,7 @@ describe("Editor", () => {
     await press(mockInput, "p");
     await renderOnce();
     expect(captureCharFrame()).toContain("profile fast");
-    expect(captureCharFrame()).toContain("objective     speed");
+    expect(captureCharFrame()).toContain("speed");
   });
 
   it("makes a new profile from the default and saves it under its own name", async () => {

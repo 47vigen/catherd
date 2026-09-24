@@ -35,14 +35,16 @@ describe("Watch", () => {
     expect(captureCharFrame()).toContain("No runs yet. Start one with /catherd in Claude Code.");
   });
 
-  it("shows each run with its live roles and landed milestones", async () => {
+  it("lists each run on the left, and shows the highlighted run's lanes on the right", async () => {
     const { captureCharFrame, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
     await tick();
     await renderOnce();
     const f = captureCharFrame();
-    expect(f).toContain("=o.o= Jobs screen · 1 live · 3 runs · 1 landed");
+    expect(f).toContain("RUNS");
+    expect(f).toContain("▶ =o.o="); // the run's mood face, selected
     expect(f).toContain("🐈 worker-M1.L2  sol#medium  04:12  =o.o=");
-    expect(f).toContain("=^ω^= M1 landed · a1b2c3d");
+    expect(f).toContain("Jobs screen"); // the right pane's title, untruncated
+    expect(f).toContain("/r/app");
   });
 
   it("tells a climb in one line when a role returns on a higher rung", async () => {
@@ -61,20 +63,29 @@ describe("Watch", () => {
     expect(found).toBe(true);
   });
 
-  it("opens a run's detail on Enter and goes back on Esc", async () => {
-    const { captureCharFrame, mockInput, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
+  it("shows the selected run's Jev decisions", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
     await tick();
     await renderOnce();
-    await press(mockInput, KEY.enter);
-    await renderOnce();
     const f = captureCharFrame();
-    expect(f).toContain("Next: fix round for M1.L2");
-    expect(f).toContain("worker-M1.L1  sol#medium  ok  01:00 · complete");
     expect(f).toContain("jev · 4 decisions · 1 fell back");
     expect(f).toContain("kind → kind=repo_code");
-    await press(mockInput, KEY.esc);
+  });
+
+  it("moves the selection with the arrow keys", async () => {
+    const summarizeRun = (run: { id: string }) => fakeSummary({ title: run.id === "a" ? "Run A" : "Run B" });
+    const { captureCharFrame, mockInput, renderOnce } = await mounted(
+      <Watch
+        ui={UI}
+        deps={deps({ listRuns: () => [fakeRun("a", "Run A"), fakeRun("b", "Run B")], summarizeRun })}
+      />,
+    );
+    await tick();
     await renderOnce();
-    expect(captureCharFrame()).toContain("Jobs screen · 1 live");
+    expect(captureCharFrame()).toContain("Run A");
+    await press(mockInput, KEY.down);
+    await renderOnce();
+    expect(captureCharFrame()).toContain("Run B");
   });
 
   it("shows one line for a run it cannot read, and carries on with the rest", async () => {
@@ -88,7 +99,8 @@ describe("Watch", () => {
     await tick();
     await renderOnce();
     const f = captureCharFrame();
-    expect(f).toContain("=x.x= bad · unreadable: Unexpected end of JSON input");
+    expect(f).toContain("=x.x=");
+    expect(f).toContain("JSON input");
     expect(f).toContain("Jobs screen");
   });
 
@@ -144,6 +156,7 @@ describe("Watch", () => {
       fakeSummary({ title: "t".repeat(120), live: [{ ...live, name: `worker-${"x".repeat(100)}` }] });
     const { captureCharFrame, renderOnce } = await mounted(
       <Watch ui={PLAIN} deps={deps({ summarizeRun })} />,
+      80,
     );
     await tick();
     await renderOnce();

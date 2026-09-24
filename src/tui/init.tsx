@@ -8,10 +8,10 @@ import { loadCatalog } from "../routing/catalog.ts";
 import { jevKey, saveJevKey, testJevKey } from "../routing/jev.ts";
 import type { Catalog, Profile } from "../types.ts";
 import { type BackendStatus, detectBackends } from "./backends.ts";
-import { Matrix } from "./matrix.tsx";
+import { matrixHint, Matrix } from "./matrix.tsx";
 import { saveAndActivate } from "./profiles.ts";
-import { face, glyph, type Mood, tint, type Ui } from "./theme.ts";
-import { CatSpinner, Header, Intro, Screen } from "./ui.tsx";
+import { dot, glyph, tint, type Ui } from "./theme.ts";
+import { CatSpinner, Frame, Intro } from "./ui.tsx";
 
 export interface InitDeps {
   jevKey: () => string | null;
@@ -37,14 +37,17 @@ export const PLUGIN_STEPS = ["/plugin marketplace add 47vigen/catherd", "/plugin
 
 type Phase = "intro" | "key" | "testing" | "backends" | "matrix" | "done";
 
-const TITLES: Record<Phase, string> = {
-  intro: "",
-  key: "init 1/3: the Jev key",
-  testing: "init 1/3: the Jev key",
-  backends: "init 2/3: your backends",
-  matrix: "init 3/3: your profile",
-  done: "ready",
-};
+function title(phase: Phase, plain: boolean): string {
+  const dotSep = glyph("dot", plain);
+  return {
+    intro: "",
+    key: `Setup 1/3 ${dotSep} Jev key`,
+    testing: `Setup 1/3 ${dotSep} Jev key`,
+    backends: `Setup 2/3 ${dotSep} Backends`,
+    matrix: `Setup 3/3 ${dotSep} Your profile`,
+    done: `Setup ${dotSep} ready`,
+  }[phase];
+}
 
 function BackendLine({ ui, b }: { ui: Ui; b: BackendStatus }) {
   const ok = b.installed && b.loggedIn;
@@ -52,7 +55,7 @@ function BackendLine({ ui, b }: { ui: Ui; b: BackendStatus }) {
   const fix = b.fix ? ` ${glyph("dot", ui.plain)} fix: ${b.fix}` : "";
   return (
     <text wrapMode="none" truncate attributes={ok ? TextAttributes.NONE : TextAttributes.DIM}>
-      {`${glyph(ok ? "on" : "off", ui.plain)} ${b.backend.padEnd(9)}${(b.version ?? "").padEnd(9)}${state}${fix}`}
+      {`${dot(ok ? "ready" : "missing", ui.plain)} ${b.backend.padEnd(9)}${(b.version ?? "").padEnd(9)}${state}${fix}`}
     </text>
   );
 }
@@ -89,6 +92,7 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [backends, setBackends] = useState<BackendStatus[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
+  const [showHelp, setShowHelp] = useState(false);
   const pink = tint("pink", ui.depth);
 
   // Any key finishes, once the "done" message has actually had a chance to sit on screen:
@@ -134,27 +138,13 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
   };
 
   if (phase === "intro") {
-    return (
-      <Screen>
-        <Intro ui={ui} onDone={afterIntro} />
-      </Screen>
-    );
+    return <Intro ui={ui} onDone={afterIntro} />;
   }
 
-  const mood: Mood =
-    phase === "done"
-      ? "landed"
-      : errors.length > 0 || note
-        ? "failed"
-        : phase === "key"
-          ? "waiting"
-          : phase === "matrix"
-            ? "good"
-            : "working";
-
+  const hint =
+    phase === "matrix" ? matrixHint(ui, "accept", showHelp) : phase === "done" ? "press any key" : "";
   return (
-    <Screen>
-      <Header ui={ui} mood={mood} title={TITLES[phase]} />
+    <Frame ui={ui} title={title(phase, ui.plain)} hint={hint}>
       {phase === "key" ? (
         <box style={{ flexDirection: "column" }}>
           <text>Paste your TypeSafe API key. Jev uses it to pick each lane's model and effort.</text>
@@ -181,6 +171,7 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
             catalog={catalog}
             backends={backends}
             costs={costs}
+            errors={errors}
             reloadCatalog={d.loadCatalog}
             onChange={(p) => {
               setProfile(p);
@@ -192,13 +183,8 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
               process.exitCode = 1;
               renderer.destroy();
             }}
-            submitLabel="accept"
+            onToggleHelp={() => setShowHelp((v) => !v)}
           />
-          {errors.map((e) => (
-            <text key={e} fg={pink} wrapMode="none" truncate>
-              {`${face("failed", ui.plain)} ${e}`}
-            </text>
-          ))}
         </box>
       ) : null}
       {phase === "done" ? (
@@ -217,6 +203,6 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
           {note}
         </text>
       ) : null}
-    </Screen>
+    </Frame>
   );
 }
