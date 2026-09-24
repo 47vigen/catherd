@@ -116,3 +116,15 @@ export function saveProfileAndAgents(
   saveProfile(p);
   return r;
 }
+
+/** Read-only count of catherd's own symlinks in `claudeAgentsDir()`, for the dashboard's
+ * "Claude agents" status row — unlike `writeClaudeAgents`, this never touches the filesystem. */
+export function countLinkedAgents(): number {
+  const target = claudeAgentsDir();
+  const ours = `${join(configDir(), "agents")}${sep}`;
+  if (!lstatOrNull(target)) return 0;
+  return readdirSync(target).filter((name) => {
+    const st = lstatOrNull(join(target, name));
+    return st?.isSymbolicLink() && readlinkSync(join(target, name)).startsWith(ours);
+  }).length;
+}

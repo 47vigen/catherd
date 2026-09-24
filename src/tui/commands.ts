@@ -2,7 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { defineCommand } from "citty";
 import { createElement, type ReactNode } from "react";
-import { Editor } from "./editor.tsx";
+import { Dashboard } from "./dashboard.tsx";
 import { Init } from "./init.tsx";
 import { detectUi } from "./theme.ts";
 import { Watch } from "./watch.tsx";
@@ -27,10 +27,12 @@ export async function mount(el: ReactNode, stdin: { isTTY?: boolean } = process.
   return Number(process.exitCode ?? 0);
 }
 
-/** The main command's run. citty runs it after any subcommand too, hence the isBare check. */
+/** The main command's run. citty runs it after any subcommand too, hence the isBare check.
+ * Bare `catherd` opens the dashboard; Profile/Watch/Setup from there render Editor/Watch/Init
+ * inline, in the same mounted tree — see dashboard.tsx. */
 export async function editorRun({ rawArgs }: { rawArgs: string[] }): Promise<void> {
   if (!isBare(rawArgs)) return;
-  process.exitCode = await mount(createElement(Editor, { ui: detectUi(rawArgs) }));
+  process.exitCode = await mount(createElement(Dashboard, { ui: detectUi(rawArgs) }));
 }
 
 export const initCommand = defineCommand({
