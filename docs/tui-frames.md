@@ -34,9 +34,9 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
@@ -59,9 +59,9 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
@@ -84,9 +84,9 @@ profile default 1/1 (active) - p next - n new - c copy - x delete
   > [x] researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 up/down move - -> open - space ticks - / filter - enter save - q quit
 ```
@@ -109,9 +109,9 @@ profile default 1/1 (active) - p next - n new - c copy - x delete
   > [x] researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 up/down move - -> open - space ticks - / filter - enter save - q quit
 ```
@@ -134,9 +134,9 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
@@ -159,9 +159,9 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget minutes  30
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
@@ -217,8 +217,8 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
 ❯ budget minutes30
-  budget tokens 500000
-  budget usd    5
+  budget tokens   500000
+  budget usd      5
   failover luna#high          no stand-in
   failover sol#high           no stand-in
   failover sol#medium         → qwen3-coder#high

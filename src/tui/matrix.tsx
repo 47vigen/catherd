@@ -292,7 +292,7 @@ export function Matrix(props: MatrixProps) {
       case "budget": {
         const v = profile.budget?.[r.field];
         return {
-          text: `${`budget ${r.field}`.padEnd(14)}${v === undefined ? "no cap" : v}`,
+          text: `${`budget ${r.field}`.padEnd(16)}${v === undefined ? "no cap" : v}`,
           dim: false,
           tag: null,
         };

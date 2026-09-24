@@ -68,7 +68,7 @@ describe("Matrix", () => {
     const f = captureCharFrame();
     expect(f).toContain("worker      luna#high, sol#medium, sol#high, sol#xhigh");
     expect(f).toContain("objective     cost");
-    expect(f).toContain("budget minutesno cap");
+    expect(f).toContain("budget minutes  no cap");
     expect(f).toContain("failover luna#high          no stand-in");
   });
 
@@ -77,7 +77,7 @@ describe("Matrix", () => {
     await press(mockInput, ...down(12));
     await renderOnce();
     const f = captureCharFrame();
-    expect(f).toContain("budget tokens no cap");
+    expect(f).toContain("budget tokens   no cap");
     expect(f).toContain("failover sol#medium         no stand-in");
     expect(f).toContain("🐾 notify on milestone");
   });
@@ -88,7 +88,7 @@ describe("Matrix", () => {
     await press(mockInput, ...down(10), KEY.space, "3", "0", KEY.enter);
     await renderOnce();
     expect(onChange.mock.calls.at(-1)?.[0].budget).toEqual({ minutes: 30 });
-    expect(captureCharFrame()).toContain("budget minutes30");
+    expect(captureCharFrame()).toContain("budget minutes  30");
     await press(mockInput, KEY.space, KEY.backspace, KEY.backspace, KEY.enter);
     await renderOnce();
     expect(onChange.mock.calls.at(-1)?.[0].budget).toBeUndefined();
@@ -100,7 +100,7 @@ describe("Matrix", () => {
     await press(mockInput, ...down(10), KEY.space, "9", KEY.esc);
     await renderOnce();
     expect(onChange).not.toHaveBeenCalled();
-    expect(captureCharFrame()).toContain("budget minutesno cap");
+    expect(captureCharFrame()).toContain("budget minutes  no cap");
   });
 
   it("picks a failover stand-in on another backend, and can clear it back to none", async () => {
