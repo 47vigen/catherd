@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { clearLive, readJsonl, readRunRecords, writeLive } from "../src/core/runstore.ts";
+import { appendRunRecord, clearLive, readJsonl, readRunRecords, writeLive } from "../src/core/runstore.ts";
 import { defaultProfile, saveProfile } from "../src/profile/profile.ts";
+import { fakeRecord } from "./records.ts";
 import { fakeBinPath, tempRepo, withHome } from "./helpers.ts";
 import { call, mcpClient, startRun } from "./mcp-helpers.ts";
 
 const fx = (n: string) => join(import.meta.dir, "fixtures", "codex", n);
+const fxOc = (n: string) => join(import.meta.dir, "fixtures", "opencode", n);
 const lane = (owns: string) => `# M1.L1 — x\nOwns: ${owns}\nFast check: true\n`;
 const lastLine = (f: string) => readFileSync(f, "utf8").trimEnd().split("\n").at(-1);
 
@@ -180,5 +182,43 @@ describe("dispatch", () => {
     expect(noOwns.raw).toContain('no "Owns:" line');
     const evil = await call(c, "dispatch", { ...base(run), name: "../evil" });
     expect(evil.isError).toBe(true);
+  });
+
+  test("fails over to the profile's stand-in on a limit, and says so in the result (v1)", async () => {
+    saveProfile({ ...defaultProfile(), failover: { "gpt-6-sol#medium": "someprovider/some-model#default" } });
+    const { c, run, dir } = await setup();
+    process.env.FAKE_CODEX_EVENTS = fx("limit.jsonl");
+    process.env.FAKE_CODEX_EXIT = "1";
+    process.env.FAKE_OC_EVENTS = fxOc("ok.jsonl");
+    const r = await call(c, "dispatch", base(run));
+    expect(r.isError).toBe(false);
+    expect(r.data.record.rung).toBe("someprovider/some-model#default");
+    expect(r.data.record.backend).toBe("opencode");
+    expect(r.data.record.status).toBe("ok");
+    expect(r.data.hints[0]).toBe(
+      "limit: worker gpt-6-sol#medium hit a usage limit; failed over to someprovider/some-model#default",
+    );
+    expect(readJsonl(join(dir, "harness.jsonl"))).toEqual([]);
+  });
+
+  test("names the Claude agent when the failover stand-in is a Claude rung", async () => {
+    saveProfile({ ...defaultProfile(), failover: { "gpt-6-sol#medium": "claude-opus-5-5#high" } });
+    const { c, run } = await setup();
+    process.env.FAKE_CODEX_EVENTS = fx("limit.jsonl");
+    process.env.FAKE_CODEX_EXIT = "1";
+    const r = await call(c, "dispatch", base(run));
+    expect(r.data.record.status).toBe("limit");
+    expect(r.data.hints[0]).toContain('Agent(subagent_type: "catherd-worker-claude-opus-5-5-high")');
+  });
+
+  test("refuses to dispatch once the run budget is spent (v1)", async () => {
+    saveProfile({ ...defaultProfile(), budget: { minutes: 1 } });
+    const { c, run, dir } = await setup();
+    appendRunRecord(dir, fakeRecord("worker-M1.L0", { secs: 60 }));
+    const r = await call(c, "dispatch", base(run));
+    expect(r.isError).toBe(true);
+    expect(r.raw).toContain("run budget exhausted");
+    expect(r.raw).toContain("1/1 min");
+    expect(existsSync(join(dir, "roles", "worker-M1.L1.md"))).toBe(false);
   });
 });

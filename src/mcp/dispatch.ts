@@ -7,6 +7,7 @@ import { ID, ownedFilesOf, readLane } from "../core/lanes.ts";
 import { runOpencode } from "../core/opencode.ts";
 import { reconcileLive } from "../core/reconcile.ts";
 import { readLive, rolePaths } from "../core/runstore.ts";
+import { budgetStatus, formatBudget, summarizeRun } from "../core/status.ts";
 import { agentName } from "../profile/agents.ts";
 import { activeProfileName, loadProfile } from "../profile/profile.ts";
 import { loadCatalog } from "../routing/catalog.ts";
@@ -47,10 +48,19 @@ export function registerDispatch(server: McpServer): void {
     async (a, extra) => {
       const run = findRun(a.run);
       reconcileLive(run.dir);
-      const backend = backendOf(loadCatalog(), a.rung);
+      const catalog = loadCatalog();
+      const backend = backendOf(catalog, a.rung);
       if (backend === "claude") {
         throw new Error(
           `catherd: ${a.rung} is a Claude rung. Run it as Agent(subagent_type: "${agentName(a.role, a.rung)}") instead.`,
+        );
+      }
+      const profile = loadProfile(activeProfileName(run.meta.repo));
+      // spec §11b: at 100% of the run budget, refuse rather than start another role that might overrun it.
+      const budget = budgetStatus(summarizeRun(run).totals, profile.budget);
+      if (budget && budget.fraction >= 1) {
+        throw new Error(
+          `catherd: run budget exhausted (${formatBudget(budget)}); ask the user before continuing`,
         );
       }
       const owned = a.lane ? ownedFilesOf(readLane(run.dir, a.lane)) : [];
@@ -79,41 +89,66 @@ export function registerDispatch(server: McpServer): void {
         ...(a.next ? { next: a.next } : {}),
       });
 
-      const isolated = loadProfile(activeProfileName(run.meta.repo)).harness[backend].isolated;
       const token = extra._meta?.progressToken;
       let tick = 0;
-      const o: DispatchOpts = {
-        runDir: run.dir,
-        name: a.name,
-        role: a.role,
-        rung: a.rung,
-        cwd: run.meta.repo,
-        thread: a.thread,
-        ownedFiles: owned,
-        isolated,
-        onProgress:
-          token === undefined
-            ? undefined
-            : (pr) => {
-                void extra.sendNotification({
-                  method: "notifications/progress",
-                  params: {
-                    progressToken: token,
-                    progress: ++tick,
-                    message: `${a.name} · ${a.rung} · ${pr.secs}s${pr.lastEvent ? ` · ${pr.lastEvent}` : ""}`,
-                  },
-                });
-              },
+      const runOne = (
+        rung: string,
+        thread: string | undefined,
+        rb: "codex" | "opencode",
+      ): Promise<RunRecord> => {
+        const o: DispatchOpts = {
+          runDir: run.dir,
+          name: a.name,
+          role: a.role,
+          rung,
+          cwd: run.meta.repo,
+          thread,
+          ownedFiles: owned,
+          isolated: profile.harness[rb].isolated,
+          onProgress:
+            token === undefined
+              ? undefined
+              : (pr) => {
+                  void extra.sendNotification({
+                    method: "notifications/progress",
+                    params: {
+                      progressToken: token,
+                      progress: ++tick,
+                      message: `${a.name} · ${rung} · ${pr.secs}s${pr.lastEvent ? ` · ${pr.lastEvent}` : ""}`,
+                    },
+                  });
+                },
+        };
+        return rb === "codex" ? runCodex(o) : runOpencode(o);
       };
-      const record = await (backend === "codex" ? runCodex(o) : runOpencode(o));
+
+      let record = await runOne(a.rung, a.thread, backend);
       if (!a.thread) recordHarness(run.dir, record);
+
+      // spec §11b: a limit result re-dispatches on the profile's failover stand-in for this rung.
+      const hints: string[] = [];
+      const failoverTo = profile.failover?.[a.rung];
+      if (record.status === "limit" && failoverTo) {
+        const toBackend = backendOf(catalog, failoverTo);
+        if (toBackend === "claude") {
+          hints.push(
+            `limit: ${a.rung} hit a usage limit; its failover ${failoverTo} is a Claude rung — run it as Agent(subagent_type: "${agentName(a.role, failoverTo)}")`,
+          );
+        } else {
+          const failedRung = record.rung;
+          record = await runOne(failoverTo, undefined, toBackend);
+          if (!a.thread) recordHarness(run.dir, record);
+          hints.push(`limit: ${a.role} ${failedRung} hit a usage limit; failed over to ${failoverTo}`);
+        }
+      }
+
       await refreshState(
         run,
         record.status === "limit"
           ? { next: `paused: ${record.backend} usage limit; resume when the user says so` }
           : {},
       );
-      return json({ record, hints: dispatchHints(record, owned) });
+      return json({ record, hints: [...hints, ...dispatchHints(record, owned)] });
     },
   );
 }
