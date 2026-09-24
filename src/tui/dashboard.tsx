@@ -106,7 +106,7 @@ function backendState(b: BackendStatus | undefined, plain: boolean): { state: Do
 function StatusRow({ ui, state, name, value }: { ui: Ui; state: DotState; name: string; value: string }) {
   return (
     <text wrapMode="none" truncate>
-      <span fg={dotTint(state, ui.depth)}>{dot(state, ui.plain)}</span> {name.padEnd(15)}
+      <span fg={dotTint(state, ui.depth)}>{dot(state, ui.plain)}</span> {name.padEnd(16)}
       <span attributes={TextAttributes.DIM}>{value}</span>
     </text>
   );
@@ -199,8 +199,8 @@ export function Dashboard({ ui, deps = {} }: { ui: Ui; deps?: Partial<DashboardD
             <ListLine key={act.label} ui={ui} selected={i === cursor} text={act.label} />
           ))}
         </box>
-        <DetailPane ui={ui} title="SELECTED ACTION" subtitle={a.subtitle}>
-          <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
+        <DetailPane ui={ui} heading="SELECTED ACTION" title={a.label} subtitle={a.subtitle}>
+          <text attributes={TextAttributes.DIM} wrapMode="word">
             {a.description}
           </text>
           <text> </text>

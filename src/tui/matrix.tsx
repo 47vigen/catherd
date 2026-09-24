@@ -438,7 +438,7 @@ export function Matrix(props: MatrixProps) {
   if (selTop.kind === "harness") {
     const cost = costs.find((h) => h.backend === selTop.backend);
     detailBody.push(
-      <text key="h" wrapMode="none" truncate>
+      <text key="h" wrapMode="word">
         {harnessLine(selTop.backend, profile.harness[selTop.backend].isolated, cost, ui.plain)}
       </text>,
     );
@@ -477,7 +477,7 @@ export function Matrix(props: MatrixProps) {
       );
       if (ladder.length > 0)
         detailBody.push(
-          <text key="ladder" attributes={TextAttributes.DIM} wrapMode="none" truncate>
+          <text key="ladder" attributes={TextAttributes.DIM} wrapMode="word">
             {`ladder ${dotSep}${ladder.join(` ${glyph("arrow", ui.plain)} `)}`}
           </text>,
         );

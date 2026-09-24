@@ -74,11 +74,13 @@ export function Frame({
  * a dim one-line subtitle, and whatever detail rows the caller has for the selected item. */
 export function DetailPane({
   ui,
+  heading,
   title,
   subtitle,
   children,
 }: {
   ui: Ui;
+  heading?: string;
   title: string;
   subtitle: string;
   children: ReactNode;
@@ -88,6 +90,11 @@ export function DetailPane({
       style={{ flexDirection: "column", flexGrow: 1, paddingLeft: 1 }}
       backgroundColor={ui.plain ? undefined : tint("charcoal", ui.depth)}
     >
+      {heading && (
+        <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
+          {heading}
+        </text>
+      )}
       <text fg={tint(ACCENT, ui.depth)} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
         {title}
       </text>
