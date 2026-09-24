@@ -22,6 +22,7 @@ In order, when they conflict:
 - **The orchestrator is the user's own session.** It runs in Claude Desktop (Code tab) on the user's main model, with their plugins, hooks and memory beside it. catherd never launches a stripped or headless orchestrator. A user's customizations are part of how they decide, and the orchestrator decides.
 - **Claude models run natively.** A role on a Claude model is a real Claude Code subagent from an agent file, never a Claude call through the MCP server.
 - **Codex and opencode run through the MCP server.** The server owns their CLIs, parses their event streams and records every run.
+- **Each model runs in its own vendor's harness, exactly as the user configured it.** Codex keeps the user's config, hooks, MCP servers, skills and `AGENTS.md`; opencode keeps its providers, agents and plugins. catherd never isolates a harness, and never funnels every model through one generic harness behind a router, which is what everyone else does. The vendor harness, with the user's customizations, is the experience catherd exists to keep.
 - **Jev judges, code counts, checks prove.** Jev answers qualitative questions with calibrated confidence. Deterministic code turns those answers and the catalog's numbers into a model and an effort. Only a check, the reviewer or the verifier decides that work is done.
 - **The orchestrator never edits product files.** Every line comes from a role.
 
@@ -53,7 +54,16 @@ plugin/
 
 The plugin pins the package version it was released with, so the skill text and the server it calls always match.
 
-**Stack:** TypeScript on Node ≥ 22, pnpm, tsup, vitest, Biome, Changesets with npm trusted publishing, Husky + commitlint (Conventional Commits with scopes). Ink for the TUI, the official MCP TypeScript SDK for the server. Same tooling as `raqam`.
+**Stack:** the newest, fastest tools, with Rust-based ones first, all at their latest versions and never pinned:
+- pnpm, TypeScript 7 (the native compiler), tsdown (Rolldown) and vitest;
+- oxlint and oxfmt;
+- lefthook with commitlint, and Changesets with npm trusted publishing.
+
+For every job, the first choice is a maintained package; catherd hand-writes only what no package covers. Every dependency is listed with its reason in `docs/dependencies.md`. The runtime set:
+- citty (CLI), execa (processes), xdg-basedir (paths), proper-lockfile (lock), tinyglobby (file walks);
+- ofetch (HTTP with retries), zod (schemas);
+- the official MCP TypeScript SDK;
+- Ink (TUI), unless OpenTUI runs on Node.
 
 **Platforms:** macOS and Linux.
 
@@ -180,10 +190,9 @@ A failure on the top rung goes to the architect when Jev calls it `design`, and 
 ### 7.1 Runners
 
 **Codex**, from what the 2026-09-23/24 runs verified:
-- `codex exec --ignore-user-config -m <model> -c model_reasoning_effort=<e> --json -o <reply> -s <sandbox> -`, with the brief on stdin. Without stdin it waits forever.
+- `codex exec -m <model> -c model_reasoning_effort=<e> --json -o <reply> -s <sandbox> -`, with the brief on stdin, in the user's own Codex home and config. Without stdin it waits forever.
 - Resume is `codex exec resume … -c sandbox_mode=<sandbox> <thread> -`, since a resume otherwise falls back to read-only.
-- Images from the built-in image tool land in `~/.codex/generated_images/<thread>/`, and the runner returns their paths.
-- The global `~/.codex/AGENTS.md` still leaks in despite `--ignore-user-config`. The runner points `CODEX_HOME` at a catherd-owned home that holds only the user's auth, so a role sees the repo and the brief only.
+- Images from the built-in image tool land in `${CODEX_HOME:-~/.codex}/generated_images/<thread>/`, and the runner returns their paths.
 - `not supported when using Codex with a ChatGPT account` → `cli-too-old`. A usage-limit message → `limit`, which pauses the run and pushes.
 
 **opencode**, from the `using-opencode` skill and `ocrun.sh`:
