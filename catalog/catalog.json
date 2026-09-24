@@ -1,0 +1,112 @@
+{
+  "version": "2026-09-24",
+  "sources": {
+    "repo_code": "DeepSWE-style resolution of real repository issues, per model and effort, from the published results collected in spec §5 on 2026-09-24",
+    "terminal": "Terminal-Bench-style terminal, ops and environment work, per model and effort, from the same collection",
+    "honesty": "100 minus the rate of failing to disclose a broken tool, from the system cards: gpt-6-luna 71.3, gpt-6-sol 95.1, claude-opus-5-5 not published",
+    "secs_per_task": "median seconds per task in the same benchmark runs",
+    "costRank": "catherd's own order of what one run costs a user on a ChatGPT plan and a Claude plan, lowest first; subscription quota counts"
+  },
+  "notes": {
+    "gpt-6-sol": "context 400000 is unverified for the ChatGPT-login id",
+    "gpt-6-luna": "context 400000 is unverified for the ChatGPT-login id",
+    "claude-opus-5-5": "context 1000000 is unverified",
+    "unscored on purpose": "gpt-6-luna#xhigh was dominated; gpt-6-luna#max took 958 s a task, slower than gpt-6-sol#xhigh at an equal score"
+  },
+  "models": [
+    {
+      "id": "gpt-6-luna",
+      "backend": "codex",
+      "efforts": ["low", "medium", "high", "xhigh", "max"],
+      "capabilities": {
+        "toolCall": true,
+        "imageIn": true,
+        "imageOut": true,
+        "reasoning": true,
+        "context": 400000
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "backend": "codex",
+      "efforts": ["low", "medium", "high", "xhigh"],
+      "capabilities": {
+        "toolCall": true,
+        "imageIn": true,
+        "imageOut": true,
+        "reasoning": true,
+        "context": 400000
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "backend": "claude",
+      "efforts": ["low", "medium", "high"],
+      "capabilities": {
+        "toolCall": true,
+        "imageIn": true,
+        "imageOut": false,
+        "reasoning": true,
+        "context": 1000000
+      }
+    }
+  ],
+  "entries": [
+    {
+      "rung": "gpt-6-luna#high",
+      "scores": { "repo_code": 59.3, "terminal": 4.5, "honesty": 71.3, "secs_per_task": 563 },
+      "costRank": 1
+    },
+    {
+      "rung": "gpt-6-sol#medium",
+      "scores": { "repo_code": 56.6, "terminal": 18.7, "honesty": 95.1, "secs_per_task": 264 },
+      "costRank": 2
+    },
+    {
+      "rung": "gpt-6-sol#high",
+      "scores": { "repo_code": 65.3, "terminal": 26.3, "honesty": 95.1, "secs_per_task": 391 },
+      "costRank": 3
+    },
+    {
+      "rung": "gpt-6-sol#xhigh",
+      "scores": { "repo_code": 66.6, "terminal": 30.3, "honesty": 95.1, "secs_per_task": 496 },
+      "costRank": 4
+    },
+    { "rung": "claude-opus-5-5#low", "scores": { "terminal": 31.3 }, "costRank": 5 },
+    { "rung": "claude-opus-5-5#medium", "scores": { "terminal": 52.5 }, "costRank": 6 },
+    { "rung": "claude-opus-5-5#high", "scores": { "terminal": 56.6 }, "costRank": 7 }
+  ],
+  "bars": {
+    "repo_code": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "terminal": 15 },
+      "hard": { "repo_code": 56, "terminal": 18 }
+    },
+    "terminal": {
+      "copy": { "terminal": 15 },
+      "build": { "terminal": 15 },
+      "logic": { "terminal": 15 },
+      "hard": { "terminal": 15 }
+    },
+    "ui": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "terminal": 15 },
+      "hard": { "repo_code": 56, "terminal": 18 }
+    },
+    "prose": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "terminal": 15 },
+      "hard": { "repo_code": 56, "terminal": 18 }
+    },
+    "research": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "terminal": 15 },
+      "hard": { "repo_code": 56, "terminal": 18 }
+    }
+  },
+  "treatLike": {}
+}
