@@ -3,13 +3,22 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { readJsonFile } from "../files.ts";
 import { configDir } from "../paths.ts";
+import { capableFor, isScored, modelOf } from "../routing/catalog.ts";
+import { candidates, clearsBar } from "../routing/select.ts";
 import {
+  type Catalog,
+  DIFFICULTIES,
   type HarnessConfig,
+  KINDS,
   type NotifyMoment,
   type Profile,
+  ROLE_NEEDS,
   ROLES,
   type Role,
   type RoleConfig,
+  type RungId,
+  rungOf,
+  splitRung,
 } from "../types.ts";
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -148,4 +157,72 @@ export function patchProfile(p: Profile, patch: ProfilePatch): Profile {
     lock: patch.lock ?? p.lock,
     notify: patch.notify ?? p.notify,
   };
+}
+
+const backendOf = (c: Catalog, rung: RungId): string | undefined =>
+  modelOf(c, splitRung(rung).model)?.backend;
+
+export function validateProfile(p: Profile, c: Catalog): string[] {
+  const errors: string[] = [];
+  if (!p.roles.worker.enabled) errors.push("worker: cannot be disabled");
+  for (const role of ROLES) {
+    const rc = p.roles[role];
+    if (!rc.enabled) continue;
+    const usable: RungId[] = [];
+    for (const [id, efforts] of Object.entries(rc.models)) {
+      const m = modelOf(c, id);
+      if (!m) {
+        errors.push(`${role}: ${id} is not in the catalog`);
+        continue;
+      }
+      if (!capableFor(role, m)) {
+        errors.push(
+          `${role}: ${id} cannot fill this role (it needs ${Object.keys(ROLE_NEEDS[role]).join(" + ")})`,
+        );
+        continue;
+      }
+      for (const effort of efforts) {
+        const rung = rungOf(id, effort);
+        if (!m.efforts.includes(effort)) {
+          errors.push(`${role}: ${id} has no effort "${effort}" (it has ${m.efforts.join(", ")})`);
+        } else if (!isScored(c, rung)) {
+          errors.push(
+            `${role}: ${rung} is unscored; declare it "treat like" a scored entry in catalog.override.json`,
+          );
+        } else {
+          usable.push(rung);
+        }
+      }
+    }
+    if (usable.length === 0) errors.push(`${role}: no usable model is enabled`);
+    else if (rc.defaultRung && !usable.includes(rc.defaultRung)) {
+      errors.push(`${role}: defaultRung ${rc.defaultRung} is not one of its enabled entries`);
+    }
+  }
+  const worker = candidates(p, c, "worker");
+  if (worker.length > 1) {
+    for (const kind of KINDS) {
+      for (const d of DIFFICULTIES) {
+        if (!worker.some((r) => clearsBar(c, r, kind, d))) {
+          errors.push(`worker: no enabled entry clears the ${kind}/${d} bar`);
+        }
+      }
+    }
+  }
+  // spec §11b: a failover stand-in must be usable on its own, and on a different backend, so
+  // a quota outage on one backend cannot fail over onto the very backend that is out of quota.
+  for (const [from, to] of Object.entries(p.failover ?? {})) {
+    if (!isScored(c, to)) {
+      errors.push(`failover: ${to} (stand-in for ${from}) is unscored`);
+      continue;
+    }
+    const fromBackend = backendOf(c, from);
+    const toBackend = backendOf(c, to);
+    if (fromBackend && toBackend && fromBackend === toBackend) {
+      errors.push(
+        `failover: ${to} is on the same backend (${toBackend}) as ${from}; a stand-in must be on another backend`,
+      );
+    }
+  }
+  return errors;
 }
