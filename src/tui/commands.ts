@@ -5,6 +5,7 @@ import { createElement, type ReactNode } from "react";
 import { Editor } from "./editor.tsx";
 import { Init } from "./init.tsx";
 import { detectUi } from "./theme.ts";
+import { Watch } from "./watch.tsx";
 
 const uiArgs = {
   plain: { type: "boolean", description: "ASCII only: a text fallback for every glyph" },
@@ -38,5 +39,13 @@ export const initCommand = defineCommand({
   async run({ rawArgs }) {
     const code = await mount(createElement(Init, { ui: detectUi(rawArgs) }));
     process.exitCode = process.exitCode || code;
+  },
+});
+
+export const watchCommand = defineCommand({
+  meta: { name: "watch", description: "Live view of running and recent runs" },
+  args: uiArgs,
+  async run({ rawArgs }) {
+    process.exitCode = await mount(createElement(Watch, { ui: detectUi(rawArgs) }));
   },
 });

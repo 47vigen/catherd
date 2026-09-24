@@ -1,0 +1,117 @@
+import { testRender } from "@opentui/react/test-utils";
+import { type ReactNode } from "react";
+import { describe, expect, it } from "bun:test";
+import type { RunSummary } from "../../src/core/status.ts";
+import { Watch, type WatchDeps } from "../../src/tui/watch.tsx";
+import { fakeRecord } from "../records.ts";
+import { fakeRun, fakeSummary, KEY, PLAIN, press, tick, UI, widest } from "./helpers.ts";
+
+const live = { name: "worker-M1.L2", rung: "gpt-6-sol#medium", secs: 252, pid: 1 };
+
+function deps(o: Partial<WatchDeps> = {}): Partial<WatchDeps> {
+  return {
+    listRuns: () => [fakeRun()],
+    summarizeRun: () =>
+      fakeSummary({ live: [live], milestones: ["M1 | jobs list | a1b2c3d | vitest 12/12"] }),
+    readRunRecords: () => [fakeRecord("worker-M1.L1", { secs: 60 })],
+    readJev: () => [{ questions: ["kind"], used: "kind=repo_code", source: "jev" }],
+    ...o,
+  };
+}
+
+async function mounted(el: ReactNode, width = 100, height = 24) {
+  const setup = await testRender(el, { width, height });
+  await setup.renderOnce();
+  return setup;
+}
+
+describe("Watch", () => {
+  it("says so when there are no runs yet", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch ui={UI} deps={deps({ listRuns: () => [] })} />,
+    );
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("No runs yet. Start one with /catherd in Claude Code.");
+  });
+
+  it("shows each run with its live roles and landed milestones", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
+    await tick();
+    await renderOnce();
+    const f = captureCharFrame();
+    expect(f).toContain("=o.o= Jobs screen · 1 live · 3 runs · 1 landed");
+    expect(f).toContain("🐈 worker-M1.L2  sol#medium  04:12  =o.o=");
+    expect(f).toContain("=^ω^= M1 landed · a1b2c3d");
+  });
+
+  it("tells a climb in one line when a role returns on a higher rung", async () => {
+    let n = 0;
+    const summarizeRun = (): RunSummary =>
+      fakeSummary({ live: [{ ...live, rung: n++ === 0 ? "gpt-6-luna#high" : "gpt-6-sol#medium" }] });
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch ui={UI} intervalMs={20} deps={deps({ summarizeRun })} />,
+    );
+    let found = false;
+    for (let i = 0; i < 30 && !found; i++) {
+      await new Promise((r) => setTimeout(r, 15));
+      await renderOnce();
+      found = captureCharFrame().includes("Luna gave up, Sol takes over");
+    }
+    expect(found).toBe(true);
+  });
+
+  it("opens a run's detail on Enter and goes back on Esc", async () => {
+    const { captureCharFrame, mockInput, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
+    await tick();
+    await renderOnce();
+    await press(mockInput, KEY.enter);
+    await renderOnce();
+    const f = captureCharFrame();
+    expect(f).toContain("Next: fix round for M1.L2");
+    expect(f).toContain("worker-M1.L1  sol#medium  ok  01:00 · complete");
+    expect(f).toContain("jev · 4 decisions · 1 fell back");
+    expect(f).toContain("kind → kind=repo_code");
+    await press(mockInput, KEY.esc);
+    await renderOnce();
+    expect(captureCharFrame()).toContain("Jobs screen · 1 live");
+  });
+
+  it("shows one line for a run it cannot read, and carries on with the rest", async () => {
+    const summarizeRun = (run: { id: string }) => {
+      if (run.id === "bad") throw new Error("Unexpected end of JSON input");
+      return fakeSummary();
+    };
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch ui={UI} deps={deps({ listRuns: () => [fakeRun(), fakeRun("bad", "Broken")], summarizeRun })} />,
+    );
+    await tick();
+    await renderOnce();
+    const f = captureCharFrame();
+    expect(f).toContain("=x.x= bad · unreadable: Unexpected end of JSON input");
+    expect(f).toContain("Jobs screen");
+  });
+
+  it("survives listRuns itself throwing", async () => {
+    const listRuns = () => {
+      throw new Error("EACCES: permission denied");
+    };
+    const { captureCharFrame, renderOnce } = await mounted(<Watch ui={UI} deps={deps({ listRuns })} />);
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("=x.x= EACCES: permission denied");
+  });
+
+  it("keeps plain glyphs and 80 columns with long names", async () => {
+    const summarizeRun = () =>
+      fakeSummary({ title: "t".repeat(120), live: [{ ...live, name: `worker-${"x".repeat(100)}` }] });
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch ui={PLAIN} deps={deps({ summarizeRun })} />,
+    );
+    await tick();
+    await renderOnce();
+    const f = captureCharFrame();
+    expect(widest(f)).toBeLessThanOrEqual(80);
+    expect(f).toMatch(/^[\x20-\x7e\n]*$/);
+  });
+});
