@@ -9,7 +9,7 @@ const { version } = JSON.parse(read("package.json"));
 
 writeFileSync(
   path("plugin/.mcp.json"),
-  read("plugin/.mcp.json").replace(/catherd@[^"]+/, `catherd@${version}`),
+  read("plugin/.mcp.json").replace(/catherd-cli@[^"]+/, `catherd-cli@${version}`),
 );
 writeFileSync(
   path("plugin/.claude-plugin/plugin.json"),

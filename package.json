@@ -1,5 +1,5 @@
 {
-  "name": "catherd",
+  "name": "catherd-cli",
   "version": "0.1.0",
   "description": "Herds coding agents: autopilot builds from your own Claude Code session.",
   "license": "MIT",

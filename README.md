@@ -31,10 +31,10 @@ of work, climbing a ladder only when a cheaper rung falls short.
 ## Install
 
 ```sh
-bunx catherd init
+bunx catherd-cli init
 ```
 
-`init` asks for the Jev key, finds your backends, and builds your first profile. Then add the
+The npm package is `catherd-cli`; the command it installs is `catherd`. `init` asks for the Jev key, finds your backends, and builds your first profile. Then add the
 plugin to Claude Code:
 
 ```sh
@@ -54,12 +54,12 @@ In Claude Code:
 
 In a terminal:
 
-| Command                        | What it does                                                     |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `bunx catherd`                 | Profile editor: models and efforts per role, with paw checkboxes |
-| `bunx catherd watch`           | Live view of running and recent runs                             |
-| `bunx catherd lock -- <cmd>`   | Runs a heavy command behind the machine-wide semaphore           |
-| `bunx catherd catalog refresh` | Refreshes the models.dev snapshot                                |
+| Command                            | What it does                                                     |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| `bunx catherd-cli`                 | Profile editor: models and efforts per role, with paw checkboxes |
+| `bunx catherd-cli watch`           | Live view of running and recent runs                             |
+| `bunx catherd-cli lock -- <cmd>`   | Runs a heavy command behind the machine-wide semaphore           |
+| `bunx catherd-cli catalog refresh` | Refreshes the models.dev snapshot                                |
 
 `--plain` and `--reduced-motion` work everywhere.
 

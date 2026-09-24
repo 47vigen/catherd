@@ -21,7 +21,7 @@ describe("plugin", () => {
     const { version } = readJson(root, "package.json");
     expect(readJson(root, "plugin/.claude-plugin/plugin.json")).toMatchObject({ name: "catherd", version });
     expect(readJson(root, "plugin/.mcp.json")).toEqual({
-      mcpServers: { catherd: { command: "bunx", args: [`catherd@${version}`, "mcp"] } },
+      mcpServers: { catherd: { command: "bunx", args: [`catherd-cli@${version}`, "mcp"] } },
     });
   });
 
@@ -35,7 +35,7 @@ describe("plugin", () => {
     const proc = Bun.spawnSync(["bun", join(tmp, "scripts", "stamp-plugin-version.mjs")]);
     expect(proc.success).toBe(true);
     expect(readJson(tmp, "plugin/.claude-plugin/plugin.json").version).toBe("9.9.9");
-    expect(readJson(tmp, "plugin/.mcp.json").mcpServers.catherd.args).toEqual(["catherd@9.9.9", "mcp"]);
+    expect(readJson(tmp, "plugin/.mcp.json").mcpServers.catherd.args).toEqual(["catherd-cli@9.9.9", "mcp"]);
   });
 
   it("each command hands its arguments to its skill", () => {

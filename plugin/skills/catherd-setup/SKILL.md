@@ -7,7 +7,7 @@ description: Use when the user wants to tune catherd — which models and effort
 
 You tune the user's catherd profile in conversation. A profile says, per role, which models and efforts it may run on; whether routing favours cost or speed; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
 
-**You never edit a file by hand.** `profile_set` is the only writer, so this conversation and the TUI (`npx catherd`) cannot drift apart.
+**You never edit a file by hand.** `profile_set` is the only writer, so this conversation and the TUI (`bunx catherd-cli`) cannot drift apart.
 
 ## Rules
 
@@ -47,7 +47,7 @@ Go through these in order, and skip any the user does not care about:
 Each proposal has three parts: the change, a worked example from their facts, and the tradeoff in their terms. For instance: "Luna high on build lanes: about 5 min slower than Sol medium, no Claude quota, climbs on 1 in 5 of your runs so far."
 
 - Offer only the models `catalog_query` lists as capable for the role.
-- An unscored model can be enabled only once it has a "treat like <scored model#effort>". That lives in the catalog override, which the TUI edits: send the user to `npx catherd` for it, then come back.
+- An unscored model can be enabled only once it has a "treat like <scored model#effort>". That lives in the catalog override, which the TUI edits: send the user to `bunx catherd-cli` for it, then come back.
 
 **Harness isolation.** For each harness they use (`codex`, `opencode`), offer `harness.<name>.isolated` with its harness line from `runs_summary` and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
 

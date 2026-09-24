@@ -41,7 +41,7 @@ export function registerRunTools(server: McpServer): void {
       },
     },
     async ({ repo, title, a_lines }) => {
-      if (!jevKey()) throw new Error("catherd: no Jev key. Run `npx catherd init` in a terminal first.");
+      if (!jevKey()) throw new Error("catherd: no Jev key. Run `bunx catherd-cli init` in a terminal first.");
       const top = gitToplevel(repo);
       if (!top) throw new Error(`catherd: ${repo} is not inside a git repository`);
       const run = createRun(top, title, a_lines);

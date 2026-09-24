@@ -1,4 +1,4 @@
-# catherd
+# catherd-cli
 
 ## 0.1.0
 
