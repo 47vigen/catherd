@@ -3,6 +3,7 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { defineCommand } from "citty";
 import { dataDir } from "../paths.ts";
+import { loadProfile } from "../profile/profile.ts";
 
 /** Kept for interface parity across plans; reclaim here is immediate (pid liveness), not a stale-mtime window. */
 export const LOCK_STALE_MS = 5_000;
@@ -10,6 +11,23 @@ export const LOCK_STALE_MS = 5_000;
 export function heavySlots(setting: number | "cpus/2" | undefined): number {
   if (typeof setting === "number") return Math.max(1, Math.floor(setting));
   return Math.max(1, Math.floor(availableParallelism() / 2));
+}
+
+/** --slots, then CATHERD_LOCK_SLOTS, then the active profile's lock.heavy, then half the cores. */
+export function resolveSlots(flag?: string): number {
+  const raw = flag ?? process.env.CATHERD_LOCK_SLOTS;
+  if (raw) {
+    if (raw === "cpus/2") return heavySlots("cpus/2");
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error(`catherd lock: slots must be a number or cpus/2, got "${raw}"`);
+    return heavySlots(n);
+  }
+  try {
+    return heavySlots(loadProfile().lock.heavy);
+  } catch (e) {
+    console.error(`catherd lock: ${(e as Error).message}; using half the CPU cores`);
+    return heavySlots("cpus/2");
+  }
 }
 
 function pidAlive(pid: number): boolean {
@@ -79,8 +97,7 @@ export const lockCommand = defineCommand({
       process.exitCode = 2;
       return;
     }
-    const setting = args.slots ?? process.env.CATHERD_LOCK_SLOTS;
-    const held = await acquire(heavySlots(setting ? Number(setting) : "cpus/2"), cmd);
+    const held = await acquire(resolveSlots(args.slots), cmd);
     try {
       const proc = Bun.spawn([cmd, ...rest], { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
       process.exitCode = await proc.exited;
