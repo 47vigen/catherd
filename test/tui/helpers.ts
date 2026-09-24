@@ -1,5 +1,6 @@
 import stringWidth from "string-width";
 import type { MockInput } from "@opentui/core/testing";
+import type { BackendStatus } from "../../src/tui/backends.ts";
 import type { Ui } from "../../src/tui/theme.ts";
 
 /** Colourless and still, so frames are plain text and identical on every run. */
@@ -57,3 +58,13 @@ export const down = (n: number): string[] => Array<string>(n).fill(KEY.down);
 export function widest(frame = ""): number {
   return Math.max(0, ...frame.split("\n").map((line) => stringWidth(line.replace(/\s+$/, ""))));
 }
+
+export const READY: BackendStatus[] = [
+  { backend: "codex", installed: true, version: "0.156.1", loggedIn: true, fix: null },
+  { backend: "opencode", installed: true, version: "2.0.15", loggedIn: true, fix: null },
+];
+
+export const NOT_READY: BackendStatus[] = [
+  { backend: "codex", installed: false, version: null, loggedIn: false, fix: "npm i -g @openai/codex" },
+  { backend: "opencode", installed: true, version: "2.0.15", loggedIn: false, fix: "opencode auth login" },
+];
