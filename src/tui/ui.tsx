@@ -15,7 +15,7 @@ const hex = (h: string): [number, number, number] => [
 ];
 
 /** One colour per letter, interpolated between GRADIENT's two hex stops. */
-function gradientLetters(word: string): { ch: string; fg: string }[] {
+export function gradientLetters(word: string): { ch: string; fg: string }[] {
   const [a, b] = [hex(GRADIENT[0] as string), hex(GRADIENT[1] as string)];
   return [...word].map((ch, i) => {
     const t = word.length > 1 ? i / (word.length - 1) : 0;

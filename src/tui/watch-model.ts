@@ -63,3 +63,21 @@ export function jevLine(e: JevLine, plain: boolean): string {
   const tail = e.source === "default" ? ` ${glyph("dot", plain)} fell back to the profile default` : "";
   return `${e.questions.join(", ")} ${glyph("arrow", plain)} ${e.used}${tail}`;
 }
+
+/** spec §11b: --plain's stand-in for the coloured budget bar, e.g. "[#####-----] 52%". */
+export function plainBudgetBar(fraction: number, width = 10): string {
+  const f = Math.max(0, Math.min(1, fraction));
+  const filled = Math.round(f * width);
+  return `[${"#".repeat(filled)}${"-".repeat(width - filled)}] ${Math.round(f * 100)}%`;
+}
+
+/** spec §11b: the bar is the ginger-to-pink gradient below 80%, a solid warning tint from 80%,
+ * and a solid error tint once the budget is spent. Only ginger/pink exist in the warm palette
+ * (theme.ts), so "warning" and "error" reuse them rather than adding new tones. */
+export type BudgetTone = "gradient" | "warning" | "error";
+
+export function budgetTone(fraction: number): BudgetTone {
+  if (fraction >= 1) return "error";
+  if (fraction >= 0.8) return "warning";
+  return "gradient";
+}

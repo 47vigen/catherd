@@ -2,17 +2,19 @@ import { join } from "node:path";
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
+import { type BudgetStatus, formatBudget, type RunSummary, summarizeRun } from "../core/status.ts";
 import { listRuns, readJsonl, readRunRecords, type Run } from "../core/runstore.ts";
-import { type RunSummary, summarizeRun } from "../core/status.ts";
 import type { RunRecord, RungId } from "../types.ts";
 import { face, glyph, type Mood, tint, type Ui } from "./theme.ts";
-import { CatSpinner, Header, Screen } from "./ui.tsx";
+import { CatSpinner, Header, Screen, gradientLetters } from "./ui.tsx";
 import {
+  budgetTone,
   climbs,
   jevLine,
   type JevLine,
   liveLine,
   milestoneLine,
+  plainBudgetBar,
   recordLine,
   runLine,
   runMood,
@@ -60,6 +62,40 @@ function poll(d: WatchDeps): { items: Item[]; problem: string | null } {
   }
 }
 
+/** spec §11b: a bar in the ginger-to-pink gradient, solid ginger from 80% spent and solid pink once
+ * the budget is exhausted (the palette has no dedicated warning/error tones, see watch-model.ts). */
+function BudgetBar({ ui, budget }: { ui: Ui; budget: BudgetStatus }) {
+  const width = 10;
+  if (ui.plain) {
+    return (
+      <text
+        wrapMode="none"
+        truncate
+      >{`    ${plainBudgetBar(budget.fraction, width)} ${formatBudget(budget)}`}</text>
+    );
+  }
+  const filled = Math.round(Math.max(0, Math.min(1, budget.fraction)) * width);
+  const tone = budgetTone(budget.fraction);
+  const solid =
+    tone === "error" ? tint("pink", ui.depth) : tone === "warning" ? tint("ginger", ui.depth) : null;
+  const cells = solid
+    ? Array.from({ length: filled }, () => ({ ch: "█", fg: solid }))
+    : gradientLetters("█".repeat(filled));
+  return (
+    <text wrapMode="none" truncate>
+      {"    "}
+      {cells.map((cell, i) => (
+        // biome-ignore lint: index key is stable, the bar never reorders
+        <span key={i} fg={cell.fg}>
+          {cell.ch}
+        </span>
+      ))}
+      <span attributes={TextAttributes.DIM}>{"░".repeat(width - filled)}</span>
+      {` ${formatBudget(budget)}`}
+    </text>
+  );
+}
+
 function RunBlock({ ui, it, here }: { ui: Ui; it: Item; here: boolean }) {
   const cur = here ? glyph("cursor", ui.plain) : " ";
   if (!it.summary) {
@@ -85,6 +121,7 @@ function RunBlock({ ui, it, here }: { ui: Ui; it: Item; here: boolean }) {
       {s.milestones.map((m) => (
         <text key={m} wrapMode="none" truncate fg={pink}>{`    ${milestoneLine(m, ui.plain)}`}</text>
       ))}
+      {s.budget ? <BudgetBar ui={ui} budget={s.budget} /> : null}
     </box>
   );
 }

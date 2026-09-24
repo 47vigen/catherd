@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
+  budgetTone,
   climbs,
   jevLine,
   liveLine,
   milestoneLine,
+  plainBudgetBar,
   recordLine,
   runLine,
   runMood,
@@ -68,5 +70,21 @@ describe("watch model", () => {
     expect(jevLine({ questions: ["finding"], used: "code", source: "default" }, true)).toBe(
       "finding -> code - fell back to the profile default",
     );
+  });
+
+  it("draws a 10-cell ASCII bar with the rounded percent beside it", () => {
+    expect(plainBudgetBar(0.52)).toBe("[#####-----] 52%");
+    expect(plainBudgetBar(0)).toBe("[----------] 0%");
+    expect(plainBudgetBar(1)).toBe("[##########] 100%");
+    expect(plainBudgetBar(1.4)).toBe("[##########] 100%");
+  });
+
+  it("turns the bar's tone from the gradient to a warning at 80%, then an error at 100%", () => {
+    expect(budgetTone(0)).toBe("gradient");
+    expect(budgetTone(0.79)).toBe("gradient");
+    expect(budgetTone(0.8)).toBe("warning");
+    expect(budgetTone(0.99)).toBe("warning");
+    expect(budgetTone(1)).toBe("error");
+    expect(budgetTone(1.5)).toBe("error");
   });
 });

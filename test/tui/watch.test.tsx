@@ -102,6 +102,43 @@ describe("Watch", () => {
     expect(captureCharFrame()).toContain("=x.x= EACCES: permission denied");
   });
 
+  it("shows the budget bar beside its formatted spend, under 80%", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch
+        ui={UI}
+        deps={deps({
+          summarizeRun: () => fakeSummary({ budget: { fraction: 0.52, minutes: { spent: 12, cap: 23 } } }),
+        })}
+      />,
+    );
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).toContain("12/23 min (52%)");
+  });
+
+  it("says nothing about the budget when a run has none set", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(<Watch ui={UI} deps={deps()} />);
+    await tick();
+    await renderOnce();
+    expect(captureCharFrame()).not.toContain("%)");
+  });
+
+  it("renders the budget bar as a plain ASCII gauge under --plain", async () => {
+    const { captureCharFrame, renderOnce } = await mounted(
+      <Watch
+        ui={PLAIN}
+        deps={deps({
+          summarizeRun: () => fakeSummary({ budget: { fraction: 0.9, usd: { spent: 9, cap: 10 } } }),
+        })}
+      />,
+    );
+    await tick();
+    await renderOnce();
+    const f = captureCharFrame();
+    expect(f).toContain("[#########-] 90%");
+    expect(f).toMatch(/^[\x20-\x7e\n]*$/);
+  });
+
   it("keeps plain glyphs and 80 columns with long names", async () => {
     const summarizeRun = () =>
       fakeSummary({ title: "t".repeat(120), live: [{ ...live, name: `worker-${"x".repeat(100)}` }] });
