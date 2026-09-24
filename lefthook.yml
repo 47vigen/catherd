@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: lint
+      glob: "*.{js,cjs,mjs,ts,tsx}"
+      run: bunx oxlint --deny-warnings {staged_files}
+    - name: format
+      glob: "*.{js,cjs,mjs,ts,tsx,json}"
+      run: bunx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: bunx commitlint --edit {1}

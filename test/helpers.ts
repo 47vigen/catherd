@@ -1,0 +1,25 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/** Points CATHERD_HOME at a fresh temp dir for the duration of one test. */
+export function withHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
+  process.env.CATHERD_HOME = home;
+  return home;
+}
+
+/** A fresh git repo with one commit, for runner and snapshot tests. */
+export function tempRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "catherd-repo-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  git("init", "-q", "-b", "main");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  return dir;
+}
+
+/** PATH with the fake codex/opencode executables first. */
+export function fakeBinPath(): string {
+  return `${join(import.meta.dir, "fixtures", "bin")}:${process.env.PATH}`;
+}
