@@ -43,6 +43,7 @@ const PATCH = z.object({
 /** Whether each backend's CLI is on PATH. Claude is always available: it needs no CLI, only agent files. */
 function installedBackends(): Record<Backend, boolean> {
   const probe = (bin: string) =>
+    Bun.which(bin) !== null &&
     Bun.spawnSync([bin, "--version"], { stdout: "ignore", stderr: "ignore" }).success;
   return { codex: probe("codex"), opencode: probe("opencode"), claude: true };
 }

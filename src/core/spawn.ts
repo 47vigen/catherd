@@ -49,6 +49,9 @@ function killGroup(pid: number): void {
  * outlives catherd, and `reconcileLive` reads its files after a restart.
  */
 export async function runChild(cmd: string, args: string[], o: ChildOpts): Promise<ChildResult> {
+  if (!Bun.which(cmd, { PATH: o.env?.PATH ?? process.env.PATH ?? "" })) {
+    throw new Error(`catherd: ${cmd} is not on PATH; install it, or untick its models in the profile`);
+  }
   const stdin = o.stdinFile ? openSync(o.stdinFile, "r") : "ignore";
   const stdout = openSync(o.stdoutFile, "w");
   const stderr = openSync(o.stderrFile, "w");
