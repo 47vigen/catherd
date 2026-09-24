@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { appendRoute } from "../src/core/lanes.ts";
 import { appendJsonl, appendLedger, appendRunRecord, createRun, writeLive } from "../src/core/runstore.ts";
-import { formatSummary, runsSummary, summarizeRun } from "../src/core/status.ts";
+import { budgetStatus, formatBudget, formatSummary, runsSummary, summarizeRun } from "../src/core/status.ts";
+import { defaultProfile, saveProfile } from "../src/profile/profile.ts";
 import { fakeRecord } from "./records.ts";
 import { tempRepo, withHome } from "./helpers.ts";
 
@@ -114,5 +115,48 @@ describe("runsSummary", () => {
     ]);
     expect(runsSummary({ run: b.id }).map((r) => r.runs)).toEqual([1, 1]);
     expect(runsSummary({ role: "reviewer" })).toHaveLength(1);
+  });
+});
+
+describe("budgetStatus", () => {
+  const totals = {
+    runs: 1,
+    ok: 1,
+    notOk: [],
+    secs: 1_800,
+    tokens: { input: 4_000, cached: 0, output: 1_000 },
+    costUsd: 2,
+  };
+
+  test("is null with no budget set", () => {
+    expect(budgetStatus(totals, undefined)).toBeNull();
+  });
+
+  test("reports the highest fraction across the caps the profile set", () => {
+    const b = budgetStatus(totals, { minutes: 60, usd: 2 });
+    expect(b).toEqual({ fraction: 1, minutes: { spent: 30, cap: 60 }, usd: { spent: 2, cap: 2 } });
+    expect(formatBudget(b!)).toBe("30/60 min · $2.00/$2.00 (100%)");
+  });
+
+  test("treats any spend against a zero cap as exhausted", () => {
+    expect(budgetStatus(totals, { tokens: 0 })?.fraction).toBe(1);
+    expect(
+      budgetStatus({ ...totals, tokens: { input: 0, cached: 0, output: 0 } }, { tokens: 0 })?.fraction,
+    ).toBe(0);
+  });
+});
+
+describe("summarizeRun budget", () => {
+  beforeEach(() => withHome());
+
+  test("shows null with no budget, and the spend line once the active profile sets one", () => {
+    const run = createRun(tempRepo(), "t", []);
+    appendRunRecord(run.dir, fakeRecord("worker-M1.L1", { secs: 1_800 }));
+    expect(summarizeRun(run).budget).toBeNull();
+
+    saveProfile({ ...defaultProfile(), budget: { minutes: 60 } });
+    const s = summarizeRun(run);
+    expect(s.budget).toEqual({ fraction: 0.5, minutes: { spent: 30, cap: 60 } });
+    expect(formatSummary(s)).toContain("-- budget  30/60 min (50%)");
   });
 });

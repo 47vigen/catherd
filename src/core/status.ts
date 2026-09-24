@@ -1,10 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Role, RungId, Tokens } from "../types.ts";
+import { activeProfileName, loadProfile } from "../profile/profile.ts";
+import type { Profile, Role, RungId, Tokens } from "../types.ts";
 import { formatHarness, type HarnessCost, harnessCosts } from "./harness.ts";
 import { readRoutes } from "./lanes.ts";
 import { reconcileLive } from "./reconcile.ts";
 import { listRuns, readJsonl, readRunRecords, type Run } from "./runstore.ts";
+
+export type RunTotals = {
+  runs: number;
+  ok: number;
+  notOk: string[];
+  secs: number;
+  tokens: Tokens;
+  costUsd: number;
+};
 
 export interface RunSummary {
   id: string;
@@ -12,10 +22,51 @@ export interface RunSummary {
   repo: string;
   stateTail: string[];
   live: { name: string; rung: RungId; secs: number; pid: number }[];
-  totals: { runs: number; ok: number; notOk: string[]; secs: number; tokens: Tokens; costUsd: number };
+  totals: RunTotals;
   jev: { decisions: number; fallbacks: number };
   milestones: string[];
   harness: HarnessCost[];
+  /** spec §11b: this run's spend against the active profile's budget, or null with no budget set */
+  budget: BudgetStatus | null;
+}
+
+export interface BudgetStatus {
+  /** the highest spent/cap ratio across the caps the profile set; ≥ 1 means exhausted */
+  fraction: number;
+  minutes?: { spent: number; cap: number };
+  tokens?: { spent: number; cap: number };
+  usd?: { spent: number; cap: number };
+}
+
+export function budgetStatus(totals: RunTotals, budget: Profile["budget"] | undefined): BudgetStatus | null {
+  if (!budget) return null;
+  const b: BudgetStatus = { fraction: 0 };
+  const consider = (spent: number, cap: number | undefined, key: "minutes" | "tokens" | "usd") => {
+    if (cap === undefined) return;
+    b[key] = { spent, cap };
+    b.fraction = Math.max(b.fraction, cap > 0 ? spent / cap : spent > 0 ? 1 : 0);
+  };
+  consider(totals.secs / 60, budget.minutes, "minutes");
+  consider(totals.tokens.input + totals.tokens.output, budget.tokens, "tokens");
+  consider(totals.costUsd, budget.usd, "usd");
+  return b;
+}
+
+export function formatBudget(b: BudgetStatus): string {
+  const parts: string[] = [];
+  if (b.minutes) parts.push(`${Math.round(b.minutes.spent)}/${b.minutes.cap} min`);
+  if (b.tokens) parts.push(`${b.tokens.spent}/${b.tokens.cap} tokens`);
+  if (b.usd) parts.push(`$${b.usd.spent.toFixed(2)}/$${b.usd.cap.toFixed(2)}`);
+  return `${parts.join(" · ")} (${Math.round(b.fraction * 100)}%)`;
+}
+
+/** The active profile's budget for this run's repo, or undefined when there is none or the profile fails to load. */
+function budgetFor(run: Run): Profile["budget"] | undefined {
+  try {
+    return loadProfile(activeProfileName(run.meta.repo)).budget;
+  } catch {
+    return undefined;
+  }
 }
 
 const lines = (file: string) =>
@@ -30,6 +81,18 @@ export function summarizeRun(run: Run): RunSummary {
   const recs = readRunRecords(run.dir);
   const jev = readJsonl<{ source?: string }>(join(run.dir, "jev.jsonl"));
   const now = Date.now();
+  const totals: RunTotals = {
+    runs: recs.length,
+    ok: recs.filter((r) => r.status === "ok").length,
+    notOk: recs.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
+    secs: recs.reduce((n, r) => n + r.secs, 0),
+    tokens: {
+      input: recs.reduce((n, r) => n + r.tokens.input, 0),
+      cached: recs.reduce((n, r) => n + r.tokens.cached, 0),
+      output: recs.reduce((n, r) => n + r.tokens.output, 0),
+    },
+    costUsd: recs.reduce((n, r) => n + (r.costUsd ?? 0), 0),
+  };
   return {
     id: run.id,
     title: run.meta.title,
@@ -41,21 +104,11 @@ export function summarizeRun(run: Run): RunSummary {
       secs: Math.round((now - Date.parse(m.startedAt)) / 1000),
       pid: m.pid,
     })),
-    totals: {
-      runs: recs.length,
-      ok: recs.filter((r) => r.status === "ok").length,
-      notOk: recs.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
-      secs: recs.reduce((n, r) => n + r.secs, 0),
-      tokens: {
-        input: recs.reduce((n, r) => n + r.tokens.input, 0),
-        cached: recs.reduce((n, r) => n + r.tokens.cached, 0),
-        output: recs.reduce((n, r) => n + r.tokens.output, 0),
-      },
-      costUsd: recs.reduce((n, r) => n + (r.costUsd ?? 0), 0),
-    },
+    totals,
     jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source === "default").length },
     milestones: lines(join(run.dir, "ledger.md")).slice(1),
     harness: harnessCosts(listRuns().map((r) => r.dir)),
+    budget: budgetStatus(totals, budgetFor(run)),
   };
 }
 
@@ -74,6 +127,7 @@ export function formatSummary(s: RunSummary): string {
     ...(s.harness.length
       ? s.harness.map((h) => `-- harness  ${formatHarness(h)}`)
       : ["-- harness  no data yet"]),
+    ...(s.budget ? [`-- budget  ${formatBudget(s.budget)}`] : []),
     ...(s.milestones.length ? ["-- landed", ...s.milestones.map((m) => `  ${m}`)] : []),
   ].join("\n");
 }
