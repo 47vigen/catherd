@@ -144,4 +144,39 @@ describe("lane tools", () => {
     expect(bad.isError).toBe(true);
     expect(bad.raw).toContain("no commit deadbee");
   });
+
+  test("land appends what the run learned to the repo's knowledge.md, read back by read_knowledge (v1)", async () => {
+    const c = await mcpClient();
+    // run_start resolves the repo to git's toplevel (e.g. through a symlinked tmp dir on macOS);
+    // read_knowledge is keyed by that same resolved path.
+    const repo = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: tempRepo(),
+      encoding: "utf8",
+    }).trim();
+    const { run } = await startRun(c, repo, "Jobs screen");
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: repo,
+      encoding: "utf8",
+    }).trim();
+
+    expect((await call(c, "read_knowledge", { repo })).raw).toContain("no knowledge recorded yet");
+
+    await call(c, "land", {
+      run,
+      milestone: "M1",
+      what: "jobs list",
+      commit: head,
+      evidence: "vitest 12/12",
+      next: "start M2",
+      learned: "the jobs API paginates by cursor, not offset",
+    });
+    const knowledge = (await call(c, "read_knowledge", { repo })).raw;
+    expect(knowledge).toContain("Jobs screen");
+    expect(knowledge).toContain("M1");
+    expect(knowledge).toContain("the jobs API paginates by cursor, not offset");
+
+    // a second landing with nothing new appends nothing further
+    await call(c, "land", { run, milestone: "M2", what: "x", commit: head, evidence: "x", next: "x" });
+    expect((await call(c, "read_knowledge", { repo })).raw).toBe(knowledge);
+  });
 });

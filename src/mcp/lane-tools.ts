@@ -1,16 +1,17 @@
-import { readFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join, relative } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { appendRoute, CLIMB_REASONS, currentRoute, ID } from "../core/lanes.ts";
 import { appendLedger } from "../core/runstore.ts";
+import { runsRoot } from "../paths.ts";
 import { agentName } from "../profile/agents.ts";
 import { activeProfileName, loadProfile } from "../profile/profile.ts";
 import { loadCatalog } from "../routing/catalog.ts";
 import { askFinding, askSameDefect, nextRung, route as routeLane } from "../routing/route.ts";
 import { defaultLadder } from "../routing/select.ts";
 import { type Backend, type Catalog, ROLES, type Role, type RungId } from "../types.ts";
-import { json } from "./out.ts";
+import { json, text } from "./out.ts";
 import { backendOf, findRun, refreshState, runFile } from "./runs.ts";
 
 export function targetOf(c: Catalog, role: Role, rung: RungId): { backend: Backend; agent?: string } {
@@ -23,6 +24,15 @@ const cell = (s: string) => s.replace(/[|\n]/g, "/").replace(/\s+/g, " ").trim()
 /** git's short commit exists check: does `<commit>^{commit}` resolve in `repo`? */
 function commitExists(repo: string, commit: string): boolean {
   return Bun.spawnSync(["git", "-C", repo, "cat-file", "-e", `${commit}^{commit}`]).success;
+}
+
+/** spec §11b: what past runs of this repo learned, one line per landed milestone that had something to say. */
+const knowledgeFile = (repo: string): string => join(runsRoot(repo), "knowledge.md");
+
+function appendKnowledge(repo: string, line: string): void {
+  const file = knowledgeFile(repo);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${line}\n`);
 }
 
 export function registerLaneTools(server: McpServer): void {
@@ -145,7 +155,7 @@ export function registerLaneTools(server: McpServer): void {
     "land",
     {
       description:
-        "Record a landed milestone after you commit it: appends its ledger row and rewrites state.md with its evidence as the last check and the next step.",
+        "Record a landed milestone after you commit it: appends its ledger row and rewrites state.md with its evidence as the last check and the next step. learned, when given, is appended to this repo's knowledge.md (read_knowledge returns it) for the next run's architect to read.",
       inputSchema: {
         run: z.string(),
         milestone: z.string().min(1),
@@ -153,6 +163,7 @@ export function registerLaneTools(server: McpServer): void {
         commit: z.string().regex(/^[0-9a-f]{7,40}$/),
         evidence: z.string().min(1),
         next: z.string().min(1),
+        learned: z.string().min(1).optional(),
       },
     },
     async (a) => {
@@ -162,7 +173,26 @@ export function registerLaneTools(server: McpServer): void {
       const row = [a.milestone, a.what, a.commit, a.evidence].map(cell).join(" | ");
       appendLedger(run.dir, row);
       await refreshState(run, { lastCheck: cell(a.evidence), next: a.next });
+      if (a.learned) {
+        const date = new Date().toISOString().slice(0, 10);
+        appendKnowledge(run.meta.repo, `- ${date} ${run.meta.title} ${a.milestone}: ${cell(a.learned)}`);
+      }
       return json({ ledger: row });
+    },
+  );
+
+  server.registerTool(
+    "read_knowledge",
+    {
+      description:
+        "What past runs of this repo learned, one line per landed milestone that said something (land's learned). Read it before an architect plans a new run.",
+      inputSchema: { repo: z.string().min(1) },
+    },
+    async (a) => {
+      const file = knowledgeFile(a.repo);
+      return text(
+        existsSync(file) ? readFileSync(file, "utf8") : "catherd: no knowledge recorded yet for this repo",
+      );
     },
   );
 }
