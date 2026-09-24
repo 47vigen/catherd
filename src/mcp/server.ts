@@ -3,11 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { reconcileLive } from "../core/reconcile.ts";
 import { listRuns } from "../core/runstore.ts";
 import { VERSION } from "../version.ts";
+import { registerLaneTools } from "./lane-tools.ts";
 import { registerRunTools } from "./run-tools.ts";
 
 export function buildServer(): McpServer {
   const server = new McpServer({ name: "catherd", version: VERSION });
   registerRunTools(server);
+  registerLaneTools(server);
   return server;
 }
 
