@@ -1,47 +1,29 @@
 import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it, mock } from "bun:test";
 import { INTRO } from "../../src/tui/theme.ts";
-import { CatSpinner, Header, Intro, Screen } from "../../src/tui/ui.tsx";
+import { CatSpinner, DetailPane, Frame, Intro, ListLine } from "../../src/tui/ui.tsx";
 import { PLAIN, press, tick, UI, widest } from "./helpers.ts";
 
-describe("Header", () => {
-  it("puts the conductor cat beside the wordmark and the title", async () => {
+describe("Wordmark (via Intro)", () => {
+  it("plays the wordmark reveal and shows the herding copy beneath it", async () => {
+    const onDone = mock();
     const { renderOnce, captureCharFrame } = await testRender(
-      <Header ui={UI} mood="good" title="profiles · default" />,
-      {
-        width: 80,
-        height: 5,
-      },
+      <Intro ui={{ ...UI, reducedMotion: false }} onDone={onDone} />,
+      { width: 80, height: 5 },
     );
     await renderOnce();
     const frame = captureCharFrame();
-    expect(frame).toMatchSnapshot();
-    expect(frame).toContain("(=^.^=)/");
-    expect(frame).toContain("catherd");
-    expect(frame).toContain("profiles · default");
-  });
-
-  it("still spells the wordmark through the true-colour gradient", async () => {
-    const { renderOnce, captureCharFrame } = await testRender(
-      <Header ui={{ ...UI, depth: 24 }} mood="working" title="t" />,
-      {
-        width: 80,
-        height: 5,
-      },
-    );
-    await renderOnce();
-    const frame = captureCharFrame();
-    expect(frame).toContain("catherd");
-    expect(frame).toContain("=o.o=");
+    expect(frame).toContain("(=-.-=)/");
+    expect(frame).toContain("herding");
   });
 
   it("falls back to ASCII under --plain", async () => {
-    const { renderOnce, captureCharFrame } = await testRender(<Header ui={PLAIN} mood="landed" title="t" />, {
+    const { renderOnce, captureCharFrame } = await testRender(<Intro ui={PLAIN} onDone={mock()} />, {
       width: 80,
       height: 5,
     });
     await renderOnce();
-    expect(captureCharFrame()).toContain("=^w^=");
+    expect(captureCharFrame()).toMatch(/^[\x20-\x7e\n]*$/);
   });
 });
 
@@ -111,15 +93,78 @@ describe("Intro", () => {
   });
 });
 
-describe("Screen", () => {
-  it("cuts every line at 80 columns", async () => {
+describe("Frame", () => {
+  it("sets the title into the panel border, and draws the hint below it", async () => {
     const { renderOnce, captureCharFrame } = await testRender(
-      <Screen>
-        <Header ui={UI} mood="good" title={"x".repeat(200)} />
-      </Screen>,
-      { width: 120, height: 5 },
+      <Frame ui={UI} title="catherd" hint="↑↓ navigate   q quit">
+        <text>hello</text>
+      </Frame>,
+      { width: 80, height: 10 },
     );
     await renderOnce();
-    expect(widest(captureCharFrame())).toBeLessThanOrEqual(80);
+    const frame = captureCharFrame();
+    expect(frame).toContain("catherd");
+    expect(frame).toContain("hello");
+    expect(frame).toContain("↑↓ navigate   q quit");
+  });
+
+  it("draws an ASCII border under --plain", async () => {
+    const { renderOnce, captureCharFrame } = await testRender(
+      <Frame ui={PLAIN} title="catherd" hint="q quit">
+        <text>hello</text>
+      </Frame>,
+      { width: 80, height: 10 },
+    );
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toMatch(/^[\x20-\x7e\n]*$/);
+    expect(frame).toContain("+");
+  });
+
+  it("fills 80 columns exactly, and widens past it on a bigger terminal", async () => {
+    const at80 = await testRender(
+      <Frame ui={UI} title="t" hint="h">
+        <text>x</text>
+      </Frame>,
+      { width: 80, height: 10 },
+    );
+    await at80.renderOnce();
+    expect(widest(at80.captureCharFrame())).toBe(80);
+
+    const at120 = await testRender(
+      <Frame ui={UI} title="t" hint="h">
+        <text>x</text>
+      </Frame>,
+      { width: 120, height: 10 },
+    );
+    await at120.renderOnce();
+    expect(widest(at120.captureCharFrame())).toBe(120);
+  });
+});
+
+describe("DetailPane and ListLine", () => {
+  it("shows an accent title, a dim subtitle, and a selected row with its marker", async () => {
+    const { renderOnce, captureCharFrame } = await testRender(
+      <DetailPane ui={UI} title="SELECTED ACTION" subtitle="one line">
+        <ListLine ui={UI} selected text="Profile" />
+        <ListLine ui={UI} selected={false} text="Watch runs" />
+      </DetailPane>,
+      { width: 80, height: 10 },
+    );
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("SELECTED ACTION");
+    expect(frame).toContain("one line");
+    expect(frame).toContain("▶ Profile");
+    expect(frame).toContain("Watch runs");
+  });
+
+  it("uses > for the selected marker under --plain", async () => {
+    const { renderOnce, captureCharFrame } = await testRender(
+      <ListLine ui={PLAIN} selected text="Profile" />,
+      { width: 80, height: 2 },
+    );
+    await renderOnce();
+    expect(captureCharFrame()).toContain("> Profile");
   });
 });

@@ -2,7 +2,7 @@ import { WriteStream } from "node:tty";
 import type { HarnessCost } from "../core/harness.ts";
 
 export type Mood = "good" | "working" | "waiting" | "failed" | "landed";
-export type Tone = "ginger" | "cream" | "charcoal" | "pink";
+export type Tone = "ginger" | "cream" | "charcoal" | "pink" | "green" | "amber" | "red";
 /** Node's getColorDepth: 1 none, 4 sixteen, 8 256, 24 true colour. */
 export type Depth = 1 | 4 | 8 | 24;
 
@@ -19,7 +19,13 @@ const TONES: Record<Tone, string> = {
   cream: "#F5E6C8",
   charcoal: "#4A4340",
   pink: "#FF6FA5",
+  green: "#8FBF6A",
+  amber: "#E0A63E",
+  red: "#D9636A",
 };
+
+/** The one accent colour: headings and the selected-row bar. Everything else stays neutral or dim. */
+export const ACCENT: Tone = "pink";
 
 export const GRADIENT: string[] = [TONES.ginger, TONES.pink];
 
@@ -49,14 +55,15 @@ export function face(mood: Mood, plain: boolean): string {
 }
 
 const GLYPHS = {
-  on: ["🐾", "[x]"],
-  off: ["○ ", "[ ]"],
+  on: ["●", "*"],
+  off: ["○", "o"],
   cat: ["🐈", "*"],
+  paw: ["🐾", ""],
   dot: ["·", "-"],
   more: ["…", "..."],
   open: ["▾", "v"],
   shut: ["▸", ">"],
-  cursor: ["❯", ">"],
+  cursor: ["▶", ">"],
   arrow: ["→", "->"],
   keys: ["↑↓", "up/down"],
   swap: ["⇄", "<->"],
@@ -67,6 +74,21 @@ export const GLYPH_NAMES = Object.keys(GLYPHS) as Glyph[];
 
 export function glyph(g: Glyph, plain: boolean): string {
   return GLYPHS[g][plain ? 1 : 0];
+}
+
+/** Ready/warn/missing status, painted with the same two shapes `on`/`off` toggles use — a
+ * warning is still a "filled" dot (amber instead of green), missing is the hollow one (red).
+ * ponytail: --plain collapses warn into the ready glyph (a star), the spec's ASCII table only
+ * names two dot characters, star and o; upgrade to a three-way ASCII split if that ever matters. */
+export type DotState = "ready" | "warn" | "missing";
+const DOT_TONE: Record<DotState, Tone> = { ready: "green", warn: "amber", missing: "red" };
+
+export function dot(state: DotState, plain: boolean): string {
+  return glyph(state === "missing" ? "off" : "on", plain);
+}
+
+export function dotTint(state: DotState, depth: Depth): string | undefined {
+  return tint(DOT_TONE[state], depth);
 }
 
 /** The conductor: ears, a face that follows the mood, a raised baton, paws. */
@@ -112,6 +134,19 @@ export function costNote(h: HarnessCost): string {
   if (h.extraPerRun !== null) return `customizations ${kTokens(h.extraPerRun)} tokens/run`;
   if (h.nativeMedian !== null) return `native ${kTokens(h.nativeMedian)} tokens/run`;
   return h.isolatedMedian !== null ? `isolated ${kTokens(h.isolatedMedian)} tokens/run` : "";
+}
+
+/** The profile editor's HARNESS detail: the native/isolated choice plus what it costs, falling
+ * back to the static hint (`HARNESS_HINT`) until a run has recorded a real cost. */
+export function harnessLine(
+  backend: "codex" | "opencode",
+  isolated: boolean,
+  cost: HarnessCost | undefined,
+  plain: boolean,
+): string {
+  const mode = isolated ? "isolated" : "native";
+  const note = (cost && costNote(cost)) || HARNESS_HINT[backend];
+  return `${mode} ${glyph("dot", plain)} ${note}`;
 }
 
 export function clock(secs: number): string {

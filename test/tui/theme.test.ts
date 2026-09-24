@@ -5,10 +5,13 @@ import {
   clock,
   costNote,
   detectUi,
+  dot,
+  dotTint,
   FACES,
   face,
   GLYPH_NAMES,
   glyph,
+  harnessLine,
   HARNESS_HINT,
   HERDING,
   herdLine,
@@ -21,7 +24,7 @@ import {
 } from "../../src/tui/theme.ts";
 
 const ascii = /^[\x20-\x7e]*$/;
-const TONES = ["ginger", "cream", "charcoal", "pink"] as const;
+const TONES = ["ginger", "cream", "charcoal", "pink", "green", "amber", "red"] as const;
 
 describe("theme", () => {
   it("has one face per state, verbatim from the spec", () => {
@@ -40,11 +43,40 @@ describe("theme", () => {
     expect(face("landed", true)).toBe("=^w^=");
   });
 
-  it("uses a paw for ticked and a circle for empty, of equal width so columns line up", () => {
-    expect(glyph("on", false)).toBe("🐾");
-    expect(glyph("off", false).trim()).toBe("○");
+  it("uses a filled dot for ticked and a hollow one for empty, of equal width so columns line up", () => {
+    expect(glyph("on", false)).toBe("●");
+    expect(glyph("off", false)).toBe("○");
     expect(stringWidth(glyph("on", false))).toBe(stringWidth(glyph("off", false)));
-    expect([glyph("on", true), glyph("off", true)]).toEqual(["[x]", "[ ]"]);
+    expect([glyph("on", true), glyph("off", true)]).toEqual(["*", "o"]);
+  });
+
+  it("paints ready/warn as the filled dot and missing as the hollow one, in green/amber/red", () => {
+    expect(dot("ready", false)).toBe("●");
+    expect(dot("warn", false)).toBe("●");
+    expect(dot("missing", false)).toBe("○");
+    expect([dot("ready", true), dot("warn", true), dot("missing", true)]).toEqual(["*", "*", "o"]);
+    expect(dotTint("ready", 24)).toBe(tint("green", 24));
+    expect(dotTint("warn", 24)).toBe(tint("amber", 24));
+    expect(dotTint("missing", 24)).toBe(tint("red", 24));
+    expect(dotTint("ready", 1)).toBeUndefined();
+  });
+
+  it("only the wordmark keeps a paw glyph, and only outside --plain", () => {
+    expect(glyph("paw", false)).toBe("🐾");
+    expect(glyph("paw", true)).toBe("");
+  });
+
+  it("lines up the harness's native/isolated choice with what it costs", () => {
+    expect(harnessLine("codex", false, undefined, false)).toBe(`native · ${HARNESS_HINT.codex}`);
+    const cost = {
+      backend: "codex" as const,
+      nativeRuns: 1,
+      isolatedRuns: 1,
+      nativeMedian: 40_000,
+      isolatedMedian: null,
+      extraPerRun: null,
+    };
+    expect(harnessLine("codex", true, cost, false)).toBe("isolated · native ~40k tokens/run");
   });
 
   it("draws a three-line cat of even width whose face follows the mood", () => {

@@ -1,11 +1,137 @@
+import type { BorderCharacters } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useState } from "react";
-import { GRADIENT, glyph, herdLine, INTRO, type Mood, mascot, SPINNER, tint, type Ui } from "./theme.ts";
+import {
+  ACCENT,
+  GRADIENT,
+  glyph,
+  herdLine,
+  INTRO,
+  type Mood,
+  mascot,
+  SPINNER,
+  tint,
+  type Ui,
+} from "./theme.ts";
 
-export function Screen({ children }: { children: ReactNode }) {
+/** --plain's border: no box-drawing characters, just `+ - |` (spec: "ASCII borders"). */
+const ASCII_BORDER: BorderCharacters = {
+  topLeft: "+",
+  topRight: "+",
+  bottomLeft: "+",
+  bottomRight: "+",
+  horizontal: "-",
+  vertical: "|",
+  topT: "+",
+  bottomT: "+",
+  leftT: "+",
+  rightT: "+",
+  cross: "+",
+};
+
+/** Every screen's chrome: a bordered panel with its title set into the top border, and a short
+ * key-hint line outside and below it (so the hint never competes with the border for space). */
+export function Frame({
+  ui,
+  title,
+  hint,
+  above,
+  children,
+}: {
+  ui: Ui;
+  title: string;
+  hint: string;
+  above?: ReactNode;
+  children: ReactNode;
+}) {
   const { width } = useTerminalDimensions();
-  return <box style={{ flexDirection: "column", width: Math.min(width || 80, 80) }}>{children}</box>;
+  const w = Math.max(width || 80, 80);
+  const accent = tint(ACCENT, ui.depth);
+  return (
+    <box style={{ flexDirection: "column", width: w }}>
+      {above}
+      <box
+        style={{ flexDirection: "column", width: w, paddingLeft: 1, paddingRight: 1 }}
+        border
+        borderStyle={ui.plain ? "single" : "rounded"}
+        customBorderChars={ui.plain ? ASCII_BORDER : undefined}
+        borderColor={accent}
+        title={title}
+        titleColor={accent}
+        titleAlignment="left"
+      >
+        {children}
+      </box>
+      <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
+        {hint}
+      </text>
+    </box>
+  );
+}
+
+/** The right pane: a slightly lighter surface than the panel, with an uppercase accent title,
+ * a dim one-line subtitle, and whatever detail rows the caller has for the selected item. */
+export function DetailPane({
+  ui,
+  title,
+  subtitle,
+  children,
+}: {
+  ui: Ui;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <box
+      style={{ flexDirection: "column", flexGrow: 1, paddingLeft: 1 }}
+      backgroundColor={ui.plain ? undefined : tint("charcoal", ui.depth)}
+    >
+      <text fg={tint(ACCENT, ui.depth)} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+        {title}
+      </text>
+      <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
+        {subtitle}
+      </text>
+      <text> </text>
+      {children}
+    </box>
+  );
+}
+
+/** One row of a left-pane list: a filled accent bar with a ▶ marker when selected, plain
+ * otherwise; `tag` is a dim trailing value (e.g. a role's "off", a rung's rung id). */
+export function ListLine({
+  ui,
+  selected,
+  dim,
+  text,
+  tag,
+}: {
+  ui: Ui;
+  selected: boolean;
+  dim?: boolean;
+  text: string;
+  tag?: string | null;
+}) {
+  const accent = tint(ACCENT, ui.depth);
+  const filled = selected && !ui.plain;
+  return (
+    <box style={{ flexDirection: "row", width: "100%" }} backgroundColor={filled ? accent : undefined}>
+      <text
+        wrapMode="none"
+        truncate
+        fg={filled ? tint("charcoal", ui.depth) : undefined}
+        attributes={(selected ? TextAttributes.BOLD : 0) | (dim && !selected ? TextAttributes.DIM : 0)}
+      >
+        {selected ? glyph("cursor", ui.plain) : " "} {text}
+        {tag ? (
+          <span attributes={filled ? TextAttributes.BOLD : TextAttributes.DIM}>{`  ${tag}`}</span>
+        ) : null}
+      </text>
+    </box>
+  );
 }
 
 const hex = (h: string): [number, number, number] => [
@@ -24,16 +150,21 @@ export function gradientLetters(word: string): { ch: string; fg: string }[] {
   });
 }
 
-export function Header({
+/** The cat, and the wordmark it carries: `word` gradient-lettered where colour is available,
+ * an optional `suffix` on the same line (the dashboard's version number), and an optional
+ * second `subtitle` line (the intro's herding copy). Only place the 🐾 glyph still appears. */
+export function Wordmark({
   ui,
   mood,
-  title,
   word = "catherd",
+  suffix,
+  subtitle,
 }: {
   ui: Ui;
   mood: Mood;
-  title: string;
   word?: string;
+  suffix?: string;
+  subtitle?: string;
 }) {
   const [ears, head, paws] = mascot(mood, ui.plain);
   const ginger = tint("ginger", ui.depth);
@@ -45,24 +176,22 @@ export function Header({
         <text fg={ginger}>{paws}</text>
       </box>
       <box style={{ flexDirection: "column", flexGrow: 1, overflow: "hidden" }}>
-        {ui.depth >= 8 && word ? (
-          <text attributes={TextAttributes.BOLD}>
-            {gradientLetters(word).map((s, i) => (
-              // biome-ignore lint: index key is stable, the wordmark never reorders
-              <span key={i} fg={s.fg}>
-                {s.ch}
-              </span>
-            ))}
-          </text>
-        ) : (
-          <text fg={ginger} attributes={TextAttributes.BOLD}>
-            {word || " "}
-          </text>
-        )}
-        <text fg={tint("cream", ui.depth)}>herds coding agents</text>
-        <text fg={tint("pink", ui.depth)} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
-          {title}
+        <text wrapMode="none" truncate attributes={TextAttributes.BOLD}>
+          {ui.depth >= 8 && word
+            ? gradientLetters(word).map((s, i) => (
+                // biome-ignore lint: index key is stable, the wordmark never reorders
+                <span key={i} fg={s.fg}>
+                  {s.ch}
+                </span>
+              ))
+            : (word ?? " ")}
+          {suffix ? <span attributes={TextAttributes.DIM}>{`  ${suffix}`}</span> : null}
         </text>
+        {subtitle ? (
+          <text fg={tint("pink", ui.depth)} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+            {subtitle}
+          </text>
+        ) : null}
       </box>
     </box>
   );
@@ -100,5 +229,5 @@ export function Intro({ ui, onDone }: { ui: Ui; onDone: () => void }) {
   }, [step]);
   const mood: Mood = step < 2 ? "waiting" : step < INTRO.steps ? "working" : "good";
   const word = "catherd".slice(0, Math.round((7 * step) / INTRO.steps));
-  return <Header ui={ui} mood={mood} title={herdLine(step, ui.plain)} word={word} />;
+  return <Wordmark ui={ui} mood={mood} word={word} subtitle={herdLine(step, ui.plain)} />;
 }
