@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"t-two"}
+{"type":"turn.started"}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":10}}
+{"type":"turn.started"}
+{"type":"turn.completed","usage":{"input_tokens":200,"cached_input_tokens":150,"output_tokens":20}}
