@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/47vigen/catherd.git"
+    "url": "git+https://github.com/47vigen/catherd.git"
   },
   "bin": {
     "catherd": "src/cli.ts"
