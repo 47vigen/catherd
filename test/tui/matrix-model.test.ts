@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { defaultProfile } from "../../src/profile/profile.ts";
 import {
+  enabledFailoverRungs,
+  failoverOptions,
   isTicked,
   nextLock,
   readySet,
@@ -30,7 +32,7 @@ function profileOf(t: Toggled) {
 }
 
 describe("matrix model", () => {
-  it("lists one row per role, then the objective, the lock and the notify moments", () => {
+  it("lists one row per role, then objective, lock, budget, failover and the notify moments", () => {
     expect(rows(defaultProfile(), c, new Set()).map(rowId)).toEqual([
       "role:architect",
       "role:verifier",
@@ -42,6 +44,13 @@ describe("matrix model", () => {
       "role:researcher",
       "objective",
       "lock",
+      "budget:minutes",
+      "budget:tokens",
+      "budget:usd",
+      "failover:gpt-6-luna#high",
+      "failover:gpt-6-sol#high",
+      "failover:gpt-6-sol#medium",
+      "failover:gpt-6-sol#xhigh",
       "notify:milestone",
       "notify:finish",
       "notify:blocked",
@@ -165,6 +174,42 @@ describe("matrix model", () => {
 
   it("offers only capable scored rungs as a treat-like", () => {
     expect(treatLikeOptions(c, "artist")).toEqual(["gpt-6-sol#medium", "gpt-6-sol#high", "gpt-6-sol#xhigh"]);
+  });
+
+  it("collects one failover row per enabled codex/opencode rung, unique and sorted", () => {
+    expect(enabledFailoverRungs(defaultProfile(), c)).toEqual([
+      "gpt-6-luna#high",
+      "gpt-6-sol#high",
+      "gpt-6-sol#medium",
+      "gpt-6-sol#xhigh",
+    ]);
+  });
+
+  it("drops a rung's failover row once no enabled role ticks it any more", () => {
+    const p = structuredClone(defaultProfile());
+    delete p.roles.writer.models["gpt-6-luna"];
+    delete p.roles.researcher.models["gpt-6-luna"];
+    p.roles.worker.models["gpt-6-luna"] = [];
+    expect(enabledFailoverRungs(p, c)).not.toContain("gpt-6-luna#high");
+  });
+
+  it("offers a failover stand-in only from another backend", () => {
+    expect(failoverOptions(c, "gpt-6-sol#medium")).toEqual([
+      "claude-opus-5-5#high",
+      "claude-opus-5-5#low",
+      "claude-opus-5-5#medium",
+    ]);
+  });
+
+  it("offers a treat-like rung as a failover stand-in too", () => {
+    const liked = { ...c, treatLike: { "openrouter/qwen/qwen3-coder#high": "gpt-6-sol#medium" } };
+    expect(failoverOptions(liked, "gpt-6-sol#medium")).toContain("openrouter/qwen/qwen3-coder#high");
+  });
+
+  it("leaves budget and failover rows for the caller's own editor, not toggle", () => {
+    const p = defaultProfile();
+    expect(toggle(p, c, { kind: "budget", field: "minutes" }, ready)).toEqual({ profile: p });
+    expect(toggle(p, c, { kind: "failover", rung: "gpt-6-sol#medium" }, ready)).toEqual({ profile: p });
   });
 
   it("reports what is ticked", () => {

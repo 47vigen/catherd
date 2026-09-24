@@ -17,6 +17,9 @@ import type { BackendStatus } from "./backends.ts";
 export const NOTIFY: NotifyMoment[] = ["milestone", "finish", "blocked"];
 const BACKENDS: Backend[] = ["claude", "codex", "opencode"];
 
+export type BudgetField = "minutes" | "tokens" | "usd";
+export const BUDGET_FIELDS: BudgetField[] = ["minutes", "tokens", "usd"];
+
 export type Row =
   | { kind: "role"; role: Role }
   | { kind: "backend"; role: Role; backend: Backend }
@@ -25,6 +28,8 @@ export type Row =
   | { kind: "effort"; role: Role; model: CatalogModel; effort: string }
   | { kind: "objective" }
   | { kind: "lock" }
+  | { kind: "budget"; field: BudgetField }
+  | { kind: "failover"; rung: RungId }
   | { kind: "notify"; moment: NotifyMoment };
 
 export type Toggled = { profile: Profile } | { needsTreatLike: RungId } | { refused: string };
@@ -40,6 +45,10 @@ export function rowId(r: Row): string {
       return `model:${r.role}:${r.model.id}`;
     case "effort":
       return `effort:${r.role}:${rungOf(r.model.id, r.effort)}`;
+    case "budget":
+      return `budget:${r.field}`;
+    case "failover":
+      return `failover:${r.rung}`;
     case "notify":
       return `notify:${r.moment}`;
     default:
@@ -82,9 +91,37 @@ export function rows(p: Profile, c: Catalog, open: ReadonlySet<string>, filter =
   out.push(
     { kind: "objective" },
     { kind: "lock" },
+    ...BUDGET_FIELDS.map((field): Row => ({ kind: "budget", field })),
+    ...enabledFailoverRungs(p, c).map((rung): Row => ({ kind: "failover", rung })),
     ...NOTIFY.map((moment): Row => ({ kind: "notify", moment })),
   );
   return out;
+}
+
+/** spec §11b: every codex/opencode rung ticked by a currently-enabled role gets a failover row. */
+export function enabledFailoverRungs(p: Profile, c: Catalog): RungId[] {
+  const set = new Set<RungId>();
+  for (const role of ROLES) {
+    if (!p.roles[role].enabled) continue;
+    for (const rung of ticked(p, role)) {
+      const backend = modelOf(c, splitRung(rung).model)?.backend;
+      if (backend === "codex" || backend === "opencode") set.add(rung);
+    }
+  }
+  return [...set].sort();
+}
+
+/** A failover stand-in must be scored (or treat-like) and on a different backend — the same rule
+ * `validateProfile` enforces, kept in sync here so the picker only ever offers a valid choice. */
+export function failoverOptions(c: Catalog, rung: RungId): RungId[] {
+  const from = modelOf(c, splitRung(rung).model)?.backend;
+  const candidates = new Set<RungId>([...c.entries.map((e) => e.rung), ...Object.keys(c.treatLike)]);
+  return [...candidates]
+    .filter((r) => {
+      const backend = modelOf(c, splitRung(r).model)?.backend;
+      return backend !== undefined && backend !== from;
+    })
+    .sort();
 }
 
 export function isTicked(p: Profile, r: Row): boolean {
@@ -97,6 +134,9 @@ export function isTicked(p: Profile, r: Row): boolean {
       return (p.roles[r.role].models[r.model.id]?.length ?? 0) > 0;
     case "effort":
       return p.roles[r.role].models[r.model.id]?.includes(r.effort) ?? false;
+    case "budget":
+    case "failover":
+      return false;
     case "notify":
       return p.notify.includes(r.moment);
     default:
@@ -162,6 +202,10 @@ export function toggle(p: Profile, c: Catalog, r: Row, ready: ReadonlySet<Backen
       next.notify = NOTIFY.filter((m) => (m === r.moment ? !p.notify.includes(m) : p.notify.includes(m)));
       return { profile: next };
     case "backend":
+      return { profile: p };
+    case "budget":
+    case "failover":
+      // These open their own editor/picker in the Matrix component instead of toggling.
       return { profile: p };
   }
 }

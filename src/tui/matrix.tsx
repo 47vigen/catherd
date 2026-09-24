@@ -6,6 +6,8 @@ import { entryFor, saveTreatLike } from "../routing/catalog.ts";
 import { type Backend, type Catalog, type Profile, type RungId, rungOf } from "../types.ts";
 import type { BackendStatus } from "./backends.ts";
 import {
+  type BudgetField,
+  failoverOptions,
   isTicked,
   openKey,
   readySet,
@@ -36,7 +38,12 @@ export interface MatrixProps {
 }
 
 type EffortRow = Extract<Row, { kind: "effort" }>;
-type Mode = "nav" | "filter" | { row: EffortRow; rung: RungId };
+type Mode =
+  | "nav"
+  | "filter"
+  | { row: EffortRow; rung: RungId }
+  | { failover: RungId }
+  | { budgetField: BudgetField; buffer: string };
 
 export function Matrix(props: MatrixProps) {
   const {
@@ -94,7 +101,28 @@ export function Matrix(props: MatrixProps) {
   useKeyboard((key) => {
     if (!active || !here) return;
     if (typeof mode !== "string") {
-      if (key.name === "escape") setMode("nav");
+      if (key.name === "escape") {
+        setMode("nav");
+        return;
+      }
+      if ("budgetField" in mode) {
+        if (key.name === "return") {
+          const n = mode.buffer === "" ? undefined : Number(mode.buffer);
+          const next = structuredClone(profile);
+          const budget = { ...next.budget };
+          // ponytail: "1.2.3" parses to NaN and clears the cap rather than rejecting the keystroke;
+          // the digit/"." filter below already keeps the common case sane.
+          if (n === undefined || Number.isNaN(n)) delete budget[mode.budgetField];
+          else budget[mode.budgetField] = n;
+          next.budget = Object.keys(budget).length > 0 ? budget : undefined;
+          props.onChange(next);
+          setMode("nav");
+        } else if (key.name === "backspace") {
+          setMode({ ...mode, buffer: mode.buffer.slice(0, -1) });
+        } else if (key.sequence && /^[0-9.]$/.test(key.sequence)) {
+          setMode({ ...mode, buffer: mode.buffer + key.sequence });
+        }
+      }
       return;
     }
     if (mode === "filter") {
@@ -124,11 +152,55 @@ export function Matrix(props: MatrixProps) {
     else if (key.name === "space") {
       if (here.kind === "model" && !isTicked(profile, here))
         setOpen(new Set(open).add(`model:${here.role}:${here.model.id}`));
+      else if (here.kind === "budget")
+        setMode({ budgetField: here.field, buffer: String(profile.budget?.[here.field] ?? "") });
+      else if (here.kind === "failover") setMode({ failover: here.rung });
       else apply(here, catalog);
     } else if (key.sequence === "/") setMode("filter");
     else if (key.sequence === "q") props.onQuit();
     else if (key.sequence) props.onKey?.(key.sequence);
   });
+
+  if (typeof mode !== "string" && "budgetField" in mode) {
+    return (
+      <box style={{ flexDirection: "column" }}>
+        <text wrapMode="none" truncate>{`${mode.budgetField}: ${mode.buffer}_`}</text>
+        <text attributes={TextAttributes.DIM}>
+          {`digits set the cap${dot}backspace edits${dot}enter saves${dot}esc cancels${dot}empty clears it`}
+        </text>
+      </box>
+    );
+  }
+
+  if (typeof mode !== "string" && "failover" in mode) {
+    return (
+      <box style={{ flexDirection: "column" }}>
+        <text wrapMode="none" truncate>
+          {`Stand-in for ${mode.failover} on a quota limit:`}
+        </text>
+        <select
+          focused
+          showDescription={false}
+          style={{ height: 8 }}
+          options={[
+            { name: "(none)", description: "", value: "" },
+            ...failoverOptions(catalog, mode.failover).map((r) => ({ name: r, description: "", value: r })),
+          ]}
+          onSelect={(_, option) => {
+            if (!option) return;
+            const next = structuredClone(profile);
+            const failover = { ...next.failover };
+            if (option.value) failover[mode.failover] = option.value as RungId;
+            else delete failover[mode.failover];
+            next.failover = Object.keys(failover).length > 0 ? failover : undefined;
+            props.onChange(next);
+            setMode("nav");
+          }}
+        />
+        <text attributes={TextAttributes.DIM}>{`enter picks${dot}esc cancels`}</text>
+      </box>
+    );
+  }
 
   if (typeof mode !== "string") {
     return (
@@ -217,6 +289,22 @@ export function Matrix(props: MatrixProps) {
         };
       case "lock":
         return { text: `heavy slots   ${profile.lock.heavy}  (for catherd lock)`, dim: false, tag: null };
+      case "budget": {
+        const v = profile.budget?.[r.field];
+        return {
+          text: `${`budget ${r.field}`.padEnd(14)}${v === undefined ? "no cap" : v}`,
+          dim: false,
+          tag: null,
+        };
+      }
+      case "failover": {
+        const to = profile.failover?.[r.rung];
+        return {
+          text: `${`failover ${shortRung(r.rung)}`.padEnd(28)}${to ? `${glyph("arrow", ui.plain)} ${shortRung(to)}` : "no stand-in"}`,
+          dim: false,
+          tag: null,
+        };
+      }
       case "notify":
         return {
           text: `${box(profile.notify.includes(r.moment))} notify on ${r.moment}`,
