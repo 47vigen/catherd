@@ -8,9 +8,8 @@ Two things a plain-text dump cannot show:
 
 - **Colour.** `captureCharFrame()` returns characters only, no ANSI codes, so the ginger-to-pink
   wordmark gradient and the ginger/cream/pink tints all render as plain text here. They are
-  covered separately: `test/tui/theme.test.ts` checks `tint()`'s hex output, and Task 12's manual
-  colour-depth check (`docs/manual-tests.md`, if the plugin bundle covers it, or run the `for e in
-  ...` loop from the plan by hand) checks the real ANSI codes in a pty.
+  covered separately: `test/tui/theme.test.ts` checks `tint()`'s hex output, and a manual pty
+  run (`bun src/cli.ts watch`) shows the real ANSI codes — verified once by hand for this doc.
 - **The `init` intro.** Every frame below has the intro force-skipped (`reducedMotion: true`
   regardless of the section's own mode), landing straight on the Jev key prompt; the intro's own
   6-frame wordmark reveal is covered by `test/tui/ui.test.tsx`'s `Intro` tests instead, since a
@@ -27,7 +26,7 @@ Two things a plain-text dump cannot show:
 profile default 1/1 (active) · p next · n new · c copy · x delete
 ❯ ▸ 🐾 architect   claude-opus-5-5#high
   ▸ 🐾 verifier    claude-opus-5-5#low
-  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh
+  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   ▸ 🐾 reviewer    sol#high
   ▸ 🐾 ui-reviewer sol#medium
   ▸ 🐾 artist      sol#medium
@@ -35,9 +34,10 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  🐾 notify on milestone
-  🐾 notify on finish
-  🐾 notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
 
@@ -51,7 +51,7 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
 profile default 1/1 (active) · p next · n new · c copy · x delete
 ❯ ▸ 🐾 architect   claude-opus-5-5#high
   ▸ 🐾 verifier    claude-opus-5-5#low
-  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh
+  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   ▸ 🐾 reviewer    sol#high
   ▸ 🐾 ui-reviewer sol#medium
   ▸ 🐾 artist      sol#medium
@@ -59,9 +59,10 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  🐾 notify on milestone
-  🐾 notify on finish
-  🐾 notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
 
@@ -75,7 +76,7 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
 profile default 1/1 (active) - p next - n new - c copy - x delete
 > > [x] architect   claude-opus-5-5#high
   > [x] verifier    claude-opus-5-5#low
-  > [x] worker      luna#high, sol#medium, sol#high, sol#xhigh
+  > [x] worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   > [x] reviewer    sol#high
   > [x] ui-reviewer sol#medium
   > [x] artist      sol#medium
@@ -83,9 +84,10 @@ profile default 1/1 (active) - p next - n new - c copy - x delete
   > [x] researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  [x] notify on milestone
-  [x] notify on finish
-  [x] notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
 up/down move - -> open - space ticks - / filter - enter save - q quit
 ```
 
@@ -99,7 +101,7 @@ up/down move - -> open - space ticks - / filter - enter save - q quit
 profile default 1/1 (active) - p next - n new - c copy - x delete
 > > [x] architect   claude-opus-5-5#high
   > [x] verifier    claude-opus-5-5#low
-  > [x] worker      luna#high, sol#medium, sol#high, sol#xhigh
+  > [x] worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   > [x] reviewer    sol#high
   > [x] ui-reviewer sol#medium
   > [x] artist      sol#medium
@@ -107,9 +109,10 @@ profile default 1/1 (active) - p next - n new - c copy - x delete
   > [x] researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  [x] notify on milestone
-  [x] notify on finish
-  [x] notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
 up/down move - -> open - space ticks - / filter - enter save - q quit
 ```
 
@@ -123,7 +126,7 @@ up/down move - -> open - space ticks - / filter - enter save - q quit
 profile default 1/1 (active) · p next · n new · c copy · x delete
 ❯ ▸ 🐾 architect   claude-opus-5-5#high
   ▸ 🐾 verifier    claude-opus-5-5#low
-  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh
+  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   ▸ 🐾 reviewer    sol#high
   ▸ 🐾 ui-reviewer sol#medium
   ▸ 🐾 artist      sol#medium
@@ -131,9 +134,10 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  🐾 notify on milestone
-  🐾 notify on finish
-  🐾 notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
 
@@ -147,7 +151,7 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
 profile default 1/1 (active) · p next · n new · c copy · x delete
 ❯ ▸ 🐾 architect   claude-opus-5-5#high
   ▸ 🐾 verifier    claude-opus-5-5#low
-  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh
+  ▸ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
   ▸ 🐾 reviewer    sol#high
   ▸ 🐾 ui-reviewer sol#medium
   ▸ 🐾 artist      sol#medium
@@ -155,9 +159,70 @@ profile default 1/1 (active) · p next · n new · c copy · x delete
   ▸ 🐾 researcher  luna#high
   objective     cost  (cheapest rung first)
   heavy slots   cpus/2  (for catherd lock)
-  🐾 notify on milestone
-  🐾 notify on finish
-  🐾 notify on blocked
+  budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
+↑↓ move · → open · space ticks · / filter · enter save · q quit
+```
+
+## The editor, worker expanded — codex and opencode backends, each with its harness toggle
+
+Both backends come from the catalog alone (harness rows do not depend on what is ticked); the
+worker's own ticks span both, which is also what makes the failover row below have a stand-in.
+
+### normal, 100x24
+
+```
+ /\_/\  .  catherd
+(=^.^=)/   herds coding agents
+ (")(")    profiles · default
+
+profile default 1/1 (active) · p next · n new · c copy · x delete
+  ▸ 🐾 architect   claude-opus-5-5#high
+  ▸ 🐾 verifier    claude-opus-5-5#low
+❯ ▾ 🐾 worker      luna#high, sol#medium, sol#high, sol#xhigh, qwen3-coder#high
+      claude
+        ▸ ○  claude-opus-5-5
+      codex
+        codex: [native] ⇄ isolated
+        ▸ 🐾 gpt-6-sol  medium high xhigh
+        ▸ 🐾 gpt-6-luna  high
+      opencode
+        opencode: [native] ⇄ isolated
+        ▸ 🐾 openrouter/qwen/qwen3-coder  high
+  ▸ 🐾 reviewer    sol#high
+  ▸ 🐾 ui-reviewer sol#medium
+↑↓ move · → open · space ticks · / filter · enter save · q quit
+```
+
+## The editor, scrolled to budget caps and the failover stand-in
+
+`gpt-6-sol#medium` fails over to the opencode `qwen3-coder` rung, treated like `gpt-6-sol#medium`
+so it is scored; the budget shows the 30 min / 500000 token / $5 caps this profile set.
+
+### normal, 100x24
+
+```
+ /\_/\  .  catherd
+(=^.^=)/   herds coding agents
+ (")(")    profiles · default
+
+profile default 1/1 (active) · p next · n new · c copy · x delete
+  ▸ 🐾 reviewer    sol#high
+  ▸ 🐾 ui-reviewer sol#medium
+  ▸ 🐾 artist      sol#medium
+  ▸ 🐾 writer      luna#high
+  ▸ 🐾 researcher  luna#high
+  objective     cost  (cheapest rung first)
+  heavy slots   cpus/2  (for catherd lock)
+❯ budget minutes30
+  budget tokens 500000
+  budget usd    5
+  failover luna#high          no stand-in
+  failover sol#high           no stand-in
+  failover sol#medium         → qwen3-coder#high
+  failover sol#xhigh          no stand-in
 ↑↓ move · → open · space ticks · / filter · enter save · q quit
 ```
 
