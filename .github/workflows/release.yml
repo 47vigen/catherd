@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+      # OIDC trusted publishing needs a recent npm; no NPM_TOKEN is used.
+      - run: npm install -g npm@latest
+      - run: bun install --frozen-lockfile
+      - uses: changesets/action@v2
+        with:
+          version: bun run version-packages
+          publish: bunx changeset publish
+          title: "chore: release catherd"
+          commit: "chore: release catherd"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

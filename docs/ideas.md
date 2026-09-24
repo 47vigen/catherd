@@ -10,7 +10,7 @@ Listed so they are not re-proposed:
 - Every run record carries its rung (`model#effort`), so effort is measurable per run (spec §7).
 - The UI pass covers changed screens only; findings carry screenshot paths; the orchestrator opens an image only to decide (spec §10).
 
-- Per-profile, per-harness isolation toggle, default off: spec §8.2 (added 2026-09-24 at Vigen's request).
+- Per-profile, per-harness isolation toggle, default off: spec §8.2 (added 2026-09-24).
 - Quota failover, preflight, per-repo knowledge and run budget: spec §11b (chosen for v1 on 2026-09-24).
 
 ## Open

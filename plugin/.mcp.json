@@ -2,7 +2,7 @@
   "mcpServers": {
     "catherd": {
       "command": "bunx",
-      "args": ["catherd@0.0.0", "mcp"]
+      "args": ["catherd@0.1.0", "mcp"]
     }
   }
 }

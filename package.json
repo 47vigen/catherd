@@ -1,6 +1,6 @@
 {
   "name": "catherd",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Herds coding agents: autopilot builds from your own Claude Code session.",
   "license": "MIT",
   "repository": {
