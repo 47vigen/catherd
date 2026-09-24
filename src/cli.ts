@@ -3,6 +3,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineCommand, runMain } from "citty";
 import { lockCommand } from "./core/lock.ts";
+import { catalogCommand } from "./routing/commands.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
@@ -10,7 +11,7 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 
 export const main = defineCommand({
   meta: { name: "catherd", version: pkg.version, description: "Herds coding agents." },
-  subCommands: { lock: lockCommand },
+  subCommands: { lock: lockCommand, catalog: catalogCommand },
 });
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
