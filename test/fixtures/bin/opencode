@@ -1,0 +1,21 @@
+#!/usr/bin/env bun
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+if (process.env.FAKE_OC_CALLS) appendFileSync(process.env.FAKE_OC_CALLS, `${JSON.stringify(args)}\n`);
+if (args[0] === "api") {
+  const [, method, path] = args;
+  if (method === "GET" && /\/message$/.test(path ?? "")) {
+    // Verified live on opencode 2.0.15: .data is newest-first; idle iff data[0].type === "idle".
+    process.stdout.write(process.env.FAKE_OC_BUSY ? '{"data":[{"type":"assistant"}]}' : '{"data":[{"type":"idle"}]}');
+  } else if (method === "GET") {
+    process.stdout.write(JSON.stringify({ data: { cost: Number(process.env.FAKE_OC_COST || 0) } }));
+  }
+  process.exit(0);
+}
+if (process.env.FAKE_OC_ENV) {
+  writeFileSync(process.env.FAKE_OC_ENV, JSON.stringify({ xdgConfigHome: process.env.XDG_CONFIG_HOME ?? null }));
+}
+if (process.env.FAKE_OC_TOUCH) writeFileSync(process.env.FAKE_OC_TOUCH, "changed by fake opencode");
+if (process.env.FAKE_OC_EVENTS) process.stdout.write(readFileSync(process.env.FAKE_OC_EVENTS, "utf8"));
+setTimeout(() => process.exit(Number(process.env.FAKE_OC_EXIT || 0)), Number(process.env.FAKE_OC_HANG_MS || 0));

@@ -33,6 +33,22 @@ immediately: the child kept running, was reparented to pid 1, and wrote its mark
 parent had already exited. Raw fd stdio (from `openSync`) is honoured as a real file, not a pipe
 through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
 
+## opencode CLI check (Task 6, step 1), verified live against opencode 2.0.15
+
+- `opencode run --help` matches the plan's flags exactly: `--standalone`, `--format json`, `-m`,
+  `--agent`, `--auto`, `-s`. No renaming needed.
+- `--standalone` plus an empty `XDG_CONFIG_HOME` runs a real turn end-to-end (confirmed with a
+  live `opencode/space-bunny-free` call): JSON events on stdout, a `sessionID` on every event.
+- `opencode api GET /api/session/<id>` returns `.data.cost` for both a native session and one
+  created under `--standalone`, because only the *config* dir is isolated — the session database
+  is in opencode's *data* dir, which stays shared. So `costUsd` is never `null` for isolated runs.
+- **Deviation from the busy-check text above:** on 2.0.15, `GET /api/session/<id>/message` never
+  contains the string `"status":"running"` — verified live by polling mid-tool-call. The busy
+  signal is structural: `.data` is newest-first, and the session is idle iff `data[0].type ===
+  "idle"`; while a tool streams, `data[0]` is the assistant message instead. `runOpencode`'s busy
+  check parses JSON and reads `data[0]?.type` rather than substring-matching `"status":"running"`,
+  and the fake `opencode`/tests use that same shape.
+
 ## Dropped from the Node-toolchain plan (OVERRIDES)
 
 - xdg-basedir — no release since 2021; `src/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself

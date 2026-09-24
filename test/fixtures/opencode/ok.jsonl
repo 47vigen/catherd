@@ -1,0 +1,3 @@
+{"type":"step_start","sessionID":"ses_ok1","part":{"type":"step-start"}}
+{"type":"tool_use","sessionID":"ses_ok1","part":{"tool":"edit","state":{"status":"completed"}}}
+{"type":"text","sessionID":"ses_ok1","part":{"text":"Changed a.ts.\nSTATUS: complete — done"}}
