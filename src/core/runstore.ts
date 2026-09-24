@@ -5,11 +5,12 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { dataDir, runsRoot } from "../paths.ts";
-import type { RunMeta, RunRecord, StateSnapshot } from "../types.ts";
+import type { Role, RungId, RunMeta, RunRecord, StateSnapshot } from "../types.ts";
 
 export interface Run {
   dir: string;
@@ -127,4 +128,36 @@ export function writeState(dir: string, s: StateSnapshot): void {
 
 export function appendLedger(dir: string, row: string): void {
   appendFileSync(join(dir, "ledger.md"), `${row}\n`);
+}
+
+export interface LiveMarker {
+  name: string;
+  role: Role;
+  backend: "codex" | "opencode";
+  rung: RungId;
+  pid: number;
+  thread: string | null;
+  startedAt: string;
+  cwd: string;
+  ownedFiles: string[];
+  isolated: boolean;
+  before: Record<string, string>;
+}
+
+const livePath = (dir: string, name: string) => join(dir, "roles", `${name}.live.json`);
+
+export function writeLive(dir: string, m: LiveMarker): void {
+  writeFileSync(livePath(dir, m.name), JSON.stringify(m));
+}
+
+export function clearLive(dir: string, name: string): void {
+  rmSync(livePath(dir, name), { force: true });
+}
+
+export function readLive(dir: string): LiveMarker[] {
+  const roles = join(dir, "roles");
+  if (!existsSync(roles)) return [];
+  return readdirSync(roles)
+    .filter((f) => f.endsWith(".live.json"))
+    .map((f) => JSON.parse(readFileSync(join(roles, f), "utf8")) as LiveMarker);
 }

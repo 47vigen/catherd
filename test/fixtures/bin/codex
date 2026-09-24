@@ -1,0 +1,28 @@
+#!/usr/bin/env bun
+import { fstatSync, readFileSync, writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+let stdin = "";
+try {
+  stdin = readFileSync(0, "utf8");
+} catch {
+  // no stdin attached
+}
+if (process.env.FAKE_CODEX_ARGS) {
+  writeFileSync(
+    process.env.FAKE_CODEX_ARGS,
+    JSON.stringify({
+      args,
+      stdin,
+      codexHome: process.env.CODEX_HOME ?? null,
+      stdoutIsFile: fstatSync(1).isFile(),
+    }),
+  );
+}
+const out = args[args.indexOf("-o") + 1];
+setTimeout(() => {
+  if (process.env.FAKE_CODEX_TOUCH) writeFileSync(process.env.FAKE_CODEX_TOUCH, "changed by fake codex");
+  if (process.env.FAKE_CODEX_REPLY && out) writeFileSync(out, process.env.FAKE_CODEX_REPLY);
+  if (process.env.FAKE_CODEX_EVENTS) process.stdout.write(readFileSync(process.env.FAKE_CODEX_EVENTS, "utf8"));
+  process.exit(Number(process.env.FAKE_CODEX_EXIT || 0));
+}, Number(process.env.FAKE_CODEX_DELAY_MS || 0));

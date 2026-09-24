@@ -24,6 +24,15 @@ One line per dependency: what it does for catherd, and why this one.
 - @commitlint/cli — checks commit messages on commit-msg — the standard checker
 - @commitlint/config-conventional — the Conventional Commits rule set — the standard rule set
 
+## Detach check (Task 5, step 0)
+
+`Bun.spawn(cmd, { detached: true, stdin/stdout/stderr: <fd> })` starts the child in its own
+process group (POSIX `setsid()`, confirmed with `ps -o pid,pgid,ppid`: child's pgid equals its
+own pid). Verified with a throwaway parent that spawns a child sleeping 1.5s, then exits
+immediately: the child kept running, was reparented to pid 1, and wrote its marker file after the
+parent had already exited. Raw fd stdio (from `openSync`) is honoured as a real file, not a pipe
+through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
+
 ## Dropped from the Node-toolchain plan (OVERRIDES)
 
 - xdg-basedir — no release since 2021; `src/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
