@@ -45,7 +45,7 @@ The repository root is also a Claude Code plugin marketplace (`.claude-plugin/ma
 ```
 plugin/
   .claude-plugin/plugin.json
-  .mcp.json              # { "catherd": { "command": "npx", "args": ["-y", "catherd@<version>", "mcp"] } }
+  .mcp.json              # { "catherd": { "command": "bunx", "args": ["catherd@<version>", "mcp"] } }
   skills/catherd/        # the orchestrator skill (§10)
   skills/catherd-setup/  # the conversational setup skill (§11)
   commands/catherd.md    # /catherd <task>
@@ -54,16 +54,17 @@ plugin/
 
 The plugin pins the package version it was released with, so the skill text and the server it calls always match.
 
-**Stack:** the newest, fastest tools, with Rust-based ones first, all at their latest versions and never pinned:
-- pnpm, TypeScript 7 (the native compiler), tsdown (Rolldown) and vitest;
-- oxlint and oxfmt;
-- lefthook with commitlint, and Changesets with npm trusted publishing.
+**Runtime and stack: Bun.** catherd runs on Bun (≥ 1.4), and users need Bun installed.
+- It ships as TypeScript source with a `#!/usr/bin/env bun` shebang, so there is no build step. Users run `bunx catherd …`, and the plugin's `.mcp.json` runs `bunx catherd@<version> mcp`.
+- Bun is also the package manager (`bun.lock`) and the test runner (`bun test`).
+- Typecheck with TypeScript 7 (`tsc --noEmit`), lint with oxlint, format with oxfmt. Git hooks are lefthook with commitlint. Releases use Changesets with npm trusted publishing.
+- Every version is the latest and none is pinned.
 
-For every job, the first choice is a maintained package; catherd hand-writes only what no package covers. Every dependency is listed with its reason in `docs/dependencies.md`. The runtime set:
-- citty (CLI), execa (processes), xdg-basedir (paths), proper-lockfile (lock), tinyglobby (file walks);
-- ofetch (HTTP with retries), zod (schemas);
+**Reuse before writing.** The order is: Bun's built-ins first (`Bun.spawn`, `Bun.file`/`Bun.write`, `Bun.Glob`, `Bun.CryptoHasher`, `fetch`), then a maintained package. catherd hand-writes only what neither covers. Every dependency is listed with its reason in `docs/dependencies.md`. The runtime packages:
+- citty (CLI); the paths and the heavy-command lock use Bun and node built-ins, because the packages for them have had no release since 2021;
+- ofetch (HTTP retries), zod (schemas);
 - the official MCP TypeScript SDK;
-- Ink (TUI), unless OpenTUI runs on Node.
+- **OpenTUI** (`@opentui/core` + `@opentui/react`), the TUI that opencode itself uses.
 
 **Platforms:** macOS and Linux.
 
@@ -267,7 +268,7 @@ The terminal is part of the product. It should make people smile, and still read
 - **Every joke carries a fact.** Each status line still states the role, the rung, the time and the outcome. With `--plain`, or on a terminal without Unicode, every glyph has a text fallback.
 - **Fit.** Every screen works at 80 columns.
 
-Built with Ink and custom `ink-spinner` frames, plus a gradient helper. There is no heavier TUI framework.
+Built with OpenTUI (`@opentui/react`), which renders through its native core.
 
 ## 9. Run folder and lock
 
@@ -330,6 +331,14 @@ Triggers: `/catherd <task>` and English phrases ("orchestrate this with catherd"
 
 It never edits files by hand. `profile_set` is the only writer, so the TUI and the conversation cannot drift apart.
 
+## 11b. Autopilot additions (v1)
+
+Chosen on 2026-09-24 from `docs/ideas.md`:
+- **Quota failover.** `profile.failover` maps a rung to a stand-in on another backend, e.g. `{"gpt-6-sol#medium": "<opencode model>#<effort>"}`. When `dispatch` gets `limit`, it re-dispatches the same brief once on the stand-in (a fresh thread). It records both runs and pushes one line. With no stand-in, the run pauses, as §12 describes.
+- **Preflight.** `preflight(run)` runs each lane's fast check once on the base tree, behind `catherd lock`, before the first dispatch. A lane whose check cannot even start (command not found, missing service) blocks the run with its output. A check that fails the way it is expected to (the test does not exist yet) is fine.
+- **Per-repo knowledge.** `<data>/<repo-slug>/knowledge.md` holds what runs learned: build and test commands with their durations, flaky tests, slow suites, and patterns to copy. The `land` tool appends to it. The researcher's dossier brief reads it and maps only the changes since the last run's HEAD, which `knowledge.md` records.
+- **Run budget.** `profile.budget: { minutes?, tokens?, usd? }`. `status` shows the spend against it. At 80%, `route` treats the start rung as the cheapest one that clears the bar, whatever the objective. At 100%, `dispatch` refuses to start a new role, and the orchestrator pauses and pushes.
+
 ## 12. Errors
 
 | Condition | Behavior |
@@ -352,7 +361,7 @@ It never edits files by hand. `profile_set` is the only writer, so the TUI and t
 
 ## 14. Testing
 
-- **Unit (vitest):**
+- **Unit (`bun test`):**
   - router selection and the approved-ladder pin;
   - bars;
   - "treat like";
@@ -364,7 +373,7 @@ It never edits files by hand. `profile_set` is the only writer, so the TUI and t
 - **MCP contract:** each tool against the SDK's in-memory client.
 - **Jev:** a recorded-response client for unit tests, plus one live smoke test, run only when `TYPESAFE_API_KEY` is set.
 - **Spikes before the dependent code:** S1 (§7), S2 (§8.3), and S3: Codex's image tool invoked from a `dispatch`, with the image path returned.
-- **Release gate:** `pnpm typecheck`, `pnpm test`, `pnpm lint`, plus one real orchestrated run on a small public sample repository before 1.0.
+- **Release gate:** `bun run typecheck`, `bun test`, `bun run lint`, `bun run format:check`, plus one real orchestrated run on a small public sample repository before 1.0.
 
 ## 15. Build order
 

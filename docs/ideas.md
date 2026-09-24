@@ -11,6 +11,7 @@ Listed so they are not re-proposed:
 - The UI pass covers changed screens only; findings carry screenshot paths; the orchestrator opens an image only to decide (spec §10).
 
 - Per-profile, per-harness isolation toggle, default off: spec §8.2 (added 2026-09-24 at Vigen's request).
+- Quota failover, preflight, per-repo knowledge and run budget: spec §11b (chosen for v1 on 2026-09-24).
 
 ## Open
 
@@ -25,3 +26,4 @@ Listed so they are not re-proposed:
 - **Race mode (v2).** For lanes a profile marks as critical, dispatch two rungs at once in separate worktrees, and keep the first whose fast check passes. It trades quota for wall-clock time.
 - **Automatic retro (v2).** At the finish, write a short retro (climbs, the slowest steps, failures) and append its improvement ideas to this file.
 - **`catherd bench` (v2).** Replay recorded real tasks under different profiles to measure them on the user's own work; it feeds the bars.
+- **Standalone binaries (later).** `bun build --compile` per platform, published as optional platform packages, so users need no Bun install. It waits until OpenTUI's native core embeds cleanly in a compiled binary.
