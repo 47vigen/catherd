@@ -7,6 +7,7 @@ import { join } from "node:path";
 export function withHome(): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
   process.env.CATHERD_HOME = home;
+  process.env.XDG_CONFIG_HOME = join(home, "xdg-config");
   return home;
 }
 

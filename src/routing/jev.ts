@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createFetch } from "ofetch";
 import { z } from "zod";
@@ -89,16 +90,19 @@ const Reply = z.object({
 
 const credentialsFile = () => join(configDir(), "credentials.json");
 
+/** The key file TypeSafe's own tools use, so a user who already has one never types it again. */
+export const typesafeKeyFile = (): string =>
+  join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "typesafe", "api_key");
+
 export function jevKey(): string | null {
   const env = process.env.TYPESAFE_API_KEY?.trim();
   if (env) return env;
-  if (!existsSync(credentialsFile())) return null;
   try {
     const k: unknown = JSON.parse(readFileSync(credentialsFile(), "utf8")).typesafeApiKey;
-    return typeof k === "string" && k.trim() ? k.trim() : null;
-  } catch {
-    return null;
-  }
+    if (typeof k === "string" && k.trim()) return k.trim();
+  } catch {}
+  if (!existsSync(typesafeKeyFile())) return null;
+  return readFileSync(typesafeKeyFile(), "utf8").trim() || null;
 }
 
 export function saveJevKey(key: string): void {

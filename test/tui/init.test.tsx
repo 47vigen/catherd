@@ -90,6 +90,19 @@ describe("Init", () => {
     expect(f).toContain("enter accept");
   });
 
+  it("takes a pasted key", async () => {
+    const d = fakeDeps();
+    const setup = await testRender(<Init ui={UI} deps={d} />, { width: 100, height: 24 });
+    await setup.renderOnce();
+    await setup.mockInput.pasteBracketedText(`${GOOD}\n`);
+    await press(setup.mockInput, KEY.enter);
+    await waitFor(() => {
+      setup.renderOnce();
+      return setup.captureCharFrame().includes("worker");
+    });
+    expect(d.saveJevKey).toHaveBeenCalledWith(GOOD);
+  });
+
   it("skips the prompt when the saved key still answers", async () => {
     const d = fakeDeps({ jevKey: () => GOOD });
     const setup = await testRender(<Init ui={UI} deps={d} />, { width: 100, height: 24 });

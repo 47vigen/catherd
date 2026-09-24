@@ -30,6 +30,13 @@ describe("the key", () => {
     expect(jevKey()).toBe("ts_file_key");
   });
 
+  test("falls back to TypeSafe's own key file", () => {
+    delete process.env.TYPESAFE_API_KEY;
+    mkdirSync(join(process.env.XDG_CONFIG_HOME as string, "typesafe"), { recursive: true });
+    writeFileSync(join(process.env.XDG_CONFIG_HOME as string, "typesafe", "api_key"), "ts_typesafe_key\n");
+    expect(jevKey()).toBe("ts_typesafe_key");
+  });
+
   test("returns null with no key anywhere", () => {
     delete process.env.TYPESAFE_API_KEY;
     expect(jevKey()).toBeNull();

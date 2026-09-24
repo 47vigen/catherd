@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useKeyboard, usePaste, useRenderer } from "@opentui/react";
 import { useRef, useState } from "react";
 import { type HarnessCost, harnessCosts } from "../core/harness.ts";
 import { listRuns } from "../core/runstore.ts";
@@ -74,6 +74,7 @@ function MaskedKeyInput({ onSubmit }: { onSubmit: (key: string) => void }) {
       if (ch && ch.length === 1) setValue((v) => v + ch);
     }
   });
+  usePaste((e) => setValue((v) => v + new TextDecoder().decode(e.bytes).replace(/\s+/g, "")));
   return <text>{"*".repeat(value.length)}</text>;
 }
 
