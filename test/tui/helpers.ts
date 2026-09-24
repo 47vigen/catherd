@@ -1,5 +1,7 @@
 import stringWidth from "string-width";
 import type { MockInput } from "@opentui/core/testing";
+import type { Run } from "../../src/core/runstore.ts";
+import type { RunSummary } from "../../src/core/status.ts";
 import type { BackendStatus } from "../../src/tui/backends.ts";
 import type { Ui } from "../../src/tui/theme.ts";
 import { type Bars, type Catalog, type CatalogModel, DIFFICULTIES, KINDS } from "../../src/types.ts";
@@ -130,5 +132,29 @@ export function catalogFixture(extra: CatalogModel[] = []): Catalog {
     ],
     bars,
     treatLike: {},
+  };
+}
+
+export function fakeRun(id = "20260924-100000-jobs-screen", title = "Jobs screen"): Run {
+  return {
+    dir: `/data/r-app/${id}`,
+    id,
+    meta: { id, repo: "/r/app", title, aLines: [], createdAt: "2026-09-24T10:00:00.000Z" },
+  };
+}
+
+export function fakeSummary(over: Partial<RunSummary> = {}): RunSummary {
+  return {
+    id: "20260924-100000-jobs-screen",
+    title: "Jobs screen",
+    repo: "/r/app",
+    stateTail: ["M1 in review", "Next: fix round for M1.L2"],
+    live: [],
+    totals: { runs: 3, ok: 3, notOk: [], secs: 1200, tokens: { input: 1, cached: 0, output: 1 }, costUsd: 0 },
+    jev: { decisions: 4, fallbacks: 1 },
+    milestones: [],
+    harness: [],
+    budget: null,
+    ...over,
   };
 }
