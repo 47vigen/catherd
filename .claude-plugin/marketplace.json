@@ -1,0 +1,15 @@
+{
+  "name": "catherd",
+  "owner": { "name": "47vigen", "url": "https://github.com/47vigen" },
+  "description": "catherd: autopilot builds from your own Claude Code session.",
+  "plugins": [
+    {
+      "name": "catherd",
+      "source": "./plugin",
+      "description": "Herds coding agents: Claude plans and verifies, Codex and opencode workers write the code, and Jev picks the model and effort for each piece.",
+      "license": "MIT",
+      "repository": "https://github.com/47vigen/catherd",
+      "keywords": ["orchestration", "codex", "opencode", "subagents", "mcp"]
+    }
+  ]
+}

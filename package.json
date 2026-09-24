@@ -21,7 +21,8 @@
     "lint": "oxlint --deny-warnings src test",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "snapshot:models-dev": "bun scripts/snapshot-models-dev.ts"
+    "snapshot:models-dev": "bun scripts/snapshot-models-dev.ts",
+    "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

@@ -1,0 +1,13 @@
+{
+  "name": "catherd",
+  "version": "0.0.0",
+  "description": "Herds coding agents: Claude plans and verifies, Codex and opencode workers write the code, and Jev picks the model and effort for each piece.",
+  "author": {
+    "name": "47vigen",
+    "url": "https://github.com/47vigen"
+  },
+  "homepage": "https://github.com/47vigen/catherd",
+  "repository": "https://github.com/47vigen/catherd",
+  "license": "MIT",
+  "keywords": ["orchestration", "codex", "opencode", "subagents", "mcp"]
+}
