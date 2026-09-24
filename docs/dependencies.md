@@ -28,6 +28,6 @@ One line per dependency: what it does for catherd, and why this one.
 
 - xdg-basedir — no release since 2021; `src/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
 - execa — `Bun.spawn` covers detached children with stdio on files; kept only if a detach check fails (not needed in Tasks 1-4)
-- tinyglobby — `Bun.Glob` covers the owned-file walk
+- tinyglobby — owned paths are matched literally, so `src/core/reply.ts` walks them with plain `node:fs` `readdirSync` recursion instead of a glob library at all; `Bun.CryptoHasher("sha1")` does the hashing
 - tsdown — no build step; Bun runs `src/cli.ts` directly via its shebang
 - vitest — `bun test` is the runner
