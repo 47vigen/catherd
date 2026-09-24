@@ -1,5 +1,16 @@
 # Dependencies
 
+TUI: OpenTUI (`@opentui/react` + `@opentui/core`), decided in OVERRIDES before this plan started —
+both were already in `package.json`, so plan 4 Task 1 skipped the spike and went straight to
+reading `node_modules/@opentui/react/README.md` and its type definitions. Test API: `testRender`
+from `@opentui/react/test-utils` (wraps `@opentui/core/testing`'s `createTestRenderer`), used as
+`const { renderOnce, captureCharFrame, mockInput } = await testRender(<El/>, { width, height })`.
+Keys go through `mockInput.pressArrow/pressEnter/pressEscape/pressBackspace/pressKey/typeText`;
+`test/tui/helpers.ts`'s `press()` wraps those behind the same `KEY.up`/`KEY.down`/… names plan 4
+uses. Colour: OpenTUI takes RGB only and downsamples itself for the terminal it finds, so
+`theme.ts`'s `tint()` returns one hex value per tone at every depth above 1, and `undefined` at
+depth 1 (`NO_COLOR`) — no `ansi256(n)` or named-colour branches, unlike the Ink-era plan text.
+
 One line per dependency: what it does for catherd, and why this one.
 
 ## Runtime
@@ -20,6 +31,7 @@ One line per dependency: what it does for catherd, and why this one.
 - @types/react — types for the OpenTUI React components — needed alongside `react`
 - oxlint — lint — Rust, the fastest linter, sensible defaults with no config
 - oxfmt — format — Rust, Prettier-compatible output, the fastest formatter
+- string-width — measures terminal cells in the 80-column TUI tests (`test/tui/helpers.ts`'s `widest`) — the standard cell-width function; emoji glyphs (🐾, 🐈) count as 2 cells and a hand count gets that wrong
 - lefthook — git hooks for lint, format and commit messages — a single Go binary, no shell scripts to keep
 - @changesets/cli — versions, changelog and npm trusted publishing — the standard for single-package release notes
 - @commitlint/cli — checks commit messages on commit-msg — the standard checker

@@ -43,6 +43,7 @@
     "lefthook": "^2.1.14",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
+    "string-width": "^8.3.0",
     "typescript": "^7.0.2"
   },
   "engines": {
