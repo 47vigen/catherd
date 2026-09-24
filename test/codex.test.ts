@@ -188,4 +188,29 @@ describe("runCodex", () => {
     });
     expect(ticks.length).toBeGreaterThan(0);
   });
+
+  test.each([false, true])("collects the images this thread wrote (isolated: %s)", async (isolated) => {
+    const repo = tempRepo();
+    const run = createRun(repo, "t", []);
+    writeFileSync(rolePaths(run.dir, "artist-1").brief, "B");
+    process.env.FAKE_CODEX_EVENTS = fx("ok-with-reconnect.jsonl");
+    process.env.FAKE_CODEX_REPLY = "STATUS: complete — drawn";
+    const dir = join(
+      isolated ? codexHome() : userCodexHome(),
+      "generated_images",
+      "01a0d0d4-d0a6-71a1-983c-82a9169200b4",
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "img_1.png"), "png");
+    const r = await runCodex({
+      runDir: run.dir,
+      name: "artist-1",
+      role: "artist",
+      rung: "gpt-6-sol#medium",
+      cwd: repo,
+      ownedFiles: [],
+      isolated,
+    });
+    expect(r.images).toEqual([join(dir, "img_1.png")]);
+  });
 });

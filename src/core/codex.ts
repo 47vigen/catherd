@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { dataDir } from "../paths.ts";
@@ -68,6 +68,17 @@ export function codexArgs(o: DispatchOpts, replyPath: string): string[] {
     : ["exec", ...common, "-s", sandbox, "-"];
 }
 
+function imagesFor(home: string, thread: string | null, since: number): string[] {
+  if (!thread) return [];
+  const dir = join(home, "generated_images", thread);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /\.(png|webp|jpe?g)$/i.test(f))
+    .map((f) => join(dir, f))
+    .filter((f) => statSync(f).mtimeMs >= since - 1000)
+    .sort();
+}
+
 /** Builds and appends the record from the files a finished run left. `code` is null after a reconcile. */
 export function finalizeCodex(runDir: string, live: LiveMarker, code: number | null): RunRecord {
   const p = rolePaths(runDir, live.name);
@@ -86,12 +97,13 @@ export function finalizeCodex(runDir: string, live: LiveMarker, code: number | n
             : "ok";
   const rs = parseReplyStatus(reply);
   const started = Date.parse(live.startedAt);
+  const thread = ev.thread ?? live.thread;
   const record: RunRecord = {
     name: live.name,
     role: live.role,
     backend: "codex",
     rung: live.rung,
-    thread: ev.thread ?? live.thread,
+    thread,
     status,
     startedAt: live.startedAt,
     secs: Math.round((Date.now() - started) / 1000),
@@ -103,7 +115,7 @@ export function finalizeCodex(runDir: string, live: LiveMarker, code: number | n
     replyWhy: rs.why,
     threadHeavy: ev.tokens.input > THREAD_HEAVY_INPUT,
     isolated: live.isolated,
-    images: [],
+    images: imagesFor(live.isolated ? codexHome() : userCodexHome(), thread, started),
     error: status === "ok" ? null : (ev.failure ?? (err.trim().split("\n").at(-1) || `exit ${code}`)),
     replyPath: p.out,
   };
