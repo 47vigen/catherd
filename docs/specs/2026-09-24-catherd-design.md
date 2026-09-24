@@ -233,10 +233,17 @@ A failure on the top rung goes to the architect when Jev calls it `design`, and 
     "writer":      { "enabled": true, "models": { "gpt-6-luna": ["high"] } },
     "researcher":  { "enabled": true, "models": { "gpt-6-luna": ["high"] } }
   },
+  "harness": { "codex": { "isolated": false }, "opencode": { "isolated": false } },
   "lock": { "heavy": "cpus/2" },
   "notify": ["milestone", "finish", "blocked"]
 }
 ```
+
+**Harness isolation, per profile and per harness.** `harness.<name>.isolated` defaults to `false`: the role runs in the vendor harness exactly as the user configured it (§2). Set to `true`, catherd strips the user's customizations for that harness in this profile, trading their help for fewer tokens per run.
+- **Codex isolated:** `--ignore-user-config`, plus a catherd-owned `CODEX_HOME` holding only a symlink to the user's `auth.json`. `--ignore-user-config` alone still lets the global `AGENTS.md` in.
+- **opencode isolated:** a run with no user config, agents or plugins, keeping only its auth. The exact mechanism is verified against `opencode run --help` when it is built.
+
+The final report and `status` show what the user's customizations cost per run, e.g. "your Codex AGENTS.md adds ~12k tokens per run". That number is what the user decides the toggle by. The TUI and the setup skill offer the toggle beside it.
 
 The TUI matrix is the two-level checkbox that the profile file mirrors. Each role row expands to its capable models, and each model to its efforts. A role with a single enabled entry is not routed: it simply runs on that entry.
 

@@ -10,6 +10,8 @@ Listed so they are not re-proposed:
 - Every run record carries its rung (`model#effort`), so effort is measurable per run (spec §7).
 - The UI pass covers changed screens only; findings carry screenshot paths; the orchestrator opens an image only to decide (spec §10).
 
+- Per-profile, per-harness isolation toggle, default off: spec §8.2 (added 2026-09-24 at Vigen's request).
+
 ## Open
 
 - **`catherd doctor`.** One command that checks the versions and logins of claude, codex and opencode, the Jev key, the plugin install, the agent symlinks, and whether the MCP server starts. *Why:* three runs so far were blocked on tool drift: a Claude CLI too old for Opus 5.5, a Codex CLI too old for the Sol/Luna ids, and a Codex CLI that could not parse its config. *Where:* plan 4, beside `init`.
