@@ -18,8 +18,9 @@ import {
   admitPath,
   type Dispatch,
   launchPath,
+  type LiveDispatch,
   listDispatches,
-  liveDispatches,
+  pendingDispatches,
   roleDir,
   setLatest,
 } from "./dispatches.ts";
@@ -105,18 +106,29 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
 
   return withFileLock(runPaths(run.dir).admission, async () => {
     const records = readRecords(run).records;
-    const live = liveDispatches(run, deps.now());
-    const same = live.find((d) => d.admit.name === i.name);
+    // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
+    // tree after the exit, so a later dispatch's writes must not land in between.
+    const pending = pendingDispatches(run, deps.now());
+    const live = pending.filter((d) => d.state !== "finished");
+    const doing = (d: LiveDispatch): string => (d.state === "finished" ? "being recorded" : "running");
+    const same = pending.find((d) => d.admit.name === i.name);
     if (same)
-      throw new CatherdError("E_ADMIT_DUPLICATE", `${i.name} is already running on ${same.admit.rung}`, {
-        fix: `wait for it, or cancel(run, "${i.name}")`,
-      });
-    for (const d of live) {
+      throw new CatherdError(
+        "E_ADMIT_DUPLICATE",
+        `${i.name} is already ${doing(same)} on ${same.admit.rung}`,
+        {
+          fix:
+            same.state === "finished"
+              ? "wait for its record; a catherd server restart records one nobody waits for"
+              : `wait for it, or cancel(run, "${i.name}")`,
+        },
+      );
+    for (const d of pending) {
       const shared = overlaps(owns, d.admit.owns);
       if (shared.length)
         throw new CatherdError(
           "E_ADMIT_OVERLAP",
-          `${i.name} owns ${shared.join(", ")}, which running ${d.admit.name} owns`,
+          `${i.name} owns ${shared.join(", ")}, which ${d.admit.name} (${doing(d)}) owns`,
           {
             fix: `dispatch it after ${d.admit.name} finishes`,
           },

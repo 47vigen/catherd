@@ -6,6 +6,7 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
+import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
@@ -143,6 +144,20 @@ describe("admission", () => {
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L4", lane: "M1.L4" })))).toBe("admitted");
   });
 
+  it("keeps a dispatch that exited blocking its name and lane until its record is written", async () => {
+    const { run } = setup();
+    const deps = fakeDeps();
+    const endedAt = new Date().toISOString();
+    const exited = { proc: "dead", exit: { code: 0, signal: null, reason: "exited", endedAt } } as const;
+    const a = await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"] }, exited);
+    expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
+    expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
+      "E_ADMIT_DUPLICATE",
+    );
+    await finalizeDispatch(run, a);
+    expect(await refusal(admit(deps, run, input()))).toBe("admitted");
+  });
+
   it("admits exactly one of two parallel dispatches on overlapping lanes, and one of two with the same name", async () => {
     const { run } = setup();
     const deps = fakeDeps();
@@ -184,7 +199,7 @@ describe("admission", () => {
 
   it("counts attempts per name", async () => {
     const { run } = setup();
-    await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead" });
+    await finalizeDispatch(run, await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead" }));
     const { d } = await admit(fakeDeps(), run, input());
     expect(d.admit.attempt).toBe(2);
   });
