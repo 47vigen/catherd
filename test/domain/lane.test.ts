@@ -43,6 +43,22 @@ describe("normalizeOwned", () => {
       }
     }
   });
+
+  it("canonicalises . and empty segments and rejects paths that own nothing", () => {
+    expect(normalizeOwned("src/./a.ts")).toBe("src/a.ts");
+    expect(normalizeOwned("src//a.ts")).toBe("src/a.ts");
+    expect(normalizeOwned("./src//x/")).toBe("src/x/");
+    expect(overlaps([normalizeOwned("src/./a.ts")], ["src/a.ts"])).toEqual(["src/a.ts"]);
+    expect(overlaps([normalizeOwned("src//a.ts")], ["src/a.ts"])).toEqual(["src/a.ts"]);
+    for (const bad of [".", "./", "././", "src/./../x"]) {
+      try {
+        normalizeOwned(bad);
+        throw new Error("expected a throw");
+      } catch (e) {
+        expect(isCatherdError(e) && e.code).toBe("E_LANE_INVALID");
+      }
+    }
+  });
 });
 
 describe("overlaps", () => {

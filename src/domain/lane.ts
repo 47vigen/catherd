@@ -32,10 +32,11 @@ function field(text: string, label: string): string | null {
 const oneOf = <T extends string>(v: string | null, options: readonly T[]): T | null =>
   v !== null && (options as readonly string[]).includes(unquote(v)) ? (unquote(v) as T) : null;
 
+/** Canonical form: no "." or empty segments, a trailing "/" kept as a directory marker. */
 export function normalizeOwned(p: string): string {
-  const s = unquote(p).replace(/^(\.\/)+/, "");
-  const parts = s.split("/");
-  if (!s || s.startsWith("/") || parts.includes(".."))
+  const s = unquote(p);
+  const parts = s.split("/").filter((seg) => seg !== "" && seg !== ".");
+  if (s.startsWith("/") || parts.length === 0 || parts.includes(".."))
     throw new CatherdError(
       "E_LANE_INVALID",
       `owned path "${p}" must be relative to the repo and stay inside it`,
@@ -43,7 +44,7 @@ export function normalizeOwned(p: string): string {
         fix: "write Owns: paths like src/foo/ or src/bar.ts",
       },
     );
-  return s;
+  return parts.join("/") + (s.endsWith("/") ? "/" : "");
 }
 
 export function parseLaneHeader(text: string): LaneHeader {
