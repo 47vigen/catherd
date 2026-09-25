@@ -13,6 +13,7 @@ export const main = defineCommand({
   subCommands: {
     lock: () => import("./entry/lock.ts").then((m) => m.lockCommand),
     catalog: () => import("./routing/commands.ts").then((m) => m.catalogCommand),
+    "capture-fixtures": () => import("./entry/capture-fixtures.ts").then((m) => m.captureFixturesCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
     init: () => import("./tui/commands.ts").then((m) => m.initCommand),
     watch: () => import("./tui/commands.ts").then((m) => m.watchCommand),
