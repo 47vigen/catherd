@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseLaneHeader } from "../domain/lane.ts";
-import { workerEnv } from "../infra/env.ts";
+import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
 import type { Deps } from "./ports.ts";
@@ -83,9 +83,9 @@ function collect(stream: ReadableStream<Uint8Array>): {
 }
 
 /**
- * Runs `check` with `sh -c` in its own process group, with catherd's secrets stripped, killing the group on
- * timeout. A process the check leaves behind (even in a new session) may hold the pipes open: once the check
- * exits, the pipes get DRAIN_MS to close, then the reading stops with what arrived.
+ * Runs `check` with `sh -c` in its own process group, with an allowlisted env (no credentials), killing the
+ * group on timeout. A process the check leaves behind (even in a new session) may hold the pipes open: once
+ * the check exits, the pipes get DRAIN_MS to close, then the reading stops with what arrived.
  */
 export async function runCheck(
   repo: string,
@@ -94,7 +94,7 @@ export async function runCheck(
 ): Promise<{ code: number | null; timedOut: boolean; tail: string[] }> {
   const p = Bun.spawn(["sh", "-c", check], {
     cwd: repo,
-    env: workerEnv(process.env, {}, repo),
+    env: checkEnv(process.env, repo),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",

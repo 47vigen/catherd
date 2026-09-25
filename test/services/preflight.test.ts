@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
-import { classify, preflight } from "../../src/services/preflight.ts";
+import { classify, preflight, runCheck } from "../../src/services/preflight.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
 
@@ -64,6 +64,24 @@ describe("preflight", () => {
     process.env.TYPESAFE_API_KEY = "secret";
     writeLane(run, "M1.L1", ["src/a.ts"], 'test -z "$TYPESAFE_API_KEY"');
     expect(outcomes(await preflight(fakeDeps(), { run: run.id }))).toEqual([["M1.L1", "pass"]]);
+  });
+
+  it("runs checks with an allowlisted env: no backend credentials, but PATH and PWD (spec §4.7)", async () => {
+    const { repo } = freshRun();
+    Object.assign(process.env, {
+      OPENAI_API_KEY: "sk-openai",
+      AWS_SECRET_ACCESS_KEY: "aws-secret",
+      GH_TOKEN: "gh-token",
+      TYPESAFE_API_KEY: "ts-secret",
+    });
+    const r = await runCheck(
+      repo,
+      "env | grep -E '^(PATH|PWD|OPENAI_API_KEY|AWS_SECRET_ACCESS_KEY|GH_TOKEN|TYPESAFE_API_KEY)='",
+      10_000,
+    );
+    const names = r.tail.map((l) => l.split("=")[0]).sort();
+    expect(names).toEqual(["PATH", "PWD"]);
+    expect(r.tail).toContain(`PWD=${repo}`);
   });
 
   it("with confirm on, lists the commands and runs nothing until confirmed", async () => {
