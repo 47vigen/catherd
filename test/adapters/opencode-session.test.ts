@@ -50,6 +50,21 @@ describe("opencode busy and interrupt", () => {
     expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(false);
   });
 
+  it("stays busy when only an older message of the session hit a usage limit", async () => {
+    onSim({
+      active: { [SES]: { type: "running" } },
+      messages: [
+        { type: "assistant", time: { created: 2_000 } },
+        {
+          type: "assistant",
+          time: { created: 1_000 },
+          error: { type: "provider.quota", message: "Go limit" },
+        },
+      ],
+    });
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(true);
+  });
+
   it("interrupts the session on the service", async () => {
     const to = join(mkdtempSync(join(tmpdir(), "catherd-int-")), "ids");
     onSim({ interruptsTo: to });
@@ -68,7 +83,9 @@ describe("opencode settle", () => {
     error: null,
     reply: "DONE",
   };
-  const run = {} as FinishedRun;
+  const START = 1_790_000_000_000;
+  const run = { startedAtMs: START } as FinishedRun;
+  const failed: Outcome = { ...o, status: "failed", error: { code: "failed", message: "boom" } };
   const none = { tokens: { input: 0, cached: 0, output: 0 }, costUsd: 0 };
 
   it("takes the session's totals, less what earlier records counted", async () => {
@@ -94,7 +111,14 @@ describe("opencode settle", () => {
 
   it("turns a run stopped while retrying on a usage limit into a limit", async () => {
     onSim({
-      messages: [{ type: "assistant", retry: { error: { type: "provider.quota", message: "Go limit" } } }],
+      messages: [
+        { type: "idle", outcome: "failed" },
+        {
+          type: "assistant",
+          time: { created: START + 5_000 },
+          retry: { error: { type: "provider.quota", message: "Go limit" } },
+        },
+      ],
     });
     const s = await opencodeAdapter.settle?.(
       { ...o, status: "timeout", error: { code: "timeout", message: "idle" } },
@@ -102,6 +126,26 @@ describe("opencode settle", () => {
       none,
     );
     expect(s).toMatchObject({ status: "limit", error: { code: "limit", message: "Go limit" } });
+  });
+
+  it("ignores a usage limit an earlier run on the session hit", async () => {
+    const quota = { type: "provider.quota", message: "Go limit" };
+    onSim({
+      messages: [
+        { type: "idle", outcome: "failed" },
+        { type: "assistant", time: { created: START + 5_000 }, error: { type: "unknown", message: "boom" } },
+        { type: "assistant", time: { created: START - 60_000 }, error: quota },
+      ],
+    });
+    expect(await opencodeAdapter.settle?.(failed, run, none)).toMatchObject({ status: "failed" });
+    // the run failed before writing a message: the newest one is the old run's
+    onSim({
+      messages: [
+        { type: "idle", outcome: "failed" },
+        { type: "assistant", time: { created: START - 60_000 }, error: quota },
+      ],
+    });
+    expect(await opencodeAdapter.settle?.(failed, run, none)).toMatchObject({ status: "failed" });
   });
 
   it("keeps the stream's figures when the API fails", async () => {

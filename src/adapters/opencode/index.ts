@@ -165,14 +165,18 @@ function parse(line: string): EventDelta {
   return d;
 }
 
-/** A usage limit a message is retrying on (v2 keeps `retry: {attempt, at, error}` on it), or null. */
-function limitRetry(messages: unknown): string | null {
+/**
+ * A usage limit the latest message is retrying on or failed with (v2 keeps `retry: {attempt, at, error}`
+ * on it), or null. Messages come newest first, after an `idle` marker once the session stopped; older
+ * messages keep their errors, so only the newest counts, and with `sinceMs` only if it is that recent.
+ */
+function limitRetry(messages: unknown, sinceMs?: number): string | null {
   if (!Array.isArray(messages)) return null;
-  for (const m of messages as Record<string, any>[]) {
-    const err = m?.retry?.error ?? m?.error;
-    if (OPENCODE_LIMIT_TYPES.includes(err?.type)) return String(err.message ?? err.type);
-  }
-  return null;
+  const m = (messages[0]?.type === "idle" ? messages[1] : messages[0]) as Record<string, any> | undefined;
+  const err = m?.retry?.error ?? m?.error;
+  if (!OPENCODE_LIMIT_TYPES.includes(err?.type)) return null;
+  if (sinceMs !== undefined && !(m?.time?.created >= sinceMs)) return null;
+  return String(err.message ?? err.type);
 }
 
 const minus = (a: Tokens, b: Tokens): Tokens => ({
@@ -185,7 +189,7 @@ const minus = (a: Tokens, b: Tokens): Tokens => ({
  * Spec §6.3: totals from `GET /api/session/<id>` (the stream often drops its last step_finish), minus
  * what earlier records on the session counted; a run stopped while retrying on a usage limit is a limit.
  */
-async function settle(o: Outcome, _run: FinishedRun, prior: Spent): Promise<Outcome> {
+async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outcome> {
   if (o.thread === null) return o;
   let out = o;
   const s = (await opencodeApi("GET", `/api/session/${o.thread}`))?.data;
@@ -196,7 +200,8 @@ async function settle(o: Outcome, _run: FinishedRun, prior: Spent): Promise<Outc
       costUsd: typeof s.cost === "number" ? Math.max(0, s.cost - prior.costUsd) : out.costUsd,
     };
   if (out.status === "timeout" || out.status === "failed") {
-    const why = limitRetry((await opencodeApi("GET", `/api/session/${o.thread}/message`))?.data);
+    const messages = (await opencodeApi("GET", `/api/session/${o.thread}/message`))?.data;
+    const why = limitRetry(messages, run.startedAtMs);
     if (why) out = { ...out, status: "limit", error: { code: "limit", message: why } };
   }
   return out;
