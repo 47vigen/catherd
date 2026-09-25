@@ -11,7 +11,7 @@ import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
-import { readyAdapter } from "./backends.ts";
+import { readyAdapter, standInFor } from "./backends.ts";
 import { spendOf } from "./budget.ts";
 import {
   type Admit,
@@ -91,7 +91,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is a native Claude rung`, {
       fix: `run it as Agent(subagent_type: "${deps.routing.agentFor(i.role, i.rung)}"), then record_agent_run`,
     });
-  const allowed = new Set([...rc.rungs, ...rc.rungs.flatMap((r) => profile.failover[r] ?? [])]);
+  const allowed = new Set([...rc.rungs, ...rc.rungs.flatMap((r) => standInFor(profile.failover, r) ?? [])]);
   if (!allowed.has(formatRung(rung)))
     throw new CatherdError(
       "E_ADMIT_RUNG",
@@ -110,6 +110,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = profile.isolated[rung.backend] ?? false;
+  await adapter.prepare?.({ rung, access: rc.access, isolated });
   const plan = adapter.plan({
     rung,
     access: rc.access,

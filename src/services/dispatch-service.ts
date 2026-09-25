@@ -1,9 +1,7 @@
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { adapterFor } from "../adapters/registry.ts";
-import "../adapters/all.ts";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
-import { assertId, formatRung, parseRung } from "../domain/ids.ts";
+import { assertId, parseRung } from "../domain/ids.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
@@ -11,6 +9,7 @@ import { dispatchPaths, readExit, requestCancel } from "../infra/dispatch-dir.ts
 import { isAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
+import { standInFor } from "./backends.ts";
 import { type Dispatch, liveDispatches, readProc } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
@@ -125,9 +124,7 @@ async function failover(
 ): Promise<DispatchResult & { pause: string | null }> {
   const paused = `paused: ${limited.backend} usage limit; resume when the user says so`;
   const hints = hintsFor(run, d, limited);
-  const byAdapter = adapterFor(limited.backend)?.failoverFor?.(parseRung(limited.rung)) ?? null;
-  const standIn =
-    deps.profiles.forRepo(run.meta.repo).failover[limited.rung] ?? (byAdapter && formatRung(byAdapter));
+  const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung);
   if (!standIn) return { record: limited, hints, pause: paused };
   if (parseRung(standIn).backend === "claude") {
     const agent = deps.routing.agentFor(d.admit.role, standIn);

@@ -2,6 +2,7 @@ import type { BackendAdapter, Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
+import { formatRung, parseRung } from "../domain/ids.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -29,4 +30,18 @@ export async function readyAdapter(
   if (problem) throw new CatherdError(problem.code, problem.message, { fix: problem.fix });
   ready.set(backend, { at: now, probe });
   return { adapter, probe };
+}
+
+/** Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default, else none. */
+export function standInFor(failover: Record<string, string>, rung: string): string | null {
+  const own = failover[rung];
+  if (own) return own;
+  let r: ReturnType<typeof parseRung>;
+  try {
+    r = parseRung(rung);
+  } catch {
+    return null;
+  }
+  const byAdapter = adapterFor(r.backend)?.failoverFor?.(r) ?? null;
+  return byAdapter && formatRung(byAdapter);
 }
