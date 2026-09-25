@@ -60,7 +60,33 @@ function laneChecks(run: Run): LaneCheck[] {
     });
 }
 
-/** Runs `check` with `sh -c` in its own process group, with catherd's secrets stripped, killing the group on timeout. */
+/** How long the pipes may stay open after the check's own process exits. */
+const DRAIN_MS = 500;
+
+/** Reads a pipe chunk by chunk, so what arrived is kept when the reading stops early. */
+function collect(stream: ReadableStream<Uint8Array>): {
+  done: Promise<void>;
+  text: () => string;
+  stop: () => void;
+} {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const done = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      text += decoder.decode(value, { stream: true });
+    }
+  })().catch(() => {});
+  return { done, text: () => text, stop: () => void reader.cancel().catch(() => {}) };
+}
+
+/**
+ * Runs `check` with `sh -c` in its own process group, with catherd's secrets stripped, killing the group on
+ * timeout. A process the check leaves behind (even in a new session) may hold the pipes open: once the check
+ * exits, the pipes get DRAIN_MS to close, then the reading stops with what arrived.
+ */
 export async function runCheck(
   repo: string,
   check: string,
@@ -79,19 +105,26 @@ export async function runCheck(
     timedOut = true;
     killGroup(p.pid, "SIGKILL");
   }, timeoutMs);
+  const out = collect(p.stdout);
+  const err = collect(p.stderr);
   try {
-    const [out, err, code] = await Promise.all([
-      new Response(p.stdout).text(),
-      new Response(p.stderr).text(),
-      p.exited,
+    // the timeout kills the group, so the check's own process always exits
+    const code = await p.exited;
+    clearTimeout(timer); // the check is done: a slow drain is not a timeout
+    const drained = await Promise.race([
+      Promise.all([out.done, err.done]).then(() => true),
+      Bun.sleep(DRAIN_MS).then(() => false),
     ]);
-    const tail = `${out}${err}`
+    if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the check's group
+    const tail = `${out.text()}${err.text()}`
       .split("\n")
       .filter((l) => l.trim())
       .slice(-TAIL_LINES);
     return { code: timedOut ? null : code, timedOut, tail };
   } finally {
     clearTimeout(timer);
+    out.stop();
+    err.stop();
   }
 }
 

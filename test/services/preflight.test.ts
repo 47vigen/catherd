@@ -45,6 +45,20 @@ describe("preflight", () => {
     if (!r.needsConfirmation) expect(r.results[0]?.note).toBe("timed out after 0.2 s");
   });
 
+  it("returns when the check exits although a process it detached still holds the pipes", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "setsid sleep 6 & echo started");
+    const started = Date.now();
+    const r = await preflight(fakeDeps({ view: testView({ heavy: 1 }) }), { run: run.id, timeoutMs: 300 });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.results).toMatchObject([{ lane: "M1.L1", outcome: "pass", exitCode: 0, tail: ["started"] }]);
+    // the heavy slot was released
+    const release = tryLock(join(locksDir(), "slot-0"));
+    expect(release).not.toBeNull();
+    release?.();
+  });
+
   it("runs checks without catherd's secrets", async () => {
     const { run } = freshRun();
     process.env.TYPESAFE_API_KEY = "secret";
