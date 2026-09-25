@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
-import { codexAdapter } from "../../src/adapters/codex/index.ts";
+import { codexAdapter, codexShell } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -157,6 +158,40 @@ describe("codex probe and discovery (simulator)", () => {
     const p = await codexAdapter.probe();
     expect(p.installed).toBe(false);
     expect(p.problems[0]).toMatchObject({ code: "E_BACKEND_MISSING", fix: "npm i -g @openai/codex" });
+  });
+
+  it("treats a codex login status that hangs as not logged in, within the timeout", async () => {
+    const saved = codexShell.timeoutMs;
+    codexShell.timeoutMs = 300;
+    try {
+      process.env.PATH = simPath();
+      Object.assign(process.env, withScenario({ loginHangMs: 30_000 }).env);
+      const t0 = Date.now();
+      const p = await codexAdapter.probe();
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(p).toMatchObject({ installed: true, versionOk: true, loggedIn: false });
+    } finally {
+      codexShell.timeoutMs = saved;
+    }
+  });
+
+  it("does not pass catherd's own secrets to codex", async () => {
+    process.env.PATH = simPath();
+    process.env.TYPESAFE_API_KEY = "catherd-secret";
+    process.env.OPENAI_API_KEY = "users-key";
+    const envTo = join(mkdtempSync(join(tmpdir(), "catherd-env-")), "env.jsonl");
+    Object.assign(process.env, withScenario({ envTo }).env);
+    await codexAdapter.probe();
+    await codexAdapter.listModels();
+    const calls = readFileSync(envTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { args: string[]; envKeys: string[] });
+    expect(calls.map((c) => c.args.join(" "))).toEqual(["--version", "login status", "debug models"]);
+    for (const c of calls) {
+      expect(c.envKeys).not.toContain("TYPESAFE_API_KEY");
+      expect(c.envKeys).toContain("OPENAI_API_KEY");
+    }
   });
 
   it("lists visible models with their efforts from codex debug models", async () => {

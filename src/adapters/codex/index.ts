@@ -11,6 +11,7 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
+import { scrubSecrets } from "../../infra/env.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
@@ -23,10 +24,40 @@ const SANDBOX: Record<Access, string> = {
   full: "danger-full-access",
 };
 
-function sh(args: string[]): { ok: boolean; out: string; err: string } | null {
+/** How long a `codex` query (version, login, models) may take before it counts as failed. */
+export const codexShell = { timeoutMs: 15_000 };
+
+/** Runs `codex <args>` without catherd's secrets; a run past the timeout is killed and counts as failed. */
+async function sh(args: string[]): Promise<{ ok: boolean; out: string; err: string } | null> {
   if (!Bun.which("codex", { PATH: process.env.PATH ?? "" })) return null;
-  const p = Bun.spawnSync(["codex", ...args], { env: process.env, stdout: "pipe", stderr: "pipe" });
-  return { ok: p.success, out: p.stdout.toString("utf8"), err: p.stderr.toString("utf8") };
+  const p = Bun.spawn(["codex", ...args], {
+    env: scrubSecrets(process.env),
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), codexShell.timeoutMs);
+  });
+  try {
+    const done = await Promise.race([
+      Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]),
+      late,
+    ]);
+    if (!done) {
+      p.kill("SIGKILL");
+      return {
+        ok: false,
+        out: "",
+        err: `codex ${args.join(" ")} timed out after ${codexShell.timeoutMs} ms`,
+      };
+    }
+    const [code, out, err] = done;
+    return { ok: code === 0, out, err };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function plan(r: RunRequest): SpawnPlan {
@@ -95,7 +126,7 @@ function finalize(run: FinishedRun): Outcome {
 }
 
 async function probe(): Promise<Probe> {
-  const v = sh(["--version"]);
+  const v = await sh(["--version"]);
   if (!v)
     return {
       installed: false,
@@ -108,7 +139,7 @@ async function probe(): Promise<Probe> {
     };
   const version = extractVersion(v.out);
   const versionOk = version !== null && compareVersions(version, CODEX_MIN_VERSION) >= 0;
-  const loggedIn = sh(["login", "status"])?.ok ?? false;
+  const loggedIn = (await sh(["login", "status"]))?.ok ?? false;
   const problems: Probe["problems"] = [];
   if (!versionOk)
     problems.push({
@@ -122,8 +153,8 @@ async function probe(): Promise<Probe> {
 }
 
 async function listModels(): Promise<DiscoveredModel[]> {
-  const r = sh(["debug", "models"]);
-  const raw = r?.ok ? r.out : (sh(["debug", "models", "--bundled"])?.out ?? "");
+  const r = await sh(["debug", "models"]);
+  const raw = r?.ok ? r.out : ((await sh(["debug", "models", "--bundled"]))?.out ?? "");
   let data: { models?: Record<string, any>[] };
   try {
     data = JSON.parse(raw);

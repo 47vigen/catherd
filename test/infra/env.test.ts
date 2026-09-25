@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { workerEnv } from "../../src/infra/env.ts";
+import { scrubSecrets, workerEnv } from "../../src/infra/env.ts";
 
 describe("workerEnv", () => {
   it("drops catherd's own secrets, keeps the user's backend credentials, and sets PWD", () => {
@@ -22,6 +22,17 @@ describe("workerEnv", () => {
       HOME: "/home/u",
       CODEX_HOME: "/iso",
       PWD: "/repo",
+    });
+  });
+});
+
+describe("scrubSecrets", () => {
+  it("drops catherd's own secrets and unset keys, and keeps everything else", () => {
+    expect(
+      scrubSecrets({ PATH: "/bin", TYPESAFE_API_KEY: "k", OPENAI_API_KEY: "mine", X: undefined }),
+    ).toEqual({
+      PATH: "/bin",
+      OPENAI_API_KEY: "mine",
     });
   });
 });

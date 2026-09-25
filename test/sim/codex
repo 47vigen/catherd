@@ -1,17 +1,19 @@
 #!/usr/bin/env bun
 // Codex CLI simulator for catherd's tests: behaviour comes from the JSON scenario in CATHERD_SIM_SCENARIO.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_SCENARIO ?? "", "utf8")) as Record<string, any>;
 const args = process.argv.slice(2);
 const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+if (s.envTo) appendFileSync(s.envTo, `${JSON.stringify({ args, envKeys: Object.keys(process.env) })}\n`);
 
 if (args[0] === "--version") {
   say(`codex-cli ${s.version ?? "0.157.0"}`);
   process.exit(0);
 }
 if (args[0] === "login" && args[1] === "status") {
+  if (s.loginHangMs) await Bun.sleep(s.loginHangMs);
   say(s.loggedIn === false ? "Not logged in" : "Logged in using ChatGPT");
   process.exit(s.loggedIn === false ? 1 : 0);
 }

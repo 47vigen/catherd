@@ -11,6 +11,10 @@ export interface CodexScenario {
   exitCode?: number;
   delayMs?: number;
   hangMs?: number;
+  /** `codex login status` sleeps this long before answering */
+  loginHangMs?: number;
+  /** every invocation appends `{ args, envKeys }` here as one JSON line */
+  envTo?: string;
   touch?: { path: string; content: string }[];
   recordTo?: string;
 }
