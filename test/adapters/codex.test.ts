@@ -61,6 +61,15 @@ describe("codex plan", () => {
     expect(p.args.join(" ")).not.toContain("brief");
   });
 
+  it("passes no effort flag for the default effort, fresh or resumed", () => {
+    const rung = parseRung("codex:gpt-6-sol#default");
+    for (const thread of [null, "019a-thread-1"]) {
+      const a = codexAdapter.plan(req({ rung, thread })).args;
+      expect(a.join(" ")).not.toContain("model_reasoning_effort");
+      expect(a.slice(a.indexOf("-m"), a.indexOf("-m") + 3)).toEqual(["-m", "gpt-6-sol", "--json"]);
+    }
+  });
+
   it("maps access to Codex sandboxes", () => {
     const s = (access: RunRequest["access"]) => {
       const a = codexAdapter.plan(req({ access })).args;

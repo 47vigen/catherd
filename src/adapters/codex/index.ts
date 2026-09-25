@@ -69,8 +69,8 @@ function plan(r: RunRequest): SpawnPlan {
     ...(r.isolated ? ["--ignore-user-config"] : []),
     "-m",
     r.rung.model,
-    "-c",
-    `model_reasoning_effort=${r.rung.effort}`,
+    // "default" leaves the effort to Codex's own config (spec §5.1)
+    ...(r.rung.effort === "default" ? [] : ["-c", `model_reasoning_effort=${r.rung.effort}`]),
     "--json",
     "-o",
     r.replyPath,
