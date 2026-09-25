@@ -94,7 +94,7 @@ describe("opencode agents", () => {
     expect(ro.indexOf('action: "*", resource: "*", effect: deny')).toBeLessThan(
       ro.indexOf('action: "read", resource: "*", effect: allow'),
     );
-    expect(ro).not.toContain('action: "edit"');
+    expect(ro).toContain('action: "edit", resource: "*", effect: deny');
     expect(OPENCODE_AGENT_FILES["catherd-worker"]).toContain(
       'action: "shell", resource: "git push*", effect: deny',
     );
