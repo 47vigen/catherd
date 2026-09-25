@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
@@ -74,6 +75,35 @@ async function finalizeFinished(run: Run, now: number): Promise<void> {
 }
 
 /**
+ * The cap on an adapter's prepare. Each CLI call in it is bounded already (15 s); this covers the slowest
+ * bounded path (opencode: a reload, then two listings) so only a prepare that is truly stuck is refused.
+ */
+export const prepareLimits = { timeoutMs: 60_000 };
+
+/** The adapter's prepare, refused with E_IO_UNEXPECTED when it has not settled within the limit. */
+async function prepared(adapter: BackendAdapter, req: Parameters<NonNullable<BackendAdapter["prepare"]>>[0]) {
+  if (!adapter.prepare) return;
+  const ms = prepareLimits.timeoutMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new CatherdError("E_IO_UNEXPECTED", `${adapter.id} did not get ready within ${ms} ms`, {
+            fix: `check that the ${adapter.id} CLI starts and answers, then dispatch again`,
+          }),
+        ),
+      ms,
+    );
+  });
+  try {
+    await Promise.race([adapter.prepare(req), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Spec §4.4 step 1. The checks that read shared state and the write that makes the dispatch live
  * happen under the run's admission lock, so parallel dispatches always see each other (audit C1).
  */
@@ -110,7 +140,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = profile.isolated[rung.backend] ?? false;
-  await adapter.prepare?.({ rung, access: rc.access, isolated });
+  await prepared(adapter, { rung, access: rc.access, isolated });
   const plan = adapter.plan({
     rung,
     access: rc.access,

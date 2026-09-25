@@ -4,7 +4,7 @@ import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
-import { type AdmitInput, admit } from "../../src/services/admission.ts";
+import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
 import { resetReadiness, standInFor } from "../../src/services/backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
@@ -15,6 +15,7 @@ afterEach(snapshotEnv());
 afterEach(() => {
   unregisterAdapter("cursor");
   settleLimits.timeoutMs = 20_000;
+  prepareLimits.timeoutMs = 60_000;
 });
 beforeEach(() => resetReadiness());
 
@@ -125,6 +126,20 @@ describe("prepare", () => {
         isolated: false,
       },
     ]);
+    expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+  });
+
+  it("refuses the dispatch when prepare never settles, and writes nothing", async () => {
+    prepareLimits.timeoutMs = 50;
+    fake({ prepare: () => new Promise(() => {}) });
+    const { run, deps } = setup();
+    let err: unknown;
+    await admit(deps, run, input()).catch((e: unknown) => (err = e));
+    expect(isCatherdError(err) && err.toJSON()).toMatchObject({
+      code: "E_IO_UNEXPECTED",
+      message: expect.stringContaining("50 ms"),
+      fix: expect.stringContaining("cursor"),
+    });
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
   });
 });
