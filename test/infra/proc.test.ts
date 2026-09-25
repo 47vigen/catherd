@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { isAlive, killGroup, processStartTime } from "../../src/infra/proc.ts";
 
 describe("proc", () => {
@@ -27,5 +27,36 @@ describe("proc", () => {
     killGroup(p.pid, "SIGKILL");
     await p.exited;
     expect(p.signalCode).toBe("SIGKILL");
+  });
+
+  describe("invalid pids", () => {
+    it("killGroup never signals a pid that is not an integer > 1 (0 and -1 are whole groups)", () => {
+      const kill = spyOn(process, "kill").mockImplementation(() => true);
+      try {
+        for (const pid of [0, 1, -5, 1.5, Number.NaN]) killGroup(pid, "SIGKILL");
+        expect(kill).not.toHaveBeenCalled();
+      } finally {
+        kill.mockRestore();
+      }
+    });
+
+    it("isAlive reports a pid that is not an integer > 1 as not alive", () => {
+      for (const pid of [0, 1, -1, 1.5, Number.NaN]) expect(isAlive(pid, null)).toBe(false);
+    });
+  });
+
+  it("runs the ps fallback in the C locale and UTC so start times compare across environments", async () => {
+    const p = Bun.spawn(["true"]);
+    await p.exited;
+    const spawn = spyOn(Bun, "spawnSync");
+    try {
+      processStartTime(p.pid);
+      const calls = spawn.mock.calls as unknown as [string[], { env?: Record<string, string> }][];
+      const ps = calls.find(([cmd]) => cmd[0] === "ps");
+      expect(ps?.[1].env?.LC_ALL).toBe("C");
+      expect(ps?.[1].env?.TZ).toBe("UTC");
+    } finally {
+      spawn.mockRestore();
+    }
   });
 });
