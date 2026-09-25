@@ -1,7 +1,11 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseRung } from "../../src/domain/ids.ts";
-import type { Access } from "../../src/domain/record.ts";
+import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
+import type { Access, ExitReason } from "../../src/domain/record.ts";
+import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { processStartTime } from "../../src/infra/proc.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
+import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { tempRepo, withHome } from "../helpers.ts";
@@ -90,4 +94,80 @@ export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_
     if (Date.now() > end) throw new Error("waitFor timed out");
     await Bun.sleep(25);
   }
+}
+
+export interface FakeFiles {
+  /** "self": this test process stands in for a live supervisor; "dead": both pids are gone */
+  proc?:
+    | "self"
+    | "dead"
+    | { pid: number; startTime: string | null; supervisorPid: number; supervisorStartTime: string | null };
+  exit?: { code: number | null; signal: string | null; reason: ExitReason; endedAt: string };
+  events?: string;
+  reply?: string;
+}
+
+let deadPid = 0;
+/** A pid that belonged to a process which has exited. */
+export async function deadProcess(): Promise<number> {
+  if (!deadPid) {
+    const p = Bun.spawn(["true"]);
+    await p.exited;
+    deadPid = p.pid;
+  }
+  return deadPid;
+}
+
+/** A dispatch folder as admission and the supervisor would leave it, without running anything. */
+export async function fakeDispatch(
+  run: Run,
+  over: Partial<Admit> = {},
+  files: FakeFiles = {},
+): Promise<Dispatch> {
+  const admit: Admit = {
+    schema: 1,
+    runId: run.id,
+    dispatchId: newDispatchId(),
+    name: "worker-M1.L1",
+    role: "worker",
+    lane: "M1.L1",
+    owns: ["src/a.ts"],
+    rung: "codex:gpt-6-sol#medium",
+    backend: "codex",
+    thread: null,
+    attempt: 1,
+    failoverFrom: null,
+    access: "workspace-write",
+    isolated: false,
+    cliVersion: "0.157.0",
+    admittedAt: new Date().toISOString(),
+    repo: run.meta.repo,
+    before: {},
+    ...over,
+  };
+  const dir = join(roleDir(run, admit.name), admit.dispatchId);
+  const p = dispatchPaths(dir);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(p.brief, "brief");
+  if (files.events !== undefined) writeFileSync(p.events, files.events);
+  if (files.reply !== undefined) writeFileSync(p.reply, files.reply);
+  if (files.proc) {
+    const dead = await deadProcess();
+    const proc =
+      files.proc === "self"
+        ? {
+            pid: process.pid,
+            startTime: processStartTime(process.pid),
+            supervisorPid: process.pid,
+            supervisorStartTime: processStartTime(process.pid),
+          }
+        : files.proc === "dead"
+          ? { pid: dead, startTime: "gone", supervisorPid: dead, supervisorStartTime: "gone" }
+          : files.proc;
+    writeJsonAtomic(p.proc, { schema: 1, ...proc, pgid: proc.pid, startedAt: admit.admittedAt });
+  }
+  if (files.exit) writeJsonAtomic(p.exit, { schema: 1, ...files.exit });
+  writeJsonAtomic(admitPath(dir), admit);
+  setLatest(run, admit.name, admit.dispatchId);
+  return { dir, admit };
 }
