@@ -34,7 +34,9 @@ describe("supervise", () => {
     expect(readExit(s.dispatchDir)).toMatchObject({ code: 3, reason: "exited" });
     expect(readFileSync(p.events, "utf8")).toBe('{"type":"a"}\n');
     expect(readFileSync(p.stderr, "utf8")).toBe("oops\n");
-    expect(JSON.parse(readFileSync(p.proc, "utf8"))).toMatchObject({ schema: 1, pid: expect.any(Number) });
+    const proc = JSON.parse(readFileSync(p.proc, "utf8"));
+    expect(proc.pgid).toBe(proc.pid);
+    expect(proc).toMatchObject({ schema: 1, pid: expect.any(Number) });
   });
 
   it("feeds stdin from a file and sets the working directory", async () => {

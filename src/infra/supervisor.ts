@@ -139,6 +139,7 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     writeJsonAtomic(p.proc, {
       schema: 1,
       pid: child.pid,
+      pgid: child.pid, // the detached child leads its own group
       startTime: processStartTime(child.pid),
       supervisorPid: process.pid,
       supervisorStartTime: processStartTime(process.pid),
