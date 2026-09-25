@@ -38,16 +38,38 @@ export const formatRung = (r: Rung): string => `${r.backend}:${r.model}#${r.effo
 
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/** A ULID: 10 chars of millisecond time, then 16 random, so ids sort by creation. */
+let lastTime = -1;
+let lastRand: number[] = [];
+
+/**
+ * A monotonic ULID: 10 chars of millisecond time, then 16 random, so ids sort by creation.
+ * Within one millisecond (or when the clock steps back) the previous time is reused and
+ * the random part is incremented, so ids made in one process are strictly increasing.
+ */
 export function newDispatchId(now: number = Date.now()): string {
+  if (now <= lastTime && increment(lastRand)) now = lastTime;
+  else {
+    if (now <= lastTime) now = lastTime + 1;
+    lastRand = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b % 32);
+  }
+  lastTime = now;
   let t = now;
   let time = "";
   for (let i = 0; i < 10; i++) {
     time = B32.charAt(t % 32) + time;
     t = Math.floor(t / 32);
   }
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  let rand = "";
-  for (const b of bytes) rand += B32.charAt(b % 32);
-  return time + rand;
+  return time + lastRand.map((d) => B32.charAt(d)).join("");
+}
+
+/** Adds one to base32 digits in place; false when all 16 digits overflow. */
+function increment(digits: number[]): boolean {
+  for (let i = digits.length - 1; i >= 0; i--) {
+    if ((digits[i] as number) < 31) {
+      digits[i] = (digits[i] as number) + 1;
+      return true;
+    }
+    digits[i] = 0;
+  }
+  return false;
 }

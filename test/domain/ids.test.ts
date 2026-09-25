@@ -64,4 +64,11 @@ describe("newDispatchId", () => {
     expect(a < b).toBe(true);
     expect(newDispatchId(5)).not.toBe(newDispatchId(5));
   });
+
+  it("stays strictly increasing within one millisecond and when the clock steps back", () => {
+    const ids = Array.from({ length: 1000 }, () => newDispatchId(7_000));
+    ids.push(newDispatchId(6_000), newDispatchId(7_000));
+    for (let i = 1; i < ids.length; i++) expect((ids[i - 1] as string) < (ids[i] as string)).toBe(true);
+    for (const id of ids) expect(id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  });
 });
