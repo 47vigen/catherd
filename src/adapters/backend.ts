@@ -34,7 +34,11 @@ export interface RunRequest {
   dispatchDir: string;
 }
 
-/** `env` holds only the adapter's overrides; the supervisor merges them over the scrubbed parent env. */
+/**
+ * `env` holds only the adapter's overrides. The caller builds the worker's env with
+ * `workerEnv(process.env, plan.env, plan.cwd)`, the only place secrets are scrubbed and PWD is set;
+ * the supervisor passes the env it is given unchanged.
+ */
 export interface SpawnPlan {
   cmd: string;
   args: string[];
