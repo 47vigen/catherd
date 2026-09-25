@@ -12,7 +12,7 @@ import {
   type SpawnPlan,
 } from "../backend.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
-import { generatedImages, isolatedCodexHome, userCodexHome } from "./home.ts";
+import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
 export const CODEX_MIN_VERSION = "0.157.0";
 const THREAD = /^[A-Za-z0-9][A-Za-z0-9-]{3,127}$/;
@@ -77,7 +77,7 @@ function finalize(run: FinishedRun): Outcome {
                 ? "failed"
                 : "ok";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
-  const home = run.request.isolated ? isolatedCodexHome() : userCodexHome();
+  const home = run.request.isolated ? isolatedCodexHomePath() : userCodexHome();
   return {
     status,
     thread: f.thread ?? run.request.thread,
