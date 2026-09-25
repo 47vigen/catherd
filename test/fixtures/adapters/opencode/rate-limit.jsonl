@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1790356600000,"sessionID":"ses_f2670b2c3ffeRateRateRateRat1","part":{"id":"prt_0d98f1000001RateRateRateRat1","sessionID":"ses_f2670b2c3ffeRateRateRateRat1","messageID":"msg_0d98f1000001RateRateRateRa1","type":"step-start","snapshot":"8ca9f4b18b60104b0623a4e84f26d4132a748799"}}
+{"type":"error","timestamp":1790356690412,"sessionID":"ses_f2670b2c3ffeRateRateRateRat1","error":{"type":"provider.rate-limit","message":"Rate limit exceeded: 5-hour window"}}
