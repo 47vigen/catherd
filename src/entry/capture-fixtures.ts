@@ -15,7 +15,7 @@ export const captureFixturesCommand = defineCommand({
   },
   args: {
     backend: { type: "string", description: `only this backend (${CAPTURE_BACKENDS.join(", ")})` },
-    out: { type: "string", description: "fixture root", default: "test/fixtures" },
+    out: { type: "string", description: "fixture root", default: "test/fixtures/adapters" },
   },
   async run({ args }) {
     if (args.backend && !CAPTURE_BACKENDS.includes(args.backend)) {
