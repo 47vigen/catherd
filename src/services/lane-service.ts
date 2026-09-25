@@ -22,13 +22,31 @@ import {
 } from "./run-store.ts";
 import { type Notes, type NotesPatch, readNotes, updateState } from "./state.ts";
 
-/** A failed state.md refresh (git broken) never fails the call: its message comes back as a hint. */
-async function refreshState(run: Run, change: NotesPatch | ((n: Notes) => NotesPatch)): Promise<string[]> {
+/**
+ * Ruling (b): a failed state.md refresh (git broken) never fails the call. The notes still go to state.json
+ * under the state lock (state.md stays as it was), and the message comes back as a hint.
+ */
+export async function refreshState(
+  run: Run,
+  change: NotesPatch | ((n: Notes) => NotesPatch) = {},
+): Promise<{ text: string | null; hints: string[] }> {
+  let applied = false;
+  const apply = (n: Notes): NotesPatch => {
+    applied = true;
+    return typeof change === "function" ? change(n) : change;
+  };
   try {
-    await updateState(run, change);
-    return [];
+    return { text: await updateState(run, apply), hints: [] };
   } catch (e) {
-    return [`state.md not refreshed: ${(e as Error).message}`];
+    // git fails before updateState reaches the notes: keep them, so a later refresh still shows them
+    if (!applied) {
+      const stateJson = runPaths(run.dir).stateJson;
+      await withFileLock(stateJson, () => {
+        const notes = readNotes(run);
+        writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
+      });
+    }
+    return { text: null, hints: [`state.md not refreshed: ${(e as Error).message}`] };
   }
 }
 
@@ -131,7 +149,7 @@ export async function climb(
     });
     return { cur, next };
   });
-  const hints = await refreshState(run, {
+  const { hints } = await refreshState(run, {
     next: next
       ? `dispatch ${i.lane} at ${next} on a fresh thread`
       : `${i.lane} failed on its top rung: ask finding, then the architect or the report`,
@@ -174,7 +192,6 @@ export async function land(
   const now = new Date(deps.now());
   let row = "";
   let minutes = 0;
-  let landed = false;
   const landRow = (notes: Notes): NotesPatch => {
     minutes = Math.max(
       0,
@@ -182,19 +199,10 @@ export async function land(
     );
     row = [i.milestone, i.what, i.commit, String(minutes), i.evidence].map(cell).join(" | ");
     appendLedger(run, row);
-    landed = true;
     return { lastCheck: cell(i.evidence), next: i.next, lastLandedAt: now.toISOString() };
   };
-  const hints = await refreshState(run, landRow);
-  if (!landed) {
-    // git failed before updateState reached the ledger: land anyway, and keep the notes in state.json
-    // (state.md stays as it was) so the next landing still counts its minutes from this one
-    const stateJson = runPaths(run.dir).stateJson;
-    await withFileLock(stateJson, () => {
-      const notes = readNotes(run);
-      writeJsonAtomic(stateJson, { ...notes, ...landRow(notes) });
-    });
-  }
+  // on a failed refresh the notes still reach state.json, so the next landing counts its minutes from this one
+  const { hints } = await refreshState(run, landRow);
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
     mkdirSync(dirname(file), { recursive: true });

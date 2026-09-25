@@ -16,6 +16,7 @@ import {
   writeRunFile,
 } from "../../src/services/run-service.ts";
 import { appendRecord, findRun, readAgentRuns, readRoutes, runPaths } from "../../src/services/run-store.ts";
+import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, writeLane } from "./helpers.ts";
 
@@ -209,6 +210,8 @@ describe("a failed state.md refresh", () => {
       hints: [hint],
     });
     expect(readRoutes(run).at(-1)).toMatchObject({ source: "climb", rung: LADDER[1] });
+    // climb's Next note was kept in state.json although state.md was not refreshed
+    expect(readNotes(run).next).toBe(`dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
     const land1 = { run: run.id, milestone: "M1", what: "x", commit: c1, evidence: "ok", next: "M2" };
     expect(await land(deps, land1)).toEqual({ ledger: `M1 | x | ${c1} | 3 | ok`, minutes: 3, hints: [hint] });
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(state);
