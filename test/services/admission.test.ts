@@ -6,7 +6,7 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
-import { finalizeDispatch } from "../../src/services/finalize.ts";
+import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
@@ -144,18 +144,30 @@ describe("admission", () => {
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L4", lane: "M1.L4" })))).toBe("admitted");
   });
 
-  it("keeps a dispatch that exited blocking its name and lane until its record is written", async () => {
+  it("finalizes an exited dispatch nobody waits for before its checks, then admits", async () => {
+    const { run } = setup();
+    const endedAt = new Date().toISOString();
+    const exited = { proc: "dead", exit: { code: 0, signal: null, reason: "exited", endedAt } } as const;
+    const a = await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"] }, exited);
+    expect(await refusal(admit(fakeDeps(), run, input()))).toBe("admitted");
+    expect(readRecords(run).records.filter((r) => r.dispatchId === a.admit.dispatchId)).toHaveLength(1);
+  });
+
+  it("keeps a finished dispatch whose record cannot be written blocking its name and lane", async () => {
     const { run } = setup();
     const deps = fakeDeps();
     const endedAt = new Date().toISOString();
     const exited = { proc: "dead", exit: { code: 0, signal: null, reason: "exited", endedAt } } as const;
-    const a = await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"] }, exited);
+    // a rung finalize cannot parse makes its finalize throw
+    await fakeDispatch(run, { name: "worker-M1.L9", lane: "M1.L9", owns: ["src/"], rung: "bogus" }, exited);
+    const started = Date.now();
     expect(await refusal(admit(deps, run, input()))).toBe("E_ADMIT_OVERLAP");
+    // the failed finalize released its claim: the next one tries at once instead of waiting for a record
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L9", lane: null })))).toBe(
       "E_ADMIT_DUPLICATE",
     );
-    await finalizeDispatch(run, a);
-    expect(await refusal(admit(deps, run, input()))).toBe("admitted");
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(readRecords(run).records).toHaveLength(0);
   });
 
   it("admits exactly one of two parallel dispatches on overlapping lanes, and one of two with the same name", async () => {
@@ -199,7 +211,7 @@ describe("admission", () => {
 
   it("counts attempts per name", async () => {
     const { run } = setup();
-    await finalizeDispatch(run, await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead" }));
+    await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead" });
     const { d } = await admit(fakeDeps(), run, input());
     expect(d.admit.attempt).toBe(2);
   });

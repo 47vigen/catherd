@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { relative } from "node:path";
 import type { FinishedRun, Outcome } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -189,12 +189,14 @@ function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
 /**
  * Spec §3.3: the first finalizer claims the dispatch and writes its record; any other waits for that
  * record and returns it. If the claimer died before appending, the late finalizer appends instead;
- * appendRecord's per-dispatch dedupe keeps that to one record either way (audit C2).
+ * appendRecord's per-dispatch dedupe keeps that to one record either way (audit C2). A claimer that throws
+ * releases its claim.
  */
 export async function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord> {
   const existing = readRecords(run).records.find((r) => r.dispatchId === d.admit.dispatchId);
   if (existing) return existing;
-  if (!tryClaim(d.dir)) {
+  const claimed = tryClaim(d.dir);
+  if (!claimed) {
     const theirs = await waitForRecord(
       run,
       d.admit.dispatchId,
@@ -202,8 +204,16 @@ export async function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord
     );
     if (theirs) return theirs;
   }
-  const mine = await compute(run, d);
-  const saved = await appendRecord(run, mine);
+  let saved: RunRecord;
+  let mine: RunRecord;
+  try {
+    mine = await compute(run, d);
+    saved = await appendRecord(run, mine);
+  } catch (e) {
+    // no record: let the next finalizer try at once rather than wait on this claim
+    if (claimed) rmSync(dispatchPaths(d.dir).claim, { force: true });
+    throw e;
+  }
   if (saved === mine) recordHarness(run, d, mine);
   return saved;
 }

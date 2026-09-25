@@ -24,6 +24,7 @@ import {
   roleDir,
   setLatest,
 } from "./dispatches.ts";
+import { finalizeDispatch } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 
@@ -54,6 +55,22 @@ export function laneOwns(run: Run, lane: string): string[] {
       fix: "add `Owns: <paths>` below the lane's title",
     });
   return owns;
+}
+
+/**
+ * Records each finished dispatch of the run that has none yet, as reconcile does, so one whose waiter died
+ * never blocks its name or lane. Before the admission lock: a finalize may wait on another's claim. One that
+ * throws is skipped and stays pending, so the refusal still names it.
+ */
+async function finalizeFinished(run: Run, now: number): Promise<void> {
+  for (const d of pendingDispatches(run, now)) {
+    if (d.state !== "finished") continue;
+    try {
+      await finalizeDispatch(run, d);
+    } catch {
+      // stays pending: admission refuses its name and lane, and names it
+    }
+  }
 }
 
 /**
@@ -104,13 +121,15 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     dispatchDir: dir,
   });
 
+  await finalizeFinished(run, deps.now());
   return withFileLock(runPaths(run.dir).admission, async () => {
     const records = readRecords(run).records;
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
-    // tree after the exit, so a later dispatch's writes must not land in between.
+    // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
+    // could not be recorded just now.
     const pending = pendingDispatches(run, deps.now());
     const live = pending.filter((d) => d.state !== "finished");
-    const doing = (d: LiveDispatch): string => (d.state === "finished" ? "being recorded" : "running");
+    const doing = (d: LiveDispatch): string => (d.state === "finished" ? "finished, unrecorded," : "running");
     const same = pending.find((d) => d.admit.name === i.name);
     if (same)
       throw new CatherdError(
@@ -119,7 +138,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
         {
           fix:
             same.state === "finished"
-              ? "wait for its record; a catherd server restart records one nobody waits for"
+              ? `its record could not be written; see ${same.dir}, and retry`
               : `wait for it, or cancel(run, "${i.name}")`,
         },
       );
