@@ -12,6 +12,10 @@ writeFileSync(
   read("plugin/.mcp.json").replace(/catherd-cli@[^"]+/, `catherd-cli@${version}`),
 );
 writeFileSync(
+  path("plugin/skills/catherd/SKILL.md"),
+  read("plugin/skills/catherd/SKILL.md").replace(/catherd-cli@[^ `]+ lock/g, `catherd-cli@${version} lock`),
+);
+writeFileSync(
   path("plugin/.claude-plugin/plugin.json"),
   read("plugin/.claude-plugin/plugin.json").replace(/"version": "[^"]+"/, `"version": "${version}"`),
 );

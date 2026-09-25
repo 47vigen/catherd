@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { fastCheckOf } from "../core/lanes.ts";
+import { fastCheckOf, ownedFilesOf } from "../core/lanes.ts";
 import { acquire, resolveSlots } from "../core/lock.ts";
 import { json } from "./out.ts";
 import { findRun } from "./runs.ts";
@@ -13,6 +13,7 @@ interface PreflightResult {
   lane: string;
   check: string;
   pass: boolean;
+  skipped?: boolean;
   tail: string[];
 }
 
@@ -55,6 +56,20 @@ export function registerPreflight(server: McpServer): void {
           const check = fastCheckOf(text);
           if (!check) {
             results.push({ lane, check: "", pass: false, tail: [`lanes/${f} has no "Fast check:" line`] });
+            continue;
+          }
+          // A check on a file the lane itself creates cannot run on the base tree; that is expected.
+          const unborn = ownedFilesOf(text).filter(
+            (p) => check.includes(p) && !existsSync(join(run.meta.repo, p)),
+          );
+          if (unborn.length > 0) {
+            results.push({
+              lane,
+              check,
+              pass: true,
+              skipped: true,
+              tail: [`skipped: ${unborn.join(", ")} does not exist yet; the lane creates it`],
+            });
             continue;
           }
           const r = await runCheck(run.meta.repo, check);

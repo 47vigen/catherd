@@ -1,4 +1,5 @@
 import type { Role } from "../types.ts";
+import { VERSION } from "../version.ts";
 
 const READ_ONLY = ["Write", "Edit", "NotebookEdit", "Agent"];
 const WRITES = ["Agent"];
@@ -66,7 +67,7 @@ const worker = [
   "",
   `Read your lane file first. ${RUN_FILES} If the project has a CLAUDE.md or AGENTS.md, follow it.`,
   "",
-  "Change only the files you own. Run your fast check until it passes. Run the full suite only if the brief says so, and wrap any full build or full test suite in: bunx catherd-cli lock -- <command>. Other lanes share this machine.",
+  `Change only the files you own. Run your fast check until it passes. Run the full suite only if the brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${VERSION} lock -- <command>. Other lanes share this machine.`,
   "",
   REPLY,
 ].join("\n");

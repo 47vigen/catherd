@@ -50,6 +50,20 @@ describe("preflight", () => {
     expect(byLane["M1.L3"].tail[0]).toContain('no "Fast check:" line');
   });
 
+  test("skips a check whose file the lane creates, rather than failing it", async () => {
+    const c = await mcpClient();
+    const { run } = await startRun(c, tempRepo());
+    await call(c, "write_run_file", {
+      run,
+      path: "lanes/M1.L1.md",
+      content: "# M1.L1 — new\nOwns: src/new.ts, src/new.test.ts\nFast check: bun test ./src/new.test.ts\n",
+    });
+    const r = await call(c, "preflight", { run });
+    expect(r.data.allPass).toBe(true);
+    expect(r.data.results[0]).toMatchObject({ lane: "M1.L1", pass: true, skipped: true });
+    expect(r.data.results[0].tail[0]).toContain("src/new.test.ts");
+  });
+
   test("holds the machine-wide heavy lock while it runs, and releases it after", async () => {
     const c = await mcpClient();
     const { run } = await startRun(c, tempRepo());
