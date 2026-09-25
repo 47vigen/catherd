@@ -1,2 +1,4 @@
-// Registers every adapter with the registry; imported by entry points that need them.
-export {};
+import { codexAdapter } from "./codex/index.ts";
+import { registerAdapter } from "./registry.ts";
+
+registerAdapter(codexAdapter);
