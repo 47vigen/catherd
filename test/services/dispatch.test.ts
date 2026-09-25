@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
+import { listDispatches } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, fakeGit, freshRun, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, fakeGit, freshRun, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -132,12 +133,14 @@ describe("dispatch", () => {
 
   it("keeps the lane's Owns as they were at admission, even if the lane file changes mid-run", async () => {
     const { run, deps } = setup({
-      delayMs: 400,
+      delayMs: 1_000,
       reply: "x\nSTATUS: complete — ok",
       touch: [{ path: "src/a.ts", content: "x" }],
     });
     const pending = dispatch(deps, input(run.id));
-    await Bun.sleep(100);
+    // admit.json is written once admission fixed the Owns; the rewrite must land after that, mid-run
+    const d = await waitFor(() => listDispatches(run)[0], 5_000);
+    expect(existsSync(dispatchPaths(d.dir).exit)).toBe(false);
     writeLane(run, "M1.L1", ["docs/"]);
     const { record } = await pending;
     expect(record.changedOwned).toEqual(["src/a.ts"]);
