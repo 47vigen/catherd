@@ -164,6 +164,8 @@ async function failover(
     record,
     hints: [
       `limit: ${limited.rung} hit a usage limit; failed over to ${standIn}`,
+      // the stand-in's before-snapshot already holds the limited run's writes: surface them here
+      ...hints.filter((h) => /^(violation|git-unavailable):/.test(h)),
       ...hintsFor(run, next.d, record),
     ],
     pause:

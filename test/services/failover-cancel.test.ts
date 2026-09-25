@@ -60,6 +60,22 @@ describe("failover", () => {
     expect(readFileSync(dispatchPaths(stand?.dir ?? "").brief, "utf8")).toBe("Read lanes/M1.L1.md");
   });
 
+  it("keeps the limited run's violations in the hints after a successful failover", async () => {
+    const { run, deps } = setup({
+      byRung: {
+        "gpt-6-sol#medium": { ...LIMIT, touch: [{ path: "src/other.ts", content: "out of lane" }] },
+        "gpt-6-sol#high": DONE,
+      },
+    });
+    const { record, hints } = await dispatch(deps, input(run.id));
+    expect(record.status).toBe("ok");
+    expect(readRecords(run).records[0]?.violations).toEqual(["src/other.ts"]);
+    expect(hints).toEqual([
+      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
+      "violation: src/other.ts",
+    ]);
+  });
+
   it("hands a fix round's stand-in the lane file and the fix brief by path, both of which exist", async () => {
     const { run, deps } = setup({ byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": DONE } });
     const { record } = await dispatch(
