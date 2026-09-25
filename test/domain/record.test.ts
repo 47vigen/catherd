@@ -20,7 +20,7 @@ export const sampleRecord = (over: Partial<RunRecord> = {}): RunRecord => ({
   exitCode: 0,
   signal: null,
   cliVersion: "0.157.0",
-  tokens: ZERO_TOKENS,
+  tokens: { ...ZERO_TOKENS },
   costUsd: null,
   changedOwned: [],
   violations: [],
@@ -55,5 +55,16 @@ describe("parseReplyStatus", () => {
     expect(parseReplyStatus("STATUS: refused - no")).toEqual({ status: "refused", why: "no" });
     expect(parseReplyStatus("STATUS: complete — x\nmore text")).toEqual({ status: null, why: null });
     expect(parseReplyStatus("")).toEqual({ status: null, why: null });
+  });
+});
+
+describe("ZERO_TOKENS", () => {
+  it("is frozen and typed read-only, so a mutation fails to type-check instead of throwing", () => {
+    expect(Object.isFrozen(ZERO_TOKENS)).toBe(true);
+    const mutate = () => {
+      // @ts-expect-error ZERO_TOKENS is Readonly<Tokens>
+      ZERO_TOKENS.input += 1;
+    };
+    expect(mutate).toThrow();
   });
 });

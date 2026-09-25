@@ -14,7 +14,7 @@ export interface Tokens {
   cached: number;
   output: number;
 }
-export const ZERO_TOKENS: Tokens = Object.freeze({ input: 0, cached: 0, output: 0 });
+export const ZERO_TOKENS: Readonly<Tokens> = Object.freeze({ input: 0, cached: 0, output: 0 });
 
 /** Spec §7: a thread past this many input tokens is spent; its next piece starts fresh. */
 export const THREAD_HEAVY_INPUT = 8_000_000;
