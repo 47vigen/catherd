@@ -70,6 +70,11 @@ describe("dispatchHints", () => {
     expect(dispatchHints(makeRecord({ changedOwned: [] }), [], dir)).toEqual([]);
   });
 
+  it("never says unchanged for a read-only role on a lane", () => {
+    const r = makeRecord({ access: "read-only", changedOwned: [] });
+    expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual([]);
+  });
+
   it("names the stderr of a failed run, a limit, an old CLI, violations and a heavy thread", () => {
     expect(dispatchHints(makeRecord({ status: "failed", replyStatus: null }), [], dir)).toEqual([
       "failed: read roles/w/01J/stderr",
@@ -88,12 +93,19 @@ describe("dispatchHints", () => {
 });
 
 describe("change detection", () => {
-  it("parses porcelain -z, skipping a rename's source path", () => {
-    const out = " M src/a.ts\0?? new dir/b.ts\0R  src/c.ts\0src/old.ts\0D  gone.ts\0";
+  it("parses porcelain -z, reporting both paths of a rename in either column", () => {
+    const out =
+      " M src/a.ts\0?? new dir/b.ts\0R  src/c.ts\0src/old.ts\0 R src/d.ts\0lib/d.ts\0" +
+      "C  src/e.ts\0src/f.ts\0D  gone.ts\0";
     expect(parsePorcelainZ(out)).toEqual([
       { xy: " M", path: "src/a.ts" },
       { xy: "??", path: "new dir/b.ts" },
       { xy: "R ", path: "src/c.ts" },
+      { xy: "R ", path: "src/old.ts" },
+      { xy: " R", path: "src/d.ts" },
+      { xy: " R", path: "lib/d.ts" },
+      { xy: "C ", path: "src/e.ts" },
+      { xy: "C ", path: "src/f.ts" },
       { xy: "D ", path: "gone.ts" },
     ]);
   });

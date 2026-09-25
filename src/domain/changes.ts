@@ -1,6 +1,9 @@
 import { overlaps } from "./lane.ts";
 
-/** `git status --porcelain=v1 -z` rows. A rename or copy carries its source path as the next token. */
+/**
+ * `git status --porcelain=v1 -z` rows. A rename or copy (R/C in either column) carries its source path as
+ * the next token; both paths are reported, so moving a file out of a path counts as a change to it.
+ */
 export function parsePorcelainZ(out: string): { xy: string; path: string }[] {
   const tokens = out.split("\0");
   const rows: { xy: string; path: string }[] = [];
@@ -9,7 +12,10 @@ export function parsePorcelainZ(out: string): { xy: string; path: string }[] {
     if (t.length < 4) continue;
     const xy = t.slice(0, 2);
     rows.push({ xy, path: t.slice(3) });
-    if (xy[0] === "R" || xy[0] === "C") i++;
+    if (/[RC]/.test(xy)) {
+      const source = tokens[++i];
+      if (source) rows.push({ xy, path: source });
+    }
   }
   return rows;
 }

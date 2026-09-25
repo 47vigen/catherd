@@ -7,7 +7,8 @@ export function dispatchHints(r: RunRecord, owns: string[], dir: string): string
   if (r.status === "cli-too-old") h.push(`cli-too-old: ${r.error?.message ?? `upgrade ${r.backend}`}`);
   if (r.status === "failed") h.push(`failed: read ${dir}/stderr`);
   if (r.replyStatus === "refused" || r.replyStatus === "blocked") h.push(`climb: ${r.replyStatus}`);
-  else if (r.status === "ok" && owns.length > 0 && r.changedOwned.length === 0) h.push("climb: unchanged");
+  else if (r.status === "ok" && r.access !== "read-only" && owns.length > 0 && r.changedOwned.length === 0)
+    h.push("climb: unchanged");
   if (r.violations.length > 0) h.push(`violation: ${r.violations.join(", ")}`);
   if (r.threadHeavy) h.push("thread-heavy");
   return h;
