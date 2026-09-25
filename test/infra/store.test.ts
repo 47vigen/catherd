@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -22,6 +30,13 @@ describe("writeJsonAtomic", () => {
     writeJsonAtomic(f, { schema: 1, name: "x" });
     expect(JSON.parse(readFileSync(f, "utf8"))).toEqual({ schema: 1, name: "x" });
     expect(readdirSync(join(d, "sub"))).toEqual(["a.json"]);
+  });
+
+  it("writes with the mode it is given, even over a file that had a wider one", () => {
+    const f = join(dir(), "secret.json");
+    writeFileSync(f, "{}", { mode: 0o644 });
+    writeJsonAtomic(f, { schema: 1, name: "x" }, { mode: 0o600 });
+    expect(statSync(f).mode & 0o777).toBe(0o600);
   });
 });
 

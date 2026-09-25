@@ -9,6 +9,8 @@ export type ErrorCode =
   | "E_RUN_NOT_FOUND"
   | "E_RUN_CORRUPT"
   | "E_RUN_BUDGET"
+  | "E_RUN_COMMIT"
+  | "E_RUN_NOT_LIVE"
   | "E_ADMIT_RUNG"
   | "E_ADMIT_DUPLICATE"
   | "E_ADMIT_OVERLAP"
@@ -19,7 +21,10 @@ export type ErrorCode =
   | "E_JEV_NETWORK"
   | "E_JEV_RESPONSE"
   | "E_IO_LOCK"
-  | "E_IO_WRITE";
+  | "E_IO_WRITE"
+  | "E_IO_PATH"
+  | "E_IO_UNEXPECTED"
+  | "E_INPUT_INVALID";
 
 /** Every failure catherd reports: a stable code, a message, and the exact action that fixes it. */
 export class CatherdError extends Error {

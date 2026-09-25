@@ -23,32 +23,46 @@ Your job:
 
 The catherd server keeps `state.md` true: it rewrites it on every dispatch, climb and landing.
 
+**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@0.2.1`. If it differs, stop and tell the user to restart Claude Code so the plugin and its server match.
+
 **You never edit product files.** Every line of code, tests or docs comes from a role, including a one-line fix.
 
 **You run in the user's own session, on purpose.** The main thread is the user's own model in Claude Code, with their plugins, hooks and memory beside it: the environment they decide in every day. Never propose a stripped launcher or a headless relay to save tokens.
 
-**Each role runs in its vendor's own harness with the user's customizations — never isolate it.** Codex and opencode roles keep the user's config, hooks, MCP servers, skills and `AGENTS.md`. The one exception is the user's own choice, the profile's `harness.<name>.isolated`, and `dispatch` applies it for you.
+**Each role runs in its vendor's own harness with the user's customizations — never isolate it.** Codex roles keep the user's config, hooks, MCP servers, skills and `AGENTS.md`. The one exception is the user's own choice, the profile's `harness.<name>.isolated`, and `dispatch` applies it for you.
 
 ## Tools
 
 The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd_catherd__<name>`. If they are deferred, load them all with one ToolSearch call at the start, together with `PushNotification`.
 
-| Tool                                                             | Use                                                                                                                                                                           |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_start(repo, title, a_lines)`                                | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                                                 |
-| `route(run, lane_file?, role?)`                                  | A lane's rung, decided by Jev from its lane file; or, without a lane file, a role's rung from the profile. Returns `rung`, `ladder`, `backend`, and `agent` for a Claude rung |
-| `preflight(run)`                                                 | Runs each lane's fast check once, on the base tree, behind the machine-wide lock. Call it once every lane file exists, before dispatching any of them                         |
-| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`  | Runs one Codex or opencode role and returns its `record` and `hints`                                                                                                          |
-| `climb(run, lane, reason, evidence?)`                            | The lane's next rung, or `top: true`                                                                                                                                          |
-| `ask(run, question, state)`                                      | Jev's `finding` or `same-defect` answer                                                                                                                                       |
-| `land(run, milestone, what, commit, evidence, next, learned?)`   | A landed milestone's ledger row, and `state.md`. `learned` appends to this repo's `knowledge.md`                                                                              |
-| `read_knowledge(repo)`                                           | What past runs of this repo learned. The dossier brief reads it                                                                                                               |
-| `write_run_file(run, path, content)`, `read_run_file(run, path)` | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                                               |
-| `result(run, name)`                                              | A role's capped reply and its record                                                                                                                                          |
-| `status(run?)`                                                   | One screen: the `state.md` tail, live roles with their age, totals, Jev fallbacks, the harness cost, the run's budget spend                                                   |
-| `set_next(run, next)`                                            | The next step, when you pause or the plan changes                                                                                                                             |
-| `runs_summary(filter)`                                           | Time, tokens, refusals and climbs per role and rung, and the harness cost, for the report                                                                                     |
-| `profile_get()`                                                  | The active profile: enabled roles, and the moments to push                                                                                                                    |
+| Tool                                                                                      | Use                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status(run?)`                                                                            | First, and whenever the user asks where it stands: `version`, then per run the `state.md` tail, live roles, totals, Claude subagents, budget, milestones |
+| `run_start(repo, title, a_lines)`                                                         | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                            |
+| `route(run, lane_file?, role?)`                                                           | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`   |
+| `preflight(run, confirmed?)`                                                              | Each lane's fast check once, before any lane runs. Outcomes below                                                                                        |
+| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                           | Runs one process role (Codex) and returns its `record` and `hints`                                                                                       |
+| `cancel(run, name)`                                                                       | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                       |
+| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?)` | After every Claude subagent: what its Agent result reported. The budget counts it                                                                        |
+| `climb(run, lane, reason, evidence?)`                                                     | The lane's next rung, with its `backend` and `agent`, or `top: true`                                                                                     |
+| `ask(run, question, state)`                                                               | Jev's `finding` or `same-defect` answer                                                                                                                  |
+| `land(run, milestone, what, commit, evidence, next, learned?)`                            | A landed milestone's ledger row, with the minutes it took, and `state.md`. `learned` appends to this repo's `knowledge.md`                               |
+| `read_knowledge(repo)`                                                                    | What past runs of this repo learned. The dossier brief reads it                                                                                          |
+| `write_run_file(run, path, content)`, `read_run_file(run, path)`                          | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                          |
+| `result(run, name)`                                                                       | A role's latest reply, capped, and its record                                                                                                            |
+| `set_next(run, next)`                                                                     | The next step, when you pause or the plan changes                                                                                                        |
+| `runs_summary(filter)`                                                                    | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                      |
+| `profile_get()`                                                                           | The active profile: enabled roles and their rungs, budget, and the moments to push                                                                       |
+
+**A tool returns `hints` when it has any:** one line each, on what to do next. Read them before you move on.
+
+**Every error is `{ code, message, fix }`.** Read the code, act on the fix, and never retry the same call blindly:
+
+- `E_ADMIT_OVERLAP`: the lane shares an owned path with a running lane. Dispatch it when that one returns.
+- `E_ADMIT_DUPLICATE`: that role name is already running. Wait for it, or `cancel` it.
+- `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; run a `claude:` rung as its agent; skip a role that is off.
+- `E_RUN_BUDGET`: the run's budget is spent (a soft cap: roles already running finish). Pause, report and push.
+- `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`: tell the user the `fix`, word for word, then pause.
 
 ## Roles
 
@@ -63,27 +77,28 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 | writer      | `dispatch(run, "writer", "writer-<m>", brief, rung)`                            | README, docs, changelog, MR body                        |
 | researcher  | `dispatch(run, "researcher", "researcher-<n>", brief, rung)`                    | The dossier, or one factual question about the code     |
 
-- **Every rung comes from `route`,** never from you. The table shows the usual backend; the profile decides. When `route` returns `backend: "claude"`, run that role with `Agent(subagent_type: <agent>)`, with the brief and the run id as its prompt; otherwise `dispatch` it. `dispatch` refuses a Claude rung and names the agent.
+- **Every rung comes from `route`,** never from you. A rung names its backend: `backend:model#effort`, like `codex:gpt-6-sol#high` or `claude:claude-opus-5-5#high`. The table shows the usual backend; the profile decides. When `route` returns `backend: "claude"`, run that role with `Agent(subagent_type: <agent>)`, with the brief and the run id as its prompt; otherwise `dispatch` it. `dispatch` refuses a Claude rung and names the agent.
+- **After every Claude subagent returns,** call `record_agent_run(run, name, role, rung, total_tokens, duration_ms)` with the numbers its Agent result reports. Claude runs cost the budget too, and catherd cannot see them otherwise.
 - **A role the profile disables** (`profile_get`; every role but the worker can be off) is skipped, and the report says so.
-- **Sandbox:** catherd sets it per role. Worker, artist and writer write in the repo only; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots.
+- **Access:** catherd sets it per role. Worker, artist and writer write in the repo only; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots.
 - **Cheap rungs hide broken tools.** The lowest Track A rung stays silent about a broken tool about a third of the time, so every lane on it is checked by your fast check, not by its own word.
 - **Claude agents:**
   - catherd generates them from the profile, and Claude Code registers them at session start.
   - Pass no `model` to those Agent calls. Never let `Plan`, `general-purpose` or `Explore` stand in.
   - `Agent type … not found` means the profile changed after this session started: tell the user to open a new session.
   - If the model needs a newer Claude Code, stop and tell the user to upgrade Claude Code. Never pass a `model` to get past it.
-- **The record:** `R/roles/<name>.out` is the latest reply; earlier rounds are kept as `<name>.r<k>.*`. `R/runs.jsonl` holds one record per run (role, rung, status, thread, seconds, tokens). It is the token and time record: never keep your own.
+- **The record:** each dispatch has its own folder, `R/roles/<name>/<dispatchId>/` (brief, reply, events, stderr); `result(run, name)` reads the latest. `R/runs.jsonl` holds one record per dispatch (role, rung, status, thread, seconds, tokens, the owned files it changed and any it should not have). `R/agents.jsonl` holds the Claude subagent runs you reported. Together they are the token and time record: never keep your own.
 
 ## Effort: the ladder, decided by Jev
 
 A lane starts on the lowest rung that can do it, and climbs one rung when it shows it cannot. The ladders come from the profile and the catalog. With the default profile:
 
-| Track | Lanes                                                                         | Rungs, low to high                                                            |
-| ----- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| A     | `copy` or `build`: an existing pattern, a clear fast check                    | `gpt-6-luna#high` → `gpt-6-sol#medium` → `gpt-6-sol#high` → `gpt-6-sol#xhigh` |
-| B     | `logic` or `hard`, or `terminal` work: state, concurrency, ops, unclear cause | `gpt-6-sol#medium` → `gpt-6-sol#high` → `gpt-6-sol#xhigh`                     |
+| Track | Lanes                                                                         | Rungs, low to high                                                                                    |
+| ----- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| A     | `copy` or `build`: an existing pattern, a clear fast check                    | `codex:gpt-6-luna#high` → `codex:gpt-6-sol#medium` → `codex:gpt-6-sol#high` → `codex:gpt-6-sol#xhigh` |
+| B     | `logic` or `hard`, or `terminal` work: state, concurrency, ops, unclear cause | `codex:gpt-6-sol#medium` → `codex:gpt-6-sol#high` → `codex:gpt-6-sol#xhigh`                           |
 
-**Jev picks the start.** Jev (TypeSafe) is a decision model: it answers a fixed question with calibrated confidence in about three seconds, for a fraction of a cent. On low confidence, or with no Jev, the tools return the profile's default (`source: "default"`), so the run never waits on it. Every call is logged to `R/jev.jsonl`.
+**Jev picks the start, when the user has it.** Jev (TypeSafe) is a decision model: it answers a fixed question with calibrated confidence in about three seconds, for a fraction of a cent. It is optional. On low confidence, or with no Jev key, `route` uses the lane file's `Kind:` and `Difficulty:` lines (`source: "lane"`), else the profile's default (`source: "default"`), so the run never waits on it. Every Jev call is logged to `R/jev.jsonl`.
 
 | When                                          | Call                                                                          | On the answer                               |
 | --------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------- |
@@ -96,6 +111,8 @@ A lane starts on the lowest rung that can do it, and climbs one rung when it sho
 - your fast check fails twice on that lane (`check-failed-twice`);
 - the lane gets a BLOCKER (`blocker`), or Jev calls a returning finding the same defect (`same-defect`);
 - the reply says `STATUS: refused` or `blocked`, or the run exits 0 while the lane's owned files are unchanged: that is a refusal, whatever the reply says (`refused`, `blocked`, `unchanged`). `dispatch` flags each of these in its `hints` as `climb: <reason>`.
+
+A usage limit is not a climb. When the profile names a stand-in for that rung, `dispatch` has already rerun the role on it, on a fresh thread, and its first hint says `limit: … failed over to <rung>`: carry on with the record it returned. With no stand-in, the hint is `limit: …` and the run is paused.
 
 A failure on the top rung (`top: true`) goes to the architect when Jev calls it design, else to the report as open.
 
@@ -145,11 +162,13 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 - **`lanes/Mx.Ly.md`:** one file per lane, the only plan a worker reads. Its second line, `Owns: <paths>`, is what `dispatch` uses to refuse a lane that shares a file with a running one, and to spot a refusal.
 - **`ledger.md`:** one row per landed piece, appended by `land`. Never rewritten.
 - **`state.md`:** rewritten by the server at every dispatch, climb and landing, so a fresh session resumes from it alone: HEAD, the dirty files and their owners, each running role with its brief, thread and rung, the last check, and the next step on the last line.
-- **`runs.jsonl`, `jev.jsonl`, `routes.jsonl`, `harness.jsonl`:** the record.
-- **`roles/`** (briefs and replies) and **`shots/`** (screenshots).
-- **`<data>/<repo-slug>/knowledge.md`** (one level up, per repo, not per run): what past runs learned. `land`'s `learned` appends to it; `read_knowledge` reads it.
+- **`runs.jsonl`, `agents.jsonl`, `jev.jsonl`, `routes.jsonl`, `harness.jsonl`:** the record.
+- **`roles/<name>/<dispatchId>/`** (each dispatch's brief, reply, events and stderr) and **`shots/`** (screenshots).
+- **The repo's `knowledge.md`** (beside the runs, per repo, not per run): what past runs learned. `land`'s `learned` appends to it; `read_knowledge` reads it.
 
-**Pause** (on the user's word, or a usage limit): dispatch nothing new, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `dispatch` has already written the pause.
+**Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `dispatch` has already written the pause.
+
+**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`; its dispatch call returns the same record.
 
 **Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
 
@@ -167,17 +186,25 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
    - the repo's rules (`CLAUDE.md`, `AGENTS.md`, conventions) that bind this work;
    - risks: shared files, generated code, slow or flaky tests.
 
-   It may run to 200 lines; the 15-line cap does not apply to it. Its reply is `R/roles/researcher-dossier.out`. A Claude researcher writes it to `R/dossier.md` with `write_run_file` instead.
+   It may run to 200 lines; the 15-line cap does not apply to it. Its reply is `result(run, "researcher-dossier")`, at the record's `replyPath`. A Claude researcher writes it to `R/dossier.md` with `write_run_file` instead.
 
 3. **Architect,** once, with the A-lines, the run id and the dossier's path. It reads the dossier first, writes `plan.md` and every `lanes/Mx.Ly.md` itself with `write_run_file`, and replies with a short list of milestones and lanes. Each lane names its owned files and its **fast check** (targeted tests, seconds to a minute or two); each milestone names its **full check** (the whole suite).
    - A full check slower than about five minutes is a problem to solve, not to live with. The architect makes speeding it up (parallel tests, a shared fixture) an early lane.
-   - **No dossier and no architect** for a polish or fix run (a list of known defects or tweaks to code that exists) or a single mechanical task. You write the lane files yourself with `write_run_file`, straight from the A-lines: one lane per cluster of defects that share files, with owned files found by `grep -n`, and the three header lines the architect writes (`# Mx.Ly — …`, `Owns: …`, `Fast check: …`).
-4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, all in one message. Then, once every lane file exists, `preflight(run)` once, before dispatching any lane: a lane whose fast check cannot even start blocks the run with its output until fixed.
+   - Every lane file starts with these lines: `# Mx.Ly — <title>`, `Owns: <paths>` (repo-relative, a trailing `/` for a folder, never a glob), `Fast check: <command>`, `Kind: repo_code|terminal|ui|prose|research` and `Difficulty: copy|build|logic|hard`.
+   - **No dossier and no architect** for a polish or fix run (a list of known defects or tweaks to code that exists) or a single mechanical task. You write the lane files yourself with `write_run_file`, straight from the A-lines: one lane per cluster of defects that share files, with owned files found by `grep -n`, and the same header lines.
+4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, all in one message. Then, once every lane file exists, `preflight(run)` once, before dispatching any lane. Each lane comes back as one of:
+   - `pass`: the check already passes on the base tree;
+   - `fails-as-expected`: it runs and fails, because the lane has not been done yet;
+   - `skipped`: it checks a file the lane creates;
+   - `cannot-start`: it could not even run (a missing command, exit 126 or 127, a 120 s timeout, or no `Fast check:` line). Only this blocks: fix that lane's check, or ask the architect to, and run `preflight` again.
+
+   When it returns `needsConfirmation: true`, the profile wants the user to see the commands first: show them the `commands`, and on their yes call `preflight(run, confirmed: true)`.
 
 **Per milestone:**
 
 5. **Lanes.** Launch every lane of the milestone in one message, each at its rung: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
    - When a worker returns, check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
+   - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
 6. **writer,** when the milestone changes docs. It starts once the workers are done.
 7. **reviewer,** once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
@@ -206,8 +233,8 @@ Then report to the user, in their language, and push if `notify` has `finish`:
 - the verdict per milestone;
 - the commits;
 - one line per role run, with its rung;
-- the time and token sums per backend and per rung, and the climbs with their reasons (`runs_summary({ run })`), the Claude subagent runs, and the Jev decisions with how many fell back (`status(run)`);
-- the harness line from `runs_summary`: what the user's Codex and opencode customizations cost per run, so they can judge the isolation toggle (`/catherd-setup` offers it);
+- the time and token sums per backend and per rung, and the climbs with their reasons (`runs_summary({ run })`), the Claude subagent runs you reported (say they are reported, not measured), and the Jev decisions with how many fell back (`status(run)`);
+- the harness line from `runs_summary`: what the user's Codex customizations cost per run, so they can judge the isolation toggle (`/catherd-setup` offers it);
 - the run's budget spend (`status(run)`), if the profile set one;
 - what was left open, and why.
 
@@ -215,7 +242,7 @@ Roles never commit. You commit, following the repo's rules.
 
 ## Brief for a role
 
-The brief is the `brief` text you pass to `dispatch` (catherd writes it to `R/roles/<name>.md`, or `<name>.fix.md` for a fix), or the prompt of a Claude role's Agent call, with the run id. It has these parts, in order:
+The brief is the `brief` text you pass to `dispatch` (catherd writes it to the dispatch's own `brief.md` and hands it to the CLI on stdin), or the prompt of a Claude role's Agent call, with the run id. It has these parts, in order:
 
 1. The role and the goal, in one line.
 2. The A-lines this run must meet.
@@ -255,10 +282,11 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to `R/ro
 
 ## Reading results
 
-- Read the record `dispatch` returns, its `hints`, and the reply (`result(run, name)`), nothing else. Read `roles/<name>.jsonl` or `.err` with `read_run_file` only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
+- Read the record `dispatch` returns, its `hints`, and the reply (`result(run, name)`), nothing else. Read the stderr the `failed: read <path>` hint names, with `read_run_file`, only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
 - Exit 0 means the model finished, not that it is right. The STATUS line is the role's claim; `changedOwned` and your fast check are the facts.
 - `failed` comes only from a real turn failure or an exit with no reply; a reconnect mid-run does not count. Read the reply before you retry.
-- `cli-too-old`: tell the user the upgrade command in the record's `error`. `limit`: a usage limit is the user's to fix: pause, report and push that turn.
+- `cli-too-old`: tell the user the upgrade command its `cli-too-old:` hint names. `limit` with no stand-in: a usage limit is the user's to fix: pause, report and push that turn. `timeout`: the role went quiet for the profile's idle minutes, or ran past its wall minutes; resume its thread once with where it stopped, then climb.
+- `thread-heavy`: that thread is spent; its next piece starts fresh.
 
 ## Red flags
 
@@ -278,6 +306,10 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to `R/ro
 | You copy the architect's plan into `plan.md` yourself                                                                               | The architect writes `plan.md` and the lane files                                                                      |
 | A dossier or an architect for a polish or fix run                                                                                   | Write the lane files from the A-lines yourself                                                                         |
 | A lane file without an `Owns:` line                                                                                                 | Add it: `dispatch` refuses the lane without one                                                                        |
+| A Claude subagent returned and you moved on                                                                                         | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                     |
+| A rung written as `model#effort`                                                                                                    | `backend:model#effort`, exactly as `route` returned it                                                                 |
+| `dispatch` retried after an `E_*` error without doing what its `fix` says                                                           | Do the `fix`, or pause and tell the user                                                                               |
+| A `cannot-start` preflight lane dispatched anyway                                                                                   | Fix its fast check first, and run `preflight` again                                                                    |
 | You pick a rung by feel                                                                                                             | `route`. Its default covers the case where Jev is unsure or down                                                       |
 | Jev's answer taken as proof a lane is done                                                                                          | Jev picks who works. Checks, the reviewer and the verifier decide done                                                 |
 | A reply from the lowest Track A rung trusted without your fast check                                                                | Run it. Cheap rungs hide broken tools                                                                                  |

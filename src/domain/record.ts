@@ -61,6 +61,8 @@ export const RunRecordSchema = z.looseObject({
   costUsd: z.number().nullable(),
   changedOwned: z.array(z.string()),
   violations: z.array(z.string()),
+  /** true when git failed at finalize: changedOwned and violations are then unknown, not empty */
+  gitUnavailable: z.boolean().optional(),
   replyStatus: z.enum(REPLY_STATUSES).nullable(),
   replyWhy: z.string().nullable(),
   threadHeavy: z.boolean(),

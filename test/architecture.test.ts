@@ -16,6 +16,8 @@ const LEGACY = new Set([
   "version.ts",
   "types.ts",
 ]);
+/** 0.x behind the 1.0 ports until plans 4 and 5 replace it; only the entry layer may wire it in. */
+const BRIDGE = "bridge";
 /** `… from "x"`, `import("x")` and the side-effect form `import "x"`. */
 const IMPORT =
   /(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|\bimport\s*["']([^"']+)["']/g;
@@ -38,6 +40,7 @@ function violationsIn(file: string, text: string): string[] {
     const target = relative(SRC, resolve(dirname(join(SRC, file)), spec));
     const top = target.split("/")[0] as string;
     if (LEGACY.has(top)) violations.push(`${file} imports 0.x ${target}`);
+    else if (top === BRIDGE && from !== "entry") violations.push(`${file} (${from}) imports the 0.x bridge`);
     else if (top in RANK && (RANK[top] as number) > (RANK[from] as number))
       violations.push(`${file} (${from}) imports upward ${target} (${top})`);
   }
@@ -67,6 +70,14 @@ describe("architecture", () => {
     expect(flagged(`import { z } from "zod";`)).toBe(0);
     expect(flagged(`import "node:fs";`)).toBe(0);
     expect(flagged(`import { main } from "../../cli.ts";`)).toBe(0);
+  });
+
+  it("lets only the entry layer import the 0.x bridge", () => {
+    expect(violationsIn("services/x.ts", `import { v0Routing } from "../bridge/v0.ts";`)).toHaveLength(1);
+    expect(violationsIn("domain/x.ts", `import "../bridge/v0.ts";`)).toHaveLength(1);
+    expect(violationsIn("entry/mcp/server.ts", `import { v0Routing } from "../../bridge/v0.ts";`)).toEqual(
+      [],
+    );
   });
 
   it("new layers import only downward and never from 0.x modules", () => {

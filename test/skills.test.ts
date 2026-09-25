@@ -32,7 +32,10 @@ describe("orchestrator skill", () => {
     for (const core of [
       "run_start",
       "route",
+      "preflight",
       "dispatch",
+      "cancel",
+      "record_agent_run",
       "climb",
       "ask",
       "land",
@@ -42,6 +45,30 @@ describe("orchestrator skill", () => {
     ]) {
       expect(used).toContain(core);
     }
+  });
+
+  it("writes every rung as backend:model#effort, and pins this package's version", () => {
+    const md = skill("catherd");
+    expect([...md.matchAll(/(?<![:\w-])(gpt-6-[a-z]+|claude-[a-z0-9-]+)#\w+/g)].map((m) => m[0])).toEqual([]);
+    expect(md).toContain("`codex:gpt-6-luna#high`");
+    const { version } = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));
+    const pins = [...md.matchAll(/catherd-cli@([^\s`)"]+)/g)].map((m) => m[1]);
+    expect(pins.length).toBeGreaterThan(0);
+    expect(new Set(pins)).toEqual(new Set([version]));
+  });
+
+  it("names every preflight outcome and the structured error codes it must act on", () => {
+    const md = skill("catherd");
+    for (const word of ["`pass`", "`fails-as-expected`", "`skipped`", "`cannot-start`", "needsConfirmation"])
+      expect(md).toContain(word);
+    for (const code of [
+      "E_ADMIT_OVERLAP",
+      "E_ADMIT_DUPLICATE",
+      "E_ADMIT_RUNG",
+      "E_RUN_BUDGET",
+      "E_BACKEND_NOT_LOGGED_IN",
+    ])
+      expect(md).toContain(code);
   });
 
   it("carries no personal names or paths, and no retired scripts or isolation flags", () => {

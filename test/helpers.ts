@@ -3,11 +3,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** Points CATHERD_HOME at a fresh temp dir for the duration of one test. */
+/** Points CATHERD_HOME, and the Claude agents dir, at a fresh temp dir for the duration of one test. */
 export function withHome(): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
   process.env.CATHERD_HOME = home;
   process.env.XDG_CONFIG_HOME = join(home, "xdg-config");
+  // saving a profile links agents into ~/.claude/agents; a test must never touch the real one
+  process.env.CATHERD_CLAUDE_AGENTS_DIR = join(home, "claude-agents");
   return home;
 }
 
