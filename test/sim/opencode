@@ -44,8 +44,10 @@ if (args[0] === "api") {
     const first = readFileSync(calls, "utf8").length === 1;
     say(JSON.stringify({ location: { directory: homedir() }, data: s.warmup && first ? [] : (s.models ?? []) }));
   } else if (method === "GET" && path === "/api/session/active") say(JSON.stringify({ data: s.active ?? {} }));
-  else if (method === "GET" && session && session[2] === "/message")
+  else if (method === "GET" && session && session[2] === "/message") {
+    if (s.messagesFail) process.exit(1);
     say(JSON.stringify({ data: s.messages ?? [] }));
+  }
   else if (method === "GET" && session && !session[2])
     say(
       JSON.stringify({

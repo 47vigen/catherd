@@ -54,6 +54,8 @@ export interface OpencodeScenario extends Common {
   session?: { cost: number; tokens: Record<string, unknown>; outcome: string };
   /** `GET /api/session/<id>/message` data, newest first */
   messages?: unknown[];
+  /** `GET /api/session/<id>/message` alone fails with exit 1 and no output */
+  messagesFail?: boolean;
   /** every `opencode api` call fails with exit 1 and no output */
   apiFails?: boolean;
   /** every `opencode api` call sleeps this long first */

@@ -37,6 +37,11 @@ describe("opencode busy and interrupt", () => {
     expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(false);
   });
 
+  it("is not busy when the session is active but its messages cannot be read", async () => {
+    onSim({ active: { [SES]: { type: "running" } }, messagesFail: true });
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(false);
+  });
+
   it("is not busy while it only waits out a usage limit", async () => {
     onSim({
       active: { [SES]: { type: "running" } },

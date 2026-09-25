@@ -214,7 +214,8 @@ async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outco
 async function isBusy(thread: string): Promise<boolean> {
   const active = (await opencodeApi("GET", "/api/session/active"))?.data;
   if (!active || typeof active !== "object" || !(thread in active)) return false;
-  return limitRetry((await opencodeApi("GET", `/api/session/${thread}/message`))?.data) === null;
+  const messages = (await opencodeApi("GET", `/api/session/${thread}/message`))?.data;
+  return Array.isArray(messages) && limitRetry(messages) === null;
 }
 
 /** Killing the v2 client does not stop its session; the service must be told (research §2.4). */
