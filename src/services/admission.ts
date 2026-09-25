@@ -6,7 +6,6 @@ import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts
 import { overlaps, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
-import { workerEnv } from "../infra/env.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
@@ -150,21 +149,27 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     };
     mkdirSync(dir, { recursive: true });
     writeTextAtomic(p.brief, i.brief);
-    writeJsonAtomic(p.spec, {
-      schema: 1,
-      backend: rung.backend,
-      dispatchDir: dir,
-      cmd: plan.cmd,
-      args: plan.args,
-      env: workerEnv(process.env, plan.env, plan.cwd),
-      cwd: plan.cwd,
-      stdinPath: plan.stdinPath,
-      idleMs: profile.timeouts.idleMin * 60_000,
-      wallMs: profile.timeouts.wallMin * 60_000,
-      killGraceMs: KILL_GRACE_MS,
-      graceAfterFinalMs: adapter.graceAfterFinalMs,
-      pollMs: deps.pollMs,
-    });
+    // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
+    // time (src/entry/supervise.ts), so no credential is ever written to disk. 0600 all the same.
+    writeJsonAtomic(
+      p.spec,
+      {
+        schema: 1,
+        backend: rung.backend,
+        dispatchDir: dir,
+        cmd: plan.cmd,
+        args: plan.args,
+        env: { ...plan.env, PWD: plan.cwd },
+        cwd: plan.cwd,
+        stdinPath: plan.stdinPath,
+        idleMs: profile.timeouts.idleMin * 60_000,
+        wallMs: profile.timeouts.wallMin * 60_000,
+        killGraceMs: KILL_GRACE_MS,
+        graceAfterFinalMs: adapter.graceAfterFinalMs,
+        pollMs: deps.pollMs,
+      },
+      { mode: 0o600 },
+    );
     writeJsonAtomic(admitPath(dir), admitted);
     setLatest(run, i.name, id);
     return { d: { dir, admit: admitted }, specPath: p.spec };

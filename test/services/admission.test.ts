@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -70,6 +70,18 @@ describe("admission", () => {
     expect(spec.env.PWD).toBe(repo);
     expect(spec).toMatchObject({ idleMs: 15 * 60_000, wallMs: 90 * 60_000, killGraceMs: 10_000 });
     expect(latestDispatch(run, "worker-M1.L1")?.admit.dispatchId).toBe(d.admit.dispatchId);
+  });
+
+  it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {
+    const { repo, run } = setup();
+    process.env.FOO_API_KEY = "s3cret";
+    const { specPath } = await admit(fakeDeps(), run, input());
+    const text = readFileSync(specPath, "utf8");
+    expect(text).not.toContain("s3cret");
+    expect(text).not.toContain("TYPESAFE_API_KEY");
+    // the adapter's overrides and PWD only: a plain codex rung has none
+    expect(JSON.parse(text).env).toEqual({ PWD: repo });
+    expect(statSync(specPath).mode & 0o777).toBe(0o600);
   });
 
   it("refuses a rung off the ladder, a native Claude rung, a disabled role and a malformed rung", async () => {

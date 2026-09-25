@@ -2,6 +2,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  fchmodSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -15,11 +16,13 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 
-export function writeTextAtomic(file: string, text: string): void {
+/** `mode`, when given, is the file's exact permission bits (umask aside), set before any byte is written. */
+export function writeTextAtomic(file: string, text: string, o: { mode?: number } = {}): void {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  const fd = openSync(tmp, "w");
+  const fd = openSync(tmp, "w", o.mode);
   try {
+    if (o.mode !== undefined) fchmodSync(fd, o.mode);
     writeSync(fd, text);
     fsyncSync(fd);
   } finally {
@@ -28,8 +31,8 @@ export function writeTextAtomic(file: string, text: string): void {
   renameSync(tmp, file);
 }
 
-export const writeJsonAtomic = (file: string, value: unknown): void =>
-  writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
+export const writeJsonAtomic = (file: string, value: unknown, o: { mode?: number } = {}): void =>
+  writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`, o);
 
 function newer(file: string, found: number, current: number): CatherdError {
   return new CatherdError(

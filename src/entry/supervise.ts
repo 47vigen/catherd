@@ -1,12 +1,18 @@
 import { defineCommand } from "citty";
 import { adapterFor } from "../adapters/registry.ts";
+import { workerEnv } from "../infra/env.ts";
 import { readVersioned } from "../infra/store.ts";
 import { SuperviseSpecSchema, supervise } from "../infra/supervisor.ts";
 import "../adapters/all.ts";
 
-/** Supervises the worker a spec file describes, with its backend's hooks, until exit.json is written. */
+/**
+ * Supervises the worker a spec file describes, with its backend's hooks, until exit.json is written.
+ * spec.json holds only the adapter's env overrides; the worker's env is built here, from this process's
+ * own inherited env (already without catherd's secrets), so no credential is ever on disk (spec §10.4).
+ */
 export async function runSupervise(specPath: string): Promise<void> {
-  const spec = readVersioned(specPath, SuperviseSpecSchema, 1);
+  const read = readVersioned(specPath, SuperviseSpecSchema, 1);
+  const spec = { ...read, env: workerEnv(process.env, read.env, read.cwd) };
   const a = adapterFor(spec.backend);
   const busy = a?.isBusy?.bind(a);
   const stop = a?.interrupt?.bind(a);

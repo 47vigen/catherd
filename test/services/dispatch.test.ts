@@ -36,6 +36,21 @@ const input = (run: string, over: Partial<DispatchInput> = {}): DispatchInput =>
 });
 
 describe("dispatch", () => {
+  it("hands the worker the user's backend credentials at spawn time, never catherd's own secrets", async () => {
+    const envTo = join(mkdtempSync(join(tmpdir(), "catherd-env-")), "env.jsonl");
+    const { run, deps } = setup({ envTo, reply: "Done.\nSTATUS: complete — ok" });
+    Object.assign(process.env, { OPENAI_API_KEY: "sk-user", TYPESAFE_API_KEY: "secret" });
+    const { record } = await dispatch(deps, input(run.id));
+    expect(record.status).toBe("ok");
+    const exec = readFileSync(envTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { args: string[]; envKeys: string[] })
+      .find((c) => c.args[0] === "exec");
+    expect(exec?.envKeys).toContain("OPENAI_API_KEY");
+    expect(exec?.envKeys).not.toContain("TYPESAFE_API_KEY");
+  });
+
   it("runs a lane to its record: ok, owned file changed, tokens, reply status and a clean state.md", async () => {
     const { run, deps } = setup({
       eventsFile: OK_EVENTS,
