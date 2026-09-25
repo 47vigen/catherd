@@ -81,6 +81,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 - **After every Claude subagent returns,** call `record_agent_run(run, name, role, rung, total_tokens, duration_ms)` with the numbers its Agent result reports. Claude runs cost the budget too, and catherd cannot see them otherwise.
 - **A role the profile disables** (`profile_get`; every role but the worker can be off) is skipped, and the report says so.
 - **Access:** catherd sets it per role. Worker, artist and writer write in the repo only; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots.
+- **A read-only role on opencode has no shell** (no `git diff`, no `ls`), so its brief must list the files to read.
 - **Cheap rungs hide broken tools.** The lowest Track A rung stays silent about a broken tool about a third of the time, so every lane on it is checked by your fast check, not by its own word.
 - **Claude agents:**
   - catherd generates them from the profile, and Claude Code registers them at session start.

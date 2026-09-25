@@ -67,7 +67,7 @@ const ESCAPES: [string, string[]][] = [
   ["git statusx", ["git statusx"]],
 ];
 
-const ALLOWED: string[] = [
+const READS: [string, string[]][] = [
   "git diff HEAD~1",
   "git log -5",
   "ls src",
@@ -76,26 +76,24 @@ const ALLOWED: string[] = [
   "git show HEAD:src/a.ts",
   "cat README.md",
   "pwd",
-];
+].map((c) => [c, [c]]);
 
 describe("catherd-ro under opencode v2's permission semantics", () => {
   const rules = rulesOf(OPENCODE_AGENT_FILES["catherd-ro"] as string);
 
-  for (const [command, split] of ESCAPES)
+  // a redirect after a list or pipeline reaches no resource (`ls && cat a > b` asks for "ls" and "cat a"),
+  // so no allowlist is read-only: every shell command is denied, plain reads included
+  for (const [command, split] of [...ESCAPES, ...READS, ["ls && cat a > b", ["ls", "cat a"]] as const])
     it(`denies ${JSON.stringify(command)}`, () => {
-      expect(decide("shell", split, rules)).toBe("deny");
+      expect(decide("shell", [...split], rules)).toBe("deny");
       expect(decide("shell", [command], rules)).toBe("deny");
-    });
-
-  for (const command of ALLOWED)
-    it(`allows ${JSON.stringify(command)}`, () => {
-      expect(decide("shell", [command], rules)).toBe("allow");
     });
 
   it("allows the read tools and denies edits (edit, write and patch all ask for `edit`)", () => {
     for (const action of ["read", "glob", "grep"]) expect(decide(action, ["src/a.ts"], rules)).toBe("allow");
     expect(decide("edit", ["src/a.ts"], rules)).toBe("deny");
     expect(rules.some((r) => r.action === "edit" && r.effect === "deny")).toBe(true);
+    expect(rules.some((r) => r.action === "shell" && r.effect === "allow")).toBe(false);
     expect(decide("subagent", ["general"], rules)).toBe("deny");
   });
 });

@@ -15,33 +15,12 @@ const rule = (action: string, resource: string, effect: "allow" | "deny") =>
   `  - { action: ${JSON.stringify(action)}, resource: ${JSON.stringify(resource)}, effect: ${effect} }`;
 
 /**
- * How opencode v2 applies these rules (source at 6585bb7, packages/core/src/…):
- * - the last matching rule wins, and no match asks (permission.ts:87-96); an agent file's rules come after
- *   opencode's defaults and the global config's (config/plugin/agent.ts:84-122);
- * - a pattern matches the whole resource: `*` is any text, newlines included, and a trailing " *" also
- *   matches nothing, so "git diff *" admits "git diff" (util/wildcard.ts:3-13);
- * - the shell tool asks once with one resource per command it parses, command substitutions included, and
- *   a redirect only when it wraps that command alone (tool/plugin/shell.ts:126-140, shell/parse.ts:173-205);
- *   one denied resource denies the call (permission.ts:165-167).
- * So catherd-ro allows a few read commands, then denies any resource with an output flag or shell syntax;
- * the same denies hold if opencode ever matched the command unsplit. Known gap: a redirect after a list or
- * pipeline (`ls && git log > f`) reaches no resource, so read-only stays advisory, as `enforcement` says.
+ * Why catherd-ro has no shell (opencode v2 at 6585bb7, packages/core/src/…): the last matching rule wins
+ * (permission.ts:87-96) over a whole-resource wildcard (util/wildcard.ts:3-13), and the shell tool asks with
+ * one resource per parsed command (tool/plugin/shell.ts:126-140, shell/parse.ts:173-205). A redirect after a
+ * list or pipeline reaches no resource (`ls && cat a > b` asks for "ls" and "cat a"), so no allowlist of
+ * read commands is read-only. The role reads with read, glob and grep; its brief names the files.
  */
-const READ_SHELL = ["git status *", "git diff *", "git log *", "git show *", "ls *", "cat *", "pwd *"];
-const SHELL_ESCAPES = [
-  "*--output*",
-  "*--pre*",
-  "* -o*",
-  "*;*",
-  "*&*",
-  "*|*",
-  "*>*",
-  "*<*",
-  "*`*",
-  "*$(*",
-  "*\n*",
-];
-
 /**
  * opencode v2 agent files (research 2026-09-25-opencode.md §4.5). Later rules win; every run passes
  * `--auto`, so an "ask" left by opencode's defaults never aborts the run, and an explicit deny still holds.
@@ -55,10 +34,9 @@ export const OPENCODE_AGENT_FILES: Record<string, string> = {
     "permissions:",
     rule("*", "*", "deny"),
     ...["read", "glob", "grep", "webfetch", "websearch"].map((a) => rule(a, "*", "allow")),
-    ...READ_SHELL.map((c) => rule("shell", c, "allow")),
     // edit, write and patch all ask for `edit` (tool/plugin/edit.ts:181, write.ts:79, patch.ts:197)
     rule("edit", "*", "deny"),
-    ...SHELL_ESCAPES.map((c) => rule("shell", c, "deny")),
+    rule("shell", "*", "deny"),
     "---",
     "",
   ].join("\n"),
