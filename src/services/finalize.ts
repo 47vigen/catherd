@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
 import type { FinishedRun, Outcome } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -77,10 +77,11 @@ async function snapshotOrNull(repo: string): Promise<Snapshot | null> {
 async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const a = d.admit;
   const p = dispatchPaths(d.dir);
+  // no exit.json: its supervisor died. A cancel asked for before that ended it; anything else is lost.
   const exit: ExitInfo = readExit(d.dir) ?? {
     code: null,
     signal: null,
-    reason: "lost",
+    reason: existsSync(p.cancel) ? "cancelled" : "lost",
     endedAt: new Date().toISOString(),
   };
   const startedAt = readProc(d.dir)?.startedAt ?? a.admittedAt;

@@ -3,10 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
-import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { cancel, dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
-import { latestDispatch, liveDispatches } from "../../src/services/dispatches.ts";
+import { isAlive } from "../../src/infra/proc.ts";
+import { latestDispatch, liveDispatches, readProc } from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
@@ -131,6 +132,36 @@ describe("cancel", () => {
     expect((await pending).record.dispatchId).toBe(record.dispatchId);
     expect(readRecords(run).records).toHaveLength(1);
   });
+
+  it("stops a worker whose supervisor died, records it as cancelled, and the waiting dispatch returns", async () => {
+    const { run, deps } = setup({ hangMs: 60_000 });
+    const pending = dispatch(deps, input(run.id));
+    const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    const proc = await waitFor(() => readProc(live.dir));
+    process.kill(proc.supervisorPid, "SIGKILL");
+    await waitFor(() => !isAlive(proc.supervisorPid, proc.supervisorStartTime));
+    expect(isAlive(proc.pid, proc.startTime)).toBe(true);
+    const started = Date.now();
+    const { record } = await cancel(deps, run.id, "worker-M1.L1");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(record.status).toBe("cancelled");
+    expect(isAlive(proc.pid, proc.startTime)).toBe(false);
+    expect(readExit(live.dir)).toMatchObject({ reason: "cancelled", signal: "SIGTERM" });
+    expect((await pending).record.dispatchId).toBe(record.dispatchId);
+    expect(readRecords(run).records).toHaveLength(1);
+  }, 30_000);
+
+  it("finalizes a waiting dispatch as lost once its supervisor died and then its worker ended", async () => {
+    const { run, deps } = setup({ hangMs: 1_500 });
+    const pending = dispatch(deps, input(run.id));
+    const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    const proc = await waitFor(() => readProc(live.dir));
+    process.kill(proc.supervisorPid, "SIGKILL");
+    const { record } = await pending;
+    expect(record).toMatchObject({ status: "failed", exitCode: null, error: { message: "lost, exit null" } });
+    expect(readExit(live.dir)).toBeNull();
+    expect(readRecords(run).records).toHaveLength(1);
+  }, 30_000);
 
   it("refuses a name with no live dispatch", async () => {
     const { run, deps } = setup({});

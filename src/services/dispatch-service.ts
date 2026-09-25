@@ -7,9 +7,11 @@ import { assertId, formatRung, parseRung } from "../domain/ids.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import { dispatchPaths, requestCancel } from "../infra/dispatch-dir.ts";
-import { admit, laneFile, launch } from "./admission.ts";
-import { type Dispatch, liveDispatches } from "./dispatches.ts";
+import { dispatchPaths, readExit, requestCancel } from "../infra/dispatch-dir.ts";
+import { isAlive, killGroup } from "../infra/proc.ts";
+import { writeJsonAtomic } from "../infra/store.ts";
+import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
+import { type Dispatch, liveDispatches, readProc } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
@@ -168,6 +170,30 @@ async function failover(
   };
 }
 
+/**
+ * A worker whose supervisor died has no one to read the cancel file: stop its group here (SIGTERM, then
+ * SIGKILL after the grace), each signal guarded by the worker's pid and start time, and write the
+ * exit.json the supervisor would have. A finalizer that sees the worker gone first reads the cancel file
+ * instead (finalize.ts). Nothing happens while the supervisor lives: it acts on the cancel file itself.
+ */
+async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
+  const proc = readProc(d.dir);
+  if (!proc || readExit(d.dir) || isAlive(proc.supervisorPid, proc.supervisorStartTime)) return;
+  const worker = () => isAlive(proc.pid, proc.startTime);
+  if (!worker()) return;
+  killGroup(proc.pgid ?? proc.pid, "SIGTERM");
+  const end = Date.now() + KILL_GRACE_MS;
+  while (Date.now() < end && worker()) await Bun.sleep(deps.pollMs);
+  if (worker()) killGroup(proc.pgid ?? proc.pid, "SIGKILL");
+  writeJsonAtomic(dispatchPaths(d.dir).exit, {
+    schema: 1,
+    code: null,
+    signal: "SIGTERM",
+    reason: "cancelled",
+    endedAt: new Date().toISOString(),
+  });
+}
+
 /** Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. */
 export async function cancel(deps: Deps, runId: string, name: string): Promise<DispatchResult> {
   const run = findRun(runId);
@@ -178,6 +204,7 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
       fix: "status(run) lists the live ones",
     });
   requestCancel(live.dir);
+  await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
   const stateHints: string[] = [];

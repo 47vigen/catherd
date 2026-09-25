@@ -67,6 +67,8 @@ export function listDispatches(run: Run): Dispatch[] {
 
 interface ProcFile {
   pid: number;
+  /** the worker's process group; the detached worker leads it */
+  pgid?: number;
   startTime: string | null;
   supervisorPid: number;
   supervisorStartTime: string | null;
