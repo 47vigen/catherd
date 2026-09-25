@@ -20,7 +20,8 @@ const PROBES = {
     loggedIn: (r: Result) => r.exitCode === 0,
   },
   opencode: {
-    install: "npm i -g opencode-ai",
+    // v2: npm's opencode-ai is v1, which rejects the flags catherd passes
+    install: "curl -fsSL https://opencode.ai/v2/install | bash",
     login: "opencode auth login",
     status: ["auth", "list"],
     loggedIn: (r: Result) => r.exitCode === 0 && r.stdout.trim().length > 0,

@@ -44,7 +44,13 @@ describe("detectBackends", () => {
     process.env.PATH = binDir({});
     expect(await detectBackends()).toEqual([
       { backend: "codex", installed: false, version: null, loggedIn: false, fix: "npm i -g @openai/codex" },
-      { backend: "opencode", installed: false, version: null, loggedIn: false, fix: "npm i -g opencode-ai" },
+      {
+        backend: "opencode",
+        installed: false,
+        version: null,
+        loggedIn: false,
+        fix: "curl -fsSL https://opencode.ai/v2/install | bash",
+      },
     ]);
   });
 });
