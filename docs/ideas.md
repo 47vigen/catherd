@@ -28,3 +28,9 @@ Listed so they are not re-proposed:
 - **Automatic retro (v2).** At the finish, write a short retro (climbs, the slowest steps, failures) and append its improvement ideas to this file.
 - **`catherd bench` (v2).** Replay recorded real tasks under different profiles to measure them on the user's own work; it feeds the bars.
 - **Standalone binaries (later).** `bun build --compile` per platform, published as optional platform packages, so users need no Bun install. It waits until OpenTUI's native core embeds cleanly in a compiled binary.
+
+## From the first real runs (2026-09-25)
+
+- **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty (0.4), so 3 of 4 routes fell back to the default. Log each lane's final outcome (climbed or not) beside Jev's answer, then tune the difficulty question's wording, its options or its threshold from that data.
+- **First-turn cost on small lanes.** A native Codex turn starts at ~280k input tokens (mostly cached) whatever the lane's size. For one-line lanes, a profile rule "isolated below difficulty build" could save most of it without touching the user's harness for real work.
+- **Live coverage still missing:** an opencode lane, a climb, quota failover and a budget stop have only run in tests, never in a real run.
