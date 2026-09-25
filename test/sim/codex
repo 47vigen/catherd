@@ -5,6 +5,11 @@ import { dirname, join } from "node:path";
 
 const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_SCENARIO ?? "", "utf8")) as Record<string, any>;
 const args = process.argv.slice(2);
+// byRung: overrides for one rung, keyed `model#effort` ("default" when no effort flag is passed).
+const model = args.includes("-m") ? args[args.indexOf("-m") + 1] : undefined;
+const effort =
+  args.find((a) => a.startsWith("model_reasoning_effort="))?.slice("model_reasoning_effort=".length) ?? "default";
+if (model) Object.assign(s, s.byRung?.[`${model}#${effort}`] ?? {});
 const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
 if (s.envTo) appendFileSync(s.envTo, `${JSON.stringify({ args, envKeys: Object.keys(process.env) })}\n`);
 

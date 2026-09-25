@@ -91,6 +91,8 @@ export interface BackendAdapter {
   resume: { supported: boolean; sameAccessOnly: boolean; threadPattern: RegExp };
   interrupt?(thread: string, cwd: string): Promise<void>;
   isBusy?(thread: string, cwd: string): Promise<boolean>;
+  /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
+  failoverFor?(rung: Rung): Rung | null;
   graceAfterFinalMs: number | null;
 }
 

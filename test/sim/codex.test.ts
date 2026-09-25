@@ -61,3 +61,30 @@ describe("codex simulator", () => {
     expect(run(["frobnicate"], s.env).code).toBe(2);
   });
 });
+
+describe("codex simulator scenarios", () => {
+  it("applies a rung's overrides by model and effort, and reads a rewritten scenario", () => {
+    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const reply = join(repo, "reply.md");
+    const exec = (model: string, effort: string | null) => [
+      "exec",
+      "-m",
+      model,
+      ...(effort ? ["-c", `model_reasoning_effort=${effort}`] : []),
+      "--json",
+      "-o",
+      reply,
+      "--",
+      "-",
+    ];
+    const s = withScenario({
+      exitCode: 0,
+      byRung: { "gpt-6-sol#high": { exitCode: 3 }, "m#default": { exitCode: 4 } },
+    });
+    expect(run(exec("gpt-6-sol", "medium"), s.env, "", repo).code).toBe(0);
+    expect(run(exec("gpt-6-sol", "high"), s.env, "", repo).code).toBe(3);
+    expect(run(exec("m", null), s.env, "", repo).code).toBe(4);
+    s.rewrite({ exitCode: 5 });
+    expect(run(exec("gpt-6-sol", "high"), s.env, "", repo).code).toBe(5);
+  });
+});

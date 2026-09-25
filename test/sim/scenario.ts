@@ -17,6 +17,8 @@ export interface CodexScenario {
   envTo?: string;
   touch?: { path: string; content: string }[];
   recordTo?: string;
+  /** overrides for one rung of an `exec`, keyed `model#effort` (`default` when no effort flag is passed) */
+  byRung?: Record<string, Omit<CodexScenario, "byRung" | "recordTo">>;
 }
 
 /** PATH with the simulators first. */
@@ -28,6 +30,9 @@ export function withScenario(s: CodexScenario) {
   const file = join(dir, "scenario.json");
   writeFileSync(file, JSON.stringify({ ...s, recordTo }));
   return {
+    file,
+    /** Replaces the scenario in place; the next codex process started reads the new one. */
+    rewrite: (next: CodexScenario) => writeFileSync(file, JSON.stringify({ ...next, recordTo })),
     env: { CATHERD_SIM_SCENARIO: file },
     recorded: () =>
       JSON.parse(readFileSync(recordTo, "utf8")) as {

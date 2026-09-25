@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs";
 import { relative } from "node:path";
+import { adapterFor } from "../adapters/registry.ts";
+import "../adapters/all.ts";
+import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import { assertId, formatRung, parseRung } from "../domain/ids.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import { admit, launch } from "./admission.ts";
-import type { Dispatch } from "./dispatches.ts";
+import { dispatchPaths, requestCancel } from "../infra/dispatch-dir.ts";
+import { admit, laneFile, launch } from "./admission.ts";
+import { type Dispatch, liveDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
@@ -79,13 +85,102 @@ export async function dispatch(deps: Deps, i: DispatchInput, onProgress?: Progre
   });
   const stateHints: string[] = [];
   if (i.next) await refreshState(run, { next: i.next }, stateHints);
-  const record = await runToEnd(deps, run, d, specPath, onProgress, stateHints);
-  await refreshState(
-    run,
-    record.status === "limit"
-      ? { next: `paused: ${record.backend} usage limit; resume when the user says so` }
-      : {},
-    stateHints,
-  );
-  return { record, hints: [...hintsFor(run, d, record), ...stateHints] };
+  const first = await runToEnd(deps, run, d, specPath, onProgress, stateHints);
+  const out =
+    first.status === "limit"
+      ? await failover(deps, run, d, first, onProgress, stateHints)
+      : { record: first, hints: hintsFor(run, d, first), pause: null };
+  await refreshState(run, out.pause ? { next: out.pause } : {}, stateHints);
+  return { record: out.record, hints: [...out.hints, ...stateHints] };
+}
+
+/**
+ * The stand-in's brief (spec §4.5, audit C4). A fresh round reruns its own brief; a fix round hands
+ * over the lane file and the fix brief by path, since the stand-in cannot resume the old thread.
+ */
+function standInBrief(run: Run, d: Dispatch): string {
+  const own = dispatchPaths(d.dir).brief;
+  if (d.admit.thread === null) return readFileSync(own, "utf8");
+  return [
+    `You take over ${d.admit.name} from ${d.admit.rung}, which hit a usage limit. You start on a fresh thread, so read these first:`,
+    ...(d.admit.lane ? [`- the lane file: ${laneFile(run, d.admit.lane)}`] : []),
+    `- the fix brief the previous thread was given: ${own}`,
+    "The work so far is in the tree. Do what the fix brief asks.",
+  ].join("\n");
+}
+
+/** Spec §4.5: on a limit, run the rung's stand-in on a fresh thread, through admission again (budget included). */
+async function failover(
+  deps: Deps,
+  run: Run,
+  d: Dispatch,
+  limited: RunRecord,
+  onProgress?: Progress,
+  stateHints: string[] = [],
+): Promise<DispatchResult & { pause: string | null }> {
+  const paused = `paused: ${limited.backend} usage limit; resume when the user says so`;
+  const hints = hintsFor(run, d, limited);
+  const byAdapter = adapterFor(limited.backend)?.failoverFor?.(parseRung(limited.rung)) ?? null;
+  const standIn =
+    deps.profiles.forRepo(run.meta.repo).failover[limited.rung] ?? (byAdapter && formatRung(byAdapter));
+  if (!standIn) return { record: limited, hints, pause: paused };
+  if (parseRung(standIn).backend === "claude") {
+    const agent = deps.routing.agentFor(d.admit.role, standIn);
+    return {
+      record: limited,
+      hints: [
+        ...hints,
+        `failover: run ${d.admit.name} as Agent(subagent_type: "${agent}"), standing in for ${limited.rung}`,
+      ],
+      pause: null,
+    };
+  }
+  let next: Awaited<ReturnType<typeof admit>>;
+  try {
+    next = await admit(deps, run, {
+      role: d.admit.role,
+      name: d.admit.name,
+      brief: standInBrief(run, d),
+      rung: standIn,
+      thread: null,
+      lane: d.admit.lane,
+      failoverFrom: limited.rung,
+    });
+  } catch (e) {
+    if (!isCatherdError(e)) throw e;
+    return {
+      record: limited,
+      hints: [...hints, `failover: ${standIn} refused: ${e.code} ${e.message}`],
+      pause: paused,
+    };
+  }
+  const record = await runToEnd(deps, run, next.d, next.specPath, onProgress, stateHints);
+  return {
+    record,
+    hints: [
+      `limit: ${limited.rung} hit a usage limit; failed over to ${standIn}`,
+      ...hintsFor(run, next.d, record),
+    ],
+    pause:
+      record.status === "limit"
+        ? `paused: ${record.backend} usage limit on ${record.rung} and on ${limited.rung}`
+        : null,
+  };
+}
+
+/** Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. */
+export async function cancel(deps: Deps, runId: string, name: string): Promise<DispatchResult> {
+  const run = findRun(runId);
+  assertId("role name", name);
+  const live = liveDispatches(run, deps.now()).find((d) => d.admit.name === name);
+  if (!live)
+    throw new CatherdError("E_RUN_NOT_LIVE", `${name} has no live dispatch`, {
+      fix: "status(run) lists the live ones",
+    });
+  requestCancel(live.dir);
+  await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
+  const record = await finalizeDispatch(run, live);
+  const stateHints: string[] = [];
+  await refreshState(run, {}, stateHints);
+  return { record, hints: [...hintsFor(run, live, record), ...stateHints] };
 }
