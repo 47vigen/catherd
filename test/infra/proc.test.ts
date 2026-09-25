@@ -40,9 +40,16 @@ describe("proc", () => {
       }
     });
 
-    it("isAlive reports a pid that is not an integer > 1 as not alive", () => {
-      for (const pid of [0, 1, -1, 1.5, Number.NaN]) expect(isAlive(pid, null)).toBe(false);
+    it("isAlive reports a pid that is not an integer >= 1 as not alive", () => {
+      for (const pid of [0, -1, 1.5, Number.NaN]) expect(isAlive(pid, null)).toBe(false);
     });
+
+    it.skipIf(process.platform !== "linux")(
+      "isAlive accepts pid 1 (init, or catherd as a container entrypoint)",
+      () => {
+        expect(isAlive(1, null)).toBe(true);
+      },
+    );
   });
 
   it("runs the ps fallback in the C locale and UTC so start times compare across environments", async () => {

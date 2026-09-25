@@ -49,6 +49,18 @@ describe("withFileLock", () => {
     expect(existsSync(`${t}.lock`)).toBe(false);
   });
 
+  it.skipIf(process.platform !== "linux")(
+    "treats a live pid 1 holder as valid and never reclaims it",
+    async () => {
+      const t = target();
+      writeFileSync(`${t}.lock`, JSON.stringify({ pid: 1, startTime: null }));
+      const old = new Date(Date.now() - 6_000);
+      utimesSync(`${t}.lock`, old, old);
+      await expect(withFileLock(t, () => 1, { timeoutMs: 60, pollMs: 5 })).rejects.toThrow(/lock/);
+      expect(existsSync(`${t}.lock`)).toBe(true);
+    },
+  );
+
   it("reclaims an empty or unparsable lock only once it is older than 5 s", async () => {
     for (const content of ["", "{not json", JSON.stringify({ pid: 0, startTime: null })]) {
       const t = target();

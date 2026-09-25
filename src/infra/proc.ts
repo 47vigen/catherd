@@ -19,8 +19,11 @@ export function processStartTime(pid: number): string | null {
   }
 }
 
-/** Only an integer > 1 names one real process: 0, -1 and negatives address groups, 1 is init. */
-export const isValidPid = (pid: unknown): pid is number => Number.isInteger(pid) && (pid as number) > 1;
+/**
+ * Only an integer >= 1 names one real process: 0 and negatives address groups. Pid 1 is valid
+ * (catherd may be a container's entrypoint); only killGroup refuses it, since kill(-1) signals everything.
+ */
+export const isValidPid = (pid: unknown): pid is number => Number.isInteger(pid) && (pid as number) >= 1;
 
 export function isAlive(pid: number, startTime: string | null): boolean {
   if (!isValidPid(pid)) return false;
@@ -34,7 +37,7 @@ export function isAlive(pid: number, startTime: string | null): boolean {
 
 /** Signals the process group a detached child leads (pgid === pid), falling back to the pid alone. */
 export function killGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (!isValidPid(pid)) return;
+  if (!isValidPid(pid) || pid === 1) return;
   try {
     process.kill(-pid, signal);
   } catch {
