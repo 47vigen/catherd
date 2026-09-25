@@ -1,5 +1,5 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { isCatherdError } from "../../domain/errors.ts";
+import { type CallToolResult, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import { CatherdError, isCatherdError } from "../../domain/errors.ts";
 
 /** A service's value as a tool result; its `hints`, when it has any, pass through as they are. */
 export const ok = (v: unknown): CallToolResult => ({
@@ -26,3 +26,16 @@ export async function handle(f: () => unknown): Promise<CallToolResult> {
     return fail(e);
   }
 }
+
+/**
+ * The SDK's own tool errors, such as input a tool's schema rejects before `handle` runs, in catherd's
+ * shape (spec §4.8): an InvalidParams error is E_INPUT_INVALID, anything else is unexpected.
+ */
+export const sdkToolError = (message: string): CallToolResult =>
+  fail(
+    message.startsWith(`MCP error ${ErrorCode.InvalidParams}:`)
+      ? new CatherdError("E_INPUT_INVALID", message, {
+          fix: "correct the argument the message names, then call again",
+        })
+      : new Error(message),
+  );

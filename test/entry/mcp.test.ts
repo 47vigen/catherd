@@ -63,6 +63,31 @@ describe("MCP server", () => {
     expect(JSON.parse(r.raw)).toEqual(r.error);
   });
 
+  it("returns input the tool schemas reject as a structured E_INPUT_INVALID", async () => {
+    const { run } = freshRun();
+    const c = await mcpClient(fakeDeps());
+    const base = { run: run.id, role: "worker", name: "w", brief: "x", rung: "codex:a#b" };
+    const rejected = [
+      await call(c, "dispatch", { ...base, name: "--x" }),
+      await call(c, "dispatch", { ...base, role: "boss" }),
+      await call(c, "land", {
+        run: run.id,
+        milestone: "M1",
+        what: "w",
+        commit: "HEAD",
+        evidence: "e",
+        next: "n",
+      }),
+    ];
+    for (const r of rejected) {
+      expect(r.isError).toBe(true);
+      expect(r.error?.code).toBe("E_INPUT_INVALID");
+      expect(r.error?.message).toContain("Input validation error");
+      expect(r.error?.fix).toBeTruthy();
+      expect(JSON.parse(r.raw)).toEqual(r.error);
+    }
+  });
+
   it("drives the run tools over the real server", async () => {
     const { run } = freshRun();
     const c = await mcpClient(fakeDeps());

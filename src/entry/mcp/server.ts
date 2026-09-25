@@ -6,6 +6,7 @@ import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
+import { sdkToolError } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
 
@@ -22,6 +23,9 @@ export function defaultDeps(): Deps {
 
 export function buildServer(deps: Deps = defaultDeps()): McpServer {
   const server = new McpServer({ name: "catherd", version: deps.version });
+  // The SDK validates input before a tool's `handle` runs and reports a failure through this (private)
+  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it.
+  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = sdkToolError;
   registerRunTools(server, deps);
   registerLaneTools(server, deps);
   registerDispatchTools(server, deps);
