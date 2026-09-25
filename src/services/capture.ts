@@ -10,6 +10,7 @@ import { workerEnv } from "../infra/env.ts";
 import { git } from "../infra/git.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { readyAdapter } from "./backends.ts";
+import { settled } from "./finalize.ts";
 
 export interface CaptureCase {
   backend: string;
@@ -119,7 +120,11 @@ async function captureOne(
       },
       startedAtMs,
     };
-    const o = adapter.finalize(run);
+    // as a dispatch records it: the backend's own totals and limits, on a fresh thread (nothing prior)
+    const o = await settled(adapter, adapter.finalize(run), run, () => ({
+      tokens: { input: 0, cached: 0, output: 0 },
+      costUsd: 0,
+    }));
     const scrub: Scrub = {
       secrets: secretValues(process.env),
       paths: [

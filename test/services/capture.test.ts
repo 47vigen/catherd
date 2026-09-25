@@ -79,6 +79,26 @@ describe("capture-fixtures", () => {
     );
   });
 
+  it("records the totals the opencode service settles on, not only what the stream said", async () => {
+    withHome();
+    process.env.PATH = simPath();
+    const session = {
+      cost: 0.12,
+      tokens: { input: 7000, output: 60, reasoning: 40, cache: { read: 3000, write: 0 } },
+      outcome: "succeeded",
+    };
+    const events = join(FX, "opencode", "shell-ok.jsonl");
+    Object.assign(process.env, withOpencodeScenario({ models: MODELS, eventsFile: events, session }).env);
+    const out = mkdtempSync(join(tmpdir(), "catherd-fixtures-"));
+    await captureFixtures({ outDir: out, backends: ["opencode"] });
+    const meta = JSON.parse(readFileSync(join(out, "opencode", "2.0.16", "ok.json"), "utf8"));
+    expect(meta.outcome).toMatchObject({
+      status: "ok",
+      tokens: { input: 10000, cached: 3000, output: 100 },
+      costUsd: 0.12,
+    });
+  });
+
   it("skips a backend that is not ready, saying why", async () => {
     withHome();
     process.env.PATH = simPath();

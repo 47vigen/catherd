@@ -93,7 +93,7 @@ function priorOn(run: Run, backend: string, thread: string, self: string): Spent
 }
 
 /** The adapter's settled outcome, or `o` unchanged when it has none, throws, or is slower than the limit. */
-async function settled(
+export async function settled(
   adapter: BackendAdapter,
   o: Outcome,
   finished: FinishedRun,
