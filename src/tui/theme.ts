@@ -2,7 +2,7 @@ import { WriteStream } from "node:tty";
 import type { HarnessCost } from "../core/harness.ts";
 
 export type Mood = "good" | "working" | "waiting" | "failed" | "landed";
-export type Tone = "ginger" | "cream" | "charcoal" | "pink" | "green" | "amber" | "red";
+export type Tone = "ginger" | "cream" | "charcoal" | "pink" | "green" | "amber" | "red" | "surface" | "ink";
 /** Node's getColorDepth: 1 none, 4 sixteen, 8 256, 24 true colour. */
 export type Depth = 1 | 4 | 8 | 24;
 
@@ -22,6 +22,8 @@ const TONES: Record<Tone, string> = {
   green: "#8FBF6A",
   amber: "#E0A63E",
   red: "#D9636A",
+  surface: "#211C20",
+  ink: "#1A1417",
 };
 
 /** The one accent colour: headings and the selected-row bar. Everything else stays neutral or dim. */

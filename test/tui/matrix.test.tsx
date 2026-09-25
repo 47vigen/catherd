@@ -56,7 +56,7 @@ function Harness(o: HarnessProps) {
 const toWorker = down(2);
 const intoWorkerDetail = [...toWorker, KEY.right];
 
-async function mounted(el: ReactNode, width = 100, height = 24) {
+async function mounted(el: ReactNode, width = 100, height = 40) {
   const setup = await testRender(el, { width, height });
   await setup.renderOnce();
   return setup;
@@ -90,8 +90,8 @@ describe("Matrix", () => {
     const f = captureCharFrame();
     expect(f).toContain("worker");
     expect(f).toContain("ladder");
-    expect(f).toContain("Luna high");
-    expect(f).toContain("Sol medium");
+    expect(f).toContain("luna high");
+    expect(f).toContain("sol medium");
   });
 
   it("moves into the detail pane with → and shows models grouped by backend", async () => {

@@ -2,6 +2,7 @@ import type { BorderCharacters } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useState } from "react";
+import { VERSION } from "../version.ts";
 import {
   ACCENT,
   GRADIENT,
@@ -32,40 +33,58 @@ const ASCII_BORDER: BorderCharacters = {
 
 /** Every screen's chrome: a bordered panel with its title set into the top border, and a short
  * key-hint line outside and below it (so the hint never competes with the border for space). */
+/** The widest the layout grows; wider terminals centre it with margins on both sides. */
+const MAX_WIDTH = 110;
+
 export function Frame({
   ui,
   title,
   hint,
+  mood = "good",
   above,
   children,
 }: {
   ui: Ui;
   title: string;
   hint: string;
+  mood?: Mood;
   above?: ReactNode;
   children: ReactNode;
 }) {
   const { width } = useTerminalDimensions();
-  const w = Math.max(width || 80, 80);
+  const term = Math.max(width || 80, 80);
+  const w = Math.min(term - 4, MAX_WIDTH);
   const accent = tint(ACCENT, ui.depth);
   return (
-    <box style={{ flexDirection: "column", width: w }}>
-      {above}
-      <box
-        style={{ flexDirection: "column", width: w, paddingLeft: 1, paddingRight: 1 }}
-        border
-        borderStyle={ui.plain ? "single" : "rounded"}
-        customBorderChars={ui.plain ? ASCII_BORDER : undefined}
-        borderColor={accent}
-        title={title}
-        titleColor={accent}
-        titleAlignment="left"
-      >
-        {children}
+    <box style={{ flexDirection: "column", width: term, alignItems: "center", paddingTop: 1 }}>
+      <box style={{ flexDirection: "column", width: w }}>
+        {above ?? <Wordmark ui={ui} mood={mood} suffix={VERSION} />}
+        <text> </text>
+        <box
+          style={{
+            flexDirection: "column",
+            width: w,
+            paddingLeft: 2,
+            paddingRight: 2,
+            paddingTop: 1,
+            paddingBottom: 1,
+          }}
+          border
+          borderStyle={ui.plain ? "single" : "rounded"}
+          customBorderChars={ui.plain ? ASCII_BORDER : undefined}
+          borderColor={accent}
+          title={` ${title} `}
+          titleColor={accent}
+          titleAlignment="left"
+        >
+          {children}
+        </box>
+        <box style={{ paddingLeft: 2, paddingTop: 1 }}>
+          <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
+            {hint}
+          </text>
+        </box>
       </box>
-      <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
-        {hint}
-      </text>
     </box>
   );
 }
@@ -87,8 +106,16 @@ export function DetailPane({
 }) {
   return (
     <box
-      style={{ flexDirection: "column", flexGrow: 1, paddingLeft: 1 }}
-      backgroundColor={ui.plain ? undefined : tint("charcoal", ui.depth)}
+      style={{
+        flexDirection: "column",
+        flexGrow: 1,
+        marginLeft: 2,
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
+        paddingBottom: 1,
+      }}
+      backgroundColor={ui.plain ? undefined : tint("surface", ui.depth)}
     >
       {heading && (
         <text attributes={TextAttributes.DIM} wrapMode="none" truncate>
@@ -129,7 +156,7 @@ export function ListLine({
       <text
         wrapMode="none"
         truncate
-        fg={filled ? tint("charcoal", ui.depth) : undefined}
+        fg={filled ? tint("ink", ui.depth) : undefined}
         attributes={(selected ? TextAttributes.BOLD : 0) | (dim && !selected ? TextAttributes.DIM : 0)}
       >
         {selected ? glyph("cursor", ui.plain) : " "} {text}

@@ -152,16 +152,18 @@ export function Editor({ ui, deps = {} }: { ui: Ui; deps?: Partial<EditorDeps> }
     }
   });
 
-  const title = `profiles ${glyph("dot", ui.plain)} ${profile.name}${profile.name === active ? "" : " (unsaved elsewhere)"}`;
-  const status = `profile ${profile.name} ${book.idx + 1}/${book.profiles.length}${
-    profile.name === active ? " (active)" : ""
-  }${dirty.has(profile.name) ? " (unsaved)" : ""}`;
+  const sep = ` ${glyph("dot", ui.plain)} `;
+  const title = [
+    `profile ${profile.name}`,
+    `${book.idx + 1}/${book.profiles.length}`,
+    profile.name === active ? "active" : null,
+    dirty.has(profile.name) ? "unsaved" : null,
+  ]
+    .filter(Boolean)
+    .join(sep);
 
   return (
     <Frame ui={ui} title={title} hint={matrixHint(ui, "save", showHelp, extraHint(ui.plain))}>
-      <text wrapMode="none" truncate>
-        {status}
-      </text>
       {backends === null ? (
         <CatSpinner ui={ui} label="sniffing out codex and opencode" />
       ) : (

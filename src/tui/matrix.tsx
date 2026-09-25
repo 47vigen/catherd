@@ -1,11 +1,11 @@
 import { TextAttributes } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { HarnessCost } from "../core/harness.ts";
 import { entryFor, saveTreatLike } from "../routing/catalog.ts";
 import { candidates } from "../routing/select.ts";
-import { type Backend, type Catalog, type Profile, type RungId, rungOf } from "../types.ts";
+import { type Backend, type Catalog, type Profile, type RungId, rungOf, splitRung } from "../types.ts";
 import type { BackendStatus } from "./backends.ts";
 import {
   budgetDetailRows,
@@ -27,7 +27,7 @@ import {
   type TopRow,
   treatLikeOptions,
 } from "./matrix-model.ts";
-import { dot, glyph, harnessLine, nick, shortRung, tint, type Ui } from "./theme.ts";
+import { dot, glyph, harnessLine, shortRung, tint, type Ui } from "./theme.ts";
 import { DetailPane, ListLine } from "./ui.tsx";
 
 export interface MatrixProps {
@@ -66,18 +66,16 @@ type Mode =
   | { failover: RungId }
   | { budgetField: BudgetField; buffer: string };
 
-const LEFT_HEIGHT = 14;
-const RIGHT_HEIGHT = 10;
-
 /** "sol", "luna", "opus 5.5" — the short display name the right pane uses for a model id
  * (the full id still shows in the effort rows below it). */
 export function shortModelName(id: string): string {
   const base = id.replace(/^.*\//, "").replace(/^gpt-\d+-/, "");
-  return base === "claude-opus-5-5" ? "opus 5.5" : base;
+  return base.replace(/^claude-([a-z]+)-(\d+)-(\d+)$/, "$1 $2.$3");
 }
 
 export function Matrix(props: MatrixProps) {
   const { ui, profile, catalog, backends, costs = [], errors = [], active = true } = props;
+  const { height: termHeight } = useTerminalDimensions();
   const [leftCursor, setLeftCursor] = useState(0);
   const [focus, setFocus] = useState<"left" | "right">("left");
   const [rightCursor, setRightCursor] = useState(0);
@@ -334,6 +332,10 @@ export function Matrix(props: MatrixProps) {
     }
   };
 
+  // Rows left for the panes once the cat, the border, the padding and the hint are drawn.
+  const rows = Math.max(12, termHeight || 24);
+  const LEFT_HEIGHT = Math.max(4, rows - 18);
+  const RIGHT_HEIGHT = Math.max(3, rows - 20);
   const start = Math.max(0, Math.min(leftCursor - Math.floor(LEFT_HEIGHT / 2), top.length - LEFT_HEIGHT));
   const leftWindow = top.slice(start, start + LEFT_HEIGHT);
   let lastSection = "";
@@ -382,7 +384,7 @@ export function Matrix(props: MatrixProps) {
         return {
           text: `${glyph(open.has(openKey(r) ?? "") ? "open" : "shut", ui.plain)} ${dot(on ? "ready" : "missing", ui.plain)} ${shortModelName(r.model.id)}  ${efforts.join(" ")}`.trimEnd(),
           dim: !ready.has(r.model.backend),
-          tag: r.model.id,
+          tag: r.model.id.includes("/") ? (r.model.id.split("/")[0] ?? r.model.id) : r.model.id,
         };
       }
       case "effort": {
@@ -473,7 +475,7 @@ export function Matrix(props: MatrixProps) {
     });
     if (selTop.kind === "role") {
       const ladder = candidates(profile, catalog, selTop.role).map(
-        (r) => nick(r) + " " + shortRung(r).split("#")[1],
+        (r) => `${shortModelName(splitRung(r).model)} ${splitRung(r).effort}`,
       );
       if (ladder.length > 0)
         detailBody.push(

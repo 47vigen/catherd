@@ -15,7 +15,7 @@ const save = mock();
 const deps = { loadCatalog: catalogFixture, detectBackends: async () => READY, harnessCosts: () => [], save };
 
 async function mounted() {
-  const setup = await testRender(<Editor ui={UI} deps={deps} />, { width: 100, height: 24 });
+  const setup = await testRender(<Editor ui={UI} deps={deps} />, { width: 100, height: 40 });
   await setup.renderOnce();
   // detectBackends resolves asynchronously; give the effect a tick then re-render.
   for (let i = 0; i < 10 && !setup.captureCharFrame().includes("worker"); i++) {
@@ -34,7 +34,7 @@ describe("Editor", () => {
 
   it("opens the active profile and saves it through the one writer on Enter", async () => {
     const { captureCharFrame, mockInput, renderOnce } = await mounted();
-    expect(captureCharFrame()).toContain("profile default 1/1");
+    expect(captureCharFrame()).toContain("profile default · 1/1");
     await press(mockInput, KEY.enter);
     await renderOnce();
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: "default" }), expect.anything());
@@ -70,7 +70,7 @@ describe("Editor", () => {
     expect(captureCharFrame()).toContain("Name for the new profile:");
     await press(mockInput, "fast", KEY.enter);
     await renderOnce();
-    expect(captureCharFrame()).toContain("profile fast 2/2 (unsaved)");
+    expect(captureCharFrame()).toContain("profile fast · 2/2 · unsaved");
     await press(mockInput, KEY.enter);
     await renderOnce();
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: "fast" }), expect.anything());
@@ -81,7 +81,7 @@ describe("Editor", () => {
     await press(mockInput, "c", "Bad Name", KEY.enter);
     await renderOnce();
     expect(captureCharFrame()).toContain("Use lowercase letters, digits and dashes");
-    expect(captureCharFrame()).toContain("profile default 1/1");
+    expect(captureCharFrame()).toContain("profile default · 1/1");
   });
 
   it("refuses to delete the active profile", async () => {

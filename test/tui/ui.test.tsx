@@ -99,7 +99,7 @@ describe("Frame", () => {
       <Frame ui={UI} title="catherd" hint="↑↓ navigate   q quit">
         <text>hello</text>
       </Frame>,
-      { width: 80, height: 10 },
+      { width: 80, height: 16 },
     );
     await renderOnce();
     const frame = captureCharFrame();
@@ -113,7 +113,7 @@ describe("Frame", () => {
       <Frame ui={PLAIN} title="catherd" hint="q quit">
         <text>hello</text>
       </Frame>,
-      { width: 80, height: 10 },
+      { width: 80, height: 16 },
     );
     await renderOnce();
     const frame = captureCharFrame();
@@ -121,24 +121,30 @@ describe("Frame", () => {
     expect(frame).toContain("+");
   });
 
-  it("fills 80 columns exactly, and widens past it on a bigger terminal", async () => {
+  it("keeps a two-column margin at 80, and centres a panel capped at 110 on a wide terminal", async () => {
     const at80 = await testRender(
       <Frame ui={UI} title="t" hint="h">
         <text>x</text>
       </Frame>,
-      { width: 80, height: 10 },
+      { width: 80, height: 16 },
     );
     await at80.renderOnce();
-    expect(widest(at80.captureCharFrame())).toBe(80);
+    expect(widest(at80.captureCharFrame())).toBe(78);
 
     const at120 = await testRender(
       <Frame ui={UI} title="t" hint="h">
         <text>x</text>
       </Frame>,
-      { width: 120, height: 10 },
+      { width: 200, height: 16 },
     );
     await at120.renderOnce();
-    expect(widest(at120.captureCharFrame())).toBe(120);
+    const border =
+      at120
+        .captureCharFrame()
+        .split("\n")
+        .find((l) => l.includes("╭")) ?? "";
+    expect(border.trim().length).toBe(110);
+    expect(border.indexOf("╭")).toBe(45);
   });
 });
 
@@ -149,7 +155,7 @@ describe("DetailPane and ListLine", () => {
         <ListLine ui={UI} selected text="Profile" />
         <ListLine ui={UI} selected={false} text="Watch runs" />
       </DetailPane>,
-      { width: 80, height: 10 },
+      { width: 80, height: 16 },
     );
     await renderOnce();
     const frame = captureCharFrame();
