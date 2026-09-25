@@ -199,6 +199,18 @@ describe("supervise signals the whole group", () => {
     await Bun.sleep(100);
     expect(dead(member)).toBe(true);
   });
+
+  it("kills a group member left behind when the worker exits on its own", async () => {
+    const s = spec(`sleep 30 & echo $!; exit 0`);
+    const events = dispatchPaths(s.dispatchDir).events;
+    const exit = await supervise(s);
+    const member = Number(readFileSync(events, "utf8").trim());
+    expect(member).toBeGreaterThan(0);
+    expect(exit).toMatchObject({ code: 0, signal: null, reason: "exited" });
+    expect(readExit(s.dispatchDir)).toMatchObject({ code: 0, reason: "exited" });
+    await Bun.sleep(100);
+    expect(dead(member)).toBe(true);
+  });
 });
 
 describe("supervise decodes output", () => {

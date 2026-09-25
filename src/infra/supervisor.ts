@@ -179,12 +179,18 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     reason = "lost";
   }
 
+  let stopped = false;
   if (reason !== null && !done) {
     if (reason !== "after-final" && failure === null)
       await bounded(() => hooks.interrupt?.(thread), hookMs, undefined);
-    if (!done) await stopGroup(child.pid, spec.killGraceMs, spec.pollMs);
+    if (!done) {
+      await stopGroup(child.pid, spec.killGraceMs, spec.pollMs);
+      stopped = true;
+    }
   }
   const code = await child.exited;
+  // On every path: a worker that ends on its own may leave members of its group behind.
+  if (!stopped && groupAlive(child.pid)) await stopGroup(child.pid, spec.killGraceMs, spec.pollMs);
   const info = finish({
     code: child.signalCode ? null : code,
     signal: child.signalCode ?? null,
