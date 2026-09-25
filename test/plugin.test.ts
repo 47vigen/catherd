@@ -36,6 +36,8 @@ describe("plugin", () => {
     expect(proc.success).toBe(true);
     expect(readJson(tmp, "plugin/.claude-plugin/plugin.json").version).toBe("9.9.9");
     expect(readJson(tmp, "plugin/.mcp.json").mcpServers.catherd.args).toEqual(["catherd-cli@9.9.9", "mcp"]);
+    const skill = readFileSync(join(tmp, "plugin", "skills", "catherd", "SKILL.md"), "utf8");
+    expect([...skill.matchAll(/catherd-cli@([^\s`)"]+)/g)].map((m) => m[1])).toEqual(["9.9.9", "9.9.9"]);
   });
 
   it("each command hands its arguments to its skill", () => {
