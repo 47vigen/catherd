@@ -8,7 +8,6 @@ import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { dispatchState, type DispatchState, latestDispatch } from "./dispatches.ts";
-import { refreshState } from "./lane-service.ts";
 import type { Deps } from "./ports.ts";
 import {
   type AgentRun,
@@ -19,6 +18,7 @@ import {
   readRecords,
   runFile,
 } from "./run-store.ts";
+import { refreshState } from "./state.ts";
 
 export async function startRun(
   deps: Deps,

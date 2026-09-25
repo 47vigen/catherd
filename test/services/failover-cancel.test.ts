@@ -9,6 +9,7 @@ import { cancel, dispatch, type DispatchInput } from "../../src/services/dispatc
 import { isAlive } from "../../src/infra/proc.ts";
 import { latestDispatch, liveDispatches, readProc } from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
+import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeGit, freshRun, testView, waitFor, writeLane } from "./helpers.ts";
@@ -94,6 +95,17 @@ describe("failover", () => {
     expect(hints.at(-1)).toMatch(/^failover: codex:gpt-6-sol#high refused: E_RUN_BUDGET/);
     expect(readRecords(run).records).toHaveLength(1);
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Next: paused: codex usage limit");
+  });
+
+  it("keeps the paused note in state.json when git breaks before state.md can be refreshed", async () => {
+    const { run, deps } = setup({ ...LIMIT, delayMs: 1_000 }, {});
+    const pending = dispatch(deps, input(run.id));
+    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    fakeGit("exit 128");
+    const { record, hints } = await pending;
+    expect(record.status).toBe("limit");
+    expect(hints.at(-1)).toMatch(/^state\.md not refreshed: /);
+    expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
   });
 
   it("names the agent when the stand-in is a native Claude rung, without pausing", async () => {

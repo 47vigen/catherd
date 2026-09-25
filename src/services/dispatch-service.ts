@@ -15,7 +15,7 @@ import { type Dispatch, liveDispatches, readProc } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
-import { type NotesPatch, updateState } from "./state.ts";
+import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
   run: string;
@@ -38,19 +38,14 @@ export type Progress = (message: string) => void;
 const hintsFor = (run: Run, d: Dispatch, r: RunRecord) =>
   dispatchHints(r, d.admit.owns, relative(run.dir, d.dir));
 
-/** Rewrites state.md; a refresh that fails (git broken) never fails the dispatch, it adds one hint instead. */
-async function refreshState(run: Run, change: NotesPatch, hints: string[]): Promise<void> {
-  try {
-    await updateState(run, change);
-  } catch (e) {
-    const hint = `state.md not refreshed: ${e instanceof Error ? e.message : String(e)}`;
-    if (!hints.includes(hint)) hints.push(hint);
-  }
+/** Refreshes state.md (spec §4.5 notes kept on a git failure); a refresh that fails adds its hint once. */
+async function refresh(run: Run, change: NotesPatch, hints: string[]): Promise<void> {
+  for (const h of (await refreshState(run, change)).hints) if (!hints.includes(h)) hints.push(h);
 }
 
 /**
- * Launches an admitted dispatch, waits for it with progress, and finalizes it. A state.md refresh that
- * fails adds its hint to `stateHints`.
+ * Launches an admitted dispatch, then refreshes state.md with `change` (after the launch, so nothing
+ * delays it), waits for it with progress, and finalizes it. A refresh that fails adds its hint to `stateHints`.
  */
 export async function runToEnd(
   deps: Deps,
@@ -59,9 +54,10 @@ export async function runToEnd(
   specPath: string,
   onProgress?: Progress,
   stateHints: string[] = [],
+  change: NotesPatch = {},
 ): Promise<RunRecord> {
   launch(d, specPath);
-  await refreshState(run, {}, stateHints);
+  await refresh(run, change, stateHints);
   await waitForFinish(d, {
     pollMs: deps.pollMs,
     tickMs: deps.tickMs,
@@ -86,13 +82,20 @@ export async function dispatch(deps: Deps, i: DispatchInput, onProgress?: Progre
     failoverFrom: null,
   });
   const stateHints: string[] = [];
-  if (i.next) await refreshState(run, { next: i.next }, stateHints);
-  const first = await runToEnd(deps, run, d, specPath, onProgress, stateHints);
+  const first = await runToEnd(
+    deps,
+    run,
+    d,
+    specPath,
+    onProgress,
+    stateHints,
+    i.next ? { next: i.next } : {},
+  );
   const out =
     first.status === "limit"
       ? await failover(deps, run, d, first, onProgress, stateHints)
       : { record: first, hints: hintsFor(run, d, first), pause: null };
-  await refreshState(run, out.pause ? { next: out.pause } : {}, stateHints);
+  await refresh(run, out.pause ? { next: out.pause } : {}, stateHints);
   return { record: out.record, hints: [...out.hints, ...stateHints] };
 }
 
@@ -207,7 +210,6 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
-  const stateHints: string[] = [];
-  await refreshState(run, {}, stateHints);
-  return { record, hints: [...hintsFor(run, live, record), ...stateHints] };
+  const { hints } = await refreshState(run);
+  return { record, hints: [...hintsFor(run, live, record), ...hints] };
 }

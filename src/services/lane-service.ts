@@ -7,7 +7,6 @@ import type { Role } from "../domain/roles.ts";
 import { type ClimbReason, currentRoute, nextRung, type RouteSource } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
-import { writeJsonAtomic } from "../infra/store.ts";
 import { budgetOf } from "./budget.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
@@ -20,35 +19,7 @@ import {
   runFile,
   runPaths,
 } from "./run-store.ts";
-import { type Notes, type NotesPatch, readNotes, updateState } from "./state.ts";
-
-/**
- * Ruling (b): a failed state.md refresh (git broken) never fails the call. The notes still go to state.json
- * under the state lock (state.md stays as it was), and the message comes back as a hint.
- */
-export async function refreshState(
-  run: Run,
-  change: NotesPatch | ((n: Notes) => NotesPatch) = {},
-): Promise<{ text: string | null; hints: string[] }> {
-  let applied = false;
-  const apply = (n: Notes): NotesPatch => {
-    applied = true;
-    return typeof change === "function" ? change(n) : change;
-  };
-  try {
-    return { text: await updateState(run, apply), hints: [] };
-  } catch (e) {
-    // git fails before updateState reaches the notes: keep them, so a later refresh still shows them
-    if (!applied) {
-      const stateJson = runPaths(run.dir).stateJson;
-      await withFileLock(stateJson, () => {
-        const notes = readNotes(run);
-        writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
-      });
-    }
-    return { text: null, hints: [`state.md not refreshed: ${(e as Error).message}`] };
-  }
-}
+import { type Notes, type NotesPatch, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -7,6 +7,7 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
+import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, writeLane } from "./helpers.ts";
@@ -36,6 +37,20 @@ const input = (run: string, over: Partial<DispatchInput> = {}): DispatchInput =>
 });
 
 describe("dispatch", () => {
+  it("launches before any state refresh, so an admitted dispatch never waits on git unlaunched", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "catherd-git-")), "unlaunched");
+    const { run, deps } = setup({ reply: "Done.\nSTATUS: complete — ok" });
+    const roles = runPaths(run.dir).roles;
+    // every git call made while a dispatch is admitted (admit.json) but not launched (no launch.json) is logged
+    fakeGit(
+      `for a in '${roles}'/*/*/admit.json; do [ -f "$a" ] && [ ! -f "$(dirname "$a")/launch.json" ] && echo "$*" >> '${log}'; done\nexec "$REAL_GIT" "$@"`,
+    );
+    const { record } = await dispatch(deps, input(run.id, { next: "review M1" }));
+    expect(record.status).toBe("ok");
+    expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
+    expect(readNotes(run).next).toBe("review M1");
+  });
+
   it("hands the worker the user's backend credentials at spawn time, never catherd's own secrets", async () => {
     const envTo = join(mkdtempSync(join(tmpdir(), "catherd-env-")), "env.jsonl");
     const { run, deps } = setup({ envTo, reply: "Done.\nSTATUS: complete — ok" });
@@ -206,13 +221,15 @@ describe("dispatch when git fails after admission", () => {
       reply: "x\nSTATUS: complete — ok",
       touch: [{ path: "src/a.ts", content: "x" }],
     });
-    // 1 admission, 2 state (next), 3 state (launched), 4 finalize, 5 state (done)
-    flakyGitStatus((n) => n === 2 || n === 3);
+    // 1 admission, 2 state (launched, with next), 3 finalize, 4 state (done)
+    flakyGitStatus((n) => n === 2);
     const { record, hints } = await dispatch(deps, input(run.id, { next: "review M1" }));
     expect(record).toMatchObject({ status: "ok", changedOwned: ["src/a.ts"] });
     expect(hints).toHaveLength(1);
     expect(hints[0]).toMatch(/^state\.md not refreshed: git status failed in /);
     expect(readRecords(run).records).toHaveLength(1);
+    // the next note reached state.json despite the failed refresh, and the later refresh shows it
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Next: review M1");
   });
 
   it("records the run with its changes unknown when git stays broken to the end", async () => {

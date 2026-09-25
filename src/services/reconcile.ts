@@ -2,7 +2,7 @@ import { type Dispatch, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, type Run } from "./run-store.ts";
-import { updateState } from "./state.ts";
+import { refreshState } from "./state.ts";
 
 export interface ReconcileReport {
   finalized: string[];
@@ -12,16 +12,6 @@ export interface ReconcileReport {
   done: Promise<void>;
 }
 
-/** Rewrites state.md after a finalize; a refresh that fails (git broken) is reported, never thrown. */
-async function refreshState(run: Run): Promise<string | null> {
-  try {
-    await updateState(run);
-    return null;
-  } catch (e) {
-    return `state.md not refreshed: ${e instanceof Error ? e.message : String(e)}`;
-  }
-}
-
 /**
  * Waits for a live dispatch this process did not start, then finalizes it. A state.md refresh that
  * fails rejects, after the record is written, with a message that says so.
@@ -29,8 +19,8 @@ async function refreshState(run: Run): Promise<string | null> {
 export async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
   await waitForFinish(d, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   await finalizeDispatch(run, d);
-  const stale = await refreshState(run);
-  if (stale) throw new Error(stale);
+  const { hints } = await refreshState(run);
+  if (hints[0]) throw new Error(hints[0]);
 }
 
 /**
@@ -70,8 +60,7 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
         continue;
       }
       report.finalized.push(d.admit.dispatchId);
-      const stale = await refreshState(run);
-      if (stale) warn(run, stale);
+      for (const h of (await refreshState(run)).hints) warn(run, h);
     }
   }
   return { ...report, done: Promise.all(watchers).then(() => undefined) };
