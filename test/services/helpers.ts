@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason } from "../../src/domain/record.ts";
@@ -116,6 +117,14 @@ export async function deadProcess(): Promise<number> {
     deadPid = p.pid;
   }
   return deadPid;
+}
+
+/** Puts a fake `git` first on PATH that runs the sh script `body`; `$REAL_GIT` in it is the real git. */
+export function fakeGit(body: string): void {
+  const bin = mkdtempSync(join(tmpdir(), "catherd-fakegit-"));
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nREAL_GIT='${Bun.which("git") ?? "git"}'\n${body}\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH}`;
 }
 
 /** A dispatch folder as admission and the supervisor would leave it, without running anything. */
