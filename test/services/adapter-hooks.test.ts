@@ -124,6 +124,7 @@ describe("prepare", () => {
         rung: { backend: "cursor", model: "go-m1", effort: "default" },
         access: "workspace-write",
         isolated: false,
+        repo: run.meta.repo,
       },
     ]);
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);

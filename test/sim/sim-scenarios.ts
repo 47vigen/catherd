@@ -46,6 +46,10 @@ export interface OpencodeScenario extends Common {
   auth?: { id: string; connections: { type: string }[] }[];
   /** `opencode api GET /api/model` data */
   models?: OpencodeModel[];
+  /** the model list for a request located in this directory, instead of `models` */
+  modelsAt?: Record<string, OpencodeModel[]>;
+  /** each model list request appends its location[directory] here, or "-" without one */
+  modelLocationsTo?: string;
   /** the first model list after start is empty, as on a service warm-up */
   warmup?: boolean;
   /** `GET /api/session/active` data */

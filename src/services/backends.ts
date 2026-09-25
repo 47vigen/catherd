@@ -32,8 +32,11 @@ export async function readyAdapter(
   return { adapter, probe };
 }
 
-/** Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default, else none. */
-export function standInFor(failover: Record<string, string>, rung: string): string | null {
+/**
+ * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default (for `repo`,
+ * when given), else none.
+ */
+export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
   const own = failover[rung];
   if (own) return own;
   let r: ReturnType<typeof parseRung>;
@@ -42,6 +45,6 @@ export function standInFor(failover: Record<string, string>, rung: string): stri
   } catch {
     return null;
   }
-  const byAdapter = adapterFor(r.backend)?.failoverFor?.(r) ?? null;
+  const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? null;
   return byAdapter && formatRung(byAdapter);
 }

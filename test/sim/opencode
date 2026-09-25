@@ -38,11 +38,17 @@ if (args[0] === "api") {
   }
   const [method, path] = [args[1], args[2] ?? ""];
   const session = /^\/api\/session\/([^/]+)(\/.*)?$/.exec(path);
-  if (method === "GET" && path === "/api/model") {
+  const url = new URL(path, "http://sim");
+  if (method === "GET" && url.pathname === "/api/model") {
+    // v2 resolves a request without location[directory] to the service's own directory, the home one
+    const asked = url.searchParams.get("location[directory]");
+    if (s.modelLocationsTo) appendFileSync(s.modelLocationsTo, `${asked ?? "-"}\n`);
+    const directory = asked ?? homedir();
     const calls = `${file}.model-calls`;
     appendFileSync(calls, "x");
     const first = readFileSync(calls, "utf8").length === 1;
-    say(JSON.stringify({ location: { directory: homedir() }, data: s.warmup && first ? [] : (s.models ?? []) }));
+    const models = s.modelsAt?.[directory] ?? s.models ?? [];
+    say(JSON.stringify({ location: { directory }, data: s.warmup && first ? [] : models }));
   } else if (method === "GET" && path === "/api/session/active") say(JSON.stringify({ data: s.active ?? {} }));
   else if (method === "GET" && session && session[2] === "/message") {
     if (s.messagesFail) process.exit(1);

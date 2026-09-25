@@ -121,7 +121,10 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is a native Claude rung`, {
       fix: `run it as Agent(subagent_type: "${deps.routing.agentFor(i.role, i.rung)}"), then record_agent_run`,
     });
-  const allowed = new Set([...rc.rungs, ...rc.rungs.flatMap((r) => standInFor(profile.failover, r) ?? [])]);
+  const allowed = new Set([
+    ...rc.rungs,
+    ...rc.rungs.flatMap((r) => standInFor(profile.failover, r, run.meta.repo) ?? []),
+  ]);
   if (!allowed.has(formatRung(rung)))
     throw new CatherdError(
       "E_ADMIT_RUNG",
@@ -140,7 +143,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = profile.isolated[rung.backend] ?? false;
-  await prepared(adapter, { rung, access: rc.access, isolated });
+  await prepared(adapter, { rung, access: rc.access, isolated, repo: run.meta.repo });
   const plan = adapter.plan({
     rung,
     access: rc.access,

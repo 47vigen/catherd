@@ -37,8 +37,9 @@ async function code(p: Promise<unknown> | undefined): Promise<string> {
   return "ok";
 }
 
-const prepare = (rung: string, isolated = false) =>
-  opencodeAdapter.prepare?.({ rung: parseRung(rung), access: "workspace-write", isolated });
+const REPO = "/work/repo";
+const prepare = (rung: string, isolated = false, repo = REPO) =>
+  opencodeAdapter.prepare?.({ rung: parseRung(rung), access: "workspace-write", isolated, repo });
 
 describe("opencode probe", () => {
   it("accepts v2 and reports a Zen or Go login", async () => {
@@ -104,6 +105,15 @@ describe("opencode discovery", () => {
     onSim({ apiFails: true });
     expect(await opencodeAdapter.listModels()).toEqual([]);
   });
+
+  it("lists what the repository's location enables, and the home location's without a repository", async () => {
+    const asked = join(mkdtempSync(join(tmpdir(), "catherd-loc-")), "log");
+    const only = MODELS.filter((m) => m.id === "glm-5.3");
+    onSim({ models: MODELS, modelsAt: { [REPO]: only }, modelLocationsTo: asked });
+    expect((await opencodeAdapter.listModels(REPO)).map((m) => m.id)).toEqual(["opencode-go/glm-5.3"]);
+    expect(await opencodeAdapter.listModels()).toHaveLength(7);
+    expect(readFileSync(asked, "utf8")).toBe(`${REPO}\n-\n`);
+  });
 });
 
 describe("opencode prepare", () => {
@@ -114,7 +124,22 @@ describe("opencode prepare", () => {
     expect(await code(prepare("opencode:opencode-go/glm-5.3#low"))).toBe("ok");
     expect(existsSync(join(agentsDir(userConfigRoot()), "catherd-worker.md"))).toBe(true);
     expect(readFileSync(reloads, "utf8")).toBe("reload\n");
-    expect(readDiscovery("opencode")?.models).toHaveLength(7);
+    expect(readDiscovery("opencode", REPO)?.models).toHaveLength(7);
+  });
+
+  it("validates against each repository's own listing, not another's cached one", async () => {
+    const extra: OpencodeModel = { id: "repo-only", providerID: "opencode", variants: [{ id: "high" }] };
+    const without = MODELS.filter((m) => m.id !== "glm-5.3");
+    onSim({ models: MODELS, modelsAt: { "/work/a": [...MODELS, extra], "/work/b": without } });
+    expect(await code(prepare("opencode:opencode-go/glm-5.3#high", false, "/work/a"))).toBe("ok");
+    expect(await code(prepare("opencode:opencode/repo-only#high", false, "/work/a"))).toBe("ok");
+    expect(await code(prepare("opencode:opencode-go/glm-5.3#high", false, "/work/b"))).toBe(
+      "E_BACKEND_MODEL_UNKNOWN",
+    );
+    expect(await code(prepare("opencode:opencode/repo-only#high", false, "/work/b"))).toBe(
+      "E_BACKEND_MODEL_UNKNOWN",
+    );
+    expect(readDiscovery("opencode")).toBeNull();
   });
 
   it("installs into catherd's own config root for an isolated run", async () => {
@@ -146,6 +171,15 @@ describe("opencode default failover", () => {
       { id: "opencode/kimi-k3", efforts: ["max"], context: null, imageIn: false },
       { id: "opencode/qwen3.8-max", efforts: [], context: null, imageIn: false },
     ]);
+    writeDiscovery(
+      "opencode",
+      [{ id: "opencode/glm-5.3", efforts: ["high"], context: null, imageIn: false }],
+      0,
+      REPO,
+    );
+    expect(opencodeAdapter.failoverFor?.(parseRung("opencode:opencode-go/glm-5.3#high"), REPO)).toEqual(
+      parseRung("opencode:opencode/glm-5.3#high"),
+    );
     const f = opencodeAdapter.failoverFor;
     expect(f?.(parseRung("opencode:opencode-go/kimi-k3#max"))).toEqual(
       parseRung("opencode:opencode/kimi-k3#max"),

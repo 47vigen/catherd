@@ -125,7 +125,8 @@ describe("claude-code plan", () => {
 describe("claude-code prepare", () => {
   const prep = (rung: string, access: Access = "workspace-write") =>
     code(
-      claudeCodeAdapter.prepare?.({ rung: parseRung(rung), access, isolated: false }) ?? Promise.resolve(),
+      claudeCodeAdapter.prepare?.({ rung: parseRung(rung), access, isolated: false, repo: "/repo" }) ??
+        Promise.resolve(),
     );
 
   it("accepts full ids with an effort the model has", async () => {

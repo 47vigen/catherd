@@ -73,12 +73,17 @@ function plan(r: RunRequest): SpawnPlan {
   };
 }
 
-async function listModels(): Promise<DiscoveredModel[]> {
+/**
+ * The Zen and Go models enabled in `repo`; without one, in the home directory, where v2 resolves a
+ * request that names no location (research §2.4).
+ */
+async function listModels(repo?: string): Promise<DiscoveredModel[]> {
+  const where = repo === undefined ? "" : `?${new URLSearchParams({ "location[directory]": repo })}`;
   let data: Record<string, any>[] = [];
   for (let attempt = 0; attempt < 2 && data.length === 0; attempt++) {
     // the first listing after the service (re)starts can be empty (research §1.4)
     if (attempt > 0) await Bun.sleep(opencodeShell.retryDelayMs);
-    const r = await opencodeApi("GET", "/api/model");
+    const r = await opencodeApi("GET", `/api/model${where}`);
     data = Array.isArray(r?.data) ? r.data : [];
   }
   return data
@@ -95,14 +100,21 @@ async function listModels(): Promise<DiscoveredModel[]> {
     }));
 }
 
-/** Spec §6.3: install the catherd agents, and refuse a Zen or Go model or variant opencode does not list. */
-async function prepare(req: { rung: Rung; access: Access; isolated: boolean }): Promise<void> {
+/**
+ * Spec §6.3: install the catherd agents, and refuse a Zen or Go model or variant opencode does not list
+ * in the repository (its config can enable or disable models), from a listing cached per repository.
+ */
+async function prepare(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void> {
   const root = req.isolated ? isolatedConfigRoot() : userConfigRoot();
   // the background service only sees a new agent file after a reload (verified on 2.0.16)
   if (installAgents(root) && !req.isolated) await runCli("opencode", ["reload"], opencodeShell);
   const { model, effort } = req.rung;
   if (!OPENCODE_PROVIDERS.includes(model.split("/")[0] ?? "")) return;
-  const models = await discovered("opencode", listModels, { maxAgeMs: DAY_MS, need: model });
+  const models = await discovered("opencode", () => listModels(req.repo), {
+    maxAgeMs: DAY_MS,
+    need: model,
+    repo: req.repo,
+  });
   if (models.length === 0) return; // opencode listed nothing: let the run itself say what is wrong
   const m = models.find((x) => x.id === model);
   if (!m)
@@ -223,11 +235,11 @@ async function interrupt(thread: string): Promise<void> {
   await opencodeApi("POST", `/api/session/${thread}/interrupt`);
 }
 
-/** Spec §4.5: Go `X` → Zen `X` when Zen lists `X` with the same variant. */
-function failoverFor(rung: Rung): Rung | null {
+/** Spec §4.5: Go `X` → Zen `X` when Zen lists `X` with the same variant (in `repo`, when given). */
+function failoverFor(rung: Rung, repo?: string): Rung | null {
   if (!rung.model.startsWith("opencode-go/")) return null;
   const zen = `opencode/${rung.model.slice("opencode-go/".length)}`;
-  const m = readDiscovery("opencode")?.models.find((x) => x.id === zen);
+  const m = readDiscovery("opencode", repo)?.models.find((x) => x.id === zen);
   if (!m || (rung.effort !== "default" && !m.efforts.includes(rung.effort))) return null;
   return { backend: "opencode", model: zen, effort: rung.effort };
 }

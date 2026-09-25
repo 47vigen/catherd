@@ -79,7 +79,7 @@ async function captureOne(
     const briefPath = join(work, "brief.md");
     writeFileSync(briefPath, c.brief);
     const rung = parseRung(c.rung);
-    await adapter.prepare?.({ rung, access: c.access, isolated: false });
+    await adapter.prepare?.({ rung, access: c.access, isolated: false, repo });
     const request = {
       rung,
       access: c.access,

@@ -22,6 +22,21 @@ describe("discovery cache", () => {
     });
   });
 
+  it("keeps a repository's listing apart from the home one and from other repositories'", async () => {
+    withHome();
+    writeDiscovery("opencode", [M("opencode/a")], T0, "/work/a");
+    expect(readDiscovery("opencode")).toBeNull();
+    expect(readDiscovery("opencode", "/work/b")).toBeNull();
+    expect(readDiscovery("opencode", "/work/a")?.models).toEqual([M("opencode/a")]);
+    const b = await discovered("opencode", async () => [M("opencode/b")], {
+      maxAgeMs: HOUR,
+      now: T0,
+      repo: "/work/b",
+    });
+    expect(b).toEqual([M("opencode/b")]);
+    expect(readDiscovery("opencode", "/work/a")?.models).toEqual([M("opencode/a")]);
+  });
+
   it("reads a missing or corrupt cache as none", () => {
     withHome();
     expect(readDiscovery("opencode")).toBeNull();

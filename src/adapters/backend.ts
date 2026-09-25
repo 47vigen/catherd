@@ -90,12 +90,13 @@ export interface BackendAdapter {
   id: AdapterId;
   minVersion: string;
   probe(): Promise<Probe>;
-  listModels(): Promise<DiscoveredModel[]>;
+  /** The models the backend offers; in `repo` when given, for a backend whose listing depends on it. */
+  listModels(repo?: string): Promise<DiscoveredModel[]>;
   /**
    * Refuses a rung this backend cannot run and readies the backend's own config, before admission writes
    * anything (spec §6.3: variants are validated before dispatch). Throws a CatherdError.
    */
-  prepare?(req: { rung: Rung; access: Access; isolated: boolean }): Promise<void>;
+  prepare?(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void>;
   plan(req: RunRequest): SpawnPlan;
   parse(line: string): EventDelta;
   finalize(run: FinishedRun): Outcome;
@@ -110,7 +111,7 @@ export interface BackendAdapter {
   interrupt?(thread: string, cwd: string): Promise<void>;
   isBusy?(thread: string, cwd: string): Promise<boolean>;
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
-  failoverFor?(rung: Rung): Rung | null;
+  failoverFor?(rung: Rung, repo?: string): Rung | null;
   graceAfterFinalMs: number | null;
 }
 
