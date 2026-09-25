@@ -1,5 +1,15 @@
 # catherd-cli
 
+## 0.2.0
+
+### Minor Changes
+
+- 78b7e6c: Redesigns the TUI as one bordered-panel frame with a two-pane master/detail layout, a dashboard for the bare `catherd` command, and a single accent colour, replacing the per-row 🐾 clutter and truncated footer.
+
+### Patch Changes
+
+- 183ad9a: `init` finds a Jev key already saved at `~/.config/typesafe/api_key`, so a user who has one never types it again, and the key prompt accepts a pasted key.
+
 ## 0.1.0
 
 ### Minor Changes
