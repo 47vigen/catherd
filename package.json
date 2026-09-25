@@ -1,6 +1,6 @@
 {
   "name": "catherd-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Herds coding agents: autopilot builds from your own Claude Code session.",
   "license": "MIT",
   "repository": {

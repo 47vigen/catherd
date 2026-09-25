@@ -223,7 +223,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to `R/ro
 4. For a worker:
    - "Read `<R>/lanes/Mx.Ly.md`": decisions, signatures, data shapes;
    - its fast check, to run until it passes;
-   - "Run the full suite only if this brief says so", and "Wrap any full build or full test suite in `bunx catherd-cli@0.2.0 lock -- <command>`": other lanes share the machine.
+   - "Run the full suite only if this brief says so", and "Wrap any full build or full test suite in `bunx catherd-cli@0.2.1 lock -- <command>`": other lanes share the machine.
 5. For a reviewer: the A-lines and the changed files, with new files read in full. It reports every finding as `BLOCKER|BUG|NIT file:line — problem — fix`, covering:
    - unmet A-lines and edge cases;
    - code or abstractions nobody needs;
