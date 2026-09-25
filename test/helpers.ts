@@ -24,3 +24,12 @@ export function tempRepo(): string {
 export function fakeBinPath(): string {
   return `${join(import.meta.dir, "fixtures", "bin")}:${process.env.PATH}`;
 }
+
+/** Call at module scope as `afterEach(snapshotEnv())`: restores process.env key by key after each test. */
+export function snapshotEnv(): () => void {
+  const saved = { ...process.env };
+  return () => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  };
+}

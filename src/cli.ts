@@ -19,6 +19,7 @@ export const main = defineCommand({
     mcp: mcpCommand,
     init: initCommand,
     watch: watchCommand,
+    _supervise: () => import("./entry/supervise.ts").then((m) => m.superviseCommand),
   },
   run: editorRun,
 });
