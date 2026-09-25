@@ -90,7 +90,7 @@ describe("claude-code plan", () => {
   });
 
   it.each([
-    ["read-only", "dontAsk", "Edit,Write,NotebookEdit"],
+    ["read-only", "dontAsk", "Edit,Write,NotebookEdit,Bash"],
     ["workspace-write", "acceptEdits", "Bash(git commit *),Bash(git push *),Bash(git reset --hard *)"],
   ] as const)("maps %s to --permission-mode %s and denies %s", (access, mode, denied) => {
     const args = claudeCodeAdapter.plan(req({ access })).args;
@@ -98,12 +98,21 @@ describe("claude-code plan", () => {
     expect(args[args.indexOf("--disallowedTools") + 1]).toBe(denied);
   });
 
-  it("lets read-only roles run only read commands, and full access bypass permissions", () => {
+  it("gives read-only roles no shell, only the read tools, and lets full access bypass permissions", () => {
+    // `rg --pre=<cmd>` executes and `git diff --output=<file>` writes: no Bash pattern is read-only
     const ro = claudeCodeAdapter.plan(req({ access: "read-only" })).args;
+    expect(CLAUDE_ACCESS["read-only"]).toEqual([
+      "--permission-mode",
+      "dontAsk",
+      "--allowedTools",
+      "Read,Glob,Grep,WebFetch,WebSearch",
+      "--disallowedTools",
+      "Edit,Write,NotebookEdit,Bash",
+    ]);
     const allowed = (ro[ro.indexOf("--allowedTools") + 1] as string).split(",");
-    expect(allowed).toContain("Bash(git diff *)");
-    expect(allowed).not.toContain("Bash");
-    expect(allowed).not.toContain("Edit");
+    expect(allowed).toEqual(["Read", "Glob", "Grep", "WebFetch", "WebSearch"]);
+    expect(allowed.filter((t) => t.startsWith("Bash"))).toEqual([]);
+    expect((ro[ro.indexOf("--disallowedTools") + 1] as string).split(",")).toContain("Bash");
     const full = claudeCodeAdapter.plan(req({ access: "full" })).args;
     expect(full.slice(full.indexOf("--permission-mode"), full.indexOf("--permission-mode") + 2)).toEqual([
       "--permission-mode",

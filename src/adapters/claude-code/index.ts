@@ -31,21 +31,22 @@ const THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const claudeShell = { timeoutMs: 15_000 };
 
 const READ_TOOLS = ["Read", "Glob", "Grep", "WebFetch", "WebSearch"];
-const READ_SHELL = ["git status", "git diff", "git log", "git show", "rg", "ls"].map((c) => `Bash(${c} *)`);
 const NEVER = ["git commit", "git push", "git reset --hard"].map((c) => `Bash(${c} *)`);
 
 /**
  * Spec §6.2 access → Claude Code permission flags (advisory: Bash can still write where it likes).
  * `dontAsk` denies anything not allowed; `--permission-prompts none` (always passed) denies any prompt.
+ * Read-only gets no Bash at all, as catherd-ro on opencode: `rg --pre=<cmd>` executes and
+ * `git diff --output=<file>` writes, so no Bash pattern is read-only. It reads with Read, Glob and Grep.
  */
 export const CLAUDE_ACCESS: Record<Access, string[]> = {
   "read-only": [
     "--permission-mode",
     "dontAsk",
     "--allowedTools",
-    [...READ_TOOLS, ...READ_SHELL].join(","),
+    READ_TOOLS.join(","),
     "--disallowedTools",
-    "Edit,Write,NotebookEdit",
+    "Edit,Write,NotebookEdit,Bash",
   ],
   "workspace-write": [
     "--permission-mode",
