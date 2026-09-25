@@ -8,6 +8,7 @@ import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { dispatchState, type DispatchState, latestDispatch } from "./dispatches.ts";
+import { refreshState } from "./lane-service.ts";
 import type { Deps } from "./ports.ts";
 import {
   type AgentRun,
@@ -18,12 +19,11 @@ import {
   readRecords,
   runFile,
 } from "./run-store.ts";
-import { updateState } from "./state.ts";
 
 export async function startRun(
   deps: Deps,
   i: { repo: string; title: string; aLines: string[] },
-): Promise<{ run: string; dir: string }> {
+): Promise<{ run: string; dir: string; hints?: string[] }> {
   const top = await gitToplevel(i.repo);
   if (!top)
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
@@ -36,8 +36,9 @@ export async function startRun(
     version: deps.version,
     now: new Date(deps.now()),
   });
-  await updateState(run);
-  return { run: run.id, dir: run.dir };
+  // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
+  const { hints } = await refreshState(run);
+  return { run: run.id, dir: run.dir, ...(hints.length ? { hints } : {}) };
 }
 
 export function writeRunFile(i: { run: string; path: string; content: string }): {
@@ -58,8 +59,10 @@ export function readRunFile(i: { run: string; path: string }): string {
   return readFileSync(file, "utf8");
 }
 
-export function setNext(i: { run: string; next: string }): Promise<string> {
-  return updateState(findRun(i.run), { next: i.next });
+/** state.md's new text, or the hint `state.md not refreshed: <message>` (the note is kept in state.json). */
+export async function setNext(i: { run: string; next: string }): Promise<string> {
+  const { text, hints } = await refreshState(findRun(i.run), { next: i.next });
+  return text ?? hints.join("\n");
 }
 
 const CAP_LINES = 250;

@@ -15,7 +15,14 @@ import {
   startRun,
   writeRunFile,
 } from "../../src/services/run-service.ts";
-import { appendRecord, findRun, readAgentRuns, readRoutes, runPaths } from "../../src/services/run-store.ts";
+import {
+  appendRecord,
+  findRun,
+  listRuns,
+  readAgentRuns,
+  readRoutes,
+  runPaths,
+} from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, writeLane } from "./helpers.ts";
@@ -219,6 +226,23 @@ describe("a failed state.md refresh", () => {
     // the landing time was kept although state.md was not refreshed
     expect(await land(deps, { ...land1, milestone: "M2" })).toMatchObject({ minutes: 4, hints: [hint] });
     expect(readFileSync(runPaths(run.dir).ledger, "utf8").trim().split("\n")).toHaveLength(3);
+  });
+});
+
+describe("a failed state.md refresh at run start", () => {
+  it("never fails startRun or setNext: the run is created once and usable, and a hint says so", async () => {
+    withHome();
+    const repo = tempRepo();
+    breakGitStatus();
+    const hint = `state.md not refreshed: git status failed in ${repo}`;
+    const started = await startRun(fakeDeps(), { repo, title: "t", aLines: ["A1 x"] });
+    expect(started).toMatchObject({ hints: [hint] });
+    expect(listRuns().runs.map((r) => r.id)).toEqual([started.run]);
+    const run = findRun(started.run);
+    expect(run.dir).toBe(started.dir);
+    expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
+    expect(await setNext({ run: run.id, next: "paused: lunch" })).toBe(hint);
+    expect(readNotes(run).next).toBe("paused: lunch");
   });
 });
 
