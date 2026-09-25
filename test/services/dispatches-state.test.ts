@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { processStartTime } from "../../src/infra/proc.ts";
@@ -111,6 +112,22 @@ describe("state.md", () => {
     );
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(text);
     expect(text.trimEnd().split("\n").at(-1)).toBe("Next: wait for worker-M1.L1; then review M1");
+  });
+
+  it("shows HEAD none in a repo with no commit yet", async () => {
+    const { run } = freshRun();
+    execFileSync("git", ["update-ref", "-d", "HEAD"], { cwd: run.meta.repo });
+    expect(await updateState(run)).toContain("HEAD none");
+  });
+
+  it("fails loudly, and writes nothing, when git fails rather than show a clean tree", async () => {
+    const { run } = freshRun();
+    const bin = mkdtempSync(join(tmpdir(), "catherd-fakegit-"));
+    writeFileSync(join(bin, "git"), "#!/bin/sh\nexit 128\n");
+    chmodSync(join(bin, "git"), 0o755);
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    await expect(updateState(run, { next: "x" })).rejects.toMatchObject({ code: "E_IO_UNEXPECTED" });
+    expect(existsSync(runPaths(run.dir).stateJson)).toBe(false);
   });
 
   it("keeps each note across rewrites, and loses none to concurrent writers", async () => {

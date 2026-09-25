@@ -1,11 +1,21 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changedPaths } from "../../src/domain/changes.ts";
-import { commitExists, gitHead, gitToplevel, statusSnapshot } from "../../src/infra/git.ts";
-import { tempRepo } from "../helpers.ts";
+import { commitExists, git, gitHead, gitToplevel, statusSnapshot } from "../../src/infra/git.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
+
+afterEach(snapshotEnv());
+
+/** Puts a fake `git` running `body` first on PATH. */
+function fakeGit(body: string): void {
+  const bin = mkdtempSync(join(tmpdir(), "catherd-fakegit-"));
+  writeFileSync(join(bin, "git"), `#!/bin/sh\n${body}\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+}
 
 const sh = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
@@ -27,7 +37,7 @@ describe("git", () => {
     expect(await gitHead(repo)).toBe(head);
     expect(await commitExists(repo, head)).toBe(true);
     expect(await commitExists(repo, "0123456789abcdef")).toBe(false);
-    expect(await gitHead(mkdtempSync(join(tmpdir(), "catherd-nogit-")))).toBe("none");
+    expect(await gitHead(mkdtempSync(join(tmpdir(), "catherd-nogit-")))).toBeNull();
   });
 
   it("snapshots untracked files inside new folders and modified tracked ones", async () => {
@@ -53,7 +63,43 @@ describe("git", () => {
     expect(changedPaths(before, await statusSnapshot(repo))).toEqual(["a.ts"]);
   });
 
-  it("is empty outside a repository", async () => {
-    expect(await statusSnapshot(mkdtempSync(join(tmpdir(), "catherd-nogit-")))).toEqual({});
+  it("throws outside a repository rather than look clean", async () => {
+    const p = statusSnapshot(mkdtempSync(join(tmpdir(), "catherd-nogit-")));
+    await expect(p).rejects.toMatchObject({ code: "E_IO_UNEXPECTED" });
+  });
+});
+
+describe("git failures", () => {
+  it("tells ok, a failed exit and a timeout apart", async () => {
+    const repo = tempRepo();
+    expect(await git(repo, ["rev-parse", "HEAD"])).toMatchObject({ kind: "ok" });
+    fakeGit("exit 128");
+    expect(await git(repo, ["status"])).toEqual({ kind: "failed", exit: 128 });
+    fakeGit("sleep 5");
+    const t0 = Date.now();
+    expect(await git(repo, ["status"], 200)).toEqual({ kind: "timed-out" });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+  });
+
+  it("on a failed git: no HEAD, no commit, and a snapshot that throws", async () => {
+    const repo = tempRepo();
+    fakeGit("exit 128");
+    expect(await gitHead(repo)).toBeNull();
+    expect(await commitExists(repo, "0123456789abcdef")).toBe(false);
+    const snap = statusSnapshot(repo);
+    await expect(snap).rejects.toMatchObject({
+      code: "E_IO_UNEXPECTED",
+      fix: `check that git works in ${repo}`,
+    });
+  });
+
+  it("on a git that times out: no HEAD, and commitExists and the snapshot throw", async () => {
+    const repo = tempRepo();
+    fakeGit("sleep 5");
+    expect(await gitHead(repo, 200)).toBeNull();
+    await expect(commitExists(repo, "0123456789abcdef", 200)).rejects.toMatchObject({
+      code: "E_IO_UNEXPECTED",
+    });
+    await expect(statusSnapshot(repo, 200)).rejects.toMatchObject({ code: "E_IO_UNEXPECTED" });
   });
 });

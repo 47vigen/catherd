@@ -34,18 +34,20 @@ export function readNotes(run: Run): Notes {
 /**
  * Rewrites state.json and state.md under the run's state lock, so concurrent writers never lose a
  * field (audit C11). `change` may be a function of the current notes; it runs inside the lock.
+ * Throws E_IO_UNEXPECTED, writing nothing, when git fails: state.md must not show a broken git as clean.
  */
 export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesPatch) = {}): Promise<string> {
   const p = runPaths(run.dir);
   return withFileLock(p.stateJson, async () => {
+    // git first: a failed snapshot throws before either file is written, so they never disagree
+    const [head, snap] = await Promise.all([gitHead(run.meta.repo), statusSnapshot(run.meta.repo)]);
     const notes = readNotes(run);
     const next: Notes = { ...notes, ...(typeof change === "function" ? change(notes) : change) };
     writeJsonAtomic(p.stateJson, next);
     const live = liveDispatches(run);
-    const [head, snap] = await Promise.all([gitHead(run.meta.repo), statusSnapshot(run.meta.repo)]);
     const text = renderState({
       title: run.meta.title,
-      head,
+      head: head ?? "none",
       dirty: Object.keys(snap)
         .sort()
         .map((path) => ({
