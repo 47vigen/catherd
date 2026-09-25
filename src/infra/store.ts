@@ -6,7 +6,9 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
+  statSync,
   writeSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -59,10 +61,33 @@ export function readVersioned<T>(file: string, schema: z.ZodType<T>, current: nu
   return r.data;
 }
 
-/** One `appendFileSync` per row, so a crash can only ever truncate the last line. */
+/** True when `file` exists, is non-empty and does not end in a newline (a crash-truncated tail). */
+function endsMidLine(file: string): boolean {
+  let size: number;
+  try {
+    size = statSync(file).size;
+  } catch {
+    return false;
+  }
+  if (size === 0) return false;
+  const fd = openSync(file, "r");
+  try {
+    const last = Buffer.alloc(1);
+    readSync(fd, last, 0, 1, size - 1);
+    return last[0] !== 0x0a;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * One `appendFileSync` per row, so a crash can only ever truncate the last line. A truncated
+ * tail left by an earlier crash is ended first, in the same write, so the new row stays whole.
+ */
 export function appendJsonl(file: string, value: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(value)}\n`);
+  const prefix = endsMidLine(file) ? "\n" : "";
+  appendFileSync(file, `${prefix}${JSON.stringify(value)}\n`);
 }
 
 export function ensureJsonlHeader(file: string, kind: string): void {

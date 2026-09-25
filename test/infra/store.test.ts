@@ -76,6 +76,15 @@ describe("jsonl", () => {
     expect(readJsonl(f)).toEqual({ kind: "runs", rows: [{ a: 1 }, { a: 2 }], corrupt: 2 });
   });
 
+  it("starts a fresh line after a crash left a truncated last line, so the next row is kept", () => {
+    const f = join(dir(), "runs.jsonl");
+    ensureJsonlHeader(f, "runs");
+    appendJsonl(f, { a: 1 });
+    appendFileSync(f, '{"a":3');
+    appendJsonl(f, { a: 4 });
+    expect(readJsonl(f)).toEqual({ kind: "runs", rows: [{ a: 1 }, { a: 4 }], corrupt: 1 });
+  });
+
   it("returns empty for a missing file and refuses a newer header", () => {
     const d = dir();
     expect(readJsonl(join(d, "none.jsonl"))).toEqual({ kind: null, rows: [], corrupt: 0 });
