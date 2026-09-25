@@ -1,6 +1,6 @@
 import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
-import type { Access, RunStatus } from "../../domain/record.ts";
+import type { Access, RunStatus, Tokens } from "../../domain/record.ts";
 import {
   type BackendAdapter,
   compareVersions,
@@ -12,6 +12,7 @@ import {
   type Probe,
   type RunRequest,
   type SpawnPlan,
+  type Spent,
 } from "../backend.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import { discovered, readDiscovery } from "../discovery.ts";
@@ -164,6 +165,58 @@ function parse(line: string): EventDelta {
   return d;
 }
 
+/** A usage limit a message is retrying on (v2 keeps `retry: {attempt, at, error}` on it), or null. */
+function limitRetry(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (const m of messages as Record<string, any>[]) {
+    const err = m?.retry?.error ?? m?.error;
+    if (OPENCODE_LIMIT_TYPES.includes(err?.type)) return String(err.message ?? err.type);
+  }
+  return null;
+}
+
+const minus = (a: Tokens, b: Tokens): Tokens => ({
+  input: Math.max(0, a.input - b.input),
+  cached: Math.max(0, a.cached - b.cached),
+  output: Math.max(0, a.output - b.output),
+});
+
+/**
+ * Spec §6.3: totals from `GET /api/session/<id>` (the stream often drops its last step_finish), minus
+ * what earlier records on the session counted; a run stopped while retrying on a usage limit is a limit.
+ */
+async function settle(o: Outcome, _run: FinishedRun, prior: Spent): Promise<Outcome> {
+  if (o.thread === null) return o;
+  let out = o;
+  const s = (await opencodeApi("GET", `/api/session/${o.thread}`))?.data;
+  if (s?.tokens)
+    out = {
+      ...out,
+      tokens: minus(opencodeTokens(s.tokens), prior.tokens),
+      costUsd: typeof s.cost === "number" ? Math.max(0, s.cost - prior.costUsd) : out.costUsd,
+    };
+  if (out.status === "timeout" || out.status === "failed") {
+    const why = limitRetry((await opencodeApi("GET", `/api/session/${o.thread}/message`))?.data);
+    if (why) out = { ...out, status: "limit", error: { code: "limit", message: why } };
+  }
+  return out;
+}
+
+/**
+ * Busy while the service lists the session as running, unless it is only waiting out a usage limit.
+ * Empty or failed API output counts as not busy (spec §6.3), so a hung run still times out.
+ */
+async function isBusy(thread: string): Promise<boolean> {
+  const active = (await opencodeApi("GET", "/api/session/active"))?.data;
+  if (!active || typeof active !== "object" || !(thread in active)) return false;
+  return limitRetry((await opencodeApi("GET", `/api/session/${thread}/message`))?.data) === null;
+}
+
+/** Killing the v2 client does not stop its session; the service must be told (research §2.4). */
+async function interrupt(thread: string): Promise<void> {
+  await opencodeApi("POST", `/api/session/${thread}/interrupt`);
+}
+
 /** Spec §4.5: Go `X` → Zen `X` when Zen lists `X` with the same variant. */
 function failoverFor(rung: Rung): Rung | null {
   if (!rung.model.startsWith("opencode-go/")) return null;
@@ -211,9 +264,12 @@ export const opencodeAdapter: BackendAdapter = {
   plan,
   parse,
   finalize,
+  settle,
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: OPENCODE_LIMIT, tooOld: OPENCODE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
+  interrupt: (thread) => interrupt(thread),
+  isBusy: (thread) => isBusy(thread),
   failoverFor,
   graceAfterFinalMs: null,
 };
