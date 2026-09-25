@@ -105,3 +105,20 @@ export async function withFileLock<T>(
     if (h?.pid === self.pid && h.startTime === self.startTime) rmSync(lock, { force: true });
   }
 }
+
+/**
+ * One attempt at the lock on `target`, reclaiming it first from a dead holder. Returns its release,
+ * or null while a live holder keeps it. For locks held for a long time, like the heavy-command slots.
+ */
+export function tryLock(target: string): (() => void) | null {
+  const lock = `${target}.lock`;
+  const self = me();
+  if (!tryTake(lock, self)) {
+    reclaimIfDead(lock);
+    if (!tryTake(lock, self)) return null;
+  }
+  return () => {
+    const h = readHolder(lock);
+    if (h?.pid === self.pid && h.startTime === self.startTime) rmSync(lock, { force: true });
+  };
+}
