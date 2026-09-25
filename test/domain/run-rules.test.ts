@@ -70,6 +70,11 @@ describe("dispatchHints", () => {
     expect(dispatchHints(makeRecord({ changedOwned: [] }), [], dir)).toEqual([]);
   });
 
+  it("says the changes are unknown, not unchanged, when git could not see them", () => {
+    const r = makeRecord({ changedOwned: [], gitUnavailable: true });
+    expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual(["git-unavailable: changed files unknown"]);
+  });
+
   it("never says unchanged for a read-only role on a lane", () => {
     const r = makeRecord({ access: "read-only", changedOwned: [] });
     expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual([]);
