@@ -43,6 +43,33 @@ function readSecret(question: string): Promise<string> {
   });
 }
 
+/** What `terminalAsk` needs of a readline interface. */
+interface Line {
+  question(q: string): Promise<string>;
+  on(event: "SIGINT", listener: () => void): unknown;
+}
+const isAbort = (e: unknown) =>
+  e instanceof Error && (e.name === "AbortError" || (e as { code?: string }).code === "ABORT_ERR");
+
+/**
+ * A terminal question on `rl`, trimmed. Ctrl-C exits 130 (spec §8), as the secret prompt does: readline
+ * emits SIGINT, or the pending question rejects with an AbortError, depending on the runtime.
+ */
+export function terminalAsk(
+  rl: Line,
+  exit: (code: number) => never = (code) => process.exit(code),
+): (q: string) => Promise<string> {
+  rl.on("SIGINT", () => exit(EXIT.interrupted));
+  return async (q) => {
+    try {
+      return (await rl.question(q)).trim();
+    } catch (e) {
+      if (isAbort(e)) exit(EXIT.interrupted);
+      throw e;
+    }
+  };
+}
+
 /**
  * Questions for `catherd init`. On a terminal they are asked one by one; piped, stdin is read once and each
  * question takes the next line (an empty or missing line takes the default), so scripts can answer them.
@@ -58,10 +85,12 @@ export async function prompter(): Promise<Prompter> {
     return { ask: next, secret: next, close() {} };
   }
   let rl: Interface | null = null;
+  let ask: ((q: string) => Promise<string>) | null = null;
   return {
-    async ask(q) {
+    ask(q) {
       rl ??= createInterface({ input: process.stdin, output: process.stdout });
-      return (await rl.question(q)).trim();
+      ask ??= terminalAsk(rl);
+      return ask(q);
     },
     secret: (q) => readSecret(q),
     close() {
