@@ -14,7 +14,7 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
-import { scrubSecrets } from "../../infra/env.ts";
+import { type CliResult, runCli } from "../cli.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
@@ -31,38 +31,8 @@ const SANDBOX: Record<Access, string> = {
 export const codexShell = { timeoutMs: 15_000 };
 
 /** Runs `codex <args>` without catherd's secrets; a run past the timeout is killed and counts as failed. */
-async function sh(args: string[], cwd?: string): Promise<{ ok: boolean; out: string; err: string } | null> {
-  if (!Bun.which("codex", { PATH: process.env.PATH ?? "" })) return null;
-  const p = Bun.spawn(["codex", ...args], {
-    cwd,
-    env: scrubSecrets(process.env),
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), codexShell.timeoutMs);
-  });
-  try {
-    const done = await Promise.race([
-      Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]),
-      late,
-    ]);
-    if (!done) {
-      p.kill("SIGKILL");
-      return {
-        ok: false,
-        out: "",
-        err: `codex ${args.join(" ")} timed out after ${codexShell.timeoutMs} ms`,
-      };
-    }
-    const [code, out, err] = done;
-    return { ok: code === 0, out, err };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const sh = (args: string[], cwd?: string): Promise<CliResult | null> =>
+  runCli("codex", args, { timeoutMs: codexShell.timeoutMs, cwd });
 
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
@@ -213,8 +183,12 @@ export const codexAdapter: BackendAdapter = {
     const e = parseCodexLine(line);
     if (!e) return {};
     const f = foldCodexEvents([line]);
+    // a tool call runs between item.started and item.completed, often printing nothing: the run is busy
+    const id = typeof e.item?.id === "string" ? e.item.id : null;
+    const open = e.type === "item.started" ? true : e.type === "item.completed" ? false : null;
     return {
       ...(f.thread ? { thread: f.thread } : {}),
+      ...(id !== null && open !== null ? { item: { id, open } } : {}),
       ...(e.type === "turn.completed" ? { tokens: f.tokens } : {}),
       lastEvent: f.lastEvent ?? undefined,
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),

@@ -19,9 +19,11 @@ export async function runSupervise(specPath: string): Promise<void> {
   await supervise(spec, {
     onLine: (line) => {
       const d = a?.parse(line) ?? {};
-      return { final: d.final, thread: d.thread };
+      return { final: d.final, thread: d.thread, item: d.item };
     },
-    isBusy: busy ? (thread) => (thread ? busy(thread, spec.cwd) : Promise.resolve(false)) : undefined,
+    isBusy: busy
+      ? (thread, sinceMs) => (thread ? busy(thread, spec.cwd, sinceMs) : Promise.resolve(false))
+      : undefined,
     interrupt: stop ? (thread) => (thread ? stop(thread, spec.cwd) : Promise.resolve()) : undefined,
   });
 }

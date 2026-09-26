@@ -54,4 +54,31 @@ describe("supervise-bin", () => {
     const proc = JSON.parse(readFileSync(p.proc, "utf8")) as { supervisorStartTime: string | null };
     expect(await until(() => !isAlive(pid, proc.supervisorStartTime), 3_000)).toBe(true);
   }, 30_000);
+
+  it("keeps a Codex run busy while a tool call it started is still running, however quiet", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "catherd-supbin-"));
+    const p = dispatchPaths(dir);
+    const item = (type: string) => `'{"type":"${type}","item":{"id":"item_1","type":"command_execution"}}'`;
+    writeJsonAtomic(p.spec, {
+      schema: 1,
+      backend: "codex",
+      dispatchDir: dir,
+      cmd: "sh",
+      // one second of silence inside the tool call: over three times the idle limit
+      args: [
+        "-c",
+        `echo '{"type":"thread.started","thread_id":"t-busy"}'; echo ${item("item.started")}; sleep 1; echo ${item("item.completed")}`,
+      ],
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: dir,
+      stdinPath: null,
+      idleMs: 300,
+      wallMs: 60_000,
+      killGraceMs: 200,
+      graceAfterFinalMs: null,
+      pollMs: 20,
+    });
+    launchSupervisor(p.spec);
+    expect(await until(() => readExit(dir), 20_000)).toMatchObject({ code: 0, reason: "exited" });
+  }, 30_000);
 });

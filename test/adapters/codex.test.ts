@@ -38,6 +38,15 @@ const finished = (eventLines: string[], over: Partial<FinishedRun> = {}): Finish
   ...over,
 });
 
+describe("codex parse", () => {
+  it("reports a tool call opening and closing, so a quiet one keeps the run busy", () => {
+    const [started, completed] = lines("ok-with-reconnect.jsonl").filter((l) => l.includes('"id":"item_1"'));
+    expect(codexAdapter.parse(started as string)).toMatchObject({ item: { id: "item_1", open: true } });
+    expect(codexAdapter.parse(completed as string)).toMatchObject({ item: { id: "item_1", open: false } });
+    expect(codexAdapter.parse('{"type":"turn.started"}').item).toBeUndefined();
+  });
+});
+
 describe("codex plan", () => {
   it("sends the brief on stdin, sets model, effort and sandbox, and ends positionals after --", () => {
     const p = codexAdapter.plan(req());

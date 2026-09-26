@@ -178,13 +178,14 @@ function parse(line: string): EventDelta {
 }
 
 /**
- * A usage limit the latest message is retrying on or failed with (v2 keeps `retry: {attempt, at, error}`
- * on it), or null. Messages come newest first, after an `idle` marker once the session stopped; older
- * messages keep their errors, so only the newest counts, and with `sinceMs` only if it is that recent.
+ * A usage limit the latest assistant message is retrying on or failed with (v2 keeps `retry: {attempt, at,
+ * error}` on it), or null. Messages come newest first, after an `idle` marker once the session stopped;
+ * older messages keep their errors, so only the newest assistant message counts, and with `sinceMs` only
+ * if this run wrote it.
  */
 function limitRetry(messages: unknown, sinceMs?: number): string | null {
   if (!Array.isArray(messages)) return null;
-  const m = (messages[0]?.type === "idle" ? messages[1] : messages[0]) as Record<string, any> | undefined;
+  const m = messages.find((x) => x?.type === "assistant") as Record<string, any> | undefined;
   const err = m?.retry?.error ?? m?.error;
   if (!OPENCODE_LIMIT_TYPES.includes(err?.type)) return null;
   if (sinceMs !== undefined && !(m?.time?.created >= sinceMs)) return null;
@@ -223,11 +224,11 @@ async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outco
  * Busy while the service lists the session as running, unless it is only waiting out a usage limit.
  * Empty or failed API output counts as not busy (spec §6.3), so a hung run still times out.
  */
-async function isBusy(thread: string): Promise<boolean> {
+async function isBusy(thread: string, sinceMs?: number): Promise<boolean> {
   const active = (await opencodeApi("GET", "/api/session/active"))?.data;
   if (!active || typeof active !== "object" || !(thread in active)) return false;
   const messages = (await opencodeApi("GET", `/api/session/${thread}/message`))?.data;
-  return Array.isArray(messages) && limitRetry(messages) === null;
+  return Array.isArray(messages) && limitRetry(messages, sinceMs) === null;
 }
 
 /** Killing the v2 client does not stop its session; the service must be told (research §2.4). */
@@ -287,7 +288,7 @@ export const opencodeAdapter: BackendAdapter = {
   errors: { limit: OPENCODE_LIMIT, tooOld: OPENCODE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   interrupt: (thread) => interrupt(thread),
-  isBusy: (thread) => isBusy(thread),
+  isBusy: (thread, _cwd, sinceMs) => isBusy(thread, sinceMs),
   failoverFor,
   graceAfterFinalMs: null,
 };

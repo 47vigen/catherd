@@ -30,3 +30,19 @@ export function snapshotEnv(): () => void {
     Object.assign(process.env, saved);
   };
 }
+
+/** True once `pid` has exited: gone, or a zombie nobody has reaped yet (a container's pid 1 may never reap). */
+export function exited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return true;
+  }
+  const ps = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)], {
+    stdout: "pipe",
+    stderr: "ignore",
+    env: process.env,
+  });
+  const stat = ps.stdout.toString().trim();
+  return stat === "" || stat.startsWith("Z");
+}
