@@ -22,11 +22,6 @@ export function tempRepo(): string {
   return dir;
 }
 
-/** PATH with the fake codex/opencode executables first. */
-export function fakeBinPath(): string {
-  return `${join(import.meta.dir, "fixtures", "bin")}:${process.env.PATH}`;
-}
-
 /** Call at module scope as `afterEach(snapshotEnv())`: restores process.env key by key after each test. */
 export function snapshotEnv(): () => void {
   const saved = { ...process.env };

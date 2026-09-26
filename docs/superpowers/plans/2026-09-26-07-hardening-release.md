@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the hardening items plans 1–5 deferred to plan 7 (the process model's races and identity checks, busy detection for quiet tool calls, preflight as root, the MCP log's missing rows, Jev's cached answers and unreadable key file, profiles written by a newer catherd, the CLI's signal handling), make the suite pass on macOS and run CI on {Linux, macOS} × {Bun 1.4.0, latest} with a coverage floor, an audit and an npm pack smoke, give the owner an exact live-verification kit, and release catherd-cli 1.0.0 through Changesets.
+**Goal:** Close the hardening items plans 1–6 deferred to plan 7 (the process model's races and identity checks, busy detection for quiet tool calls, preflight as root, the MCP log's missing rows, Jev's cached answers and unreadable key file, profiles written by a newer catherd, the CLI's signal handling, the TUI's `config.json` keybinds), make the suite pass on macOS and run CI on {Linux, macOS} × {Bun 1.4.0, latest} with a coverage floor, an audit and an npm pack smoke, give the owner an exact live-verification kit, and release catherd-cli 1.0.0 through Changesets.
 
 **Architecture:** No new layer and no new module in `src/` besides test helpers: each fix lands in the module that owns the behaviour (`src/infra/{proc,supervisor}.ts`, the adapters, `src/services/{dispatch-service,reconcile,preflight,jev-service,lane-service,doctor,capture,run-debug}.ts`, `src/domain/{profile,profile-rules}.ts`, `src/entry/{cli,mcp/*,capture-fixtures}.ts`). Two small interfaces grow: a stream line can tell the supervisor that a tool call opened or closed (`EventDelta.item`, `LineInfo.item`), and `isBusy` learns when the run started; a probe can say how a CLI is logged in (`Probe.login`, `Probe.billing`). CI is `.github/workflows/ci.yml` (a matrix job and a package job), which `release.yml` calls before the Changesets step, so nothing is published unless the whole matrix is green.
 
@@ -23,7 +23,7 @@
 - §12: "CI matrix {ubuntu, macOS} × {Bun 1.4.0, latest}: typecheck, lint, format, all non-live tests, the architecture test, `tui-frames.md` freshness, dependency audit." "Releases through Changesets, gated on green CI; a marketplace tag per version; the plugin pins its exact package version." "`npm pack` smoke: install the tarball in an empty directory, run `--version`, `doctor --json`, and an MCP `initialize` + `tools/list` handshake." "OpenTUI is pinned exactly; other dependencies stay on latest with the lockfile and automated update PRs." "`MIGRATION.md` for 0.2 → 1.0: run `catherd init`; old run folders are not read."
 - D2: "**Clean break.** 1.0 is a new major; `init` rebuilds everything; no 0.2 migration code." D7: "Live verification runs on the owner's machine (OpenCode Go, Claude plan, Codex with ChatGPT login) through a fixture-capture kit; CI runs on simulators and recorded fixtures."
 - Tests: an isolated `CATHERD_HOME` per test (`withHome()` or `freshRun()`), `afterEach(snapshotEnv())` in every file that sets an env var, no network (backend CLIs are the simulators or `PATH=/nonexistent`; every test that reaches discovery deletes `ANTHROPIC_API_KEY`, or blanks it in a spawned process's env), never the real `~/.claude`. **A test that spawns a process passes `env` explicitly**: Bun hands a child its start-up environment, not later `process.env` changes. No test waits a fixed time for correctness: it waits on a file, a line of output or a process state with a deadline (`waitFor`), and a worker script may be slow on purpose, never the test.
-- Other plans' ground: plan 6 lands first and owns `src/entry/tui/`; plan 7 touches nothing there, and `src/tui`, `src/core` and `src/routing` no longer exist. Plan 5's final fix wave also lands first and edits `src/services/profile-service.ts`, `src/services/doctor.ts`, `src/entry/mcp/setup-tools.ts`, `src/entry/prompt.ts`, `src/entry/profile-command.ts`, `src/entry/runs-command.ts` and `README.md`: in those files find each block to replace by its text, not its line number, and keep whatever that wave added around it.
+- Other plans' ground: plan 6 (with its final fix wave) lands first and owns `src/entry/tui/` and `test/entry/tui/`; plan 7 touches only `resolveKeybinds` there (Task 13, plan 6's deferred minors) and the PTY test's tmux socket (Task 10), and `src/tui`, `src/core`, `src/routing` and `catalog/catalog.json` no longer exist. Every block below was matched against plan 6 as built (`b77f0de`), and the files plan 6's final fix wave also touches against its head (`7bab94b`); if a block does not match, find it by its text, not its line number, and keep whatever landed around it.
 - Commits: Conventional Commits, subjects ≤ 100 characters, never starting with a capital. Never commit a `bun.lock` rewritten by an older Bun. Style: short doc comments only where the why is not obvious.
 
 ## Review Focus
@@ -45,21 +45,42 @@
 7. **An orphaned worker catherd cannot identify is never signalled.** Without a recorded start time, or with a `pgid` other than the worker's own pid (a proc.json that is corrupt or edited), `cancel` writes the `cancelled` exit.json with `signal: null` and signals nothing: the pid may be someone else's by now. When it does signal, it signals the worker's own group and records the last signal it sent (`SIGKILL` after the grace), not always `SIGTERM`.
 8. **A start time that cannot be read now counts as the same process** (`sameProcess`): on macOS `ps` can fail for a moment, and a live lock holder or worker must not be taken for dead. The cost is a lock that times out with `E_IO_LOCK` rather than a second holder.
 9. **Preflight never runs a check as root.** As root, each lane with a check is `skipped` with a note naming spec §10.4 and the fix, which does not block the run. `IS_SANDBOX` (set on a disposable machine) is the one exception, the same rule the claude-code adapter applies to full access as root (plan 3).
-10. **An unknown tool stays `E_INPUT_INVALID`,** with a fix that fits it: call a tool the server lists, or update the plugin with catherd (a skill from a newer catherd). No new error code for one message. Every call the SDK rejects before a handler runs gets its `tool` log row (tool name parsed from the SDK's message, no duration, since none was measured).
+10. **An unknown tool stays `E_INPUT_INVALID`,** with a fix that fits it: call a tool the server lists, or update the plugin with catherd (a skill from a newer catherd). No new error code for one message. Every call the SDK rejects before a handler runs already gets its `tool` log row (plan 5's Codex rounds: tool name parsed from the SDK's message, no duration, since none was measured); the parsing moves into `toolOf`, next to `sdkToolError`.
 11. **An unreadable `credentials.json` means no key, loudly.** `jevKey()` still returns null (Jev is optional, D1), logs a `warn` `jev` row, and `savedJevKey()` hands the error to `doctor`, whose `credentials` row becomes `! unreadable` with the reader's own fix (`fix or delete <file>`).
 12. **Logged Jev answers are checked like fresh ones.** A cached row whose answers do not pass `parseReply` (hand-edited, cut short, a different question set) is skipped and Jev is asked again.
 13. **A milestone name no routed lane starts with is a hint, not an error:** `land` records the ledger row as before and adds `land: no routed lane is in milestone "<m>" (routed: …); check its name: no lane outcome was recorded`, when the run has routed lanes and none matched.
 14. **Stored enum values are open; each is read the cautious way** (spec §3.4's forward compatibility). The stored schema takes any string for `objective`, `jev.use`, `billing.*`, `roles.*.access` and `notify[]`; `resolveProfile` reads an unknown `access` as `read-only`, `jev.use` as `off` (no lane text leaves the machine on a setting this catherd cannot read), a billing mode as the key's default (`metered` for a key with none), `objective` as `cost`, and skips an unknown notify moment; `validate` warns for each; the patch schema stays strict, so catherd itself only writes values it knows.
 15. **The 1.0 package contents are right once plan 6 adds `THIRD_PARTY_NOTICES.md` to `files`.** `bin` (`src/cli.ts` with a `bun` shebang), `engines` (`bun >=1.4`) and `files` (`src`, `catalog`, `plugin`, plus npm's own `package.json`, `README.md`, `LICENSE`) carry everything the CLI, the supervisor entry and the plugin read at runtime; `CHANGELOG.md` and `MIGRATION.md` stay on GitHub, not in the tarball. The pack smoke checks the list on every CI run.
-16. **Coverage floor: 88 % of lines and 85 % of functions** in `bunfig.toml`, checked on the Linux/latest leg with `bun test --coverage`. The suite measured 93.7 % of lines and 90.8 % of functions (plans 1–5 with Tasks 1–9 applied, before plan 6). Plan 6 replaces the TUI and its tests: if the floor fails after plan 6, set each value to the measured one minus two points, rounded down to a whole percent, in the same task.
+16. **Coverage floor: 88 % of lines and 85 % of functions** in `bunfig.toml`, checked on the Linux/latest leg with `bun test --coverage`. The suite measured 93.7 % of lines and 90.8 % of functions (plans 1–5 with Tasks 1–9 applied, before plan 6). Plan 6 replaced the TUI and its tests; re-measured on plan 6 as built (`b77f0de`): 93.6 % of lines and 90.4 % of functions before this plan, 93.9 % and 91.1 % with every task of it in. The floor holds with room, so it stays at 88 % and 85 %. Should a later change make it fail, set each value to the measured one minus two points, rounded down to a whole percent, in the same change.
 17. **Dependabot** opens weekly update PRs for Bun dependencies (grouped) and GitHub Actions, with Conventional Commit prefixes; `@opentui/*` is ignored, since an OpenTUI update means regenerating the TUI frames by hand.
 18. **`capture-fixtures` records isolated runs** (Codex in catherd's own `CODEX_HOME`, claude with `--safe-mode`, opencode on a standalone server), since its output is committed; a run past the timeout is recorded with reason `wall-timeout`; the meta file's strings are sanitized before JSON escapes them. Its default `--out` is the catherd checkout's own `test/fixtures/adapters` wherever it runs from; an installed package has no such folder and asks for `--out` (exit 2).
 19. **`doctor` reports how Codex is logged in** from `codex login status` (`ChatGPT` or `API key`, never the key), and warns when a linked profile bills Codex as something else than that login implies (`chatgpt-plan` against an API key, which bills per token). The check already refreshed discovery and tested the Jev key (plan 5): that part was done.
 
+## Re-check (2026-09-26, after plan 6)
+
+The plan was rebuilt task by task, in wave order, on plan 6 as built (`b77f0de`, before plan 6's final fix wave): every edit applied by its text, each task's new tests seen failing without its source change and passing with it, and the full gate (`bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`) clean at the end of each wave: 949 pass before the plan; 964 after wave 1 (Tasks 1, 3, 4, 5, 6, 10), 970 after wave 2 (Task 2), 976 after wave 3 (Tasks 7, 8), 977 after wave 4 (Tasks 9, 11), 978 after Task 12 and 979 with the new Task 13, 10 skip and 0 fail each time. What changed:
+
+1. **Task 4 (`server.ts`, `mcp-log.test.ts`): plan 5's Codex rounds already log calls the SDK rejects.** `buildServer`'s `createToolError` hook now logs a `tool` row with the tool name parsed inline, and `mcp-log.test.ts` has "logs a call the SDK refuses before the tool runs, as E_INPUT_INVALID, without its input". The task keeps its `toolOf` and the unknown tool's fix: the `server.ts` edit now replaces the inline regex with `toolOf(message)`, and the new test covers only the unknown tool (`doctor_report`: its fix names `tools/list`, one log row). The intro, Ruling 10 and Step 2's expected failure say so.
+2. **Task 5 (`jev-service.ts`): plan 5 put `registerSavedSecrets` between `jevKey`'s doc comment and `jevKey`.** The block to replace includes it; the replacement keeps `registerSavedSecrets` (with its own doc comment) above `savedJevKey`. It still calls `jevKey()`, so a process that registers secrets with an unreadable `credentials.json` logs the `warn` `jev` row once.
+3. **Task 6 (`profile-service.ts`): `validate` is followed by `export type Saved = ProfileSaved`,** not plan 5's old `interface Saved extends Synced`: the block now ends there. `validateNamed` matched as written. The typecheck names no TUI file (the TUI reads the resolved `Profile`), so the note about `src/entry/tui/` is gone.
+4. **Task 8 (`doctor.ts`): the Jev row after `backendChecks(used)` is plan 5's "off in every linked profile" check,** so the block to replace is only the two `usedBackends` / `backendChecks` lines. The login, billing and credentials blocks matched as written.
+5. **Task 10: a tmux server per PTY test (new Step 4), plan 6's flake watch.** In about ten full-suite runs here, one failed in the PTY test (the Runs-tab case timed out) and one had a failure that did not come back on the rerun. Six copies in parallel make it fail often, in two ways: the next test's `new-session` reaching a server `kill-server` is still stopping (an empty screen, `tmux ls` empty; four in 24 runs, none after the edit), and a TUI defect: the `j` sent once the Profiles tab shows `ROLES` is dropped, so `Space` toggles the architect. Plan 6's final fix wave (`7bab94b`) did not remove the second (1 and 5 failures in two rounds of 24 runs with this edit in); the step says to report it, not to loosen the test. The pack smoke, the three YAML files, `bun audit` (no advisory) and the coverage run were rerun and pass.
+6. **Task 11 (`docs/manual-tests.md`): plan 6's fix wave rewrites the stale `bun -e` line** of the plugin check to `bun src/cli.ts profile use default`. The block matches `b77f0de` as written; a note says what the line reads after the fix wave (the replacement is the same).
+7. **Task 12 (`README.md`): plan 6 added "The dashboard" section between the paths paragraph and "Develop".** "Upgrading from 0.x" now goes after that section, anchored on its last bullet (the keybinds line). The changeset dry run (`bun run version-packages`: 1.0.0 in `package.json`, `plugin.json`, `.mcp.json`; `CHANGELOG.md` `## 1.0.0` / `### Major Changes`; `plugin.test.ts` passes) was rerun and undone.
+8. **New Task 13: plan 6's deferred keybind minors.** `resolveKeybinds` refuses `ctrl+x` (the leader) as a command's own key and a printable key on a `dialog` or `filter` command (live while the user types), with `E_CONFIG_KEYBIND` and a fix; the key-syntax check stays 1.0.x (it needs the keymap's own parser). Wave 1: it shares no file with any other task. Plan 6's fix wave does not touch `resolveKeybinds` or `commands.test.ts`.
+
+Checked and kept:
+
+- **Tasks 1, 2, 3, 7, 9:** every block matched plan 6 as built, including Task 2's `test/helpers.ts` append (plan 6 removed `fakeBinPath`) and Task 7's `cli.test.ts` SIGINT block (it stops one line above the import-graph assertion plan 6's fix wave rewrites to `entry/tui/`). Task 7's `lock.test.ts` passed three runs in a row; Task 9's symlinked `TMPDIR` run failed 13 tests without the task (the 12 path comparisons plus a PTY flake) and none with it.
+- **Task 10's pack smoke on plan 6's package:** `THIRD_PARTY_NOTICES.md` is in `files` and ships, `catalog/catalog.json` is gone and was never in `SHIPPED`, and the installed MCP server answers `tools/list`.
+- **Task 11's `docs/live-verification.md`:** every path it names exists (`test/live/*.live.test.ts`, `test/fixtures/adapters`), and it names no 0.x TUI path.
+- **Not rerun here:** Bun 1.4.0 (the writer's run on `e1ffa6c` stands; CI's 1.4.0 legs cover it) and `actionlint` (not installed; the workflows are unchanged since the writer's clean run).
+
 ## Verified facts this plan relies on
 
 - **Every task was built and run in a scratch copy of `main` at `e1ffa6c`** (plans 1–5), in the order 1–12, each task's new tests seen failing without its source change and passing with it. At the end, on Bun 1.4.2: `bun run typecheck`, `bun run lint` and `bun run format:check` clean, `bun test` 956 pass, 10 skip, 0 fail. The same tree on **Bun 1.4.0** (the release zip, with the `bunx` link that `setup-bun` installs): 956 pass, 0 fail.
-- **macOS was not available.** Its temp dir is behind a symlink (`/var` → `/private/var`); running the suite with `TMPDIR` pointing through a symlink reproduces that class: 12 tests failed on `e1ffa6c` (paths compared unresolved) and none fail after Task 9. `/proc`, `setsid` and `ps` differences were found by reading every test: Task 9 covers each. **UNVERIFIED on a real Mac:** anything else macOS does differently; the CI matrix is where that shows first.
+- **Rebuilt on plan 6 as built, at `b77f0de`** (see the re-check above), in wave order with Task 13, on Bun 1.4.2: the gate clean after every wave, `bun test` **979 pass, 10 skip, 0 fail** at the end (949 pass before the plan). Pass counts are at `b77f0de`: plan 6's final fix wave adds TUI tests of its own. Coverage with every task in: 91.1 % of functions, 93.9 % of lines.
+- **macOS was not available.** Its temp dir is behind a symlink (`/var` → `/private/var`); running the suite with `TMPDIR` pointing through a symlink reproduces that class: 12 tests failed on `e1ffa6c` (paths compared unresolved) and none fail after Task 9; the same 12 on `b77f0de`, and none after Task 9. `/proc`, `setsid` and `ps` differences were found by reading every test: Task 9 covers each. **UNVERIFIED on a real Mac:** anything else macOS does differently; the CI matrix is where that shows first.
 - `actionlint` 1.7.7 reports nothing on the new `ci.yml` and `release.yml`. `changesets/action@v2`'s inputs (`version-script`, `publish-script`, `pr-title`, `commit-message`, `create-github-releases` default true) were read from its `action.yml`.
 - The pack smoke ran here: `bun pm pack` → `bun add <tarball>` in an empty project → `catherd --version` and `catherd doctor --json`, whose `mcp` row answered `tools/list` with 20 tools (with a stand-in `THIRD_PARTY_NOTICES.md`, which plan 6 creates). `bun audit` (Bun 1.4.2) finds no advisory. A `coverageThreshold` in `bunfig.toml` makes `bun test --coverage` exit 1 below it and changes nothing without `--coverage`.
 - `bunx changeset status` lists `catherd-cli` for a major bump; `bun run version-packages` then writes `1.0.0` to `package.json`, `plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json` and the skill, and a `## 1.0.0` / `### Major Changes` entry to `CHANGELOG.md` (tried and undone; the release PR does it for real).
@@ -91,6 +112,7 @@ src/services/run-debug.ts               (modify) tail reads from the end
 src/services/doctor.ts                  (modify) the login and billing on backend rows; credentials unreadable
 src/services/capture.ts                 (modify) isolated, group kill, wall-timeout reason, meta sanitized before JSON
 src/entry/capture-fixtures.ts           (modify) defaultOut: the checkout's fixtures, else --out is required
+src/entry/tui/commands.ts               (modify) resolveKeybinds refuses the leader and typed keys where the user types
 .github/workflows/ci.yml                (replace) the matrix job and the package job
 .github/workflows/release.yml           (replace) calls ci.yml first
 .github/dependabot.yml, bunfig.toml     (new)
@@ -98,6 +120,7 @@ src/entry/capture-fixtures.ts           (modify) defaultOut: the checkout's fixt
 docs/manual-tests.md, README.md         (modify)
 test/helpers.ts                         (modify) exited(pid), tempDir(prefix); tempRepo by its real path
 test/pack-smoke.ts                      (new) the npm pack smoke CI runs (not a bun test file)
+test/entry/tui/pty.test.ts              (modify) a tmux server per test
 test/sim/{codex,scenario.ts}            (modify) holdUntil; login state on stderr, the API-key login
 test/adapters/cli.test.ts, test/services/run-debug.test.ts   (new)
 test/{infra,adapters,services,entry,sim,domain,integration}/…   (modify) as each task says
@@ -109,7 +132,7 @@ Tasks that share no files and whose inputs exist can run in parallel worktrees; 
 
 | Wave | Tasks | Needs |
 |---|---|---|
-| 1 | 1 (supervisor, proc), 3 (orphan cancel, old specs), 4 (preflight root, MCP log), 5 (Jev, land), 6 (profile values), 10 (CI) | plans 1–6 |
+| 1 | 1 (supervisor, proc), 3 (orphan cancel, old specs), 4 (preflight root, MCP log), 5 (Jev, land), 6 (profile values), 10 (CI), 13 (keybinds) | plans 1–6 |
 | 2 | 2 (adapters: busy, runCli) | 1 (`LineInfo`, `isBusy(thread, sinceMs)`) |
 | 3 | 7 (CLI signals, run-debug), 8 (doctor: login, credentials) | 7: 2 (`exited`) · 8: 2 (`codex/index.ts`, `backend.ts`), 3 (`test/sim/codex`, `scenario.ts`), 5 (`savedJevKey`) |
 | 4 | 9 (macOS), 11 (capture, live docs) | 9: 1, 2, 4, 8 (the files it edits) · 11: 8 (the docs name doctor's login row) |
@@ -1644,7 +1667,7 @@ git commit -m "fix(cancel): never signal an orphan catherd cannot identify, reco
 
 ### Task 4: Preflight never runs a check as root; every MCP call is logged, an unknown tool gets its own fix
 
-Spec §10.4 ("never as root", Ruling 9) and §10.2 ("every MCP tool call", Ruling 10; plan 5's Task 7 minor). The SDK rejects a call to an unknown tool, or input a tool's schema refuses, before catherd's handler runs; those calls now get their `tool` log row, and the unknown tool's fix says what to do. `preflightUser.uid` lets tests stand in for root; the rest of `preflight.test.ts` runs as a normal user whoever runs the suite, and the MCP stdio integration test sets `IS_SANDBOX` for its server, since a root container runs the suite too.
+Spec §10.4 ("never as root", Ruling 9) and §10.2 ("every MCP tool call", Ruling 10; plan 5's Task 7 minor). The SDK rejects a call to an unknown tool, or input a tool's schema refuses, before catherd's handler runs; plan 5's Codex rounds already log those calls from the `createToolError` hook (with the tool name parsed inline), so this task moves that parsing into `toolOf` beside `sdkToolError`, and gives the unknown tool a fix that says what to do. `preflightUser.uid` lets tests stand in for root; the rest of `preflight.test.ts` runs as a normal user whoever runs the suite, and the MCP stdio integration test sets `IS_SANDBOX` for its server, since a root container runs the suite too.
 
 **Files:**
 - Modify: `src/services/preflight.ts`, `src/entry/mcp/result.ts`, `src/entry/mcp/server.ts`
@@ -1659,8 +1682,8 @@ Spec §10.4 ("never as root", Ruling 9) and §10.2 ("every MCP tool call", Rulin
 In `test/entry/mcp-log.test.ts`, replace:
 
 ```ts
-    expect(typeof tools[0].ms).toBe("number");
-    expect(readFileSync(logFile(), "utf8")).not.toContain("secret-run-id-value");
+    expect(rows.map((r) => [r.tool, r.ok, r.code])).toEqual([["status", false, "E_INPUT_INVALID"]]);
+    expect(readFileSync(logFile(), "utf8")).not.toContain("12345678");
   });
 });
 ```
@@ -1668,15 +1691,14 @@ In `test/entry/mcp-log.test.ts`, replace:
 with:
 
 ```ts
-    expect(typeof tools[0].ms).toBe("number");
-    expect(readFileSync(logFile(), "utf8")).not.toContain("secret-run-id-value");
+    expect(rows.map((r) => [r.tool, r.ok, r.code])).toEqual([["status", false, "E_INPUT_INVALID"]]);
+    expect(readFileSync(logFile(), "utf8")).not.toContain("12345678");
   });
 
-  it("logs a call rejected before any tool runs: bad input, or a tool this server does not have", async () => {
+  it("logs a call to a tool this server does not have, and says how to get one", async () => {
     withHome();
     delete process.env.CATHERD_LOG;
     const c = await mcpClient();
-    expect((await call(c, "status", { run: 42 })).error?.code).toBe("E_INPUT_INVALID");
     const unknown = await call(c, "doctor_report");
     expect(unknown.error).toMatchObject({
       code: "E_INPUT_INVALID",
@@ -1686,13 +1708,9 @@ with:
     const tools = readFileSync(logFile(), "utf8")
       .trim()
       .split("\n")
-      .slice(1)
       .map((l) => JSON.parse(l))
       .filter((r) => r.event === "tool");
-    expect(tools.map((r) => [r.tool, r.ok, r.code])).toEqual([
-      ["status", false, "E_INPUT_INVALID"],
-      ["doctor_report", false, "E_INPUT_INVALID"],
-    ]);
+    expect(tools.map((r) => [r.tool, r.ok, r.code])).toEqual([["doctor_report", false, "E_INPUT_INVALID"]]);
   });
 });
 ```
@@ -1803,7 +1821,7 @@ with:
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `bun test test/services/preflight.test.ts test/entry/mcp-log.test.ts`
-Expected: FAIL — `preflight.test.ts` cannot import `preflightUser`; the log has no row for the two rejected calls, and the unknown tool's fix says "correct the argument the message names".
+Expected: FAIL — `preflight.test.ts` cannot import `preflightUser`; the unknown tool's fix says "correct the argument the message names" (its log row is already there: plan 5 logs rejected calls).
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1882,33 +1900,27 @@ import { registerSetupTools } from "./setup-tools.ts";
 In `src/entry/mcp/server.ts`, replace:
 
 ```ts
-  const server = new McpServer({ name: "catherd", version: deps.version });
-  logToolCalls(server);
-  // The SDK validates input before a tool's `handle` runs and reports a failure through this (private)
-  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it.
-  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = sdkToolError;
-  registerRunTools(server, deps);
-  registerLaneTools(server, deps);
-  registerDispatchTools(server, deps);
+  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = (message) => {
+    const r = sdkToolError(message);
+    const tool = /for tool (\S+?):|^MCP error -?\d+: Tool (\S+) /.exec(message);
+    log("warn", "tool", {
+      tool: tool?.[1] ?? tool?.[2] ?? null,
+      ok: false,
+      code: (r.structuredContent as { code?: string } | undefined)?.code,
+    });
+    return r;
+  };
 ```
 
 with:
 
 ```ts
-  const server = new McpServer({ name: "catherd", version: deps.version });
-  logToolCalls(server);
-  // The SDK validates input before a tool's `handle` runs and reports a failure through this (private)
-  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it. Such a call
-  // never reaches a handler, so it is logged here (spec §10.2: every call), without a duration.
   (server as unknown as { createToolError: typeof sdkToolError }).createToolError = (message) => {
     const r = sdkToolError(message);
     const code = (r.structuredContent as { code?: string } | undefined)?.code;
     log("warn", "tool", { tool: toolOf(message), ok: false, code });
     return r;
   };
-  registerRunTools(server, deps);
-  registerLaneTools(server, deps);
-  registerDispatchTools(server, deps);
 ```
 
 In `src/services/preflight.ts`, replace:
@@ -2223,6 +2235,11 @@ In `src/services/jev-service.ts`, replace:
 });
 
 /** Spec §5.5: `TYPESAFE_API_KEY`, else `<config>/credentials.json`; null when neither has one. */
+/** Registers the saved Jev key with the redactor, for a process that reads logs without ever calling Jev. */
+export function registerSavedSecrets(): void {
+  addSecret(jevKey());
+}
+
 export function jevKey(): string | null {
   const env = process.env.TYPESAFE_API_KEY?.trim();
   if (env) return env;
@@ -2242,6 +2259,11 @@ with:
 ```ts
   typesafeApiKey: z.string().optional(),
 });
+
+/** Registers the saved Jev key with the redactor, for a process that reads logs without ever calling Jev. */
+export function registerSavedSecrets(): void {
+  addSecret(jevKey());
+}
 
 /** The key saved in credentials.json, or why that file cannot be read (unparsable, newer schema). */
 export function savedJevKey(): { key: string | null; problem: CatherdError | null } {
@@ -2858,8 +2880,8 @@ In `src/services/profile-service.ts`, replace:
 const validate = (doc: ProfileDoc, name: string): Validation =>
   validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends());
 
-export interface Saved extends Synced {
-  saved: boolean;
+/** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
+export type Saved = ProfileSaved;
 ```
 
 with:
@@ -2870,11 +2892,11 @@ with:
 const validate = (doc: ProfileDoc, name: string): Validation =>
   validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends(), doc);
 
-export interface Saved extends Synced {
-  saved: boolean;
+/** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
+export type Saved = ProfileSaved;
 ```
 
-`validateNamed` and `validate` are the two places plan 5's final fix wave may have reshaped: find them by name and make each pass the stored document as `validateProfile`'s fourth argument. If `bun run typecheck` then names a file under `src/entry/tui/` that reads one of the opened fields from a `ProfileDoc` as its enum type, read it from the resolved `Profile` there instead.
+`validateNamed` and `validate` are the two places that call `validateProfile`: each passes the stored document as its fourth argument. If `bun run typecheck` then names a file under `src/entry/tui/` that reads one of the opened fields from a `ProfileDoc` as its enum type, read it from the resolved `Profile` there instead.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -3687,25 +3709,15 @@ with:
 In `src/services/doctor.ts`, replace:
 
 ```ts
-  }
-
   const used = usedBackends(profiles);
   checks.push(...(await backendChecks(used)));
-
-  if (active?.jev.use === "off")
-    checks.push({ id: "jev", label: "Jev", state: "skip", word: "off", detail: "off in the profile" });
 ```
 
 with:
 
 ```ts
-  }
-
   const used = usedBackends(profiles);
   checks.push(...(await backendChecks(used, profiles)));
-
-  if (active?.jev.use === "off")
-    checks.push({ id: "jev", label: "Jev", state: "skip", word: "off", detail: "off in the profile" });
 ```
 
 In `src/services/doctor.ts`, replace:
@@ -3763,7 +3775,6 @@ with:
   }
 ```
 
-`src/services/doctor.ts` is one of the files plan 5's final fix wave edits: find `backendChecks`, its call and the credentials block by their text.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -4272,6 +4283,7 @@ Spec §12 and Rulings 1, 2, 15, 16, 17. `ci.yml` has two jobs. **check** runs th
 **Files:**
 - Replace: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
 - Create: `.github/dependabot.yml`, `bunfig.toml`, `test/pack-smoke.ts`
+- Modify: `test/entry/tui/pty.test.ts` (a tmux server per test: plan 6's flake watch)
 
 **Interfaces:**
 - Consumes: plan 6's `THIRD_PARTY_NOTICES.md` in `package.json`'s `files` (the smoke checks it ships); `mcpHandshake` through `catherd doctor --json`'s `mcp` row.
@@ -4512,12 +4524,51 @@ updates:
 
 ```toml
 # spec §11 hygiene: CI runs `bun test --coverage` on one leg; below this floor it fails.
-# Measured at 90.8 % of functions and 93.7 % of lines before plan 7; the floor leaves room for small drops.
+# Measured at 91.1 % of functions and 93.9 % of lines (plans 1–7); the floor leaves room for small drops.
 [test]
 coverageThreshold = { lines = 0.88, functions = 0.85 }
 ```
 
-- [ ] **Step 4: Check the workflows and the floor**
+- [ ] **Step 4: One tmux server per PTY test**
+
+Plan 6 asked plan 7 to watch its PTY smoke test (`test/entry/tui/pty.test.ts`), which failed once in five full runs in its writer's sandbox and once in about ten in this plan's re-check. Under load (six copies of the file in parallel) it fails in two ways. One is this file's: `afterEach` runs `kill-server` and the next test's `new-session` reaches the same socket while that server is still going down, so the session dies with it and the test times out on an empty screen (`timed out waiting for the status tab`, `tmux ls` empty). The other is in the TUI: the `j` sent once the Profiles tab shows `ROLES` is lost, so `Space` toggles the architect instead of the verifier (the save dialog shows `roles.architect.enabled true → false`, and the line kept after exit names the verifier's agent, the only one left to link). Plan 6's final fix wave (I1, I2) did not remove it: at its head `7bab94b`, with this step's edit, it still failed 1 and 5 times in two rounds of 24 runs under load. This step fixes the first; the second is a TUI defect (a key typed right after a tab draws is dropped) for the controller to fix in plan 6's code, not something to wait out in the test.
+
+In `test/entry/tui/pty.test.ts`, replace:
+
+```ts
+const SOCKET = join(SOCKET_DIR, "tmux");
+```
+
+with:
+
+```ts
+// one server per test: a server `kill-server` just stopped may still take the next test's session with it
+let SOCKET = join(SOCKET_DIR, "tmux");
+```
+
+In `test/entry/tui/pty.test.ts`, replace:
+
+```ts
+  const name = `catherd-${started++}`;
+```
+
+with:
+
+```ts
+  const name = `catherd-${started++}`;
+  SOCKET = join(SOCKET_DIR, name);
+```
+
+Check it under load (tmux installed), six copies at a time, three rounds:
+
+```bash
+for r in 1 2 3; do for k in 1 2 3 4 5 6; do bun test test/entry/tui/pty.test.ts > "/tmp/pty-$r-$k.log" 2>&1 & done; wait; done
+grep -h "timed out waiting" /tmp/pty-*.log; grep -h -E '^ *[0-9]+ fail$' /tmp/pty-*.log | sort | uniq -c
+```
+
+Expected: no `timed out waiting for the status tab`, `for the runs tab` or `for the staged change` with an empty `tmux ls` (measured at `b77f0de`: four such timeouts in 24 runs before this edit, none in 24 after). A failure on `catherd-default-architect` in the kept line is the dropped key above: if the TUI fix is not in yet, report it and leave the test as it is (do not add waits or retries to hide it).
+
+- [ ] **Step 5: Check the workflows and the floor**
 
 ```bash
 bun -e 'for (const f of [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]) Bun.YAML.parse(await Bun.file(f).text())'
@@ -4526,15 +4577,15 @@ bun test --coverage 2>&1 | grep -E '^All files|^ *[0-9]+ (pass|fail)$'
 bun audit --audit-level=high
 ```
 
-Expected: the three files parse; `actionlint`, where installed, prints nothing; the coverage run passes with `All files` at or above 85 % of functions and 88 % of lines (Ruling 16 says what to do after plan 6 if not); the audit reports no advisory at high or above.
+Expected: the three files parse; `actionlint`, where installed, prints nothing; the coverage run passes with `All files` at or above 85 % of functions and 88 % of lines (about 90.4 % and 93.6 % with only wave 1 in; Ruling 16 says what to do if not); the audit reports no advisory at high or above.
 
-- [ ] **Step 5: Check and commit**
+- [ ] **Step 6: Check and commit**
 
 Run: `bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`
 Expected: clean; the full suite passes (`test/pack-smoke.ts` is not a test file and does not run here).
 
 ```bash
-git add .github bunfig.toml test/pack-smoke.ts
+git add .github bunfig.toml test/pack-smoke.ts test/entry/tui/pty.test.ts
 git commit -m "ci: linux and macos on bun 1.4.0 and latest, coverage floor, audit, pack smoke; release after ci"
 ```
 
@@ -5213,6 +5264,8 @@ with:
    check, one at a time:
 ````
 
+Plan 6's final fix wave (`7bab94b`) replaced that stale `bun -e` line (it imports paths plan 6 deleted) with `bun src/cli.ts profile use default`: on a tree with the fix wave in, the line to replace reads that way; the rest of the block is unchanged, and the replacement is the text above.
+
 In `docs/manual-tests.md`, replace:
 
 ```markdown
@@ -5444,8 +5497,8 @@ bunx catherd-cli init
 In `README.md`, replace:
 
 ````markdown
-Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
-`XDG_*`).
+- Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
+  (the palette shows each command; the ids are in `src/entry/tui/commands.ts`).
 
 ## Develop
 
@@ -5455,8 +5508,8 @@ Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (bot
 with:
 
 ````markdown
-Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
-`XDG_*`).
+- Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
+  (the palette shows each command; the ids are in `src/entry/tui/commands.ts`).
 
 ## Upgrading from 0.x
 
@@ -5498,7 +5551,7 @@ Releases go through [Changesets](https://github.com/changesets/changesets): add 
 `bunx changeset`.
 ````
 
-The changeset's first line and bullets become the `## 1.0.0` / `### Major Changes` entry of `CHANGELOG.md`; keep it to what 1.0 ships. `MIGRATION.md`'s paths are catherd's (`src/infra/paths.ts`); the 0.x details are from `f0ee214` (the 0.x agent names and `~/.config/typesafe/api_key`).
+The new section goes after plan 6's "The dashboard" section (its last bullet is the anchor above), right before "Develop". The changeset's first line and bullets become the `## 1.0.0` / `### Major Changes` entry of `CHANGELOG.md`; keep it to what 1.0 ships. `MIGRATION.md`'s paths are catherd's (`src/infra/paths.ts`); the 0.x details are from `f0ee214` (the 0.x agent names and `~/.config/typesafe/api_key`).
 
 - [ ] **Step 3: Check and commit**
 
@@ -5526,9 +5579,140 @@ Expected: `status` lists `catherd-cli` under `major`; after `version-packages`, 
 
 ---
 
+### Task 13: Keybinds from config.json: the leader and typed keys where the user types are refused
+
+Plan 6's deferred minors (its final review's triage, items 2 and 3, "plan 7"): `resolveKeybinds` let a user bind `ctrl+x`, the leader, as a command's own key (every leader chord then stops working), and let a printable key be bound to a command that is live while the user types in a dialog or a list filter (the palette's filter, a prompt): in the keymap's modal mode that key takes letters from the text the user is typing. Both are refused now with `E_CONFIG_KEYBIND` and a fix, like the other refusals (unknown id, reserved command, a key with two meanings). A syntax check of each key stays in 1.0.x: it needs the keymap's own key parser, and a hand-written grammar would refuse keys the keymap accepts.
+
+This is the one task in `src/entry/tui/`: plan 6's final fix wave (`7bab94b`) did not change `resolveKeybinds` or `test/entry/tui/commands.test.ts`, so the blocks below match `main` after plan 6 merges.
+
+**Files:**
+- Modify: `src/entry/tui/commands.ts`
+- Test: `test/entry/tui/commands.test.ts`
+
+**Interfaces:**
+- Consumes: `LEADER`, `isPrintable`, `BY_ID`, `CommandDef` (`src/entry/tui/commands.ts`).
+- Produces: nothing new; `resolveKeybinds(raw)` refuses two more kinds of override.
+
+- [ ] **Step 1: Write the failing test**
+
+In `test/entry/tui/commands.test.ts`, replace:
+
+```ts
+      { "profile.activate": "ctrl+s" },
+    ])
+      expect(() => resolveKeybinds(bad)).toThrow(expect.objectContaining({ code: "E_CONFIG_KEYBIND" }));
+  });
+});
+```
+
+with:
+
+```ts
+      { "profile.activate": "ctrl+s" },
+    ])
+      expect(() => resolveKeybinds(bad)).toThrow(expect.objectContaining({ code: "E_CONFIG_KEYBIND" }));
+  });
+
+  it("refuses the leader as a command's own key, and a typed key on a command live while the user types", () => {
+    for (const bad of [
+      { "profile.save": "ctrl+x" },
+      { "app.palette": ["ctrl+p", "ctrl+x"] },
+      { "dialog.submit": "y" },
+      { "dialog.down": ["down", "j"] },
+      { "filter.accept": "space" },
+    ])
+      expect(() => resolveKeybinds(bad)).toThrow(expect.objectContaining({ code: "E_CONFIG_KEYBIND" }));
+    // a named key, or one with ctrl, is fine there; so is a leader chord
+    expect(resolveKeybinds({ "dialog.submit": ["return", "ctrl+y"] })["dialog.submit"]).toEqual([
+      "return",
+      "ctrl+y",
+    ]);
+    expect(resolveKeybinds({ "profile.save": "<leader>w" })["profile.save"]).toEqual(["<leader>w"]);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `bun test test/entry/tui/commands.test.ts`
+Expected: FAIL — `resolveKeybinds` returns for `{ "profile.save": "ctrl+x" }` instead of throwing.
+
+- [ ] **Step 3: Write the implementation**
+
+In `src/entry/tui/commands.ts`, replace:
+
+```ts
+    // a comma list is several keys, as in opencode's config
+    const list = (Array.isArray(value) ? value : [value]).flatMap((v) => v.split(",").map((k) => k.trim()));
+    keys[id as CommandId] = list.includes("none") ? [] : list.filter(Boolean);
+  }
+```
+
+with:
+
+```ts
+    // a comma list is several keys, as in opencode's config
+    const list = (Array.isArray(value) ? value : [value]).flatMap((v) => v.split(",").map((k) => k.trim()));
+    if (list.some((k) => k.split(" ")[0] === LEADER))
+      throw new CatherdError(
+        "E_CONFIG_KEYBIND",
+        `config.json keybinds: ${id} cannot take ${LEADER}, the leader`,
+        {
+          fix: `bind ${id} to another key, or to the leader and a key: "<leader>w"`,
+        },
+      );
+    // dialog and filter commands are live while the user types: a typed key would take letters from the text
+    const scope = (BY_ID.get(id) as CommandDef).scope;
+    const typed = list.find(isPrintable);
+    if ((scope === "dialog" || scope === "filter") && typed)
+      throw new CatherdError(
+        "E_CONFIG_KEYBIND",
+        `config.json keybinds: ${id} works while you type, so it cannot take "${typed}"`,
+        { fix: `bind ${id} to a key with ctrl or alt, or a named key such as "return"` },
+      );
+    keys[id as CommandId] = list.includes("none") ? [] : list.filter(Boolean);
+  }
+```
+
+In `src/entry/tui/commands.ts`, replace:
+
+```ts
+/**
+ * The keys in force: the defaults with `config.json`'s `keybinds` over them. Unknown ids, reserved
+ * commands and overrides that make one key mean two things are refused with `E_CONFIG_KEYBIND`.
+ */
+```
+
+with:
+
+```ts
+/**
+ * The keys in force: the defaults with `config.json`'s `keybinds` over them. Unknown ids, reserved
+ * commands, the leader as a command's own key, a typed key on a command live while the user types, and
+ * overrides that make one key mean two things are refused with `E_CONFIG_KEYBIND`.
+ */
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `bun test test/entry/tui/commands.test.ts test/entry/tui/run.test.ts test/entry/tui/app.test.tsx`
+Expected: PASS (`run.test.ts` reads keybinds from `config.json`; `app.test.tsx` rebinds `profile.save` to `ctrl+w`).
+
+- [ ] **Step 5: Check and commit**
+
+Run: `bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`
+Expected: clean; the full suite passes.
+
+```bash
+git add src/entry/tui/commands.ts test/entry/tui/commands.test.ts
+git commit -m "fix(tui): refuse the leader and typed keys where the user types in config.json keybinds"
+```
+
+---
+
 ## Carry-overs: where each went
 
-Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the plan-5 ledger sent here, checked against the code at `e1ffa6c`:
+Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the plan-5 ledger sent here, checked against the code at `e1ffa6c`, and the plan-6 ledger's (at `b77f0de`):
 
 | Item | Where |
 |---|---|
@@ -5555,11 +5739,16 @@ Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the pl
 | plan 5: `lock.test.ts` double SIGINT can hang | Task 7 |
 | plan 5: `runs show --debug` tail reads whole files | Task 7 |
 | plan 3: capture isolation, kill reason, meta sanitized after stringify, `--out` relative to the cwd | Task 11 |
+| plan 6: `resolveKeybinds` lets `ctrl+x` (the leader) be bound; a printable key on a dialog or filter command | Task 13 |
+| plan 6: `resolveKeybinds` has no key-syntax check | 1.0.x (see below) |
+| plan 6: watch the PTY smoke test | Task 10 Step 4 (a tmux server per test; the dropped key it found goes to plan 6's owner) |
 
 ## Not in this plan
 
 - **Plan 5's final-review minors** (the session ledger's "→ final" items: `runs show --name` without `--debug`, `lock`'s `--help` note on its process group, `init` on a non-TTY stdin, the `sandbox:codex` check's scope, `catalog list --role`'s error, `mark()`'s doc comment, `readProfileDoc`'s code for a missing user-named profile, `patchProfile` resolving twice, `ProfileSaved`/`Saved`, `viewOf`'s aliases, `lock.ts`'s exit code on config errors, the architecture test's inline bridge, the `profile_set` "every field" test, the README omissions, `quotaOf` reuse, the "(no honesty score)" wording, `agents.ts`'s empty catch, the `#default` description, the dedup test, doctor's fix text using the global active profile) belong to plan 5's final fix wave, which lands before this plan. Whatever that wave leaves is a 1.0.x item, not a release blocker.
 - **Plan 1–3 minors the reviews marked "plan 7" but no carry-over list names** (filelock's stale-marker races, `isHeader`'s two keys, directory fsync, `readAgentRuns` dropping rows silently, a `launch.json` write failure marking a live dispatch lost, the supervisor's own SIGTERM handler, the claude-code simulator's gaps, isolated opencode's `isBusy` against the background service): none is reachable without a crash, a disk fault or an edited file, and each has a reason in its review; they are 1.0.x.
+- **A syntax check of each key in `config.json` `keybinds`** (plan 6's deferred minor): a typo leaves that command unbound, which the user sees when the key does nothing. It needs `@opentui/keymap`'s own key parser; a hand-written grammar would refuse keys the keymap accepts. 1.0.x, with `E_CONFIG_KEYBIND`.
+- **The key the TUI drops right after a tab draws** (found by Task 10's PTY check, still there after plan 6's final fix wave): plan 6's code; its owner fixes it in `src/entry/tui/`, not this plan.
 - **Codex adding the heavy-lock directory to `writable_roots` itself** (plan 5's "After this plan"): only after the owner's check in `docs/live-verification.md` step 4 shows Codex refusing it by default.
 - **Reading `~/.config/typesafe/api_key`** as a third Jev key source, as 0.x did: spec §5.5 names two sources. `MIGRATION.md` tells a user whose key lived only there that `init` asks for it once.
 - **Publishing.** Task 12 prepares the release; merging the "chore: release catherd" PR that the Release workflow opens publishes 1.0.0 to npm and tags `v1.0.0`. That merge is the owner's.
@@ -5568,7 +5757,7 @@ Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the pl
 
 - **Spec coverage.** §3.3: the first exit wins and the grace after interrupt (Task 1), identity before any signal (Tasks 1, 3). §3.4's unknown values (Task 6). §6: Codex busy (Tasks 1, 2), opencode's latest message (Task 2), isolation for captures (Task 11). §10.2: every tool call logged (Task 4). §10.3: the Codex login (Task 8), the credentials file (Task 8). §10.4: preflight never as root (Task 4), secrets off disk (Task 3's old specs, Task 11's meta). §11.7–8: the live kit (Task 11); §11 hygiene: event-driven tests (Tasks 1, 3, 7), the coverage floor (Task 10). §12: the matrix, audit, pack smoke, release gating, marketplace tag, automated update PRs (Task 10), the changeset and `MIGRATION.md` (Task 12). §14 ("vendor CLIs change monthly"): fixtures per CLI version from the capture kit (Task 11). D2 (Task 12), D7 (Task 11).
 - **Placeholders.** None: every step carries its code or its exact command, and Ruling 16 gives the exact rule for the one number that plan 6 may move.
-- **Types.** `LineInfo.item` and `EventDelta.item` are both `{ id: string; open: boolean }`; `SuperviseHooks.isBusy(thread, sinceMs)` and `BackendAdapter.isBusy(thread, cwd, sinceMs?)` meet in `src/entry/supervise.ts`; `savedJevKey` (Task 5) is what Task 8's doctor reads; `exited` (Task 2) is what Tasks 7 and 9 use; `Probe.billing` is a `BillingMode`, compared with `Profile.billing[id]`.
+- **Types.** `LineInfo.item` and `EventDelta.item` are both `{ id: string; open: boolean }`; `SuperviseHooks.isBusy(thread, sinceMs)` and `BackendAdapter.isBusy(thread, cwd, sinceMs?)` meet in `src/entry/supervise.ts`; `savedJevKey` (Task 5) is what Task 8's doctor reads; `exited` (Task 2) is what Tasks 7 and 9 use; `Probe.billing` is a `BillingMode`, compared with `Profile.billing[id]`; Task 13 uses `LEADER`, `isPrintable` and `CommandDef.scope` as `commands.ts` defines them.
 - **Review Focus.** Each of the five lines names the test that pins it, in its owning task.
 
 ## After this plan

@@ -13,7 +13,8 @@
   "files": [
     "src",
     "catalog",
-    "plugin"
+    "plugin",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "type": "module",
   "scripts": {
@@ -21,12 +22,14 @@
     "lint": "oxlint --deny-warnings src test",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "tui-frames": "CATHERD_WRITE_FRAMES=1 bun test test/entry/tui/frames.test.tsx",
     "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
-    "@opentui/core": "^0.5.12",
-    "@opentui/react": "^0.5.12",
+    "@opentui/core": "0.5.12",
+    "@opentui/keymap": "0.5.12",
+    "@opentui/react": "0.5.12",
     "citty": "^0.2.2",
     "react": "^19.3.0",
     "zod": "^4.6.5"
@@ -40,7 +43,6 @@
     "lefthook": "^2.1.14",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
-    "string-width": "^8.3.0",
     "typescript": "^7.0.2"
   },
   "engines": {

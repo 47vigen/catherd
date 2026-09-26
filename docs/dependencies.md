@@ -1,15 +1,10 @@
 # Dependencies
 
-TUI: OpenTUI (`@opentui/react` + `@opentui/core`), decided in OVERRIDES before this plan started —
-both were already in `package.json`, so plan 4 Task 1 skipped the spike and went straight to
-reading `node_modules/@opentui/react/README.md` and its type definitions. Test API: `testRender`
-from `@opentui/react/test-utils` (wraps `@opentui/core/testing`'s `createTestRenderer`), used as
-`const { renderOnce, captureCharFrame, mockInput } = await testRender(<El/>, { width, height })`.
-Keys go through `mockInput.pressArrow/pressEnter/pressEscape/pressBackspace/pressKey/typeText`;
-`test/tui/helpers.ts`'s `press()` wraps those behind the same `KEY.up`/`KEY.down`/… names plan 4
-uses. Colour: OpenTUI takes RGB only and downsamples itself for the terminal it finds, so
-`theme.ts`'s `tint()` returns one hex value per tone at every depth above 1, and `undefined` at
-depth 1 (`NO_COLOR`) — no `ansi256(n)` or named-colour branches, unlike the Ink-era plan text.
+TUI: OpenTUI (`@opentui/react`, `@opentui/core` and `@opentui/keymap`), all pinned to the same exact version
+(spec §9.4), in `src/entry/tui/`. Tests render through `@opentui/react/test-utils`'s `testRender` under the
+kitty keyboard protocol (a lone esc arrives at once), inside React's `act()` (`test/entry/tui/render.tsx`), on
+`@opentui/core/testing`'s `ManualClock` for anything timed. Colour: OpenTUI takes RGB only and downsamples
+itself, so `src/entry/tui/theme.ts` has one hex value per token and mode, and none at all without colour.
 
 One line per dependency: what it does for catherd, and why this one.
 
@@ -18,8 +13,9 @@ One line per dependency: what it does for catherd, and why this one.
 - citty — the `catherd` main command and its subcommands — unjs, tiny, typed `defineCommand`, `--version` from `meta`
 - zod — schemas for the catalog, profiles and MCP tool inputs — the standard TS-first validator
 - @modelcontextprotocol/sdk — the MCP server (`catherd mcp`) — the official SDK
-- @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §8.4)
-- @opentui/react — React bindings for the dashboard TUI (`catherd` alone); `init` and `watch` print plain text — pairs with `@opentui/core`
+- @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §9)
+- @opentui/react — React bindings for the TUI — pairs with `@opentui/core`, and needs no Babel step, unlike `@opentui/solid` (spec §9.4)
+- @opentui/keymap — the TUI's key engine: layers, modes, the `ctrl+x` leader, one command catalogue — opencode's own engine, with a React binding (spec §9.2)
 - react — required by `@opentui/react`'s component model — peer dependency of the TUI layer
 
 ## Dev
@@ -29,7 +25,6 @@ One line per dependency: what it does for catherd, and why this one.
 - @types/react — types for the OpenTUI React components — needed alongside `react`
 - oxlint — lint — Rust, the fastest linter, sensible defaults with no config
 - oxfmt — format — Rust, Prettier-compatible output, the fastest formatter
-- string-width — measures terminal cells in the 80-column TUI tests (`test/tui/helpers.ts`'s `widest`) — the standard cell-width function; emoji glyphs (🐾, 🐈) count as 2 cells and a hand count gets that wrong
 - lefthook — git hooks for lint, format and commit messages — a single Go binary, no shell scripts to keep
 - @changesets/cli — versions, changelog and npm trusted publishing — the standard for single-package release notes
 - @commitlint/cli — checks commit messages on commit-msg — the standard checker
@@ -42,7 +37,8 @@ process group (POSIX `setsid()`, confirmed with `ps -o pid,pgid,ppid`: child's p
 own pid). Verified with a throwaway parent that spawns a child sleeping 1.5s, then exits
 immediately: the child kept running, was reparented to pid 1, and wrote its marker file after the
 parent had already exited. Raw fd stdio (from `openSync`) is honoured as a real file, not a pipe
-through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
+through the parent. `Bun.spawn` alone covers `launchSupervisor` (`src/infra/launch.ts`); execa is not
+needed.
 
 ## opencode CLI check (Task 6, step 1), verified live against opencode 2.0.15
 
@@ -56,14 +52,14 @@ through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
 - **Deviation from the busy-check text above:** on 2.0.15, `GET /api/session/<id>/message` never
   contains the string `"status":"running"` — verified live by polling mid-tool-call. The busy
   signal is structural: `.data` is newest-first, and the session is idle iff `data[0].type ===
-  "idle"`; while a tool streams, `data[0]` is the assistant message instead. `runOpencode`'s busy
-  check parses JSON and reads `data[0]?.type` rather than substring-matching `"status":"running"`,
-  and the fake `opencode`/tests use that same shape.
+  "idle"`; while a tool streams, `data[0]` is the assistant message instead. The 1.0 adapter's busy
+  check (`isBusy` in `src/adapters/opencode/index.ts`) parses JSON rather than substring-matching
+  `"status":"running"`, and its tests use recorded fixtures (`test/fixtures/adapters/opencode/`).
 
 ## Dropped from the Node-toolchain plan (OVERRIDES)
 
-- xdg-basedir — no release since 2021; `src/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
+- xdg-basedir — no release since 2021; `src/infra/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
 - execa — `Bun.spawn` covers detached children with stdio on files; kept only if a detach check fails (not needed in Tasks 1-4)
-- tinyglobby — owned paths are matched literally, so `src/core/reply.ts` walks them with plain `node:fs` `readdirSync` recursion instead of a glob library at all; `Bun.CryptoHasher("sha1")` does the hashing
+- tinyglobby — owned paths are matched literally (spec §4.2), and finalize compares `git status` fingerprints (`src/infra/git.ts`) instead of walking a glob
 - tsdown — no build step; Bun runs `src/cli.ts` directly via its shebang
 - vitest — `bun test` is the runner

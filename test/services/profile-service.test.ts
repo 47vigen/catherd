@@ -98,6 +98,30 @@ describe("patchProfile", () => {
     expect(readFileSync(file("default"), "utf8")).toBe(before);
   });
 
+  it("saves over the profile it was shown (expect), and writes nothing when it changed on disk since", () => {
+    withHome();
+    patchProfile("default", {});
+    const shown = readProfileDoc("default");
+    expect(patchProfile("default", { objective: "speed" }, { expect: shown }).saved).toBe(true);
+    expect(readProfileDoc("default").objective).toBe("speed");
+
+    const seen = readProfileDoc("default");
+    // another process writes the profile between the preview and the save
+    patchProfile("default", { objective: "cost" });
+    const onDisk = readFileSync(file("default"), "utf8");
+    const r = patchProfile("default", { budget: { usd: 5 } }, { expect: seen });
+    expect(r.saved).toBe(false);
+    expect(r.errors).toEqual([
+      {
+        path: "profile",
+        message: 'profile "default" changed on disk since it was shown',
+        fix: "check the changes and save again",
+      },
+    ]);
+    expect(r.diff).toEqual([]);
+    expect(readFileSync(file("default"), "utf8")).toBe(onDisk);
+  });
+
   it("stores rungs and failover keys as written, and every field profile_set can set", () => {
     withHome();
     const r = patchProfile("default", {

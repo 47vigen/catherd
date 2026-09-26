@@ -101,7 +101,7 @@ describe("catherd (spec §8)", () => {
     for (const entry of ["entry/mcp/command.ts", "entry/lock.ts", "entry/supervise.ts"]) {
       const g = importGraph(join(SRC, entry));
       expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
-      expect(g.files.filter((f) => f.startsWith("tui/"))).toEqual([]);
+      expect(g.files.filter((f) => f.startsWith("entry/tui/"))).toEqual([]);
     }
   });
 });

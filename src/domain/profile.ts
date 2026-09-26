@@ -318,3 +318,30 @@ export function diffProfiles(a: Profile, b: Profile): Change[] {
   }
   return changes;
 }
+
+/**
+ * The patch that turns `a` into `b`: the leaves that differ, lists whole, a removed key as `null`. Fields
+ * both documents share unchanged, known or not, are left out, so applying it over a newer copy of `a`
+ * keeps whatever else changed there. Throws E_INPUT_INVALID when `b` holds what no patch may set.
+ */
+export function patchBetween(a: ProfileDoc, b: ProfileDoc): ProfilePatch {
+  const diff = (x: unknown, y: unknown): unknown => {
+    if (!isPlain(x) || !isPlain(y)) return y;
+    const out: Record<string, unknown> = {};
+    for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) {
+      if (!(k in y)) out[k] = null;
+      else if (JSON.stringify(x[k]) !== JSON.stringify(y[k])) out[k] = diff(x[k], y[k]);
+    }
+    return out;
+  };
+  const r = ProfilePatchSchema.safeParse(diff(a, b));
+  if (!r.success)
+    throw new CatherdError(
+      "E_INPUT_INVALID",
+      `these changes cannot be saved: ${z.prettifyError(r.error).replace(/\n\s*/g, " ")}`,
+      {
+        fix: "undo the last change, or edit the field with catherd profile set",
+      },
+    );
+  return r.data;
+}

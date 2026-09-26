@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import type { ArgsDef } from "citty";
 import { runtimeRefusal } from "./domain/runtime.ts";
 
 // Spec §3.1: refuse an old Bun before anything else loads.
@@ -17,6 +18,15 @@ const { VERSION } = await import("./infra/version.ts");
 
 type Command = ReturnType<typeof defineCommand>;
 
+/** The dashboard's flags, typed as any command's args so `main` stays a plain `Command`. */
+const dashboardArgs: ArgsDef = {
+  plain: {
+    type: "boolean",
+    description: "the dashboard in ASCII without colour (NO_COLOR also drops colour)",
+  },
+  "reduced-motion": { type: "boolean", description: "the dashboard without animation" },
+};
+
 /**
  * Spec §8. Every subcommand loads lazily, so `mcp`, `lock` and `_supervise` never load OpenTUI or React
  * (spec §3.1); a bare `catherd` opens the TUI.
@@ -27,6 +37,7 @@ export const main: Command = defineCommand({
     version: VERSION,
     description: "Herds coding agents. Any command takes --verbose: log at debug level (CATHERD_LOG=debug).",
   },
+  args: dashboardArgs,
   subCommands: {
     init: () => import("./entry/init-command.ts").then((m) => m.initCommand),
     status: () => import("./entry/runs-command.ts").then((m) => m.statusCommand),
@@ -40,10 +51,10 @@ export const main: Command = defineCommand({
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
     _supervise: () => import("./entry/supervise.ts").then((m) => m.superviseCommand),
   },
-  // citty runs this after any subcommand too; only a bare `catherd` opens the dashboard.
+  // citty runs this after any subcommand too; only a bare `catherd` loads and opens the dashboard
   async run(ctx) {
     if (!ctx.rawArgs.every((a) => a.startsWith("-"))) return;
-    await (await import("./tui/commands.ts")).editorRun(ctx);
+    await (await import("./entry/tui/run.tsx")).tuiRun(ctx);
   },
 });
 
