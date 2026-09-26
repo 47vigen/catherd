@@ -21,7 +21,11 @@ const tmux = (...args: string[]) =>
 afterEach(() => {
   tmux("kill-server");
 });
-afterAll(() => rmSync(SOCKET_DIR, { recursive: true, force: true }));
+// every case's home, removed with the socket once the file is done
+const homes: string[] = [];
+afterAll(() => {
+  for (const d of [SOCKET_DIR, ...homes]) rmSync(d, { recursive: true, force: true });
+});
 let started = 0;
 
 async function until(what: string, f: () => boolean, ms = 20_000): Promise<void> {
@@ -34,6 +38,7 @@ async function until(what: string, f: () => boolean, ms = 20_000): Promise<void>
 
 async function start(args: string) {
   const home = mkdtempSync(join(tmpdir(), "catherd-pty-"));
+  homes.push(home);
   const name = `catherd-${started++}`;
   // `env -i`: the binary sees only these, whatever the test runner or the tmux server has
   const env = [
@@ -79,7 +84,8 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
     await t.keys("j", "Space");
     await until("the staged change", () => t.screen().includes("1 unsaved"));
     await t.keys("C-s");
-    await until("the save dialog", () => t.screen().includes("Save profile default"));
+    // the buttons show once the preview is read: enter saves only after the diff is shown
+    await until("the save dialog", () => t.screen().includes("[ Save ]"));
     await t.keys("Enter");
     await until("the save", () => !t.screen().includes("unsaved"));
     await t.keys("q");
