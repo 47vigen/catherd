@@ -10,7 +10,7 @@ import {
 } from "./catalog.ts";
 import { parseRung, type Rung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
-import type { Profile } from "./profile.ts";
+import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { candidates, clearsBar, type RoutingProfile } from "./select.ts";
 
@@ -64,9 +64,24 @@ export function inferredScores(c: Catalog, info: RungInfo): { inferred: boolean;
  * mode other than the role's default, an effort or model the last listing does not offer, a stand-in
  * that never runs.
  */
-export function validateProfile(p: Profile, c: Catalog, backends: readonly string[]): Validation {
+/**
+ * Spec §7.1's errors and warnings for `p`. With the stored `doc` it came from, a value this catherd does
+ * not know is a warning that says how it is read.
+ */
+export function validateProfile(
+  p: Profile,
+  c: Catalog,
+  backends: readonly string[],
+  doc?: ProfileDoc,
+): Validation {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
+  for (const u of doc ? unknownValues(doc) : [])
+    warnings.push({
+      path: u.path,
+      message: `"${u.value}" is not a value this catherd knows (a newer one wrote it?); it is read as ${u.readAs}`,
+      fix: "upgrade catherd (bunx catherd-cli@latest), or set a value this version knows",
+    });
   if (!p.roles.worker.enabled)
     errors.push({
       path: "roles.worker.enabled",

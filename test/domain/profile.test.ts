@@ -12,6 +12,7 @@ import {
   ProfileDocSchema,
   ProfilePatchSchema,
   resolveProfile,
+  unknownValues,
 } from "../../src/domain/profile.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 
@@ -124,6 +125,44 @@ describe("resolveProfile", () => {
       theme: "ginger",
       roles: { tester: { enabled: true }, worker: { enabled: true, color: "red", access: "full" } },
       timeouts: { idleMin: 5, graceSec: 3, wallMin: 60 },
+    });
+  });
+});
+
+describe("values a newer catherd wrote (spec §3.4)", () => {
+  const newer = ProfileDocSchema.parse({
+    schema: 1,
+    objective: "quality",
+    jev: { use: "findings-only" },
+    billing: { codex: "chatgpt-pro", grok: "supergrok" },
+    roles: { worker: { access: "network-off" } },
+    notify: ["finish", "every-lane"],
+  });
+
+  it("reads each one the cautious way instead of refusing the profile", () => {
+    const p = resolveProfile(newer, "x");
+    expect(p.objective).toBe("cost");
+    expect(p.jev.use).toBe("off");
+    expect(p.billing).toMatchObject({ codex: "chatgpt-plan", grok: "metered" });
+    expect(p.roles.worker.access).toBe("read-only");
+    expect(p.notify).toEqual(["finish"]);
+  });
+
+  it("names each one with what it is read as, and keeps it through a patch", () => {
+    expect(unknownValues(newer)).toEqual([
+      { path: "objective", value: "quality", readAs: "cost" },
+      { path: "jev.use", value: "findings-only", readAs: "off" },
+      { path: "billing.codex", value: "chatgpt-pro", readAs: "chatgpt-plan" },
+      { path: "billing.grok", value: "supergrok", readAs: "metered" },
+      { path: "roles.worker.access", value: "network-off", readAs: "read-only" },
+      { path: "notify", value: "every-lane", readAs: "skipped" },
+    ]);
+    expect(unknownValues(defaultProfileDoc())).toEqual([]);
+    const after = applyPatch(newer, { budget: { usd: 5 } });
+    expect(after).toMatchObject({
+      objective: "quality",
+      billing: { codex: "chatgpt-pro" },
+      notify: ["finish", "every-lane"],
     });
   });
 });

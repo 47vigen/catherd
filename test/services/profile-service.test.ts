@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { claudeAgentsDir, configDir } from "../../src/infra/paths.ts";
 import {
   activate,
@@ -86,6 +87,28 @@ describe("patchProfile", () => {
       { usd: 5 },
       { idleMin: 5, wallMin: 90 },
     ]);
+  });
+
+  it("reads a profile a newer catherd wrote, warns about the values it does not know, and keeps them", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    writeFileSync(
+      file("default"),
+      JSON.stringify({
+        ...doc,
+        roles: { ...doc.roles, reviewer: { ...doc.roles?.reviewer, access: "network-off" } },
+      }),
+    );
+    expect(getProfile("default").roles.reviewer.access).toBe("read-only");
+    expect(validateNamed("default").warnings).toContainEqual({
+      path: "roles.reviewer.access",
+      message:
+        '"network-off" is not a value this catherd knows (a newer one wrote it?); it is read as read-only',
+      fix: "upgrade catherd (bunx catherd-cli@latest), or set a value this version knows",
+    });
+    expect(patchProfile("default", { budget: { usd: 5 } }).saved).toBe(true);
+    expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.reviewer.access).toBe("network-off");
   });
 
   it("writes nothing when the result is invalid, and returns the errors", () => {
