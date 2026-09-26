@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Codex CLI simulator for catherd's tests: behaviour comes from the JSON scenario in CATHERD_SIM_SCENARIO.
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_SCENARIO ?? "", "utf8")) as Record<string, any>;
@@ -67,5 +67,6 @@ setTimeout(async () => {
   if (s.eventsFile) process.stdout.write(readFileSync(s.eventsFile, "utf8"));
   if (s.reply !== undefined && out) writeFileSync(out, s.reply);
   if (s.hangMs) await Bun.sleep(s.hangMs);
+  if (s.holdUntil) while (!existsSync(s.holdUntil)) await Bun.sleep(20);
   process.exit(s.exitCode ?? 0);
 }, s.delayMs ?? 0);

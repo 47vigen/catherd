@@ -11,6 +11,8 @@ export interface CodexScenario {
   exitCode?: number;
   delayMs?: number;
   hangMs?: number;
+  /** after its output, `exec` waits until this file exists, then exits */
+  holdUntil?: string;
   /** `codex login status` sleeps this long before answering */
   loginHangMs?: number;
   /** every invocation appends `{ args, envKeys }` here as one JSON line */

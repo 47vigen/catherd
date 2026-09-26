@@ -172,25 +172,38 @@ async function failover(
   };
 }
 
+/** How long an orphaned worker gets between SIGTERM and SIGKILL; tests shorten it. */
+export const orphanLimits = { killGraceMs: KILL_GRACE_MS };
+
 /**
  * A worker whose supervisor died has no one to read the cancel file: stop its group here (SIGTERM, then
  * SIGKILL after the grace), each signal guarded by the worker's pid and start time, and write the
- * exit.json the supervisor would have. A finalizer that sees the worker gone first reads the cancel file
- * instead (finalize.ts). Nothing happens while the supervisor lives: it acts on the cancel file itself.
+ * exit.json the supervisor would have, with the signal that ended it. A worker catherd cannot identify
+ * (no start time, or a proc.json whose pgid is not the worker's own pid) is never signalled: its pid may
+ * belong to someone else by now, so the dispatch is only recorded as cancelled. A finalizer that sees the
+ * worker gone first reads the cancel file instead (finalize.ts). Nothing happens while the supervisor
+ * lives: it acts on the cancel file itself.
  */
 async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
   const proc = readProc(d.dir);
   if (!proc || readExit(d.dir) || isAlive(proc.supervisorPid, proc.supervisorStartTime)) return;
   const worker = () => isAlive(proc.pid, proc.startTime);
   if (!worker()) return;
-  killGroup(proc.pgid ?? proc.pid, "SIGTERM");
-  const end = Date.now() + KILL_GRACE_MS;
-  while (Date.now() < end && worker()) await Bun.sleep(deps.pollMs);
-  if (worker()) killGroup(proc.pgid ?? proc.pid, "SIGKILL");
+  let signal: NodeJS.Signals | null = null;
+  if (proc.startTime !== null && (proc.pgid === undefined || proc.pgid === proc.pid)) {
+    signal = "SIGTERM";
+    killGroup(proc.pid, signal);
+    const end = Date.now() + orphanLimits.killGraceMs;
+    while (Date.now() < end && worker()) await Bun.sleep(deps.pollMs);
+    if (worker()) {
+      signal = "SIGKILL";
+      killGroup(proc.pid, signal);
+    }
+  }
   writeJsonAtomic(dispatchPaths(d.dir).exit, {
     schema: 1,
     code: null,
-    signal: "SIGTERM",
+    signal,
     reason: "cancelled",
     endedAt: new Date().toISOString(),
   });
