@@ -204,23 +204,29 @@ export function useProfileDialogs(): void {
     if (p.type !== "save") return;
     const d = app.getState().drafts[p.name];
     if (!d) return app.dispatch({ type: "close" });
+    let r: Awaited<ReturnType<AppApi["effects"]["save"]>>;
     try {
-      const r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes);
-      if (!r.saved)
-        return app.dispatch({
-          type: "invalid",
-          error: r.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
-        });
-      app.dispatch({ type: "close" });
-      app.dispatch({ type: "saved", name: p.name, doc: app.effects.readProfile(p.name) });
-      app.toast({ variant: "success", message: `Saved profile ${p.name}` });
-      sessionsNeeded(app, r.newSessionNeededFor);
-      if (value === "activate") activateNow(app, data, p.name);
+      r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes);
     } catch (e) {
-      app.dispatch({
+      return app.dispatch({
         type: "invalid",
         error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
       });
     }
+    if (!r.saved)
+      return app.dispatch({
+        type: "invalid",
+        error: r.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
+      });
+    // saved: the dialog closes, so what fails from here on is a toast
+    app.dispatch({ type: "close" });
+    try {
+      app.dispatch({ type: "saved", name: p.name, doc: app.effects.readProfile(p.name) });
+    } catch (e) {
+      fail(app, e);
+    }
+    app.toast({ variant: "success", message: `Saved profile ${p.name}` });
+    sessionsNeeded(app, r.newSessionNeededFor);
+    if (value === "activate") activateNow(app, data, p.name);
   });
 }

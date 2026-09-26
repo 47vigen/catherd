@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { resolveProfile } from "../../../domain/profile.ts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type Profile, resolveProfile } from "../../../domain/profile.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { useData, useLoad } from "../providers/data.tsx";
@@ -42,6 +42,10 @@ const ABOUT: Partial<Record<RowAction["type"], string>> = {
   failover: "enter picks the stand-in on a usage limit; it runs on a fresh thread",
   notify: "space turns this notification on or off",
 };
+
+/** Only ticking an unscored effort asks for a treat-like; unticking a rung always just unticks it. */
+const needsTreatLike = (p: Profile, a: RowAction): boolean =>
+  a.type === "rung" && !a.scored && !p.roles[a.role].rungs.includes(a.rung);
 
 /**
  * Spec §9.1 tab 2: the profile's line, then one tree (roles → access + backend → model → efforts, then
@@ -87,11 +91,19 @@ export function ProfilesView(props: { width: number; height: number }) {
     return filter ? filterRows(all, filter) : all;
   }, [profile, catalog, loaded.value, draft, expanded, filter, validation, app.effects]);
   const row = rows.find((r) => r.key === selected) ?? null;
-  // typing a filter puts the cursor on the first row that matches it
+  // typing a filter puts the cursor on the first row that matches it; an edit under a kept filter
+  // (new rows, same text) leaves the cursor where it is
+  const placedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!filter) return;
+    if (!filter) {
+      placedFor.current = null;
+      return;
+    }
+    if (filter === placedFor.current) return;
     const m = firstMatch(rows, filter);
-    if (m) setSelected(m.key);
+    if (!m) return;
+    placedFor.current = filter;
+    setSelected(m.key);
   }, [filter, rows]);
   /** the draft as it is now: two keys in one tick must not both edit the profile this render drew */
   const current = () => {
@@ -162,12 +174,7 @@ export function ProfilesView(props: { width: number; height: number }) {
     if (!r || !p) return;
     const a = r.action;
     if (a.type === "role" || a.type === "model") return toggleOpen(r);
-    if (
-      a.type === "start" ||
-      a.type === "failover" ||
-      a.type === "number" ||
-      (a.type === "rung" && !a.scored)
-    )
+    if (a.type === "start" || a.type === "failover" || a.type === "number" || needsTreatLike(p, a))
       return pick(r);
     edit(patchFor(p, a));
   };
@@ -176,7 +183,7 @@ export function ProfilesView(props: { width: number; height: number }) {
     if (!r || !p) return;
     const a = r.action;
     if (a.type === "model") return toggleOpen(r);
-    if (a.type === "rung" && !a.scored) return pick(r);
+    if (needsTreatLike(p, a)) return pick(r);
     if (a.type === "role" || a.type === "rung" || a.type === "isolated" || a.type === "notify")
       edit(patchFor(p, a));
   };
@@ -221,9 +228,12 @@ export function ProfilesView(props: { width: number; height: number }) {
     app.dispatch({ type: "close" });
     const prof = current();
     if (p.type !== "treatLike" || !prof) return;
-    app.dispatch({ type: "treatLike", rung: p.rung, like: value });
-    if (p.role && !prof.roles[p.role].rungs.includes(p.rung))
-      edit(patchFor(prof, { type: "rung", role: p.role, rung: p.rung, scored: true }));
+    // one undo step: the treat-like and the tick it brings
+    const tick =
+      p.role && !prof.roles[p.role].rungs.includes(p.rung)
+        ? patchFor(prof, { type: "rung", role: p.role, rung: p.rung, scored: true })
+        : null;
+    app.dispatch({ type: "treatLike", rung: p.rung, like: value, ...(tick ? { patch: tick } : {}) });
   });
   useDialogHandler("number", (p, value) => {
     if (p.type !== "number") return;

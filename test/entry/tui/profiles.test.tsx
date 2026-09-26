@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { applyPatch, resolveProfile } from "../../../src/domain/profile.ts";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { useData } from "../../../src/entry/tui/providers/data.tsx";
@@ -208,6 +209,56 @@ describe("the Profiles tab", () => {
     expect(fx.writes).toEqual(["refused fast"]);
     expect(h!.s.frame()).toContain("roles.worker.rungs: no rung can run here");
     expect(h!.s.frame()).not.toContain("Created profile");
+  });
+
+  it("keeps the cursor on the edited row while a filter stays open", async () => {
+    const fx = await profiles();
+    await find("worker");
+    await h!.s.press("j", "return", "return");
+    expect(h!.s.frame()).toContain("read-only · enforced");
+    await h!.s.press("ctrl+s", "return");
+    expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"read-only"}}}']);
+  });
+
+  it("unticks a ticked rung that has become unscored, without the treat-like picker", async () => {
+    const ultra = "codex:gpt-6-sol#ultra";
+    await profiles((f) => {
+      const read = f.readProfile;
+      f.readProfile = (n) => {
+        const doc = read(n);
+        const rungs = resolveProfile(doc, n).roles.worker.rungs;
+        return applyPatch(doc, { roles: { worker: { rungs: [...rungs, ultra] } } });
+      };
+    });
+    await find("worker gpt-6-sol ultra");
+    await h!.s.press("space");
+    expect(h!.s.frame()).not.toContain("Treat codex:gpt-6-sol#ultra like…");
+    expect(h!.s.frame()).toContain("1 unsaved");
+    expect(h!.app().getState().drafts.default?.doc.roles?.worker?.rungs).not.toContain(ultra);
+  });
+
+  it("takes back a picked treat-like and the tick it brought in one undo", async () => {
+    await profiles();
+    await find("worker gpt-6-sol ultra");
+    await h!.s.press("space");
+    await h!.s.type("gpt-6-sol#xhigh");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("2 unsaved");
+    await h!.s.press("escape", "ctrl+x", "u");
+    expect(h!.s.frame()).not.toContain("unsaved");
+    expect(h!.app().getState().drafts.default?.past).toHaveLength(0);
+  });
+
+  it("says in a toast when the saved profile cannot be read back", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return");
+    fx.readProfile = () => {
+      throw new Error("profile file vanished");
+    };
+    await h!.s.press("ctrl+s", "return");
+    expect(fx.writes).toEqual(['save default {"objective":"speed"}']);
+    expect(h!.s.frame()).toContain("profile file vanished");
   });
 
   it("applies two keys that land in one tick to the draft as it is, not as it was drawn", async () => {

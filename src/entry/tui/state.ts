@@ -120,7 +120,8 @@ export type Action =
   | { type: "tab"; tab: Tab }
   | { type: "show"; name: string; doc: ProfileDoc }
   | { type: "edit"; patch: ProfilePatch }
-  | { type: "treatLike"; rung: string; like: string | null }
+  /** `patch` (ticking the rung) lands in the same undo step as the treat-like */
+  | { type: "treatLike"; rung: string; like: string | null; patch?: ProfilePatch }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "revert"; name: string }
@@ -215,7 +216,7 @@ export function reduce(s: AppState, a: Action): AppState {
         const treatLikes = { ...d.treatLikes };
         if (a.like === null) delete treatLikes[a.rung];
         else treatLikes[a.rung] = a.like;
-        return step(d, { doc: d.doc, treatLikes });
+        return step(d, { doc: a.patch ? applyPatch(d.doc, a.patch) : d.doc, treatLikes });
       });
     case "undo":
       return withDraft(s, s.profile, (d) => {
