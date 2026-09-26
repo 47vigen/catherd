@@ -82,6 +82,16 @@ function reclaimIfDead(lock: string): void {
   }
 }
 
+const timedOut = (target: string, lock: string) =>
+  new CatherdError("E_IO_LOCK", `timed out waiting for the lock on ${target}`, {
+    fix: `if no catherd process is running, delete ${lock}`,
+  });
+
+function release(lock: string, self: Holder): void {
+  const h = readHolder(lock);
+  if (h?.pid === self.pid && h.startTime === self.startTime) rmSync(lock, { force: true });
+}
+
 export async function withFileLock<T>(
   target: string,
   fn: () => T | Promise<T>,
@@ -92,17 +102,38 @@ export async function withFileLock<T>(
   const deadline = Date.now() + (o.timeoutMs ?? 10_000);
   while (!tryTake(lock, self)) {
     reclaimIfDead(lock);
-    if (Date.now() > deadline)
-      throw new CatherdError("E_IO_LOCK", `timed out waiting for the lock on ${target}`, {
-        fix: `if no catherd process is running, delete ${lock}`,
-      });
+    if (Date.now() > deadline) throw timedOut(target, lock);
     await Bun.sleep(o.pollMs ?? 25);
   }
   try {
     return await fn();
   } finally {
-    const h = readHolder(lock);
-    if (h?.pid === self.pid && h.startTime === self.startTime) rmSync(lock, { force: true });
+    release(lock, self);
+  }
+}
+
+/**
+ * `withFileLock` for a synchronous critical section, waiting with a blocking sleep. For writers whose
+ * callers are synchronous (the profile service under the 0.x TUI); the lock is held for milliseconds.
+ * Not reentrant: a section must not take the same lock again.
+ */
+export function withFileLockSync<T>(
+  target: string,
+  fn: () => T,
+  o: { timeoutMs?: number; pollMs?: number } = {},
+): T {
+  const lock = `${target}.lock`;
+  const self = me();
+  const deadline = Date.now() + (o.timeoutMs ?? 10_000);
+  while (!tryTake(lock, self)) {
+    reclaimIfDead(lock);
+    if (Date.now() > deadline) throw timedOut(target, lock);
+    Bun.sleepSync(o.pollMs ?? 25);
+  }
+  try {
+    return fn();
+  } finally {
+    release(lock, self);
   }
 }
 
@@ -117,8 +148,5 @@ export function tryLock(target: string): (() => void) | null {
     reclaimIfDead(lock);
     if (!tryTake(lock, self)) return null;
   }
-  return () => {
-    const h = readHolder(lock);
-    if (h?.pid === self.pid && h.startTime === self.startTime) rmSync(lock, { force: true });
-  };
+  return () => release(lock, self);
 }

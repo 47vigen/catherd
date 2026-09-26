@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withFileLock } from "../../src/infra/filelock.ts";
+import { withFileLock, withFileLockSync } from "../../src/infra/filelock.ts";
 
 const target = () => join(mkdtempSync(join(tmpdir(), "catherd-lock-")), "profile.json");
 
@@ -112,4 +112,34 @@ describe("withFileLock", () => {
     await Promise.all(crashers);
     expect(Number(readFileSync(t, "utf8"))).toBe(workers * iterations);
   }, 60_000);
+});
+
+describe("withFileLockSync", () => {
+  it("runs the section holding the lock, then releases it", () => {
+    const t = target();
+    expect(withFileLockSync(t, () => existsSync(`${t}.lock`))).toBe(true);
+    expect(existsSync(`${t}.lock`)).toBe(false);
+  });
+
+  it("reclaims a dead holder's lock, and times out with E_IO_LOCK behind a live one", async () => {
+    const t = target();
+    const dead = Bun.spawn(["true"]);
+    await dead.exited;
+    writeFileSync(`${t}.lock`, JSON.stringify({ pid: dead.pid, startTime: "gone" }));
+    expect(withFileLockSync(t, () => 7, { timeoutMs: 1000, pollMs: 5 })).toBe(7);
+    writeFileSync(`${t}.lock`, JSON.stringify({ pid: process.pid, startTime: null }));
+    expect(() => withFileLockSync(t, () => 1, { timeoutMs: 60, pollMs: 5 })).toThrow(
+      expect.objectContaining({ code: "E_IO_LOCK" }),
+    );
+  });
+
+  it("releases the lock when the section throws", () => {
+    const t = target();
+    expect(() =>
+      withFileLockSync(t, () => {
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    expect(existsSync(`${t}.lock`)).toBe(false);
+  });
 });
