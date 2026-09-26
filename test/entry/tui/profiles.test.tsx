@@ -363,6 +363,51 @@ describe("the Profiles tab", () => {
     expect(fx.writes).toEqual([]);
   });
 
+  it("shows a failed read of the profile itself with its fix, not as pending, and retries it on r", async () => {
+    let broken = 2;
+    const fx = await profiles((fx) => {
+      const read = fx.readProfile;
+      fx.readProfile = (n) => {
+        if (broken > 0)
+          throw new CatherdError("E_CONFIG_INVALID", "profiles/default.json is not valid JSON", {
+            fix: "fix or delete ~/.catherd/profiles/default.json",
+          });
+        return read(n);
+      };
+    });
+    const frame = h!.s.frame();
+    expect(frame).toContain("could not read the profile default: profiles/default.json is not valid JSON");
+    expect(frame).toContain("fix: fix or delete ~/.catherd/profiles/default.json");
+    expect(frame).toContain(" r retry");
+    expect(frame).not.toContain("reading the profile…");
+    // still broken on r: the message stays
+    broken = 1;
+    await h!.s.press("r");
+    expect(h!.s.frame()).toContain("could not read the profile default");
+    expect(fx.writes).toEqual([]);
+    broken = 0;
+    await h!.s.press("r");
+    await h!.advance(0);
+    expect(h!.s.frame()).toContain("PROFILE default");
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+  });
+
+  it("reads a profile that failed to read again on the next poll, without a key", async () => {
+    let broken = true;
+    await profiles((fx) => {
+      const read = fx.readProfile;
+      fx.readProfile = (n) => {
+        if (broken) throw new Error("profiles/default.json is unreadable");
+        return read(n);
+      };
+    });
+    expect(h!.s.frame()).toContain("could not read the profile default: profiles/default.json is unreadable");
+    broken = false;
+    await h!.advance(RUNS_EVERY_MS);
+    await h!.advance(0);
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+  });
+
   it("recovers from a failed profile read on the next poll, without a key", async () => {
     let broken = true;
     await profiles((fx) => {

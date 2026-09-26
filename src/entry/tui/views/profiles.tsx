@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Profile, resolveProfile } from "../../../domain/profile.ts";
+import { isCatherdError } from "../../../domain/errors.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { useData, useLoad } from "../providers/data.tsx";
@@ -62,9 +63,26 @@ export function ProfilesView(props: { width: number; height: number }) {
   const [filter, setFilter] = useState<string | null>(null);
   const draft = currentDraft(app.state);
   const here = data.profiles.value?.here ?? null;
+  // the profile the tab opens on; a read of it that fails is shown in the tab (below), and read again
+  // on r and after every good poll of the profiles
+  const [openFailed, setOpenFailed] = useState<{ name: string; error: string; fix: string | null } | null>(
+    null,
+  );
+  const [openTries, setOpenTries] = useState(0);
+  const polledAt = data.profiles.at;
   useEffect(() => {
-    if (!app.state.profile && here) showProfile(app, here);
-  }, [app.state.profile, here, app]);
+    if (app.state.profile || !here) return;
+    const e = showProfile(app, here, { quiet: true });
+    setOpenFailed(
+      e === null
+        ? null
+        : {
+            name: here,
+            error: e instanceof Error ? e.message : String(e),
+            fix: isCatherdError(e) && e.fix ? e.fix : null,
+          },
+    );
+  }, [app.state.profile, here, app, polledAt, openTries]);
   const profile = useMemo(() => (draft ? resolveProfile(draft.doc, draft.name) : null), [draft]);
   const billingKey = JSON.stringify(profile?.billing ?? {});
   const loaded = useLoad(() => (profile ? app.effects.catalog(profile.billing) : null), billingKey);
@@ -102,9 +120,23 @@ export function ProfilesView(props: { width: number; height: number }) {
           retry: data.profiles.refresh,
           polled: true,
         }
-      : profile && loaded.error !== null && !loaded.value
-        ? { what: "the catalog", error: loaded.error, fix: loaded.fix, retry: loaded.refresh, polled: false }
-        : null;
+      : !draft && openFailed
+        ? {
+            what: `the profile ${openFailed.name}`,
+            error: openFailed.error,
+            fix: openFailed.fix,
+            retry: () => setOpenTries((n) => n + 1),
+            polled: true,
+          }
+        : profile && loaded.error !== null && !loaded.value
+          ? {
+              what: "the catalog",
+              error: loaded.error,
+              fix: loaded.fix,
+              retry: loaded.refresh,
+              polled: false,
+            }
+          : null;
   const row = rows.find((r) => r.key === selected) ?? null;
   /** the row the cursor is on now, which a key earlier in the same tick may have moved */
   const rowNow = () => rows.find((r) => r.key === selectedNow()) ?? null;

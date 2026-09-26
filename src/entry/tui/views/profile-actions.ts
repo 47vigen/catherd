@@ -9,12 +9,17 @@ import { plural } from "../text.ts";
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const fail = (app: AppApi, e: unknown) => app.toast(errorToast(e));
 
-/** Shows a profile in the Profiles tab, starting its draft from disk unless one is staged. */
-export function showProfile(app: AppApi, name: string): void {
+/**
+ * Shows a profile in the Profiles tab, starting its draft from disk unless one is staged. A read that
+ * fails is a toast, or with `quiet` only returned (the caller shows it); null when it was shown.
+ */
+export function showProfile(app: AppApi, name: string, o: { quiet?: boolean } = {}): unknown {
   try {
     app.dispatch({ type: "show", name, doc: app.effects.readProfile(name) });
+    return null;
   } catch (e) {
-    fail(app, e);
+    if (!o.quiet) fail(app, e);
+    return e;
   }
 }
 
@@ -188,7 +193,8 @@ export function useProfileDialogs(): void {
   useDialogHandler("profiles", (_p, value) => {
     if (!value.startsWith("delete:")) {
       app.dispatch({ type: "close" });
-      return showProfile(app, value);
+      showProfile(app, value);
+      return;
     }
     const name = value.slice("delete:".length);
     try {
