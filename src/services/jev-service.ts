@@ -14,6 +14,7 @@ import {
 } from "../domain/jev.ts";
 import { assetPath } from "../infra/assets.ts";
 import { type JevTransport, jevRequest } from "../infra/jev-client.ts";
+import { addSecret, log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 
@@ -123,7 +124,17 @@ export async function askJev(runDir: string, set: SetName, state: unknown, o: Je
   }
   const apiKey = o.key === undefined ? jevKey() : o.key;
   if (!apiKey) return { answers: null, why: "no key", meta };
+  addSecret(apiKey);
   const res = await jevRequest("POST", "/systemone", apiKey, { model: f.model, state, questions }, o);
+  log(res.ok ? "info" : "warn", "jev", {
+    set,
+    questionSet: meta.questionSet,
+    stateHash: meta.stateHash,
+    requestId: res.ok ? res.requestId : null,
+    latencyMs: res.latencyMs,
+    attempts: res.attempts,
+    ...(res.ok ? {} : { error: res.error }),
+  });
   meta.latencyMs = res.latencyMs;
   meta.attempts = res.attempts;
   if (!res.ok) return { answers: null, why: res.error, meta };

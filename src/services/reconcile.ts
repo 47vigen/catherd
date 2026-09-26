@@ -3,6 +3,7 @@ import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, type Run } from "./run-store.ts";
 import { refreshState } from "./state.ts";
+import { log } from "../infra/log.ts";
 
 export interface ReconcileReport {
   finalized: string[];
@@ -63,5 +64,11 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
       for (const h of (await refreshState(run)).hints) warn(run, h);
     }
   }
+  log("info", "reconcile", {
+    runs: runs.length,
+    finalized: report.finalized.length,
+    watching: report.watching.length,
+    warnings: report.warnings,
+  });
   return { ...report, done: Promise.all(watchers).then(() => undefined) };
 }

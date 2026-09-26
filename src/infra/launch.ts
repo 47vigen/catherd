@@ -2,6 +2,7 @@ import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scrubSecrets } from "./env.ts";
+import { log as logRow } from "./log.ts";
 
 /** A thin executable that supervises one spec; unlike src/cli.ts it never loads the TUI. */
 export const SUPERVISE_ENTRY = fileURLToPath(new URL("../entry/supervise-bin.ts", import.meta.url));
@@ -18,5 +19,6 @@ export function launchSupervisor(specPath: string): number {
   });
   closeSync(log);
   p.unref();
+  logRow("info", "launch", { spec: specPath, pid: p.pid });
   return p.pid;
 }

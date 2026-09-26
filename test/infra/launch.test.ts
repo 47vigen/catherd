@@ -1,13 +1,15 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { launchSupervisor, SUPERVISE_ENTRY } from "../../src/infra/launch.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
+// the supervisor and launchSupervisor log (spec §10.2): keep their rows out of the real data dir
+beforeEach(() => void withHome());
 
 async function waitFor<T>(f: () => T | null, ms = 10_000): Promise<T> {
   const end = Date.now() + ms;

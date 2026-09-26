@@ -3,6 +3,7 @@ import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } f
 import { z } from "zod";
 import type { ExitInfo, ExitReason } from "../domain/record.ts";
 import { dispatchPaths } from "./dispatch-dir.ts";
+import { log } from "./log.ts";
 import { killGroup, processStartTime } from "./proc.ts";
 import { writeJsonAtomic } from "./store.ts";
 
@@ -114,6 +115,14 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
       stdout,
       stderr,
       detached: true,
+    });
+    log("info", "spawn", {
+      backend: spec.backend,
+      dispatch: spec.dispatchDir,
+      argv: [spec.cmd, ...spec.args],
+      env: spec.env,
+      cwd: spec.cwd,
+      pid: child.pid,
     });
   } catch (e) {
     try {
