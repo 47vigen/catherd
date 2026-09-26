@@ -36,7 +36,8 @@ bunx catherd-cli init
 
 The npm package is `catherd-cli`; the command it installs is `catherd`. `init` asks for the optional Jev key,
 writes the default profile and links its Claude agents, lists your backends' models, and ends with a readiness
-report (`--no-input` asks nothing and keeps what exists). Then add the plugin to Claude Code:
+report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile
+instead of `default`; piped, it reads one answer per line once stdin closes). Then add the plugin to Claude Code:
 
 ```sh
 claude plugin marketplace add 47vigen/catherd
@@ -56,20 +57,23 @@ In Claude Code:
 
 In a terminal:
 
-| Command                                                                                | What it does                                                             |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `catherd`                                                                              | The TUI                                                                  |
-| `catherd init [--no-input]`                                                            | First-run setup                                                          |
-| `catherd doctor [--json]`                                                              | Readiness report, one row per check with its fix; exits 3 when not ready |
-| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate` | Profiles; `use --repo` binds one to the repo you are in                  |
-| `catherd profile set <path> <value> [--profile <p>]`                                   | One field, e.g. `roles.verifier.access read-only`, `budget.usd 20`       |
-| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                      | Where runs stand                                                         |
-| `catherd runs list [--repo <path>]\|show <id> [--debug]\|cancel <id> <name>`           | Past runs; `--debug` adds exit.json and the stderr and event tails       |
-| `catherd catalog refresh\|list\|treat-like <rung> <like>`                              | The models catherd can place                                             |
-| `catherd lock [--slots N] -- <cmd>`                                                    | Runs a heavy command behind the machine-wide semaphore                   |
+| Command                                                                                   | What it does                                                                             |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `catherd`                                                                                 | The TUI                                                                                  |
+| `catherd init [--no-input] [--profile <p>]`                                               | First-run setup                                                                          |
+| `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                 |
+| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                  |
+| `catherd profile use --repo --clear`                                                      | Unbinds the repo you are in; it runs on the active profile again                         |
+| `catherd profile set <path> <value> [--profile <p>]`                                      | One field, e.g. `roles.verifier.access read-only`, `budget.usd 20`                       |
+| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                         | Where runs stand                                                                         |
+| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>` | Past runs; `--debug` adds exit.json and the stderr and event tails, `--name` one role's  |
+| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                   |
+| `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                  |
+| `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty) |
 
-Run them as `bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes
-`--json`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
+A profile command without a profile name (`show`, `set`, `diff`, `validate`), like the MCP profile tools, acts
+on the profile the repo you are in runs on: the one bound to it, else the active one. Run them as
+`bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes `--json`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
 `error E_CODE: message` and a `fix:` line. `--verbose` (or `CATHERD_LOG=debug`) logs more to
 `~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The TUI takes `--plain` (ASCII only)
 and `--reduced-motion`; `doctor` takes `--plain` too.
