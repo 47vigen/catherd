@@ -82,3 +82,16 @@ Plan 7 re-check: f13c93e (13 tasks; new T13 resolveKeybinds refuses leader/print
 Plan-7 writer found: TUI drops the j sent right after Profiles shows ROLES (PTY flake root cause). Added to fix round 2 as Important. HANDOFF says plan 7 has 12 tasks → update at handoff edit.
 Fix round 2 cherry-picked f570ed1..f85ff6f (15bde24 opaque toasts, 53ab985 runs errors, 5b5ceea padEnd doc, 34fd93f List snap effect reads selectedRef (dropped key root cause), 64910c4 PTY per-case tmux server + wait for exit code; load 144/0). NOTE plan 7 T10 also adds per-test tmux server — preflight must reconcile.
 Final fix wave round 2: controller-verified (gate 981 pass; tmux plain toast clean; list.tsx diff read). Ruling: no separate re-review for round 2 — small, pinned by RED/GREEN tests and load run 144/0 — cost: low. PLAN 6 IMPLEMENTATION COMPLETE → PR ready for Codex review.
+PR #9 marked ready; @codex review requested (head 72fde66). Codex round 1 pending.
+Codex round 1 (72fde66): P1 pending save overwrites newer edits / persists after discard (profile-actions.ts:217); P2 profile-list read throws in key handler (:24). Ruling: save dialog non-dismissible while writing + quit blocked mid-write + revision-guarded completion; key-handler reads routed to error toasts — cost: small. Fix worker dispatched (reset 72fde66).
+Codex r1 fixed: 6b60824 (P2), c58856b (P1); gate 986 pass. Deviation: q/<leader>q don't exit while saving but show no toast (app scope off in dialogs); ctrl+c toasts.
+Codex r1: replied + resolved both threads; @codex review re-triggered on c58856b (round 2).
+Codex r2 (c58856b): P2 stale button focus in save/confirm dialogs on burst. Burst tests pass even before (flushSync keeps handlers fresh); added focus refs defensively + 2 burst tests in b12bc76.
+Codex r3 (b12bc76): P2 save preview stale vs concurrent file change (re-preview before save, re-confirm if changed); P2 profiles poll error shown as pending. Fix worker dispatched (reset b12bc76).
+Codex r3 fixed: e1f9823 (re-preview on save), abdd715 (poll/catalog error shown), 3efb4ea (no save before replaced preview drawn — renderer frame event), 7439806 (failed profile read shown). Gate 995 pass.
+Codex r4 (7439806): P2 later profiles poll failure hidden behind cached value. Ruling: error line in Profiles+Status, pickers re-read when poll in error. Fix worker dispatched.
+Codex r4 fixed: a42f24e (a83953c). Gate 997 pass.
+Codex r5 (a42f24e): P2 treat-like await window before patchProfile. Ruling: compare-and-swap — patchProfile(name, patch, {expect}) under lock; TUI passes the previewed file doc; refusal re-previews — robust vs any window — cost: one optional arg on patchProfile. Worker dispatched.
+Codex r5 fixed: 50b6ce4 (ea9b80c) patchProfile expect CAS. Gate 1000 pass.
+Ruling (OWNER, 2026-09-26): Codex fix rounds capped at 4 per PR; plan 6 (already at round 6) merges after round 6 — any round-6 findings fixed with tests + green CI, no further bot round. Applies to plans 7 and 8.
+Codex r6 (50b6ce4): P2 activate scope stale if binding changes while prompt open; P2 confirmed revert restores old base not disk. Ruling (owner: merge after this round; cap 4): both deferred to plan 7 as a hardening task with tests; replied + resolved. PLAN 6 MERGE.
