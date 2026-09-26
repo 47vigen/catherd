@@ -75,12 +75,19 @@ function RunList(props: { width: number; height: number }) {
     ),
   }));
   const warnings = data.runs.value?.warnings ?? [];
-  // a read that failed after a good one: the rows shown are the last good ones, and it says so
-  const failed = data.runs.error !== null && data.runs.value !== null ? data.runs.error : null;
+  // a failed read says so, whether rows from an earlier good read are shown, none were, or none exist
+  const failed = data.runs.error;
+  const failure = failed ? (
+    <Line
+      width={props.width}
+      parts={[{ text: ` ${glyph("fail", ui.plain)} could not read the runs: ${failed}`, tone: "error" }]}
+    />
+  ) : null;
   if (rows.length === 0 && data.runs.value) {
     const art = mascot("waiting");
     return (
-      <box flexDirection="column" width={props.width} height={props.height} paddingTop={2}>
+      <box flexDirection="column" width={props.width} height={props.height} paddingTop={failed ? 1 : 2}>
+        {failure}
         {art.map((l) => (
           <Line key={l} width={props.width} parts={[{ text: `   ${l}`, tone: "muted" }]} />
         ))}
@@ -102,12 +109,7 @@ function RunList(props: { width: number; height: number }) {
           { text: `  ${updated}`, tone: app.state.paused ? "warning" : "muted" },
         ]}
       />
-      {failed ? (
-        <Line
-          width={props.width}
-          parts={[{ text: ` ${glyph("fail", ui.plain)} could not read the runs: ${failed}`, tone: "error" }]}
-        />
-      ) : null}
+      {failure}
       <List
         items={items}
         selected={selected}
@@ -115,7 +117,7 @@ function RunList(props: { width: number; height: number }) {
         width={props.width}
         height={props.height - 1 - (failed ? 1 : 0) - Math.min(2, warnings.length)}
         filter={null}
-        empty="reading runs…"
+        empty={failed ? "no runs read yet" : "reading runs…"}
       />
       {warnings.slice(0, 2).map((w) => (
         <Line

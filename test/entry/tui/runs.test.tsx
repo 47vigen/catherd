@@ -47,6 +47,28 @@ describe("the Runs tab (spec §9.1)", () => {
     expect(f).toContain("Jobs screen");
   });
 
+  it("says the first read failed instead of 'reading runs…'", async () => {
+    const fx = fixtureEffects();
+    fx.runs = () => {
+      throw new Error("runs directory is not readable");
+    };
+    await runs(fx);
+    expect(h!.s.frame()).toContain("could not read the runs: runs directory is not readable");
+    expect(h!.s.frame()).not.toContain("reading runs…");
+  });
+
+  it("says a read failed after a good read of no runs, over the empty screen", async () => {
+    const fx = fixtureEffects();
+    fx.runs = () => ({ rows: [], warnings: [] });
+    await runs(fx);
+    expect(h!.s.frame()).toContain("No runs yet");
+    fx.runs = () => {
+      throw new Error("runs directory is not readable");
+    };
+    await h!.advance(RUNS_EVERY_MS);
+    expect(h!.s.frame()).toContain("could not read the runs: runs directory is not readable");
+  });
+
   it("opens a run: live lanes, climbs, routes, budget bar, landed milestones; esc goes back", async () => {
     await runs();
     await h!.s.press("return");
