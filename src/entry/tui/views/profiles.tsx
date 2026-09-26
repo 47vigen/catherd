@@ -1,0 +1,320 @@
+import { useEffect, useMemo, useState } from "react";
+import { resolveProfile } from "../../../domain/profile.ts";
+import { hereWord } from "../effects.ts";
+import { useApp, useDialogHandler } from "../providers/app.tsx";
+import { useData, useLoad } from "../providers/data.tsx";
+import { useCommandLayer } from "../providers/keymap.tsx";
+import { useUi } from "../providers/theme.tsx";
+import {
+  buildRows,
+  failoverOptions,
+  filterRows,
+  firstMatch,
+  numberPatch,
+  numberValue,
+  parseNumber,
+  patchFor,
+  type Row,
+  type RowAction,
+  startOptions,
+  treatLikeOptions,
+  withStaged,
+} from "../profile-tree.ts";
+import { currentDraft, dirtyCount } from "../state.ts";
+import { wrap } from "../text.ts";
+import { glyph, STATE_TOKEN } from "../theme.ts";
+import { Line, type Part } from "../widgets/line.tsx";
+import { List, type ListItem } from "../widgets/list.tsx";
+import { openActivate, openNewProfile, openRevert, openSave, showProfile } from "./profile-actions.ts";
+
+/** What a row does, for the line under the tree when it has no issue. */
+const ABOUT: Partial<Record<RowAction["type"], string>> = {
+  role: "space turns the role on or off; enter opens its access, default rung and models",
+  access:
+    "enter cycles read-only → workspace-write → full; enforced: the backend stops a write, advisory: it is only asked",
+  start: "enter picks where a lane starts without a kind and difficulty",
+  model: "enter opens its efforts; space never changes a rung",
+  rung: "space ticks this rung onto the role's ladder; routing orders the ladder by cost",
+  objective: "enter switches between cost and speed",
+  jev: "enter turns Jev on (auto: when a key exists) or off",
+  isolated: "space runs the backend with catherd's own config instead of yours",
+  number: "enter edits the value",
+  failover: "enter picks the stand-in on a usage limit; it runs on a fresh thread",
+  notify: "space turns this notification on or off",
+};
+
+/**
+ * Spec §9.1 tab 2: the profile's line, then one tree (roles → access + backend → model → efforts, then
+ * routing, harness, budget, failover, timeouts, notify), then a line about the selected row. Every edit
+ * is staged in the draft; nothing is written before ctrl+s.
+ */
+export function ProfilesView(props: { width: number; height: number }) {
+  const app = useApp();
+  const data = useData();
+  const ui = useUi();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["role:worker"]));
+  const [filter, setFilter] = useState<string | null>(null);
+  const draft = currentDraft(app.state);
+  const here = data.profiles.value?.here ?? null;
+  useEffect(() => {
+    if (!app.state.profile && here) showProfile(app, here);
+  }, [app.state.profile, here, app]);
+  const profile = useMemo(() => (draft ? resolveProfile(draft.doc, draft.name) : null), [draft]);
+  const billingKey = JSON.stringify(profile?.billing ?? {});
+  const loaded = useLoad(() => (profile ? app.effects.catalog(profile.billing) : null), billingKey);
+  const catalog = useMemo(
+    () => (loaded.value && draft ? withStaged(loaded.value.catalog, draft.treatLikes) : null),
+    [loaded.value, draft],
+  );
+  const validation = useMemo(
+    () => (profile && catalog ? app.effects.validate(profile, catalog) : { errors: [], warnings: [] }),
+    [profile, catalog, app.effects],
+  );
+  const rows: Row[] = useMemo(() => {
+    if (!profile || !catalog || !loaded.value || !draft) return [];
+    const all = buildRows({
+      profile,
+      models: loaded.value.models,
+      catalog,
+      staged: draft.treatLikes,
+      expanded,
+      harnesses: app.effects.harnesses,
+      enforcement: app.effects.enforcement,
+      validation,
+      expandAll: Boolean(filter),
+    });
+    return filter ? filterRows(all, filter) : all;
+  }, [profile, catalog, loaded.value, draft, expanded, filter, validation, app.effects]);
+  const row = rows.find((r) => r.key === selected) ?? null;
+  // typing a filter puts the cursor on the first row that matches it
+  useEffect(() => {
+    if (!filter) return;
+    const m = firstMatch(rows, filter);
+    if (m) setSelected(m.key);
+  }, [filter, rows]);
+  /** the draft as it is now: two keys in one tick must not both edit the profile this render drew */
+  const current = () => {
+    const d = currentDraft(app.getState());
+    return d ? resolveProfile(d.doc, d.name) : null;
+  };
+  const edit = (patch: ReturnType<typeof patchFor>) => patch && app.dispatch({ type: "edit", patch });
+  const toggleOpen = (r: Row, open?: boolean) =>
+    setExpanded((e) => {
+      const next = new Set(e);
+      if (open ?? !next.has(r.key)) next.add(r.key);
+      else next.delete(r.key);
+      return next;
+    });
+  const pick = (r: Row) => {
+    if (!profile || !loaded.value || !catalog) return;
+    const a = r.action;
+    if (a.type === "start")
+      app.dispatch({
+        type: "open",
+        dialog: {
+          kind: "select",
+          purpose: { type: "start", role: a.role },
+          title: `Default rung for ${a.role}`,
+          options: startOptions(profile, a.role),
+          empty: "no rungs",
+        },
+      });
+    else if (a.type === "failover")
+      app.dispatch({
+        type: "open",
+        dialog: {
+          kind: "select",
+          purpose: { type: "failover", rung: a.rung },
+          title: `Stand-in for ${a.rung}`,
+          options: failoverOptions(profile, loaded.value.models, catalog, a.rung),
+          empty: "no scored rung on another quota",
+        },
+      });
+    else if (a.type === "rung" && !a.scored)
+      app.dispatch({
+        type: "open",
+        dialog: {
+          kind: "select",
+          purpose: { type: "treatLike", rung: a.rung, role: a.role },
+          title: `Treat ${a.rung} like…`,
+          options: treatLikeOptions(catalog),
+          empty: "no scored rung",
+        },
+      });
+    else if (a.type === "number") {
+      const v = numberValue(profile, a.path);
+      app.dispatch({
+        type: "open",
+        dialog: {
+          kind: "prompt",
+          purpose: { type: "number", path: a.path },
+          title: `Set ${a.path}`,
+          label: a.path.startsWith("budget.") ? "a number above 0; empty for no cap" : "minutes, above 0",
+          value: v === undefined ? "" : String(v),
+          error: null,
+        },
+      });
+    }
+  };
+  const primary = (r: Row | null) => {
+    const p = current();
+    if (!r || !p) return;
+    const a = r.action;
+    if (a.type === "role" || a.type === "model") return toggleOpen(r);
+    if (
+      a.type === "start" ||
+      a.type === "failover" ||
+      a.type === "number" ||
+      (a.type === "rung" && !a.scored)
+    )
+      return pick(r);
+    edit(patchFor(p, a));
+  };
+  const toggle = (r: Row | null) => {
+    const p = current();
+    if (!r || !p) return;
+    const a = r.action;
+    if (a.type === "model") return toggleOpen(r);
+    if (a.type === "rung" && !a.scored) return pick(r);
+    if (a.type === "role" || a.type === "rung" || a.type === "isolated" || a.type === "notify")
+      edit(patchFor(p, a));
+  };
+  useCommandLayer("tab.profiles", {
+    "profile.save": () => openSave(app),
+    "profile.activate": () => openActivate(app, data),
+    "profile.copy": () => draft && openNewProfile(app, draft.name),
+    "profile.revert": () => openRevert(app),
+    "catalog.refresh": () => {
+      void app.effects.refreshCatalog().then(
+        () => {
+          loaded.refresh();
+          app.toast({ variant: "success", message: "Catalog refreshed" });
+        },
+        (e: unknown) => app.toast({ variant: "error", message: e instanceof Error ? e.message : String(e) }),
+      );
+    },
+    "edit.undo": () => app.dispatch({ type: "undo" }),
+    "edit.redo": () => app.dispatch({ type: "redo" }),
+  });
+  useCommandLayer("row.profiles", {
+    "tree.toggle": () => toggle(row),
+    "tree.open": () => primary(row),
+    "tree.expand": () => row?.expandable && toggleOpen(row, true),
+    "tree.collapse": () => {
+      if (!row) return;
+      if (row.expandable && row.expanded) return toggleOpen(row, false);
+      let p = rows.find((r) => r.key === row.parent);
+      while (p && !p.selectable) p = rows.find((r) => r.key === p?.parent);
+      if (p) setSelected(p.key);
+    },
+  });
+  useDialogHandler("start", (p, value) => {
+    app.dispatch({ type: "close" });
+    if (p.type === "start") edit({ roles: { [p.role]: { defaultRung: value || null } } });
+  });
+  useDialogHandler("failover", (p, value) => {
+    app.dispatch({ type: "close" });
+    if (p.type === "failover") edit({ failover: { [p.rung]: value || null } });
+  });
+  useDialogHandler("treatLike", (p, value) => {
+    app.dispatch({ type: "close" });
+    const prof = current();
+    if (p.type !== "treatLike" || !prof) return;
+    app.dispatch({ type: "treatLike", rung: p.rung, like: value });
+    if (p.role && !prof.roles[p.role].rungs.includes(p.rung))
+      edit(patchFor(prof, { type: "rung", role: p.role, rung: p.rung, scored: true }));
+  });
+  useDialogHandler("number", (p, value) => {
+    if (p.type !== "number") return;
+    const r = parseNumber(p.path, value);
+    if ("error" in r) return app.dispatch({ type: "invalid", error: r.error });
+    app.dispatch({ type: "close" });
+    edit(numberPatch(p.path, r.value));
+  });
+
+  const unsaved = draft ? dirtyCount(draft) : 0;
+  const top: Part[] = draft
+    ? [
+        { text: " PROFILE ", bold: true },
+        { text: draft.name, bold: true },
+        {
+          text: draft.name === here ? ` (${hereWord(data.profiles.value ?? { repo: null })})` : "",
+          tone: "muted",
+        },
+        { text: unsaved ? ` · ${unsaved} unsaved` : "", tone: "warning" },
+        { text: `   ${glyph("dot", ui.plain)} ctrl+x l switch · ctrl+x n new`, tone: "muted" },
+      ]
+    : [{ text: " reading the profile…", tone: "muted" }];
+  const about = row?.issue
+    ? [
+        {
+          text: ` ${glyph(row.issue.level === "error" ? "fail" : "warn", ui.plain)} ${row.issue.message}`,
+          tone: STATE_TOKEN[row.issue.level === "error" ? "fail" : "warn"],
+        },
+        ...(row.issue.fix ? [{ text: ` fix: ${row.issue.fix}`, tone: "muted" as const }] : []),
+      ]
+    : [{ text: ` ${(row && ABOUT[row.action.type]) ?? ""}`, tone: "muted" as const }];
+  const aboutLines = about
+    .flatMap((p) => wrap(p.text, props.width).map((text) => ({ ...p, text })))
+    .slice(0, 2);
+  const items: ListItem[] = rows.map((r) => ({
+    key: r.key,
+    selectable: r.selectable,
+    render: (sel, w) => {
+      const indent = "  ".repeat(r.depth);
+      const marker = r.expandable ? `${glyph(r.expanded ? "open" : "shut", ui.plain)} ` : "  ";
+      const check = r.check === null ? "" : `${glyph(r.check ? "on" : "off", ui.plain)} `;
+      const issue = r.issue ? ` ${glyph(r.issue.level === "error" ? "fail" : "warn", ui.plain)}` : "";
+      if (!r.selectable)
+        return (
+          <Line
+            width={w}
+            parts={[
+              {
+                text: ` ${indent}${r.label}`,
+                bold: r.depth === 0,
+                tone: r.depth === 0 ? undefined : "muted",
+              },
+              { text: r.value ? `  ${r.value}` : "", tone: "muted" },
+            ]}
+          />
+        );
+      const labelWidth = Math.max(14, 30 - r.depth * 2);
+      return (
+        <Line
+          width={w}
+          selected={sel}
+          dim={r.dim}
+          parts={[
+            { text: ` ${indent}${marker}${check}` },
+            {
+              text: r.label.length + 2 > labelWidth ? `${r.label}  ` : r.label.padEnd(labelWidth),
+              bold: r.depth === 1,
+            },
+            { text: r.value, tone: "muted" },
+            { text: issue, tone: r.issue?.level === "error" ? "error" : "warning" },
+          ]}
+        />
+      );
+    },
+  }));
+  return (
+    <box flexDirection="column" width={props.width} height={props.height}>
+      <Line width={props.width} parts={top} />
+      <List
+        items={items}
+        selected={selected}
+        onSelect={setSelected}
+        width={props.width}
+        height={props.height - 3}
+        filter={filter}
+        onFilter={setFilter}
+        empty={loaded.error ?? "reading the catalog…"}
+      />
+      {[0, 1].map((i) => (
+        <Line key={i} width={props.width} parts={aboutLines[i] ? [aboutLines[i]] : []} />
+      ))}
+    </box>
+  );
+}
