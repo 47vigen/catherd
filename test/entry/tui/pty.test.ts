@@ -11,12 +11,14 @@ import { dirname, join } from "node:path";
 const TMUX = Bun.which("tmux");
 const CLI = join(import.meta.dir, "..", "..", "..", "src", "cli.ts");
 // a private tmux server with no config: never the developer's server, its environment or ~/.tmux.conf;
-// its socket lives in a temp dir this file removes, since tmux leaves the socket file behind
+// its socket lives in a temp dir this file removes, since tmux leaves the socket file behind. Each case
+// has a server of its own: one that is still shutting down from the case before takes a new session
+// down with it (a blank pane until the deadline, seen under load)
 const SOCKET_DIR = mkdtempSync(join(tmpdir(), "catherd-pty-tmux-"));
-const SOCKET = join(SOCKET_DIR, "tmux");
+let socket = join(SOCKET_DIR, "tmux");
 const tmux = (...args: string[]) =>
   new TextDecoder().decode(
-    Bun.spawnSync([TMUX as string, "-S", SOCKET, "-f", "/dev/null", ...args], { env: process.env }).stdout,
+    Bun.spawnSync([TMUX as string, "-S", socket, "-f", "/dev/null", ...args], { env: process.env }).stdout,
   );
 afterEach(() => {
   tmux("kill-server");
@@ -36,10 +38,19 @@ async function until(what: string, f: () => boolean, ms = 20_000): Promise<void>
   }
 }
 
+/** The exit code the shell wrote: `echo $? > exit` creates the file before it writes the code. */
+async function exitCode(home: string): Promise<string> {
+  const file = join(home, "exit");
+  const read = () => (existsSync(file) ? readFileSync(file, "utf8") : "");
+  await until("the exit", () => read().endsWith("\n"));
+  return read().trim();
+}
+
 async function start(args: string) {
   const home = mkdtempSync(join(tmpdir(), "catherd-pty-"));
   homes.push(home);
   const name = `catherd-${started++}`;
+  socket = join(SOCKET_DIR, name);
   // `env -i`: the binary sees only these, whatever the test runner or the tmux server has
   const env = [
     `HOME=${home}`,
@@ -89,8 +100,7 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
     await t.keys("Enter");
     await until("the save", () => !t.screen().includes("unsaved"));
     await t.keys("q");
-    await until("the exit", () => existsSync(join(t.home, "exit")));
-    expect(readFileSync(join(t.home, "exit"), "utf8").trim()).toBe("0");
+    expect(await exitCode(t.home)).toBe("0");
     // the alternate screen is gone and the line to keep is on the terminal (spec §9.4)
     expect(t.screen()).not.toContain("SETUP");
     expect(t.screen()).toContain(
@@ -104,8 +114,7 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
     const t = await start("watch");
     await until("the runs tab", () => t.screen().includes("No runs yet"));
     await t.keys("q");
-    await until("the exit", () => existsSync(join(t.home, "exit")));
-    expect(readFileSync(join(t.home, "exit"), "utf8").trim()).toBe("0");
+    expect(await exitCode(t.home)).toBe("0");
   }, 60_000);
 
   it("exits 130 when unsaved changes are discarded with ctrl+c twice", async () => {
@@ -116,8 +125,7 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
     await t.keys("j", "Space");
     await until("the staged change", () => t.screen().includes("1 unsaved"));
     await t.keys("C-c", "C-c");
-    await until("the exit", () => existsSync(join(t.home, "exit")));
-    expect(readFileSync(join(t.home, "exit"), "utf8").trim()).toBe("130");
+    expect(await exitCode(t.home)).toBe("130");
     expect(existsSync(join(t.home, "config", "profiles", "default.json"))).toBe(false);
   }, 60_000);
 });
