@@ -12,7 +12,7 @@ Read it after the spec, before touching any plan.
 | 3 adapters (claude-code, opencode v2, capture kit) | `…-03-adapters.md` | merged (PR #5) |
 | 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6), 7 Codex review rounds |
 | 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **in progress**: tasks 1, 2, 3, 7, 8 merged (PR #7); 4, 5, 6, 9–14 to do |
-| 6 TUI (opencode-style, `@opentui/keymap`) | `…-2026-09-26-06-tui.md` if present | **draft only, not pre-validated** (see below) |
+| 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | written, tasks 1–12 pre-validated against plan 5 as written; re-check after plan 5 |
 | 7 hardening, CI matrix, release 1.0 (Changesets) | — | to write |
 | 8 Cursor CLI (1.1), Grok CLI (1.2) | — | to write |
 
@@ -38,10 +38,16 @@ Research behind the spec: `docs/research/2026-09-25-*.md` (audit, opencode, open
 
 ### Plan 6 — draft status
 
-A plan writer drafted plan 6 from spec §9, the opencode-TUI research and the keymap prototype, against plan 5
-**as written** (plan 5 was not finished). If `docs/superpowers/plans/2026-09-26-06-tui.md` exists it is a draft:
-after plan 5 merges, have a plan writer re-check it against the real code and pre-validate every task in a
-scratch copy before executing it. If it does not exist, write plan 6 from scratch.
+`docs/superpowers/plans/2026-09-26-06-tui.md` is written (13 tasks, 20 rulings; waves
+{1,2,4} → {3,5} → {6} → {7} → {8} → {9,10} → {11} → {12} → {13}). Tasks 1–12 were built and tested in a
+scratch clone with plan 5's profile, validation, agent-file, profile-service and doctor modules copied from
+plan 5's text (1,041 pass, 66 frame snapshots, a tmux run of `catherd` and `catherd watch`). **Not yet
+validated:** Task 12's edits to plan 5's `cli.ts` / `runs-command.ts` and its `--help` test, and Task 13 except
+the notices file. After plan 5 merges, have a plan writer re-check plan 6 against the real code, pre-validate
+Tasks 12–13, and commit the fixes before executing. Writer rulings to check: cancelling a live run uses
+`ctrl+d` pressed twice (the spec's "esc again" conflicts with `esc` only backing out); Profiles frame snapshots
+read the shipped catalog, so catalog updates mean regenerating them and `docs/tui-frames.md`; the PTY test
+skips on runners without tmux.
 
 ## Waves
 

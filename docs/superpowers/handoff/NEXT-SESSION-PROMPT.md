@@ -68,12 +68,11 @@ Codex accounts.
    task reviews for Tasks 2, 3 and 8 (already on `main`) and fix any findings. Then waves {4} → {5} →
    {6, 9, 10, 11, 12} → {13, 14}, applying the pre-flight rulings in `plan5-ledger.md`. Then the final
    whole-branch review over all of plan 5, the Codex bot rounds, and merge.
-2. **Plan 6 (TUI):** if `docs/superpowers/plans/2026-09-26-06-tui.md` exists, it is an unvalidated draft
-   written before plan 5 finished — have a plan writer check it against the real code and pre-validate every
-   task in a scratch copy, then commit it. Otherwise write it from spec §9,
-   `docs/research/2026-09-25-opencode-tui.md` and `docs/research/2026-09-25-keymap-proto/`. The TUI was the
-   worst part of the MVP: make it feel as solid as opencode's — keyboard-first, predictable shortcuts, no
-   surprises.
+2. **Plan 6 (TUI):** `docs/superpowers/plans/2026-09-26-06-tui.md` is written (13 tasks; tasks 1–12
+   pre-validated against plan 5 as written). After plan 5 merges, have a plan writer re-check it against the
+   real code, pre-validate Tasks 12–13, commit the fixes, then execute it. HANDOFF.md lists its open rulings.
+   The TUI was the worst part of the MVP: make it feel as solid as opencode's — keyboard-first, predictable
+   shortcuts, no surprises.
 3. **Plan 7 (hardening + release 1.0), to write:** every plan-7 carry-over in HANDOFF.md, a Linux + macOS CI
    matrix, live-test docs, the Changesets release of 1.0, and tag/publish per the repo's release tooling.
 4. **Plan 8, to write:** Cursor CLI adapter (release 1.1), then Grok CLI adapter (release 1.2), from
