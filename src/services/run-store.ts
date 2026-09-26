@@ -4,7 +4,7 @@ import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
-import type { RouteRow } from "../domain/route.ts";
+import type { OutcomeRow, RouteRow } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
@@ -45,6 +45,7 @@ export function runPaths(dir: string) {
     runs: join(dir, "runs.jsonl"),
     routes: join(dir, "routes.jsonl"),
     jev: join(dir, "jev.jsonl"),
+    outcomes: join(dir, "outcomes.jsonl"),
     agents: join(dir, "agents.jsonl"),
     harness: join(dir, "harness.jsonl"),
     roles: join(dir, "roles"),
@@ -186,6 +187,16 @@ export function appendRoute(run: Run, row: RouteRow): void {
   const file = runPaths(run.dir).routes;
   ensureJsonlHeader(file, "routes");
   appendJsonl(file, row);
+}
+
+export function appendOutcome(run: Run, row: OutcomeRow): void {
+  const file = runPaths(run.dir).outcomes;
+  ensureJsonlHeader(file, "outcomes");
+  appendJsonl(file, row);
+}
+
+export function readOutcomes(run: Run): OutcomeRow[] {
+  return readJsonl<OutcomeRow>(runPaths(run.dir).outcomes).rows.filter((r) => typeof r?.lane === "string");
 }
 
 export const AgentRunSchema = z.looseObject({

@@ -7,6 +7,7 @@ import type { Role } from "../domain/roles.ts";
 import {
   type ClimbReason,
   currentRoute,
+  laneOutcome,
   nextRung,
   type RouteJev,
   type RouteSource,
@@ -17,6 +18,7 @@ import { budgetOf } from "./budget.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendLedger,
+  appendOutcome,
   appendRoute,
   findRun,
   knowledgeFile,
@@ -105,7 +107,7 @@ export async function route(
 /** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
 export async function climb(
   deps: Deps,
-  i: { run: string; lane: string; reason: ClimbReason; evidence?: string },
+  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
 ): Promise<{
   lane: string;
   rung: string;
@@ -130,7 +132,13 @@ export async function climb(
       from: cur.rung,
       rung: next ?? cur.rung,
       reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
+      env: i.env === true,
     });
+    // spec §5.6: a climb past the top rung ends the lane open
+    if (!next) {
+      const o = laneOutcome(readRoutes(run), i.lane, false, new Date(deps.now()).toISOString());
+      if (o) appendOutcome(run, o);
+    }
     return { cur, next };
   });
   const { hints } = await refreshState(run, {
@@ -187,6 +195,13 @@ export async function land(
   };
   // on a failed refresh the notes still reach state.json, so the next landing counts its minutes from this one
   const { hints } = await refreshState(run, landRow);
+  // spec §5.6: every routed lane of the milestone lands with it
+  const routes = readRoutes(run);
+  for (const lane of new Set(routes.map((r) => r.lane)))
+    if (lane.startsWith(`${i.milestone}.`)) {
+      const o = laneOutcome(routes, lane, true, now.toISOString());
+      if (o) appendOutcome(run, o);
+    }
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
     mkdirSync(dirname(file), { recursive: true });
