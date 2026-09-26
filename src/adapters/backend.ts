@@ -35,9 +35,9 @@ export interface RunRequest {
 }
 
 /**
- * `env` holds only the adapter's overrides. The caller builds the worker's env with
- * `workerEnv(process.env, plan.env, plan.cwd)`, the only place secrets are scrubbed and PWD is set;
- * the supervisor passes the env it is given unchanged.
+ * `env` holds only the adapter's overrides, never PWD. Admission writes them to spec.json with PWD added
+ * and nothing else, so no credential reaches disk; the `_supervise` process builds the worker's env at
+ * spawn time with `workerEnv(process.env, spec.env, spec.cwd)`, the only place secrets are scrubbed.
  */
 export interface SpawnPlan {
   cmd: string;
@@ -76,23 +76,42 @@ export interface Outcome {
   costUsd: number | null;
   images: string[];
   error: { code: string; message: string } | null;
+  /** The role's reply, for a CLI that streams it rather than writing the reply file (absent: the file is the reply). */
+  reply?: string;
+}
+
+/** What earlier records on the same thread already counted, so a session total becomes this run's share. */
+export interface Spent {
+  tokens: Tokens;
+  costUsd: number;
 }
 
 export interface BackendAdapter {
   id: AdapterId;
   minVersion: string;
   probe(): Promise<Probe>;
-  listModels(): Promise<DiscoveredModel[]>;
+  /** The models the backend offers; in `repo` when given, for a backend whose listing depends on it. */
+  listModels(repo?: string): Promise<DiscoveredModel[]>;
+  /**
+   * Refuses a rung this backend cannot run and readies the backend's own config, before admission writes
+   * anything (spec §6.3: variants are validated before dispatch). Throws a CatherdError.
+   */
+  prepare?(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void>;
   plan(req: RunRequest): SpawnPlan;
   parse(line: string): EventDelta;
   finalize(run: FinishedRun): Outcome;
+  /**
+   * Spec §6.3: the backend's own account of a finished session, for a stream that undercounts. Returns
+   * `o` refined; never throws (the caller also cuts it off after a timeout and keeps `o`).
+   */
+  settle?(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outcome>;
   enforcement: Record<Access, "enforced" | "advisory">;
   errors: { limit: RegExp[]; tooOld: RegExp[] };
   resume: { supported: boolean; sameAccessOnly: boolean; threadPattern: RegExp };
   interrupt?(thread: string, cwd: string): Promise<void>;
   isBusy?(thread: string, cwd: string): Promise<boolean>;
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
-  failoverFor?(rung: Rung): Rung | null;
+  failoverFor?(rung: Rung, repo?: string): Rung | null;
   graceAfterFinalMs: number | null;
 }
 

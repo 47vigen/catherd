@@ -111,11 +111,10 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    deps.view.roles.worker?.rungs.push("opencode:opencode-go/kimi-k3#default");
+    // Cursor has no adapter until 1.1.
+    deps.view.roles.worker?.rungs.push("cursor:gpt-6-sol#default");
     expect(
-      await refusal(
-        admit(deps, run, input({ name: "w2", lane: null, rung: "opencode:opencode-go/kimi-k3#default" })),
-      ),
+      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "cursor:gpt-6-sol#default" }))),
     ).toBe("E_BACKEND_MISSING");
   });
 

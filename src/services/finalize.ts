@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { relative } from "node:path";
-import type { FinishedRun, Outcome } from "../adapters/backend.ts";
+import type { BackendAdapter, FinishedRun, Outcome, Spent } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { changedPaths, type Snapshot, splitChanges } from "../domain/changes.ts";
@@ -15,7 +15,7 @@ import {
 } from "../domain/record.ts";
 import { dispatchPaths, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { statusSnapshot } from "../infra/git.ts";
-import { appendJsonl, ensureJsonlHeader } from "../infra/store.ts";
+import { appendJsonl, ensureJsonlHeader, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
 import { appendRecord, readRecords, type Run, runPaths } from "./run-store.ts";
 
@@ -74,6 +74,45 @@ async function snapshotOrNull(repo: string): Promise<Snapshot | null> {
   }
 }
 
+/** How long a backend may take to settle a finished session before its stream's own figures stand. */
+export const settleLimits = { timeoutMs: 20_000 };
+
+/** What the run's earlier records on `thread` already counted: a resumed session's totals repeat them. */
+function priorOn(run: Run, backend: string, thread: string, self: string): Spent {
+  const earlier = readRecords(run).records.filter(
+    (r) => r.backend === backend && r.thread === thread && r.dispatchId !== self,
+  );
+  return {
+    tokens: {
+      input: earlier.reduce((n, r) => n + r.tokens.input, 0),
+      cached: earlier.reduce((n, r) => n + r.tokens.cached, 0),
+      output: earlier.reduce((n, r) => n + r.tokens.output, 0),
+    },
+    costUsd: earlier.reduce((n, r) => n + (r.costUsd ?? 0), 0),
+  };
+}
+
+/** The adapter's settled outcome, or `o` unchanged when it has none, throws, or is slower than the limit. */
+export async function settled(
+  adapter: BackendAdapter,
+  o: Outcome,
+  finished: FinishedRun,
+  prior: () => Spent,
+): Promise<Outcome> {
+  if (!adapter.settle || o.thread === null) return o;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<Outcome>((resolve) => {
+      timer = setTimeout(() => resolve(o), settleLimits.timeoutMs);
+    });
+    return await Promise.race([adapter.settle(o, finished, prior()), late]);
+  } catch {
+    return o;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const a = d.admit;
   const p = dispatchPaths(d.dir);
@@ -104,7 +143,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     startedAtMs: Date.parse(startedAt),
   };
   const adapter = adapterFor(a.backend);
-  const o: Outcome = adapter
+  const first: Outcome = adapter
     ? adapter.finalize(finished)
     : {
         status: "failed",
@@ -114,6 +153,12 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
         images: [],
         error: { code: "E_BACKEND_MISSING", message: `catherd has no ${a.backend} adapter` },
       };
+  const o = adapter
+    ? await settled(adapter, first, finished, () => priorOn(run, a.backend, first.thread ?? "", a.dispatchId))
+    : first;
+  // A CLI that streams its reply (claude, opencode) leaves reply.md to catherd.
+  if (o.reply !== undefined && o.reply !== reply) writeTextAtomic(p.reply, o.reply);
+  const replyText = o.reply ?? reply;
   const start = Date.parse(startedAt);
   const end = Date.parse(exit.endedAt);
   const after = await snapshotOrNull(a.repo);
@@ -125,7 +170,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
         a.lane !== null || a.access === "read-only",
       )
     : { changedOwned: [], violations: [] };
-  const reported = parseReplyStatus(reply);
+  const reported = parseReplyStatus(replyText);
   return {
     schema: 1,
     runId: run.id,

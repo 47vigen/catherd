@@ -1,0 +1,88 @@
+#!/usr/bin/env bun
+// Claude Code CLI simulator for catherd's tests: behaviour comes from the JSON scenario in CATHERD_SIM_CLAUDE.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_CLAUDE ?? "", "utf8")) as Record<string, any>;
+const args = process.argv.slice(2);
+const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+const fail = (text: string, code = 1): never => {
+  process.stderr.write(`${text}\n`);
+  process.exit(code);
+};
+
+if (args[0] === "--version" || args[0] === "-v") {
+  say(`${s.version ?? "2.1.282"} (Claude Code)`);
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  const loggedIn = s.loggedIn !== false;
+  say(JSON.stringify({ loggedIn, authMethod: loggedIn ? "oauth_token" : "none" }, null, 2));
+  process.exit(loggedIn ? 0 : 1);
+}
+
+const VALUE = [
+  "--output-format",
+  "--model",
+  "--effort",
+  "--resume",
+  "--session-id",
+  "--permission-mode",
+  "--permission-prompts",
+  "--allowedTools",
+  "--disallowedTools",
+];
+const BOOL = ["-p", "--print", "--verbose", "--safe-mode"];
+const opts: Record<string, string> = {};
+const prompt: string[] = [];
+for (let i = 0; i < args.length; i++) {
+  const a = args[i] as string;
+  if (!a.startsWith("-")) {
+    prompt.push(a);
+    continue;
+  }
+  if ((s.unknownFlags ?? []).includes(a) || (!VALUE.includes(a) && !BOOL.includes(a)))
+    fail(`error: unknown option '${a}'`);
+  opts[a] = VALUE.includes(a) ? (args[++i] ?? "") : "true";
+}
+if (!opts["-p"] && !opts["--print"]) fail("sim: only print mode is simulated", 2);
+const effort = opts["--effort"];
+if (effort && !["low", "medium", "high", "xhigh", "max"].includes(effort))
+  fail(
+    `error: option '--effort <level>' argument '${effort}' is invalid. Allowed choices are low, medium, high, xhigh, max.`,
+  );
+if (opts["--permission-mode"] === "bypassPermissions" && s.root)
+  fail("--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons");
+
+let stdin = "";
+try {
+  stdin = readFileSync(0, "utf8");
+} catch {
+  // no stdin
+}
+writeFileSync(
+  s.recordTo,
+  JSON.stringify({
+    args,
+    stdin: [...prompt, stdin].filter(Boolean).join("\n"),
+    cwd: process.cwd(),
+    pwd: process.env.PWD ?? null,
+    xdgConfig: process.env.XDG_CONFIG_HOME ?? null,
+    envKeys: Object.keys(process.env),
+  }),
+);
+const session = opts["--resume"] ?? opts["--session-id"] ?? "00000000-0000-4000-8000-000000000000";
+setTimeout(async () => {
+  for (const t of s.touch ?? []) {
+    mkdirSync(dirname(join(process.cwd(), t.path)), { recursive: true });
+    writeFileSync(join(process.cwd(), t.path), t.content);
+  }
+  if (s.eventsFile)
+    process.stdout.write(
+      readFileSync(s.eventsFile, "utf8")
+        .replace(/"session_id":"[^"]*"/g, `"session_id":"${session}"`)
+        .replaceAll("<repo>", process.cwd()),
+    );
+  if (s.hangMs) await Bun.sleep(s.hangMs);
+  process.exit(s.exitCode ?? 0);
+}, s.delayMs ?? 0);

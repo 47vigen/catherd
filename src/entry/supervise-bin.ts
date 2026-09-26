@@ -7,4 +7,11 @@ if (!spec) {
   console.error("usage: supervise-bin.ts <spec.json>");
   process.exit(2);
 }
-await runSupervise(spec);
+try {
+  await runSupervise(spec);
+} catch (e) {
+  console.error(`catherd supervisor: ${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}
+// exit.json is written: a hook's call the supervisor cut off (a hung `opencode api`) must not keep it alive.
+process.exit(0);

@@ -10,7 +10,7 @@ import { BUDGET_CHEAP_AT } from "../domain/budget.ts";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
-import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
+import { claudeBackendFor, DEFAULT_ACCESS, type Role, ROLES } from "../domain/roles.ts";
 import { agentName, claudeAgentsDir, saveProfileAndAgents } from "../profile/agents.ts";
 import {
   activeProfileName,
@@ -45,11 +45,17 @@ function v0<T>(f: () => T): T {
 
 const modelPart = (rung0: string) => rung0.slice(0, rung0.lastIndexOf("#"));
 
-export function toRung1(c: Catalog, rung0: string): string {
+/**
+ * The 0.x catalog calls every Claude model `claude`; `claude` says which Claude backend to name instead:
+ * a role's (spec D3), `claude-code` for a failover stand-in (dispatch runs it), `claude` when roleless.
+ */
+export function toRung1(c: Catalog, rung0: string, claude: "claude" | "claude-code" = "claude"): string {
   const model = modelPart(rung0);
   const backend = modelOf(c, model)?.backend ?? (model.includes("/") ? "opencode" : "codex");
-  return `${backend}:${rung0}`;
+  return `${backend === "claude" ? claude : backend}:${rung0}`;
 }
+
+const forRole = (c: Catalog, role: Role) => (r: string) => toRung1(c, r, claudeBackendFor(role));
 
 export function toRung0(rung1: string): string {
   const r = parseRung(rung1);
@@ -65,13 +71,13 @@ function view(p: Profile, c: Catalog): ProfileView {
     roles[role] = {
       enabled: p.roles[role].enabled,
       access: DEFAULT_ACCESS[role],
-      rungs: candidates(p, c, role).map((r) => toRung1(c, r)),
+      rungs: candidates(p, c, role).map(forRole(c, role)),
     };
   return {
     name: p.name,
     roles,
     isolated: { codex: p.harness.codex.isolated, opencode: p.harness.opencode.isolated },
-    failover: mapRungs(p.failover ?? {}, (r) => toRung1(c, r)),
+    failover: mapRungs(p.failover ?? {}, (r) => toRung1(c, r, "claude-code")),
     budget: p.budget ?? {},
     timeouts: { idleMin: 15, wallMin: 90 },
     preflight: { confirm: false },
@@ -167,8 +173,8 @@ export function v0Routing(): RoutingPort {
       const { p, c } = v0(() => ({ p: loadProfile(activeProfileName(req.repo)), c: loadCatalog() }));
       const cheap = req.spentFraction >= BUDGET_CHEAP_AT ? { ...p, objective: "cost" as const } : p;
       const out = (d: { rung: string; ladder: string[] }) => ({
-        rung: toRung1(c, d.rung),
-        ladder: d.ladder.map((r) => toRung1(c, r)),
+        rung: forRole(c, req.role)(d.rung),
+        ladder: d.ladder.map(forRole(c, req.role)),
       });
       if (req.laneText === null)
         return {

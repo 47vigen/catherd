@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { toRung0, toRung1, v0Profiles, v0Routing } from "../../src/bridge/v0.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
@@ -32,6 +33,52 @@ describe("v0 bridge: rungs", () => {
     expect(toRung1(c, "claude-opus-5-5#high")).toBe("claude:claude-opus-5-5#high");
     expect(toRung1(c, "someprovider/some-model#default")).toBe("opencode:someprovider/some-model#default");
     expect(toRung0("opencode:opencode-go/kimi-k3#default")).toBe("opencode-go/kimi-k3#default");
+  });
+
+  it("names a Claude model's headless backend when asked, and leaves other backends alone", () => {
+    withHome();
+    const c = loadCatalog();
+    expect(toRung1(c, "claude-opus-5-5#high", "claude-code")).toBe("claude-code:claude-opus-5-5#high");
+    expect(toRung1(c, "gpt-6-sol#high", "claude-code")).toBe("codex:gpt-6-sol#high");
+  });
+});
+
+describe("v0 bridge: native or headless Claude (spec D3)", () => {
+  it("keeps architect and verifier native, runs any other role's Claude rungs headless, and dispatches stand-ins", () => {
+    withHome();
+    const p = v0Profiles();
+    const saved = p.set(undefined, {
+      roles: { reviewer: { rungs: ["codex:gpt-6-sol#high", "claude-code:claude-opus-5-5#high"] } },
+      failover: { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" },
+    });
+    expect(saved.errors).toEqual([]);
+    const v = p.forRepo(null);
+    expect(v.roles.architect?.rungs).toEqual(["claude:claude-opus-5-5#high"]);
+    expect(v.roles.verifier?.rungs.every((r) => r.startsWith("claude:"))).toBe(true);
+    expect(v.roles.reviewer?.rungs).toContain("claude-code:claude-opus-5-5#high");
+    expect(v.failover).toEqual({ "codex:gpt-6-sol#medium": "claude-code:claude-opus-5-5#high" });
+  });
+
+  it("routes a role's Claude rung on that role's backend", async () => {
+    noJev();
+    v0Profiles().set(undefined, {
+      roles: {
+        reviewer: {
+          rungs: ["claude-code:claude-opus-5-5#high"],
+          defaultRung: "claude-code:claude-opus-5-5#high",
+        },
+      },
+    });
+    const req = {
+      runDir: mkdtempSync(join(tmpdir(), "catherd-rundir-")),
+      repo: "/nowhere",
+      laneText: null,
+      spentFraction: 0,
+    };
+    expect((await v0Routing().route({ ...req, role: "reviewer" })).rung).toBe(
+      "claude-code:claude-opus-5-5#high",
+    );
+    expect((await v0Routing().route({ ...req, role: "architect" })).rung).toBe("claude:claude-opus-5-5#high");
   });
 });
 

@@ -57,6 +57,12 @@ describe("orchestrator skill", () => {
     expect(new Set(pins)).toEqual(new Set([version]));
   });
 
+  it("warns that a read-only role on claude-code or opencode has no shell, so its brief lists the files", () => {
+    expect(skill("catherd")).toMatch(
+      /read-only role on claude-code or opencode has no shell[^\n]*brief[^\n]*files/,
+    );
+  });
+
   it("names every preflight outcome and the structured error codes it must act on", () => {
     const md = skill("catherd");
     for (const word of ["`pass`", "`fails-as-expected`", "`skipped`", "`cannot-start`", "needsConfirmation"])

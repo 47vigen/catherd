@@ -1,0 +1,140 @@
+#!/usr/bin/env bun
+// opencode v2 CLI simulator for catherd's tests: behaviour comes from the JSON scenario in CATHERD_SIM_OPENCODE.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+const file = process.env.CATHERD_SIM_OPENCODE ?? "";
+const s = JSON.parse(readFileSync(file, "utf8")) as Record<string, any>;
+const args = process.argv.slice(2);
+const version: string = s.version ?? "2.0.16";
+const v1 = version.startsWith("1.");
+const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+const HELP = "opencode run [message..]\n\nrun opencode with a message\n";
+const help = (): never => {
+  process.stderr.write(HELP);
+  process.exit(1);
+};
+
+if (args[0] === "--version") {
+  say(v1 ? version : `opencode v${version}`);
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "list") {
+  say(JSON.stringify(s.auth ?? []));
+  process.exit(0);
+}
+if (args[0] === "reload") {
+  if (s.reloadsTo) appendFileSync(s.reloadsTo, "reload\n");
+  say("Configuration reloaded");
+  process.exit(0);
+}
+if (args[0] === "api") {
+  if (v1) help();
+  if (s.apiHangMs) await Bun.sleep(s.apiHangMs);
+  if (s.apiFails) {
+    process.stderr.write("error: could not reach the opencode service\n");
+    process.exit(1);
+  }
+  const [method, path] = [args[1], args[2] ?? ""];
+  const session = /^\/api\/session\/([^/]+)(\/.*)?$/.exec(path);
+  const url = new URL(path, "http://sim");
+  if (method === "GET" && url.pathname === "/api/model") {
+    // v2 resolves a request without location[directory] to the service's own directory, the home one
+    const asked = url.searchParams.get("location[directory]");
+    if (s.modelLocationsTo) appendFileSync(s.modelLocationsTo, `${asked ?? "-"}\n`);
+    const directory = asked ?? homedir();
+    const calls = `${file}.model-calls`;
+    appendFileSync(calls, "x");
+    const first = readFileSync(calls, "utf8").length === 1;
+    const models = s.modelsAt?.[directory] ?? s.models ?? [];
+    say(JSON.stringify({ location: { directory }, data: s.warmup && first ? [] : models }));
+  } else if (method === "GET" && path === "/api/session/active") say(JSON.stringify({ data: s.active ?? {} }));
+  else if (method === "GET" && session && session[2] === "/message") {
+    if (s.messagesFail) process.exit(1);
+    say(JSON.stringify({ data: s.messages ?? [] }));
+  }
+  else if (method === "GET" && session && !session[2])
+    say(
+      JSON.stringify({
+        data: {
+          id: session[1],
+          cost: s.session?.cost ?? 0,
+          tokens: s.session?.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          outcome: s.session?.outcome ?? "succeeded",
+        },
+      }),
+    );
+  else if (method === "POST" && session && session[2] === "/interrupt") {
+    if (s.interruptsTo) appendFileSync(s.interruptsTo, `${session[1]}\n`);
+    say(JSON.stringify({ interrupted: true }));
+  } else {
+    process.stderr.write(`error: no route ${method} ${path}\n`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+if (args[0] !== "run") help();
+
+const VALUE = ["--format", "--agent", "-m", "--model", "-s", "--session", "--title"];
+const BOOL = v1 ? ["--auto", "--thinking"] : ["--auto", "--thinking", "--standalone"];
+const opts: Record<string, string> = {};
+for (let i = 1; i < args.length; i++) {
+  const a = args[i] as string;
+  if (a.startsWith("-") && !VALUE.includes(a) && !BOOL.includes(a)) help();
+  if (!a.startsWith("-")) help(); // catherd never passes a message in argv
+  opts[a] = VALUE.includes(a) ? (args[++i] ?? "") : "true";
+}
+const model = opts["-m"] ?? opts["--model"] ?? "";
+Object.assign(s, s.byModel?.[model] ?? {});
+const event = (e: Record<string, unknown>) =>
+  say(JSON.stringify({ type: "error", timestamp: Date.now(), sessionID: "ses_simsimsimsimsimsimsim01", ...e }));
+
+let stdin = "";
+try {
+  stdin = readFileSync(0, "utf8");
+} catch {
+  // no stdin
+}
+writeFileSync(
+  s.recordTo,
+  JSON.stringify({
+    args,
+    stdin,
+    cwd: process.cwd(),
+    pwd: process.env.PWD ?? null,
+    xdgConfig: process.env.XDG_CONFIG_HOME ?? null,
+    envKeys: Object.keys(process.env),
+  }),
+);
+if (v1 && model.includes("#")) {
+  event({ error: { name: "UnknownError", data: { message: "Unexpected server error.", ref: "err_sim" } } });
+  process.exit(1);
+}
+const agent = opts["--agent"];
+const agents = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode", "agents");
+if (agent && !existsSync(join(agents, `${agent}.md`))) {
+  event({ error: { type: "unknown", message: `Agent not found: ${agent}` } });
+  process.exit(1);
+}
+const [ref, variant] = model.split("#");
+const listed = (s.models ?? []) as { id: string; providerID: string; variants?: { id: string }[] }[];
+const m = listed.find((x) => `${x.providerID}/${x.id}` === ref);
+if (s.models && !m) {
+  event({ error: { type: "provider.no-route", message: `Model not found: ${ref}` } });
+  process.exit(1);
+}
+if (m && variant && !(m.variants ?? []).some((v) => v.id === variant)) {
+  event({ error: { type: "provider.no-route", message: `Variant unavailable for ${ref}: ${variant}` } });
+  process.exit(1);
+}
+const where = process.env.PWD || process.cwd(); // v2 works in $PWD, not the spawn cwd
+setTimeout(async () => {
+  for (const t of s.touch ?? []) {
+    mkdirSync(dirname(join(where, t.path)), { recursive: true });
+    writeFileSync(join(where, t.path), t.content);
+  }
+  if (s.eventsFile) process.stdout.write(readFileSync(s.eventsFile, "utf8"));
+  if (s.hangMs) await Bun.sleep(s.hangMs);
+  process.exit(s.exitCode ?? 0);
+}, s.delayMs ?? 0);

@@ -114,12 +114,13 @@ describe("failover", () => {
   });
 
   it("keeps the paused note in state.json when git breaks before state.md can be refreshed", async () => {
-    const { run, deps } = setup({ ...LIMIT, delayMs: 1_000 }, {});
-    const pending = dispatch(deps, input(run.id));
-    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
-    fakeGit("exit 128");
-    const { record, hints } = await pending;
-    expect(record.status).toBe("limit");
+    const { run, deps } = setup(LIMIT, {});
+    // git breaks once the worker has ended (its exit.json exists), not after a guessed delay: waiting for
+    // the ~1 s "running" window instead missed it whenever this process stalled >1.1 s, and then hung
+    const roles = runPaths(run.dir).roles;
+    fakeGit(`for e in '${roles}'/*/*/exit.json; do [ -f "$e" ] && exit 128; done\nexec "$REAL_GIT" "$@"`);
+    const { record, hints } = await dispatch(deps, input(run.id));
+    expect(record).toMatchObject({ status: "limit", gitUnavailable: true });
     expect(hints.at(-1)).toMatch(/^state\.md not refreshed: /);
     expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
   });
