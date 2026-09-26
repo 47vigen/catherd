@@ -13,6 +13,7 @@ import {
   requestKey,
   scrubFree,
   scrubSecrets,
+  VERDICT_OPTIONS,
 } from "../../src/domain/jev.ts";
 
 const root = join(import.meta.dir, "..", "..");
@@ -91,6 +92,24 @@ describe("laneState", () => {
     expect(cut).toBe(`${"a".repeat(BODY_MAX - 1)}…`);
   });
 
+  it("drops an indented fence, as under a list item, with ``` and ~~~", () => {
+    const s = laneState(
+      [
+        "# M1.L1 — x",
+        "1. Set the env:",
+        "   ```bash",
+        "   export TOKEN_X=abc",
+        "   ```",
+        "2. Clean up:",
+        "\t~~~",
+        "\trm -rf /",
+        "\t~~~",
+        "3. Done.",
+      ].join("\n"),
+    );
+    expect(s.body).toBe("1. Set the env:\n[code omitted]\n2. Clean up:\n[code omitted]\n3. Done.");
+  });
+
   it("scrubs private keys and key=value secrets", () => {
     const pem = "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----";
     expect(scrubSecrets(`${pem} DB_PASSWORD=hunter22 AKIAABCDEFGHIJKLMNOP`)).toBe(
@@ -106,6 +125,29 @@ describe("scrubFree", () => {
     );
     expect(scrubFree("Broken:\n~~~\nopen fence runs on")).toBe("Broken:\n[code omitted]");
     expect(scrubFree("word ".repeat(5000))).toHaveLength(BODY_MAX + 1);
+  });
+
+  it("drops an indented fence", () => {
+    expect(
+      scrubFree("Steps:\n- run:\n  ```sh\n  rm -rf /\n  ```\n- then:\n    ~~~\n    leaked\n    ~~~\nend"),
+    ).toBe("Steps:\n- run:\n[code omitted]\n- then:\n[code omitted]\nend");
+  });
+});
+
+describe("scrubSecrets", () => {
+  it("redacts bearer tokens and a URL's password, keeping its user", () => {
+    expect(scrubSecrets("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc-def_ghi")).toBe(
+      "Authorization: Bearer [secret]",
+    );
+    expect(scrubSecrets("curl -H 'authorization: bearer 0123456789abcdefXYZ' x")).toBe(
+      "curl -H 'authorization: bearer [secret]' x",
+    );
+    expect(
+      scrubSecrets("DATABASE_URL is postgres://app:hunter22@db:5432/x and https://user:p%40ss@h.io/"),
+    ).toBe("DATABASE_URL is postgres://app:[secret]@db:5432/x and https://user:[secret]@h.io/");
+    expect(scrubSecrets("see https://example.com:8080/path and a Bearer of news")).toBe(
+      "see https://example.com:8080/path and a Bearer of news",
+    );
   });
 });
 
@@ -216,6 +258,15 @@ describe("judgeRoute", () => {
 
 describe("judgeVerdict", () => {
   const f = jevFile();
+
+  it("falls back, in each verdict set, to one of its caller's options, which are the set's criteria", () => {
+    for (const set of ["finding", "same-defect"] as const) {
+      const { questions, rule } = f.sets[set];
+      const q = questions[set];
+      expect(Object.keys(q?.type === "choice" ? q.criteria : {})).toEqual([...VERDICT_OPTIONS[set]]);
+      expect(VERDICT_OPTIONS[set] as readonly string[]).toContain(rule.fallback);
+    }
+  });
   const at = (p: number) => ({
     finding: { type: "choice" as const, choice: "design", confidence: 0.5, probabilities: { design: p } },
   });

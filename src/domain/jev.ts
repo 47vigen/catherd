@@ -45,6 +45,12 @@ export const JevFileSchema = z.looseObject({
 export type JevFile = z.infer<typeof JevFileSchema>;
 export type SetName = keyof JevFile["sets"];
 
+/** The answers each verdict set's caller accepts; a set's `fallback` must be one of them. */
+export const VERDICT_OPTIONS = {
+  finding: ["design", "code", "unclear"],
+  "same-defect": ["yes", "no"],
+} as const;
+
 /** JSON with object keys sorted at every depth, so equal data always hashes the same. */
 export function canonicalJson(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
@@ -69,21 +75,25 @@ export function questionSetId(f: JevFile, name: SetName): string {
 export const requestKey = (model: string, state: unknown, questions: unknown): string =>
   sha256(canonicalJson({ model, state, questions }));
 
-const SECRETS: RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-  /\bsk-[A-Za-z0-9_-]{16,}/g,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bxox[abpr]-[A-Za-z0-9-]{10,}/g,
-  /\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password)[A-Za-z0-9_]*)\s*[:=]\s*["']?[^\s"']{6,}/gi,
+const SECRETS: [RegExp, string][] = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[secret]"],
+  [/\bsk-[A-Za-z0-9_-]{16,}/g, "[secret]"],
+  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[secret]"],
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "[secret]"],
+  [/\bAKIA[0-9A-Z]{16}\b/g, "[secret]"],
+  [/\bxox[abpr]-[A-Za-z0-9-]{10,}/g, "[secret]"],
+  [/\b(Bearer)\s+[A-Za-z0-9._~+/-]{16,}=*/gi, "$1 [secret]"],
+  [/(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/g, "$1[secret]@"],
+  [
+    /\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password)[A-Za-z0-9_]*)\s*[:=]\s*["']?[^\s"']{6,}/gi,
+    "$1=[secret]",
+  ],
 ];
 
-/** Known secret shapes replaced by [secret]; a `key = value` pair keeps its key. */
+/** Known secret shapes replaced by [secret]; a `key = value` pair, a bearer and a URL's user keep their names. */
 export function scrubSecrets(text: string): string {
   let out = text;
-  for (const re of SECRETS)
-    out = out.replace(re, (m, key?: string) => (typeof key === "string" ? `${key}=[secret]` : "[secret]"));
+  for (const [re, to] of SECRETS) out = out.replace(re, to);
   return out;
 }
 
@@ -117,9 +127,9 @@ export function laneState(text: string): LaneState {
   };
 }
 
-/** Fenced code becomes "[code omitted]"; a fence left open runs to the end of the text, as Markdown renders it. */
+/** Fenced code, indented or not, becomes "[code omitted]"; a fence left open runs to the end of the text, as Markdown renders it. */
 const dropFences = (text: string): string =>
-  text.replace(/^(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^\1[^\n]*$|[\s\S]*$)/gm, "[code omitted]");
+  text.replace(/^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^[ \t]*\1[^\n]*$|[\s\S]*$)/gm, "[code omitted]");
 
 /** Capped at BODY_MAX characters, never ending the cut on half a surrogate pair. */
 const capBody = (text: string): string =>
