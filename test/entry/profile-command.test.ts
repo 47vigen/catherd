@@ -1,0 +1,159 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { claudeAgentsDir } from "../../src/infra/paths.ts";
+import { activeName, getProfile, profilesDir } from "../../src/services/profile-service.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { SRC } from "../import-graph.ts";
+
+afterEach(snapshotEnv());
+
+function catherd(args: string[], cwd?: string) {
+  const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "profile", ...args], {
+    env: { ...process.env, NO_COLOR: "1", ANTHROPIC_API_KEY: "" },
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+}
+
+describe("catherd profile show", () => {
+  it("shows each role's access and enforcement, and marks the Go stand-ins inferred", () => {
+    withHome();
+    const r = catherd(["show"]);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines[0]).toBe("profile default (active)");
+    expect(lines.find((l) => l.startsWith("  reviewer"))).toBe(
+      "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
+    );
+    expect(lines.find((l) => l.startsWith("  architect"))).toContain("read-only, advisory");
+    expect(r.out).toContain("  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high (inferred)\n");
+    expect(r.out).toContain(
+      "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (inferred: treated like gpt-6-sol#medium)\n",
+    );
+    expect(r.out).not.toContain("cursor");
+  });
+
+  it("prints JSON with every default filled in", () => {
+    withHome();
+    const j = JSON.parse(catherd(["show", "--json"]).out);
+    expect(j.profile.timeouts).toEqual({ idleMin: 15, wallMin: 90 });
+    expect(j.enforcement.worker).toBe("enforced");
+    expect(j.standIns[1]).toEqual({
+      from: "codex:gpt-6-sol#medium",
+      to: "opencode:opencode-go/kimi-k3#max",
+      inferred: true,
+      via: "gpt-6-sol#medium",
+    });
+  });
+});
+
+describe("catherd profile set", () => {
+  it("saves one field, prints the change and any warning, and relinks the agents", () => {
+    withHome();
+    const r = catherd(["set", "roles.verifier.access", "read-only"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe(
+      [
+        "✓ roles.verifier.access: full → read-only",
+        "! roles.verifier.access: verifier runs read-only; catherd's default for it is full",
+        "new Claude Code session needed for: catherd-default-architect-claude-opus-5-5-high, catherd-default-verifier-claude-opus-5-5-low",
+        "",
+      ].join("\n"),
+    );
+    expect(getProfile("default").roles.verifier.access).toBe("read-only");
+    expect(existsSync(join(claudeAgentsDir(), "catherd-default-verifier-claude-opus-5-5-low.md"))).toBe(true);
+  });
+
+  it("refuses an invalid result with exit 1 and saves nothing", () => {
+    withHome();
+    const r = catherd(["set", "roles.worker.enabled", "false"]);
+    expect([r.code, r.err]).toEqual([
+      1,
+      "error E_CONFIG_INVALID: the profile was not saved: roles.worker.enabled: the worker cannot be disabled\nfix: catherd profile set roles.worker.enabled true\n",
+    ]);
+    expect(existsSync(join(profilesDir(), "default.json"))).toBe(false);
+  });
+
+  it("refuses an unknown path with exit 2", () => {
+    withHome();
+    const r = catherd(["set", "roles.worker.colour", "red"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toStartWith(
+      'error E_INPUT_INVALID: cannot set roles.worker.colour to red: ✖ Unrecognized key: "colour"',
+    );
+  });
+
+  it("sets a failover whose rung holds dots, and removes it with null", () => {
+    withHome();
+    expect(
+      catherd(["set", "failover.codex:gpt-5.6-sol#high", "opencode:opencode-go/gpt-5.6-luna#max"]).code,
+    ).toBe(0);
+    expect(getProfile("default").failover["codex:gpt-5.6-sol#high"]).toBe(
+      "opencode:opencode-go/gpt-5.6-luna#max",
+    );
+    expect(catherd(["set", "failover.codex:gpt-5.6-sol#high", "null"]).code).toBe(0);
+    expect(getProfile("default").failover["codex:gpt-5.6-sol#high"]).toBeUndefined();
+  });
+});
+
+describe("catherd profile use, new, copy, rm, list, diff", () => {
+  it("binds a profile to the repo it runs in, and refuses --repo outside one", () => {
+    withHome();
+    const repo = tempRepo();
+    expect(catherd(["new", "fast"]).code).toBe(0);
+    const r = catherd(["use", "fast", "--repo"], repo);
+    expect(r.out.split("\n")[0]).toMatch(/^✓ fast is bound to \/.+$/);
+    expect(r.out).toContain(
+      "new Claude Code session needed for: catherd-fast-architect-claude-opus-5-5-high",
+    );
+    const top = r.out.split("\n")[0]?.replace("✓ fast is bound to ", "") as string;
+    expect(activeName(top)).toBe("fast");
+    const outside = catherd(["use", "fast", "--repo"], "/");
+    expect([outside.code, outside.err.split("\n")[0]]).toEqual([
+      2,
+      "error E_INPUT_INVALID: / is not inside a git repository",
+    ]);
+  });
+
+  it("creates, copies, lists, diffs and deletes profiles", () => {
+    withHome();
+    catherd(["set", "budget.usd", "5"]);
+    expect(catherd(["copy", "default", "team"]).out).toBe("✓ copied default to team\n");
+    expect(catherd(["new", "fast"]).code).toBe(0);
+    expect(catherd(["use", "team"]).out).toBe(
+      "✓ team is active\nnew Claude Code session needed for: catherd-team-architect-claude-opus-5-5-high, catherd-team-verifier-claude-opus-5-5-low\n",
+    );
+    expect(catherd(["list"]).out).toBe("  default\n  fast\n* team\n");
+    expect(catherd(["diff", "fast"]).out).toBe("budget.usd: 5 → none\n");
+    expect(catherd(["diff", "team", "default"]).out).toBe("no differences\n");
+    const busy = catherd(["rm", "team"]);
+    expect([busy.code, busy.err.split("\n")[0]]).toEqual([
+      2,
+      'error E_INPUT_INVALID: "team" is the active profile',
+    ]);
+    expect(catherd(["rm", "fast"]).out).toBe("✓ deleted fast\n");
+    expect(JSON.parse(catherd(["list", "--json"]).out)).toEqual([
+      { name: "default", active: false, repos: [] },
+      { name: "team", active: true, repos: [] },
+    ]);
+  });
+});
+
+describe("catherd profile validate", () => {
+  it("prints errors and warnings, and exits 1 on an error", () => {
+    withHome();
+    expect(catherd(["validate"])).toEqual({ code: 0, out: "✓ valid\n", err: "" });
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = JSON.parse(readFileSync(join(SRC, "..", "test", "fixtures", "profiles", "bad.json"), "utf8"));
+    writeFileSync(join(profilesDir(), "bad.json"), JSON.stringify(doc));
+    const r = catherd(["validate", "bad"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("✗ roles.reviewer.rungs: codex:gpt-6-sol#turbo is unscored\n");
+    expect(r.out).toContain(
+      "! roles.verifier.access: verifier runs read-only; catherd's default for it is full\n",
+    );
+  });
+});
