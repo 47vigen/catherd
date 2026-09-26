@@ -213,6 +213,22 @@ describe("supervise follows the worker's own account", () => {
     requestCancel(s.dispatchDir);
     expect(await running).toMatchObject({ code: 5, signal: null, reason: "exited" });
   });
+
+  it("records a worker that ended while isBusy was being asked as exited, not idle-timeout", async () => {
+    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 4`, { idleMs: 100 });
+    const proc = dispatchPaths(s.dispatchDir).proc;
+    const exit = await supervise(s, {
+      isBusy: async () => {
+        const { pid } = JSON.parse(readFileSync(proc, "utf8")) as { pid: number };
+        writeFileSync(join(s.dispatchDir, "stop"), "");
+        // answer "not busy" only once the worker has ended on its own
+        await waitFor(() => gone(pid));
+        return false;
+      },
+    });
+    expect(exit).toMatchObject({ code: 4, signal: null, reason: "exited" });
+    expect(readExit(s.dispatchDir)?.reason).toBe("exited");
+  });
 });
 
 /** True once `pid` no longer exists at all (reaped). */

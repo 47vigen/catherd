@@ -196,8 +196,10 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
       else if (finalAt !== null && spec.graceAfterFinalMs !== null && now - finalAt >= spec.graceAfterFinalMs)
         reason = "after-final";
       else if (now - lastActivity >= spec.idleMs) {
-        if (open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false)))
-          lastActivity = Date.now();
+        const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
+        // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended
+        if (done) break;
+        if (busy) lastActivity = Date.now();
         else reason = "idle-timeout";
       }
     }
