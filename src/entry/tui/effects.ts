@@ -28,6 +28,7 @@ import {
   listProfiles,
   patchProfile,
   profilesDir,
+  configFile,
   projectsFile,
   readProfileDoc,
   readProjects,
@@ -123,11 +124,23 @@ export const hereWord = (p: { repo: string | null }): string => (p.repo ? "this 
 
 /**
  * What changes when a run changes: the mtimes of its record files and of its roles folder, plus the
- * profiles folder and projects.json (a saved budget cap moves the run's budget fraction).
+ * profiles folder, config.json and projects.json (a saved budget cap or another active profile moves the
+ * run's budget fraction).
  */
 export function stampOf(dir: string): string {
   const p = runPaths(dir);
-  return [p.runs, p.routes, p.jev, p.agents, p.state, p.ledger, p.roles, profilesDir(), projectsFile()]
+  return [
+    p.runs,
+    p.routes,
+    p.jev,
+    p.agents,
+    p.state,
+    p.ledger,
+    p.roles,
+    profilesDir(),
+    configFile(),
+    projectsFile(),
+  ]
     .map((f) => {
       try {
         return String(statSync(f).mtimeMs);

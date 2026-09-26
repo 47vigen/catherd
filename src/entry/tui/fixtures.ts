@@ -9,7 +9,7 @@ import { validateProfile } from "../../domain/profile-rules.ts";
 import { catalogQuery, loadCatalog } from "../../services/catalog-service.ts";
 import type { DoctorReport } from "../../services/doctor.ts";
 import type { RunSummary } from "../../services/summary.ts";
-import type { Effects, RunDetail, RunRow } from "./effects.ts";
+import { type Effects, type RunDetail, type RunRow, rowOf } from "./effects.ts";
 import { withStaged } from "./profile-tree.ts";
 
 /**
@@ -169,16 +169,7 @@ export const FIXTURE_RUNS: RunDetail[] = [
   },
 ];
 
-export const fixtureRow = (d: RunDetail): RunRow => ({
-  id: d.summary.id,
-  title: d.summary.title,
-  repo: d.summary.repo,
-  createdAt: d.summary.createdAt,
-  live: d.summary.live.length,
-  roleRuns: d.summary.totals.runs,
-  landed: d.summary.milestones.length,
-  budget: d.summary.budget?.fraction ?? null,
-});
+export const fixtureRow = (d: RunDetail): RunRow => rowOf(d.summary);
 
 const BACKENDS = ["claude", "codex", "claude-code", "opencode"];
 

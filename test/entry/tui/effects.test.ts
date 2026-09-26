@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { applyPatch, defaultProfileDoc, patchBetween, resolveProfile } from "../../../src/domain/profile.ts";
-import { liveEffects, memoRuns, type RunRow } from "../../../src/entry/tui/effects.ts";
+import { liveEffects, memoRuns, type RunRow, stampOf } from "../../../src/entry/tui/effects.ts";
 import { activate, activeName, createProfile, patchProfile } from "../../../src/services/profile-service.ts";
 import { appendRoute, type Run } from "../../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../../helpers.ts";
@@ -160,5 +160,17 @@ describe("the live effects", () => {
     expect([activeName(repo), activeName()]).toEqual(["other", "default"]);
     liveEffects(tempRepo()).activate("other");
     expect(activeName()).toBe("other");
+  });
+
+  it("stamps a run again when a profile is saved or another profile is made active", () => {
+    withHome();
+    const { run } = freshRun();
+    createProfile("cheap");
+    const before = stampOf(run.dir);
+    activate("cheap");
+    const afterActivate = stampOf(run.dir);
+    expect(afterActivate).not.toBe(before);
+    patchProfile("cheap", { objective: "speed" });
+    expect(stampOf(run.dir)).not.toBe(afterActivate);
   });
 });
