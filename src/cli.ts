@@ -29,7 +29,9 @@ export const main: Command = defineCommand({
   },
   subCommands: {
     init: () => import("./tui/commands.ts").then((m) => m.initCommand),
-    watch: () => import("./tui/commands.ts").then((m) => m.watchCommand),
+    status: () => import("./entry/runs-command.ts").then((m) => m.statusCommand),
+    watch: () => import("./entry/runs-command.ts").then((m) => m.watchCommand),
+    runs: () => import("./entry/runs-command.ts").then((m) => m.runsCommand),
     profile: () => import("./entry/profile-command.ts").then((m) => m.profileCommand),
     doctor: () => import("./entry/doctor-command.ts").then((m) => m.doctorCommand),
     catalog: () => import("./entry/catalog-command.ts").then((m) => m.catalogCommand),
