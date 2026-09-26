@@ -469,7 +469,8 @@ export function duplicateKeys(keys: Keybinds): string[] {
 
 /**
  * The keys in force: the defaults with `config.json`'s `keybinds` over them. Unknown ids, reserved
- * commands and overrides that make one key mean two things are refused with `E_CONFIG_KEYBIND`.
+ * commands, the leader as a command's own key, a typed key on a command live while the user types, and
+ * overrides that make one key mean two things are refused with `E_CONFIG_KEYBIND`.
  */
 export function resolveKeybinds(raw: unknown): Keybinds {
   const keys: Keybinds = { ...DEFAULT_KEYS };
@@ -490,6 +491,23 @@ export function resolveKeybinds(raw: unknown): Keybinds {
       });
     // a comma list is several keys, as in opencode's config
     const list = (Array.isArray(value) ? value : [value]).flatMap((v) => v.split(",").map((k) => k.trim()));
+    if (list.some((k) => k.split(" ")[0] === LEADER))
+      throw new CatherdError(
+        "E_CONFIG_KEYBIND",
+        `config.json keybinds: ${id} cannot take ${LEADER}, the leader`,
+        {
+          fix: `bind ${id} to another key, or to the leader and a key: "<leader>w"`,
+        },
+      );
+    // dialog and filter commands are live while the user types: a typed key would take letters from the text
+    const scope = (BY_ID.get(id) as CommandDef).scope;
+    const typed = list.find(isPrintable);
+    if ((scope === "dialog" || scope === "filter") && typed)
+      throw new CatherdError(
+        "E_CONFIG_KEYBIND",
+        `config.json keybinds: ${id} works while you type, so it cannot take "${typed}"`,
+        { fix: `bind ${id} to a key with ctrl or alt, or a named key such as "return"` },
+      );
     keys[id as CommandId] = list.includes("none") ? [] : list.filter(Boolean);
   }
   const dup = duplicateKeys(keys);
