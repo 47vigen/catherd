@@ -53,6 +53,7 @@ describe("catherd lock", () => {
   it("refuses a bad --slots as a usage error", () => {
     withHome();
     const p = Bun.spawnSync([process.execPath, CLI, "lock", "--slots", "zero", "--", "true"], {
+      env: process.env,
       stderr: "pipe",
     });
     expect([p.exitCode, p.stderr.toString().split("\n")[0]]).toEqual([
