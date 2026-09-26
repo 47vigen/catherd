@@ -47,14 +47,14 @@ stories (`src/entry/tui/stories.ts`) on the fixtures; do not edit by hand.
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
   ↓ 50 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -77,14 +77,14 @@ space turns the role on or off; enter opens its access, default rung and models
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
   ↓ 50 more
 space turns the role on or off; enter opens its access, default rung and models
 

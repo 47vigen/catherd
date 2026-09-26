@@ -71,6 +71,15 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).not.toContain(open);
   });
 
+  it("lines up a group's model column, long model names included (P5)", async () => {
+    await profiles();
+    const lines = h!.s.frame().split("\n");
+    const start = lines.findIndex((l) => l.includes("claude (native subagent)"));
+    const group = lines.slice(start + 1, start + 5);
+    expect(group.at(-1)).toContain("claude-haiku-4-5-20251001");
+    expect(new Set(group.map((l) => l.search(/\d+ of \d+/))).size).toBe(1);
+  });
+
   it("cycles access with enter, and shows how strongly the backend holds it", async () => {
     const fx = await profiles();
     await find("worker access");

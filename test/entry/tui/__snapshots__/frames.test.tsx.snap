@@ -224,14 +224,14 @@ exports[`frames profiles 80x24 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
   ↓ 50 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -252,14 +252,14 @@ exports[`frames profiles 80x24 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
   v 50 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -280,14 +280,14 @@ exports[`frames profiles 100x30 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
@@ -314,14 +314,14 @@ exports[`frames profiles 100x30 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
@@ -348,14 +348,14 @@ exports[`frames profiles 120x40 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
@@ -366,12 +366,12 @@ exports[`frames profiles 120x40 1`] = `
        ▸ gpt-5.6-terra           0 of 6 · unscored
      opencode-go  subscription
        ▸ opencode-go/gpt-5.6-luna  0 of 6
-       ▸ opencode-go/gpt-6-luna  0 of 6
+       ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1  0 of 5
-       ▸ opencode/claude-opus-5-5  0 of 5
-       ▸ opencode/claude-sonnet-5  0 of 5
-       ▸ opencode/gpt-5.6-luna   0 of 6
+       ▸ opencode/claude-opus-5-5   0 of 5
+       ▸ opencode/claude-sonnet-5   0 of 5
+       ▸ opencode/gpt-5.6-luna      0 of 6
   ↓ 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -392,14 +392,14 @@ exports[`frames profiles 120x40 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
@@ -410,12 +410,12 @@ exports[`frames profiles 120x40 plain 1`] = `
        > gpt-5.6-terra           0 of 6 - unscored
      opencode-go  subscription
        > opencode-go/gpt-5.6-luna  0 of 6
-       > opencode-go/gpt-6-luna  0 of 6
+       > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1  0 of 5
-       > opencode/claude-opus-5-5  0 of 5
-       > opencode/claude-sonnet-5  0 of 5
-       > opencode/gpt-5.6-luna   0 of 6
+       > opencode/claude-opus-5-5   0 of 5
+       > opencode/claude-sonnet-5   0 of 5
+       > opencode/gpt-5.6-luna      0 of 6
   v 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -436,14 +436,14 @@ exports[`frames profiles-dirty 80x24 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
   ↓ 50 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -464,14 +464,14 @@ exports[`frames profiles-dirty 80x24 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
   v 50 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -492,14 +492,14 @@ exports[`frames profiles-dirty 100x30 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
@@ -526,14 +526,14 @@ exports[`frames profiles-dirty 100x30 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
@@ -560,14 +560,14 @@ exports[`frames profiles-dirty 120x40 1`] = `
        access                    workspace-write · enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      claude-code (headless)  claude-plan
-       ▸ claude-fable-5-1        0 of 5
-       ▸ claude-opus-5-5         0 of 5
-       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-fable-5-1           0 of 5
+       ▸ claude-opus-5-5            0 of 5
+       ▸ claude-sonnet-5            0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
@@ -578,12 +578,12 @@ exports[`frames profiles-dirty 120x40 1`] = `
        ▸ gpt-5.6-terra           0 of 6 · unscored
      opencode-go  subscription
        ▸ opencode-go/gpt-5.6-luna  0 of 6
-       ▸ opencode-go/gpt-6-luna  0 of 6
+       ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1  0 of 5
-       ▸ opencode/claude-opus-5-5  0 of 5
-       ▸ opencode/claude-sonnet-5  0 of 5
-       ▸ opencode/gpt-5.6-luna   0 of 6
+       ▸ opencode/claude-opus-5-5   0 of 5
+       ▸ opencode/claude-sonnet-5   0 of 5
+       ▸ opencode/gpt-5.6-luna      0 of 6
   ↓ 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -604,14 +604,14 @@ exports[`frames profiles-dirty 120x40 plain 1`] = `
        access                    workspace-write - enforced
        default rung              gpt-6-sol#medium
      claude (native subagent)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      claude-code (headless)  claude-plan
-       > claude-fable-5-1        0 of 5
-       > claude-opus-5-5         0 of 5
-       > claude-sonnet-5         0 of 5
+       > claude-fable-5-1           0 of 5
+       > claude-opus-5-5            0 of 5
+       > claude-sonnet-5            0 of 5
        > claude-haiku-4-5-20251001  0 of 1 - unscored
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
@@ -622,12 +622,12 @@ exports[`frames profiles-dirty 120x40 plain 1`] = `
        > gpt-5.6-terra           0 of 6 - unscored
      opencode-go  subscription
        > opencode-go/gpt-5.6-luna  0 of 6
-       > opencode-go/gpt-6-luna  0 of 6
+       > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1  0 of 5
-       > opencode/claude-opus-5-5  0 of 5
-       > opencode/claude-sonnet-5  0 of 5
-       > opencode/gpt-5.6-luna   0 of 6
+       > opencode/claude-opus-5-5   0 of 5
+       > opencode/claude-sonnet-5   0 of 5
+       > opencode/gpt-5.6-luna      0 of 6
   v 34 more
 space turns the role on or off; enter opens its access, default rung and models
 

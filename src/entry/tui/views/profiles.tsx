@@ -275,6 +275,10 @@ export function ProfilesView(props: { width: number; height: number }) {
   const aboutLines = about
     .flatMap((p) => wrap(p.text, props.width).map((text) => ({ ...p, text })))
     .slice(0, 2);
+  // the value column of a group of rows starts after its longest label, so long model names line up
+  const widest = new Map<string | null, number>();
+  for (const r of rows)
+    if (r.selectable) widest.set(r.parent, Math.max(widest.get(r.parent) ?? 0, Bun.stringWidth(r.label)));
   const items: ListItem[] = rows.map((r) => ({
     key: r.key,
     selectable: r.selectable,
@@ -297,7 +301,7 @@ export function ProfilesView(props: { width: number; height: number }) {
             ]}
           />
         );
-      const labelWidth = Math.max(14, 30 - r.depth * 2);
+      const labelWidth = Math.max(14, 30 - r.depth * 2, (widest.get(r.parent) ?? 0) + 2);
       return (
         <Line
           width={w}
