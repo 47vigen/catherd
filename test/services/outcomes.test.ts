@@ -139,4 +139,32 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     });
     expect(laneOutcome(rows, "M9.L9", true, "t")).toBeNull();
   });
+
+  it("counts an env climb past the top rung as envCaused, without listing the no-op climb", () => {
+    const row = (over: Partial<RouteRow>): RouteRow => ({
+      at: "t",
+      lane: "M1.L1",
+      role: "worker",
+      rung: "b",
+      ladder: ["a", "b"],
+      source: "route",
+      decidedBy: "lane",
+      from: null,
+      reason: null,
+      kind: "repo_code",
+      difficulty: "build",
+      ...over,
+    });
+    const rows = [row({}), row({ source: "climb", from: "b", rung: "b", reason: "blocked", env: true })];
+    expect(laneOutcome(rows, "M1.L1", false, "t")).toMatchObject({
+      finalRung: "b",
+      climbs: [],
+      landed: false,
+      start_ok: false,
+      min_ok_index: null,
+      envCaused: true,
+    });
+    const capability = [row({}), row({ source: "climb", from: "b", rung: "b", reason: "refused" })];
+    expect(laneOutcome(capability, "M1.L1", true, "t")).toMatchObject({ start_ok: false, envCaused: false });
+  });
 });

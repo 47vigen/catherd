@@ -80,10 +80,13 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
   const i = mine.findLastIndex((r) => r.source === "route");
   const start = mine[i];
   if (!start) return null;
-  const climbs = mine
+  // every climb row counts for start_ok and envCaused, including a no-op past the top rung (from === rung),
+  // which only drops out of the listed climbs
+  const allClimbs = mine
     .slice(i + 1)
-    .filter((r) => r.source === "climb" && r.from !== null && r.from !== r.rung)
+    .filter((r) => r.source === "climb" && r.from !== null)
     .map((r) => ({ from: r.from as string, to: r.rung, reason: r.reason ?? "", env: r.env === true }));
+  const climbs = allClimbs.filter((c) => c.from !== c.to);
   const finalRung = mine.at(-1)?.rung ?? start.rung;
   const idx = start.ladder.indexOf(finalRung);
   return {
@@ -96,9 +99,9 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
     finalRung,
     climbs,
     landed,
-    start_ok: landed && climbs.every((c) => c.env),
+    start_ok: landed && allClimbs.every((c) => c.env),
     min_ok_index: landed && idx >= 0 ? idx : null,
-    envCaused: climbs.some((c) => c.env),
+    envCaused: allClimbs.some((c) => c.env),
   };
 }
 
