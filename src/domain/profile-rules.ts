@@ -62,11 +62,8 @@ export function inferredScores(c: Catalog, info: RungInfo): { inferred: boolean;
  * treat-like; a failover stand-in unscored or on the same quota; a rung whose backend catherd cannot run
  * (`backends` lists those it can, `claude` included). Everything else worth knowing is a warning: an access
  * mode other than the role's default, an effort or model the last listing does not offer, a stand-in
- * that never runs.
- */
-/**
- * Spec §7.1's errors and warnings for `p`. With the stored `doc` it came from, a value this catherd does
- * not know is a warning that says how it is read.
+ * that never runs. With the stored `doc` `p` came from, a value this catherd does not know is also a
+ * warning, one that says how the value is read.
  */
 export function validateProfile(
   p: Profile,
