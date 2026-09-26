@@ -9,6 +9,7 @@ import {
   refreshDiscovery,
   saveTreatLike,
 } from "../services/catalog-service.ts";
+import { exitCodeOf, printError } from "./cli-kit.ts";
 
 export function formatRefreshed(r: Refreshed): string {
   return r.error
@@ -27,9 +28,8 @@ const hereRepo = async (): Promise<string | undefined> => (await gitToplevel(pro
 
 function fail(e: unknown): void {
   if (!isCatherdError(e)) throw e;
-  console.error(`error ${e.code}: ${e.message}`);
-  if (e.fix) console.error(`fix: ${e.fix}`);
-  process.exitCode = 1;
+  printError(e);
+  process.exitCode = exitCodeOf(e);
 }
 
 const refresh = defineCommand({

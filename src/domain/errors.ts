@@ -24,7 +24,8 @@ export type ErrorCode =
   | "E_IO_WRITE"
   | "E_IO_PATH"
   | "E_IO_UNEXPECTED"
-  | "E_INPUT_INVALID";
+  | "E_INPUT_INVALID"
+  | "E_RUNTIME_TOO_OLD";
 
 /** Every failure catherd reports: a stable code, a message, and the exact action that fixes it. */
 export class CatherdError extends Error {

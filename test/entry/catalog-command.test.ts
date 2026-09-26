@@ -63,12 +63,12 @@ describe("catherd catalog", () => {
     expect(bad.err).toStartWith("error E_CONFIG_INVALID: a/c#high has no scores of its own to lend\nfix: ");
   });
 
-  it("refuses a malformed rung with exit 1 and leaves the override file unchanged", () => {
+  it("refuses a malformed rung with exit 2 and leaves the override file unchanged", () => {
     withHome();
     expect(catherd("treat-like", "a/b#high", "gpt-6-sol#high").code).toBe(0);
     const before = readFileSync(overridePath(), "utf8");
     const bad = catherd("treat-like", "foo", "gpt-6-sol#high");
-    expect([bad.code, bad.out]).toEqual([1, ""]);
+    expect([bad.code, bad.out]).toEqual([2, ""]);
     expect(bad.err).toStartWith('error E_INPUT_INVALID: "foo" is not a rung\nfix: ');
     expect(readFileSync(overridePath(), "utf8")).toBe(before);
     expect(catherd("list", "--backend", "codex").code).toBe(0);
