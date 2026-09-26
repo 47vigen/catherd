@@ -45,13 +45,32 @@ const answer = (
   jev,
 });
 
+/** How long `route` waits on the daily discovery refresh before routing on the cached listing. */
+export const DISCOVERY_BUDGET_MS = 5_000;
+
+export interface RoutingOpts extends JevOpts {
+  /** how long a route waits on the discovery refresh (DISCOVERY_BUDGET_MS) */
+  discoveryBudgetMs?: number;
+}
+
+/** A wedged listing never holds a route: past `ms` it routes on the cache while the refresh finishes. */
+async function freshenWithin(rungs: string[], ms: number): Promise<void> {
+  const refresh = freshenDiscovery(rungs).catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  await Promise.race([refresh, budget]);
+  clearTimeout(timer);
+}
+
 /**
  * Spec §5.4: kind and difficulty from Jev (§5.5's rule), else the lane file's `Kind:`/`Difficulty:`,
  * else the role's default rung. A role with one usable rung never asks Jev.
  */
-async function route(req: RouteRequest, o: JevOpts): Promise<RouteAnswer> {
+async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   const p = routingProfile(req.profile, req.role, req.spentFraction);
-  await freshenDiscovery(p.role.rungs);
+  await freshenWithin(p.role.rungs, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
   const c = loadCatalog();
   const fallback = () => defaultLadder(c, p, req.role);
   if (req.laneText === null || candidates(c, p, req.role).length <= 1)
@@ -118,7 +137,7 @@ async function verdict<T extends string>(
 }
 
 /** The routing port over the 1.0 catalog and Jev (spec §5); `o` lets tests inject Jev's transport. */
-export function routingService(o: JevOpts = {}): RoutingPort {
+export function routingService(o: RoutingOpts = {}): RoutingPort {
   return {
     route: (req) => route(req, o),
     finding: (runDir, laneText, finding) =>

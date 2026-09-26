@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { BackendAdapter } from "../../src/adapters/backend.ts";
+import { writeDiscovery } from "../../src/adapters/discovery.ts";
+import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { v0Profiles } from "../../src/bridge/v0.ts";
 import { readJsonl } from "../../src/infra/store.ts";
 import { resetFreshen } from "../../src/services/catalog-service.ts";
@@ -53,9 +55,12 @@ const lane = (kind: string | null, difficulty: string | null, body = "Add GET /j
     body,
   ].join("\n");
 
+// inside withHome()'s CATHERD_HOME, so a test leaves nothing behind in the system temp dir's root
+const runDir = () => mkdtempSync(join(process.env.CATHERD_HOME as string, "run-"));
+
 function req(laneText: string | null, over: Partial<RouteRequest> = {}): RouteRequest {
   return {
-    runDir: mkdtempSync(join(tmpdir(), "catherd-route-")),
+    runDir: runDir(),
     repo: "/nowhere",
     profile: view(),
     role: "worker",
@@ -133,7 +138,11 @@ describe("route with Jev", () => {
       headers: { "x-typesafe-request-id": "req_1" },
     });
     const r = req(
-      lane("repo_code", "build", "Fix the race in the job queue; key: sk-abcdefghijklmnopqrstuv"),
+      lane(
+        "repo_code",
+        "build",
+        "Fix the race in the job queue; key: sk-abcdefghijklmnopqrstuv\n```ts\nqueue.drainAll();\n```",
+      ),
     );
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
     expect(a).toMatchObject({ ...TRACK_B, source: "jev", kind: "repo_code", difficulty: "hard" });
@@ -143,6 +152,7 @@ describe("route with Jev", () => {
     expect(sent).toContain("Fix the race");
     expect(sent).not.toContain("sk-abc");
     expect(sent).not.toContain("Difficulty: build");
+    expect(sent).not.toContain("drainAll");
     const [row] = jevRows(r.runDir);
     expect(row).toMatchObject({
       source: "jev",
@@ -197,6 +207,24 @@ describe("route when Jev never answers", () => {
   });
 });
 
+describe("route and discovery", () => {
+  const codex = adapterFor("codex") as BackendAdapter;
+  afterEach(() => registerAdapter(codex));
+
+  it("routes on the cached listing when the daily listing does not answer within the budget", async () => {
+    // a day-old listing without gpt-6-luna: due for a refresh, and still what routing reads meanwhile
+    const stale = Date.now() - 2 * 24 * 3_600_000;
+    const sol = { id: "gpt-6-sol", efforts: ["medium", "high", "xhigh"], context: 272000, imageIn: true };
+    writeDiscovery("codex", [sol], stale);
+    let calls = 0;
+    registerAdapter({ ...codex, listModels: () => (calls++, new Promise(() => {})) });
+    const a = await routingService({ discoveryBudgetMs: 5 }).route(req(lane("repo_code", "build")));
+    expect(calls).toBe(1);
+    expect(a).toMatchObject({ ...TRACK_B, source: "lane" });
+    expect(a.ladder).not.toContain("codex:gpt-6-luna#high");
+  });
+});
+
 describe("route and the profile", () => {
   it("starts at the cheapest bar-clearing rung from 80 % of the budget, whatever the objective", async () => {
     const secs = { objective: "speed" as const };
@@ -238,13 +266,14 @@ describe("route and the profile", () => {
     });
     await expect(routingService().route(req(null, { role: "artist", profile: p }))).rejects.toMatchObject({
       code: "E_CONFIG_INVALID",
+      fix: expect.stringContaining("treat-like"),
     });
   });
 });
 
 describe("finding and same-defect", () => {
   it("answers at p ≥ 0.83 and 0.85, falls back otherwise, and logs each call", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "catherd-ask-"));
+    const dir = runDir();
     const yes = fakeFetch({ status: 200, body: fx("finding-design.json") });
     const r = routingService({ key: "k", fetchImpl: yes.impl, ...noWait });
     expect(await r.finding(dir, lane("repo_code", "build"), "The API shape cannot work")).toEqual({

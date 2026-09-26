@@ -145,7 +145,8 @@ export const resetFreshen = (): void => tried.clear();
 
 /**
  * Spec §5.2: `route` lists a backend again at most daily. A backend this process failed to list is not
- * tried again for an hour, so a missing or wedged CLI never slows every route.
+ * tried again for an hour, so a missing or wedged CLI never slows every route. Due backends are listed
+ * in parallel, so the slowest listing bounds the wait, not their sum.
  */
 export async function freshenDiscovery(rungs: string[], now = Date.now()): Promise<void> {
   const backends = new Set<string>();
@@ -155,16 +156,17 @@ export async function freshenDiscovery(rungs: string[], now = Date.now()): Promi
       backends.add(b === "claude" ? "claude-code" : b);
     } catch {}
   }
+  const due: Promise<unknown>[] = [];
   for (const b of backends) {
     const adapter = adapterFor(b);
     if (!adapter || now - (tried.get(b) ?? Number.NEGATIVE_INFINITY) < 3_600_000) continue;
     const cached = readDiscovery(b);
     if (cached && now - Date.parse(cached.fetchedAt) < DAY_MS) continue;
     tried.set(b, now);
-    try {
-      await discovered(b, () => adapter.listModels(), { maxAgeMs: DAY_MS, now });
-    } catch {}
+    due.push(discovered(b, () => adapter.listModels(), { maxAgeMs: DAY_MS, now }));
   }
+  // a failed listing keeps the last one (and the hour's backoff above)
+  await Promise.allSettled(due);
 }
 
 /** A rung given as `backend:model#effort` or as a canonical `model#effort`, in canonical form. */

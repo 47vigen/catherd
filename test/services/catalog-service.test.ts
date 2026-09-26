@@ -153,6 +153,32 @@ describe("discovery refresh", () => {
     await freshenDiscovery(["codex:gpt-6-sol#medium"], late + 60_000);
     expect(listCalls).toBe(1);
   });
+
+  it("lists the due backends in parallel", async () => {
+    withHome();
+    const opencode = adapterFor("opencode") as BackendAdapter;
+    const started: string[] = [];
+    const release: (() => void)[] = [];
+    const lister = (id: string, model: string) => () =>
+      new Promise<{ id: string; efforts: string[]; context: number; imageIn: boolean }[]>((resolve) => {
+        started.push(id);
+        release.push(() => resolve([{ id: model, efforts: [], context: 1000, imageIn: false }]));
+      });
+    registerAdapter({ ...codex, listModels: lister("codex", "gpt-6-sol") });
+    registerAdapter({ ...opencode, listModels: lister("opencode", "opencode-go/kimi-k3") });
+    try {
+      const done = freshenDiscovery(["codex:gpt-6-sol#medium", "opencode:opencode-go/kimi-k3#default"], T0);
+      // both listings start before either answers
+      await Promise.resolve();
+      expect(started.sort()).toEqual(["codex", "opencode"]);
+      for (const r of release) r();
+      await done;
+      expect(readDiscovery("codex")?.models.map((m) => m.id)).toEqual(["gpt-6-sol"]);
+      expect(readDiscovery("opencode")?.models.map((m) => m.id)).toEqual(["opencode-go/kimi-k3"]);
+    } finally {
+      registerAdapter(opencode);
+    }
+  });
 });
 
 describe("catalogQuery", () => {
