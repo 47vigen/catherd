@@ -238,6 +238,12 @@ describe("create, delete, diff", () => {
     expect(existsSync(file("copy"))).toBe(false);
   });
 
+  it("refuses to create or copy over the built-in default, which exists without a file", () => {
+    withHome();
+    expect(() => createProfile("default")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+    expect(existsSync(file("default"))).toBe(false);
+  });
+
   it("validates a copy before writing it, and writes nothing when it is invalid", () => {
     withHome();
     patchProfile("default", {});

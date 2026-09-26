@@ -49,7 +49,12 @@ export function toV0(p: Profile1): Profile {
       ...(rc.defaultRung ? { defaultRung: rung0(rc.defaultRung) } : {}),
     };
   }
-  const failover = Object.fromEntries(Object.entries(p.failover).map(([a, b]) => [rung0(a), rung0(b)]));
+  // a malformed failover stays in the file for validate to report; the 0.x view just leaves it out
+  const failover = Object.fromEntries(
+    Object.entries(p.failover)
+      .filter(([a, b]) => parses(a) && parses(b))
+      .map(([a, b]) => [rung0(a), rung0(b)]),
+  );
   return {
     name: p.name,
     objective: p.objective,
@@ -143,7 +148,9 @@ export function patchFromV0(
     };
   }
   const failover: Record<string, string | null> = Object.fromEntries(
-    Object.keys(before.failover).map((k) => [k, null]),
+    Object.entries(before.failover)
+      .filter(([a, b]) => parses(a) && parses(b))
+      .map(([k]) => [k, null]),
   );
   for (const [a, b] of Object.entries(p0.failover ?? {})) {
     const key = storedFor(Object.keys(before.failover), a) ?? to1(null, a);

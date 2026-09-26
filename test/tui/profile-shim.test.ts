@@ -81,6 +81,21 @@ describe("the 0.x TUI's profile shim", () => {
     );
   });
 
+  it("opens and saves a profile with a malformed failover, and keeps it for validate to report", () => {
+    withHome();
+    const file = join(profilesDir(), "default.json");
+    patchProfile("default", {});
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(
+      file,
+      JSON.stringify({ ...doc, failover: { ...doc.failover, "not a rung": "codex:gpt-6-sol#high" } }),
+    );
+    const p0 = loadProfile();
+    expect(p0.failover?.["not a rung"]).toBeUndefined();
+    const patch = patchFromV0(p0, JSON.parse(readFileSync(file, "utf8")));
+    expect(patch.failover?.["not a rung"]).toBeUndefined();
+  });
+
   it("validates with the 1.0 rules, and refuses to save what they refuse", () => {
     withHome();
     const p0 = loadProfile();

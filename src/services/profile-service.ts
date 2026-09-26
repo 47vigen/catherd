@@ -354,8 +354,8 @@ export function patchProfile(name: string | undefined, patch: ProfilePatch): Sav
 /** Spec §7.3 `create` and `copy`: a new profile from `from` (default: the default profile). */
 export function createProfile(name: string, from?: string): Saved {
   return locked(() => {
-    assertProfileName(name);
-    if (existsSync(profileFile(name)))
+    // `default` exists without a file: resetProfile is the only way to write it
+    if (profileExists(assertProfileName(name)))
       throw new CatherdError("E_INPUT_INVALID", `profile "${name}" already exists`, {
         fix: `pick another name, or edit it with catherd profile set --profile ${name}`,
       });
