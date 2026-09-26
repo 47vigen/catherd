@@ -144,6 +144,13 @@ describe("DialogConfirm", () => {
     expect(answers).toEqual(["yes"]);
   });
 
+  it("answers from the button a burst moved to, not the one last drawn", async () => {
+    const answers = await open(confirm(false));
+    await h!.s.burst("left", "return");
+    expect(answers).toEqual([]);
+    expect(h!.s.frame()).toContain("dialogs=0");
+  });
+
   it("ignores every other key: no 'any other key cancels'", async () => {
     const answers = await open(confirm(false));
     await h!.s.press("y", "n", "q", "x");
@@ -225,6 +232,13 @@ describe("SaveDialog (spec §9.2)", () => {
     await h!.s.press("right", "return");
     expect(answers).toEqual(["activate"]);
     await h!.s.press("right", "right", "return");
+    expect(h!.s.frame()).toContain("dialogs=0");
+  });
+
+  it("cancels from a burst that moves to Cancel and presses enter, saving nothing", async () => {
+    const answers = await save({ budget: { usd: 5 } });
+    await h!.s.burst("right", "right", "return");
+    expect(answers).toEqual([]);
     expect(h!.s.frame()).toContain("dialogs=0");
   });
 

@@ -1,5 +1,5 @@
 import { useTerminalDimensions } from "@opentui/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import {
   applyPatch,
   type Change,
@@ -153,14 +153,20 @@ export function SaveDialog(props: { dialog: Save }) {
   const blocked = loaded.error !== null || (preview?.validation.errors.length ?? 0) > 0;
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
   const labels = blocked ? ["Cancel"] : ["Save", "Save & make active", "Cancel"];
-  const [focused, setFocused] = useState(0);
+  const [focused, setFocusedState] = useState(0);
+  // keys in one burst read the focus as it is now, not as it was drawn
+  const focusedRef = useRef(0);
+  const setFocused = (f: number) => {
+    focusedRef.current = f;
+    setFocusedState(f);
+  };
   useCommandLayer("dialog", {
-    "dialog.left": () => setFocused((f) => Math.max(0, f - 1)),
-    "dialog.right": () => setFocused((f) => Math.min(labels.length - 1, f + 1)),
+    "dialog.left": () => setFocused(Math.max(0, focusedRef.current - 1)),
+    "dialog.right": () => setFocused(Math.min(labels.length - 1, focusedRef.current + 1)),
     "dialog.submit": () => {
       // a save that is writing takes no answer
       if (isSaving(app.getState())) return;
-      const label = labels[Math.min(focused, labels.length - 1)];
+      const label = labels[Math.min(focusedRef.current, labels.length - 1)];
       // nothing is saved before its diff has been shown
       if (label !== "Cancel" && !preview) return;
       if (label === "Save") app.answer("save");

@@ -1,6 +1,6 @@
 // Adapted from anomalyco/opencode packages/tui/src/ui/dialog-confirm.tsx (MIT, © 2025 opencode);
 // see THIRD_PARTY_NOTICES.md.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApp } from "../providers/app.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
 import type { Dialog as DialogState } from "../state.ts";
@@ -31,11 +31,17 @@ export function Buttons(props: { labels: string[]; focused: number; width: numbe
 export function DialogConfirm(props: { dialog: Confirm }) {
   const app = useApp();
   const d = props.dialog;
-  const [focused, setFocused] = useState(d.destructive ? 0 : 1);
+  const [focused, setFocusedState] = useState(d.destructive ? 0 : 1);
+  // keys in one burst read the focus as it is now, not as it was drawn
+  const focusedRef = useRef(focused);
+  const setFocused = (f: number) => {
+    focusedRef.current = f;
+    setFocusedState(f);
+  };
   useCommandLayer("dialog", {
     "dialog.left": () => setFocused(0),
     "dialog.right": () => setFocused(1),
-    "dialog.submit": () => (focused === 1 ? app.answer("yes") : app.dispatch({ type: "close" })),
+    "dialog.submit": () => (focusedRef.current === 1 ? app.answer("yes") : app.dispatch({ type: "close" })),
   });
   return (
     <Dialog
