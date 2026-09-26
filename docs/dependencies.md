@@ -1,15 +1,10 @@
 # Dependencies
 
-TUI: OpenTUI (`@opentui/react` + `@opentui/core`), decided in OVERRIDES before this plan started —
-both were already in `package.json`, so plan 4 Task 1 skipped the spike and went straight to
-reading `node_modules/@opentui/react/README.md` and its type definitions. Test API: `testRender`
-from `@opentui/react/test-utils` (wraps `@opentui/core/testing`'s `createTestRenderer`), used as
-`const { renderOnce, captureCharFrame, mockInput } = await testRender(<El/>, { width, height })`.
-Keys go through `mockInput.pressArrow/pressEnter/pressEscape/pressBackspace/pressKey/typeText`;
-`test/tui/helpers.ts`'s `press()` wraps those behind the same `KEY.up`/`KEY.down`/… names plan 4
-uses. Colour: OpenTUI takes RGB only and downsamples itself for the terminal it finds, so
-`theme.ts`'s `tint()` returns one hex value per tone at every depth above 1, and `undefined` at
-depth 1 (`NO_COLOR`) — no `ansi256(n)` or named-colour branches, unlike the Ink-era plan text.
+TUI: OpenTUI (`@opentui/react`, `@opentui/core` and `@opentui/keymap`), all pinned to the same exact version
+(spec §9.4), in `src/entry/tui/`. Tests render through `@opentui/react/test-utils`'s `testRender` under the
+kitty keyboard protocol (a lone esc arrives at once), inside React's `act()` (`test/entry/tui/render.tsx`), on
+`@opentui/core/testing`'s `ManualClock` for anything timed. Colour: OpenTUI takes RGB only and downsamples
+itself, so `src/entry/tui/theme.ts` has one hex value per token and mode, and none at all without colour.
 
 One line per dependency: what it does for catherd, and why this one.
 
@@ -18,8 +13,9 @@ One line per dependency: what it does for catherd, and why this one.
 - citty — the `catherd` main command and its subcommands — unjs, tiny, typed `defineCommand`, `--version` from `meta`
 - zod — schemas for the catalog, profiles and MCP tool inputs — the standard TS-first validator
 - @modelcontextprotocol/sdk — the MCP server (`catherd mcp`) — the official SDK
-- @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §8.4)
-- @opentui/react — React bindings for the dashboard TUI (`catherd` alone); `init` and `watch` print plain text — pairs with `@opentui/core`
+- @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §9)
+- @opentui/react — React bindings for the TUI — pairs with `@opentui/core`, and needs no Babel step, unlike `@opentui/solid` (spec §9.4)
+- @opentui/keymap — the TUI's key engine: layers, modes, the `ctrl+x` leader, one command catalogue — opencode's own engine, with a React binding (spec §9.2)
 - react — required by `@opentui/react`'s component model — peer dependency of the TUI layer
 
 ## Dev
