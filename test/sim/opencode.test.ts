@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "../helpers.ts";
 import { simPath } from "./scenario.ts";
 import { type OpencodeModel, withOpencodeScenario } from "./sim-scenarios.ts";
 
@@ -72,8 +73,8 @@ describe("opencode simulator", () => {
   });
 
   it("works in $PWD, not the spawn cwd, reads the brief on stdin and replays the events", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
-    const elsewhere = mkdtempSync(join(tmpdir(), "catherd-elsewhere-"));
+    const repo = tempDir("catherd-simrepo-");
+    const elsewhere = tempDir("catherd-elsewhere-");
     const xdg = configWithAgent();
     const s = withOpencodeScenario({
       models: MODELS,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "../helpers.ts";
 import { simPath } from "./scenario.ts";
 import { withClaudeScenario } from "./sim-scenarios.ts";
 
@@ -35,7 +36,7 @@ describe("claude simulator", () => {
   });
 
   it("replays the events under the session it was given, records stdin and touches files", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const repo = tempDir("catherd-simrepo-");
     const s = withClaudeScenario({
       eventsFile: join(FX, "ok.jsonl"),
       touch: [{ path: "src/a.ts", content: "x" }],

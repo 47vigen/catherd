@@ -55,7 +55,9 @@ describe("preflight", () => {
 
   it("returns when the check exits although a process it detached still holds the pipes", async () => {
     const { run } = freshRun();
-    writeLane(run, "M1.L1", ["src/a.ts"], "setsid sleep 6 & echo started");
+    // a process in its own session (setsid is Linux-only; Bun detaches the same way everywhere)
+    const detach = `'${process.execPath}' -e 'Bun.spawn(["sleep", "6"], { detached: true, stdio: ["ignore", "inherit", "inherit"] }).unref()'`;
+    writeLane(run, "M1.L1", ["src/a.ts"], `${detach}; echo started`);
     const started = Date.now();
     const r = await preflight(fakeDeps({ view: testView({ heavy: 1 }) }), { run: run.id, timeoutMs: 300 });
     expect(Date.now() - started).toBeLessThan(2_000);

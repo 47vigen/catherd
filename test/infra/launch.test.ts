@@ -55,24 +55,27 @@ describe("launchSupervisor", () => {
     expect(await Bun.file(dispatchPaths(dir).events).text()).toBe("done\n");
   });
 
-  it("does not hand catherd's own secrets to the supervisor", async () => {
-    if (!existsSync("/proc/self/environ")) return;
-    process.env.TYPESAFE_API_KEY = "catherd-secret";
-    process.env.CATHERD_LAUNCH_PROBE = "kept";
-    const { dir, spec } = writeSpec("sleep 1");
-    const pid = launchSupervisor(spec);
-    const environ = await waitFor(() => {
-      try {
-        const e = readFileSync(`/proc/${pid}/environ`, "utf8");
-        return e.includes("CATHERD_LAUNCH_PROBE=") ? e : null;
-      } catch {
-        return null;
-      }
-    });
-    expect(environ).toContain("CATHERD_LAUNCH_PROBE=kept");
-    expect(environ).not.toContain("TYPESAFE_API_KEY");
-    await waitFor(() => readExit(dir));
-  });
+  // reads the supervisor's environment from /proc, which macOS does not have
+  it.skipIf(!existsSync("/proc/self/environ"))(
+    "does not hand catherd's own secrets to the supervisor",
+    async () => {
+      process.env.TYPESAFE_API_KEY = "catherd-secret";
+      process.env.CATHERD_LAUNCH_PROBE = "kept";
+      const { dir, spec } = writeSpec("sleep 1");
+      const pid = launchSupervisor(spec);
+      const environ = await waitFor(() => {
+        try {
+          const e = readFileSync(`/proc/${pid}/environ`, "utf8");
+          return e.includes("CATHERD_LAUNCH_PROBE=") ? e : null;
+        } catch {
+          return null;
+        }
+      });
+      expect(environ).toContain("CATHERD_LAUNCH_PROBE=kept");
+      expect(environ).not.toContain("TYPESAFE_API_KEY");
+      await waitFor(() => readExit(dir));
+    },
+  );
 
   it("runs a thin entry that never reaches the 0.x TUI or @opentui", () => {
     expect(relative(SRC, SUPERVISE_ENTRY)).toBe("entry/supervise-bin.ts");

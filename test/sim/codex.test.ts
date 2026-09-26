@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "../helpers.ts";
 import { simPath, withScenario } from "./scenario.ts";
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
@@ -35,7 +36,7 @@ describe("codex simulator", () => {
   });
 
   it("replays events on exec, writes -o, touches files and records what it saw", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const repo = tempDir("catherd-simrepo-");
     const reply = join(repo, "reply.md");
     const s = withScenario({
       eventsFile: join(FX, "two-turns.jsonl"),
@@ -67,7 +68,7 @@ describe("codex simulator", () => {
 
 describe("codex simulator scenarios", () => {
   it("applies a rung's overrides by model and effort, and reads a rewritten scenario", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const repo = tempDir("catherd-simrepo-");
     const reply = join(repo, "reply.md");
     const exec = (model: string, effort: string | null) => [
       "exec",

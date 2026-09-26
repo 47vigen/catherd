@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { exited, snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
@@ -12,7 +11,7 @@ afterEach(snapshotEnv());
 beforeEach(() => void withHome());
 
 function spec(script: string, over: Partial<SuperviseSpec> = {}): SuperviseSpec {
-  const dir = mkdtempSync(join(tmpdir(), "catherd-sup-"));
+  const dir = tempDir("catherd-sup-");
   return {
     schema: 1,
     backend: "test",
@@ -95,21 +94,6 @@ describe("supervise", () => {
     expect(exit.signal).toBe("SIGKILL");
   });
 });
-
-/** Gone, or a zombie nobody has reaped yet (a container's pid 1 may never reap). */
-function dead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return true;
-  }
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
-  } catch {
-    return true;
-  }
-}
 
 describe("supervise always leaves exit.json and no live worker", () => {
   it("records a binary that cannot be spawned as lost, with the error in stderr", async () => {
@@ -256,8 +240,7 @@ describe("supervise signals the whole group", () => {
     expect(exit.reason).toBe("cancelled");
     expect(member).toBeGreaterThan(0);
     expect(readFileSync(events, "utf8").trim()).toBe(String(member));
-    await Bun.sleep(100);
-    expect(dead(member)).toBe(true);
+    await waitFor(() => exited(member), 5_000);
   });
 
   it("kills a group member left behind when the worker exits on its own", async () => {
@@ -268,8 +251,7 @@ describe("supervise signals the whole group", () => {
     expect(member).toBeGreaterThan(0);
     expect(exit).toMatchObject({ code: 0, signal: null, reason: "exited" });
     expect(readExit(s.dispatchDir)).toMatchObject({ code: 0, reason: "exited" });
-    await Bun.sleep(100);
-    expect(dead(member)).toBe(true);
+    await waitFor(() => exited(member), 5_000);
   });
 });
 

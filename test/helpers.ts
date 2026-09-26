@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,9 +13,15 @@ export function withHome(): string {
   return home;
 }
 
+/**
+ * A fresh temp dir, by its real path. macOS's temp dir is behind a symlink (/var → /private/var), and git,
+ * `pwd` and a child's cwd all report the real path, so a test comparing paths must start from it.
+ */
+export const tempDir = (prefix: string): string => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+
 /** A fresh git repo with one commit, for runner and snapshot tests. */
 export function tempRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "catherd-repo-"));
+  const dir = tempDir("catherd-repo-");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
   git("init", "-q", "-b", "main");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
