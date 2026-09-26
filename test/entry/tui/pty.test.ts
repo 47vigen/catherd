@@ -14,7 +14,8 @@ const CLI = join(import.meta.dir, "..", "..", "..", "src", "cli.ts");
 // its socket lives in a temp dir this file removes, since tmux leaves the socket file behind. Each case
 // has a server of its own: one that is still shutting down from the case before takes a new session
 // down with it (a blank pane until the deadline, seen under load)
-const SOCKET_DIR = mkdtempSync(join(tmpdir(), "catherd-pty-tmux-"));
+// A Unix socket path must stay under ~104 bytes (macOS): a long TMPDIR moves the sockets to /tmp.
+const SOCKET_DIR = mkdtempSync(join(tmpdir().length > 60 ? "/tmp" : tmpdir(), "cpty-"));
 let socket = join(SOCKET_DIR, "tmux");
 const tmux = (...args: string[]) =>
   new TextDecoder().decode(
