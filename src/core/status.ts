@@ -79,7 +79,10 @@ const lines = (file: string) =>
 export function summarizeRun(run: Run): RunSummary {
   const { stillRunning } = reconcileLive(run.dir);
   const recs = readRunRecords(run.dir);
-  const jev = readJsonl<{ source?: string }>(join(run.dir, "jev.jsonl"));
+  // a 1.0 jev.jsonl opens with a `{schema, kind}` header row, which is not a decision
+  const jev = readJsonl<{ source?: string; schema?: unknown; kind?: unknown }>(
+    join(run.dir, "jev.jsonl"),
+  ).filter((j) => !(typeof j.schema === "number" && typeof j.kind === "string" && j.source === undefined));
   const now = Date.now();
   const totals: RunTotals = {
     runs: recs.length,

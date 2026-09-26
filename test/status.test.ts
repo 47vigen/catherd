@@ -17,7 +17,7 @@ describe("summarizeRun", () => {
     appendRunRecord(run.dir, fakeRecord("worker-M1.L2", { status: "failed", secs: 60 }));
     writeFileSync(
       join(run.dir, "jev.jsonl"),
-      `${JSON.stringify({ q: "difficulty", source: "jev" })}\n${JSON.stringify({ q: "finding", source: "default" })}\n`,
+      `${JSON.stringify({ schema: 1, kind: "jev" })}\n${JSON.stringify({ q: "difficulty", source: "jev" })}\n${JSON.stringify({ q: "finding", source: "default" })}\n`,
     );
     appendLedger(run.dir, "M1 | jobs list | abc1234 | vitest 12/12");
     appendJsonl(join(run.dir, "harness.jsonl"), {

@@ -1,9 +1,8 @@
-import { join } from "node:path";
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
 import { type BudgetStatus, formatBudget, type RunSummary, summarizeRun } from "../core/status.ts";
-import { listRuns, readJsonl, readRunRecords, type Run } from "../core/runstore.ts";
+import { listRuns, readRunRecords, type Run } from "../core/runstore.ts";
 import type { RunRecord, RungId } from "../types.ts";
 import { face, glyph, tint, type Ui } from "./theme.ts";
 import { CatSpinner, DetailPane, Frame, gradientLetters, ListLine } from "./ui.tsx";
@@ -14,6 +13,7 @@ import {
   type JevLine,
   liveLine,
   plainBudgetBar,
+  readJev,
   runLine,
 } from "./watch-model.ts";
 
@@ -28,7 +28,7 @@ const watchDeps: WatchDeps = {
   listRuns,
   summarizeRun,
   readRunRecords,
-  readJev: (dir) => readJsonl<JevLine>(join(dir, "jev.jsonl")),
+  readJev,
 };
 
 // ponytail: only the 20 newest runs are summarized each poll; add paging when someone keeps more than that live
