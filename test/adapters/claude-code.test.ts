@@ -235,6 +235,7 @@ describe("claude-code probe", () => {
   });
 
   it("lists the shipped models with their efforts", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
     const ms = await claudeCodeAdapter.listModels();
     expect(ms.map((m) => m.id)).toEqual([
       "claude-fable-5-1",
