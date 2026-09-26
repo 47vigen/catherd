@@ -52,3 +52,6 @@ Task 13: complete (2e1df23 + e1ffa6c fix1, re-review all addressed). All 14 task
 Final review (a765ad0): With fixes — I1 MCP profile tools global not repo; I2 Ctrl-C in init exit 1. Ruling: one fix wave (final-fix-wave.md) with I1,I2,M1-M10; deferred enums/tail/timing → plan 7, shim save → plan 6.
 Final fix wave cherry-picked e1ffa6c..3f120ac. Re-review dispatched.
 Final fix wave: re-review all addressed; controller fixed un-awaited rejects + invalid --profile name (3f120ac). Deferred: output-schema double log (latent); doctor linkedProfiles counts gone repos → plan 7; spec §8 synopsis --name/filters → plan 7 docs. PLAN 5 IMPLEMENTATION COMPLETE → PR ready for Codex review.
+Codex round 1 (1cd2e94): 2 P2 on profile-shim (backend per rung, interleaved order) → fixed 09cdfc8 with test; replied, resolved, re-triggered.
+Codex round 2 (09cdfc8): P1 saved jev key not redacted in runs show; P2 malformed rungs dropped by shim; P2 pruned agents no session notice; P2 doctor dead bindings → all fixed ab601b9 (948 pass), replied+resolved. Plan 6 re-check committed 9c12e36 (cherry-pick of 3425e2c). Owner asked to PAUSE after running agents finish: merge, hand off.
+Codex round 3 (9c12e36): P2 createProfile over file-less default; P2 shim malformed failover crash → fixed cfb5f16 (950 pass), replied+resolved.

@@ -13,7 +13,7 @@ Read it after the spec, before touching any plan.
 | 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6) |
 | 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds) |
 | 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | **ready to execute**: re-checked against plan 5 as built, all 13 tasks replayed green (see its "Re-check (2026-09-26)" section) |
-| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | being written (a pre-validating plan writer is running) |
+| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | written (12 tasks), pre-validated on `e1ffa6c` (plan 5 before its final fix wave and Codex rounds); **re-check against `main` after plan 6 merges** |
 | 8 Cursor CLI (1.1), Grok CLI (1.2) | — | to write |
 
 Authority order: spec `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.
@@ -65,6 +65,29 @@ Rulings to apply when executing plan 6 (decided at handoff, record them in the p
   flakes in CI, make it event-driven (plan 7 lists it).
 - The TUI may want `profile_get`'s new `here` field; validation fix texts say `catherd profile set …` without
   `--profile` (doctor rewrites them per profile; the TUI shows its own actions, so it need not).
+
+### Plan 7 — after plan 6
+
+Written by a plan writer (commit `cf33bf3`), 12 tasks, waves {1,3,4,5,6,10} → {2} → {7,8} → {9,11} → {12}.
+It was pre-validated by building every task on `e1ffa6c` (956 pass; Bun 1.4.0 too; a simulated macOS temp-dir
+symlink). Since then plan 5's final fix wave, three Codex rounds and plan 6 have changed files it edits
+(profile-service, doctor, runs-command, prompt, setup-tools, cli.ts, README), so before executing it have a plan
+writer re-check its anchors against `main` (as was done for plan 6) and commit the fixes. Notes from its writer:
+- CI follows spec §12: Bun 1.4.0 and latest on ubuntu and macOS; `release.yml` runs CI first and publishes only
+  after the whole matrix passes. A coverage floor (88 % lines / 85 % functions) was measured before plan 6 —
+  the plan says how to reset it if plan 6 moves it.
+- Task 12 adds the changeset (0.2.1 → 1.0.0 major), `MIGRATION.md` and README upgrade notes;
+  `bun run version-packages` was dry-run (1.0.0, CHANGELOG, plugin stamped). Publishing happens when the
+  "chore: release catherd" PR opened by the Release workflow is merged (npm OIDC, no token).
+- Unverified without the owner's machine: whether `codex login status` prints on stderr, and
+  `codex sandbox <os> --full-auto`; `docs/live-verification.md` (Task 11) has the owner check both.
+- Plan 1–3 minors marked "plan 7" that no carry-over names are listed in the plan as 1.0.x, with reasons.
+
+**Open questions for the owner** (asked at handoff; if unanswered, apply the default in brackets and record it):
+1. 0.x also read the Jev key from `~/.config/typesafe/api_key`; the spec names only `TYPESAFE_API_KEY` and
+   `credentials.json`. Read that file as a third source? [No — `MIGRATION.md` tells users `init` asks once.]
+2. Run the live-verification kit before or after merging the 1.0.0 release PR? [Before: the release PR waits
+   for the owner's kit results; everything else proceeds.]
 
 ## Process that worked (keep it)
 
