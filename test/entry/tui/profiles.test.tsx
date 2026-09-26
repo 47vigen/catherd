@@ -252,11 +252,12 @@ describe("the Profiles tab", () => {
   it("says in a toast when the saved profile cannot be read back", async () => {
     const fx = await profiles();
     await find("objective");
-    await h!.s.press("return");
+    await h!.s.press("return", "ctrl+s");
+    // gone after the dialog read it for its preview
     fx.readProfile = () => {
       throw new Error("profile file vanished");
     };
-    await h!.s.press("ctrl+s", "return");
+    await h!.s.press("return");
     expect(fx.writes).toEqual(['save default {"objective":"speed"}']);
     expect(h!.s.frame()).toContain("profile file vanished");
   });
@@ -274,6 +275,16 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("[ Cancel ]");
     expect(h!.s.frame()).not.toContain("[ Save ]");
     expect(h!.s.frame()).not.toContain("press q or ctrl+c to quit");
+  });
+
+  it("previews the save against the file as it is now, when it changed on disk since the draft began", async () => {
+    const fx = await profiles();
+    await find("worker access");
+    await h!.s.press("return");
+    const read = fx.readProfile;
+    fx.readProfile = (n) => applyPatch(read(n), { roles: { worker: { access: "read-only" } } });
+    await h!.s.press("ctrl+s");
+    expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+read-only → full/);
   });
 
   it("applies two keys that land in one tick to the draft as it is, not as it was drawn", async () => {

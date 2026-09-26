@@ -1,6 +1,12 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useState } from "react";
-import { type Change, diffProfiles, resolveProfile } from "../../../domain/profile.ts";
+import {
+  applyPatch,
+  type Change,
+  diffProfiles,
+  patchBetween,
+  resolveProfile,
+} from "../../../domain/profile.ts";
 import type { Validation } from "../../../domain/profile-rules.ts";
 import type { Effects } from "../effects.ts";
 import { useApp } from "../providers/app.tsx";
@@ -29,9 +35,17 @@ export interface SavePreview {
   agentsRemoved: string[];
 }
 
-export function previewSave(d: Draft, fx: Pick<Effects, "catalog" | "validate" | "agents">): SavePreview {
-  const before = resolveProfile(d.base, d.name);
-  const after = resolveProfile(d.doc, d.name);
+/**
+ * The save is a patch over the file as it is when it is written (Ruling 7), so the preview applies the
+ * draft's patch to the file as it is now, not to the copy the draft began from.
+ */
+export function previewSave(
+  d: Draft,
+  fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
+): SavePreview {
+  const now = fx.readProfile(d.name);
+  const before = resolveProfile(now, d.name);
+  const after = resolveProfile(applyPatch(now, patchBetween(d.base, d.doc)), d.name);
   const { catalog } = fx.catalog(after.billing);
   const a = new Set(fx.agents(before));
   const b = new Set(fx.agents(after));
