@@ -37,7 +37,7 @@ import { withFileLockSync } from "../infra/filelock.ts";
 import { claudeAgentsDir, configDir } from "../infra/paths.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { VERSION } from "../infra/version.ts";
-import { loadCatalog } from "./catalog-service.ts";
+import { backendOfKey, loadCatalog } from "./catalog-service.ts";
 import type { ProfilePort, ProfileView } from "./ports.ts";
 
 export const profilesDir = (): string => join(configDir(), "profiles");
@@ -127,6 +127,10 @@ export const profileFor = (repo: string | null): Profile => getProfile(activeNam
 
 /** The backends catherd can run: every registered adapter, and the native `claude` path. */
 export const runnableBackends = (): string[] => ["claude", ...ADAPTER_IDS.filter((id) => adapterFor(id))];
+
+/** Whether a profile's billing or harness key belongs to one of `backends` (default: runnableBackends()). */
+export const keyRunnable = (key: string, backends: string[] = runnableBackends()): boolean =>
+  backends.includes(backendOfKey(key));
 
 export function validateNamed(name?: string): Validation {
   return validateProfile(

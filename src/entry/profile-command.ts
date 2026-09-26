@@ -14,6 +14,7 @@ import {
   deleteProfile,
   diffNamed,
   getProfile,
+  keyRunnable,
   listProfiles,
   patchProfile,
   readProjects,
@@ -80,7 +81,7 @@ export function formatProfile(
     );
   }
   // only what catherd can run today: a backend without an adapter has nothing to bill or isolate
-  const runs = ([key]: [string, unknown]) => o.backends.includes(key === "opencode-go" ? "opencode" : key);
+  const runs = ([key]: [string, unknown]) => keyRunnable(key, o.backends);
   const billing = Object.entries(p.billing).filter(runs);
   lines.push(`billing ${billing.map(([k, m]) => `${k} ${m}`).join(" · ")}`);
   const harness = Object.entries(p.harness).filter(runs);
@@ -125,11 +126,17 @@ async function repoHere(): Promise<string> {
   return top;
 }
 
+/** The profile this directory runs on: its repo's binding, else the active one (outside a repo too). */
+const activeHere = async (): Promise<string> => activeName(await gitToplevel(process.cwd()));
+
 const list = defineCommand({
-  meta: { name: "list", description: "Every profile, which is active, and the repos bound to each" },
+  meta: {
+    name: "list",
+    description: "Every profile, the one this repo runs on (*), and the repos bound to each",
+  },
   args: json,
-  run({ args }) {
-    const active = activeName();
+  async run({ args }) {
+    const active = await activeHere();
     const bindings = Object.entries(readProjects().bindings);
     const rows = listProfiles().map((name) => ({
       name,
@@ -147,14 +154,15 @@ const list = defineCommand({
 const show = defineCommand({
   meta: {
     name: "show",
-    description: "A profile with every default filled in (the active one without a name)",
+    description: "A profile with every default filled in (without a name: the one this repo runs on)",
   },
   args: { name: { type: "positional", required: false, description: "profile name" }, ...json },
-  run({ args }) {
-    const name = args.name ?? activeName();
+  async run({ args }) {
+    const here = await activeHere();
+    const name = args.name ?? here;
     const p = getProfile(name);
     const o = {
-      active: name === activeName(),
+      active: name === here,
       enforcement: roleEnforcement(p),
       standIns: standIns(p, loadCatalog({ timings: false })),
     };
@@ -184,8 +192,9 @@ const create = defineCommand({
   },
   run({ args }) {
     const r = createProfile(args.name, args.from);
+    if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} created ${args.name}${args.from ? ` from ${args.from}` : ""}`);
-    printIssues(r.errors, r.warnings);
+    printIssues([], r.warnings);
   },
 });
 
@@ -197,8 +206,9 @@ const copy = defineCommand({
   },
   run({ args }) {
     const r = createProfile(args.to, args.from);
+    if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} copied ${args.from} to ${args.to}`);
-    printIssues(r.errors, r.warnings);
+    printIssues([], r.warnings);
   },
 });
 

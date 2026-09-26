@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { defineCommand } from "citty";
 import { formatBudget } from "../domain/budget.ts";
+import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { cancel } from "../services/dispatch-service.ts";
 import { runDebug } from "../services/run-debug.ts";
@@ -55,6 +56,12 @@ export const statusCommand = defineCommand({
   },
 });
 
+/** `watch --interval <secs>` in ms: 2 s when absent or not a number, never under 1 s (so 0 means 1 s). */
+export function redrawMs(interval: string | undefined): number {
+  const secs = interval === undefined || interval.trim() === "" ? Number.NaN : Number(interval);
+  return Math.max(1, Number.isFinite(secs) ? secs : 2) * 1000;
+}
+
 /** Spec §8 `catherd watch [--once]`. The live view here is plain text; plan 6's Runs tab replaces it. */
 export const watchCommand = defineCommand({
   meta: {
@@ -68,7 +75,7 @@ export const watchCommand = defineCommand({
   },
   async run({ args }) {
     if (args.once || args.json) return printStatus(undefined, args.json === true);
-    const every = Math.max(1, Number(args.interval) || 2) * 1000;
+    const every = redrawMs(args.interval);
     for (;;) {
       if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
       printStatus(undefined, false);
@@ -83,6 +90,10 @@ const list = defineCommand({
   args: { repo: { type: "string", description: "only the runs of the git repo at this path" }, ...json },
   async run({ args }) {
     const top = args.repo ? await gitToplevel(resolve(args.repo)) : null;
+    if (args.repo && !top)
+      throw new CatherdError("E_INPUT_INVALID", `${resolve(args.repo)} is not inside a git repository`, {
+        fix: "pass a path inside the repo, or leave out --repo",
+      });
     const { runs, corrupt } = listRuns();
     const rows = runs
       .filter((r) => !args.repo || r.meta.repo === top)

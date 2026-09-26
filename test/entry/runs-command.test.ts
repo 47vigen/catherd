@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatRun } from "../../src/entry/runs-command.ts";
+import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { appendRecord, runPaths } from "../../src/services/run-store.ts";
 import type { RunSummary } from "../../src/services/summary.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun, makeRecord } from "../services/helpers.ts";
 
@@ -62,6 +62,14 @@ describe("formatRun", () => {
   });
 });
 
+describe("redrawMs", () => {
+  it("defaults to 2 s and clamps to the 1 s floor, 0 included", () => {
+    expect([undefined, "", "x", "0", "-3", "0.5", "5"].map(redrawMs)).toEqual([
+      2000, 2000, 2000, 1000, 1000, 1000, 5000,
+    ]);
+  });
+});
+
 describe("catherd status and watch --once", () => {
   it("prints the run with a live role, as text or JSON", async () => {
     const { run } = freshRun("parser");
@@ -95,7 +103,11 @@ describe("catherd status and watch --once", () => {
     });
     const reader = p.stdout.getReader();
     let seen = "";
-    while (!seen.includes("updated")) seen += new TextDecoder().decode((await reader.read()).value);
+    while (!seen.includes("updated")) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`watch exited before its first redraw: ${seen}`);
+      seen += new TextDecoder().decode(chunk.value);
+    }
     p.kill("SIGINT");
     expect(await p.exited).toBe(130);
   });
@@ -109,7 +121,17 @@ describe("catherd runs", () => {
     const r = catherd(["runs", "list"]);
     expect(r.out).toContain(`${run.id}  1 live  0 role run(s)  parser  ${run.meta.repo}\n`);
     expect(r.out).toContain("! skipped run broken:");
-    expect(JSON.parse(catherd(["runs", "list", "--repo", "/", "--json"]).out).runs).toEqual([]);
+    expect(JSON.parse(catherd(["runs", "list", "--repo", tempRepo(), "--json"]).out).runs).toEqual([]);
+    expect(JSON.parse(catherd(["runs", "list", "--repo", run.meta.repo, "--json"]).out).runs).toHaveLength(1);
+  });
+
+  it("refuses --repo outside a git repository with exit 2", () => {
+    freshRun();
+    const r = catherd(["runs", "list", "--repo", "/"]);
+    expect([r.code, r.err.split("\n")[0]]).toEqual([
+      2,
+      "error E_INPUT_INVALID: / is not inside a git repository",
+    ]);
   });
 
   it("shows a run's records, and with --debug each dispatch's exit and tails, secrets redacted", async () => {

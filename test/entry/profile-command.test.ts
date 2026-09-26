@@ -140,6 +140,33 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
       { name: "team", active: true, repos: [] },
     ]);
   });
+
+  it("refuses to copy an invalid profile with exit 1 and writes nothing", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = readFileSync(join(SRC, "..", "test", "fixtures", "profiles", "bad.json"), "utf8");
+    writeFileSync(join(profilesDir(), "bad.json"), doc);
+    const r = catherd(["copy", "bad", "x"]);
+    expect([r.code, r.out]).toEqual([1, ""]);
+    const [line, fix, rest] = r.err.split("\n");
+    expect(line).toStartWith("error E_CONFIG_INVALID: the profile was not saved: roles.reviewer.rungs: ");
+    expect(line).toContain("codex:gpt-6-sol#turbo is unscored");
+    expect(fix).toStartWith("fix: ");
+    expect(rest).toBe("");
+    expect(existsSync(join(profilesDir(), "x.json"))).toBe(false);
+  });
+
+  it("show and list, run inside a bound repo, use the repo's profile; outside it, the active one", () => {
+    withHome();
+    const repo = tempRepo();
+    catherd(["new", "fast"]);
+    catherd(["use", "fast", "--repo"], repo);
+    expect(catherd(["show"], repo).out.split("\n")[0]).toBe("profile fast (active)");
+    expect(catherd(["show", "default"], repo).out.split("\n")[0]).toBe("profile default");
+    expect(catherd(["list"], repo).out).toStartWith("  default\n* fast  bound to ");
+    expect(catherd(["show"], "/").out.split("\n")[0]).toBe("profile default (active)");
+    expect(catherd(["list"], "/").out).toStartWith("* default\n  fast  bound to ");
+  });
 });
 
 describe("catherd profile validate", () => {
