@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
+import { gitToplevel } from "../../infra/git.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
 
@@ -39,8 +40,9 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, and their rungs (backend:model#effort) with scores and any 'treat like'. `listed: false`: this account's backend does not offer it; `enabled: false` rungs are unscored. Scored models first.",
+        "Models catherd can place, with capabilities, the roles they can fill, and their rungs (backend:model#effort) with scores and any 'treat like'. `listed: false`: this account's backend does not offer it; `enabled: false` rungs are unscored. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
       inputSchema: {
+        repo: z.string().min(1).optional(),
         role: z.enum(ROLES).optional(),
         backend: z.string().optional(),
         text: z.string().optional(),
@@ -49,13 +51,15 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
       },
     },
     (a) =>
-      handle(() =>
+      handle(async () =>
         deps.routing.catalog({
           role: a.role,
           backend: a.backend,
           text: a.text,
           scoredOnly: a.scored_only,
           limit: a.limit,
+          // outside a git repository: the global listings
+          repo: (await gitToplevel(a.repo ?? process.cwd())) ?? undefined,
         }),
       ),
   );

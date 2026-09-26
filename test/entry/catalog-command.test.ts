@@ -1,16 +1,28 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
 function catherd(...args: string[]) {
+  return catherdIn(undefined, "/nonexistent", ...args);
+}
+/** git alone on PATH, so the command can find the repository it runs in but no backend CLI. */
+function gitOnlyPath(): string {
+  const bin = mkdtempSync(join(tmpdir(), "catherd-bin-"));
+  symlinkSync(Bun.which("git") as string, join(bin, "git"));
+  return bin;
+}
+function catherdIn(cwd: string | undefined, path: string, ...args: string[]) {
   const p = Bun.spawnSync([process.execPath, CLI, "catalog", ...args], {
+    cwd,
     // no backend CLI on PATH: refresh lists nothing, and never touches the user's own
-    env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+    env: { ...process.env, PATH: path, ANTHROPIC_API_KEY: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -67,6 +79,27 @@ describe("catherd catalog", () => {
     const r = catherd("treat-like", "codex:gpt-6-sol#high", "gpt-6-sol#xhigh");
     expect([r.code, r.out]).toEqual([1, ""]);
     expect(r.err).toStartWith("error E_CONFIG_INVALID: gpt-6-sol#high has scores of its own");
+  });
+
+  it("lists and refreshes opencode for the repository it runs in, and globally outside one", () => {
+    withHome();
+    const repo = realpathSync(tempRepo());
+    const kimi = [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }];
+    const at = Date.parse("2026-09-25T10:00:00.000Z");
+    writeDiscovery("opencode", kimi, at, repo);
+    const path = gitOnlyPath();
+    const inRepo = JSON.parse(catherdIn(repo, path, "list", "--text", "kimi", "--json").out);
+    expect(inRepo.total).toBe(1);
+    const outside = mkdtempSync(join(tmpdir(), "catherd-norepo-"));
+    expect(JSON.parse(catherdIn(outside, path, "list", "--text", "kimi", "--json").out).total).toBe(0);
+    // opencode cannot list here, so refresh reports the repository's own last listing
+    const rows = JSON.parse(catherdIn(repo, path, "refresh", "--json").out) as {
+      backend: string;
+      fetchedAt: string | null;
+    }[];
+    expect(rows.find((x) => x.backend === "opencode")?.fetchedAt).toBe(new Date(at).toISOString());
+    const global = JSON.parse(catherdIn(outside, path, "refresh", "--json").out) as typeof rows;
+    expect(global.find((x) => x.backend === "opencode")?.fetchedAt).toBeNull();
   });
 
   it("refreshes every backend, keeping the claude-code list without an API key", () => {

@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { isCatherdError } from "../domain/errors.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import { gitToplevel } from "../infra/git.ts";
 import {
   type CatalogModel,
   catalogQuery,
@@ -21,6 +22,9 @@ export function formatModel(m: CatalogModel): string {
   return `${m.backend}:${m.model}  ${scored}/${m.rungs.length} rungs scored  roles ${m.roles.join(",") || "none"}${listed}`;
 }
 
+/** The repository the command runs in, for per-repository listings; none outside one (global). */
+const hereRepo = async (): Promise<string | undefined> => (await gitToplevel(process.cwd())) ?? undefined;
+
 function fail(e: unknown): void {
   if (!isCatherdError(e)) throw e;
   console.error(`error ${e.code}: ${e.message}`);
@@ -32,7 +36,7 @@ const refresh = defineCommand({
   meta: { name: "refresh", description: "List every backend's models now" },
   args: { json: { type: "boolean", description: "print JSON" } },
   async run({ args }) {
-    const r = await refreshDiscovery();
+    const r = await refreshDiscovery({ repo: await hereRepo() });
     if (args.json) console.log(JSON.stringify(r, null, 2));
     else for (const x of r) console.log(formatRefreshed(x));
     process.exitCode = r.some((x) => !x.error) ? 0 : 1;
@@ -48,7 +52,7 @@ const list = defineCommand({
     scored: { type: "boolean", description: "only models with a scored rung" },
     json: { type: "boolean", description: "print JSON" },
   },
-  run({ args }) {
+  async run({ args }) {
     if (args.role && !(ROLES as readonly string[]).includes(args.role)) {
       console.error(`error E_INPUT_INVALID: no role "${args.role}"`);
       console.error(`fix: pass --role ${ROLES.join("|")}`);
@@ -62,6 +66,7 @@ const list = defineCommand({
         text: args.text,
         scoredOnly: args.scored === true,
         limit: 10_000,
+        repo: await hereRepo(),
       });
       if (args.json) console.log(JSON.stringify(r, null, 2));
       else for (const m of r.models) console.log(formatModel(m));

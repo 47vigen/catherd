@@ -15,7 +15,7 @@ import {
   resetFreshen,
   saveTreatLike,
 } from "../../src/services/catalog-service.ts";
-import { appendRecord, appendRoute } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendRecord, appendRoute } from "../../src/services/run-store.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { freshRun, makeRecord } from "./helpers.ts";
 
@@ -184,6 +184,58 @@ describe("measuredSecs", () => {
     const m = measuredSecs(loadCatalog({ timings: false }));
     expect(m).toEqual({ "gpt-6-sol#high|*": 300, "gpt-6-sol#high|terminal": 300 });
   });
+  it("times native claude: subagent runs from agents.jsonl under all kinds", async () => {
+    const { run } = freshRun();
+    const agent = (secs: number | null, status: "ok" | "failed" = "ok") =>
+      appendAgentRun(run, {
+        at: "2026-09-25T10:00:00.000Z",
+        name: "architect",
+        role: "architect",
+        rung: "claude:claude-opus-5-5#high",
+        agent: null,
+        totalTokens: 100,
+        costUsd: null,
+        secs,
+        status,
+      });
+    for (const s of [50, 10, 30, 20, 40]) agent(s);
+    agent(null);
+    agent(9999, "failed");
+    const m = measuredSecs(loadCatalog({ timings: false }));
+    expect(m).toEqual({ "claude-opus-5-5#high|*": 30 });
+  });
+
+  it("counts an agent row that names its lane under that lane's kind too", async () => {
+    const { run } = freshRun();
+    appendRoute(run, {
+      at: "2026-09-25T10:00:00.000Z",
+      lane: "M1.L1",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#high",
+      ladder: ["claude:claude-opus-5-5#high"],
+      source: "route",
+      decidedBy: "lane",
+      from: null,
+      reason: null,
+      kind: "prose",
+      difficulty: "logic",
+    });
+    for (const [i, s] of [50, 10, 30, 20, 40].entries())
+      appendAgentRun(run, {
+        at: `2026-09-25T10:1${i}:00.000Z`,
+        name: "w",
+        role: "worker",
+        rung: "claude:claude-opus-5-5#high",
+        agent: null,
+        totalTokens: 100,
+        costUsd: null,
+        secs: s,
+        status: "ok",
+        lane: "M1.L1",
+      });
+    const m = measuredSecs(loadCatalog({ timings: false }));
+    expect(m).toEqual({ "claude-opus-5-5#high|*": 30, "claude-opus-5-5#high|prose": 30 });
+  });
 });
 
 describe("discovery refresh", () => {
@@ -348,6 +400,19 @@ describe("catalogQuery", () => {
       enabled: true,
       scores: { repo_code: { value: 56.6, confidence: "inferred" } },
     });
+  });
+
+  it("lists opencode as it is listed in the given repository, and globally without one", () => {
+    withHome();
+    writeDiscovery(
+      "opencode",
+      [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }],
+      T0,
+      "/work/a",
+    );
+    expect(q({ text: "kimi", repo: "/work/a" }).total).toBe(1);
+    expect(q({ text: "kimi", repo: "/work/b" }).total).toBe(0);
+    expect(q({ text: "kimi" }).total).toBe(0);
   });
 
   it("filters by role and limits the list", () => {

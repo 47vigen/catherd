@@ -31,7 +31,7 @@ import { withFileLock } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
-import { listRuns, readRecords, readRoutes } from "./run-store.ts";
+import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
 
 const DAY_MS = 24 * 3_600_000;
 /** Spec §5.2: `secs_per_task` counts once a rung has this many of the user's own runs. */
@@ -73,25 +73,42 @@ const median = (xs: number[]) => {
 /**
  * Spec §5.2: the median seconds of the user's own successful runs per canonical rung and lane kind
  * (`|*` over every kind), kept only with at least MIN_SAMPLES runs. A run counts under the kind of its
- * lane's route in force when it started; a run with none counts only under `|*`.
+ * lane's route in force when it started; a run with none counts only under `|*`. Native `claude:`
+ * subagent runs (agents.jsonl, from record_agent_run) count too; one that names no lane counts only
+ * under `|*`.
  */
 export function measuredSecs(base: Catalog): Catalog["secs"] {
   const groups = new Map<string, number[]>();
   const add = (k: string, secs: number) => groups.set(k, [...(groups.get(k) ?? []), secs]);
+  const count = (
+    routes: ReturnType<typeof readRoutes>,
+    rung: string,
+    secs: number,
+    lane: string | null,
+    startedAt: string,
+  ) => {
+    let canonical: string;
+    try {
+      canonical = rungInfo(base, rung).canonical;
+    } catch {
+      return;
+    }
+    // the kind the lane was routed as when this run started, not its newest route
+    const kind: Kind | null = lane ? (routeAt(routes, lane, startedAt)?.kind ?? null) : null;
+    add(`${canonical}|*`, secs);
+    if (kind) add(`${canonical}|${kind}`, secs);
+  };
   for (const run of listRuns().runs) {
     const routes = readRoutes(run);
-    for (const r of readRecords(run).records) {
-      if (r.status !== "ok") continue;
-      let canonical: string;
-      try {
-        canonical = rungInfo(base, r.rung).canonical;
-      } catch {
-        continue;
-      }
-      // the kind the lane was routed as when this run started, not its newest route
-      const kind: Kind | null = r.lane ? (routeAt(routes, r.lane, r.startedAt)?.kind ?? null) : null;
-      add(`${canonical}|*`, r.secs);
-      if (kind) add(`${canonical}|${kind}`, r.secs);
+    for (const r of readRecords(run).records)
+      if (r.status === "ok") count(routes, r.rung, r.secs, r.lane, r.startedAt);
+    for (const a of readAgentRuns(run)) {
+      if (a.status !== "ok" || a.secs === null) continue;
+      // a row is written when the subagent ends; it started `secs` earlier
+      const lane = typeof a.lane === "string" ? a.lane : null;
+      const end = Date.parse(a.at);
+      const startedAt = Number.isNaN(end) ? a.at : new Date(end - a.secs * 1000).toISOString();
+      count(routes, a.rung, a.secs, lane, startedAt);
     }
   }
   const secs: Catalog["secs"] = {};
@@ -291,12 +308,15 @@ export interface CatalogModel {
   rungs: ReturnType<typeof rungRows>;
 }
 
-/** Spec §4.8 `catalog_query`: shipped families on each backend, plus listed models catherd cannot score. */
+/**
+ * Spec §4.8 `catalog_query`: shipped families on each backend, plus listed models catherd cannot score;
+ * a backend listed per repository as it is listed in `f.repo` (a git toplevel), as `route` reads it.
+ */
 export function catalogQuery(
   f: CatalogFilter,
   billing: Partial<Record<string, BillingMode>> = {},
 ): { total: number; models: CatalogModel[] } {
-  const c = loadCatalog({ timings: false });
+  const c = loadCatalog({ timings: false, repo: f.repo });
   const rows: CatalogModel[] = [];
   const known = new Set<string>();
   const entry = (backend: string, model: string, fam: Family | null): CatalogModel => {

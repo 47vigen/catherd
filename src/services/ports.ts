@@ -80,6 +80,8 @@ export interface CatalogFilter {
   text?: string;
   scoredOnly: boolean;
   limit: number;
+  /** the git toplevel whose per-repository listings (opencode's) to read; none reads the global ones */
+  repo?: string;
 }
 
 export interface RoutingPort {

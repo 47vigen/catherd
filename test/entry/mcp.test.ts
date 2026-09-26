@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { progressTo } from "../../src/entry/mcp/dispatch-tools.ts";
+import { gitToplevel } from "../../src/infra/git.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
@@ -118,6 +123,41 @@ describe("MCP server", () => {
     });
     expect(agent.data).toMatchObject({ totalTokens: 1200, secs: 3 });
     expect((await call(c, "status", { run: run.id })).data.runs[0].agents.totalTokens).toBe(1200);
+  });
+
+  it("answers catalog_query from the repository's own opencode listing, as route reads it", async () => {
+    const { repo } = freshRun();
+    const top = (await gitToplevel(repo)) as string;
+    const kimi = [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }];
+    writeDiscovery("opencode", kimi, Date.parse("2026-09-25T10:00:00.000Z"), top);
+    const c = await mcpClient();
+    mkdirSync(join(repo, "sub"));
+    const inRepo = await call(c, "catalog_query", { text: "kimi", repo: join(repo, "sub") });
+    expect(inRepo.data.models.map((m: { model: string }) => m.model)).toEqual(["opencode-go/kimi-k3"]);
+    const outside = await call(c, "catalog_query", {
+      text: "kimi",
+      repo: mkdtempSync(join(tmpdir(), "catherd-norepo-")),
+    });
+    expect(outside.data.total).toBe(0);
+  });
+
+  it("passes catalog_query the git toplevel of its repo, else of the server's directory", async () => {
+    const { repo } = freshRun();
+    const seen: (string | undefined)[] = [];
+    const deps = fakeDeps();
+    deps.routing.catalog = (f) => {
+      seen.push(f.repo);
+      return { total: 0, models: [] };
+    };
+    const c = await mcpClient(deps);
+    await call(c, "catalog_query", { repo });
+    await call(c, "catalog_query", {});
+    await call(c, "catalog_query", { repo: mkdtempSync(join(tmpdir(), "catherd-norepo-")) });
+    expect(seen).toEqual([
+      (await gitToplevel(repo)) as string,
+      (await gitToplevel(process.cwd())) ?? undefined,
+      undefined,
+    ]);
   });
 
   it("passes the services' hints through when state.md cannot be refreshed", async () => {
