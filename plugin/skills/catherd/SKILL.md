@@ -118,7 +118,7 @@ A usage limit is not a climb. When the profile names a stand-in for that rung, `
 A failure on the top rung (`top: true`) goes to the architect when Jev calls it design, else to the report as open.
 
 - Jev decides which model does the work. It never decides that the work is done: only a check, the reviewer or the verifier does.
-- `R/routes.jsonl` records each lane's rung and every climb with its reason; `R/outcomes.jsonl` gets one row per lane when its milestone lands or it fails its top rung.
+- `R/routes.jsonl` records each lane's rung and every climb with its reason; `R/outcomes.jsonl` gets one row per lane when its milestone lands or it fails its top rung; a lane written again (landed after failing its top rung, or re-landed) keeps its rows, and the last row per lane wins.
 - Never put a secret or a key into an `ask` state. Keep the state short and in English.
 
 ## Threads

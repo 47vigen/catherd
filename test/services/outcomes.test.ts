@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { laneOutcome, type RouteRow } from "../../src/domain/route.ts";
+import { laneOutcome, latestOutcomes, type RouteRow } from "../../src/domain/route.ts";
 import { climb, land, route } from "../../src/services/lane-service.ts";
 import { readOutcomes, readRoutes, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -83,6 +83,30 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     const [o] = readOutcomes(run);
     expect(o).toMatchObject({ landed: false, start_ok: false, min_ok_index: null, finalRung: LADDER.at(-1) });
     expect(o?.climbs).toHaveLength(LADDER.length - 1);
+  });
+
+  it("keeps a lane's newer row when it is written twice: last row per lane wins", async () => {
+    const { repo, run } = freshRun();
+    const deps = jevDeps();
+    for (const id of ["M1.L1", "M1.L2"]) {
+      writeLane(run, id, [`src/${id}.ts`]);
+      await route(deps, { run: run.id, laneFile: `lanes/${id}.md`, role: "worker" });
+    }
+    for (let i = 0; i < LADDER.length; i++)
+      await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
+    await landM1(deps, run.id, head(repo));
+    const rows = readOutcomes(run);
+    expect(rows.map((o) => [o.lane, o.landed])).toEqual([
+      ["M1.L1", false],
+      ["M1.L1", true],
+      ["M1.L2", true],
+    ]);
+    const latest = latestOutcomes(rows);
+    expect(latest.map((o) => [o.lane, o.landed])).toEqual([
+      ["M1.L1", true],
+      ["M1.L2", true],
+    ]);
+    expect(latest[0]).toBe(rows[1] as (typeof rows)[number]);
   });
 
   it("starts from the lane's last route, and ignores lanes never routed", () => {

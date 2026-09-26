@@ -196,12 +196,15 @@ export async function land(
   // on a failed refresh the notes still reach state.json, so the next landing counts its minutes from this one
   const { hints } = await refreshState(run, landRow);
   // spec §5.6: every routed lane of the milestone lands with it
-  const routes = readRoutes(run);
-  for (const lane of new Set(routes.map((r) => r.lane)))
-    if (lane.startsWith(`${i.milestone}.`)) {
-      const o = laneOutcome(routes, lane, true, now.toISOString());
-      if (o) appendOutcome(run, o);
-    }
+  // under the routes lock, so a racing climb cannot slip between the read and the rows
+  await withFileLock(runPaths(run.dir).routes, () => {
+    const routes = readRoutes(run);
+    for (const lane of new Set(routes.map((r) => r.lane)))
+      if (lane.startsWith(`${i.milestone}.`)) {
+        const o = laneOutcome(routes, lane, true, now.toISOString());
+        if (o) appendOutcome(run, o);
+      }
+  });
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
     mkdirSync(dirname(file), { recursive: true });

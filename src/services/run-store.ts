@@ -189,6 +189,7 @@ export function appendRoute(run: Run, row: RouteRow): void {
   appendJsonl(file, row);
 }
 
+/** Appends; a lane may be written more than once and its last row wins (see `latestOutcomes`). */
 export function appendOutcome(run: Run, row: OutcomeRow): void {
   const file = runPaths(run.dir).outcomes;
   ensureJsonlHeader(file, "outcomes");

@@ -50,7 +50,11 @@ export function nextRung(ladder: string[], current: string): string | null {
 export const currentRoute = (rows: RouteRow[], lane: string): RouteRow | null =>
   rows.findLast((r) => r.lane === lane) ?? null;
 
-/** One outcomes.jsonl row (spec §5.6): how a routed lane ended, for calibrating Jev's route rule. */
+/**
+ * One outcomes.jsonl row (spec §5.6): how a routed lane ended, for calibrating Jev's route rule.
+ * A lane can get several rows (a top-rung failure later landed, a milestone landed again):
+ * the last row per lane wins; read them through `latestOutcomes`.
+ */
 export interface OutcomeRow {
   at: string;
   lane: string;
@@ -96,4 +100,11 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
     min_ok_index: landed && idx >= 0 ? idx : null,
     envCaused: climbs.some((c) => c.env),
   };
+}
+
+/** Spec §5.6: one row per lane, the last one written (last row per lane wins), in first-seen lane order. */
+export function latestOutcomes(rows: OutcomeRow[]): OutcomeRow[] {
+  const byLane = new Map<string, OutcomeRow>();
+  for (const r of rows) byLane.set(r.lane, r);
+  return [...byLane.values()];
 }
