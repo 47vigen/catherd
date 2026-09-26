@@ -13,7 +13,7 @@ Read it after the spec, before touching any plan.
 | 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6) |
 | 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds) |
 | 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | **ready to execute**: re-checked against plan 5 as built, all 13 tasks replayed green (see its "Re-check (2026-09-26)" section) |
-| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | written (12 tasks), pre-validated on `e1ffa6c` (plan 5 before its final fix wave and Codex rounds); **re-check against `main` after plan 6 merges** |
+| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | written (14 tasks; Task 14: plan 6's two deferred Codex findings, the TUI's activate scope and confirmed revert), re-checked and replayed on `main` after plan 6 merged (`6195f4e`: 1000 → 1035 pass); coverage floor now `test/coverage-floor.ts` (Bun's `coverageThreshold` is per file) |
 | 8 Cursor CLI (1.1), Grok CLI (1.2) | — | to write |
 
 Authority order: spec `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.

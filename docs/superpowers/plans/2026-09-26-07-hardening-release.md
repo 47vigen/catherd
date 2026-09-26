@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the hardening items plans 1–6 deferred to plan 7 (the process model's races and identity checks, busy detection for quiet tool calls, preflight as root, the MCP log's missing rows, Jev's cached answers and unreadable key file, profiles written by a newer catherd, the CLI's signal handling, the TUI's `config.json` keybinds), make the suite pass on macOS and run CI on {Linux, macOS} × {Bun 1.4.0, latest} with a coverage floor, an audit and an npm pack smoke, give the owner an exact live-verification kit, and release catherd-cli 1.0.0 through Changesets.
+**Goal:** Close the hardening items plans 1–6 deferred to plan 7 (the process model's races and identity checks, busy detection for quiet tool calls, preflight as root, the MCP log's missing rows, Jev's cached answers and unreadable key file, profiles written by a newer catherd, the CLI's signal handling, the TUI's `config.json` keybinds, and two TUI edges plan 6's last Codex round deferred: an activation or a revert confirmed after another process changed the binding or the profile), make the suite pass on macOS and run CI on {Linux, macOS} × {Bun 1.4.0, latest} with a coverage floor, an audit and an npm pack smoke, give the owner an exact live-verification kit, and release catherd-cli 1.0.0 through Changesets.
 
-**Architecture:** No new layer and no new module in `src/` besides test helpers: each fix lands in the module that owns the behaviour (`src/infra/{proc,supervisor}.ts`, the adapters, `src/services/{dispatch-service,reconcile,preflight,jev-service,lane-service,doctor,capture,run-debug}.ts`, `src/domain/{profile,profile-rules}.ts`, `src/entry/{cli,mcp/*,capture-fixtures}.ts`). Two small interfaces grow: a stream line can tell the supervisor that a tool call opened or closed (`EventDelta.item`, `LineInfo.item`), and `isBusy` learns when the run started; a probe can say how a CLI is logged in (`Probe.login`, `Probe.billing`). CI is `.github/workflows/ci.yml` (a matrix job and a package job), which `release.yml` calls before the Changesets step, so nothing is published unless the whole matrix is green.
+**Architecture:** No new layer and no new module in `src/` besides test helpers: each fix lands in the module that owns the behaviour (`src/infra/{proc,supervisor}.ts`, the adapters, `src/services/{dispatch-service,reconcile,preflight,jev-service,lane-service,doctor,capture,run-debug}.ts`, `src/domain/{profile,profile-rules}.ts`, `src/entry/{cli,mcp/*,capture-fixtures}.ts`, `src/entry/tui/{commands,state,effects,fixtures}.ts` and `views/profile-actions.ts`). A few small interfaces grow: a stream line can tell the supervisor that a tool call opened or closed (`EventDelta.item`, `LineInfo.item`), and `isBusy` learns when the run started; a probe can say how a CLI is logged in (`Probe.login`, `Probe.billing`); the TUI's `Effects.activate(name, repo)` takes the scope the user confirmed. CI is `.github/workflows/ci.yml` (a matrix job and a package job), which `release.yml` calls before the Changesets step, so nothing is published unless the whole matrix is green.
 
-**Tech Stack:** Bun ≥ 1.4 (`bun test`, `bun pm pack`, `bun audit`, `bunfig.toml` coverage threshold), TypeScript 7 (`tsc --noEmit`), zod 4, citty 0.2, `@modelcontextprotocol/sdk` 1.30, oxlint, oxfmt, GitHub Actions (`oven-sh/setup-bun@v2`, `changesets/action@v2`), Dependabot, tmux (the TUI's PTY test). No new runtime dependency.
+**Tech Stack:** Bun ≥ 1.4 (`bun test`, `bun pm pack`, `bun audit`, lcov coverage report), TypeScript 7 (`tsc --noEmit`), zod 4, citty 0.2, `@modelcontextprotocol/sdk` 1.30, oxlint, oxfmt, GitHub Actions (`oven-sh/setup-bun@v2`, `changesets/action@v2`), Dependabot, tmux (the TUI's PTY test). No new runtime dependency.
 
 **Spec:** `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` — §3.3 (the process model), §3.4 (schemas, unknown fields), §6 (the backends: busy, interrupt, isolation), §10.2 (the log), §10.3 (`doctor`), §10.4 (preflight never as root, secrets), §11 (testing: live tests, fixture capture, hygiene and the coverage floor), §12 (CI and release) and §14 (risks), with D2 (the clean break) and D7 (live verification on the owner's machine). The carry-overs come from `docs/superpowers/handoff/HANDOFF.md` ("Plan 7 (hardening)"), `docs/superpowers/handoff/plan4-ledger.md`, the plan-5 ledger (`docs/superpowers/handoff/plan5-ledger.md` and the session ledger it was copied from) and the reviews they cite (`plan1-final-review.md`, `plan2-rereview-final.md`, `plan3-final-review.md`). Plans 1–6 (`docs/superpowers/plans/2026-09-2{5,6}-0*.md`) built everything this plan stands on; plan 6 (the TUI) lands before this plan runs.
 
@@ -23,7 +23,7 @@
 - §12: "CI matrix {ubuntu, macOS} × {Bun 1.4.0, latest}: typecheck, lint, format, all non-live tests, the architecture test, `tui-frames.md` freshness, dependency audit." "Releases through Changesets, gated on green CI; a marketplace tag per version; the plugin pins its exact package version." "`npm pack` smoke: install the tarball in an empty directory, run `--version`, `doctor --json`, and an MCP `initialize` + `tools/list` handshake." "OpenTUI is pinned exactly; other dependencies stay on latest with the lockfile and automated update PRs." "`MIGRATION.md` for 0.2 → 1.0: run `catherd init`; old run folders are not read."
 - D2: "**Clean break.** 1.0 is a new major; `init` rebuilds everything; no 0.2 migration code." D7: "Live verification runs on the owner's machine (OpenCode Go, Claude plan, Codex with ChatGPT login) through a fixture-capture kit; CI runs on simulators and recorded fixtures."
 - Tests: an isolated `CATHERD_HOME` per test (`withHome()` or `freshRun()`), `afterEach(snapshotEnv())` in every file that sets an env var, no network (backend CLIs are the simulators or `PATH=/nonexistent`; every test that reaches discovery deletes `ANTHROPIC_API_KEY`, or blanks it in a spawned process's env), never the real `~/.claude`. **A test that spawns a process passes `env` explicitly**: Bun hands a child its start-up environment, not later `process.env` changes. No test waits a fixed time for correctness: it waits on a file, a line of output or a process state with a deadline (`waitFor`), and a worker script may be slow on purpose, never the test.
-- Other plans' ground: plan 6 (with its final fix wave) lands first and owns `src/entry/tui/` and `test/entry/tui/`; plan 7 touches only `resolveKeybinds` there (Task 13, plan 6's deferred minors) and the PTY test's tmux socket (Task 10), and `src/tui`, `src/core`, `src/routing` and `catalog/catalog.json` no longer exist. Every block below was matched against plan 6 as built (`b77f0de`), and the files plan 6's final fix wave also touches against its head (`7bab94b`); if a block does not match, find it by its text, not its line number, and keep whatever landed around it.
+- Other plans' ground: plan 6 (with its final fix wave) lands first and owns `src/entry/tui/` and `test/entry/tui/`; plan 7 touches only `resolveKeybinds` there (Task 13, plan 6's deferred minors) and the activate and revert confirmations (Task 14: `state.ts`, `effects.ts`, `fixtures.ts`, `views/profile-actions.ts` and their tests, plan 6's deferred Codex findings), and `src/tui`, `src/core`, `src/routing` and `catalog/catalog.json` no longer exist. Every block below was matched against `main` after plan 6 merged (`6195f4e`, which includes its final fix wave and Codex rounds); if a block does not match, find it by its text, not its line number, and keep whatever landed around it.
 - Commits: Conventional Commits, subjects ≤ 100 characters, never starting with a capital. Never commit a `bun.lock` rewritten by an older Bun. Style: short doc comments only where the why is not obvious.
 
 ## Review Focus
@@ -33,6 +33,7 @@
 3. **A profile written by a newer catherd carries a value this one does not know** (a new access mode, a new billing mode). Expected: every command still reads the profile, reads the value the cautious way, keeps it through any save, and `validate` says what it was read as. Task 6 pins it: "reads each one the cautious way instead of refusing the profile", "names each one with what it is read as, and keeps it through a patch", and through the service, "reads a profile a newer catherd wrote, warns about the values it does not know, and keeps them".
 4. **catherd runs as root** (a container, a CI box). Expected: preflight never runs a lane's check as root; it says so in the report and does not block the run. Task 4 pins it: "never runs a check as root, unless IS_SANDBOX says the machine is disposable (spec §10.4)".
 5. **`credentials.json` is corrupt or was written by a newer catherd.** Expected: routing goes on without Jev (it is optional), the log says why, and `catherd doctor` names the file and the fix instead of a bare "no key". Task 5 pins the service ("reads an unreadable credentials file as no key, logs why, and names the problem"); Task 8 pins the doctor row ("warns on a credentials file it cannot read, which Jev takes for no key").
+6. **Another process binds or unbinds this repo while the TUI's activate prompt is open, or saves the profile while a draft is open and the user confirms "Discard unsaved changes?".** Expected: nothing is applied in words the user was not shown (the prompt comes back, worded for the binding now, with a line saying what changed; a confirmed prompt applies exactly the scope it named), and a discard goes back to the profile as it is on disk now, with undo bringing the staged edits back over it. Task 14 pins it: "asks again, in the new words, when another process binds this repo while the prompt is open", "asks again when this repo's binding is removed while the prompt is open, then makes it active", "goes back to the profile as saved now, when another process saved it meanwhile; undo brings the edit back".
 
 ## Rulings on the spec
 
@@ -51,14 +52,29 @@
 13. **A milestone name no routed lane starts with is a hint, not an error:** `land` records the ledger row as before and adds `land: no routed lane is in milestone "<m>" (routed: …); check its name: no lane outcome was recorded`, when the run has routed lanes and none matched.
 14. **Stored enum values are open; each is read the cautious way** (spec §3.4's forward compatibility). The stored schema takes any string for `objective`, `jev.use`, `billing.*`, `roles.*.access` and `notify[]`; `resolveProfile` reads an unknown `access` as `read-only`, `jev.use` as `off` (no lane text leaves the machine on a setting this catherd cannot read), a billing mode as the key's default (`metered` for a key with none), `objective` as `cost`, and skips an unknown notify moment; `validate` warns for each; the patch schema stays strict, so catherd itself only writes values it knows.
 15. **The 1.0 package contents are right once plan 6 adds `THIRD_PARTY_NOTICES.md` to `files`.** `bin` (`src/cli.ts` with a `bun` shebang), `engines` (`bun >=1.4`) and `files` (`src`, `catalog`, `plugin`, plus npm's own `package.json`, `README.md`, `LICENSE`) carry everything the CLI, the supervisor entry and the plugin read at runtime; `CHANGELOG.md` and `MIGRATION.md` stay on GitHub, not in the tarball. The pack smoke checks the list on every CI run.
-16. **Coverage floor: 88 % of lines and 85 % of functions** in `bunfig.toml`, checked on the Linux/latest leg with `bun test --coverage`. The suite measured 93.7 % of lines and 90.8 % of functions (plans 1–5 with Tasks 1–9 applied, before plan 6). Plan 6 replaced the TUI and its tests; re-measured on plan 6 as built (`b77f0de`): 93.6 % of lines and 90.4 % of functions before this plan, 93.9 % and 91.1 % with every task of it in. The floor holds with room, so it stays at 88 % and 85 %. Should a later change make it fail, set each value to the measured one minus two points, rounded down to a whole percent, in the same change.
+16. **Coverage floor: 88 % of lines and 85 % of functions over `src/` as a whole,** checked on the Linux/latest leg: `bun test --coverage` writes an lcov report and `test/coverage-floor.ts` sums its `LF`/`LH` and `FNF`/`FNH` rows for `src/` files and exits 1 below the floor. Not `bunfig.toml`'s `coverageThreshold`: Bun applies that to **every file on its own** (a scratch project with one file at 100 % and one at 50 % fails a 0.7 threshold, though its `All files` row reads 75 %), and 23 `src/` files sit below 85 % of functions or 88 % of lines (the CLI entries and `run.tsx`, which the unit tests reach only in part), so `bun test --coverage` with that threshold exits 1 on a green suite. Measured at `6195f4e` with every task of this plan in: 92.9 % of functions and 93.8 % of lines over `src/` (the text report's unweighted `All files` row: 91.3 % and 93.9 %). Should a later change make it fail, set each value to the measured one minus two points, rounded down to a whole percent, in the same change.
 17. **Dependabot** opens weekly update PRs for Bun dependencies (grouped) and GitHub Actions, with Conventional Commit prefixes; `@opentui/*` is ignored, since an OpenTUI update means regenerating the TUI frames by hand.
 18. **`capture-fixtures` records isolated runs** (Codex in catherd's own `CODEX_HOME`, claude with `--safe-mode`, opencode on a standalone server), since its output is committed; a run past the timeout is recorded with reason `wall-timeout`; the meta file's strings are sanitized before JSON escapes them. Its default `--out` is the catherd checkout's own `test/fixtures/adapters` wherever it runs from; an installed package has no such folder and asks for `--out` (exit 2).
 19. **`doctor` reports how Codex is logged in** from `codex login status` (`ChatGPT` or `API key`, never the key), and warns when a linked profile bills Codex as something else than that login implies (`chatgpt-plan` against an API key, which bills per token). The check already refreshed discovery and tested the Jev key (plan 5): that part was done.
+20. **A TUI confirmation applies what it said, against the files as they are when it is answered** (plan 6's Codex round 6, deferred here). The activate prompt carries the scope it named (`Purpose.activate.repo`: the bound repo, or null for the global profile); the answer reads the profiles again and, when this repo's binding appeared or went meanwhile, applies nothing and asks again in the new words with a `Changed since this was first asked: …` line; otherwise `Effects.activate(name, repo)` writes exactly that scope (it no longer recomputes the binding as it writes). "Save & make active" goes through the same check with the scope its dialog showed. A confirmed discard reads the profile file and makes it the draft's new base; the undo step it adds (and the history before it) is moved onto that base (each snapshot's changes over the old base, applied over the new one), so undo brings the staged edits back without undoing what the other process saved. A file that cannot be read keeps the draft and says why (an error toast): nothing is discarded against a base catherd could not read.
 
-## Re-check (2026-09-26, after plan 6)
+## Re-check (2026-09-26, after plan 6 merged, `6195f4e`)
 
-The plan was rebuilt task by task, in wave order, on plan 6 as built (`b77f0de`, before plan 6's final fix wave): every edit applied by its text, each task's new tests seen failing without its source change and passing with it, and the full gate (`bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`) clean at the end of each wave: 949 pass before the plan; 964 after wave 1 (Tasks 1, 3, 4, 5, 6, 10), 970 after wave 2 (Task 2), 976 after wave 3 (Tasks 7, 8), 977 after wave 4 (Tasks 9, 11), 978 after Task 12 and 979 with the new Task 13, 10 skip and 0 fail each time. What changed:
+Plan 6 merged to `main` at `6195f4e` with its final fix wave and six Codex rounds on top of `b77f0de` (41 files, almost all in `src/entry/tui/` and `test/entry/tui/`, plus `src/services/profile-service.ts`'s compare-and-swap save, `test/entry/cli.test.ts`, `docs/manual-tests.md`, `docs/dependencies.md` and `docs/ideas.md`). The plan was replayed for real on `6195f4e`, all fourteen tasks in wave order (Task 14 last; it shares no file with the others): every edit applied by its text, each task's new tests seen failing without its source change and passing with it, and the full gate (`bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`) clean after each wave: **1000 pass before the plan; 1016 after wave 1 (Tasks 1, 3, 4, 5, 6, 10, 13), 1022 after wave 2 (Task 2), 1028 after wave 3 (Tasks 7, 8), 1029 after wave 4 (Tasks 9, 11), 1030 after Task 12 and 1035 with Task 14**, 10 skip and 0 fail each time. What changed:
+
+1. **Task 10's coverage floor never passed: `coverageThreshold` is per file.** With `bunfig.toml`'s `{ lines = 0.88, functions = 0.85 }`, `bun test --coverage` exits 1 on a green suite (`All files` 91.3 % / 93.9 %), since Bun holds every file to the threshold and 23 `src/` files are below it (the earlier re-checks read the `All files` row, not the exit code). `bunfig.toml` is gone from the task; `test/coverage-floor.ts` (new, like `test/pack-smoke.ts` not a test file) checks the lcov totals over `src/` (92.9 % of functions, 93.8 % of lines), and `ci.yml`'s coverage step writes lcov and runs it. Ruling 16 and Step 5 say so.
+2. **Task 10 Step 4 is on `main` already: dropped.** Plan 6's `f85ff6f` gave each PTY case its own tmux server (`socket = join(SOCKET_DIR, name)` in `start`) and waits for the exit code the shell wrote (`exitCode(home)`); the task's two `pty.test.ts` edits would not apply (`const SOCKET` is gone) and the second would reintroduce a `SOCKET` name that no longer exists. Step 4 is now a check without an edit, and `pty.test.ts` leaves the task's files and commit. The TUI's dropped key the step reported was fixed by plan 6 (`2583802`, the list's first-draw snap reads the moved selection): 24 runs under load (six at a time) passed 3 of 3 cases each, with no timeout.
+3. **Task 11 (`docs/manual-tests.md`): the block to replace now reads `bun src/cli.ts profile use default`** (plan 6's `0ef26af`), not the 0.x `bun -e` line; the replacement (`init --no-input` and the 1.0 agent names) is unchanged.
+4. **Task 13 (`commands.ts`): plan 6's Codex rounds gave `app.back` and the dialog moves a `hint`/`short`** but did not touch `resolveKeybinds`; the blocks matched as written, and no dialog or filter command has a printable default key, so the new refusal never trips on the defaults.
+5. **Task 6 (`profile-service.ts`): plan 6 added `patchProfile(name, patch, { expect })` and `CHANGED_ON_DISK`** below `validate`; the task's `validateNamed` and `validate` blocks matched as written, and the compare-and-swap compares two `readProfileDoc` reads, which keep an unknown value alike, so a profile a newer catherd wrote still saves from the TUI.
+6. **Task 7 (`cli.test.ts`): plan 6 rewrote the layering filter at line ~104 to `entry/tui/`,** one line below the task's SIGINT block; it matched as written. `lock.test.ts` passed three runs in a row.
+7. **New Task 14: plan 6's two deferred Codex findings (round 6, `50b6ce4`),** Ruling 20: the activate prompt re-reads the binding when answered and applies the scope it named (`Effects.activate(name, repo)`), and a confirmed discard makes the file on disk the new base with its undo step moved onto it. Wave 1: its files (`src/entry/tui/{state,effects,fixtures}.ts`, `views/profile-actions.ts`, and `test/entry/tui/{state,effects}.test.ts`, `{profiles,app,status}.test.tsx`) are in no other task.
+
+Checked and kept: Tasks 1, 2, 3, 4, 5, 8, 9 and 12 matched as written (none of their files changed since `b77f0de`). Task 9's symlinked `TMPDIR` run failed the same 12 path comparisons before it and none after. The pack smoke (`bun test/pack-smoke.ts`: every `ok`, `tools/list` answered), the three YAML files (`Bun.YAML.parse`), `bun audit --audit-level=high` (no advisory in 291 packages) and Task 12's changeset dry run (`1.0.0` in the three files, `## 1.0.0` / `### Major Changes`, `plugin.test.ts` passes, undone to a clean tree) were rerun and pass. Not rerun: Bun 1.4.0 and `actionlint` (not installed here).
+
+## Re-check (2026-09-26, after plan 6, on `b77f0de`)
+
+Kept for its history; where the re-check above differs (Task 10's Step 4 and coverage floor, Task 11's block), the one above holds. The plan was rebuilt task by task, in wave order, on plan 6 as built (`b77f0de`, before plan 6's final fix wave): every edit applied by its text, each task's new tests seen failing without its source change and passing with it, and the full gate (`bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`) clean at the end of each wave: 949 pass before the plan; 964 after wave 1 (Tasks 1, 3, 4, 5, 6, 10), 970 after wave 2 (Task 2), 976 after wave 3 (Tasks 7, 8), 977 after wave 4 (Tasks 9, 11), 978 after Task 12 and 979 with the new Task 13, 10 skip and 0 fail each time. What changed:
 
 1. **Task 4 (`server.ts`, `mcp-log.test.ts`): plan 5's Codex rounds already log calls the SDK rejects.** `buildServer`'s `createToolError` hook now logs a `tool` row with the tool name parsed inline, and `mcp-log.test.ts` has "logs a call the SDK refuses before the tool runs, as E_INPUT_INVALID, without its input". The task keeps its `toolOf` and the unknown tool's fix: the `server.ts` edit now replaces the inline regex with `toolOf(message)`, and the new test covers only the unknown tool (`doctor_report`: its fix names `tools/list`, one log row). The intro, Ruling 10 and Step 2's expected failure say so.
 2. **Task 5 (`jev-service.ts`): plan 5 put `registerSavedSecrets` between `jevKey`'s doc comment and `jevKey`.** The block to replace includes it; the replacement keeps `registerSavedSecrets` (with its own doc comment) above `savedJevKey`. It still calls `jevKey()`, so a process that registers secrets with an unreadable `credentials.json` logs the `warn` `jev` row once.
@@ -79,10 +95,12 @@ Checked and kept:
 ## Verified facts this plan relies on
 
 - **Every task was built and run in a scratch copy of `main` at `e1ffa6c`** (plans 1–5), in the order 1–12, each task's new tests seen failing without its source change and passing with it. At the end, on Bun 1.4.2: `bun run typecheck`, `bun run lint` and `bun run format:check` clean, `bun test` 956 pass, 10 skip, 0 fail. The same tree on **Bun 1.4.0** (the release zip, with the `bunx` link that `setup-bun` installs): 956 pass, 0 fail.
-- **Rebuilt on plan 6 as built, at `b77f0de`** (see the re-check above), in wave order with Task 13, on Bun 1.4.2: the gate clean after every wave, `bun test` **979 pass, 10 skip, 0 fail** at the end (949 pass before the plan). Pass counts are at `b77f0de`: plan 6's final fix wave adds TUI tests of its own. Coverage with every task in: 91.1 % of functions, 93.9 % of lines.
+- **Rebuilt on plan 6 as built, at `b77f0de`**, in wave order with Task 13, on Bun 1.4.2: the gate clean after every wave, `bun test` 979 pass, 10 skip, 0 fail at the end (949 pass before the plan).
+- **Replayed on `main` after plan 6 merged, at `6195f4e`** (see the first re-check above), all fourteen tasks in wave order, on Bun 1.4.2: the gate clean after every wave, `bun test` **1035 pass, 10 skip, 0 fail** at the end (**1000 pass before the plan**; +16 wave 1 without Task 14, +6 wave 2, +6 wave 3, +1 wave 4, +1 Task 12, +5 Task 14). Coverage with every task in, over `src/` from the lcov report: **92.9 % of functions, 93.8 % of lines** (`test/coverage-floor.ts` passes); the text report's unweighted `All files` row: 91.3 % and 93.9 %.
+- **Bun's `coverageThreshold` is per file** (checked on Bun 1.4.2 with a two-file scratch project: 100 % and 50 % of functions, `All files` 75 %, fails a 0.7 threshold and passes a 0.4 one). On this suite it would fail on 23 `src/` files; hence `test/coverage-floor.ts` (Ruling 16).
 - **macOS was not available.** Its temp dir is behind a symlink (`/var` → `/private/var`); running the suite with `TMPDIR` pointing through a symlink reproduces that class: 12 tests failed on `e1ffa6c` (paths compared unresolved) and none fail after Task 9; the same 12 on `b77f0de`, and none after Task 9. `/proc`, `setsid` and `ps` differences were found by reading every test: Task 9 covers each. **UNVERIFIED on a real Mac:** anything else macOS does differently; the CI matrix is where that shows first.
 - `actionlint` 1.7.7 reports nothing on the new `ci.yml` and `release.yml`. `changesets/action@v2`'s inputs (`version-script`, `publish-script`, `pr-title`, `commit-message`, `create-github-releases` default true) were read from its `action.yml`.
-- The pack smoke ran here: `bun pm pack` → `bun add <tarball>` in an empty project → `catherd --version` and `catherd doctor --json`, whose `mcp` row answered `tools/list` with 20 tools (with a stand-in `THIRD_PARTY_NOTICES.md`, which plan 6 creates). `bun audit` (Bun 1.4.2) finds no advisory. A `coverageThreshold` in `bunfig.toml` makes `bun test --coverage` exit 1 below it and changes nothing without `--coverage`.
+- The pack smoke ran here: `bun pm pack` → `bun add <tarball>` in an empty project → `catherd --version` and `catherd doctor --json`, whose `mcp` row answered `tools/list` with 20 tools (with a stand-in `THIRD_PARTY_NOTICES.md`, which plan 6 creates). `bun audit` (Bun 1.4.2) finds no advisory. `bun test --coverage --coverage-reporter=text --coverage-reporter=lcov` writes `coverage/lcov.info` (gitignored) and still prints the text table.
 - `bunx changeset status` lists `catherd-cli` for a major bump; `bun run version-packages` then writes `1.0.0` to `package.json`, `plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json` and the skill, and a `## 1.0.0` / `### Major Changes` entry to `CHANGELOG.md` (tried and undone; the release PR does it for real).
 - The SDK (`@modelcontextprotocol/sdk` 1.30.1) reports a call it rejects before any handler through `createToolError(message)` with the texts `Tool <name> not found`, `Tool <name> disabled` and `Input validation error: Invalid arguments for tool <name>: …` (`dist/esm/server/mcp.js`).
 - 0.x linked agents from `<config>/agents/<profile>/` into `~/.claude/agents` as `catherd-<role>-<model>-<effort>.md` (read at `f0ee214:src/profile/agents.ts`), so 1.0's relink prunes them as catherd's own links; 0.x also read the Jev key from `~/.config/typesafe/api_key` (`f0ee214:src/routing/jev.ts`), which 1.0 does not.
@@ -113,14 +131,18 @@ src/services/doctor.ts                  (modify) the login and billing on backen
 src/services/capture.ts                 (modify) isolated, group kill, wall-timeout reason, meta sanitized before JSON
 src/entry/capture-fixtures.ts           (modify) defaultOut: the checkout's fixtures, else --out is required
 src/entry/tui/commands.ts               (modify) resolveKeybinds refuses the leader and typed keys where the user types
+src/entry/tui/state.ts                  (modify) Purpose.activate.repo; revert takes the file's doc as the new base, history moved onto it
+src/entry/tui/effects.ts, fixtures.ts   (modify) activate(name, repo): the confirmed scope, not one recomputed
+src/entry/tui/views/profile-actions.ts  (modify) askActivate; activateNow re-reads the binding and asks again; revert reads the file
 .github/workflows/ci.yml                (replace) the matrix job and the package job
 .github/workflows/release.yml           (replace) calls ci.yml first
-.github/dependabot.yml, bunfig.toml     (new)
+.github/dependabot.yml                  (new)
 .changeset/catherd-1-0.md, MIGRATION.md, docs/live-verification.md   (new)
 docs/manual-tests.md, README.md         (modify)
 test/helpers.ts                         (modify) exited(pid), tempDir(prefix); tempRepo by its real path
 test/pack-smoke.ts                      (new) the npm pack smoke CI runs (not a bun test file)
-test/entry/tui/pty.test.ts              (modify) a tmux server per test
+test/coverage-floor.ts                  (new) the coverage floor over src/ from the lcov report (not a bun test file)
+test/entry/tui/{state,effects}.test.ts, {profiles,app,status}.test.tsx   (modify) Task 14
 test/sim/{codex,scenario.ts}            (modify) holdUntil; login state on stderr, the API-key login
 test/adapters/cli.test.ts, test/services/run-debug.test.ts   (new)
 test/{infra,adapters,services,entry,sim,domain,integration}/…   (modify) as each task says
@@ -132,13 +154,13 @@ Tasks that share no files and whose inputs exist can run in parallel worktrees; 
 
 | Wave | Tasks | Needs |
 |---|---|---|
-| 1 | 1 (supervisor, proc), 3 (orphan cancel, old specs), 4 (preflight root, MCP log), 5 (Jev, land), 6 (profile values), 10 (CI), 13 (keybinds) | plans 1–6 |
+| 1 | 1 (supervisor, proc), 3 (orphan cancel, old specs), 4 (preflight root, MCP log), 5 (Jev, land), 6 (profile values), 10 (CI), 13 (keybinds), 14 (TUI activate and revert) | plans 1–6 |
 | 2 | 2 (adapters: busy, runCli) | 1 (`LineInfo`, `isBusy(thread, sinceMs)`) |
 | 3 | 7 (CLI signals, run-debug), 8 (doctor: login, credentials) | 7: 2 (`exited`) · 8: 2 (`codex/index.ts`, `backend.ts`), 3 (`test/sim/codex`, `scenario.ts`), 5 (`savedJevKey`) |
 | 4 | 9 (macOS), 11 (capture, live docs) | 9: 1, 2, 4, 8 (the files it edits) · 11: 8 (the docs name doctor's login row) |
 | 5 | 12 (release 1.0) | every task: it releases them |
 
-Task 10's `ci.yml` needs nothing else to exist, but its first macOS run is only green once Task 9 is in; merge 10 before 9 if you like, and expect the macOS legs red until 9 lands. Tasks 2 and 8 both edit `src/adapters/backend.ts` and `src/adapters/codex/index.ts` (different blocks; 2 first). Tasks 3 and 8 both edit `test/sim/codex` and `test/sim/scenario.ts` (different blocks). Tasks 4 and 9 both edit `test/services/preflight.test.ts` (different tests). Tasks 1 and 9 both edit `test/infra/supervisor.test.ts` (9 after 1).
+Task 10's `ci.yml` needs nothing else to exist, but its first macOS run is only green once Task 9 is in; merge 10 before 9 if you like, and expect the macOS legs red until 9 lands. Tasks 2 and 8 both edit `src/adapters/backend.ts` and `src/adapters/codex/index.ts` (different blocks; 2 first). Tasks 3 and 8 both edit `test/sim/codex` and `test/sim/scenario.ts` (different blocks). Tasks 4 and 9 both edit `test/services/preflight.test.ts` (different tests). Tasks 1 and 9 both edit `test/infra/supervisor.test.ts` (9 after 1). Tasks 13 and 14 are the two in `src/entry/tui/` and share no file (13: `commands.ts` and its test; 14: `state.ts`, `effects.ts`, `fixtures.ts`, `views/profile-actions.ts` and five test files). Task 14 calls `applyPatch`/`patchBetween`, whose schema Task 6 opens to unknown stored values; either order works (replayed with 6 first). Task 10 no longer edits `test/entry/tui/pty.test.ts` (plan 6 did it).
 
 ---
 
@@ -4278,12 +4300,11 @@ git commit -m "test: pass on macos: real temp paths, a portable detach, zombie-a
 
 ### Task 10: CI: Linux and macOS on Bun 1.4.0 and latest, a coverage floor, an audit and an npm pack smoke; release gated on it
 
-Spec §12 and Rulings 1, 2, 15, 16, 17. `ci.yml` has two jobs. **check** runs the matrix {`ubuntu-latest`, `macos-latest`} × {Bun `1.4.0`, `latest`} with `fail-fast: false`: tmux (for plan 6's PTY test, which skips without it), install from the lockfile, typecheck, lint, format, and every non-live test (the architecture test and `docs/tui-frames.md`'s freshness are among them); the Linux/latest leg runs `bun test --coverage` against `bunfig.toml`'s floor. **package** runs `bun audit --audit-level=high` and `test/pack-smoke.ts`. `release.yml` calls `ci.yml` and runs Changesets only after it. Dependabot keeps dependencies and actions current, OpenTUI aside.
+Spec §12 and Rulings 1, 2, 15, 16, 17. `ci.yml` has two jobs. **check** runs the matrix {`ubuntu-latest`, `macos-latest`} × {Bun `1.4.0`, `latest`} with `fail-fast: false`: tmux (for plan 6's PTY test, which skips without it), install from the lockfile, typecheck, lint, format, and every non-live test (the architecture test and `docs/tui-frames.md`'s freshness are among them); the Linux/latest leg runs `bun test --coverage` with an lcov report and `test/coverage-floor.ts` checks its totals over `src/` (Ruling 16: Bun's own `coverageThreshold` is per file). **package** runs `bun audit --audit-level=high` and `test/pack-smoke.ts`. `release.yml` calls `ci.yml` and runs Changesets only after it. Dependabot keeps dependencies and actions current, OpenTUI aside. Plan 6's flake watch on the PTY test is a check here, not an edit: plan 6 gave each case its own tmux server (`f85ff6f`) and fixed the key it dropped (`2583802`).
 
 **Files:**
 - Replace: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Create: `.github/dependabot.yml`, `bunfig.toml`, `test/pack-smoke.ts`
-- Modify: `test/entry/tui/pty.test.ts` (a tmux server per test: plan 6's flake watch)
+- Create: `.github/dependabot.yml`, `test/pack-smoke.ts`, `test/coverage-floor.ts`
 
 **Interfaces:**
 - Consumes: plan 6's `THIRD_PARTY_NOTICES.md` in `package.json`'s `files` (the smoke checks it ships); `mcpHandshake` through `catherd doctor --json`'s `mcp` row.
@@ -4425,9 +4446,11 @@ jobs:
       # every non-live test: the architecture test and docs/tui-frames.md's freshness are among them
       - if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.bun == 'latest') }}
         run: bun test
-      - name: bun test, with the coverage floor in bunfig.toml
+      - name: bun test, with the coverage floor over src/
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.bun == 'latest' }}
-        run: bun test --coverage
+        run: |
+          bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
+          bun test/coverage-floor.ts coverage/lcov.info
 
   package:
     name: package · audit and npm pack smoke
@@ -4520,72 +4543,77 @@ updates:
       prefix: "ci(deps)"
 ```
 
-`bunfig.toml`:
+The floor is a script, not `bunfig.toml`'s `coverageThreshold`, which Bun applies to each file on its own (Ruling 16).
 
-```toml
-# spec §11 hygiene: CI runs `bun test --coverage` on one leg; below this floor it fails.
-# Measured at 91.1 % of functions and 93.9 % of lines (plans 1–7); the floor leaves room for small drops.
-[test]
-coverageThreshold = { lines = 0.88, functions = 0.85 }
-```
-
-- [ ] **Step 4: One tmux server per PTY test**
-
-Plan 6 asked plan 7 to watch its PTY smoke test (`test/entry/tui/pty.test.ts`), which failed once in five full runs in its writer's sandbox and once in about ten in this plan's re-check. Under load (six copies of the file in parallel) it fails in two ways. One is this file's: `afterEach` runs `kill-server` and the next test's `new-session` reaches the same socket while that server is still going down, so the session dies with it and the test times out on an empty screen (`timed out waiting for the status tab`, `tmux ls` empty). The other is in the TUI: the `j` sent once the Profiles tab shows `ROLES` is lost, so `Space` toggles the architect instead of the verifier (the save dialog shows `roles.architect.enabled true → false`, and the line kept after exit names the verifier's agent, the only one left to link). Plan 6's final fix wave (I1, I2) did not remove it: at its head `7bab94b`, with this step's edit, it still failed 1 and 5 times in two rounds of 24 runs under load. This step fixes the first; the second is a TUI defect (a key typed right after a tab draws is dropped) for the controller to fix in plan 6's code, not something to wait out in the test.
-
-In `test/entry/tui/pty.test.ts`, replace:
+`test/coverage-floor.ts` (new):
 
 ```ts
-const SOCKET = join(SOCKET_DIR, "tmux");
+/**
+ * Spec §11's coverage floor, over `src/` as a whole. `bun test`'s own `coverageThreshold` holds every file
+ * to the floor on its own (a CLI entry the unit tests only half reach fails it), so CI writes an lcov report
+ * and this script checks the totals, weighted by lines and functions. Not a `bun test` file.
+ *
+ *   bun test --coverage --coverage-reporter=text --coverage-reporter=lcov && bun test/coverage-floor.ts
+ */
+import { readFileSync } from "node:fs";
+
+// Measured at 92.9 % of functions and 93.8 % of lines over src/ (plans 1–7); the floor leaves room for small
+// drops. Should a change make it fail, set each value to the measured one minus two points, rounded down.
+const FLOOR = { lines: 0.88, functions: 0.85 };
+
+const file = process.argv[2] ?? "coverage/lcov.info";
+const t = { lf: 0, lh: 0, fnf: 0, fnh: 0 };
+let inSrc = false;
+for (const line of readFileSync(file, "utf8").split("\n")) {
+  const at = line.indexOf(":");
+  const key = line.slice(0, at);
+  const value = line.slice(at + 1);
+  if (key === "SF") inSrc = value.startsWith("src/");
+  else if (inSrc && key === "LF") t.lf += Number(value);
+  else if (inSrc && key === "LH") t.lh += Number(value);
+  else if (inSrc && key === "FNF") t.fnf += Number(value);
+  else if (inSrc && key === "FNH") t.fnh += Number(value);
+}
+const lines = t.lf ? t.lh / t.lf : 0;
+const functions = t.fnf ? t.fnh / t.fnf : 0;
+const pct = (n: number) => `${(n * 100).toFixed(1)} %`;
+console.log(`src/: ${pct(functions)} of functions, ${pct(lines)} of lines`);
+if (lines < FLOOR.lines || functions < FLOOR.functions) {
+  console.error(`below the floor: ${pct(FLOOR.functions)} of functions, ${pct(FLOOR.lines)} of lines`);
+  process.exit(1);
+}
 ```
 
-with:
+- [ ] **Step 4: Check the PTY test under load (plan 6's flake watch; no edit)**
 
-```ts
-// one server per test: a server `kill-server` just stopped may still take the next test's session with it
-let SOCKET = join(SOCKET_DIR, "tmux");
-```
-
-In `test/entry/tui/pty.test.ts`, replace:
-
-```ts
-  const name = `catherd-${started++}`;
-```
-
-with:
-
-```ts
-  const name = `catherd-${started++}`;
-  SOCKET = join(SOCKET_DIR, name);
-```
-
-Check it under load (tmux installed), six copies at a time, three rounds:
+Plan 6 asked plan 7 to watch its PTY smoke test (`test/entry/tui/pty.test.ts`). The two causes this plan's earlier re-check found under load are fixed on `main`: each case has its own tmux server (`socket = join(SOCKET_DIR, name)` in `start`) and waits for the exit code the shell wrote (`exitCode(home)`, plan 6's `f85ff6f`), and the `j` the TUI dropped right after the Profiles tab drew is kept (`2583802`). Leave the file as it is; check it, six copies at a time, four rounds:
 
 ```bash
-for r in 1 2 3; do for k in 1 2 3 4 5 6; do bun test test/entry/tui/pty.test.ts > "/tmp/pty-$r-$k.log" 2>&1 & done; wait; done
-grep -h "timed out waiting" /tmp/pty-*.log; grep -h -E '^ *[0-9]+ fail$' /tmp/pty-*.log | sort | uniq -c
+for r in 1 2 3 4; do for k in 1 2 3 4 5 6; do bun test test/entry/tui/pty.test.ts > "/tmp/pty-$r-$k.log" 2>&1 & done; wait; done
+grep -h "timed out waiting" /tmp/pty-*.log; grep -h -E '^ *[0-9]+ (pass|fail)$' /tmp/pty-*.log | sort | uniq -c
 ```
 
-Expected: no `timed out waiting for the status tab`, `for the runs tab` or `for the staged change` with an empty `tmux ls` (measured at `b77f0de`: four such timeouts in 24 runs before this edit, none in 24 after). A failure on `catherd-default-architect` in the kept line is the dropped key above: if the TUI fix is not in yet, report it and leave the test as it is (do not add waits or retries to hide it).
+Expected: no `timed out waiting` line; `24 3 pass` and `24 0 fail` (measured at `6195f4e`). A failure here is a TUI or tmux defect to report to the TUI's owner with its log, not something to wait out in the test (do not add waits or retries).
 
 - [ ] **Step 5: Check the workflows and the floor**
 
 ```bash
 bun -e 'for (const f of [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]) Bun.YAML.parse(await Bun.file(f).text())'
 command -v actionlint && actionlint .github/workflows/ci.yml .github/workflows/release.yml
-bun test --coverage 2>&1 | grep -E '^All files|^ *[0-9]+ (pass|fail)$'
+bun test --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | grep -E '^All files|^ *[0-9]+ (pass|fail)$'
+bun test/coverage-floor.ts coverage/lcov.info; echo "floor exit $?"
 bun audit --audit-level=high
 ```
 
-Expected: the three files parse; `actionlint`, where installed, prints nothing; the coverage run passes with `All files` at or above 85 % of functions and 88 % of lines (about 90.4 % and 93.6 % with only wave 1 in; Ruling 16 says what to do if not); the audit reports no advisory at high or above.
+Expected: the three files parse; `actionlint`, where installed, prints nothing; the floor prints `src/:` at or above 85 % of functions and 88 % of lines and `floor exit 0` (92.9 % and 93.8 % at `6195f4e` with every task in; a little less with only wave 1; Ruling 16 says what to do if not); the audit reports no advisory at high or above.
 
 - [ ] **Step 6: Check and commit**
 
 Run: `bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`
-Expected: clean; the full suite passes (`test/pack-smoke.ts` is not a test file and does not run here).
+Expected: clean; the full suite passes (`test/pack-smoke.ts` and `test/coverage-floor.ts` are not test files and do not run here).
 
 ```bash
-git add .github bunfig.toml test/pack-smoke.ts test/entry/tui/pty.test.ts
+git add .github test/pack-smoke.ts test/coverage-floor.ts
 git commit -m "ci: linux and macos on bun 1.4.0 and latest, coverage floor, audit, pack smoke; release after ci"
 ```
 
@@ -5231,7 +5259,7 @@ In `docs/manual-tests.md`, replace:
    session start:
 
    ```bash
-   bun -e 'import { saveProfileAndAgents } from "./src/profile/agents.ts"; import { loadProfile } from "./src/profile/profile.ts"; import { loadCatalog } from "./src/routing/catalog.ts"; console.log(saveProfileAndAgents(loadProfile(), loadCatalog()));'
+   bun src/cli.ts profile use default
    ls -l ~/.claude/agents/catherd-*
    ```
 
@@ -5264,7 +5292,7 @@ with:
    check, one at a time:
 ````
 
-Plan 6's final fix wave (`7bab94b`) replaced that stale `bun -e` line (it imports paths plan 6 deleted) with `bun src/cli.ts profile use default`: on a tree with the fix wave in, the line to replace reads that way; the rest of the block is unchanged, and the replacement is the text above.
+Plan 6 replaced the 0.x `bun -e` line there (it imported paths plan 6 deleted) with `bun src/cli.ts profile use default` (commit `0ef26af`, on `main` since `6195f4e`): the block above is `main`'s text; the replacement moves the check to `init --no-input`, which also makes the profile when there is none.
 
 In `docs/manual-tests.md`, replace:
 
@@ -5583,7 +5611,7 @@ Expected: `status` lists `catherd-cli` under `major`; after `version-packages`, 
 
 Plan 6's deferred minors (its final review's triage, items 2 and 3, "plan 7"): `resolveKeybinds` let a user bind `ctrl+x`, the leader, as a command's own key (every leader chord then stops working), and let a printable key be bound to a command that is live while the user types in a dialog or a list filter (the palette's filter, a prompt): in the keymap's modal mode that key takes letters from the text the user is typing. Both are refused now with `E_CONFIG_KEYBIND` and a fix, like the other refusals (unknown id, reserved command, a key with two meanings). A syntax check of each key stays in 1.0.x: it needs the keymap's own key parser, and a hand-written grammar would refuse keys the keymap accepts.
 
-This is the one task in `src/entry/tui/`: plan 6's final fix wave (`7bab94b`) did not change `resolveKeybinds` or `test/entry/tui/commands.test.ts`, so the blocks below match `main` after plan 6 merges.
+One of the two tasks in `src/entry/tui/` (Task 14 is the other; they share no file): plan 6's final fix wave and Codex rounds gave `app.back` and the dialog moves a footer `hint` but did not change `resolveKeybinds` or `test/entry/tui/commands.test.ts`, so the blocks below match `main` at `6195f4e`. No dialog or filter command has a printable default key, so the new refusal only meets user overrides.
 
 **Files:**
 - Modify: `src/entry/tui/commands.ts`
@@ -5710,9 +5738,547 @@ git commit -m "fix(tui): refuse the leader and typed keys where the user types i
 
 ---
 
+### Task 14: The TUI's activate and discard confirmations apply what they said, against the files as they are now
+
+Plan 6's two deferred Codex findings (round 6, on `50b6ce4`; the plan-6 ledger: "both deferred to plan 7 as a hardening task with tests") and Ruling 20. **Activate:** `openActivate` words its prompt from the poll's scope (`Make cheap active?` or `Use cheap in this repo?`), but `effects.activate(name)` recomputed `bound()` as it wrote, so a binding another process added or removed while the prompt was open made the answer bind the repo when the prompt said "make active", or the reverse. Now the prompt's purpose carries the scope it named, the answer reads the profiles again, and a changed binding brings the prompt back in the new words with a `Changed since this was first asked: …` line; otherwise `Effects.activate(name, repo)` writes exactly that scope. "Save & make active" goes through the same check. **Discard:** confirming "Discard unsaved changes?" went back to the draft's `base`, the file as the draft first read it, not the file now; now the confirmation reads the profile, makes it the new base, and moves the history onto it, so the undo step brings the staged edits back without undoing what the other process saved.
+
+**Files:**
+- Modify: `src/entry/tui/state.ts`, `src/entry/tui/effects.ts`, `src/entry/tui/fixtures.ts`, `src/entry/tui/views/profile-actions.ts`
+- Test: `test/entry/tui/state.test.ts`, `test/entry/tui/profiles.test.tsx`, `test/entry/tui/app.test.tsx`, `test/entry/tui/effects.test.ts`, `test/entry/tui/status.test.tsx`
+
+**Interfaces:**
+- Consumes: `activate(name, repo)` (`src/services/profile-service.ts`, unchanged), `Effects.profiles()` and `readProfile(name)`, `applyPatch` and `patchBetween` (`src/domain/profile.ts`; Task 6 opens their schema to unknown stored values, which changes nothing here).
+- Produces: `Effects.activate(name: string, repo: string | null): Synced` (was `activate(name)`); `Purpose` `{ type: "activate"; name: string; repo: string | null }`; `Action` `{ type: "revert"; name: string; doc?: ProfileDoc }`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `test/entry/tui/state.test.ts`, replace:
+
+```ts
+    s = run(s, { type: "forget", name: "default" });
+    expect([s.profile, s.drafts]).toEqual([null, {}]);
+  });
+```
+
+with:
+
+```ts
+    s = run(s, { type: "forget", name: "default" });
+    expect([s.profile, s.drafts]).toEqual([null, {}]);
+  });
+
+  it("reverts to the profile as it is on disk now, and undo stages the changes again over it", () => {
+    const theirs = { ...defaultProfileDoc(), objective: "speed" as const };
+    let s = run(
+      shown(),
+      { type: "edit", patch: { budget: { usd: 5 } } },
+      { type: "revert", name: "default", doc: theirs },
+    );
+    let d = currentDraft(s)!;
+    expect([d.base.objective, d.doc.objective, d.doc.budget?.usd, dirtyCount(d)]).toEqual([
+      "speed",
+      "speed",
+      undefined,
+      0,
+    ]);
+    s = run(s, { type: "undo" });
+    d = currentDraft(s)!;
+    // the staged cap comes back over what is saved now: the objective another process saved stays
+    expect([d.doc.objective, d.doc.budget?.usd, dirtyCount(d)]).toEqual(["speed", 5, 1]);
+    s = run(s, { type: "redo" });
+    expect(dirtyCount(currentDraft(s)!)).toBe(0);
+  });
+```
+
+In `test/entry/tui/profiles.test.tsx`, replace:
+
+```ts
+  openProfileList,
+  useProfileDialogs,
+```
+
+with:
+
+```ts
+  openProfileList,
+  openRevert,
+  useProfileDialogs,
+```
+
+In `test/entry/tui/profiles.test.tsx`, replace:
+
+```ts
+    expect(fx.writes.at(-1)).toBe("bind other /home/me/app");
+    expect(h!.s.frame().split("\n")[0]).toContain("PROFILE other (this repo)");
+  });
+```
+
+with:
+
+```ts
+    expect(fx.writes.at(-1)).toBe("bind other /home/me/app");
+    expect(h!.s.frame().split("\n")[0]).toContain("PROFILE other (this repo)");
+  });
+
+  it("asks again, in the new words, when another process binds this repo while the prompt is open", async () => {
+    const fx = await profiles(
+      (f) => {
+        f.create("cheap");
+        f.create("other");
+      },
+      fixtureEffects({ repo: "/home/me/app" }),
+    );
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("cheap");
+    await h!.s.press("return", "a");
+    expect(h!.s.frame()).toContain("Make cheap active?");
+    fx.activate("other", "/home/me/app");
+    await h!.s.press("return");
+    // nothing was applied on the old wording: the prompt is back, worded for the binding now
+    expect(fx.writes).toEqual(["create cheap", "create other", "bind other /home/me/app"]);
+    expect(h!.s.frame()).toContain("Use cheap in this repo?");
+    // the notice wraps in the dialog: "…/home/me/app is now" / "bound to other."
+    expect(h!.s.frame()).toMatch(
+      /Changed since this was first asked: \/home\/me\/app is now\s+bound to other\./,
+    );
+    await h!.s.press("return");
+    expect(fx.writes.at(-1)).toBe("bind cheap /home/me/app");
+    expect(h!.s.frame()).toContain("cheap is bound to /home/me/app");
+  });
+
+  it("asks again when this repo's binding is removed while the prompt is open, then makes it active", async () => {
+    const fx = await profiles(
+      (f) => {
+        f.create("cheap");
+        f.create("other");
+      },
+      fixtureEffects({ repo: "/home/me/app", bindings: { "/home/me/app": "cheap" } }),
+    );
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("other");
+    await h!.s.press("return", "a");
+    expect(h!.s.frame()).toContain("Use other in this repo?");
+    // another process removes the binding (the fixture has no unbind: its profiles read says so)
+    const list = fx.profiles;
+    fx.profiles = () => ({ ...list(), here: list().active, repo: null });
+    await h!.s.press("return");
+    expect(fx.writes).toEqual(["create cheap", "create other"]);
+    expect(h!.s.frame()).toContain("Make other active?");
+    expect(h!.s.frame()).toMatch(
+      /Changed since this was first asked: \/home\/me\/app is no\s+longer bound\./,
+    );
+    await h!.s.press("return");
+    // the scope the user confirmed, not one recomputed as the write happens
+    expect(fx.writes.at(-1)).toBe("activate other");
+    expect(h!.s.frame()).toContain("other is active");
+  });
+
+  it("goes back to the profile as saved now, when another process saved it meanwhile; undo brings the edit back", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("1 unsaved");
+    // another process saves a budget cap while the draft is open
+    await fx.save("default", { budget: { usd: 5 } }, {});
+    await h!.run(() => openRevert(h!.app()));
+    expect(h!.s.frame()).toContain("Discard unsaved changes?");
+    await h!.s.press("right", "return");
+    let d = h!.app().getState().drafts.default!;
+    expect([d.base.budget?.usd, d.doc.budget?.usd, d.doc.objective]).toEqual([5, 5, "cost"]);
+    expect(h!.s.frame()).not.toContain("unsaved");
+    expect(h!.s.frame()).toContain("default changed on disk: showing what is saved now");
+    await h!.s.press("ctrl+x", "u");
+    d = h!.app().getState().drafts.default!;
+    expect([d.doc.budget?.usd, d.doc.objective]).toEqual([5, "speed"]);
+    expect(h!.s.frame()).toContain("1 unsaved");
+    await h!.s.press("ctrl+s", "return");
+    expect(fx.writes).toEqual(['save default {"budget":{"usd":5}}', 'save default {"objective":"speed"}']);
+  });
+```
+
+In `test/entry/tui/app.test.tsx`, replace:
+
+```ts
+    expect(effects.writes.at(-1)).toBe("bind cheap /r");
+    expect(h!.s.frame().split("\n")[0]).toContain("(this repo)");
+  });
+```
+
+with:
+
+```ts
+    expect(effects.writes.at(-1)).toBe("bind cheap /r");
+    expect(h!.s.frame().split("\n")[0]).toContain("(this repo)");
+  });
+
+  it("saves, then asks again before making active when this repo was bound while the dialog was open", async () => {
+    const effects = fixtureEffects({ repo: "/r" });
+    effects.create("cheap");
+    await app({ effects });
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("cheap");
+    await h!.s.press("return", "j", "space", "ctrl+s");
+    // another process binds this repo to default while the save dialog is open
+    effects.activate("default", "/r");
+    await h!.s.press("right", "return");
+    expect(effects.writes.slice(1)).toEqual([
+      "bind default /r",
+      'save cheap {"roles":{"verifier":{"enabled":false}}}',
+    ]);
+    expect(h!.s.frame()).toContain("Use cheap in this repo?");
+    await h!.s.press("return");
+    expect(effects.writes.at(-1)).toBe("bind cheap /r");
+  });
+```
+
+In `test/entry/tui/effects.test.ts`, replace:
+
+```ts
+  it("inside a repo bound to another profile, names it here and binds the repo on activate", () => {
+    withHome();
+    const repo = tempRepo();
+    createProfile("cheap");
+    createProfile("other");
+    activate("cheap", repo);
+    const fx = liveEffects(repo);
+    expect(fx.profiles()).toMatchObject({ active: "default", here: "cheap", repo });
+    fx.activate("other");
+    expect([activeName(repo), activeName()]).toEqual(["other", "default"]);
+    liveEffects(tempRepo()).activate("other");
+    expect(activeName()).toBe("other");
+  });
+```
+
+with:
+
+```ts
+  it("inside a repo bound to another profile, names it here and activates the scope it is given", () => {
+    withHome();
+    const repo = tempRepo();
+    createProfile("cheap");
+    createProfile("other");
+    activate("cheap", repo);
+    const fx = liveEffects(repo);
+    expect(fx.profiles()).toMatchObject({ active: "default", here: "cheap", repo });
+    fx.activate("other", repo);
+    expect([activeName(repo), activeName()]).toEqual(["other", "default"]);
+    // the scope the user confirmed, though this repo is bound: the global profile, the binding kept
+    fx.activate("cheap", null);
+    expect([activeName(repo), activeName()]).toEqual(["other", "cheap"]);
+  });
+```
+
+In `test/entry/tui/status.test.tsx`, replace:
+
+```ts
+    fx.create("fast");
+    fx.activate("cheap");
+```
+
+with:
+
+```ts
+    fx.create("fast");
+    fx.activate("cheap", null);
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `bun test test/entry/tui/state.test.ts test/entry/tui/profiles.test.tsx test/entry/tui/app.test.tsx test/entry/tui/effects.test.ts test/entry/tui/status.test.tsx`
+Expected: FAIL, six tests — the reducer ignores the revert's `doc` (the base stays `cost`); the three activate tests apply the old scope at once (`bind cheap /home/me/app` with no second prompt, `bind other /home/me/app` instead of `activate other`, `bind cheap /r` right after the save); the discard keeps the old base (`budget.usd` undefined); `liveEffects(repo).activate("cheap", null)` binds the repo instead of making `cheap` active. (`bun run typecheck` also names the new `activate` argument and the revert's `doc` until Step 3.)
+
+- [ ] **Step 3: Write the implementation**
+
+In `src/entry/tui/state.ts`, replace:
+
+```ts
+  | { type: "activate"; name: string }
+```
+
+with:
+
+```ts
+  /** `repo`: the scope the prompt shows, the bound repo or null for the global profile */
+  | { type: "activate"; name: string; repo: string | null }
+```
+
+In `src/entry/tui/state.ts`, replace:
+
+```ts
+  | { type: "revert"; name: string }
+  /** `from` is the draft as the save began; edits made while it wrote stay staged over `doc` */
+```
+
+with:
+
+```ts
+  /** `doc`: the profile as it is on disk now, the new base (else the draft's own base) */
+  | { type: "revert"; name: string; doc?: ProfileDoc }
+  /** `from` is the draft as the save began; edits made while it wrote stay staged over `doc` */
+```
+
+In `src/entry/tui/state.ts`, replace:
+
+```ts
+    case "revert":
+      return withDraft(s, a.name, (d) => step(d, { doc: d.base, treatLikes: {} }));
+```
+
+with:
+
+```ts
+    case "revert":
+      return withDraft(s, a.name, (d) => {
+        const base = a.doc ?? d.base;
+        if (same(base, d.base)) return step(d, { doc: d.base, treatLikes: {} });
+        // another process saved the profile since the draft opened: what is saved now is the new base, and
+        // the history (with this revert's undo step) keeps each staged change, now over that base
+        const moved = (x: Snapshot): Snapshot => ({
+          ...x,
+          doc: applyPatch(base, patchBetween(d.base, x.doc)),
+        });
+        return {
+          ...d,
+          base,
+          doc: base,
+          treatLikes: {},
+          past: [...d.past, { doc: d.doc, treatLikes: d.treatLikes }].map(moved).slice(-HISTORY_LIMIT),
+          future: [],
+        };
+      });
+```
+
+In `src/entry/tui/effects.ts`, replace:
+
+```ts
+  /** makes it active, or binds `repo` to it inside a bound repo */
+  activate(name: string): Synced;
+```
+
+with:
+
+```ts
+  /**
+   * applies the scope the user confirmed: binds `repo` (this TUI's repo) to it, or with null makes it the
+   * global active profile; never a scope recomputed as it writes
+   */
+  activate(name: string, repo: string | null): Synced;
+```
+
+In `src/entry/tui/effects.ts`, replace:
+
+```ts
+    activate: (name) => activate(name, bound()),
+```
+
+with:
+
+```ts
+    activate: (name, scope) => activate(name, scope),
+```
+
+In `src/entry/tui/fixtures.ts`, replace:
+
+```ts
+    activate(name) {
+      const r = bound();
+      if (r) {
+        bindings.set(r, name);
+        writes.push(`bind ${name} ${r}`);
+```
+
+with:
+
+```ts
+    activate(name, repo) {
+      if (repo !== null) {
+        bindings.set(repo, name);
+        writes.push(`bind ${name} ${repo}`);
+```
+
+In `src/entry/tui/views/profile-actions.ts`, replace:
+
+```ts
+import { isCatherdError } from "../../../domain/errors.ts";
+import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
+```
+
+with:
+
+```ts
+import { isDeepStrictEqual } from "node:util";
+import { isCatherdError } from "../../../domain/errors.ts";
+import { PROFILE_NAME, patchBetween, type ProfileDoc } from "../../../domain/profile.ts";
+```
+
+In `src/entry/tui/views/profile-actions.ts`, replace:
+
+```ts
+  if (p?.here === d.name)
+    return app.toast({
+      variant: "info",
+      message: p.repo ? `${d.name} is already this repo's profile` : `${d.name} is already active`,
+    });
+  const unsaved = dirtyCount(d);
+  app.dispatch({
+    type: "open",
+    dialog: {
+      kind: "confirm",
+      purpose: { type: "activate", name: d.name },
+      title: p?.repo ? `Use ${d.name} in this repo?` : `Make ${d.name} active?`,
+      message: [
+        p?.repo
+```
+
+with:
+
+```ts
+  askActivate(app, d.name, p);
+}
+
+/**
+ * The activate confirmation for `name`, worded for the scope `p` shows (its bound repo, or the global
+ * profile), which the answer then applies; `notice` says why it asks again.
+ */
+function askActivate(app: AppApi, name: string, p: Data["profiles"]["value"], notice?: string): void {
+  if (p?.here === name)
+    return app.toast({
+      variant: "info",
+      message: p.repo ? `${name} is already this repo's profile` : `${name} is already active`,
+    });
+  const d = app.getState().drafts[name];
+  const unsaved = d ? dirtyCount(d) : 0;
+  app.dispatch({
+    type: "open",
+    dialog: {
+      kind: "confirm",
+      purpose: { type: "activate", name, repo: p?.repo ?? null },
+      title: p?.repo ? `Use ${name} in this repo?` : `Make ${name} active?`,
+      message: [
+        ...(notice ? [notice] : []),
+        p?.repo
+```
+
+In `src/entry/tui/views/profile-actions.ts`, replace:
+
+```ts
+function activateNow(app: AppApi, data: Data, name: string): void {
+  try {
+    const repo = data.profiles.value?.repo ?? null;
+    const r = app.effects.activate(name);
+    data.profiles.refresh();
+    app.toast({ variant: "success", message: repo ? `${name} is bound to ${repo}` : `${name} is active` });
+    sessionsNeeded(app, r.newSessionNeededFor);
+  } catch (e) {
+    fail(app, e);
+  }
+}
+```
+
+with:
+
+```ts
+/**
+ * Applies a confirmed activation to the scope the user was shown (`shown`: the bound repo, or null for the
+ * global profile). The binding is read again first: when another process bound or unbound this repo while
+ * the question was open, nothing is applied and the question comes back in the words for the scope now.
+ */
+function activateNow(app: AppApi, data: Data, name: string, shown: string | null): void {
+  try {
+    const now = app.effects.profiles();
+    if (now.repo !== shown) {
+      data.profiles.refresh();
+      return askActivate(
+        app,
+        name,
+        now,
+        `Changed since this was first asked: ${now.repo ? `${now.repo} is now bound to ${now.here}` : `${shown} is no longer bound`}.`,
+      );
+    }
+    const r = app.effects.activate(name, shown);
+    data.profiles.refresh();
+    app.toast({ variant: "success", message: shown ? `${name} is bound to ${shown}` : `${name} is active` });
+    sessionsNeeded(app, r.newSessionNeededFor);
+  } catch (e) {
+    fail(app, e);
+  }
+}
+```
+
+In `src/entry/tui/views/profile-actions.ts`, replace:
+
+```ts
+    if (p.type === "activate") activateNow(app, data, p.name);
+  });
+  useDialogHandler("revert", (p) => {
+    app.dispatch({ type: "close" });
+    if (p.type === "revert") app.dispatch({ type: "revert", name: p.name });
+  });
+  useDialogHandler("save", async (p, value, extra) => {
+    if (p.type !== "save") return;
+```
+
+with:
+
+```ts
+    if (p.type === "activate") activateNow(app, data, p.name, p.repo);
+  });
+  useDialogHandler("revert", (p) => {
+    app.dispatch({ type: "close" });
+    if (p.type !== "revert") return;
+    const d = app.getState().drafts[p.name];
+    let doc: ProfileDoc;
+    try {
+      // "what is saved" is the file now: another process may have saved it since the draft opened
+      doc = app.effects.readProfile(p.name);
+    } catch (e) {
+      return fail(app, e);
+    }
+    app.dispatch({ type: "revert", name: p.name, doc });
+    if (d && !isDeepStrictEqual(d.base, doc))
+      app.toast({
+        variant: "info",
+        message: `${p.name} changed on disk: showing what is saved now`,
+      });
+  });
+  useDialogHandler("save", async (p, value, extra) => {
+    if (p.type !== "save") return;
+    // the scope "Save & make active" was worded for as it was answered
+    const shown = data.profiles.value?.repo ?? null;
+```
+
+In `src/entry/tui/views/profile-actions.ts`, replace:
+
+```ts
+    if (value === "activate") activateNow(app, data, p.name);
+```
+
+with:
+
+```ts
+    if (value === "activate") activateNow(app, data, p.name, shown);
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `bun test test/entry/tui`
+Expected: PASS (`dialogs.test.tsx` still answers `activate` from the save dialog's second button; `frames.test.tsx` and `docs/tui-frames.md` do not change: no story opens either confirmation).
+
+- [ ] **Step 5: Check and commit**
+
+Run: `bun run format && bun run typecheck && bun run lint && bun run format:check && bun test`
+Expected: clean; the full suite passes.
+
+```bash
+git add src/entry/tui/state.ts src/entry/tui/effects.ts src/entry/tui/fixtures.ts src/entry/tui/views/profile-actions.ts test/entry/tui/state.test.ts test/entry/tui/profiles.test.tsx test/entry/tui/app.test.tsx test/entry/tui/effects.test.ts test/entry/tui/status.test.tsx
+git commit -m "fix(tui): activate and discard apply what their prompt said, against the files as they are now"
+```
+
+---
+
 ## Carry-overs: where each went
 
-Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the plan-5 ledger sent here, checked against the code at `e1ffa6c`, and the plan-6 ledger's (at `b77f0de`):
+Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the plan-5 ledger sent here, checked against the code at `e1ffa6c`, the plan-6 ledger's (at `b77f0de`) and plan 6's last Codex round (deferred at `6195f4e`):
 
 | Item | Where |
 |---|---|
@@ -5741,24 +6307,26 @@ Every item the HANDOFF's "Plan 7 (hardening)" list, the plan-4 ledger and the pl
 | plan 3: capture isolation, kill reason, meta sanitized after stringify, `--out` relative to the cwd | Task 11 |
 | plan 6: `resolveKeybinds` lets `ctrl+x` (the leader) be bound; a printable key on a dialog or filter command | Task 13 |
 | plan 6: `resolveKeybinds` has no key-syntax check | 1.0.x (see below) |
-| plan 6: watch the PTY smoke test | Task 10 Step 4 (a tmux server per test; the dropped key it found goes to plan 6's owner) |
+| plan 6: watch the PTY smoke test | Task 10 Step 4 (a check under load; the tmux server per case and the dropped key were fixed by plan 6: `f85ff6f`, `2583802`) |
+| plan 6 Codex round 6: the activate prompt's scope goes stale when the binding changes while it is open | Task 14 (Ruling 20) |
+| plan 6 Codex round 6: a confirmed revert restores the old base, not the profile on disk | Task 14 (Ruling 20) |
 
 ## Not in this plan
 
 - **Plan 5's final-review minors** (the session ledger's "→ final" items: `runs show --name` without `--debug`, `lock`'s `--help` note on its process group, `init` on a non-TTY stdin, the `sandbox:codex` check's scope, `catalog list --role`'s error, `mark()`'s doc comment, `readProfileDoc`'s code for a missing user-named profile, `patchProfile` resolving twice, `ProfileSaved`/`Saved`, `viewOf`'s aliases, `lock.ts`'s exit code on config errors, the architecture test's inline bridge, the `profile_set` "every field" test, the README omissions, `quotaOf` reuse, the "(no honesty score)" wording, `agents.ts`'s empty catch, the `#default` description, the dedup test, doctor's fix text using the global active profile) belong to plan 5's final fix wave, which lands before this plan. Whatever that wave leaves is a 1.0.x item, not a release blocker.
 - **Plan 1–3 minors the reviews marked "plan 7" but no carry-over list names** (filelock's stale-marker races, `isHeader`'s two keys, directory fsync, `readAgentRuns` dropping rows silently, a `launch.json` write failure marking a live dispatch lost, the supervisor's own SIGTERM handler, the claude-code simulator's gaps, isolated opencode's `isBusy` against the background service): none is reachable without a crash, a disk fault or an edited file, and each has a reason in its review; they are 1.0.x.
 - **A syntax check of each key in `config.json` `keybinds`** (plan 6's deferred minor): a typo leaves that command unbound, which the user sees when the key does nothing. It needs `@opentui/keymap`'s own key parser; a hand-written grammar would refuse keys the keymap accepts. 1.0.x, with `E_CONFIG_KEYBIND`.
-- **The key the TUI drops right after a tab draws** (found by Task 10's PTY check, still there after plan 6's final fix wave): plan 6's code; its owner fixes it in `src/entry/tui/`, not this plan.
 - **Codex adding the heavy-lock directory to `writable_roots` itself** (plan 5's "After this plan"): only after the owner's check in `docs/live-verification.md` step 4 shows Codex refusing it by default.
 - **Reading `~/.config/typesafe/api_key`** as a third Jev key source, as 0.x did: spec §5.5 names two sources. `MIGRATION.md` tells a user whose key lived only there that `init` asks for it once.
 - **Publishing.** Task 12 prepares the release; merging the "chore: release catherd" PR that the Release workflow opens publishes 1.0.0 to npm and tags `v1.0.0`. That merge is the owner's.
 
 ## Self-review
 
-- **Spec coverage.** §3.3: the first exit wins and the grace after interrupt (Task 1), identity before any signal (Tasks 1, 3). §3.4's unknown values (Task 6). §6: Codex busy (Tasks 1, 2), opencode's latest message (Task 2), isolation for captures (Task 11). §10.2: every tool call logged (Task 4). §10.3: the Codex login (Task 8), the credentials file (Task 8). §10.4: preflight never as root (Task 4), secrets off disk (Task 3's old specs, Task 11's meta). §11.7–8: the live kit (Task 11); §11 hygiene: event-driven tests (Tasks 1, 3, 7), the coverage floor (Task 10). §12: the matrix, audit, pack smoke, release gating, marketplace tag, automated update PRs (Task 10), the changeset and `MIGRATION.md` (Task 12). §14 ("vendor CLIs change monthly"): fixtures per CLI version from the capture kit (Task 11). D2 (Task 12), D7 (Task 11).
-- **Placeholders.** None: every step carries its code or its exact command, and Ruling 16 gives the exact rule for the one number that plan 6 may move.
-- **Types.** `LineInfo.item` and `EventDelta.item` are both `{ id: string; open: boolean }`; `SuperviseHooks.isBusy(thread, sinceMs)` and `BackendAdapter.isBusy(thread, cwd, sinceMs?)` meet in `src/entry/supervise.ts`; `savedJevKey` (Task 5) is what Task 8's doctor reads; `exited` (Task 2) is what Tasks 7 and 9 use; `Probe.billing` is a `BillingMode`, compared with `Profile.billing[id]`; Task 13 uses `LEADER`, `isPrintable` and `CommandDef.scope` as `commands.ts` defines them.
-- **Review Focus.** Each of the five lines names the test that pins it, in its owning task.
+- **Spec coverage.** §3.3: the first exit wins and the grace after interrupt (Task 1), identity before any signal (Tasks 1, 3). §3.4's unknown values (Task 6). §6: Codex busy (Tasks 1, 2), opencode's latest message (Task 2), isolation for captures (Task 11). §10.2: every tool call logged (Task 4). §10.3: the Codex login (Task 8), the credentials file (Task 8). §10.4: preflight never as root (Task 4), secrets off disk (Task 3's old specs, Task 11's meta). §11.7–8: the live kit (Task 11); §11 hygiene: event-driven tests (Tasks 1, 3, 7), the coverage floor (Task 10). §12: the matrix, audit, pack smoke, release gating, marketplace tag, automated update PRs (Task 10), the changeset and `MIGRATION.md` (Task 12). §14 ("vendor CLIs change monthly"): fixtures per CLI version from the capture kit (Task 11). §9.2: staged edits and "Activation is its own command with a confirmation" hold when another process changes the binding or the profile (Task 14). D2 (Task 12), D7 (Task 11).
+- **Placeholders.** None: every step carries its code or its exact command, and Ruling 16 gives the exact rule for the one number a later change may move (the coverage floor).
+- **Types.** `LineInfo.item` and `EventDelta.item` are both `{ id: string; open: boolean }`; `SuperviseHooks.isBusy(thread, sinceMs)` and `BackendAdapter.isBusy(thread, cwd, sinceMs?)` meet in `src/entry/supervise.ts`; `savedJevKey` (Task 5) is what Task 8's doctor reads; `exited` (Task 2) is what Tasks 7 and 9 use; `Probe.billing` is a `BillingMode`, compared with `Profile.billing[id]`; Task 13 uses `LEADER`, `isPrintable` and `CommandDef.scope` as `commands.ts` defines them; Task 14 changes `Effects.activate` to `(name, repo: string | null)` in the interface, `liveEffects` and `fixtureEffects` together, every caller passes a scope (`activateNow`, `effects.test.ts`, `status.test.tsx`), and `Purpose.activate.repo` is what `activateNow` receives as `shown`; Task 10's `test/coverage-floor.ts` reads the `coverage/lcov.info` that `bun test --coverage-reporter=lcov` writes.
+- **Review Focus.** Each of the six lines names the test that pins it, in its owning task.
+- **Replayed, not only read.** All fourteen tasks were applied from this file's text with a script (every `In <file>, replace:` block and every new file) on `6195f4e`, in wave order; Tasks 10, 11 and 14 were applied a second time from the final text and reproduce the tested tree byte for byte.
 
 ## After this plan
 
