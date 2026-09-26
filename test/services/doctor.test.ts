@@ -225,6 +225,19 @@ describe("doctor", () => {
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
   });
 
+  it("fails on a repo bound to a profile that no longer exists", async () => {
+    ready();
+    createProfile("team");
+    const repo = tempRepo();
+    activate("team", repo);
+    rmSync(join(dirname(configFile()), "profiles", "team.json"));
+    expect(check(await run(), `binding:${repo}`)).toMatchObject({
+      state: "fail",
+      word: "missing",
+      fix: `cd ${repo} && catherd profile use --repo --clear`,
+    });
+  });
+
   it("tests the Codex sandbox only when Codex serves an enabled workspace-write role", async () => {
     ready();
     patchProfile("default", {

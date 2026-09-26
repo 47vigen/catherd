@@ -267,7 +267,8 @@ function apply(p: Planned, removed: string[] = []): Synced {
   return {
     linked: [...p.links.keys()].map((l) => basename(l, ".md")).sort(),
     pruned: pruned.sort(),
-    newSessionNeededFor: newSession.sort(),
+    // a removed agent is still loaded in the running Claude Code session until a new one starts
+    newSessionNeededFor: [...newSession, ...pruned.map((e) => basename(e, ".md"))].sort(),
   };
 }
 

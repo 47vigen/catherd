@@ -5,6 +5,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
+import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { findRun, listRuns, readRecords } from "../services/run-store.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
@@ -135,7 +136,9 @@ const show = defineCommand({
   },
   run({ args }) {
     const run = findRun(args.id);
-    // every part redacted, not only the dispatches: state.md and a record's reply can quote a secret too
+    // every part redacted, not only the dispatches: state.md and a record's reply can quote a secret too;
+    // the saved Jev key is a secret even in a process that never called Jev
+    registerSavedSecrets();
     const { summary, records } = redact({
       summary: summarizeRun(defaultDeps(), run),
       records: readRecords(run).records,

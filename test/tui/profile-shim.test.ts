@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getProfile, patchProfile, profilesDir } from "../../src/services/profile-service.ts";
-import { defaultProfile, loadProfile, saveProfile, validateProfile } from "../../src/tui/profile-shim.ts";
+import {
+  defaultProfile,
+  loadProfile,
+  patchFromV0,
+  saveProfile,
+  validateProfile,
+} from "../../src/tui/profile-shim.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -58,6 +64,21 @@ describe("the 0.x TUI's profile shim", () => {
     saveProfile(loadProfile());
     const p = getProfile("default");
     expect([p.roles.worker.rungs, p.roles.verifier.rungs]).toEqual([worker, verifier]);
+  });
+
+  it("keeps a rung the 0.x shape cannot hold, in place, for validate to report", () => {
+    withHome();
+    const file = join(profilesDir(), "default.json");
+    patchProfile("default", {});
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    const worker = ["codex:gpt-6-sol#medium", "not a rung", "codex:gpt-6-sol#high"];
+    writeFileSync(
+      file,
+      JSON.stringify({ ...doc, roles: { ...doc.roles, worker: { ...doc.roles.worker, rungs: worker } } }),
+    );
+    expect(patchFromV0(loadProfile(), JSON.parse(readFileSync(file, "utf8"))).roles?.worker?.rungs).toEqual(
+      worker,
+    );
   });
 
   it("validates with the 1.0 rules, and refuses to save what they refuse", () => {

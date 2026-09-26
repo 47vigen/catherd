@@ -66,6 +66,15 @@ export function toV0(p: Profile1): Profile {
   };
 }
 
+const parses = (rung1: string): boolean => {
+  try {
+    parseRung(rung1);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const sameRung = (rung1: string, r0: string): boolean => {
   try {
     return rung0(rung1) === r0;
@@ -115,6 +124,11 @@ export function patchFromV0(
     const left = [...wanted];
     const rungs: string[] = [];
     for (const r of before.roles[role].rungs) {
+      // a rung the 0.x shape cannot hold stays where it is, for validate to report
+      if (!parses(r)) {
+        rungs.push(r);
+        continue;
+      }
       const i = left.findIndex((r0) => sameRung(r, r0));
       if (i < 0) continue;
       rungs.push(r);

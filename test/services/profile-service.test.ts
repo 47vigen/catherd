@@ -155,7 +155,11 @@ describe("agent files and links", () => {
     withHome();
     patchProfile("default", {});
     const r = patchProfile("default", { roles: { verifier: { rungs: ["claude:claude-opus-5-5#medium"] } } });
-    expect(r.newSessionNeededFor).toEqual(["catherd-default-verifier-claude-opus-5-5-medium"]);
+    // the pruned agent is still loaded in the running session too
+    expect(r.newSessionNeededFor).toEqual([
+      "catherd-default-verifier-claude-opus-5-5-low",
+      "catherd-default-verifier-claude-opus-5-5-medium",
+    ]);
     expect(r.pruned).toEqual(["catherd-default-verifier-claude-opus-5-5-low.md"]);
     expect(readdirSync(join(agentsRoot(), "default")).sort()).toEqual([
       "catherd-default-architect-claude-opus-5-5-high.md",
@@ -296,7 +300,10 @@ describe("resetProfile and linkedProfiles", () => {
     });
     const r = resetProfile("default");
     expect([r.saved, getProfile("default").budget]).toEqual([true, {}]);
-    expect(r.newSessionNeededFor).toEqual(["catherd-default-verifier-claude-opus-5-5-low"]);
+    expect(r.newSessionNeededFor).toEqual([
+      "catherd-default-verifier-claude-opus-5-5-low",
+      "catherd-default-verifier-claude-opus-5-5-max",
+    ]);
     expect(r.pruned).toEqual(["catherd-default-verifier-claude-opus-5-5-max.md"]);
   });
 

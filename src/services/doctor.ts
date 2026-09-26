@@ -18,6 +18,7 @@ import {
   enforcementOf,
   getProfile,
   linkedProfiles,
+  profileExists,
   readConfig,
   readProjects,
   validateNamed,
@@ -293,6 +294,21 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       detail: errText(e),
       fix: fixOf(e) ?? "catherd init",
     });
+  }
+  // a repo bound to a profile whose file is gone: every command run in that repo fails to load it
+  try {
+    for (const [repo, name] of Object.entries(readProjects().bindings))
+      if (!profileExists(name))
+        checks.push({
+          id: `binding:${repo}`,
+          label: `binding ${repo}`,
+          state: "fail",
+          word: "missing",
+          detail: `bound to profile ${name}, which does not exist`,
+          fix: `cd ${repo} && catherd profile use --repo --clear`,
+        });
+  } catch {
+    // the config row above already reports an unreadable projects.json
   }
   // every linked profile: the active one (row `profile`) and each repo-bound one (row `profile:<name>`).
   // Each fix names its profile: without one, the CLI acts on the profile of the repo doctor runs in.

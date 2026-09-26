@@ -124,7 +124,7 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect(catherd(["copy", "default", "team"]).out).toBe("✓ copied default to team\n");
     expect(catherd(["new", "fast"]).code).toBe(0);
     expect(catherd(["use", "team"]).out).toBe(
-      "✓ team is active\nnew Claude Code session needed for: catherd-team-architect-claude-opus-5-5-high, catherd-team-verifier-claude-opus-5-5-low\n",
+      "✓ team is active\nnew Claude Code session needed for: catherd-default-architect-claude-opus-5-5-high, catherd-default-verifier-claude-opus-5-5-low, catherd-team-architect-claude-opus-5-5-high, catherd-team-verifier-claude-opus-5-5-low\n",
     );
     expect(catherd(["list"]).out).toBe("  default\n  fast\n* team\n");
     expect(catherd(["diff", "fast"]).out).toBe("budget.usd: 5 → none\n");

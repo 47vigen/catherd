@@ -8,6 +8,7 @@ import type { RunSummary } from "../../src/services/summary.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun, makeRecord } from "../services/helpers.ts";
+import { saveJevKey } from "../../src/services/jev-service.ts";
 
 afterEach(snapshotEnv());
 
@@ -166,6 +167,18 @@ describe("catherd runs", () => {
       expect(r.out).toContain("auth failed for [redacted]");
       expect(r.out).not.toContain(secret);
     }
+  });
+
+  it("redacts the saved Jev key, which a fresh process never registered by calling Jev", async () => {
+    const { run } = freshRun("parser");
+    const key = "ts-live-0123456789abcdef";
+    saveJevKey(key);
+    const d = await fakeDispatch(run, {}, {});
+    writeFileSync(dispatchPaths(d.dir).stderr, `echoed ${key}\n`);
+    await appendRecord(run, makeRecord({ runId: run.id, replyWhy: `saw ${key}` }));
+    const r = catherd(["runs", "show", run.id, "--debug", "--json"], { TYPESAFE_API_KEY: "" });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain(key);
   });
 
   it("refuses to cancel a role that is not live, with exit 1", () => {
