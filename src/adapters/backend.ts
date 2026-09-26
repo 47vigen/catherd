@@ -1,5 +1,6 @@
 import type { ErrorCode } from "../domain/errors.ts";
 import type { Rung } from "../domain/ids.ts";
+import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
 
 export type { ExitInfo, ExitReason } from "../domain/record.ts";
@@ -13,6 +14,10 @@ export interface Probe {
   versionOk: boolean;
   /** null when the CLI offers no way to ask */
   loggedIn: boolean | null;
+  /** how the CLI is logged in, in a word or two ("ChatGPT", "API key"), when it says */
+  login?: string;
+  /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
+  billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
 }
 

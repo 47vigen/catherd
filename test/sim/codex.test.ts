@@ -27,7 +27,10 @@ describe("codex simulator", () => {
   it("answers --version, login status and debug models from the scenario", () => {
     const s = withScenario({ version: "0.157.0", loggedIn: false, models: { models: [{ slug: "m" }] } });
     expect(run(["--version"], s.env).out.trim()).toBe("codex-cli 0.157.0");
-    expect(run(["login", "status"], s.env).code).toBe(1);
+    expect(run(["login", "status"], s.env)).toMatchObject({ code: 1, err: "Not logged in\n" });
+    expect(run(["login", "status"], withScenario({ login: "api-key" }).env).err).toContain(
+      "using an API key",
+    );
     expect(JSON.parse(run(["debug", "models"], s.env).out)).toEqual({ models: [{ slug: "m" }] });
   });
 

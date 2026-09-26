@@ -11,7 +11,7 @@ import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
 import { claudeHome, locksDir } from "../infra/paths.ts";
 import { refreshDiscovery } from "./catalog-service.ts";
-import { credentialsPath, jevKey, testJevKey } from "./jev-service.ts";
+import { credentialsPath, jevKey, savedJevKey, testJevKey } from "./jev-service.ts";
 import {
   activeName,
   agentLinkState,
@@ -120,7 +120,7 @@ const PROBLEM_WORD: Record<string, string> = {
   E_BACKEND_NOT_LOGGED_IN: "not logged in",
 };
 
-async function backendChecks(used: Map<string, "role" | "failover">): Promise<Check[]> {
+async function backendChecks(used: Map<string, "role" | "failover">, profiles: Profile[]): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
   for (const id of ADAPTER_IDS) {
@@ -139,13 +139,21 @@ async function backendChecks(used: Map<string, "role" | "failover">): Promise<Ch
     const use = used.get(id);
     if (!problem) {
       ready.push(id);
-      checks.push({
-        id: `backend:${id}`,
-        label: id,
-        state: "ok",
-        word: "ready",
-        detail: probe.version ?? "",
-      });
+      const detail = [probe.version, probe.login && `${probe.login} login`].filter(Boolean).join(" · ");
+      // a login billed apart from what a profile says (a plan, or per token) ranks that backend's cost wrongly
+      const billed = probe.billing && profiles.find((p) => p.billing[id] && p.billing[id] !== probe.billing);
+      checks.push(
+        billed
+          ? {
+              id: `backend:${id}`,
+              label: id,
+              state: "warn",
+              word: "billing",
+              detail: `${detail} · profile ${billed.name} bills ${id} as ${billed.billing[id]}, but this login is ${probe.billing}`,
+              fix: `catherd profile set billing.${id} ${probe.billing} --profile ${billed.name}`,
+            }
+          : { id: `backend:${id}`, label: id, state: "ok", word: "ready", detail },
+      );
       continue;
     }
     checks.push({
@@ -337,7 +345,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
 
   const used = usedBackends(profiles);
-  checks.push(...(await backendChecks(used)));
+  checks.push(...(await backendChecks(used, profiles)));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({
@@ -489,6 +497,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const creds = credentialsPath();
   if (existsSync(creds)) {
     const mode = statSync(creds).mode & 0o777;
+    // Jev reads an unreadable file as no key (it is optional): here is where the user learns why
+    const unreadable = savedJevKey().problem;
     checks.push(
       mode & 0o077
         ? {
@@ -499,7 +509,16 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
             detail: `mode ${mode.toString(8)}`,
             fix: `chmod 600 ${creds}`,
           }
-        : { id: "credentials", label: "credentials.json", state: "ok", word: "ready", detail: "mode 600" },
+        : unreadable
+          ? {
+              id: "credentials",
+              label: "credentials.json",
+              state: "warn",
+              word: "unreadable",
+              detail: unreadable.message,
+              fix: unreadable.fix ?? `fix or delete ${creds}, then catherd init`,
+            }
+          : { id: "credentials", label: "credentials.json", state: "ok", word: "ready", detail: "mode 600" },
     );
   }
 

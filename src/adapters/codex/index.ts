@@ -113,7 +113,18 @@ async function probe(): Promise<Probe> {
     };
   const version = extractVersion(v.out);
   const versionOk = version !== null && compareVersions(version, CODEX_MIN_VERSION) >= 0;
-  const loggedIn = (await sh(["login", "status"]))?.ok ?? false;
+  const status = await sh(["login", "status"]);
+  const loggedIn = status?.ok ?? false;
+  // how: `Logged in using ChatGPT`, or `… using an API key - <masked key>` (read, never kept); on stdout
+  // or stderr, depending on the version
+  const how = `${status?.out ?? ""}\n${status?.err ?? ""}`;
+  const login = !loggedIn
+    ? null
+    : /using ChatGPT/i.test(how)
+      ? "ChatGPT"
+      : /API key/i.test(how)
+        ? "API key"
+        : null;
   const problems: Probe["problems"] = [];
   if (!versionOk)
     problems.push({
@@ -123,7 +134,14 @@ async function probe(): Promise<Probe> {
     });
   if (!loggedIn)
     problems.push({ code: "E_BACKEND_NOT_LOGGED_IN", message: "codex is not logged in", fix: "codex login" });
-  return { installed: true, version, versionOk, loggedIn, problems };
+  return {
+    installed: true,
+    version,
+    versionOk,
+    loggedIn,
+    ...(login ? { login, billing: login === "ChatGPT" ? "chatgpt-plan" : "metered" } : {}),
+    problems,
+  };
 }
 
 async function listModels(): Promise<DiscoveredModel[]> {

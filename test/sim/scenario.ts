@@ -5,6 +5,8 @@ import { join } from "node:path";
 export interface CodexScenario {
   version?: string;
   loggedIn?: boolean;
+  /** how `codex login status` says it is logged in (default ChatGPT) */
+  login?: "chatgpt" | "api-key";
   models?: unknown;
   eventsFile?: string;
   reply?: string;

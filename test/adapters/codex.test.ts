@@ -178,6 +178,25 @@ describe("codex probe and discovery (simulator)", () => {
     expect(p.problems[0]).toMatchObject({ code: "E_BACKEND_MISSING", fix: "npm i -g @openai/codex" });
   });
 
+  it("says whether codex is logged in with ChatGPT or an API key, and the billing each implies", async () => {
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({}).env);
+    expect(await codexAdapter.probe()).toMatchObject({
+      loggedIn: true,
+      login: "ChatGPT",
+      billing: "chatgpt-plan",
+    });
+    Object.assign(process.env, withScenario({ login: "api-key" }).env);
+    expect(await codexAdapter.probe()).toMatchObject({
+      loggedIn: true,
+      login: "API key",
+      billing: "metered",
+    });
+    Object.assign(process.env, withScenario({ loggedIn: false }).env);
+    const out = await codexAdapter.probe();
+    expect([out.loggedIn, out.login, out.billing]).toEqual([false, undefined, undefined]);
+  });
+
   it("treats a codex login status that hangs as not logged in, within the timeout", async () => {
     const saved = codexShell.timeoutMs;
     codexShell.timeoutMs = 300;
