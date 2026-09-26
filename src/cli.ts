@@ -28,7 +28,7 @@ export const main: Command = defineCommand({
     description: "Herds coding agents. Any command takes --verbose: log at debug level (CATHERD_LOG=debug).",
   },
   subCommands: {
-    init: () => import("./tui/commands.ts").then((m) => m.initCommand),
+    init: () => import("./entry/init-command.ts").then((m) => m.initCommand),
     status: () => import("./entry/runs-command.ts").then((m) => m.statusCommand),
     watch: () => import("./entry/runs-command.ts").then((m) => m.watchCommand),
     runs: () => import("./entry/runs-command.ts").then((m) => m.runsCommand),
