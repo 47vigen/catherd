@@ -59,8 +59,10 @@ export interface SelectOption {
   title: string;
   /** options with a group are shown under its heading, in the order the groups first appear */
   group?: string;
-  /** muted text on the right: a key, a mark, a CLI command */
+  /** muted text after the title, in a column of its own: a key, a mark */
   detail?: string;
+  /** a second muted column after the detail (the command's CLI twin); dropped when it does not fit */
+  cli?: string;
   /** the value in force now, marked `●` */
   current?: boolean;
 }

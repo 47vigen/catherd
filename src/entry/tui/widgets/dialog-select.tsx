@@ -8,7 +8,7 @@ import { useCommandLayer } from "../providers/keymap.tsx";
 import { useTone, useUi } from "../providers/theme.tsx";
 import { type Dialog as DialogState, isArmed, type SelectOption } from "../state.ts";
 import { glyph } from "../theme.ts";
-import { Dialog } from "./dialog.tsx";
+import { Dialog, dialogRows } from "./dialog.tsx";
 import { Line, type Part } from "./line.tsx";
 import { windowOf } from "./list.tsx";
 
@@ -24,7 +24,7 @@ interface Entry {
 export function matchOptions(options: SelectOption[], text: string): SelectOption[] {
   const words = text.toLowerCase().split(/\s+/).filter(Boolean);
   return options.filter((o) => {
-    const hay = `${o.title} ${o.group ?? ""} ${o.detail ?? ""}`.toLowerCase();
+    const hay = `${o.title} ${o.group ?? ""} ${o.detail ?? ""} ${o.cli ?? ""}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
 }
@@ -78,7 +78,8 @@ export function DialogSelect(props: { dialog: Select }) {
   };
   const { entries, cur, chosen } = pick(text, index);
   const chosenNow = () => pick(textRef.current, indexRef.current).chosen;
-  const height = Math.max(3, Math.min(entries.length, Math.floor(dims.height / 2) - 6));
+  // every row the panel has above the rule and footer, less the filter and the gap under it
+  const height = Math.max(3, Math.min(entries.length, dialogRows(dims.height) - 4));
   const w = windowOf(entries.length, cur ?? 0, height, top);
   useEffect(() => {
     if (w.top !== top) setTop(w.top);
@@ -114,6 +115,16 @@ export function DialogSelect(props: { dialog: Select }) {
       : {}),
   });
   const rows = (inner: number): ReactNode[] => {
+    // columns: the title, the detail and the CLI twin, each padded to the widest in the whole list, so
+    // they line up as the list scrolls; the CLI column goes when it does not fit, the detail column
+    // falls back to the right edge when even it does not
+    const wide = (f: (o: SelectOption) => string | undefined) =>
+      Math.max(0, ...props.dialog.options.map((o) => Bun.stringWidth(f(o) ?? "")));
+    const tw = wide((o) => o.title);
+    const dw = wide((o) => o.detail);
+    const cw = wide((o) => o.cli);
+    const columns = 2 + tw + 2 + dw <= inner;
+    const withCli = columns && cw > 0 && 2 + tw + 2 + dw + 2 + cw <= inner;
     const out: ReactNode[] = [
       <box key="filter" flexDirection="row" width={inner} height={1}>
         <text fg={tone("accent")}>{"> "}</text>
@@ -173,22 +184,28 @@ export function DialogSelect(props: { dialog: Select }) {
         { text: `${o.current ? glyph("current", ui.plain) : " "} ` },
         { text: label, tone: selected && armed ? "warning" : undefined },
       ];
-      const used = Bun.stringWidth(`  ${label}`) + Bun.stringWidth(detail);
-      out.push(
-        <Line
-          key={e.key}
-          width={inner}
-          selected={selected}
-          parts={[...left, { text: " ".repeat(Math.max(1, inner - used)) }, { text: detail, tone: "muted" }]}
-        />,
-      );
+      const pad = (t: string, n: number) => " ".repeat(Math.max(0, n - Bun.stringWidth(t)));
+      const right: Part[] = columns
+        ? [
+            { text: `${pad(label, tw)}  ` },
+            { text: withCli ? `${detail}${pad(detail, dw)}  ` : detail, tone: "muted" },
+            { text: withCli ? (o.cli ?? "") : "", tone: "muted" },
+          ]
+        : [
+            {
+              text: " ".repeat(Math.max(1, inner - Bun.stringWidth(`  ${label}`) - Bun.stringWidth(detail))),
+            },
+            { text: detail, tone: "muted" },
+          ];
+      out.push(<Line key={e.key} width={inner} selected={selected} parts={[...left, ...right]} />);
     });
     return out;
   };
   return (
     <Dialog
       title={props.dialog.title}
-      size={props.dialog.options.length > 40 ? "large" : "medium"}
+      // the palette's CLI column needs the wide panel
+      size={props.dialog.options.length > 40 || props.dialog.options.some((o) => o.cli) ? "large" : "medium"}
       rows={rows}
     />
   );

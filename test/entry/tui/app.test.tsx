@@ -164,6 +164,37 @@ describe("the command palette (spec §9.2)", () => {
   });
 });
 
+describe("the palette and help at 80x24 (P1)", () => {
+  /** the option rows (indented under their group), and where each one's second column starts */
+  const options = () => {
+    const lines = h!.s.frame().split("\n");
+    const margin = lines.find((l) => l.includes("> "))?.indexOf(">") ?? 0;
+    const rows = lines.filter((l) => new RegExp(`^ {${margin + 2}}\\S`).test(l));
+    const second = new Set(rows.map((l) => /^( *\S.*?\S {2,})\S/.exec(l)?.[1]?.length));
+    return { rows, second };
+  };
+
+  it("fills the dialog's rows and lines up the key and CLI columns in the palette", async () => {
+    await app();
+    await h!.s.press("ctrl+p");
+    const { rows, second } = options();
+    expect(rows.length).toBeGreaterThanOrEqual(6);
+    expect(second.size).toBe(1);
+    // the CLI twins start in one column too, in full
+    const cli = new Set(rows.flatMap((l) => (l.includes("catherd ") ? [l.indexOf("catherd ")] : [])));
+    expect(cli.size).toBe(1);
+    expect(h!.s.frame()).toContain("catherd profile new <name>");
+  });
+
+  it("fills the dialog's rows and lines up the key column in help", async () => {
+    await app();
+    await h!.s.press("?");
+    const { rows, second } = options();
+    expect(rows.length).toBeGreaterThanOrEqual(7);
+    expect(second.size).toBe(1);
+  });
+});
+
 describe("keys that land in one tick (Review Focus 2)", () => {
   it("runs the command typed into the palette in the same tick as ctrl+p and enter", async () => {
     await app();

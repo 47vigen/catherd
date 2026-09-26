@@ -197,7 +197,7 @@ space turns the role on or off; enter opens its access, default rung and models
 
             > type to filter
 
-            ● default                                         active
+            ● default  active
 
 
 
@@ -223,20 +223,20 @@ space turns the role on or off; enter opens its access, default rung and models
 
 
 
-            Commands                                             esc
+   Commands                                                               esc
 
-            > type to filter
+   > type to filter
 
-            Suggested
-              New profile…      ctrl+x n  catherd profile new <name>
-              Switch profile…         ctrl+x l  catherd profile list
-              Re-check setup                       r  catherd doctor
-            App
-            ↓ 12 more
-
-
-
-
+   Suggested
+     New profile…          ctrl+x n    catherd profile new <name>
+     Switch profile…       ctrl+x l    catherd profile list
+     Re-check setup        r           catherd doctor
+   App
+     Keyboard shortcuts    ?
+     Quit                  q/ctrl+x q
+   Tabs
+     Go to Status          1/ctrl+x 1
+   ↓ 8 more
 
 ────────────────────────────────────────────────────────────────────────────────
  enter choose
@@ -258,15 +258,15 @@ space turns the role on or off; enter opens its access, default rung and models
             > type to filter
 
             App
-              Command palette                               ctrl+p/:
-              Keyboard shortcuts                                   ?
-              Quit                                        q/ctrl+x q
+              Command palette       ctrl+p/:
+              Keyboard shortcuts    ?
+              Quit                  q/ctrl+x q
             Tabs
-            ↓ 22 more
-
-
-
-
+              Go to Status          1/ctrl+x 1
+              Go to Profiles        2/ctrl+x 2
+              Go to Runs            3/ctrl+x 3
+              Next tab              ]
+            ↓ 18 more
 
 ────────────────────────────────────────────────────────────────────────────────
  enter choose

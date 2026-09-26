@@ -43,9 +43,8 @@ function useCommandDialogs() {
           value: c.id,
           title: c.title,
           group: c.group,
-          detail: [formatKeys(keys[c.id as CommandId], ui.plain), kind === "palette" ? c.cli : null]
-            .filter(Boolean)
-            .join("  "),
+          detail: formatKeys(keys[c.id as CommandId], ui.plain),
+          ...(kind === "palette" && c.cli ? { cli: c.cli } : {}),
         })),
       },
     });
