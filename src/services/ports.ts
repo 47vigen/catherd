@@ -4,6 +4,8 @@ import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
+import type { Change, ProfilePatch } from "../domain/profile.ts";
+import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
@@ -26,28 +28,34 @@ export interface ProfileView {
   notify: string[];
 }
 
-/** `profile_set`'s patch, in 1.0 rungs. */
-export interface ProfilePatch {
-  objective?: "cost" | "speed";
-  roles?: Partial<Record<Role, { enabled?: boolean; rungs?: string[]; defaultRung?: string }>>;
-  harness?: Partial<Record<"codex" | "opencode", { isolated: boolean }>>;
-  lock?: { heavy: number | "cpus/2" };
-  notify?: ("milestone" | "finish" | "blocked")[];
-  failover?: Record<string, string>;
-  budget?: Budget;
+export type { ProfilePatch };
+
+/** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */
+export interface ProfileSaved {
+  saved: boolean;
+  errors: Issue[];
+  warnings: Issue[];
+  diff: Change[];
+  linked: string[];
+  pruned: string[];
+  /** agents whose link is new or whose file changed: they apply from the next Claude Code session */
+  newSessionNeededFor: string[];
 }
 
 export interface ProfilePort {
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;
-  get(name?: string): { active: string; profiles: string[]; profile: ProfileView };
-  validate(name?: string): { valid: boolean; errors: string[] };
-  set(
-    name: string | undefined,
-    patch: ProfilePatch,
-  ): { saved: boolean; errors: string[]; diff: unknown[]; newSessionNeededFor: string[] };
-  /** The native Claude agent that runs `rung` for `role`; null unless the rung is a `claude:` one. */
-  agentFor(role: Role, rung: string): string | null;
+  get(name?: string): {
+    active: string;
+    profiles: string[];
+    profile: ProfileView;
+    /** per role: whether its backend holds it to its access mode (spec D10) */
+    enforcement: Partial<Record<Role, "enforced" | "advisory">>;
+  };
+  validate(name?: string): { valid: boolean; errors: Issue[]; warnings: Issue[] };
+  set(name: string | undefined, patch: ProfilePatch): ProfileSaved;
+  /** The native agent that runs `rung` for `role` under `repo`'s profile; null unless it is a `claude:` rung. */
+  agentFor(repo: string | null, role: Role, rung: string): string | null;
 }
 
 export interface RouteRequest {
@@ -86,9 +94,24 @@ export interface CatalogFilter {
 
 export interface RoutingPort {
   route(req: RouteRequest): Promise<RouteAnswer>;
-  finding(runDir: string, laneText: string, finding: string): Promise<Verdict<"design" | "code" | "unclear">>;
-  sameDefect(runDir: string, before: string, after: string): Promise<Verdict<"yes" | "no">>;
-  catalog(filter: CatalogFilter): { total: number; models: unknown[] };
+  /** `use` is the repo profile's `jev.use`: "off" answers with the rule's default and never asks Jev */
+  finding(
+    runDir: string,
+    laneText: string,
+    finding: string,
+    use: "auto" | "off",
+  ): Promise<Verdict<"design" | "code" | "unclear">>;
+  sameDefect(
+    runDir: string,
+    before: string,
+    after: string,
+    use: "auto" | "off",
+  ): Promise<Verdict<"yes" | "no">>;
+  /** `billing` prices the rungs (spec §5.3); absent keys bill as DEFAULT_BILLING */
+  catalog(
+    filter: CatalogFilter,
+    billing?: Partial<Record<string, BillingMode>>,
+  ): { total: number; models: unknown[] };
 }
 
 /** Everything a service needs from outside it; the entry layer builds one, tests build fakes. */

@@ -21,7 +21,6 @@ One line per dependency: what it does for catherd, and why this one.
 - @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §8.4)
 - @opentui/react — React bindings for the TUI (`init`, the profile matrix, `watch`) — pairs with `@opentui/core`
 - react — required by `@opentui/react`'s component model — peer dependency of the TUI layer
-- microdiff — the diff `profile_set` returns — tiny, zero-dependency, maintained object diff
 
 ## Dev
 

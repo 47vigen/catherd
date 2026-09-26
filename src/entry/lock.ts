@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
-import { v0Profiles } from "../bridge/v0.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
+import { profileFor } from "../services/profile-service.ts";
 
 /** --slots, then CATHERD_LOCK_SLOTS, then the active profile's lock.heavy, then half the cores. */
 export function resolveSlots(flag: string | undefined, profile: () => number | "cpus/2"): number {
@@ -40,7 +40,7 @@ export const lockCommand = defineCommand({
     }
     let slots: number;
     try {
-      slots = resolveSlots(args.slots, () => v0Profiles().forRepo(null).heavy);
+      slots = resolveSlots(args.slots, () => profileFor(null).lock.heavy);
     } catch (e) {
       console.error(`error ${(e as CatherdError).code}: ${(e as Error).message}`);
       process.exitCode = 2;

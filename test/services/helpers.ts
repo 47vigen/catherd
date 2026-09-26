@@ -61,16 +61,34 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
         jev: null,
       };
     },
-    finding: async () => ({ value: "code", probability: null, confidence: null, source: "default" }),
-    sameDefect: async () => ({ value: "no", probability: null, confidence: null, source: "default" }),
+    finding: async (_runDir, _laneText, _finding, _use) => ({
+      value: "code",
+      probability: null,
+      confidence: null,
+      source: "default",
+    }),
+    sameDefect: async (_runDir, _before, _after, _use) => ({
+      value: "no",
+      probability: null,
+      confidence: null,
+      source: "default",
+    }),
     catalog: () => ({ total: 0, models: [] }),
   };
   const profiles: ProfilePort = {
     forRepo: () => view,
-    get: () => ({ active: "test", profiles: ["test"], profile: view }),
-    validate: () => ({ valid: true, errors: [] }),
-    set: () => ({ saved: false, errors: ["profiles are fixed in tests"], diff: [], newSessionNeededFor: [] }),
-    agentFor(r, rung) {
+    get: () => ({ active: "test", profiles: ["test"], profile: view, enforcement: {} }),
+    validate: () => ({ valid: true, errors: [], warnings: [] }),
+    set: () => ({
+      saved: false,
+      errors: [{ path: "", message: "profiles are fixed in tests" }],
+      warnings: [],
+      diff: [],
+      linked: [],
+      pruned: [],
+      newSessionNeededFor: [],
+    }),
+    agentFor(_repo, r, rung) {
       const p = parseRung(rung);
       return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
     },

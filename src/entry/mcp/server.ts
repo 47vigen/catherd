@@ -2,27 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../../infra/log.ts";
-import { v0Profiles } from "../../bridge/v0.ts";
-import { VERSION } from "../../infra/version.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
-import { routingService } from "../../services/routing-service.ts";
+import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
 import { sdkToolError } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
-
-export function defaultDeps(): Deps {
-  return {
-    profiles: v0Profiles(),
-    routing: routingService(),
-    version: VERSION,
-    pollMs: 250,
-    tickMs: Number(process.env.CATHERD_TICK_MS) || 30_000,
-    now: Date.now,
-  };
-}
 
 type Handler = (...args: unknown[]) => CallToolResult | Promise<CallToolResult>;
 

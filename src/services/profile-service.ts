@@ -17,6 +17,7 @@ import { type AgentFile, agentFiles } from "../domain/agents.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
+  agentName,
   applyPatch,
   assertProfileName,
   type Change,
@@ -37,6 +38,7 @@ import { claudeAgentsDir, configDir } from "../infra/paths.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { VERSION } from "../infra/version.ts";
 import { loadCatalog } from "./catalog-service.ts";
+import type { ProfilePort, ProfileView } from "./ports.ts";
 
 export const profilesDir = (): string => join(configDir(), "profiles");
 export const configFile = (): string => join(configDir(), "config.json");
@@ -436,4 +438,42 @@ export const relink = (): Synced => locked(() => apply(plan()));
 
 export function diffNamed(a: string, b: string): Change[] {
   return diffProfiles(getProfile(a), getProfile(b));
+}
+
+export function viewOf(p: Profile): ProfileView {
+  const roles: ProfileView["roles"] = {};
+  for (const role of ROLES) roles[role] = { ...p.roles[role], rungs: [...p.roles[role].rungs] };
+  return {
+    name: p.name,
+    objective: p.objective,
+    roles,
+    billing: p.billing,
+    jev: p.jev,
+    isolated: Object.fromEntries(Object.entries(p.harness).map(([k, h]) => [k, h.isolated])),
+    failover: p.failover,
+    budget: p.budget,
+    timeouts: p.timeouts,
+    preflight: p.preflight,
+    heavy: p.lock.heavy,
+    notify: p.notify,
+  };
+}
+
+/** The ProfilePort the run engine and the MCP tools use (spec §7.3: the single writer). */
+export function profileService(): ProfilePort {
+  return {
+    forRepo: (repo) => viewOf(profileFor(repo)),
+    get(name) {
+      const active = activeName();
+      const p = getProfile(name ?? active);
+      return { active, profiles: listProfiles(), profile: viewOf(p), enforcement: roleEnforcement(p) };
+    },
+    validate(name) {
+      const v = validateNamed(name);
+      return { valid: v.errors.length === 0, ...v };
+    },
+    set: (name, patch) => patchProfile(name, patch),
+    agentFor: (repo, role, rung) =>
+      parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
+  };
 }

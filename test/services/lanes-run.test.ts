@@ -265,6 +265,29 @@ describe("ask", () => {
       await ask(deps, { run: run.id, question: "same-defect", state: { before: "a", after: "b" } }),
     ).toMatchObject({ value: "no" });
   });
+
+  it("passes the repo profile's jev.use to the routing port", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const deps = fakeDeps();
+    deps.view.jev = { use: "off" };
+    const uses: string[] = [];
+    deps.routing.finding = async (_d, _l, _f, use) => {
+      uses.push(use);
+      return { value: "code", probability: null, confidence: null, source: "default" };
+    };
+    deps.routing.sameDefect = async (_d, _b, _a, use) => {
+      uses.push(use);
+      return { value: "no", probability: null, confidence: null, source: "default" };
+    };
+    await ask(deps, {
+      run: run.id,
+      question: "finding",
+      state: { lane_file: "lanes/M1.L1.md", finding: "x" },
+    });
+    await ask(deps, { run: run.id, question: "same-defect", state: { before: "a", after: "b" } });
+    expect(uses).toEqual(["off", "off"]);
+  });
 });
 
 describe("run files, result and agent runs", () => {
