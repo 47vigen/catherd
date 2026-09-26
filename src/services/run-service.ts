@@ -59,10 +59,16 @@ export function readRunFile(i: { run: string; path: string }): string {
   return readFileSync(file, "utf8");
 }
 
-/** state.md's new text, or the hint `state.md not refreshed: <message>` (the note is kept in state.json). */
-export async function setNext(i: { run: string; next: string }): Promise<string> {
+/**
+ * `set_next`: state.md's new text, and, as every tool gives them, `hints`: `state.md not refreshed: <message>`
+ * when git fails, with `state` null (the note is kept in state.json either way).
+ */
+export async function setNext(i: {
+  run: string;
+  next: string;
+}): Promise<{ state: string | null; hints?: string[] }> {
   const { text, hints } = await refreshState(findRun(i.run), { next: i.next });
-  return text ?? hints.join("\n");
+  return { state: text ?? null, ...(hints.length ? { hints } : {}) };
 }
 
 const CAP_LINES = 250;

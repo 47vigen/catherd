@@ -241,7 +241,7 @@ describe("a failed state.md refresh at run start", () => {
     const run = findRun(started.run);
     expect(run.dir).toBe(started.dir);
     expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
-    expect(await setNext({ run: run.id, next: "paused: lunch" })).toBe(hint);
+    expect(await setNext({ run: run.id, next: "paused: lunch" })).toEqual({ state: null, hints: [hint] });
     expect(readNotes(run).next).toBe("paused: lunch");
   });
 });

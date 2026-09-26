@@ -72,7 +72,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "set_next",
     {
       description:
-        "Record the run's next step, the last line of state.md: when pausing, or when the plan changes. dispatch, climb and land write state.md themselves. Returns state.md, or a 'state.md not refreshed' hint when git fails (the step is still recorded).",
+        "Record the run's next step, the last line of state.md: when pausing, or when the plan changes. dispatch, climb and land write state.md themselves. Returns { state } (state.md's text), and hints ['state.md not refreshed: …'] with state null when git fails (the step is still recorded).",
       inputSchema: { run: z.string(), next: z.string().min(1) },
     },
     (a) => handle(() => setNext(a)),
