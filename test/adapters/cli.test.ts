@@ -30,4 +30,24 @@ describe("runCli", () => {
     const child = Number(await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim()));
     await waitFor(() => exited(child), 5_000);
   });
+
+  it("kills a call still running when catherd exits, as Ctrl-C does (exit 130)", async () => {
+    withHome();
+    const dir = mkdtempSync(join(tmpdir(), "catherd-cli-"));
+    const pidFile = join(dir, "pid");
+    const cli = join(import.meta.dir, "../../src/adapters/cli.ts");
+    const script = `import { runCli } from ${JSON.stringify(cli)};
+      runCli("sh", ["-c", "sleep 30 & echo $! > ${pidFile}; wait"], { timeoutMs: 60_000 });
+      const t = setInterval(async () => {
+        if (await Bun.file(${JSON.stringify(pidFile)}).exists()) { clearInterval(t); process.exit(130); }
+      }, 20);`;
+    const p = Bun.spawn([process.execPath, "-e", script], {
+      env: { ...process.env, ANTHROPIC_API_KEY: "" },
+      stdout: "ignore",
+      stderr: "inherit",
+    });
+    expect(await p.exited).toBe(130);
+    const child = Number(readFileSync(pidFile, "utf8").trim());
+    await waitFor(() => exited(child), 5_000);
+  });
 });
