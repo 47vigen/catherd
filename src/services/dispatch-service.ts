@@ -6,7 +6,7 @@ import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths, readExit, requestCancel } from "../infra/dispatch-dir.ts";
-import { isAlive, killGroup } from "../infra/proc.ts";
+import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
@@ -188,14 +188,18 @@ async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
   const proc = readProc(d.dir);
   if (!proc || readExit(d.dir) || isAlive(proc.supervisorPid, proc.supervisorStartTime)) return;
   const worker = () => isAlive(proc.pid, proc.startTime);
+  // a signal needs the start time read back exactly: a pid whose start time cannot be read now may be reused
+  const surely = () => isSurelyAlive(proc.pid, proc.startTime);
   if (!worker()) return;
   let signal: NodeJS.Signals | null = null;
   if (proc.startTime !== null && (proc.pgid === undefined || proc.pgid === proc.pid)) {
-    signal = "SIGTERM";
-    killGroup(proc.pid, signal);
+    if (surely()) {
+      signal = "SIGTERM";
+      killGroup(proc.pid, signal);
+    }
     const end = Date.now() + orphanLimits.killGraceMs;
-    while (Date.now() < end && worker()) await Bun.sleep(deps.pollMs);
-    if (worker()) {
+    while (signal && Date.now() < end && worker()) await Bun.sleep(deps.pollMs);
+    if (signal && worker() && surely()) {
       signal = "SIGKILL";
       killGroup(proc.pid, signal);
     }

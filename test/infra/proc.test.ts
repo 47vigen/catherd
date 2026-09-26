@@ -1,7 +1,25 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { isAlive, killGroup, processStartTime, psStartTime, sameProcess } from "../../src/infra/proc.ts";
+import {
+  isAlive,
+  isSurelyAlive,
+  killGroup,
+  processStartTime,
+  psStartTime,
+  sameProcess,
+  surelySame,
+} from "../../src/infra/proc.ts";
 
 describe("proc", () => {
+  it("never takes an unreadable or unrecorded start time as the same process for a signal", () => {
+    expect(surelySame("a", null)).toBe(false);
+    expect(surelySame(null, "a")).toBe(false);
+    expect(surelySame("a", "b")).toBe(false);
+    expect(surelySame("a", "a")).toBe(true);
+    expect(sameProcess("a", null)).toBe(true);
+    expect(isSurelyAlive(process.pid, processStartTime(process.pid))).toBe(true);
+    expect(isSurelyAlive(process.pid, null)).toBe(false);
+  });
+
   it("reads a start time with ps even when PATH does not name ps's folder (macOS has no /proc)", () => {
     expect(psStartTime(process.pid, { PATH: "/nonexistent" })).not.toBeNull();
   });

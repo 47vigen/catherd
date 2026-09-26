@@ -48,6 +48,17 @@ export const isValidPid = (pid: unknown): pid is number => Number.isInteger(pid)
 export const sameProcess = (recorded: string | null, current: string | null): boolean =>
   recorded === null || current === null || current === recorded;
 
+/**
+ * For a signal only: the pid is live and its start time reads back exactly as recorded. An unreadable or
+ * unrecorded start time is not a match, since the pid may belong to another process by now.
+ */
+export const surelySame = (recorded: string | null, current: string | null): boolean =>
+  recorded !== null && current !== null && current === recorded;
+
+export function isSurelyAlive(pid: number, startTime: string | null): boolean {
+  return isAlive(pid, startTime) && surelySame(startTime, processStartTime(pid));
+}
+
 export function isAlive(pid: number, startTime: string | null): boolean {
   if (!isValidPid(pid)) return false;
   try {
