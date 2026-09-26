@@ -74,6 +74,9 @@ describe("watch model", () => {
     expect(jevLine({ questions: ["finding"], used: "code", source: "default" }, true)).toBe(
       "finding -> code - fell back to the profile default",
     );
+    expect(
+      jevLine({ call: "route", questionSet: "route@3f2a", used: "kind=repo_code", source: "lane" }, false),
+    ).toBe("route route@3f2a → kind=repo_code · fell back to the lane's declaration");
   });
 
   it("reads a 1.0 jev.jsonl: skips the schema header and shows the call and question set", () => {

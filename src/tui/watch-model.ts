@@ -79,8 +79,15 @@ export function recordLine(r: RunRecord, plain: boolean): string {
   return `${r.name}  ${shortRung(r.rung)}  ${r.status}  ${clock(r.secs)}${tail}`;
 }
 
+/** Every non-`jev` source is a decision Jev did not make; say what it fell back to. */
+function fallbackTail(source: string, plain: boolean): string {
+  if (source === "jev") return "";
+  const to = source === "lane" ? "the lane's declaration" : "the profile default";
+  return ` ${glyph("dot", plain)} fell back to ${to}`;
+}
+
 export function jevLine(e: JevLine, plain: boolean): string {
-  const tail = e.source === "default" ? ` ${glyph("dot", plain)} fell back to the profile default` : "";
+  const tail = fallbackTail(e.source, plain);
   const arrow = glyph("arrow", plain);
   if (e.call !== undefined) {
     const asked = Object.keys(e.answers ?? {});
