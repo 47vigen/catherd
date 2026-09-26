@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { killGroup } from "../../src/infra/proc.ts";
+import { waitFor } from "../services/helpers.ts";
 import { bunTooOld, MIN_BUN, runtimeRefusal } from "../../src/domain/runtime.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -89,12 +93,52 @@ describe("catherd (spec §8)", () => {
     const p = Bun.spawn([process.execPath, CLI, "mcp"], {
       env: { ...process.env, CATHERD_HOME: home },
       stdin: "pipe",
-      stdout: "ignore",
+      stdout: "pipe",
       stderr: "ignore",
     });
-    await Bun.sleep(800);
+    // Ctrl-C once the server answers: the command is running, not starting
+    const initialize = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
+    };
+    p.stdin.write(`${JSON.stringify(initialize)}\n`);
+    p.stdin.flush();
+    const reader = p.stdout.getReader();
+    let seen = "";
+    while (!seen.includes('"id":1')) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`catherd mcp exited before it answered: ${seen}`);
+      seen += new TextDecoder().decode(chunk.value);
+    }
     p.kill("SIGINT");
     expect(await p.exited).toBe(130);
+  });
+
+  it("leaves Ctrl-C to lock's command even after a flag, and exits with the command's code", async () => {
+    const home = withHome();
+    const dir = mkdtempSync(join(tmpdir(), "catherd-int-"));
+    const [pidFile, heard] = [join(dir, "pid"), join(dir, "heard")];
+    const script = `trap 'echo INT >> ${heard}; exit 5' INT; echo $$ > ${pidFile}; while :; do sleep 0.05; done`;
+    const p = Bun.spawn(
+      [process.execPath, CLI, "--plain", "lock", "--slots", "1", "--", "sh", "-c", script],
+      {
+        env: { ...process.env, CATHERD_HOME: home },
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
+    try {
+      await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim());
+      p.kill("SIGINT");
+      expect(await p.exited).toBe(5);
+      expect(readFileSync(heard, "utf8")).toBe("INT\n");
+    } finally {
+      // a catherd that exited on its own Ctrl-C leaves the command running: stop it
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      if (pid > 1) killGroup(pid, "SIGKILL");
+    }
   });
 
   it("never loads OpenTUI or React for mcp, lock or _supervise (spec §3.1)", () => {

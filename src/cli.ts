@@ -97,8 +97,10 @@ export async function runCli(argv: string[]): Promise<number> {
     await showUsage(cmd, parent);
     return EXIT.ok;
   }
-  // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C.
-  if (own[0] !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
+  // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
+  // the first word that is not a flag: `catherd --plain lock -- …` is `lock` too.
+  if (own.find((a) => !a.startsWith("-")) !== "lock")
+    process.once("SIGINT", () => process.exit(EXIT.interrupted));
   try {
     await runCommand(main, { rawArgs });
     return Number(process.exitCode ?? EXIT.ok);
