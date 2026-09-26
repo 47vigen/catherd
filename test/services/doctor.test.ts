@@ -153,6 +153,26 @@ describe("doctor", () => {
     expect(check(await run(), "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
   });
 
+  it("does not warn about the Codex login's billing when no profile routes anything to Codex", async () => {
+    machine({ codex: { login: "api-key" } });
+    installPlugin(VERSION);
+    const claude = { rungs: ["claude:claude-opus-5-5#medium"] };
+    const r0 = patchProfile("default", {
+      roles: {
+        worker: { ...claude, defaultRung: "claude:claude-opus-5-5#medium" },
+        reviewer: claude,
+        "ui-reviewer": claude,
+        artist: { enabled: false },
+        writer: claude,
+        researcher: claude,
+      },
+    });
+    expect(r0).toMatchObject({ saved: true, errors: [] });
+    const r = await run();
+    expect(check(r, "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
+    expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · API key login/);
+  });
+
   it("fails without the plugin, or with a plugin of another version", async () => {
     machine();
     patchProfile("default", {});

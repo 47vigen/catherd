@@ -140,8 +140,11 @@ async function backendChecks(used: Map<string, "role" | "failover">, profiles: P
     if (!problem) {
       ready.push(id);
       const detail = [probe.version, probe.login && `${probe.login} login`].filter(Boolean).join(" · ");
-      // a login billed apart from what a profile says (a plan, or per token) ranks that backend's cost wrongly
-      const billed = probe.billing && profiles.find((p) => p.billing[id] && p.billing[id] !== probe.billing);
+      // a login billed apart from what a profile says (a plan, or per token) ranks that backend's cost wrongly;
+      // only a profile that routes something to this backend is ranked by it
+      const billed =
+        probe.billing &&
+        profiles.find((p) => p.billing[id] && p.billing[id] !== probe.billing && usedBackends([p]).has(id));
       checks.push(
         billed
           ? {
