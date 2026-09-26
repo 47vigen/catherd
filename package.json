@@ -21,7 +21,6 @@
     "lint": "oxlint --deny-warnings src test",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "snapshot:models-dev": "bun scripts/snapshot-models-dev.ts",
     "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs"
   },
   "dependencies": {
@@ -30,7 +29,6 @@
     "@opentui/react": "^0.5.12",
     "citty": "^0.2.2",
     "microdiff": "^1.6.0",
-    "ofetch": "^1.5.1",
     "react": "^19.3.0",
     "zod": "^4.6.5"
   },

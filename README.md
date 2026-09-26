@@ -59,7 +59,7 @@ In a terminal:
 | `bunx catherd-cli`                 | Profile editor: models and efforts per role, with paw checkboxes |
 | `bunx catherd-cli watch`           | Live view of running and recent runs                             |
 | `bunx catherd-cli lock -- <cmd>`   | Runs a heavy command behind the machine-wide semaphore           |
-| `bunx catherd-cli catalog refresh` | Refreshes the models.dev snapshot                                |
+| `bunx catherd-cli catalog refresh` | Lists every backend's models now; `catalog list` shows them      |
 
 `--plain` and `--reduced-motion` work everywhere.
 

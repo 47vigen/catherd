@@ -3,7 +3,7 @@ import type { RunRecord, RungId } from "../types.ts";
 import { climbLine, clock, face, glyph, type Mood, shortRung } from "./theme.ts";
 
 /**
- * The fields `watch` shows from one `jev.jsonl` row (`JevLogRow` in `src/routing/jev.ts`):
+ * The fields `watch` shows from one 0.x `jev.jsonl` row (the 0.x Jev client's log, gone in 1.0):
  * which questions were asked, the answer actually used, and whether Jev answered or the
  * profile default did. `ts`, `answers` and `why` are in the file but not shown here.
  */

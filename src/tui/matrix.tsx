@@ -284,11 +284,12 @@ export function Matrix(props: MatrixProps) {
           onSelect={(_, option) => {
             if (!option) return;
             const like = option.value as RungId;
-            saveTreatLike(mode.rung, like);
-            const c = props.reloadCatalog();
-            props.onCatalog(c);
-            setMode("nav");
-            apply(mode.row, c);
+            void saveTreatLike(mode.rung, like).then(() => {
+              const c = props.reloadCatalog();
+              props.onCatalog(c);
+              setMode("nav");
+              apply(mode.row, c);
+            });
           }}
         />
         <text attributes={TextAttributes.DIM}>{`enter picks${dotSep}esc cancels`}</text>

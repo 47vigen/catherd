@@ -16,7 +16,6 @@ One line per dependency: what it does for catherd, and why this one.
 ## Runtime
 
 - citty — the `catherd` main command and its subcommands — unjs, tiny, typed `defineCommand`, `--version` from `meta`
-- ofetch — HTTP with retries for the Jev client — unjs, works with `fetch`, built-in retry/backoff
 - zod — schemas for the catalog, profiles and MCP tool inputs — the standard TS-first validator
 - @modelcontextprotocol/sdk — the MCP server (`catherd mcp`) — the official SDK
 - @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §8.4)
