@@ -1,0 +1,236 @@
+{
+  "schema": 1,
+  "version": "2026-09-25",
+  "sources": {
+    "claude": "https://platform.claude.com/docs/en/models/overview (2026-09-25); efforts https://platform.claude.com/docs/en/build-with-claude/effort; prices https://platform.claude.com/docs/en/about-claude/pricing",
+    "codex": "codex debug models --bundled, Codex CLI 0.157.0 (2026-09-25); prices https://developers.openai.com/api/docs/pricing; plan weights https://learn.chatgpt.com/docs/pricing",
+    "opencode": "opencode models <provider> --verbose on 1.18.32 and the v2 model.list (2026-09-25); https://opencode.ai/docs/zen, https://opencode.ai/docs/go"
+  },
+  "backends": {
+    "codex": {
+      "imageGen": {
+        "tool": "gpt-image-2",
+        "requires": "chatgpt-login",
+        "source": "https://learn.chatgpt.com/docs/image-generation"
+      }
+    }
+  },
+  "families": [
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "vendor": "openai",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 10, "cached": 1, "output": 50 },
+      "planWeight": 60,
+      "on": {
+        "codex": {
+          "id": "gpt-6-astra",
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-6-astra",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      },
+      "notes": {
+        "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "vendor": "openai",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 2, "cached": 0.2, "output": 10 },
+      "planWeight": 20,
+      "on": {
+        "codex": {
+          "id": "gpt-6-sol",
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-6-sol",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      },
+      "notes": {
+        "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "vendor": "openai",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 0.1, "cached": 0.01, "output": 0.5 },
+      "planWeight": 1,
+      "on": {
+        "codex": {
+          "id": "gpt-6-luna",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-6-luna",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        },
+        "opencode-go": {
+          "id": "opencode-go/gpt-6-luna",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      }
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "vendor": "openai",
+      "status": "legacy",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 4, "cached": 0.4, "output": 20 },
+      "planWeight": 30,
+      "on": {
+        "codex": {
+          "id": "gpt-5.6-sol",
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-5.6-sol",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      },
+      "notes": { "upgrade": "Codex offers gpt-6-sol as its upgrade" }
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "vendor": "openai",
+      "status": "legacy",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 2, "cached": 0.2, "output": 12 },
+      "planWeight": 15,
+      "on": {
+        "codex": {
+          "id": "gpt-5.6-terra",
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-5.6-terra",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      },
+      "notes": { "upgrade": "Codex offers gpt-6-sol as its upgrade" }
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "vendor": "openai",
+      "status": "legacy",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 0.2, "cached": 0.02, "output": 1.2 },
+      "planWeight": 1.5,
+      "on": {
+        "codex": {
+          "id": "gpt-5.6-luna",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 272000
+        },
+        "opencode": {
+          "id": "opencode/gpt-5.6-luna",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        },
+        "opencode-go": {
+          "id": "opencode-go/gpt-5.6-luna",
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "context": 1050000
+        }
+      },
+      "notes": { "upgrade": "Codex offers gpt-6-luna as its upgrade" }
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "vendor": "anthropic",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 10, "cached": 0.25, "output": 50 },
+      "meteredOnPlan": true,
+      "on": {
+        "claude-code": {
+          "id": "claude-fable-5-1",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        },
+        "opencode": {
+          "id": "opencode/claude-fable-5-1",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        }
+      },
+      "notes": {
+        "plan": "Pro and Team Standard pay usage credits for Fable; Max includes it up to half the weekly limit"
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "vendor": "anthropic",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 4, "cached": 0.2, "output": 20 },
+      "on": {
+        "claude-code": {
+          "id": "claude-opus-5-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        },
+        "opencode": {
+          "id": "opencode/claude-opus-5-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        }
+      },
+      "notes": { "effort": "the API default effort is medium" }
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "vendor": "anthropic",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 2, "cached": 0.2, "output": 10 },
+      "on": {
+        "claude-code": {
+          "id": "claude-sonnet-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        },
+        "opencode": {
+          "id": "opencode/claude-sonnet-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        }
+      }
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "vendor": "anthropic",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 1, "cached": 0.1, "output": 5 },
+      "on": {
+        "claude-code": { "id": "claude-haiku-4-5-20251001", "efforts": [], "context": 200000 },
+        "opencode": { "id": "opencode/claude-haiku-4-5", "efforts": ["high", "max"], "context": 200000 }
+      },
+      "notes": { "effort": "no effort parameter in Claude Code: its only rung there is #default" }
+    }
+  ]
+}
