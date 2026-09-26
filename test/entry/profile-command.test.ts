@@ -167,6 +167,18 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect(catherd(["show"], "/").out.split("\n")[0]).toBe("profile default (active)");
     expect(catherd(["list"], "/").out).toStartWith("* default\n  fast  bound to ");
   });
+
+  it("set, validate and diff without a name, inside a bound repo, act on the repo's profile", () => {
+    withHome();
+    const repo = tempRepo();
+    catherd(["new", "fast"]);
+    catherd(["use", "fast", "--repo"], repo);
+    expect(catherd(["set", "budget.usd", "7"], repo).out).toStartWith("✓ budget.usd: none → 7\n");
+    expect(getProfile("fast").budget.usd).toBe(7);
+    expect(getProfile("default").budget.usd).toBeUndefined();
+    expect(catherd(["diff", "default"], repo).out).toBe("budget.usd: 7 → none\n");
+    expect(catherd(["validate"], repo).out).toBe("✓ valid\n");
+  });
 });
 
 describe("catherd profile validate", () => {

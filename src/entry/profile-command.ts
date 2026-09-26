@@ -230,10 +230,10 @@ const set = defineCommand({
   args: {
     path: { type: "positional", required: true, description: "dotted path, e.g. roles.verifier.access" },
     value: { type: "positional", required: true, description: "JSON, or a plain word; null removes the key" },
-    profile: { type: "string", description: "the profile to change (default: the active one)" },
+    profile: { type: "string", description: "the profile to change (default: the one this repo runs on)" },
   },
-  run({ args }) {
-    const r = patchProfile(args.profile, patchAt(args.path, args.value));
+  async run({ args }) {
+    const r = patchProfile(args.profile ?? (await activeHere()), patchAt(args.path, args.value));
     if (!r.saved) throw refused(r.errors);
     if (r.diff.length === 0) console.log("no change");
     for (const c of r.diff) console.log(`${mark("ok")} ${formatChange(c)}`);
@@ -245,15 +245,15 @@ const set = defineCommand({
 const diff = defineCommand({
   meta: {
     name: "diff",
-    description: "What differs between two profiles (the second defaults to the active one)",
+    description: "What differs between two profiles (the second defaults to the one this repo runs on)",
   },
   args: {
     a: { type: "positional", required: true, description: "profile" },
-    b: { type: "positional", required: false, description: "profile (default: the active one)" },
+    b: { type: "positional", required: false, description: "profile (default: the one this repo runs on)" },
     ...json,
   },
-  run({ args }) {
-    const changes = diffNamed(args.b ?? activeName(), args.a);
+  async run({ args }) {
+    const changes = diffNamed(args.b ?? (await activeHere()), args.a);
     if (args.json) return printJson(changes);
     if (changes.length === 0) console.log("no differences");
     for (const c of changes) console.log(formatChange(c));
@@ -262,9 +262,16 @@ const diff = defineCommand({
 
 const validate = defineCommand({
   meta: { name: "validate", description: "Errors that block a save, and warnings that do not" },
-  args: { name: { type: "positional", required: false, description: "profile name" }, ...json },
-  run({ args }) {
-    const v = validateNamed(args.name);
+  args: {
+    name: {
+      type: "positional",
+      required: false,
+      description: "profile name (default: the one this repo runs on)",
+    },
+    ...json,
+  },
+  async run({ args }) {
+    const v = validateNamed(args.name ?? (await activeHere()));
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);
     else printIssues(v.errors, v.warnings);
