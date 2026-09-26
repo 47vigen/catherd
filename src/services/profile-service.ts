@@ -209,8 +209,12 @@ export interface Synced {
   newSessionNeededFor: string[];
 }
 
-/** Writes the planned agent files and links, prunes catherd's stale ones, and says what changed. */
+/**
+ * Writes the planned agent files and links, prunes catherd's stale ones, and says what changed. The
+ * ownership check runs before the first write, so no caller can replace a file catherd does not own.
+ */
 function apply(p: Planned, removed: string[] = []): Synced {
+  assertNoConflict(p);
   const changed = new Set<string>();
   for (const [name, files] of p.files) {
     const dir = join(agentsRoot(), name);
@@ -286,6 +290,22 @@ const locked = <T>(fn: () => T): T => {
 
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
 
+/** Writes `doc` as profile `name` and relinks; when the relink refuses, puts the profile back as it was. */
+function saveAndLink(name: string, doc: ProfileDoc): Synced {
+  const before = existsSync(profileFile(name)) ? readFileSync(profileFile(name), "utf8") : null;
+  writeDoc(name, doc);
+  try {
+    return apply(plan([name]));
+  } catch (e) {
+    if (before === null) rmSync(profileFile(name), { force: true });
+    else writeTextAtomic(profileFile(name), before);
+    throw e;
+  }
+}
+
+const validate = (doc: ProfileDoc, name: string): Validation =>
+  validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends());
+
 export interface Saved extends Synced {
   saved: boolean;
   errors: Issue[];
@@ -312,20 +332,10 @@ export function patchProfile(name: string | undefined, patch: ProfilePatch): Sav
     const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
     const after = applyPatch(before, patch);
     const resolved = resolveProfile(after, n);
-    const v = validateProfile(resolved, loadCatalog({ timings: false }), runnableBackends());
+    const v = validate(after, n);
     if (v.errors.length) return unsaved(v);
-    const existed = existsSync(profileFile(n));
-    writeDoc(n, after);
-    try {
-      const p = plan([n]);
-      assertNoConflict(p);
-      return { saved: true, ...v, diff: diffProfiles(resolveProfile(before, n), resolved), ...apply(p) };
-    } catch (e) {
-      // the links refused: put the profile back as it was
-      if (existed) writeDoc(n, before);
-      else rmSync(profileFile(n), { force: true });
-      throw e;
-    }
+    const diff = diffProfiles(resolveProfile(before, n), resolved);
+    return { saved: true, ...v, diff, ...saveAndLink(n, after) };
   });
 }
 
@@ -337,11 +347,14 @@ export function createProfile(name: string, from?: string): Saved {
       throw new CatherdError("E_INPUT_INVALID", `profile "${name}" already exists`, {
         fix: `pick another name, or edit it with catherd profile set --profile ${name}`,
       });
+    if (from !== undefined && !profileExists(assertProfileName(from)))
+      throw new CatherdError("E_INPUT_INVALID", `no profile named "${from}" to copy`, {
+        fix: "catherd profile list",
+      });
     const doc = from === undefined ? defaultProfileDoc(name) : readProfileDoc(from);
-    writeDoc(name, doc);
-    const p = resolveProfile(doc, name);
-    const v = validateProfile(p, loadCatalog({ timings: false }), runnableBackends());
-    return { saved: true, ...v, diff: [], ...apply(plan([name])) };
+    const v = validate(doc, name);
+    if (v.errors.length) return unsaved(v);
+    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc) };
   });
 }
 
@@ -350,9 +363,9 @@ export function resetProfile(name: string): Saved {
   return locked(() => {
     assertProfileName(name);
     const doc = defaultProfileDoc(name);
-    writeDoc(name, doc);
-    const v = validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends());
-    return { saved: true, ...v, diff: [], ...apply(plan([name])) };
+    const v = validate(doc, name);
+    if (v.errors.length) return unsaved(v);
+    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc) };
   });
 }
 
@@ -375,8 +388,14 @@ export function deleteProfile(name: string): Synced {
       throw new CatherdError("E_INPUT_INVALID", `"${name}" is bound to ${bound.join(", ")}`, {
         fix: `bind those repos to another profile: catherd profile use <name> --repo (run inside each)`,
       });
+    const text = readFileSync(profileFile(name), "utf8");
     rmSync(profileFile(name), { force: true });
-    return apply(plan(), [name]);
+    try {
+      return apply(plan(), [name]);
+    } catch (e) {
+      writeTextAtomic(profileFile(name), text);
+      throw e;
+    }
   });
 }
 
@@ -403,9 +422,7 @@ export function activate(
           });
     write();
     try {
-      const p = plan([name]);
-      assertNoConflict(p);
-      return { active: name, repo, ...apply(p) };
+      return { active: name, repo, ...apply(plan([name])) };
     } catch (e) {
       if (repo === null) writeJsonAtomic(configFile(), config);
       else writeJsonAtomic(projectsFile(), projects);
@@ -415,12 +432,7 @@ export function activate(
 }
 
 /** Rewrites every agent file and link from the profiles as they are (after an upgrade, or for doctor's fix). */
-export const relink = (): Synced =>
-  locked(() => {
-    const p = plan();
-    assertNoConflict(p);
-    return apply(p);
-  });
+export const relink = (): Synced => locked(() => apply(plan()));
 
 export function diffNamed(a: string, b: string): Change[] {
   return diffProfiles(getProfile(a), getProfile(b));

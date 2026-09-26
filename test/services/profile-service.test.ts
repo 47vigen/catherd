@@ -166,6 +166,7 @@ describe("agent files and links", () => {
     patchProfile("default", {});
     const r = patchProfile("default", { roles: { verifier: { access: "read-only" } } });
     expect(r.newSessionNeededFor).toEqual(["catherd-default-verifier-claude-opus-5-5-low"]);
+    expect([r.saved, r.warnings.length > 0]).toEqual([true, true]);
   });
 
   it("links the active profile and every repo-bound one, and a non-active save links nothing new", () => {
@@ -227,6 +228,20 @@ describe("create, delete, diff", () => {
     expect(JSON.parse(readFileSync(file("fast"), "utf8")).name).toBe("fast");
     expect(() => createProfile("fast")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
     expect(diffNamed("default", "fast")).toEqual([]);
+    expect(() => createProfile("copy", "nope")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+    expect(existsSync(file("copy"))).toBe(false);
+  });
+
+  it("validates a copy before writing it, and writes nothing when it is invalid", () => {
+    withHome();
+    patchProfile("default", {});
+    const doc = JSON.parse(readFileSync(file("default"), "utf8"));
+    doc.roles.worker = { ...doc.roles.worker, enabled: false };
+    writeFileSync(file("bad"), JSON.stringify({ ...doc, name: "bad" }));
+    const r = createProfile("copy", "bad");
+    expect(r.saved).toBe(false);
+    expect(r.errors.map((e) => e.message)).toEqual(["the worker cannot be disabled"]);
+    expect([existsSync(file("copy")), existsSync(join(agentsRoot(), "copy"))]).toEqual([false, false]);
   });
 
   it("refuses to delete the active or a bound profile; deletes another with its agent files", () => {
@@ -254,6 +269,19 @@ describe("resetProfile and linkedProfiles", () => {
     expect([r.saved, getProfile("default").budget]).toEqual([true, {}]);
     expect(r.newSessionNeededFor).toEqual(["catherd-default-verifier-claude-opus-5-5-low"]);
     expect(r.pruned).toEqual(["catherd-default-verifier-claude-opus-5-5-max.md"]);
+  });
+
+  it("refuses to link over a user's own file, and leaves it and the profile intact", () => {
+    withHome();
+    patchProfile("default", { roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } } });
+    const user = join(claudeAgentsDir(), `${VERIFIER}.md`);
+    writeFileSync(user, "user file");
+    const before = readFileSync(file("default"), "utf8");
+    expect(() => resetProfile("default")).toThrow(
+      expect.objectContaining({ code: "E_CONFIG_INVALID", message: `${user} exists and is not catherd's` }),
+    );
+    expect([lstatSync(user).isSymbolicLink(), readFileSync(user, "utf8")]).toEqual([false, "user file"]);
+    expect(readFileSync(file("default"), "utf8")).toBe(before);
   });
 
   it("lists the active profile and every repo-bound one, once each", () => {
