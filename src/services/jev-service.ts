@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import {
   canonicalJson,
   type JevAnswers,
@@ -29,21 +30,35 @@ const CredentialsSchema = z.looseObject({
   typesafeApiKey: z.string().optional(),
 });
 
-/** Spec §5.5: `TYPESAFE_API_KEY`, else `<config>/credentials.json`; null when neither has one. */
 /** Registers the saved Jev key with the redactor, for a process that reads logs without ever calling Jev. */
 export function registerSavedSecrets(): void {
   addSecret(jevKey());
 }
 
+/** The key saved in credentials.json, or why that file cannot be read (unparsable, newer schema). */
+export function savedJevKey(): { key: string | null; problem: CatherdError | null } {
+  if (!existsSync(credentialsPath())) return { key: null, problem: null };
+  try {
+    return {
+      key: readVersioned(credentialsPath(), CredentialsSchema, 1).typesafeApiKey?.trim() || null,
+      problem: null,
+    };
+  } catch (e) {
+    return { key: null, problem: isCatherdError(e) ? e : new CatherdError("E_CONFIG_INVALID", String(e)) };
+  }
+}
+
+/**
+ * Spec §5.5: `TYPESAFE_API_KEY`, else `<config>/credentials.json`; null when neither has one. Jev is
+ * optional (D1), so a credentials file that cannot be read means no key here; it is logged, and
+ * `catherd doctor` says why.
+ */
 export function jevKey(): string | null {
   const env = process.env.TYPESAFE_API_KEY?.trim();
   if (env) return env;
-  if (!existsSync(credentialsPath())) return null;
-  try {
-    return readVersioned(credentialsPath(), CredentialsSchema, 1).typesafeApiKey?.trim() || null;
-  } catch {
-    return null;
-  }
+  const { key, problem } = savedJevKey();
+  if (problem) log("warn", "jev", { error: `no key: ${problem.message}` });
+  return key;
 }
 
 /**
@@ -122,10 +137,13 @@ export async function askJev(runDir: string, set: SetName, state: unknown, o: Je
     attempts: 0,
     cached: false,
   };
-  const hit = readJsonl<Partial<JevRow>>(jevLog(runDir)).rows.find((r) => r.key === key && r.answers);
-  if (hit?.answers) {
+  // a logged answer is checked like a fresh one: a row edited by hand, or cut short, is asked again
+  for (const hit of readJsonl<Partial<JevRow>>(jevLog(runDir)).rows) {
+    if (hit.key !== key || !hit.answers) continue;
+    const cached = parseReply(questions, { model: hit.model ?? "", answers: hit.answers });
+    if (!cached.ok) continue;
     const model = hit.model ?? null;
-    return { answers: hit.answers, why: drift(model, f.model), meta: { ...meta, model, cached: true } };
+    return { answers: cached.answers, why: drift(model, f.model), meta: { ...meta, model, cached: true } };
   }
   const apiKey = o.key === undefined ? jevKey() : o.key;
   if (!apiKey) return { answers: null, why: "no key", meta };

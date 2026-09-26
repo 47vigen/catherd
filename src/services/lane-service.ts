@@ -197,14 +197,23 @@ export async function land(
   const { hints } = await refreshState(run, landRow);
   // spec §5.6: every routed lane of the milestone lands with it
   // under the routes lock, so a racing climb cannot slip between the read and the rows
+  let routed: string[] = [];
+  let landed = 0;
   await withFileLock(runPaths(run.dir).routes, () => {
     const routes = readRoutes(run);
-    for (const lane of new Set(routes.map((r) => r.lane)))
+    routed = [...new Set(routes.map((r) => r.lane))];
+    for (const lane of routed)
       if (lane.startsWith(`${i.milestone}.`)) {
+        landed++;
         const o = laneOutcome(routes, lane, true, now.toISOString());
         if (o) appendOutcome(run, o);
       }
   });
+  // a milestone name no routed lane starts with is most likely a typo: say so rather than record nothing
+  if (routed.length > 0 && landed === 0)
+    hints.push(
+      `land: no routed lane is in milestone "${i.milestone}" (routed: ${routed.slice(0, 5).join(", ")}${routed.length > 5 ? ", …" : ""}); check its name: no lane outcome was recorded`,
+    );
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
     mkdirSync(dirname(file), { recursive: true });

@@ -10,6 +10,7 @@ import {
   jevKey,
   logJev,
   saveJevKey,
+  savedJevKey,
   testJevKey,
 } from "../../src/services/jev-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
@@ -64,6 +65,27 @@ describe("the Jev key", () => {
     });
   });
 
+  it("reads an unreadable credentials file as no key, logs why, and names the problem", () => {
+    withHome();
+    delete process.env.TYPESAFE_API_KEY;
+    delete process.env.CATHERD_LOG;
+    saveJevKey("a");
+    writeFileSync(credentialsPath(), "{not json");
+    expect(jevKey()).toBeNull();
+    expect(savedJevKey().problem).toMatchObject({
+      code: "E_CONFIG_INVALID",
+      fix: `fix or delete ${credentialsPath()}`,
+    });
+    const rows = readFileSync(logFile(), "utf8")
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((l) => JSON.parse(l));
+    expect(rows.filter((r) => r.event === "jev").map((r) => r.error)).toEqual([
+      expect.stringContaining(`no key: ${credentialsPath()} is not readable JSON`),
+    ]);
+  });
+
   it("refuses to overwrite a newer-schema or unreadable credentials file", () => {
     withHome();
     saveJevKey("a");
@@ -104,6 +126,33 @@ describe("askJev", () => {
       attempts: 1,
       cached: false,
     });
+  });
+
+  it("asks again when the logged answer to the same request does not check out", async () => {
+    const dir = runDir();
+    const f = fakeFetch({ status: 200, body: fx("route-v2-track-a.json") });
+    const first = await askJev(dir, "route-v2", STATE, { key: "k", fetchImpl: f.impl, ...noWait });
+    const row = {
+      ...first.meta,
+      call: "route-v2" as const,
+      lane: "M1.L1",
+      derived: null,
+      used: "x",
+      source: "jev" as const,
+      why: "ok",
+    };
+    // a hand-edited row: kind answered with an option the question does not have
+    logJev(dir, {
+      ...row,
+      answers: {
+        ...first.answers,
+        kind: { type: "choice", choice: "poetry", probabilities: { poetry: 1 }, confidence: 1 },
+      },
+    });
+    const again = await askJev(dir, "route-v2", STATE, { key: "k", fetchImpl: f.impl, ...noWait });
+    expect(again.meta.cached).toBe(false);
+    expect(again.answers).toEqual(first.answers);
+    expect(f.sent).toHaveLength(2);
   });
 
   it("answers the same request from this run's log, and asks again for a changed state", async () => {

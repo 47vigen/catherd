@@ -73,6 +73,27 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     expect(JSON.parse(first)).toEqual({ schema: 1, kind: "outcomes" });
   });
 
+  it("says so when no routed lane is in the landed milestone, as a typo in its name would", async () => {
+    const { repo, run } = freshRun();
+    const deps = jevDeps();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    const typo = await land(deps, {
+      run: run.id,
+      milestone: "m1",
+      what: "jobs",
+      commit: head(repo),
+      evidence: "ok",
+      next: "M2",
+    });
+    expect(typo.hints).toEqual([
+      'land: no routed lane is in milestone "m1" (routed: M1.L1); check its name: no lane outcome was recorded',
+    ]);
+    expect(readOutcomes(run)).toEqual([]);
+    expect((await landM1(deps, run.id, head(repo))).hints).toBeUndefined();
+    expect(readOutcomes(run).map((o) => o.lane)).toEqual(["M1.L1"]);
+  });
+
   it("writes an open row when a lane climbs past its top rung", async () => {
     const { run } = freshRun();
     const deps = jevDeps();
