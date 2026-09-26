@@ -5,8 +5,7 @@ import { configDir } from "../infra/paths.ts";
 import { VERSION } from "../infra/version.ts";
 import { doctor } from "../services/doctor.ts";
 import { jevKey, saveJevKey, testJevKey } from "../services/jev-service.ts";
-import { profileExists } from "../services/profile-service.ts";
-import { initSetup } from "../services/setup.ts";
+import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
 import { formatRefreshed } from "./catalog-command.ts";
 import { mark } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
@@ -48,6 +47,27 @@ export async function jevStep(
   }
 }
 
+/** What happened to the profile: written, kept, or (when the defaults do not validate here) why not. */
+export function profileLines(r: InitResult): string[] {
+  const out: string[] = [];
+  if (r.errors.length) {
+    out.push(
+      `${mark("warn")} profile ${r.profile}: the default profile does not validate here, so it was not written`,
+    );
+    for (const e of r.errors) {
+      out.push(`${mark("warn")} ${e.path}: ${e.message}`);
+      if (e.fix) out.push(`    fix: ${e.fix}`);
+    }
+  }
+  if (!r.active)
+    out.push(`${mark("warn")} no profile was made active: fix the rows above, then run catherd init again`);
+  else
+    out.push(
+      `${mark("ok")} profile ${r.profile} ${r.created ? "written from the defaults" : "kept as it was"}, and active`,
+    );
+  return out;
+}
+
 /** Spec §8 `catherd init [--no-input]`: first-run setup without the TUI (plan 6 adds the TUI wizard). */
 export const initCommand = defineCommand({
   meta: {
@@ -65,23 +85,25 @@ export const initCommand = defineCommand({
     profile: { type: "string", description: "the profile to set up and make active (default: default)" },
   },
   async run({ args }) {
+    // a bad --profile is refused before any question is asked
+    if (args.profile !== undefined) assertProfileName(args.profile);
     const ask = args.input === false ? null : await prompter();
     try {
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
       await jevStep(ask);
-      let name =
-        args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default");
-      name = assertProfileName(name);
+      const name = assertProfileName(
+        args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
+      );
+      // 0.x files go first, so a legacy profile about to be moved aside is never asked about
+      const moved = moveLegacy();
       const overwrite =
         ask !== null &&
-        profileExists(name) &&
+        hasProfileFile(name) &&
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
       const r = await initSetup({ profile: name, overwrite });
-      for (const f of r.moved) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
-      console.log(
-        `${mark("ok")} profile ${r.profile} ${r.created ? "written from the defaults" : "kept as it was"}, and active`,
-      );
-      if (r.synced.linked.length)
+      for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
+      for (const l of profileLines(r)) console.log(l);
+      if (r.synced?.linked.length)
         console.log(`${mark("ok")} Claude agents linked: ${r.synced.linked.join(", ")}`);
       for (const x of r.refreshed) console.log(formatRefreshed(x));
       console.log("");

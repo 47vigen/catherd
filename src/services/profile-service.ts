@@ -289,10 +289,12 @@ export function countLinkedAgents(): number {
 
 // ---- writers: one lock over profiles, config.json, projects.json, agent files and links ----
 
-const locked = <T>(fn: () => T): T => {
+/** The profiles lock every writer here takes; `init` moves 0.x files aside under it too. */
+export const withProfilesLock = <T>(fn: () => T): T => {
   mkdirSync(configDir(), { recursive: true });
   return withFileLockSync(join(configDir(), "profiles"), fn);
 };
+const locked = withProfilesLock;
 
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
 

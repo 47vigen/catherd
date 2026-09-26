@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import {
   configFile,
   getProfile,
@@ -48,12 +49,26 @@ describe("initSetup", () => {
     legacyFiles();
     const r = await initSetup();
     expect([r.profile, r.created, r.moved.length]).toEqual(["default", true, 3]);
-    expect(r.synced.linked).toEqual([
+    expect(r.synced?.linked).toEqual([
       "catherd-default-architect-claude-opus-5-5-high",
       "catherd-default-verifier-claude-opus-5-5-low",
     ]);
     expect(JSON.parse(readFileSync(configFile(), "utf8"))).toEqual({ schema: 1, activeProfile: "default" });
     expect(r.refreshed.map((x) => x.backend)).toContain("codex");
+  });
+
+  it("writes and activates nothing when the defaults do not validate here, and says why", async () => {
+    withHome();
+    process.env.PATH = "/nonexistent";
+    delete process.env.ANTHROPIC_API_KEY;
+    // codex's last listing offers gpt-6-sol at low only: the default rungs' efforts are not there
+    writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: ["low"], context: null, imageIn: true }]);
+    const r = await initSetup({ profile: "team" });
+    expect([r.created, r.active, r.synced]).toEqual([false, false, null]);
+    expect(r.errors.map((e) => e.message)).toContain(
+      'gpt-6-sol has no effort "medium" on codex (it has low)',
+    );
+    expect([existsSync(join(profilesDir(), "team.json")), existsSync(configFile())]).toEqual([false, false]);
   });
 
   it("keeps a 1.0 profile unless asked to replace it", async () => {

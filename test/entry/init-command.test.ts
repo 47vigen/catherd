@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
 import { jevStep, PLUGIN_STEPS } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
@@ -63,6 +64,44 @@ describe("catherd init", () => {
     const r = init(["--no-input", "--profile", "Team"]);
     expect([r.code, r.err.split("\n")[0]]).toEqual([2, 'error E_INPUT_INVALID: bad profile name "Team"']);
   });
+
+  it("refuses a bad --profile before asking anything", () => {
+    withHome();
+    const r = init(["--profile", "Team"], "\n");
+    expect([r.code, r.out]).toEqual([2, ""]);
+  });
+
+  it("moves a 0.x profile aside before asking whether to replace it", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    mkdirSync(join(dirname(credentialsPath()), "profiles"), { recursive: true });
+    writeFileSync(
+      join(dirname(credentialsPath()), "profiles", "team.json"),
+      JSON.stringify({ name: "team" }),
+    );
+    const r = init([], "\nteam\n");
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("Replace profile");
+    expect(r.out).toContain("profiles/team.json\n✓ profile team written from the defaults, and active\n");
+  }, 60_000);
+
+  it("finishes when the defaults do not validate here: says why, writes nothing, still reports", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: ["low"], context: null, imageIn: true }]);
+    const r = init(["--no-input"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "! profile default: the default profile does not validate here, so it was not written\n",
+    );
+    expect(r.out).toContain('! roles.reviewer.rungs: gpt-6-sol has no effort "high" on codex (it has low)\n');
+    expect(r.out).toContain(
+      "! no profile was made active: fix the rows above, then run catherd init again\n",
+    );
+    expect(r.out).not.toContain("written from the defaults");
+    expect(r.out.trimEnd().split("\n").slice(-4)).toEqual(PLUGIN_STEPS);
+    expect(existsSync(join(dirname(credentialsPath()), "profiles", "default.json"))).toBe(false);
+  }, 60_000);
 
   it("goes on when an unparsable credentials.json refuses the key, saying why and how to fix it", async () => {
     withHome();
