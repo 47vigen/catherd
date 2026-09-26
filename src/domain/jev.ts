@@ -111,6 +111,7 @@ export interface LaneState {
 /**
  * Spec §5.5: `{ title, owns, fast_check, body }`. The body drops the header lines (so Jev never echoes
  * the architect's own Kind/Difficulty), fenced code, and secrets, and is capped at BODY_MAX characters.
+ * Every field is scrubbed of secrets.
  */
 export function laneState(text: string): LaneState {
   const h = parseLaneHeader(text);
@@ -121,7 +122,7 @@ export function laneState(text: string): LaneState {
     .trim();
   return {
     title: h.title === null ? null : scrubSecrets(h.title),
-    owns: h.owns,
+    owns: h.owns.map(scrubSecrets).filter(Boolean),
     fast_check: h.fastCheck === null ? null : scrubSecrets(h.fastCheck),
     body: capBody(scrubSecrets(body)),
   };

@@ -81,6 +81,15 @@ describe("laneState", () => {
       expect(s.body).not.toContain(gone);
   });
 
+  it("scrubs secrets from the owned paths", () => {
+    const s = laneState(
+      "# M1.L1 — x\nOwns: src/jobs.ts, config/sk-abcdefghijklmnopqrstuv.env, api_key=hunter22secret\nDo it.",
+    );
+    expect(s.owns).toEqual(["src/jobs.ts", "config/[secret].env", "api_key=[secret]"]);
+    expect(JSON.stringify(s)).not.toContain("sk-abc");
+    expect(JSON.stringify(s)).not.toContain("hunter22");
+  });
+
   it("caps the body", () => {
     expect(laneState(`# M1.L1 — x\n${"word ".repeat(5000)}`).body.length).toBe(BODY_MAX + 1);
   });
