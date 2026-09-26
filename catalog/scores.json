@@ -324,7 +324,11 @@
   "treatLike": {
     "claude-opus-5-5#low": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" },
     "claude-opus-5-5#medium": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" },
-    "claude-opus-5-5#high": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" }
+    "claude-opus-5-5#high": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" },
+    "opencode-go/kimi-k3#max": {
+      "like": "gpt-6-sol#medium",
+      "note": "the default profile's OpenCode Go stand-in for Sol; no DeepSWE 1.1, Terminal-Bench 4.0 or honesty score is published for it"
+    }
   },
   "bars": {
     "repo_code": {

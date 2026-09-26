@@ -21,13 +21,23 @@ export interface Rung {
   effort: string;
 }
 
+/** A model id or effort starts with a letter or digit and holds no space, so it can never read as a flag. */
+const MODEL = /^[A-Za-z0-9][^\s#]*$/;
+const EFFORT = /^[A-Za-z0-9][\w-]*$/;
+
 export function parseRung(s: string): Rung {
   const colon = s.indexOf(":");
   const hash = s.lastIndexOf("#");
   const backend = s.slice(0, Math.max(colon, 0));
   const model = s.slice(colon + 1, hash);
   const effort = s.slice(hash + 1);
-  if (colon < 1 || hash <= colon + 1 || !effort || !(RUNG_BACKENDS as readonly string[]).includes(backend))
+  if (
+    colon < 1 ||
+    hash <= colon + 1 ||
+    !MODEL.test(model) ||
+    !EFFORT.test(effort) ||
+    !(RUNG_BACKENDS as readonly string[]).includes(backend)
+  )
     throw new CatherdError("E_ADMIT_RUNG", `bad rung "${s}"`, {
       fix: "write it as <backend>:<model>#<effort>",
     });

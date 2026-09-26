@@ -34,17 +34,24 @@ describe("parseRung", () => {
     expect(formatRung(parseRung("claude-code:claude-sonnet-5#max"))).toBe("claude-code:claude-sonnet-5#max");
   });
 
-  it.each(["gpt-6-sol#high", "codex:#high", "codex:gpt-6-sol#", "codex:gpt-6-sol", "nope:m#e", ""])(
-    "rejects %p with E_ADMIT_RUNG",
-    (bad) => {
-      try {
-        parseRung(bad);
-        throw new Error("expected a throw");
-      } catch (e) {
-        expect(isCatherdError(e) && e.code).toBe("E_ADMIT_RUNG");
-      }
-    },
-  );
+  it.each([
+    "gpt-6-sol#high",
+    "codex:#high",
+    "codex:gpt-6-sol#",
+    "codex:gpt-6-sol",
+    "nope:m#e",
+    "",
+    "codex:--dangerously-bypass-approvals-and-sandbox#high",
+    "codex:gpt 6#high",
+    "codex:gpt-6-sol#-x",
+  ])("rejects %p with E_ADMIT_RUNG", (bad) => {
+    try {
+      parseRung(bad);
+      throw new Error("expected a throw");
+    } catch (e) {
+      expect(isCatherdError(e) && e.code).toBe("E_ADMIT_RUNG");
+    }
+  });
 });
 
 describe("assertId", () => {
