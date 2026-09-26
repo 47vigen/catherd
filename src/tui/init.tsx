@@ -114,7 +114,15 @@ export function Init({ ui, deps = {} }: { ui: Ui; deps?: Partial<InitDeps> }) {
       setPhase("key");
       return;
     }
-    if (typed) d.saveJevKey(key);
+    if (typed) {
+      try {
+        d.saveJevKey(key);
+      } catch (e) {
+        setNote(`Could not save the key: ${e instanceof Error ? e.message : String(e)}`);
+        setPhase("key");
+        return;
+      }
+    }
     setNote("");
     setPhase("backends");
     setBackends(await d.detectBackends());
