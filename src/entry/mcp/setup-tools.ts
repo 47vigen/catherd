@@ -13,7 +13,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the active profile's billing, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
+        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
       inputSchema: {
         repo: z.string().min(1).optional(),
         role: z.enum(ROLES).optional(),
@@ -24,20 +24,14 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
       },
     },
     (a) =>
-      handle(async () =>
-        deps.routing.catalog(
-          {
-            role: a.role,
-            backend: a.backend,
-            text: a.text,
-            scoredOnly: a.scored_only,
-            limit: a.limit,
-            // outside a git repository: the global listings
-            repo: (await gitToplevel(a.repo ?? process.cwd())) ?? undefined,
-          },
-          deps.profiles.forRepo(null).billing,
-        ),
-      ),
+      handle(async () => {
+        // outside a git repository: the global listings and the active profile
+        const repo = (await gitToplevel(a.repo ?? process.cwd())) ?? undefined;
+        return deps.routing.catalog(
+          { role: a.role, backend: a.backend, text: a.text, scoredOnly: a.scored_only, limit: a.limit, repo },
+          deps.profiles.forRepo(repo ?? null).billing,
+        );
+      }),
   );
 
   server.registerTool(

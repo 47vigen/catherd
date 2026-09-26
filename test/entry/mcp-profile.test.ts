@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { activate, createProfile, profileService, profilesDir } from "../../src/services/profile-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 
 afterEach(snapshotEnv());
@@ -102,6 +102,20 @@ describe("the profile tools on the profile service", () => {
     expect((await cost()).mode).toBe("chatgpt-plan");
     await call(c, "profile_set", { patch: { billing: { codex: "metered" } } });
     expect((await cost()).mode).toBe("metered");
+  });
+
+  it("catalog_query prices rungs with the billing of the profile bound to `repo`", async () => {
+    withHome();
+    const repo = realpathSync(tempRepo());
+    createProfile("metered");
+    profileService().set("metered", { billing: { codex: "metered" } });
+    activate("metered", repo);
+    const c = await mcpClient();
+    const cost = async (args: object) =>
+      (
+        await call(c, "catalog_query", { backend: "codex", text: "gpt-6-sol", ...args })
+      ).data.models[0].rungs.find((r: { rung: string }) => r.rung === "codex:gpt-6-sol#high").cost;
+    expect([(await cost({ repo })).mode, (await cost({})).mode]).toEqual(["metered", "chatgpt-plan"]);
   });
 });
 
