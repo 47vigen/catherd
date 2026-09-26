@@ -214,6 +214,16 @@ describe("keys that land in one tick (Review Focus 2)", () => {
     expect(h!.exits.map((e) => e.code)).toEqual([0]);
   });
 
+  it("moves then toggles with j and space sent the moment the Profiles tree shows", async () => {
+    await app();
+    await h!.s.press("2");
+    await h!.s.burst("j");
+    await h!.s.burst("space");
+    const roles = h!.app().getState().drafts.default?.doc.roles;
+    expect(roles?.architect?.enabled).toBe(true);
+    expect(roles?.verifier?.enabled).toBe(false);
+  });
+
   it("gives the palette opened with : the letter typed right after it", async () => {
     await app();
     await h!.s.burst(":", "q");

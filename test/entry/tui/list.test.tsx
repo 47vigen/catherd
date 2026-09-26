@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
 import { Line } from "../../../src/entry/tui/widgets/line.tsx";
@@ -75,7 +75,47 @@ function Fixture(props: { n: number; height: number }) {
   );
 }
 
+/**
+ * Rows that arrive late (read on a timer, as the Profiles tree's catalog is), and a key that lands
+ * right after they are drawn, before React has run the effects of that draw: the timing of a key sent
+ * as soon as the screen shows the rows, on a busy machine. The layout effect sends it at exactly that
+ * point.
+ */
+function LateRows(props: { press: () => void }) {
+  const app = useApp();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  const sent = useRef(false);
+  useEffect(() => {
+    const t = app.clock.setTimeout(() => setN(4), 100);
+    return () => app.clock.clearTimeout(t);
+  }, [app.clock]);
+  useLayoutEffect(() => {
+    if (n > 0 && !sent.current) {
+      sent.current = true;
+      props.press();
+    }
+  });
+  const items: ListItem[] = Array.from({ length: n }, (_, i) => ({
+    key: `row${i}`,
+    selectable: true,
+    render: (sel, w) => <Line width={w} selected={sel} parts={[{ text: `row ${i}` }]} />,
+  }));
+  return (
+    <box flexDirection="column">
+      <text>{`selected=${selected}`}</text>
+      <List items={items} selected={selected} onSelect={setSelected} width={40} height={6} empty="…" />
+    </box>
+  );
+}
+
 describe("List (spec §9.2 lists)", () => {
+  it("keeps a move made before the effects of the first draw of its rows ran", async () => {
+    h = await harness(<LateRows press={() => h?.s.mockInput.pressKey("j")} />, { width: 40, height: 8 });
+    await h.advance(100);
+    expect(h.s.frame()).toContain("selected=row1");
+  });
+
   it("moves with arrows and j/k, pages, and goes to the ends, skipping headings", async () => {
     h = await harness(<Fixture n={30} height={8} />, { width: 40, height: 10 });
     expect(h.s.frame()).toContain("selected=row1");

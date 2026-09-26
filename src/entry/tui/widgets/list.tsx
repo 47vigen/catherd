@@ -126,9 +126,11 @@ export function List(props: {
   useEffect(() => {
     if (w.top !== top) setTop(w.top);
   }, [w.top, top]);
+  // the cursor snaps to a selectable row, judged on the selection now: this effect can run after a key
+  // already moved it (a key that lands between a draw and its effects), and must not take that back
   useEffect(() => {
-    const it = props.items[index];
-    if (it && it.key !== props.selected) props.onSelect(it.key);
+    const it = props.items[indexOf(selectedRef.current)];
+    if (it && it.key !== selectedRef.current) choose(indexOf(selectedRef.current));
   });
   const move = (by: number) => choose(step(props.items, Math.max(0, indexOf(selectedRef.current)), by));
   const page = Math.max(1, bodyHeight - 2);
