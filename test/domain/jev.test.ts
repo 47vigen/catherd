@@ -11,6 +11,7 @@ import {
   parseReply,
   questionSetId,
   requestKey,
+  scrubFree,
   scrubSecrets,
 } from "../../src/domain/jev.ts";
 
@@ -95,6 +96,16 @@ describe("laneState", () => {
     expect(scrubSecrets(`${pem} DB_PASSWORD=hunter22 AKIAABCDEFGHIJKLMNOP`)).toBe(
       "[secret] DB_PASSWORD=[secret] [secret]",
     );
+  });
+});
+
+describe("scrubFree", () => {
+  it("drops fenced code and secrets from free text, and caps it like a lane's body", () => {
+    expect(scrubFree("The call leaks.\n```ts\nconst leaked = 1;\n```\nDB_PASSWORD=hunter22\n")).toBe(
+      "The call leaks.\n[code omitted]\nDB_PASSWORD=[secret]",
+    );
+    expect(scrubFree("Broken:\n~~~\nopen fence runs on")).toBe("Broken:\n[code omitted]");
+    expect(scrubFree("word ".repeat(5000))).toHaveLength(BODY_MAX + 1);
   });
 });
 

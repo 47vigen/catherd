@@ -5,7 +5,7 @@ import {
   judgeVerdict,
   laneState,
   type SetName,
-  scrubSecrets,
+  scrubFree,
 } from "../domain/jev.ts";
 import { type Difficulty, type Kind, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
@@ -144,7 +144,7 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
       verdict(
         runDir,
         "finding",
-        { lane: laneState(laneText), finding: scrubSecrets(finding) },
+        { lane: laneState(laneText), finding: scrubFree(finding) },
         ["design", "code", "unclear"] as const,
         o,
       ),
@@ -152,7 +152,7 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
       verdict(
         runDir,
         "same-defect",
-        { before: scrubSecrets(before), after: scrubSecrets(after) },
+        { before: scrubFree(before), after: scrubFree(after) },
         ["yes", "no"] as const,
         o,
       ),

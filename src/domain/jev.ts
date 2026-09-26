@@ -104,24 +104,30 @@ export interface LaneState {
  */
 export function laneState(text: string): LaneState {
   const h = parseLaneHeader(text);
-  const body = text
-    // a fence left open runs to the end of the text, as Markdown renders it
-    .replace(/^(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^\1[^\n]*$|[\s\S]*$)/gm, "[code omitted]")
+  const body = dropFences(text)
     .split("\n")
     .filter((l) => !/^#\s/.test(l) && !HEADER.test(l))
     .join("\n")
     .trim();
-  const scrubbed = scrubSecrets(body);
   return {
     title: h.title === null ? null : scrubSecrets(h.title),
     owns: h.owns,
     fast_check: h.fastCheck === null ? null : scrubSecrets(h.fastCheck),
-    // never end the cut on half a surrogate pair
-    body:
-      scrubbed.length > BODY_MAX
-        ? `${scrubbed.slice(0, BODY_MAX).replace(/[\uD800-\uDBFF]$/, "")}…`
-        : scrubbed,
+    body: capBody(scrubSecrets(body)),
   };
+}
+
+/** Fenced code becomes "[code omitted]"; a fence left open runs to the end of the text, as Markdown renders it. */
+const dropFences = (text: string): string =>
+  text.replace(/^(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^\1[^\n]*$|[\s\S]*$)/gm, "[code omitted]");
+
+/** Capped at BODY_MAX characters, never ending the cut on half a surrogate pair. */
+const capBody = (text: string): string =>
+  text.length > BODY_MAX ? `${text.slice(0, BODY_MAX).replace(/[\uD800-\uDBFF]$/, "")}…` : text;
+
+/** Free text sent to Jev (a finding, a defect): no fenced code, no secrets, capped like a lane's body. */
+export function scrubFree(text: string): string {
+  return capBody(scrubSecrets(dropFences(text).trim()));
 }
 
 const Prob = z.record(z.string(), z.number().min(0).max(1));

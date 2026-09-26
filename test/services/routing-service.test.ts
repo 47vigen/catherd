@@ -302,4 +302,19 @@ describe("finding and same-defect", () => {
       ["same-defect", "default"],
     ]);
   });
+
+  it("never sends a secret or fenced code in a finding or a defect to Jev", async () => {
+    const dir = runDir();
+    const leak = "Token leaks. key: sk-abcdefghijklmnopqrstuv\n```ts\nqueue.drainAll();\n```";
+    const f = fakeFetch({ status: 200, body: fx("finding-design.json") });
+    const r = routingService({ key: "k", fetchImpl: f.impl, ...noWait });
+    await r.finding(dir, lane("repo_code", "build"), leak);
+    const s = fakeFetch({ status: 200, body: fx("same-defect-yes.json") });
+    await routingService({ key: "k", fetchImpl: s.impl, ...noWait }).sameDefect(dir, leak, leak);
+    for (const sent of [f.sent[0]?.body, s.sent[0]?.body].map((b) => JSON.stringify(b))) {
+      expect(sent).toContain("Token leaks.");
+      expect(sent).not.toContain("sk-abc");
+      expect(sent).not.toContain("drainAll");
+    }
+  });
 });
