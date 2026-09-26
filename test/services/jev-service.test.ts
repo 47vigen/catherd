@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JEV_BASE } from "../../src/infra/jev-client.ts";
@@ -15,10 +15,19 @@ import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
+const dirs: string[] = [];
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
-const runDir = () => mkdtempSync(join(tmpdir(), "catherd-jev-"));
+const runDir = (): string => {
+  withHome();
+  const d = mkdtempSync(join(tmpdir(), "catherd-jev-"));
+  dirs.push(d);
+  return d;
+};
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 const STATE = { title: "M1.L1 — x", owns: ["src/a.ts"], fast_check: "true", body: "Rename total to sum." };
 
@@ -50,6 +59,16 @@ describe("the Jev key", () => {
       typesafeApiKey: "new",
       other: 1,
     });
+  });
+
+  it("refuses to overwrite a newer-schema or unreadable credentials file", () => {
+    withHome();
+    saveJevKey("a");
+    for (const text of [JSON.stringify({ schema: 2, typesafeApiKey: "x", other: 1 }), "{not json"]) {
+      writeFileSync(credentialsPath(), text);
+      expect(() => saveJevKey("new")).toThrow();
+      expect(readFileSync(credentialsPath(), "utf8")).toBe(text);
+    }
   });
 
   it("is tested by listing Jev's models", async () => {
@@ -132,29 +151,43 @@ describe("askJev", () => {
     expect(a.why).toBe("answered by jev-1.14.0, not the pinned jev-1.13.0");
   });
 
-  it("writes jev.jsonl with a header row, and never the state", () => {
+  it("keeps the unpinned-model note when answering from the log", async () => {
     const dir = runDir();
+    const body = { ...(fx("route-v2-track-a.json") as object), model: "jev-1.14.0" };
+    const f = fakeFetch({ status: 200, body });
+    const first = await askJev(dir, "route-v2", STATE, { key: "k", fetchImpl: f.impl, ...noWait });
     logJev(dir, {
-      call: "finding",
+      ...first.meta,
+      call: "route-v2",
+      lane: "M1.L1",
+      answers: first.answers,
+      derived: null,
+      used: "x",
+      source: "jev",
+      why: first.why ?? "ok",
+    });
+    const again = await askJev(dir, "route-v2", STATE, { key: "k", fetchImpl: f.impl, ...noWait });
+    expect(again.meta.cached).toBe(true);
+    expect(again.why).toBe("answered by jev-1.14.0, not the pinned jev-1.13.0");
+  });
+
+  it("writes jev.jsonl with a header row, and never the state", async () => {
+    const dir = runDir();
+    const asked = await askJev(dir, "route-v2", STATE, { key: null });
+    logJev(dir, {
+      ...asked.meta,
+      call: "route-v2",
       lane: null,
-      questionSet: "finding#00000000",
-      key: "k",
-      stateHash: "h",
-      model: null,
-      requestId: null,
-      usage: null,
-      latencyMs: null,
-      attempts: 0,
-      cached: false,
       answers: null,
       derived: null,
       used: "code",
       source: "default",
-      why: "no key",
+      why: asked.why ?? "",
     });
     const lines = readFileSync(join(dir, "jev.jsonl"), "utf8").trim().split("\n");
     expect(JSON.parse(lines[0] as string)).toEqual({ schema: 1, kind: "jev" });
     expect(lines).toHaveLength(2);
-    expect(lines[1]).not.toContain("Rename total");
+    expect(lines[1]).not.toContain(STATE.body);
+    expect(JSON.parse(lines[1] as string)).toMatchObject({ why: "no key", stateHash: asked.meta.stateHash });
   });
 });

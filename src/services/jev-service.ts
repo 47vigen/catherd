@@ -40,12 +40,14 @@ export function jevKey(): string | null {
   }
 }
 
-/** Keeps any other credential, and the file at mode 600 (spec §10.4). */
+/**
+ * Keeps any other credential, and the file at mode 600 (spec §10.4). A missing file starts empty; an
+ * unreadable or newer-schema one is refused (it throws) rather than overwritten.
+ */
 export function saveJevKey(key: string): void {
-  let cur: z.infer<typeof CredentialsSchema> = { schema: 1 };
-  try {
-    if (existsSync(credentialsPath())) cur = readVersioned(credentialsPath(), CredentialsSchema, 1);
-  } catch {}
+  const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
+    ? readVersioned(credentialsPath(), CredentialsSchema, 1)
+    : { schema: 1 };
   writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, typesafeApiKey: key.trim() }, { mode: 0o600 });
 }
 
@@ -115,8 +117,10 @@ export async function askJev(runDir: string, set: SetName, state: unknown, o: Je
     cached: false,
   };
   const hit = readJsonl<Partial<JevRow>>(jevLog(runDir)).rows.find((r) => r.key === key && r.answers);
-  if (hit?.answers)
-    return { answers: hit.answers, why: null, meta: { ...meta, model: hit.model ?? null, cached: true } };
+  if (hit?.answers) {
+    const model = hit.model ?? null;
+    return { answers: hit.answers, why: drift(model, f.model), meta: { ...meta, model, cached: true } };
+  }
   const apiKey = o.key === undefined ? jevKey() : o.key;
   if (!apiKey) return { answers: null, why: "no key", meta };
   const res = await jevRequest("POST", "/systemone", apiKey, { model: f.model, state, questions }, o);
@@ -128,6 +132,9 @@ export async function askJev(runDir: string, set: SetName, state: unknown, o: Je
   if (!parsed.ok) return { answers: null, why: parsed.error, meta };
   meta.model = parsed.model;
   meta.usage = parsed.usage;
-  const drift = parsed.model === f.model ? null : `answered by ${parsed.model}, not the pinned ${f.model}`;
-  return { answers: parsed.answers, why: drift, meta };
+  return { answers: parsed.answers, why: drift(parsed.model, f.model), meta };
 }
+
+/** The note on answers from a model other than the pinned one, or null. */
+const drift = (model: string | null, pinned: string): string | null =>
+  model === null || model === pinned ? null : `answered by ${model}, not the pinned ${pinned}`;
