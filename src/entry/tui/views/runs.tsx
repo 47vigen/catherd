@@ -35,12 +35,26 @@ export function budgetParts(d: RunDetail, width: number, plain: boolean): Part[]
   ];
 }
 
+/**
+ * The selected row, where moving the cursor takes back a first ctrl+d (Ruling 3: moving or esc disarms),
+ * as the dialog list does.
+ */
+function useSelection(): [string | null, (key: string) => void] {
+  const app = useApp();
+  const [selected, setSelected] = useState<string | null>(null);
+  const select = (key: string) => {
+    if (key !== selected && app.getState().armed) app.dispatch({ type: "disarm" });
+    setSelected(key);
+  };
+  return [selected, select];
+}
+
 function RunList(props: { width: number; height: number }) {
   const app = useApp();
   const data = useData();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useSelection();
   const rows = data.runs.value?.rows ?? [];
   useCommandLayer("row.runs", {
     "runs.open": () => selected && app.dispatch({ type: "run", id: selected }),
@@ -107,7 +121,7 @@ function RunView(props: { id: string; width: number; height: number }) {
   const app = useApp();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useSelection();
   const polled = usePoll(() => app.effects.run(props.id), RUN_EVERY_MS, {
     paused: app.state.paused,
     key: props.id,

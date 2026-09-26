@@ -57,6 +57,17 @@ describe("the Runs tab (spec §9.1)", () => {
     expect(fx.writes).toEqual(["cancel 20260926-114800-jobs-screen worker-M1.L2"]);
   });
 
+  it("takes back a first ctrl+d when the cursor moves", async () => {
+    const fx = await runs();
+    await h!.s.press("return", "ctrl+d");
+    expect(h!.s.frame()).toContain("press ctrl+d again to cancel");
+    await h!.s.press("j");
+    expect(h!.s.frame()).not.toContain("press ctrl+d again to cancel");
+    await h!.s.press("k", "ctrl+d");
+    expect(fx.writes).toEqual([]);
+    expect(h!.s.frame()).toContain("press ctrl+d again to cancel");
+  });
+
   it("pauses the updates with p and says so", async () => {
     const fx = fixtureEffects();
     let reads = 0;

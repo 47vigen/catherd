@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
+import { FIXTURE_REPORT, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { StatusView } from "../../../src/entry/tui/views/status.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
@@ -75,5 +75,27 @@ describe("the Status tab (spec §9.1)", () => {
     expect(h!.s.frame()).toContain("cheap  this repo · 2 profiles");
     await h!.s.press("shift+g", "k", "k", "return");
     expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "cheap" });
+  });
+
+  it("opens doctor's profile row as the global active profile, and a profile:<name> row as <name>", async () => {
+    const bound = {
+      id: "profile:cheap",
+      label: "profile cheap",
+      state: "ok" as const,
+      word: "ready",
+      detail: "valid",
+    };
+    const fx = fixtureEffects({
+      repo: "/r",
+      bindings: { "/r": "cheap" },
+      report: { ...FIXTURE_REPORT, checks: [bound, ...FIXTURE_REPORT.checks] },
+    });
+    fx.create("cheap");
+    await status(fx);
+    await h!.s.press("return");
+    expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "cheap" });
+    await h!.run(() => h!.app().dispatch({ type: "tab", tab: "status" }));
+    await h!.s.press("g", "j", "j", "j", "return");
+    expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "default" });
   });
 });
