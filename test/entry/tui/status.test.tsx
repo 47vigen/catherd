@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { CatherdError } from "../../../src/domain/errors.ts";
 import { FIXTURE_REPORT, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
+import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
 import { StatusView } from "../../../src/entry/tui/views/status.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
@@ -112,5 +113,16 @@ describe("the Status tab (spec §9.1)", () => {
     expect(h!.s.frame()).toContain("default.json is not valid JSON");
     expect(h!.s.frame()).toContain("catherd profile reset default");
     expect(h!.app().getState().tab).toBe("status");
+  });
+
+  it("picks up a profile made active in another terminal on the next poll", async () => {
+    const fx = fixtureEffects();
+    fx.create("cheap");
+    await status(fx);
+    expect(h!.s.frame()).toContain("default  active · 2 profiles");
+    fx.create("fast");
+    fx.activate("cheap");
+    await h!.advance(RUNS_EVERY_MS);
+    expect(h!.s.frame()).toContain("cheap  active · 3 profiles");
   });
 });

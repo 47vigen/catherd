@@ -63,7 +63,7 @@ export interface Data {
   checkError: string | null;
   recheck(): void;
   runs: Polled<{ rows: RunRow[]; warnings: string[] }>;
-  /** the profile names and the active one; read again after every profile write */
+  /** the profile names and the active one; read on the runs' cadence and after every profile write */
   profiles: Polled<ReturnType<Effects["profiles"]>>;
 }
 
@@ -107,7 +107,8 @@ export function DataProvider(props: { children: ReactNode }) {
     };
   }, [app.effects, app.clock, nonce]);
   const runs = usePoll(() => app.effects.runs(), RUNS_EVERY_MS, { paused: app.state.paused });
-  const profiles = useLoad(() => app.effects.profiles());
+  // cheap (a directory listing and two small reads), and another terminal may change them at any time
+  const profiles = usePoll(() => app.effects.profiles(), RUNS_EVERY_MS);
   const value = useMemo(
     () => ({
       report,
