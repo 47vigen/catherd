@@ -62,6 +62,33 @@ describe("the Status tab (spec §9.1)", () => {
     expect(h!.s.frame()).toContain("checked just now");
   });
 
+  it("says under the profile row when a later profiles read fails, until one succeeds", async () => {
+    const effects = fixtureEffects();
+    let broken = false;
+    const read = effects.profiles;
+    effects.profiles = () => {
+      if (broken)
+        throw new CatherdError("E_CONFIG_INVALID", "config.json is not valid JSON", {
+          fix: "fix or delete ~/.catherd/config.json",
+        });
+      return read();
+    };
+    await status(effects);
+    await h!.advance(0);
+    broken = true;
+    await h!.advance(RUNS_EVERY_MS);
+    const lines = h!.s.frame().split("\n");
+    const row = lines.findIndex((l) => l.includes("default  active"));
+    expect(row).toBeGreaterThan(-1);
+    // 80 columns cut the line's tail (" · showing the last good read") with …
+    expect(lines[row + 1]).toContain(
+      "✗ could not read the profiles again: config.json is not valid JSON · showing…",
+    );
+    broken = false;
+    await h!.advance(RUNS_EVERY_MS);
+    expect(h!.s.frame()).not.toContain("could not read the profiles again");
+  });
+
   it("opens the active profile or a recent run with enter", async () => {
     await status();
     await h!.s.press("shift+g", "k", "k", "return");

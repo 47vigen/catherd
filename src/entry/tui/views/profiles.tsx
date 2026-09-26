@@ -3,7 +3,7 @@ import { type Profile, resolveProfile } from "../../../domain/profile.ts";
 import { isCatherdError } from "../../../domain/errors.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
-import { useData, useLoad } from "../providers/data.tsx";
+import { type Data, useData, useLoad } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
@@ -44,6 +44,23 @@ const ABOUT: Partial<Record<RowAction["type"], string>> = {
   failover: "enter picks the stand-in on a usage limit; it runs on a fresh thread",
   notify: "space turns this notification on or off",
 };
+
+/**
+ * The profiles poll failed after a good read (its error is newer than the value it keeps): one error line
+ * and, when the failure says, its fix; none once a read succeeds again.
+ */
+export function staleLines(data: Data, plain: boolean, o: { fix?: boolean } = {}): Part[] {
+  const p = data.profiles;
+  if (p.error === null || p.value === null) return [];
+  const said: Part[] = [
+    {
+      text: ` ${glyph("fail", plain)} could not read the profiles again: ${p.error} · showing the last good read`,
+      tone: "error",
+    },
+  ];
+  if (p.fix && o.fix !== false) said.push({ text: ` fix: ${p.fix}`, tone: "muted" });
+  return said;
+}
 
 /** Only ticking an unscored effort asks for a treat-like; unticking a rung always just unticks it. */
 const needsTreatLike = (p: Profile, a: RowAction): boolean =>
@@ -137,6 +154,9 @@ export function ProfilesView(props: { width: number; height: number }) {
               polled: false,
             }
           : null;
+  // a later read that failed over a kept good one: said under the header until a read succeeds, like the
+  // Runs tab over its kept rows; the draft stays open and editable
+  const stale = draft ? staleLines(data, ui.plain) : [];
   const row = rows.find((r) => r.key === selected) ?? null;
   /** the row the cursor is on now, which a key earlier in the same tick may have moved */
   const rowNow = () => rows.find((r) => r.key === selectedNow()) ?? null;
@@ -373,6 +393,9 @@ export function ProfilesView(props: { width: number; height: number }) {
   return (
     <box flexDirection="column" width={props.width} height={props.height}>
       <Line width={props.width} parts={top} />
+      {stale.map((p, i) => (
+        <Line key={`stale${i}`} width={props.width} parts={[p]} />
+      ))}
       {failure ? (
         <box flexDirection="column" width={props.width} height={props.height - 3}>
           {[
@@ -400,7 +423,7 @@ export function ProfilesView(props: { width: number; height: number }) {
           selected={selected}
           onSelect={setSelected}
           width={props.width}
-          height={props.height - 3}
+          height={props.height - 3 - stale.length}
           filter={filter}
           onFilter={setFilter}
           empty="reading the catalog…"

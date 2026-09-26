@@ -424,6 +424,52 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("workspace-write · enforced");
   });
 
+  it("says when a later profiles read fails, keeps the draft editable, and re-reads on ctrl+x l and a", async () => {
+    let broken = false;
+    let reads = 0;
+    const fx = await profiles((fx) => {
+      const read = fx.profiles;
+      fx.profiles = () => {
+        reads++;
+        if (broken)
+          throw new CatherdError("E_CONFIG_INVALID", "config.json is not valid JSON", {
+            fix: "fix or delete ~/.catherd/config.json",
+          });
+        return read();
+      };
+    });
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+    broken = true;
+    await h!.advance(RUNS_EVERY_MS);
+    const frame = h!.s.frame();
+    expect(frame.split("\n")[0]).toContain("PROFILE default");
+    expect(frame.split("\n")[1]).toContain(
+      "✗ could not read the profiles again: config.json is not valid JSON · showing the last good read",
+    );
+    expect(frame.split("\n")[2]).toContain("fix: fix or delete ~/.catherd/config.json");
+    // the open draft stays editable
+    await find("worker access");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("full · enforced");
+    expect(h!.s.frame()).toContain("1 unsaved");
+    // the picker and the activate prompt read the profiles again rather than act on the kept read
+    const before = reads;
+    await h!.s.press("ctrl+x", "l");
+    expect(reads).toBe(before + 1);
+    expect(h!.app().getState().dialogs).toEqual([]);
+    await h!.s.press("a");
+    expect(reads).toBe(before + 2);
+    expect(h!.app().getState().dialogs).toEqual([]);
+    expect(fx.writes).toEqual([]);
+    broken = false;
+    await h!.advance(RUNS_EVERY_MS);
+    expect(h!.s.frame()).not.toContain("could not read the profiles again");
+    expect(h!.s.frame()).not.toContain("fix: fix or delete ~/.catherd/config.json");
+    await h!.s.press("ctrl+x", "l");
+    expect(h!.s.frame()).toContain("Profiles");
+    expect(h!.app().getState().dialogs).toHaveLength(1);
+  });
+
   it("shows a failed catalog read with its fix, and re-reads it on r", async () => {
     let broken = true;
     const fx = await profiles((fx) => {

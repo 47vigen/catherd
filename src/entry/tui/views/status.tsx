@@ -9,6 +9,7 @@ import { Line, type Part } from "../widgets/line.tsx";
 import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 import { hereWord, type RunRow } from "../effects.ts";
 import { showProfile } from "./profile-actions.ts";
+import { staleLines } from "./profiles.tsx";
 
 /** `✓ ready` / `! not logged in` / `✗ missing`: state is always glyph and word (spec §9.3). */
 export function stateParts(state: Check["state"], word: string, plain: boolean, pad = 16): Part[] {
@@ -133,6 +134,13 @@ export function StatusView(props: { width: number; height: number }) {
       />
     ),
   });
+  // a later read that failed: the row above is the last good read, not the profile now
+  for (const [i, p] of staleLines(data, ui.plain, { fix: false }).entries())
+    items.push({
+      key: `profile:stale:${i}`,
+      selectable: false,
+      render: (_s, w) => <Line width={w} parts={[{ ...p, text: `  ${p.text}` }]} />,
+    });
   heading("h:runs", " RECENT RUNS");
   if (runs.length === 0)
     items.push({

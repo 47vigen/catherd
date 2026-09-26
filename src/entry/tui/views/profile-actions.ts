@@ -23,12 +23,24 @@ export function showProfile(app: AppApi, name: string, o: { quiet?: boolean } = 
   }
 }
 
+/**
+ * The profiles as they are now: the poll's value while its last read was good, else a read of them now
+ * (which throws as the poll's did, until the file is fixed); a good one also brings the poll up to date.
+ */
+function fresh(app: AppApi, data: Data): NonNullable<Data["profiles"]["value"]> {
+  if (data.profiles.value && data.profiles.error === null) return data.profiles.value;
+  const p = app.effects.profiles();
+  if (data.profiles.error !== null) data.profiles.refresh();
+  return p;
+}
+
 /** The profile list (`<leader>l`): enter shows one, ctrl+d twice deletes one. */
 export function openProfileList(app: AppApi, data: Data): void {
   let p: NonNullable<Data["profiles"]["value"]>;
   try {
-    // the poll has not read them yet, or its read failed: a key handler's throw would end the TUI
-    p = data.profiles.value ?? app.effects.profiles();
+    // the poll has not read them yet, or its last read failed (a kept value would be stale): read them now;
+    // a key handler's throw would end the TUI
+    p = fresh(app, data);
   } catch (e) {
     return fail(app, e);
   }
@@ -86,7 +98,13 @@ export function openSave(app: AppApi): void {
 export function openActivate(app: AppApi, data: Data): void {
   const d = currentDraft(app.getState());
   if (!d) return;
-  const p = data.profiles.value;
+  let p: Data["profiles"]["value"];
+  try {
+    // a failed poll is read again here, so the prompt never names a stale active profile or binding
+    p = data.profiles.error === null ? data.profiles.value : fresh(app, data);
+  } catch (e) {
+    return fail(app, e);
+  }
   if (p?.here === d.name)
     return app.toast({
       variant: "info",
