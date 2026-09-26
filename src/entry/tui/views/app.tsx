@@ -133,10 +133,12 @@ function Screen(props: { story: boolean }) {
         message: `${dirty} unsaved change(s): ctrl+c again to discard and quit`,
       });
     },
-    // esc backs out one level and never quits
+    // esc backs out one level and never quits; an armed double press is a level of its own
     "app.back": () => {
       const state = app.getState();
-      if (state.armed) app.dispatch({ type: "disarm" });
+      const a = state.armed;
+      if (a) app.dispatch({ type: "disarm" });
+      if (a && isArmed(state, a.what, a.target, app.clock.now())) return;
       if (state.dialogs.length) return app.dispatch({ type: "close" });
       app.back();
     },

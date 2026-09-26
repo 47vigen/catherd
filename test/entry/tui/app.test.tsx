@@ -46,6 +46,20 @@ describe("tabs and leaving (spec §9.2)", () => {
     expect(h!.exits).toEqual([]);
   });
 
+  it("takes back an armed double press with esc, and backs out only on the next esc", async () => {
+    const effects = fixtureEffects();
+    effects.create("cheap");
+    await app({ effects });
+    await h!.s.press("ctrl+x", "l", "down", "ctrl+d");
+    expect(h!.s.frame()).toContain("press ctrl+d again to delete");
+    await h!.s.press("escape");
+    expect(h!.app().getState().armed).toBeNull();
+    expect(h!.app().getState().dialogs).toHaveLength(1);
+    expect(h!.s.frame()).not.toContain("press ctrl+d again to delete");
+    await h!.s.press("escape");
+    expect(h!.app().getState().dialogs).toHaveLength(0);
+  });
+
   it("quits with q, or ctrl+c, when nothing is unsaved", async () => {
     await app();
     await h!.s.press("q");
