@@ -21,6 +21,17 @@ Look for: `✓ ready` on the `codex`, `claude-code` and `opencode` rows, each wi
 count; the `codex` row says `ChatGPT login`. `API key login` there means Codex bills you per token: run
 `codex login` and choose ChatGPT, or tell catherd with `catherd profile set billing.codex metered`.
 
+Then check the raw answer doctor reads, since which stream carries it depends on the Codex version:
+
+```sh
+codex login status >/tmp/codex-login.out 2>/tmp/codex-login.err; echo "exit: $?"
+echo "stdout:"; cat /tmp/codex-login.out; echo "stderr:"; cat /tmp/codex-login.err
+```
+
+Look for: `exit: 0` and `Logged in using ChatGPT` on one of the two streams. Write down which one, and
+check that no key appears in full. If the wording differs from `using ChatGPT` / `using an API key`, file it
+against the codex adapter's probe (doctor would then show no login on the `codex` row).
+
 ## 2. The live tests
 
 ```sh
@@ -88,7 +99,8 @@ cd -
 bun src/cli.ts doctor
 ```
 
-(With `XDG_DATA_HOME` set, the lock directory is `$XDG_DATA_HOME/catherd/locks`.)
+(With `CATHERD_HOME` set, the lock directory is `$CATHERD_HOME/data/locks`; with `XDG_DATA_HOME` set, it is
+`$XDG_DATA_HOME/catherd/locks`.)
 
 Look for: `codex sandbox --help` listing `macos` and `linux` (or `seatbelt` and `landlock`: then say so, the
 command changed); `control: 0`. Then either `lock dir: 0` and doctor's `sandbox:codex` row `✓ ready`, or
