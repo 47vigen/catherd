@@ -1,13 +1,21 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
-import { classify, preflight, runCheck } from "../../src/services/preflight.ts";
+import { classify, preflight, preflightUser, runCheck } from "../../src/services/preflight.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
+// every other test runs its checks as a normal user, whoever runs the suite
+const realUid = preflightUser.uid;
+beforeEach(() => {
+  preflightUser.uid = () => 1000;
+});
+afterEach(() => {
+  preflightUser.uid = realUid;
+});
 
 const outcomes = (r: Awaited<ReturnType<typeof preflight>>) =>
   r.needsConfirmation ? [] : r.results.map((x) => [x.lane, x.outcome]);
@@ -106,6 +114,21 @@ describe("preflight", () => {
     setTimeout(() => release?.(), 300);
     await preflight(fakeDeps({ view: testView({ heavy: 1 }) }), { run: run.id });
     expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+  });
+
+  it("never runs a check as root, unless IS_SANDBOX says the machine is disposable (spec §10.4)", async () => {
+    const { run } = freshRun();
+    const ran = join(run.dir, "ran");
+    writeLane(run, "M1.L1", ["src/a.ts"], `touch '${ran}'`);
+    preflightUser.uid = () => 0;
+    delete process.env.IS_SANDBOX;
+    const r = await preflight(fakeDeps(), { run: run.id });
+    expect(outcomes(r)).toEqual([["M1.L1", "skipped"]]);
+    if (!r.needsConfirmation) expect(r.results[0]?.note).toContain("never runs a lane's check as root");
+    expect(existsSync(ran)).toBe(false);
+    process.env.IS_SANDBOX = "1";
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id }))).toEqual([["M1.L1", "pass"]]);
+    expect(existsSync(ran)).toBe(true);
   });
 
   it("classifies by exit code first, then by a missing command", () => {

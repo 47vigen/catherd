@@ -29,6 +29,17 @@ export type PreflightReport =
     };
 
 export const CHECK_TIMEOUT_MS = 120_000;
+
+/** Whose uid preflight runs under; tests stand in for root with it. */
+export const preflightUser = { uid: (): number => process.getuid?.() ?? -1 };
+
+/**
+ * Spec §10.4: a lane's check never runs as root. A machine that says it is disposable (IS_SANDBOX, the
+ * rule claude itself applies to root) is the one exception.
+ */
+const refusesRoot = (): boolean => preflightUser.uid() === 0 && !process.env.IS_SANDBOX;
+const AS_ROOT =
+  "not run: catherd runs as root, and preflight never runs a lane's check as root (spec §10.4); run catherd as a normal user, or set IS_SANDBOX=1 on a disposable machine";
 const TAIL_LINES = 20;
 
 interface LaneCheck {
@@ -160,6 +171,10 @@ export async function preflight(
         tail: [],
         note: l.problem,
       });
+      continue;
+    }
+    if (refusesRoot()) {
+      results.push({ lane: l.lane, check, outcome: "skipped", exitCode: null, tail: [], note: AS_ROOT });
       continue;
     }
     const unborn = l.owns.filter(

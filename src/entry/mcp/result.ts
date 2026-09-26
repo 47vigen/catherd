@@ -27,15 +27,25 @@ export async function handle(f: () => unknown): Promise<CallToolResult> {
   }
 }
 
+const UNKNOWN_TOOL = /Tool (\S+) (?:not found|disabled)$/;
+
+/** The tool an SDK error message names ("Tool x not found", "… arguments for tool x: …"), else null. */
+export const toolOf = (message: string): string | null =>
+  (UNKNOWN_TOOL.exec(message) ?? /for tool (\S+?):/.exec(message))?.[1] ?? null;
+
 /**
- * The SDK's own tool errors, such as input a tool's schema rejects before `handle` runs, in catherd's
- * shape (spec §4.8): an InvalidParams error is E_INPUT_INVALID, anything else is unexpected.
+ * The SDK's own tool errors, raised before `handle` runs, in catherd's shape (spec §4.8): a call to a tool
+ * this server does not have, or input a tool's schema rejects, is E_INPUT_INVALID; anything else is
+ * unexpected.
  */
-export const sdkToolError = (message: string): CallToolResult =>
-  fail(
-    message.startsWith(`MCP error ${ErrorCode.InvalidParams}:`)
-      ? new CatherdError("E_INPUT_INVALID", message, {
-          fix: "correct the argument the message names, then call again",
-        })
-      : new Error(message),
+export function sdkToolError(message: string): CallToolResult {
+  if (!message.startsWith(`MCP error ${ErrorCode.InvalidParams}:`)) return fail(new Error(message));
+  const unknown = UNKNOWN_TOOL.exec(message)?.[1];
+  return fail(
+    new CatherdError("E_INPUT_INVALID", message, {
+      fix: unknown
+        ? `call a tool this server lists (tools/list); a skill that needs ${unknown} needs a newer catherd: claude plugin update catherd@catherd`
+        : "correct the argument the message names, then call again",
+    }),
   );
+}

@@ -7,7 +7,7 @@ import { reconcileAll } from "../../services/reconcile.ts";
 import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
-import { sdkToolError } from "./result.ts";
+import { sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
 
@@ -43,12 +43,8 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
   // above never sees such a call, so it is logged here (spec §10.2: every call), by the tool it names.
   (server as unknown as { createToolError: typeof sdkToolError }).createToolError = (message) => {
     const r = sdkToolError(message);
-    const tool = /for tool (\S+?):|^MCP error -?\d+: Tool (\S+) /.exec(message);
-    log("warn", "tool", {
-      tool: tool?.[1] ?? tool?.[2] ?? null,
-      ok: false,
-      code: (r.structuredContent as { code?: string } | undefined)?.code,
-    });
+    const code = (r.structuredContent as { code?: string } | undefined)?.code;
+    log("warn", "tool", { tool: toolOf(message), ok: false, code });
     return r;
   };
   registerRunTools(server, deps);

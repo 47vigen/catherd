@@ -41,4 +41,22 @@ describe("the MCP server's log (spec §10.2)", () => {
     expect(rows.map((r) => [r.tool, r.ok, r.code])).toEqual([["status", false, "E_INPUT_INVALID"]]);
     expect(readFileSync(logFile(), "utf8")).not.toContain("12345678");
   });
+
+  it("logs a call to a tool this server does not have, and says how to get one", async () => {
+    withHome();
+    delete process.env.CATHERD_LOG;
+    const c = await mcpClient();
+    const unknown = await call(c, "doctor_report");
+    expect(unknown.error).toMatchObject({
+      code: "E_INPUT_INVALID",
+      message: expect.stringContaining("Tool doctor_report not found"),
+      fix: expect.stringContaining("tools/list"),
+    });
+    const tools = readFileSync(logFile(), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((r) => r.event === "tool");
+    expect(tools.map((r) => [r.tool, r.ok, r.code])).toEqual([["doctor_report", false, "E_INPUT_INVALID"]]);
+  });
 });
