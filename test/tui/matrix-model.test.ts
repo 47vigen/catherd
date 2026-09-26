@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { defaultProfile } from "../../src/profile/profile.ts";
+import { defaultProfile } from "../../src/tui/profile-shim.ts";
 import {
   budgetDetailRows,
   budgetSummary,
@@ -233,7 +233,7 @@ describe("matrix model", () => {
   });
 
   it("summarizes failover as a count", () => {
-    const p = defaultProfile();
+    const p = { ...defaultProfile(), failover: {} };
     expect(failoverSummary(p)).toBe("none");
     expect(failoverSummary({ ...p, failover: { "gpt-6-sol#medium": "claude-opus-5-5#high" } })).toBe("1 set");
   });

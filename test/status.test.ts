@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { appendRoute } from "../src/core/lanes.ts";
 import { appendJsonl, appendLedger, appendRunRecord, createRun, writeLive } from "../src/core/runstore.ts";
 import { budgetStatus, formatBudget, formatSummary, runsSummary, summarizeRun } from "../src/core/status.ts";
-import { defaultProfile, saveProfile } from "../src/profile/profile.ts";
+import { defaultProfile, saveProfile } from "../src/tui/profile-shim.ts";
 import { fakeRecord } from "./records.ts";
 import { tempRepo, withHome } from "./helpers.ts";
 

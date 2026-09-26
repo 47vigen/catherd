@@ -3,7 +3,7 @@ import { useKeyboard, usePaste, useRenderer } from "@opentui/react";
 import { useRef, useState } from "react";
 import { type HarnessCost, harnessCosts } from "../core/harness.ts";
 import { listRuns } from "../core/runstore.ts";
-import { defaultProfile, validateProfile } from "../profile/profile.ts";
+import { defaultProfile, validateProfile } from "./profile-shim.ts";
 import { loadCatalog } from "../routing/catalog.ts";
 import { jevKey, saveJevKey, testJevKey } from "../routing/jev.ts";
 import type { Catalog, Profile } from "../types.ts";

@@ -9,7 +9,7 @@ import {
   listProfiles,
   saveProfile,
   setActiveProfile,
-} from "../../src/profile/profile.ts";
+} from "../../src/tui/profile-shim.ts";
 import { loadCatalog, saveTreatLike } from "../../src/routing/catalog.ts";
 import { deleteProfile, nameError, saveAndActivate } from "../../src/tui/profiles.ts";
 import { withHome } from "../helpers.ts";

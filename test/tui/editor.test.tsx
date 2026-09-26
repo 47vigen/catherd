@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { defaultProfile, saveProfile, setActiveProfile } from "../../src/profile/profile.ts";
+import { defaultProfile, saveProfile, setActiveProfile } from "../../src/tui/profile-shim.ts";
 import { Editor } from "../../src/tui/editor.tsx";
 import { withHome } from "../helpers.ts";
 import { catalogFixture, down, KEY, press, READY, UI } from "./helpers.ts";
@@ -48,7 +48,7 @@ describe("Editor", () => {
     await press(mockInput, ...toWorker, KEY.right, ...down(3), KEY.space, KEY.down, KEY.space, KEY.enter);
     await renderOnce();
     expect(save).not.toHaveBeenCalled();
-    expect(captureCharFrame()).toContain("worker: no usable model is enabled");
+    expect(captureCharFrame()).toContain("the worker role has no usable rung");
   });
 
   it("switches between saved profiles with p", async () => {
