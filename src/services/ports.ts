@@ -45,15 +45,22 @@ export interface ProfileSaved {
 export interface ProfilePort {
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;
-  get(name?: string): {
+  /** Without a name (get, validate, set): the profile `repo`, a repository's toplevel, runs on. */
+  get(
+    name?: string,
+    repo?: string | null,
+  ): {
+    /** the global active profile */
     active: string;
+    /** the profile `repo` runs on: its binding, else the active one */
+    here: string;
     profiles: string[];
     profile: ProfileView;
     /** per role: whether its backend holds it to its access mode (spec D10) */
     enforcement: Partial<Record<Role, "enforced" | "advisory">>;
   };
-  validate(name?: string): { valid: boolean; errors: Issue[]; warnings: Issue[] };
-  set(name: string | undefined, patch: ProfilePatch): ProfileSaved;
+  validate(name?: string, repo?: string | null): { valid: boolean; errors: Issue[]; warnings: Issue[] };
+  set(name: string | undefined, patch: ProfilePatch, repo?: string | null): ProfileSaved;
   /** The native agent that runs `rung` for `role` under `repo`'s profile; null unless it is a `claude:` rung. */
   agentFor(repo: string | null, role: Role, rung: string): string | null;
 }

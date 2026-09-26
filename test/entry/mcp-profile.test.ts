@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
-import { activate, createProfile, profileService, profilesDir } from "../../src/services/profile-service.ts";
+import {
+  activate,
+  createProfile,
+  getProfile,
+  profileService,
+  profilesDir,
+} from "../../src/services/profile-service.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 
@@ -116,6 +122,42 @@ describe("the profile tools on the profile service", () => {
         await call(c, "catalog_query", { backend: "codex", text: "gpt-6-sol", ...args })
       ).data.models[0].rungs.find((r: { rung: string }) => r.rung === "codex:gpt-6-sol#high").cost;
     expect([(await cost({ repo })).mode, (await cost({})).mode]).toEqual(["metered", "chatgpt-plan"]);
+  });
+});
+
+describe("the profile tools without a name use the profile the repo runs on", () => {
+  it("profile_set and profile_get edit and read the profile bound to `repo`; outside a repo, the active one", async () => {
+    withHome();
+    const repo = realpathSync(tempRepo());
+    createProfile("fast");
+    activate("fast", repo);
+    const c = await mcpClient();
+    const set = await call(c, "profile_set", { repo, patch: { budget: { usd: 9 } } });
+    expect(set.data.saved).toBe(true);
+    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, undefined]);
+    const got = await call(c, "profile_get", { repo });
+    expect([got.data.active, got.data.here, got.data.profile.name, got.data.profile.budget.usd]).toEqual([
+      "default",
+      "fast",
+      "fast",
+      9,
+    ]);
+    expect((await call(c, "profile_validate", { repo })).data.valid).toBe(true);
+    await call(c, "profile_set", { repo: "/", patch: { budget: { usd: 3 } } });
+    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, 3]);
+    const outside = await call(c, "profile_get", { repo: "/" });
+    expect([outside.data.here, outside.data.profile.name]).toEqual(["default", "default"]);
+  });
+
+  it("refuses a profile name that does not exist as E_INPUT_INVALID, and profile_set still creates one", async () => {
+    withHome();
+    const c = await mcpClient();
+    for (const tool of ["profile_get", "profile_validate"]) {
+      const r = await call(c, tool, { name: "nope" });
+      expect([r.error?.code, r.error?.message]).toEqual(["E_INPUT_INVALID", 'no profile named "nope"']);
+    }
+    expect((await call(c, "profile_set", { name: "nope", patch: {} })).data.saved).toBe(true);
+    expect((await call(c, "profile_get", { name: "nope" })).data.profile.name).toBe("nope");
   });
 });
 

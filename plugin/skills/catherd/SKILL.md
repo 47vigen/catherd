@@ -52,7 +52,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 | `result(run, name)`                                                                              | A role's latest reply, capped, and its record                                                                                                            |
 | `set_next(run, next)`                                                                            | The next step, when you pause or the plan changes. Returns `state` and, when git fails, `hints`                                                          |
 | `runs_summary(filter)`                                                                           | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                      |
-| `profile_get()`                                                                                  | The active profile: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                                       |
+| `profile_get(repo?)`                                                                             | The profile this repo runs on: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                            |
 
 **A tool returns `hints` when it has any:** one line each, on what to do next. Read them before you move on.
 

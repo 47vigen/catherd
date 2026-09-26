@@ -39,8 +39,18 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
   const server = new McpServer({ name: "catherd", version: deps.version });
   logToolCalls(server);
   // The SDK validates input before a tool's `handle` runs and reports a failure through this (private)
-  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it.
-  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = sdkToolError;
+  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it. The wrapper
+  // above never sees such a call, so it is logged here (spec §10.2: every call), by the tool it names.
+  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = (message) => {
+    const r = sdkToolError(message);
+    const tool = /for tool (\S+?):|^MCP error -?\d+: Tool (\S+) /.exec(message);
+    log("warn", "tool", {
+      tool: tool?.[1] ?? tool?.[2] ?? null,
+      ok: false,
+      code: (r.structuredContent as { code?: string } | undefined)?.code,
+    });
+    return r;
+  };
   registerRunTools(server, deps);
   registerLaneTools(server, deps);
   registerDispatchTools(server, deps);

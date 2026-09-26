@@ -77,7 +77,7 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
   };
   const profiles: ProfilePort = {
     forRepo: () => view,
-    get: () => ({ active: "test", profiles: ["test"], profile: view, enforcement: {} }),
+    get: () => ({ active: "test", here: "test", profiles: ["test"], profile: view, enforcement: {} }),
     validate: () => ({ valid: true, errors: [], warnings: [] }),
     set: () => ({
       saved: false,

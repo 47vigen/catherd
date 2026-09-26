@@ -117,6 +117,13 @@ export function readProfileDoc(name: string): ProfileDoc {
 
 export const getProfile = (name: string): Profile => resolveProfile(readProfileDoc(name), name);
 
+/** A profile name the user typed: refused as bad input (exit 2) when no such profile exists. */
+export function requireProfile(name: string): string {
+  if (!profileExists(assertProfileName(name)))
+    throw new CatherdError("E_INPUT_INVALID", `no profile named "${name}"`, { fix: "catherd profile list" });
+  return name;
+}
+
 /** The profile bound to `repo` (a git toplevel), else the active one, else `default`. */
 export function activeName(repo: string | null = null): string {
   const bound = repo === null ? undefined : readProjects().bindings[repo];
@@ -467,18 +474,26 @@ export function viewOf(p: Profile): ProfileView {
 
 /** The ProfilePort the run engine and the MCP tools use (spec §7.3: the single writer). */
 export function profileService(): ProfilePort {
+  // without a name, each tool acts on the profile `repo` runs on (the active one outside a repo)
   return {
     forRepo: (repo) => viewOf(profileFor(repo)),
-    get(name) {
-      const active = activeName();
-      const p = getProfile(name ?? active);
-      return { active, profiles: listProfiles(), profile: viewOf(p), enforcement: roleEnforcement(p) };
+    get(name, repo = null) {
+      const here = activeName(repo);
+      const p = getProfile(name === undefined ? here : requireProfile(name));
+      return {
+        active: activeName(),
+        here,
+        profiles: listProfiles(),
+        profile: viewOf(p),
+        enforcement: roleEnforcement(p),
+      };
     },
-    validate(name) {
-      const v = validateNamed(name);
+    validate(name, repo = null) {
+      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name));
       return { valid: v.errors.length === 0, ...v };
     },
-    set: (name, patch) => patchProfile(name, patch),
+    // a name that does not exist yet starts from the default profile
+    set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch),
     agentFor: (repo, role, rung) =>
       parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
   };

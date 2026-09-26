@@ -30,7 +30,7 @@ In one message, call:
 
 - `catalog_query({ role: "<role>" })` for each role you will discuss: the models that can fill it, their scored rungs, any "treat like", each rung's cost under their billing, and whether their backend's last listing offers it (`listed: false` means their account does not);
 - `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line;
-- `profile_get()`: where they stand now, with each role's `access` and `enforcement`.
+- `profile_get({ repo })`: where they stand now, with each role's `access` and `enforcement`. Pass the user's repo: without a name, the profile tools act on the profile this repo runs on (the one bound to it, else the active one), which `here` names; `active` is the global active profile.
 
 ## 3. Propose one decision at a time
 
@@ -63,10 +63,10 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 ## 4. Write it
 
-- Call `profile_set({ patch })` with only what changed; pass `name` only to edit a profile other than the active one. Lists (`rungs`, `notify`) replace, maps (`billing`, `failover`, `budget`) merge, and `null` removes a key. A key it does not know is refused with `E_INPUT_INVALID`. It validates before it writes:
+- Call `profile_set({ repo, patch })` with only what changed; pass `name` only to edit a profile other than the one this repo runs on (a name that does not exist yet starts a new profile from the default one). Lists (`rungs`, `notify`) replace, maps (`billing`, `failover`, `budget`) merge, and `null` removes a key. A key it does not know is refused with `E_INPUT_INVALID`. It validates before it writes:
   - `saved: false` comes with `errors`, each with a `path`, a `message` and often a `fix`. Explain each in their terms, fix the patch, and propose again.
   - `saved: true` comes with the `diff` (`path`, `before`, `after`) and any `warnings`. Read the diff back to the user, one line per change, and each warning with it.
-- Then call `profile_validate()`. `errors` block a save: the worker disabled, an enabled role with no usable rung, an unscored rung without a "treat like", a failover stand-in unscored or on the same quota, a backend catherd cannot run. `warnings` do not: an access mode other than the role's default, a model the backend's listing lacks, a stand-in that never runs.
+- Then call `profile_validate({ repo })`. `errors` block a save: the worker disabled, an enabled role with no usable rung, an unscored rung without a "treat like", a failover stand-in unscored or on the same quota, a backend catherd cannot run. `warnings` do not: an access mode other than the role's default, a model the backend's listing lacks, a stand-in that never runs.
 
 ## 5. Say what applies when
 
