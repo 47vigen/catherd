@@ -55,8 +55,8 @@ export interface RoutingOpts extends JevOpts {
 }
 
 /** A wedged listing never holds a route: past `ms` it routes on the cache while the refresh finishes. */
-async function freshenWithin(rungs: string[], ms: number): Promise<void> {
-  const refresh = freshenDiscovery(rungs).catch(() => {});
+async function freshenWithin(rungs: string[], repo: string, ms: number): Promise<void> {
+  const refresh = freshenDiscovery(rungs, Date.now(), repo).catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, ms);
@@ -71,8 +71,8 @@ async function freshenWithin(rungs: string[], ms: number): Promise<void> {
  */
 async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   const p = routingProfile(req.profile, req.role, req.spentFraction);
-  await freshenWithin(p.role.rungs, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
-  const c = loadCatalog();
+  await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
+  const c = loadCatalog({ repo: req.repo });
   const fallback = () => defaultLadder(c, p, req.role);
   if (req.laneText === null || candidates(c, p, req.role).length <= 1)
     return answer(fallback(), "default", null, null, null, null);

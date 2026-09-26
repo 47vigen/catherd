@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ADAPTER_IDS, type DiscoveredModel } from "../adapters/backend.ts";
-import { discovered, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
+import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import {
@@ -51,11 +51,14 @@ export function readOverride(): Override {
   return existsSync(file) ? readVersioned(file, OverrideSchema, 1) : OverrideSchema.parse({});
 }
 
-/** Every backend's last listing (spec §3.5 `<data>/discovery/<backend>.json`). */
-export function listedModels(): Catalog["listed"] {
+/**
+ * Every backend's last listing (spec §3.5 `<data>/discovery/<backend>.json`); for a backend listed per
+ * repository, its listing in `repo` (none without one).
+ */
+export function listedModels(repo?: string): Catalog["listed"] {
   const out: Catalog["listed"] = {};
   for (const id of ADAPTER_IDS) {
-    const d = readDiscovery(id);
+    const d = readDiscovery(id, listingRepo(id, repo));
     if (d) out[id] = { fetchedAt: d.fetchedAt, models: d.models };
   }
   return out;
@@ -94,13 +97,16 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
   return secs;
 }
 
-/** The shipped catalog with every listing, the user's override and, unless `timings: false`, own timings. */
-export function loadCatalog(o: { timings?: boolean } = {}): Catalog {
+/**
+ * The shipped catalog with every listing (in `repo` for a backend listed per repository), the user's
+ * override and, unless `timings: false`, own timings.
+ */
+export function loadCatalog(o: { timings?: boolean; repo?: string } = {}): Catalog {
   const base = buildCatalog({
     models: shippedModels(),
     scores: shippedScores(),
     override: readOverride(),
-    listed: listedModels(),
+    listed: listedModels(o.repo),
   });
   return o.timings === false ? base : { ...base, secs: measuredSecs(base) };
 }
@@ -113,43 +119,52 @@ export interface Refreshed {
 }
 
 /** Spec §5.2: `init`, `doctor` and `catherd catalog refresh` list every backend's models now. */
-export async function refreshDiscovery(o: { backends?: string[]; now?: number } = {}): Promise<Refreshed[]> {
+export async function refreshDiscovery(
+  o: { backends?: string[]; now?: number; repo?: string } = {},
+): Promise<Refreshed[]> {
   const out: Refreshed[] = [];
   for (const id of o.backends ?? ADAPTER_IDS) {
     const adapter = adapterFor(id);
     if (!adapter) continue;
+    const repo = listingRepo(id, o.repo);
     let listed: DiscoveredModel[] = [];
     try {
-      listed = await adapter.listModels();
+      listed = await adapter.listModels(repo);
     } catch (e) {
-      out.push({ backend: id, models: 0, fetchedAt: readDiscovery(id)?.fetchedAt ?? null, error: String(e) });
+      out.push({
+        backend: id,
+        models: 0,
+        fetchedAt: readDiscovery(id, repo)?.fetchedAt ?? null,
+        error: String(e),
+      });
       continue;
     }
     if (listed.length === 0) {
       out.push({
         backend: id,
         models: 0,
-        fetchedAt: readDiscovery(id)?.fetchedAt ?? null,
+        fetchedAt: readDiscovery(id, repo)?.fetchedAt ?? null,
         error: "listed no models; the previous listing is kept",
       });
       continue;
     }
-    const f = writeDiscovery(id, listed, o.now);
+    const f = writeDiscovery(id, listed, o.now, repo);
     out.push({ backend: id, models: f.models.length, fetchedAt: f.fetchedAt });
   }
   return out;
 }
 
 const tried = new Map<string, number>();
-/** Forget which backends this process already tried to list (tests). */
+/** Forget which backends (and repositories) this process already tried to list (tests). */
 export const resetFreshen = (): void => tried.clear();
 
 /**
  * Spec §5.2: `route` lists a backend again at most daily. A backend this process failed to list is not
  * tried again for an hour, so a missing or wedged CLI never slows every route. Due backends are listed
- * in parallel, so the slowest listing bounds the wait, not their sum.
+ * in parallel, so the slowest listing bounds the wait, not their sum. A backend listed per repository is
+ * listed, cached and backed off in `repo`.
  */
-export async function freshenDiscovery(rungs: string[], now = Date.now()): Promise<void> {
+export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?: string): Promise<void> {
   const backends = new Set<string>();
   for (const r of rungs) {
     try {
@@ -160,11 +175,13 @@ export async function freshenDiscovery(rungs: string[], now = Date.now()): Promi
   const due: Promise<unknown>[] = [];
   for (const b of backends) {
     const adapter = adapterFor(b);
-    if (!adapter || now - (tried.get(b) ?? Number.NEGATIVE_INFINITY) < 3_600_000) continue;
-    const cached = readDiscovery(b);
+    const where = listingRepo(b, repo);
+    const key = where === undefined ? b : `${b} ${where}`;
+    if (!adapter || now - (tried.get(key) ?? Number.NEGATIVE_INFINITY) < 3_600_000) continue;
+    const cached = readDiscovery(b, where);
     if (cached && now - Date.parse(cached.fetchedAt) < DAY_MS) continue;
-    tried.set(b, now);
-    due.push(discovered(b, () => adapter.listModels(), { maxAgeMs: DAY_MS, now }));
+    tried.set(key, now);
+    due.push(discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }));
   }
   // a failed listing keeps the last one (and the hour's backoff above)
   await Promise.allSettled(due);

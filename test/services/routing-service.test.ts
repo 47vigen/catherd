@@ -225,6 +225,30 @@ describe("route and discovery", () => {
   });
 });
 
+describe("route and a repository's listing", () => {
+  const opencode = adapterFor("opencode") as BackendAdapter;
+  afterEach(() => registerAdapter(opencode));
+
+  it("routes on the opencode listing of the routed repository, not another's", async () => {
+    const m = (id: string) => ({ id, efforts: ["high"], context: 1000, imageIn: false });
+    registerAdapter({
+      ...opencode,
+      // the project config in /work/a enables only Luna
+      listModels: async (repo?: string) =>
+        repo === "/work/a" ? [m("opencode/gpt-6-luna")] : [m("opencode/gpt-6-luna"), m("opencode/gpt-6-sol")],
+    });
+    const rungs = ["opencode:opencode/gpt-6-luna#high", "opencode:opencode/gpt-6-sol#high"];
+    const profile = view({
+      roles: { worker: { enabled: true, access: "workspace-write", rungs, defaultRung: rungs[0] } },
+    });
+    const r = routingService();
+    const inA = await r.route(req(null, { repo: "/work/a", profile }));
+    expect(inA.ladder).toEqual(["opencode:opencode/gpt-6-luna#high"]);
+    const inB = await r.route(req(null, { repo: "/work/b", profile }));
+    expect(inB.ladder).toContain("opencode:opencode/gpt-6-sol#high");
+  });
+});
+
 describe("route and the profile", () => {
   it("starts at the cheapest bar-clearing rung from 80 % of the budget, whatever the objective", async () => {
     const secs = { objective: "speed" as const };

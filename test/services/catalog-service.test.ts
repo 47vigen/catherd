@@ -212,6 +212,57 @@ describe("discovery refresh", () => {
   });
 });
 
+describe("discovery per repository", () => {
+  const opencode = adapterFor("opencode") as BackendAdapter;
+  afterEach(() => registerAdapter(opencode));
+  const model = (id: string) => ({ id, efforts: ["high"], context: 1000, imageIn: false });
+
+  it("lists opencode in the routed repository and keeps each repository's listing apart", async () => {
+    withHome();
+    const asked: (string | undefined)[] = [];
+    registerAdapter({
+      ...opencode,
+      listModels: async (repo?: string) => {
+        asked.push(repo);
+        return [model(repo === "/work/a" ? "opencode/gpt-6-luna" : "opencode/gpt-6-sol")];
+      },
+    });
+    fakeCodexListing([{ id: "gpt-6-sol", efforts: ["medium"] }]);
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high", "codex:gpt-6-sol#medium"], T0, "/work/a");
+    expect(asked).toEqual(["/work/a"]);
+    expect(readDiscovery("opencode", "/work/a")?.models.map((m) => m.id)).toEqual(["opencode/gpt-6-luna"]);
+    expect(readDiscovery("opencode")).toBeNull();
+    // codex lists the same models wherever it runs: the global listing
+    expect(readDiscovery("codex")?.models.map((m) => m.id)).toEqual(["gpt-6-sol"]);
+    expect(loadCatalog({ repo: "/work/a" }).listed.opencode?.models.map((m) => m.id)).toEqual([
+      "opencode/gpt-6-luna",
+    ]);
+    expect(loadCatalog({ repo: "/work/b" }).listed.opencode).toBeUndefined();
+    expect(loadCatalog({ repo: "/work/b" }).listed.codex?.models).toHaveLength(1);
+    // another repository is due on its own, the same day
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/b");
+    expect(asked).toEqual(["/work/a", "/work/b"]);
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 120_000, "/work/a");
+    expect(asked).toEqual(["/work/a", "/work/b"]);
+  });
+
+  it("backs off an hour per repository after a failed listing", async () => {
+    withHome();
+    const asked: (string | undefined)[] = [];
+    registerAdapter({
+      ...opencode,
+      listModels: async (repo?: string) => {
+        asked.push(repo);
+        throw new Error("wedged");
+      },
+    });
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0, "/work/a");
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/a");
+    await freshenDiscovery(["opencode:opencode/gpt-6-luna#high"], T0 + 60_000, "/work/b");
+    expect(asked).toEqual(["/work/a", "/work/b"]);
+  });
+});
+
 describe("catalogQuery", () => {
   it("lists each family on each backend with its rungs, scores, cost and roles", () => {
     withHome();
