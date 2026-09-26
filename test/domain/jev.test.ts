@@ -49,6 +49,7 @@ describe("the route-v2 question set", () => {
 
   it("hashes requests independently of key order", () => {
     expect(canonicalJson({ b: 1, a: [{ d: 2, c: 3 }] })).toBe('{"a":[{"c":3,"d":2}],"b":1}');
+    expect(canonicalJson({ a: undefined, b: 1 })).toBe(JSON.stringify({ a: undefined, b: 1 }));
     expect(requestKey("m", { a: 1, b: 2 }, {})).toBe(requestKey("m", { b: 2, a: 1 }, {}));
   });
 });
@@ -82,6 +83,13 @@ describe("laneState", () => {
     expect(laneState(`# M1.L1 — x\n${"word ".repeat(5000)}`).body.length).toBe(BODY_MAX + 1);
   });
 
+  it("drops an unclosed code fence to the end, and never cuts a surrogate pair in half", () => {
+    const s = laneState("# M1.L1 — x\nKeep this.\n```ts\nconst leaked = 1;\n");
+    expect(s.body).toBe("Keep this.\n[code omitted]");
+    const cut = laneState(`# M1.L1 — x\n${"a".repeat(BODY_MAX - 1)}😀tail`).body;
+    expect(cut).toBe(`${"a".repeat(BODY_MAX - 1)}…`);
+  });
+
   it("scrubs private keys and key=value secrets", () => {
     const pem = "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----";
     expect(scrubSecrets(`${pem} DB_PASSWORD=hunter22 AKIAABCDEFGHIJKLMNOP`)).toBe(
@@ -112,6 +120,17 @@ describe("parseReply", () => {
       error: "no valid answer to finding",
     });
     expect(parseReply(qs, fixture("auth-error.json"))).toEqual({ ok: false, error: "unexpected response" });
+  });
+
+  it("refuses a score probability outside the question's levels", () => {
+    const body = fixture("route-v2-track-a.json") as {
+      answers: { difficulty: { probabilities: Record<string, number> } };
+    };
+    body.answers.difficulty.probabilities["4"] = 0;
+    expect(parseReply(route().questions, body)).toEqual({
+      ok: false,
+      error: "no valid answer to difficulty",
+    });
   });
 });
 
@@ -156,10 +175,39 @@ describe("judgeRoute", () => {
     });
     expect([at.kind, at.track, at.difficulty]).toEqual([null, "A", "copy"]);
   });
+
+  it("reaches the threshold on a sum that floating point rounds below it (0.1 + 0.7)", () => {
+    const score = (probabilities: Record<string, number>) => ({
+      type: "score" as const,
+      score: 1,
+      confidence: 0.5,
+      probabilities,
+    });
+    const a = judgeRoute(route().rule, { difficulty: score({ "0": 0.1, "1": 0.7, "2": 0.2 }) });
+    expect(a).toMatchObject({ track: "A", difficulty: "build", pA: 0.8, rule: "P(A) 0.8 ≥ 0.8" });
+    const b = judgeRoute(route().rule, { difficulty: score({ "1": 0.2, "2": 0.1, "3": 0.7 }) });
+    expect(b).toMatchObject({ track: "B", difficulty: "hard", pB: 0.8 });
+  });
+
+  it("logs no kind probability when the kind answer has none", () => {
+    const j = judgeRoute(route().rule, {
+      kind: { type: "choice", choice: "ui", confidence: 0, probabilities: {} },
+    });
+    expect([j.kind, j.pKind]).toEqual([null, null]);
+  });
+
+  it("refuses a rule whose tracks are not two levels each", () => {
+    const f = JSON.parse(readFileSync(join(root, "catalog", "jev.json"), "utf8"));
+    f.sets["route-v2"].rule.trackA = ["0", "1", "2"];
+    expect(JevFileSchema.safeParse(f).success).toBe(false);
+  });
 });
 
 describe("judgeVerdict", () => {
   const f = jevFile();
+  const at = (p: number) => ({
+    finding: { type: "choice" as const, choice: "design", confidence: 0.5, probabilities: { design: p } },
+  });
   const read = (n: string, set: "finding" | "same-defect") => {
     const r = parseReply(f.sets[set].questions, fixture(n));
     return r.ok ? r.answers : null;
@@ -198,6 +246,27 @@ describe("judgeVerdict", () => {
         read("same-defect-yes.json", "same-defect"),
       ).value,
     ).toBe("yes");
+  });
+
+  it("decides at exactly the threshold and falls back just below it", () => {
+    const opts = ["design", "code", "unclear"] as const;
+    expect(judgeVerdict(f.sets.finding.rule, "finding", opts, at(0.83))).toMatchObject({
+      value: "design",
+      source: "jev",
+    });
+    expect(judgeVerdict(f.sets.finding.rule, "finding", opts, at(0.829))).toMatchObject({
+      value: "code",
+      source: "default",
+    });
+    const same = (p: number) => ({
+      "same-defect": { type: "choice" as const, choice: "yes", confidence: 0.5, probabilities: { yes: p } },
+    });
+    expect(judgeVerdict(f.sets["same-defect"].rule, "same-defect", ["yes", "no"], same(0.85)).value).toBe(
+      "yes",
+    );
+    expect(judgeVerdict(f.sets["same-defect"].rule, "same-defect", ["yes", "no"], same(0.849)).value).toBe(
+      "no",
+    );
   });
 
   it("falls back without answers", () => {

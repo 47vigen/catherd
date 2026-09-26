@@ -25,8 +25,9 @@ export type JevQuestion = z.infer<typeof QuestionSchema>;
 const RouteRuleSchema = z.object({
   kindMin: z.number().min(0).max(1),
   trackMin: z.number().gt(0.5).max(1),
-  trackA: z.array(z.string()),
-  trackB: z.array(z.string()),
+  /** exactly two levels each, in order: copy then build, logic then hard */
+  trackA: z.array(z.string()).length(2),
+  trackB: z.array(z.string()).length(2),
 });
 export type RouteRule = z.infer<typeof RouteRuleSchema>;
 const VerdictRuleSchema = z.object({ min: z.number().min(0).max(1), fallback: z.string() });
@@ -49,6 +50,7 @@ export function canonicalJson(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
   if (v !== null && typeof v === "object")
     return `{${Object.keys(v)
+      .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
       .sort()
       .map((k) => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`)
       .join(",")}}`;
@@ -103,7 +105,8 @@ export interface LaneState {
 export function laneState(text: string): LaneState {
   const h = parseLaneHeader(text);
   const body = text
-    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "[code omitted]")
+    // a fence left open runs to the end of the text, as Markdown renders it
+    .replace(/^(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?^\1[^\n]*$|[\s\S]*$)/gm, "[code omitted]")
     .split("\n")
     .filter((l) => !/^#\s/.test(l) && !HEADER.test(l))
     .join("\n")
@@ -113,7 +116,11 @@ export function laneState(text: string): LaneState {
     title: h.title === null ? null : scrubSecrets(h.title),
     owns: h.owns,
     fast_check: h.fastCheck === null ? null : scrubSecrets(h.fastCheck),
-    body: scrubbed.length > BODY_MAX ? `${scrubbed.slice(0, BODY_MAX)}…` : scrubbed,
+    // never end the cut on half a surrogate pair
+    body:
+      scrubbed.length > BODY_MAX
+        ? `${scrubbed.slice(0, BODY_MAX).replace(/[\uD800-\uDBFF]$/, "")}…`
+        : scrubbed,
   };
 }
 
@@ -156,6 +163,12 @@ export function parseReply(questions: Record<string, JevQuestion>, body: unknown
     if (!a.success || a.data.type !== q.type) return { ok: false, error: `no valid answer to ${id}` };
     if (a.data.type === "choice" && q.type === "choice" && !Object.hasOwn(q.criteria, a.data.choice))
       return { ok: false, error: `no valid answer to ${id}` };
+    if (
+      a.data.type === "score" &&
+      q.type === "score" &&
+      Object.keys(a.data.probabilities).some((l) => !/^\d+$/.test(l) || Number(l) >= q.criteria.length)
+    )
+      return { ok: false, error: `no valid answer to ${id}` };
     answers[id] = a.data;
   }
   return { ok: true, model: r.data.model, usage: r.data.usage ?? null, answers };
@@ -192,25 +205,26 @@ export function judgeRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement
   let pKind: number | null = null;
   if (k && k.type === "choice") {
     const [top, p] = Object.entries(k.probabilities).reduce((m, e) => (e[1] > m[1] ? e : m), ["", -1]);
-    pKind = p;
+    pKind = p < 0 ? null : p;
     if (p >= rule.kindMin && (KINDS as readonly string[]).includes(top)) kind = top as Kind;
   }
   if (!d || d.type !== "score")
     return { kind, pKind, track: null, difficulty: null, pA: null, pB: null, nouls, rule: "no difficulty" };
-  const sum = (levels: string[]) => levels.reduce((s, l) => s + pOf(d, l), 0);
+  // Rounded before comparing: 0.1 + 0.7 is 0.7999999999999999 in floating point, and must reach 0.8.
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const sum = (levels: string[]) => round(levels.reduce((s, l) => s + pOf(d, l), 0));
   const pA = sum(rule.trackA);
   const pB = sum(rule.trackB);
-  const round = (x: number) => Math.round(x * 1000) / 1000;
   if (pA >= rule.trackMin)
     return {
       kind,
       pKind,
       track: "A",
       difficulty: pOf(d, rule.trackA[0] ?? "") > pOf(d, rule.trackA[1] ?? "") ? "copy" : "build",
-      pA: round(pA),
-      pB: round(pB),
+      pA,
+      pB,
       nouls,
-      rule: `P(A) ${round(pA)} ≥ ${rule.trackMin}`,
+      rule: `P(A) ${pA} ≥ ${rule.trackMin}`,
     };
   if (pB >= rule.trackMin)
     return {
@@ -218,20 +232,20 @@ export function judgeRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement
       pKind,
       track: "B",
       difficulty: pOf(d, rule.trackB[1] ?? "") > pOf(d, rule.trackB[0] ?? "") ? "hard" : "logic",
-      pA: round(pA),
-      pB: round(pB),
+      pA,
+      pB,
       nouls,
-      rule: `P(B) ${round(pB)} ≥ ${rule.trackMin}`,
+      rule: `P(B) ${pB} ≥ ${rule.trackMin}`,
     };
   return {
     kind,
     pKind,
     track: null,
     difficulty: null,
-    pA: round(pA),
-    pB: round(pB),
+    pA,
+    pB,
     nouls,
-    rule: `P(A) ${round(pA)}, P(B) ${round(pB)}: both below ${rule.trackMin}`,
+    rule: `P(A) ${pA}, P(B) ${pB}: both below ${rule.trackMin}`,
   };
 }
 
