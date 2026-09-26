@@ -6,6 +6,7 @@ import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { progressTo } from "../../src/entry/mcp/dispatch-tools.ts";
 import { gitToplevel } from "../../src/infra/git.ts";
 import { VERSION } from "../../src/infra/version.ts";
+import { readAgentRuns } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, fakeGit, freshRun, writeLane } from "../services/helpers.ts";
@@ -122,7 +123,30 @@ describe("MCP server", () => {
       duration_ms: 3000,
     });
     expect(agent.data).toMatchObject({ totalTokens: 1200, secs: 3 });
-    expect((await call(c, "status", { run: run.id })).data.runs[0].agents.totalTokens).toBe(1200);
+    const laned = await call(c, "record_agent_run", {
+      run: run.id,
+      name: "w",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#high",
+      total_tokens: 10,
+      duration_ms: 1000,
+      lane: "M1.L1",
+    });
+    expect(laned.data).toMatchObject({ lane: "M1.L1" });
+    expect(readAgentRuns(run).at(-1)?.lane).toBe("M1.L1");
+    expect(
+      (
+        await call(c, "record_agent_run", {
+          run: run.id,
+          name: "w",
+          role: "worker",
+          rung: "claude:claude-opus-5-5#high",
+          total_tokens: 10,
+          lane: "../x",
+        })
+      ).isError,
+    ).toBe(true);
+    expect((await call(c, "status", { run: run.id })).data.runs[0].agents.totalTokens).toBe(1210);
   });
 
   it("answers catalog_query from the repository's own opencode listing, as route reads it", async () => {

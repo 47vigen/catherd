@@ -210,6 +210,8 @@ export const AgentRunSchema = z.looseObject({
   costUsd: z.number().nullable(),
   secs: z.number().nullable(),
   status: z.enum(["ok", "failed", "cancelled"]),
+  /** the lane the subagent worked, so catalog timings count it under that lane's kind; rows before it lack it */
+  lane: z.string().nullable().optional(),
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 

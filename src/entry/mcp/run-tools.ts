@@ -82,7 +82,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "record_agent_run",
     {
       description:
-        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it.",
+        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane's kind in the catalog timings.",
       inputSchema: {
         run: z.string(),
         name: z.string().regex(ID_PATTERN),
@@ -92,11 +92,13 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
         duration_ms: z.number().nonnegative().optional(),
         cost_usd: z.number().nonnegative().optional(),
         status: z.enum(["ok", "failed", "cancelled"]).default("ok"),
+        lane: z.string().regex(ID_PATTERN).optional(),
       },
     },
     (a) =>
       handle(() =>
         recordAgentRun(deps, {
+          lane: a.lane,
           run: a.run,
           name: a.name,
           role: a.role,

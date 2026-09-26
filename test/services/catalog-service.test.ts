@@ -15,9 +15,10 @@ import {
   resetFreshen,
   saveTreatLike,
 } from "../../src/services/catalog-service.ts";
-import { appendAgentRun, appendRecord, appendRoute } from "../../src/services/run-store.ts";
+import { recordAgentRun } from "../../src/services/run-service.ts";
+import { appendAgentRun, appendRecord, appendRoute, readAgentRuns } from "../../src/services/run-store.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { freshRun, makeRecord } from "./helpers.ts";
+import { fakeDeps, freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -235,6 +236,52 @@ describe("measuredSecs", () => {
       });
     const m = measuredSecs(loadCatalog({ timings: false }));
     expect(m).toEqual({ "claude-opus-5-5#high|*": 30, "claude-opus-5-5#high|prose": 30 });
+  });
+
+  it("counts record_agent_run's lane under that lane's kind", async () => {
+    const { run } = freshRun();
+    appendRoute(run, {
+      at: "2026-09-25T10:00:00.000Z",
+      lane: "M1.L1",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#high",
+      ladder: ["claude:claude-opus-5-5#high"],
+      source: "route",
+      decidedBy: "lane",
+      from: null,
+      reason: null,
+      kind: "prose",
+      difficulty: "logic",
+    });
+    for (const [i, s] of [50, 10, 30, 20, 40].entries()) {
+      const row = recordAgentRun(fakeDeps({ now: () => Date.parse(`2026-09-25T10:1${i}:00.000Z`) }), {
+        run: run.id,
+        name: "w",
+        role: "worker",
+        rung: "claude:claude-opus-5-5#high",
+        totalTokens: 100,
+        durationMs: s * 1000,
+        lane: "M1.L1",
+      });
+      expect(row.lane).toBe("M1.L1");
+    }
+    expect(readAgentRuns(run).every((a) => a.lane === "M1.L1")).toBe(true);
+    const m = measuredSecs(loadCatalog({ timings: false }));
+    expect(m).toEqual({ "claude-opus-5-5#high|*": 30, "claude-opus-5-5#high|prose": 30 });
+  });
+
+  it("rejects a record_agent_run lane that is not an id", () => {
+    const { run } = freshRun();
+    expect(() =>
+      recordAgentRun(fakeDeps(), {
+        run: run.id,
+        name: "w",
+        role: "worker",
+        rung: "claude:claude-opus-5-5#high",
+        totalTokens: 1,
+        lane: "../x",
+      }),
+    ).toThrow();
   });
 });
 

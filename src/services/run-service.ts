@@ -117,10 +117,12 @@ export function recordAgentRun(
     costUsd?: number;
     durationMs?: number;
     status?: AgentRun["status"];
+    lane?: string;
   },
 ): AgentRun {
   const run = findRun(i.run);
   assertId("role name", i.name);
+  if (i.lane !== undefined) assertId("lane", i.lane);
   if (parseRung(i.rung).backend !== "claude")
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is not a native Claude rung`, {
       fix: "record_agent_run is for Agent subagents; dispatch records every other run itself",
@@ -135,6 +137,7 @@ export function recordAgentRun(
     costUsd: i.costUsd ?? null,
     secs: i.durationMs === undefined ? null : Math.round(i.durationMs / 1000),
     status: i.status ?? "ok",
+    lane: i.lane ?? null,
   };
   appendAgentRun(run, row);
   return row;
