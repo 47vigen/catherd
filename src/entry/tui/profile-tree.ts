@@ -519,9 +519,17 @@ export function failoverOptions(
   }
   const cur = p.failover[rung];
   const out: SelectOption[] = [{ value: "", title: "none", current: cur === undefined }];
+  // usable: scored in catalog_query, or through a treat-like staged in `c` (`withStaged`)
+  const usable = (x: string) => {
+    try {
+      return scoresOf(c, rungInfo(c, x).canonical) !== null;
+    } catch {
+      return false;
+    }
+  };
   for (const m of models)
     for (const r of m.rungs) {
-      if (!r.enabled || r.rung.startsWith("claude:")) continue;
+      if (!(r.enabled || usable(r.rung)) || r.rung.startsWith("claude:")) continue;
       const q = quotaOf(parseRung(r.rung));
       if (q === quota) continue;
       const inferred = inferredScores(c, rungInfo(c, r.rung)).inferred;
