@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ProfileDoc } from "../../../domain/profile.ts";
 import type { Effects } from "../effects.ts";
 import { type Action, type AppState, type Purpose, reduce } from "../state.ts";
 import { setModal } from "./keymap.tsx";
@@ -17,7 +18,15 @@ import { type Toast, useToasts } from "./toast.tsx";
 
 export type BackKind = "input" | "view";
 
-export type DialogHandler = (purpose: Purpose, value: string) => void | Promise<void>;
+/** What an answer carries besides its value. */
+export interface AnswerExtra {
+  /** the save dialog's: the profile file as its last preview read it, the only one the save may write over */
+  shown?: ProfileDoc;
+  /** the save dialog's: reads the file again and shows the new preview with the changed-on-disk notice */
+  changed?: () => void;
+}
+
+export type DialogHandler = (purpose: Purpose, value: string, extra: AnswerExtra) => void | Promise<void>;
 
 export interface AppApi {
   /** the state this render drew */
@@ -35,7 +44,7 @@ export interface AppApi {
   /** copies to the clipboard (OSC 52); false when the terminal cannot */
   copy(text: string): boolean;
   /** answers the top dialog: runs the handler registered for its purpose */
-  answer(value: string): void;
+  answer(value: string, extra?: AnswerExtra): void;
   onDialog(type: Purpose["type"], fn: DialogHandler): () => void;
   /**
    * esc runs the newest back handler (clear a filter, leave a run); ctrl+c runs only the newest one that
@@ -89,11 +98,11 @@ export function AppProvider(props: {
       },
       exit: (code) => propsRef.current.onExit(code, kept.current),
       copy: (text) => propsRef.current.copy(text),
-      answer(value) {
+      answer(value, extra = {}) {
         const top = stateRef.current.dialogs.at(-1);
         if (!top) return;
         const fn = handlers.current.get(top.purpose.type)?.at(-1);
-        if (fn) void fn(top.purpose, value);
+        if (fn) void fn(top.purpose, value, extra);
       },
       onDialog(type, fn) {
         const list = handlers.current.get(type) ?? [];
@@ -130,7 +139,7 @@ export function useDialogHandler(type: Purpose["type"], fn: DialogHandler): void
   const app = useApp();
   const ref = useRef(fn);
   ref.current = fn;
-  useEffect(() => app.onDialog(type, (p, v) => ref.current(p, v)), [app.onDialog, type]);
+  useEffect(() => app.onDialog(type, (p, v, x) => ref.current(p, v, x)), [app.onDialog, type]);
 }
 
 /** Registers a back handler while `active`: `input` clears a text input, `view` leaves a view. */

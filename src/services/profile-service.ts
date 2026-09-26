@@ -9,6 +9,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { basename, join, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { ADAPTER_IDS } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -334,14 +335,34 @@ const unsaved = (v: Validation): Saved => ({
   newSessionNeededFor: [],
 });
 
+/** The issue path of a save refused because the profile is no longer the one its caller was shown. */
+export const CHANGED_ON_DISK = "profile";
+
 /**
  * Spec §7.3 `patch` (profile_set, `catherd profile set`): validates first and writes nothing when invalid.
- * A profile that does not exist yet starts from the default profile.
+ * A profile that does not exist yet starts from the default profile. With `expect` (the profile as a
+ * preview read it), it writes nothing when the profile under the lock is no longer that one: the patch
+ * would land on values the preview never showed.
  */
-export function patchProfile(name: string | undefined, patch: ProfilePatch): Saved {
+export function patchProfile(
+  name: string | undefined,
+  patch: ProfilePatch,
+  opts: { expect?: ProfileDoc } = {},
+): Saved {
   return locked(() => {
     const n = assertProfileName(name ?? activeName());
     const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    if (opts.expect !== undefined && !isDeepStrictEqual(before, opts.expect))
+      return unsaved({
+        errors: [
+          {
+            path: CHANGED_ON_DISK,
+            message: `profile "${n}" changed on disk since it was shown`,
+            fix: "check the changes and save again",
+          },
+        ],
+        warnings: [],
+      });
     const after = applyPatch(before, patch);
     const resolved = resolveProfile(after, n);
     const v = validate(after, n);

@@ -4,6 +4,7 @@ import {
   applyPatch,
   type Change,
   diffProfiles,
+  type ProfileDoc,
   patchBetween,
   resolveProfile,
 } from "../../../domain/profile.ts";
@@ -45,8 +46,8 @@ export interface SavePreview {
 export function previewSave(
   d: Draft,
   fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
+  now: ProfileDoc = fx.readProfile(d.name),
 ): SavePreview {
-  const now = fx.readProfile(d.name);
   const before = resolveProfile(now, d.name);
   const after = resolveProfile(applyPatch(now, patchBetween(d.base, d.doc)), d.name);
   const { catalog } = fx.catalog(after.billing);
@@ -178,6 +179,26 @@ export function SaveDialog(props: { dialog: Save }) {
     };
   }, [fresh, renderer]);
   const [changed, setChanged] = useState(false);
+  /** reads the file again; a preview other than the shown one replaces it and asks again (false) */
+  const recheck = (): { same: boolean; now: ProfileDoc | null } => {
+    const d = app.getState().drafts[name];
+    let doc: ProfileDoc | null = null;
+    let now: SavePreview | null = null;
+    let failed: string | null = null;
+    try {
+      doc = d ? app.effects.readProfile(name) : null;
+      now = d && doc ? previewSave(d, app.effects, doc) : null;
+    } catch (e) {
+      failed = e instanceof Error ? e.message : String(e);
+    }
+    if (failed === null && JSON.stringify(now) === JSON.stringify(shownRef.current))
+      return { same: true, now: doc };
+    shownRef.current = now;
+    unseenRef.current = true;
+    setFresh({ key, value: now, error: failed });
+    setChanged(true);
+    return { same: false, now: doc };
+  };
   const blocked = error !== null || (preview?.validation.errors.length ?? 0) > 0;
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
   const labels = blocked ? ["Cancel"] : ["Save", "Save & make active", "Cancel"];
@@ -197,28 +218,21 @@ export function SaveDialog(props: { dialog: Save }) {
       const label = labels[Math.min(focusedRef.current, labels.length - 1)];
       // nothing is saved before its diff has been shown
       if (label !== "Cancel" && (!shownRef.current || unseenRef.current)) return;
-      if (label !== "Cancel") {
-        // only the save the dialog shows is made: the file is read again now, and a different preview
-        // replaces the shown one and asks again instead of saving
-        const d = app.getState().drafts[name];
-        let now: SavePreview | null = null;
-        let failed: string | null = null;
-        try {
-          now = d ? previewSave(d, app.effects) : null;
-        } catch (e) {
-          failed = e instanceof Error ? e.message : String(e);
-        }
-        if (failed !== null || JSON.stringify(now) !== JSON.stringify(shownRef.current)) {
-          shownRef.current = now;
-          unseenRef.current = true;
-          setFresh({ key, value: now, error: failed });
-          setChanged(true);
-          return;
-        }
-      }
-      if (label === "Save") app.answer("save");
-      else if (label === "Save & make active") app.answer("activate");
-      else app.dispatch({ type: "close" });
+      if (label === "Cancel") return app.dispatch({ type: "close" });
+      // only the save the dialog shows is made: the file is read again now, and a different preview
+      // replaces the shown one and asks again instead of saving
+      const { same, now } = recheck();
+      if (!same || !now) return;
+      // the save writes only over the file this preview read: one changed while it writes (another
+      // process, while a treat-like waits for the catalog lock) is refused, and the dialog asks again
+      const extra = {
+        shown: now,
+        // the notice shows even when the change is one this preview does not show (another field)
+        changed: () => {
+          if (recheck().same) setChanged(true);
+        },
+      };
+      app.answer(label === "Save" ? "save" : "activate", extra);
     },
   });
   const rows = (inner: number): ReactNode[] => {

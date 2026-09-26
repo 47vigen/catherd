@@ -1,5 +1,6 @@
 import { isCatherdError } from "../../../domain/errors.ts";
 import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
+import { CHANGED_ON_DISK } from "../effects.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
 import { errorToast } from "../providers/toast.tsx";
@@ -233,7 +234,7 @@ export function useProfileDialogs(): void {
     app.dispatch({ type: "close" });
     if (p.type === "revert") app.dispatch({ type: "revert", name: p.name });
   });
-  useDialogHandler("save", async (p, value) => {
+  useDialogHandler("save", async (p, value, extra) => {
     if (p.type !== "save") return;
     const d = app.getState().drafts[p.name];
     if (!d) return app.dispatch({ type: "close" });
@@ -243,7 +244,7 @@ export function useProfileDialogs(): void {
     app.dispatch({ type: "saving", name: p.name, on: true });
     let r: Awaited<ReturnType<AppApi["effects"]["save"]>>;
     try {
-      r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes);
+      r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes, extra.shown);
     } catch (e) {
       app.dispatch({ type: "saving", name: p.name, on: false });
       return app.dispatch({
@@ -252,6 +253,12 @@ export function useProfileDialogs(): void {
       });
     }
     app.dispatch({ type: "saving", name: p.name, on: false });
+    // another process changed the profile while this one saved: nothing is written, and the dialog shows
+    // what saving would do now and asks again
+    if (!r.saved && r.errors.some((e) => e.path === CHANGED_ON_DISK) && extra.changed) {
+      app.dispatch({ type: "invalid", error: null });
+      return extra.changed();
+    }
     if (!r.saved)
       return app.dispatch({
         type: "invalid",

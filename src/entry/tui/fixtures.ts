@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   applyPatch,
   defaultProfileDoc,
@@ -9,7 +10,7 @@ import { validateProfile } from "../../domain/profile-rules.ts";
 import { catalogQuery, loadCatalog } from "../../services/catalog-service.ts";
 import type { DoctorReport } from "../../services/doctor.ts";
 import type { RunSummary } from "../../services/summary.ts";
-import { type Effects, type RunDetail, type RunRow, rowOf } from "./effects.ts";
+import { CHANGED_ON_DISK, type Effects, type RunDetail, type RunRow, rowOf } from "./effects.ts";
 import { withStaged } from "./profile-tree.ts";
 
 /**
@@ -249,8 +250,25 @@ export function fixtureEffects(
             .filter((x) => x.startsWith("claude:"))
             .map((x) => `catherd-${p.name}-${r}-${x.slice(7).replace("#", "-")}`),
         ),
-    async save(name, patch, treatLikes) {
+    async save(name, patch, treatLikes, shown) {
       const before = docs.get(name) ?? defaultProfileDoc(name);
+      // the ProfileService's compare-and-swap: nothing is written over a profile the preview did not show
+      if (shown !== undefined && !isDeepStrictEqual(before, shown))
+        return {
+          saved: false,
+          errors: [
+            {
+              path: CHANGED_ON_DISK,
+              message: `profile "${name}" changed on disk since it was shown`,
+              fix: "check the changes and save again",
+            },
+          ],
+          warnings: [],
+          diff: [],
+          linked: [],
+          pruned: [],
+          newSessionNeededFor: [],
+        };
       const after = applyPatch(before, patch);
       const r = result(name, before, after, treatLikes);
       if (r.saved) {

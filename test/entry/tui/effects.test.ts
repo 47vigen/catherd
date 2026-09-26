@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { applyPatch, defaultProfileDoc, patchBetween, resolveProfile } from "../../../src/domain/profile.ts";
-import { liveEffects, memoRuns, type RunRow, stampOf } from "../../../src/entry/tui/effects.ts";
+import {
+  CHANGED_ON_DISK,
+  liveEffects,
+  memoRuns,
+  type RunRow,
+  stampOf,
+} from "../../../src/entry/tui/effects.ts";
 import { activate, activeName, createProfile, patchProfile } from "../../../src/services/profile-service.ts";
 import { appendRoute, type Run } from "../../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../../helpers.ts";
@@ -136,6 +142,26 @@ describe("the live effects", () => {
       "speed",
       { minutes: 30 },
     ]);
+  });
+
+  it("writes no patch over a profile changed on disk since the preview read it (shown)", async () => {
+    withHome();
+    const fx = liveEffects();
+    const shown = fx.readProfile("default");
+    // another process, while the save's treat-like waits for the catalog lock
+    patchProfile("default", { budget: { minutes: 30 } });
+    const rung = "opencode:opencode-go/gpt-6-luna#xhigh";
+    const r = await fx.save(
+      "default",
+      { roles: { writer: { rungs: [rung] } } },
+      { [rung]: "gpt-6-luna#high" },
+      shown,
+    );
+    expect([r.saved, r.errors.map((e) => e.path)]).toEqual([false, [CHANGED_ON_DISK]]);
+    expect(fx.readProfile("default").roles?.writer?.rungs).not.toEqual([rung]);
+    expect(fx.readProfile("default").budget).toEqual({ minutes: 30 });
+    const now = fx.readProfile("default");
+    expect((await fx.save("default", { roles: { writer: { rungs: [rung] } } }, {}, now)).saved).toBe(true);
   });
 
   it("names the harnesses, the native agents and each rung's enforcement", () => {

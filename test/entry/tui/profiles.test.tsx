@@ -320,6 +320,41 @@ describe("the Profiles tab", () => {
     expect(h!.app().getState().dialogs).toEqual([]);
   });
 
+  it("writes nothing when the profile changes on disk while a staged treat-like is saved, and asks again", async () => {
+    const fx = await profiles();
+    await find("worker gpt-6-sol ultra");
+    await h!.s.press("space");
+    await h!.s.type("gpt-6-sol#xhigh");
+    await h!.s.press("return", "ctrl+s");
+    expect(h!.s.frame()).toContain("treat codex:gpt-6-sol#ultra like gpt-6-sol#xhigh");
+    // another process writes the rungs while the treat-like waits for the catalog lock
+    const theirs = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"];
+    const save = fx.save;
+    let other = true;
+    fx.save = async (name, patch, treatLikes, shown) => {
+      if (other) {
+        other = false;
+        expect((await save(name, { roles: { worker: { rungs: theirs } } }, {})).saved).toBe(true);
+        fx.writes.length = 0;
+      }
+      return save(name, patch, treatLikes, shown);
+    };
+    await h!.s.press("return");
+    expect(fx.writes).toEqual([]);
+    expect(fx.readProfile("default").roles?.worker?.rungs).toEqual(theirs);
+    expect(h!.app().getState().dialogs).toHaveLength(1);
+    expect(h!.s.frame()).toContain("Save profile default");
+    // the new preview: the rungs as the other process left them, before the draft's
+    expect(h!.s.frame()).toMatch(/roles\.worker\.rungs\s+codex:gpt-6-luna#high, codex:gpt-6-sol#medium → /);
+    expect(h!.s.frame()).toContain("the profile changed on disk — check the changes and choose again");
+    expect(h!.s.frame()).toContain("[ Save ]");
+    await h!.s.press("return");
+    expect(fx.writes).toHaveLength(1);
+    expect(fx.writes[0]).toContain('{"codex:gpt-6-sol#ultra":"gpt-6-sol#xhigh"}');
+    expect(fx.readProfile("default").roles?.worker?.rungs).toContain("codex:gpt-6-sol#ultra");
+    expect(h!.app().getState().dialogs).toEqual([]);
+  });
+
   it("takes no Save in the burst that replaced a changed preview, before the new one is drawn", async () => {
     const fx = await profiles();
     await find("worker access");

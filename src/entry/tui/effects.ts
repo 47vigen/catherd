@@ -41,6 +41,9 @@ import { type RunSummary, summarizeRun } from "../../services/summary.ts";
 import { defaultDeps } from "../deps.ts";
 import { mcpHandshake } from "../mcp/handshake.ts";
 
+/** A save refused because the profile changed on disk since its preview read it carries this path. */
+export { CHANGED_ON_DISK } from "../../services/profile-service.ts";
+
 /** One line of the run list. */
 export interface RunRow {
   id: string;
@@ -109,9 +112,17 @@ export interface Effects {
   agents(p: Profile): string[];
   /**
    * writes the staged treat-likes, then the profile patch, through the ProfileService (validation reads
-   * the treat-likes, so they go first); a refused patch leaves the treat-likes written
+   * the treat-likes, so they go first); a refused patch leaves the treat-likes written. With `shown` (the
+   * profile as the save dialog's last preview read it), the patch is written only over that profile: when
+   * another process changed it meanwhile (while a treat-like waited for the catalog lock, say), nothing
+   * is written and the result's one error has the path CHANGED_ON_DISK
    */
-  save(name: string, patch: ProfilePatch, treatLikes: Record<string, string>): Promise<Saved>;
+  save(
+    name: string,
+    patch: ProfilePatch,
+    treatLikes: Record<string, string>,
+    shown?: ProfileDoc,
+  ): Promise<Saved>;
   /** makes it active, or binds `repo` to it inside a bound repo */
   activate(name: string): Synced;
   create(name: string, from?: string): Saved;
@@ -245,9 +256,9 @@ export function liveEffects(repo: string | null = null): Effects {
     enforcement: enforcementOf,
     harnesses,
     agents: (p) => agentFiles(p, VERSION).map((f) => f.name),
-    async save(name, patch, treatLikes) {
+    async save(name, patch, treatLikes, shown) {
       for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
-      return patchProfile(name, patch);
+      return patchProfile(name, patch, shown === undefined ? {} : { expect: shown });
     },
     activate: (name) => activate(name, bound()),
     create: createProfile,
