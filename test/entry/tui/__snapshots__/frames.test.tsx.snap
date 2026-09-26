@@ -1,0 +1,2333 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`frames status 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ SETUP                                                         checked just now
+   ✓ ready         Bun — 1.4.2
+   ✓ ready         config — active profile default
+   ✓ ready         profile default — valid
+   ✓ ready         codex — 0.156.1, logged in, 14 models
+   ✓ ready         claude-code — 2.1.282, logged in, 6 models
+   ! not logged in opencode — 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev — optional: routing uses the lane files
+   ✗ missing       Claude Code plugin — not installed
+                    fix: claude plugin marketplace add 47vigen/catherd &&
+                    claude plugin install catherd@catherd
+   ✓ ready         Claude agents — 2 linked
+   ✓ ready         MCP server — 20 tools
+ PROFILE
+   default  active · 1 profile
+ RECENT RUNS
+   ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% bud…
+   · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+────────────────────────────────────────────────────────────────────────────────
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames status 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+ SETUP                                                         checked just now
+   + ready         Bun - 1.4.2
+   + ready         config - active profile default
+   + ready         profile default - valid
+   + ready         codex - 0.156.1, logged in, 14 models
+   + ready         claude-code - 2.1.282, logged in, 6 models
+   ! not logged in opencode - 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev - optional: routing uses the lane files
+   x missing       Claude Code plugin - not installed
+                    fix: claude plugin marketplace add 47vigen/catherd &&
+                    claude plugin install catherd@catherd
+   + ready         Claude agents - 2 linked
+   + ready         MCP server - 20 tools
+ PROFILE
+   default  active - 1 profile
+ RECENT RUNS
+   * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% b...
+   - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+--------------------------------------------------------------------------------
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames status 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ SETUP                                                                             checked just now
+   ✓ ready         Bun — 1.4.2
+   ✓ ready         config — active profile default
+   ✓ ready         profile default — valid
+   ✓ ready         codex — 0.156.1, logged in, 14 models
+   ✓ ready         claude-code — 2.1.282, logged in, 6 models
+   ! not logged in opencode — 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev — optional: routing uses the lane files
+   ✗ missing       Claude Code plugin — not installed
+                    fix: claude plugin marketplace add 47vigen/catherd && claude plugin install
+                    catherd@catherd
+   ✓ ready         Claude agents — 2 linked
+   ✓ ready         MCP server — 20 tools
+ PROFILE
+   default  active · 1 profile
+ RECENT RUNS
+   ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budget  12m ago
+   · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames status 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+ SETUP                                                                             checked just now
+   + ready         Bun - 1.4.2
+   + ready         config - active profile default
+   + ready         profile default - valid
+   + ready         codex - 0.156.1, logged in, 14 models
+   + ready         claude-code - 2.1.282, logged in, 6 models
+   ! not logged in opencode - 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev - optional: routing uses the lane files
+   x missing       Claude Code plugin - not installed
+                    fix: claude plugin marketplace add 47vigen/catherd && claude plugin install
+                    catherd@catherd
+   + ready         Claude agents - 2 linked
+   + ready         MCP server - 20 tools
+ PROFILE
+   default  active - 1 profile
+ RECENT RUNS
+   * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% budget  12m ago
+   - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames status 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ SETUP                                                                                                 checked just now
+   ✓ ready         Bun — 1.4.2
+   ✓ ready         config — active profile default
+   ✓ ready         profile default — valid
+   ✓ ready         codex — 0.156.1, logged in, 14 models
+   ✓ ready         claude-code — 2.1.282, logged in, 6 models
+   ! not logged in opencode — 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev — optional: routing uses the lane files
+   ✗ missing       Claude Code plugin — not installed
+                    fix: claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
+   ✓ ready         Claude agents — 2 linked
+   ✓ ready         MCP server — 20 tools
+ PROFILE
+   default  active · 1 profile
+ RECENT RUNS
+   ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budget  12m ago
+   · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames status 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+ SETUP                                                                                                 checked just now
+   + ready         Bun - 1.4.2
+   + ready         config - active profile default
+   + ready         profile default - valid
+   + ready         codex - 0.156.1, logged in, 14 models
+   + ready         claude-code - 2.1.282, logged in, 6 models
+   ! not logged in opencode - 2.0.16 (a failover stand-in uses it)
+                    fix: opencode auth login
+   - no key        Jev - optional: routing uses the lane files
+   x missing       Claude Code plugin - not installed
+                    fix: claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
+   + ready         Claude agents - 2 linked
+   + ready         MCP server - 20 tools
+ PROFILE
+   default  active - 1 profile
+ RECENT RUNS
+   * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% budget  12m ago
+   - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter open  y copy fix  r re-check  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active)   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6…
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+  ↓ 50 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+ PROFILE default (active)   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> g...
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+  v 50 more
+space turns the role on or off; enter opens its access, default rung and models
+
+--------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active)   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6-sol#high → gpt-6-so…
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     codex  chatgpt-plan
+       ▸ gpt-5.6-luna            0 of 5
+       ▸ gpt-5.6-sol             0 of 6
+       ▸ gpt-6-astra             0 of 6
+       ▸ gpt-6-luna              1 of 5
+  ↓ 44 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+ PROFILE default (active)   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> gpt-6-sol#high -> gpt...
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     codex  chatgpt-plan
+       > gpt-5.6-luna            0 of 5
+       > gpt-5.6-sol             0 of 6
+       > gpt-6-astra             0 of 6
+       > gpt-6-luna              1 of 5
+  v 44 more
+space turns the role on or off; enter opens its access, default rung and models
+
+----------------------------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active)   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6-sol#high → gpt-6-sol#xhigh
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     codex  chatgpt-plan
+       ▸ gpt-5.6-luna            0 of 5
+       ▸ gpt-5.6-sol             0 of 6
+       ▸ gpt-6-astra             0 of 6
+       ▸ gpt-6-luna              1 of 5
+       ▸ gpt-6-sol               3 of 6
+       ▸ gpt-5.6-terra           0 of 6 · unscored
+     opencode-go  subscription
+       ▸ opencode-go/gpt-5.6-luna  0 of 6
+       ▸ opencode-go/gpt-6-luna  0 of 6
+     opencode  metered
+       ▸ opencode/claude-fable-5-1  0 of 5
+       ▸ opencode/claude-opus-5-5  0 of 5
+       ▸ opencode/claude-sonnet-5  0 of 5
+       ▸ opencode/gpt-5.6-luna   0 of 6
+  ↓ 34 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  / filter  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+ PROFILE default (active)   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> gpt-6-sol#high -> gpt-6-sol#xhigh
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     codex  chatgpt-plan
+       > gpt-5.6-luna            0 of 5
+       > gpt-5.6-sol             0 of 6
+       > gpt-6-astra             0 of 6
+       > gpt-6-luna              1 of 5
+       > gpt-6-sol               3 of 6
+       > gpt-5.6-terra           0 of 6 - unscored
+     opencode-go  subscription
+       > opencode-go/gpt-5.6-luna  0 of 6
+       > opencode-go/gpt-6-luna  0 of 6
+     opencode  metered
+       > opencode/claude-fable-5-1  0 of 5
+       > opencode/claude-opus-5-5  0 of 5
+       > opencode/claude-sonnet-5  0 of 5
+       > opencode/gpt-5.6-luna   0 of 6
+  v 34 more
+space turns the role on or off; enter opens its access, default rung and models
+
+------------------------------------------------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  / filter  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 80x24 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active) · 2 unsaved   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6…
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+  ↓ 50 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+ PROFILE default (active) - 2 unsaved   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> g...
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+  v 50 more
+space turns the role on or off; enter opens its access, default rung and models
+
+--------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 100x30 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active) · 2 unsaved   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6-sol#high → gpt-6-so…
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     codex  chatgpt-plan
+       ▸ gpt-5.6-luna            0 of 5
+       ▸ gpt-5.6-sol             0 of 6
+       ▸ gpt-6-astra             0 of 6
+       ▸ gpt-6-luna              1 of 5
+  ↓ 44 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+ PROFILE default (active) - 2 unsaved   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> gpt-6-sol#high -> gpt...
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     codex  chatgpt-plan
+       > gpt-5.6-luna            0 of 5
+       > gpt-5.6-sol             0 of 6
+       > gpt-6-astra             0 of 6
+       > gpt-6-luna              1 of 5
+  v 44 more
+space turns the role on or off; enter opens its access, default rung and models
+
+----------------------------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 120x40 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ PROFILE default (active) · 2 unsaved   · ctrl+x l switch · ctrl+x n new
+ ROLES
+   ▸ [x] architect                   claude-opus-5-5#high
+   ▸ [x] verifier                    claude-opus-5-5#low
+   ▾ [x] worker                      gpt-6-luna#high → gpt-6-sol#medium → gpt-6-sol#high → gpt-6-sol#xhigh
+       access                    workspace-write · enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     claude-code (headless)  claude-plan
+       ▸ claude-fable-5-1        0 of 5
+       ▸ claude-opus-5-5         0 of 5
+       ▸ claude-sonnet-5         0 of 5
+       ▸ claude-haiku-4-5-20251001  0 of 1 · unscored
+     codex  chatgpt-plan
+       ▸ gpt-5.6-luna            0 of 5
+       ▸ gpt-5.6-sol             0 of 6
+       ▸ gpt-6-astra             0 of 6
+       ▸ gpt-6-luna              1 of 5
+       ▸ gpt-6-sol               3 of 6
+       ▸ gpt-5.6-terra           0 of 6 · unscored
+     opencode-go  subscription
+       ▸ opencode-go/gpt-5.6-luna  0 of 6
+       ▸ opencode-go/gpt-6-luna  0 of 6
+     opencode  metered
+       ▸ opencode/claude-fable-5-1  0 of 5
+       ▸ opencode/claude-opus-5-5  0 of 5
+       ▸ opencode/claude-sonnet-5  0 of 5
+       ▸ opencode/gpt-5.6-luna   0 of 6
+  ↓ 34 more
+space turns the role on or off; enter opens its access, default rung and models
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  / filter  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames profiles-dirty 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+ PROFILE default (active) - 2 unsaved   - ctrl+x l switch - ctrl+x n new
+ ROLES
+   > [x] architect                   claude-opus-5-5#high
+   > [x] verifier                    claude-opus-5-5#low
+   v [x] worker                      gpt-6-luna#high -> gpt-6-sol#medium -> gpt-6-sol#high -> gpt-6-sol#xhigh
+       access                    workspace-write - enforced
+       default rung              gpt-6-sol#medium
+     claude (native subagent)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     claude-code (headless)  claude-plan
+       > claude-fable-5-1        0 of 5
+       > claude-opus-5-5         0 of 5
+       > claude-sonnet-5         0 of 5
+       > claude-haiku-4-5-20251001  0 of 1 - unscored
+     codex  chatgpt-plan
+       > gpt-5.6-luna            0 of 5
+       > gpt-5.6-sol             0 of 6
+       > gpt-6-astra             0 of 6
+       > gpt-6-luna              1 of 5
+       > gpt-6-sol               3 of 6
+       > gpt-5.6-terra           0 of 6 - unscored
+     opencode-go  subscription
+       > opencode-go/gpt-5.6-luna  0 of 6
+       > opencode-go/gpt-6-luna  0 of 6
+     opencode  metered
+       > opencode/claude-fable-5-1  0 of 5
+       > opencode/claude-opus-5-5  0 of 5
+       > opencode/claude-sonnet-5  0 of 5
+       > opencode/gpt-5.6-luna   0 of 6
+  v 34 more
+space turns the role on or off; enter opens its access, default rung and models
+
+------------------------------------------------------------------------------------------------------------------------
+ space toggle  enter change  ctrl+s save  a activate  ctrl+x u undo  / filter  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames save 80x24 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+   Save profile default                                                   esc
+
+   budget.usd  none → 5
+   roles.verifier.access  full → read-only
+
+   ! roles.verifier.access: verifier runs read-only; catherd's default for it
+   is full
+
+   Applies to: native Claude agents in new Claude Code sessions; codex,
+   claude-code and opencode from the next dispatch.
+
+   [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames save 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+   Save profile default                                                   esc
+
+   budget.usd  none -> 5
+   roles.verifier.access  full -> read-only
+
+   ! roles.verifier.access: verifier runs read-only; catherd's default for it
+   is full
+
+   Applies to: native Claude agents in new Claude Code sessions; codex,
+   claude-code and opencode from the next dispatch.
+
+   [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+--------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames save 100x30 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+        Save profile default                                                             esc
+
+        budget.usd  none → 5
+        roles.verifier.access  full → read-only
+
+        ! roles.verifier.access: verifier runs read-only; catherd's default for it is full
+
+        Applies to: native Claude agents in new Claude Code sessions; codex, claude-code and
+        opencode from the next dispatch.
+
+        [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames save 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+        Save profile default                                                             esc
+
+        budget.usd  none -> 5
+        roles.verifier.access  full -> read-only
+
+        ! roles.verifier.access: verifier runs read-only; catherd's default for it is full
+
+        Applies to: native Claude agents in new Claude Code sessions; codex, claude-code and
+        opencode from the next dispatch.
+
+        [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames save 120x40 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                  Save profile default                                                             esc
+
+                  budget.usd  none → 5
+                  roles.verifier.access  full → read-only
+
+                  ! roles.verifier.access: verifier runs read-only; catherd's default for it is full
+
+                  Applies to: native Claude agents in new Claude Code sessions; codex, claude-code and
+                  opencode from the next dispatch.
+
+                  [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames save 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                  Save profile default                                                             esc
+
+                  budget.usd  none -> 5
+                  roles.verifier.access  full -> read-only
+
+                  ! roles.verifier.access: verifier runs read-only; catherd's default for it is full
+
+                  Applies to: native Claude agents in new Claude Code sessions; codex, claude-code and
+                  opencode from the next dispatch.
+
+                  [ Save ]  [ Save & make active ]  [ Cancel ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames quit 80x24 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+            Quit with unsaved changes?                           esc
+
+            2 unsaved changes will be lost.
+
+            [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames quit 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+            Quit with unsaved changes?                           esc
+
+            2 unsaved changes will be lost.
+
+            [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames quit 100x30 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+                      Quit with unsaved changes?                           esc
+
+                      2 unsaved changes will be lost.
+
+                      [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames quit 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+                      Quit with unsaved changes?                           esc
+
+                      2 unsaved changes will be lost.
+
+                      [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames quit 120x40 1`] = `
+" catherd 1.0.0  profile default (active) · 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                                Quit with unsaved changes?                           esc
+
+                                2 unsaved changes will be lost.
+
+                                [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames quit 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active) - 2 unsaved                                                              =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                                Quit with unsaved changes?                           esc
+
+                                2 unsaved changes will be lost.
+
+                                [ Keep editing ]  [ Discard and quit ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames new-profile 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+            New profile                                          esc
+
+            name: lowercase letters, digits and -, up to 32
+            >
+
+            enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames new-profile 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+            New profile                                          esc
+
+            name: lowercase letters, digits and -, up to 32
+            >
+
+            enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames new-profile 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+                      New profile                                          esc
+
+                      name: lowercase letters, digits and -, up to 32
+                      >
+
+                      enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames new-profile 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+                      New profile                                          esc
+
+                      name: lowercase letters, digits and -, up to 32
+                      >
+
+                      enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames new-profile 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                                New profile                                          esc
+
+                                name: lowercase letters, digits and -, up to 32
+                                >
+
+                                enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames new-profile 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                                New profile                                          esc
+
+                                name: lowercase letters, digits and -, up to 32
+                                >
+
+                                enter to save, esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames profile-list 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+            Profiles                                             esc
+
+            > type to filter
+
+            ● default                                         active
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames profile-list 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+            Profiles                                             esc
+
+            > type to filter
+
+            * default                                         active
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames profile-list 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+                      Profiles                                             esc
+
+                      > type to filter
+
+                      ● default                                         active
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames profile-list 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+                      Profiles                                             esc
+
+                      > type to filter
+
+                      * default                                         active
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames profile-list 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                                Profiles                                             esc
+
+                                > type to filter
+
+                                ● default                                         active
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames profile-list 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                                Profiles                                             esc
+
+                                > type to filter
+
+                                * default                                         active
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose  ctrl+d delete
+"
+`;
+
+exports[`frames palette 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+            Commands                                             esc
+
+            > type to filter
+
+            Suggested
+              New profile…      ctrl+x n  catherd profile new <name>
+              Switch profile…         ctrl+x l  catherd profile list
+              Re-check setup                       r  catherd doctor
+            App
+            ↓ 12 more
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames palette 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+            Commands                                             esc
+
+            > type to filter
+
+            Suggested
+              New profile...      ctrl+x n  catherd profile new <...
+              Switch profile...         ctrl+x l  catherd profile...
+              Re-check setup                       r  catherd doctor
+            App
+            v 12 more
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames palette 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+                      Commands                                             esc
+
+                      > type to filter
+
+                      Suggested
+                        New profile…      ctrl+x n  catherd profile new <name>
+                        Switch profile…         ctrl+x l  catherd profile list
+                        Re-check setup                       r  catherd doctor
+                      App
+                        Keyboard shortcuts                                   ?
+                        Quit                                        q/ctrl+x q
+                      Tabs
+                      ↓ 9 more
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames palette 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+                      Commands                                             esc
+
+                      > type to filter
+
+                      Suggested
+                        New profile...      ctrl+x n  catherd profile new <...
+                        Switch profile...         ctrl+x l  catherd profile...
+                        Re-check setup                       r  catherd doctor
+                      App
+                        Keyboard shortcuts                                   ?
+                        Quit                                        q/ctrl+x q
+                      Tabs
+                      v 9 more
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames palette 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                                Commands                                             esc
+
+                                > type to filter
+
+                                Suggested
+                                  New profile…      ctrl+x n  catherd profile new <name>
+                                  Switch profile…         ctrl+x l  catherd profile list
+                                  Re-check setup                       r  catherd doctor
+                                App
+                                  Keyboard shortcuts                                   ?
+                                  Quit                                        q/ctrl+x q
+                                Tabs
+                                  Go to Status                                1/ctrl+x 1
+                                  Go to Profiles                              2/ctrl+x 2
+                                  Go to Runs                                  3/ctrl+x 3
+                                Profiles
+                                  New profile…      ctrl+x n  catherd profile new <name>
+                                ↓ 4 more
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames palette 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                                Commands                                             esc
+
+                                > type to filter
+
+                                Suggested
+                                  New profile...      ctrl+x n  catherd profile new <...
+                                  Switch profile...         ctrl+x l  catherd profile...
+                                  Re-check setup                       r  catherd doctor
+                                App
+                                  Keyboard shortcuts                                   ?
+                                  Quit                                        q/ctrl+x q
+                                Tabs
+                                  Go to Status                                1/ctrl+x 1
+                                  Go to Profiles                              2/ctrl+x 2
+                                  Go to Runs                                  3/ctrl+x 3
+                                Profiles
+                                  New profile...      ctrl+x n  catherd profile new <...
+                                v 4 more
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames help 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+            Keyboard shortcuts                                   esc
+
+            > type to filter
+
+            App
+              Command palette                               ctrl+p/:
+              Keyboard shortcuts                                   ?
+              Quit                                        q/ctrl+x q
+            Tabs
+            ↓ 22 more
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames help 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+
+
+
+
+            Keyboard shortcuts                                   esc
+
+            > type to filter
+
+            App
+              Command palette                               ctrl+p/:
+              Keyboard shortcuts                                   ?
+              Quit                                        q/ctrl+x q
+            Tabs
+            v 22 more
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames help 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+                      Keyboard shortcuts                                   esc
+
+                      > type to filter
+
+                      App
+                        Command palette                               ctrl+p/:
+                        Keyboard shortcuts                                   ?
+                        Quit                                        q/ctrl+x q
+                      Tabs
+                        Go to Status                                1/ctrl+x 1
+                        Go to Profiles                              2/ctrl+x 2
+                        Go to Runs                                  3/ctrl+x 3
+                      ↓ 19 more
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames help 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+                      Keyboard shortcuts                                   esc
+
+                      > type to filter
+
+                      App
+                        Command palette                               ctrl+p/:
+                        Keyboard shortcuts                                   ?
+                        Quit                                        q/ctrl+x q
+                      Tabs
+                        Go to Status                                1/ctrl+x 1
+                        Go to Profiles                              2/ctrl+x 2
+                        Go to Runs                                  3/ctrl+x 3
+                      v 19 more
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames help 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                                Keyboard shortcuts                                   esc
+
+                                > type to filter
+
+                                App
+                                  Command palette                               ctrl+p/:
+                                  Keyboard shortcuts                                   ?
+                                  Quit                                        q/ctrl+x q
+                                Tabs
+                                  Go to Status                                1/ctrl+x 1
+                                  Go to Profiles                              2/ctrl+x 2
+                                  Go to Runs                                  3/ctrl+x 3
+                                  Next tab                                             ]
+                                  Previous tab                                         [
+                                Profiles
+                                  New profile…                                  ctrl+x n
+                                  Switch profile…                               ctrl+x l
+                                ↓ 14 more
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter choose
+"
+`;
+
+exports[`frames help 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+                                Keyboard shortcuts                                   esc
+
+                                > type to filter
+
+                                App
+                                  Command palette                               ctrl+p/:
+                                  Keyboard shortcuts                                   ?
+                                  Quit                                        q/ctrl+x q
+                                Tabs
+                                  Go to Status                                1/ctrl+x 1
+                                  Go to Profiles                              2/ctrl+x 2
+                                  Go to Runs                                  3/ctrl+x 3
+                                  Next tab                                             ]
+                                  Previous tab                                         [
+                                Profiles
+                                  New profile...                                  ctr...
+                                  Switch profile...                               ctr...
+                                v 14 more
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter choose
+"
+`;
+
+exports[`frames runs 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ RUNS  updated just now
+ ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budge…
+ · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames runs 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+ RUNS  updated just now
+ * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% bud...
+ - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames runs 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ RUNS  updated just now
+ ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budget  12m ago
+ · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames runs 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+ RUNS  updated just now
+ * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% budget  12m ago
+ - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames runs 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ RUNS  updated just now
+ ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budget  12m ago
+ · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames runs 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+ RUNS  updated just now
+ * live  Jobs screen  /home/me/app  2 live - 3 role runs - 1 landed - 52% budget  12m ago
+ - idle  Auth refactor  /home/me/api  9 role runs - 3 landed  1d ago
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 80x24 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ Jobs screen  /home/me/app · started 12m ago · updated just now
+ budget [████████████████░░░░░░░░░░░░░░] 52% · 31/60 min
+ 3 role runs, 3 ok · 812k in · 41k out · $0.00
+ LIVE
+   ● worker-M1.L2    gpt-6-sol#medium    04:12   running
+   ◌ reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high → gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   ✓ M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 80x24 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+--------------------------------------------------------------------------------
+ Jobs screen  /home/me/app - started 12m ago - updated just now
+ budget [################..............] 52% - 31/60 min
+ 3 role runs, 3 ok - 812k in - 41k out - $0.00
+ LIVE
+   * worker-M1.L2    gpt-6-sol#medium    04:12   running
+   . reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high -> gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   + M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+--------------------------------------------------------------------------------
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 100x30 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Jobs screen  /home/me/app · started 12m ago · updated just now
+ budget [████████████████░░░░░░░░░░░░░░] 52% · 31/60 min
+ 3 role runs, 3 ok · 812k in · 41k out · $0.00
+ LIVE
+   ● worker-M1.L2    gpt-6-sol#medium    04:12   running
+   ◌ reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high → gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   ✓ M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 100x30 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                      =x.x=
+ 1 Status   2 Profiles   3 Runs
+----------------------------------------------------------------------------------------------------
+ Jobs screen  /home/me/app - started 12m ago - updated just now
+ budget [################..............] 52% - 31/60 min
+ 3 role runs, 3 ok - 812k in - 41k out - $0.00
+ LIVE
+   * worker-M1.L2    gpt-6-sol#medium    04:12   running
+   . reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high -> gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   + M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 120x40 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Jobs screen  /home/me/app · started 12m ago · updated just now
+ budget [████████████████░░░░░░░░░░░░░░] 52% · 31/60 min
+ 3 role runs, 3 ok · 812k in · 41k out · $0.00
+ LIVE
+   ● worker-M1.L2    gpt-6-sol#medium    04:12   running
+   ◌ reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high → gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   ✓ M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
+
+exports[`frames run 120x40 plain 1`] = `
+" catherd 1.0.0  profile default (active)                                                                          =x.x=
+ 1 Status   2 Profiles   3 Runs
+------------------------------------------------------------------------------------------------------------------------
+ Jobs screen  /home/me/app - started 12m ago - updated just now
+ budget [################..............] 52% - 31/60 min
+ 3 role runs, 3 ok - 812k in - 41k out - $0.00
+ LIVE
+   * worker-M1.L2    gpt-6-sol#medium    04:12   running
+   . reviewer-M1     gpt-6-sol#high      00:04   starting
+ CLIMBS
+   M1.L2    gpt-6-luna#high -> gpt-6-sol#medium  refused
+ ROUTES
+   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
+   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
+ LANDED
+   + M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
+ STATE
+   M1 in review
+   Next: fix round for M1.L2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+ ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+"
+`;
