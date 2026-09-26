@@ -8,6 +8,7 @@ import {
   defaultProfileDoc,
   diffProfiles,
   patchAt,
+  patchBetween,
   ProfileDocSchema,
   ProfilePatchSchema,
   resolveProfile,
@@ -248,5 +249,40 @@ describe("diffProfiles", () => {
       { path: "budget.usd", before: null, after: 5 },
       { path: "roles.verifier.access", before: "full", after: "read-only" },
     ]);
+  });
+});
+
+describe("patchBetween", () => {
+  it("is the patch that turns one document into the other, and nothing else", () => {
+    const a = { ...defaultProfileDoc(), theme: "ginger" } as ReturnType<typeof defaultProfileDoc>;
+    const b = applyPatch(a, {
+      budget: { usd: 5 },
+      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
+      failover: { "codex:gpt-6-sol#high": null },
+      notify: ["finish"],
+    });
+    const p = patchBetween(a, b);
+    expect(p).toEqual({
+      budget: { usd: 5 },
+      roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
+      failover: { "codex:gpt-6-sol#high": null },
+      notify: ["finish"],
+    });
+    expect(applyPatch(a, p)).toEqual(b);
+    expect(patchBetween(a, a)).toEqual({});
+  });
+
+  it("applies over a newer copy without undoing what changed there", () => {
+    const base = defaultProfileDoc();
+    const mine = applyPatch(base, { objective: "speed" });
+    const theirs = applyPatch(base, { budget: { minutes: 30 } });
+    const merged = applyPatch(theirs, patchBetween(base, mine));
+    expect([merged.objective, merged.budget]).toEqual(["speed", { minutes: 30 }]);
+  });
+
+  it("refuses a change no patch may make", () => {
+    const base = defaultProfileDoc();
+    const bad = { ...base, roles: { ...base.roles, worker: { enabled: true, rungs: ["not a rung"] } } };
+    expect(() => patchBetween(base, bad)).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
   });
 });
