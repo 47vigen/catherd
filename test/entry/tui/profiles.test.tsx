@@ -320,6 +320,20 @@ describe("the Profiles tab", () => {
     expect(h!.app().getState().dialogs).toEqual([]);
   });
 
+  it("takes no Save in the burst that replaced a changed preview, before the new one is drawn", async () => {
+    const fx = await profiles();
+    await find("worker access");
+    await h!.s.press("return", "ctrl+s");
+    await fx.save("default", { roles: { worker: { access: "read-only" } } }, {});
+    fx.writes.length = 0;
+    await h!.s.burst("return", "return");
+    expect(fx.writes).toEqual([]);
+    expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+read-only → full/);
+    expect(h!.s.frame()).toContain("the profile changed on disk — check the changes and choose again");
+    await h!.s.press("return");
+    expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
+  });
+
   it("shows a failed profile read with its fix, not as pending, and retries it on r", async () => {
     let broken = true;
     const fx = await profiles((fx) => {

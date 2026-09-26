@@ -1,5 +1,5 @@
-import { useTerminalDimensions } from "@opentui/react";
-import { type ReactNode, useRef, useState } from "react";
+import { useRenderer, useTerminalDimensions } from "@opentui/react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   applyPatch,
   type Change,
@@ -144,6 +144,7 @@ export function SaveDialog(props: { dialog: Save }) {
   const data = useData();
   const ui = useUi();
   const dims = useTerminalDimensions();
+  const renderer = useRenderer();
   const name = props.dialog.purpose.name;
   const draft = app.state.drafts[name];
   // the preview reads the catalog and agent files: off the render path, so a read that throws is shown
@@ -161,6 +162,21 @@ export function SaveDialog(props: { dialog: Save }) {
   // what the dialog shows now, for keys in one burst
   const shownRef = useRef<SavePreview | null>(preview);
   shownRef.current = preview;
+  // set when a Save replaces the preview, cleared by the first frame drawn to the terminal after the
+  // commit that holds the new one: a Save between the two (a later key in the same burst) would answer a
+  // preview nobody has seen. React may commit between two keys of one burst, so a commit is not enough.
+  const unseenRef = useRef(false);
+  useEffect(() => {
+    if (!unseenRef.current) return;
+    const seen = () => {
+      unseenRef.current = false;
+    };
+    renderer.once("frame", seen);
+    renderer.requestRender();
+    return () => {
+      renderer.off("frame", seen);
+    };
+  }, [fresh, renderer]);
   const [changed, setChanged] = useState(false);
   const blocked = error !== null || (preview?.validation.errors.length ?? 0) > 0;
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
@@ -180,7 +196,7 @@ export function SaveDialog(props: { dialog: Save }) {
       if (isSaving(app.getState())) return;
       const label = labels[Math.min(focusedRef.current, labels.length - 1)];
       // nothing is saved before its diff has been shown
-      if (label !== "Cancel" && !shownRef.current) return;
+      if (label !== "Cancel" && (!shownRef.current || unseenRef.current)) return;
       if (label !== "Cancel") {
         // only the save the dialog shows is made: the file is read again now, and a different preview
         // replaces the shown one and asks again instead of saving
@@ -194,6 +210,7 @@ export function SaveDialog(props: { dialog: Save }) {
         }
         if (failed !== null || JSON.stringify(now) !== JSON.stringify(shownRef.current)) {
           shownRef.current = now;
+          unseenRef.current = true;
           setFresh({ key, value: now, error: failed });
           setChanged(true);
           return;
