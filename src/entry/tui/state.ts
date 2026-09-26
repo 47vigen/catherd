@@ -161,6 +161,8 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export const currentDraft = (s: AppState): Draft | null => (s.profile ? (s.drafts[s.profile] ?? null) : null);
 
 /** Changes staged in a draft: each changed field of the profile, and each staged treat-like. */
+const isStaged = (d: Draft | undefined): boolean => d !== undefined && dirtyCount(d) > 0;
+
 export function dirtyCount(d: Draft): number {
   const fields = diffProfiles(resolveProfile(d.base, d.name), resolveProfile(d.doc, d.name)).length;
   return fields + Object.keys(d.treatLikes).length;
@@ -201,7 +203,8 @@ export function reduce(s: AppState, a: Action): AppState {
         ...s,
         tab: "profiles",
         profile: a.name,
-        drafts: s.drafts[a.name] ? s.drafts : { ...s.drafts, [a.name]: fresh(a.name, a.doc) },
+        // Keep only a draft with staged changes; a clean one restarts from the file just read.
+        drafts: isStaged(s.drafts[a.name]) ? s.drafts : { ...s.drafts, [a.name]: fresh(a.name, a.doc) },
       };
     case "edit":
       return withDraft(s, s.profile, (d) =>

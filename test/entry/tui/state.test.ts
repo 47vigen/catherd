@@ -82,6 +82,14 @@ describe("drafts (spec §9.2: edits are staged)", () => {
     expect(currentDraft(s)?.past).toEqual([]);
   });
 
+  it("restarts a clean draft from the file shown again, so a change made elsewhere shows", () => {
+    let s = run(shown(), { type: "tab", tab: "status" });
+    const newer = { ...defaultProfileDoc(), objective: "speed" as const };
+    s = run(s, { type: "show", name: "default", doc: newer });
+    expect(currentDraft(s)?.base.objective).toBe("speed");
+    expect(dirtyCount(currentDraft(s)!)).toBe(0);
+  });
+
   it("reverts as one undoable step, and forgets a deleted profile's draft", () => {
     let s = run(
       shown(),

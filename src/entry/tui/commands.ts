@@ -181,7 +181,7 @@ export const COMMANDS = [
     palette: true,
     hint: 6,
     short: "activate",
-    cli: "catherd profile use <name>",
+    cli: "catherd profile use <name> [--repo]",
   },
   {
     id: "profile.copy",
