@@ -45,6 +45,6 @@ describe("terminalAsk (catherd init's questions on a terminal)", () => {
 
   it("passes any other failure on", async () => {
     const { rl } = fakeRl(() => Promise.reject(new Error("stdin closed")));
-    expect(terminalAsk(rl, exit)("Profile? ")).rejects.toThrow("stdin closed");
+    await expect(terminalAsk(rl, exit)("Profile? ")).rejects.toThrow("stdin closed");
   });
 });

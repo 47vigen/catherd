@@ -1,3 +1,4 @@
+import { assertProfileName } from "../domain/profile.ts";
 import { defineCommand } from "citty";
 import type { Catalog } from "../domain/catalog.ts";
 import { rungInfo } from "../domain/catalog.ts";
@@ -256,7 +257,7 @@ const set = defineCommand({
   },
   async run({ args }) {
     // the CLI never creates a profile by setting a field of it: a typo would start a new one
-    if (args.profile !== undefined && !profileExists(args.profile))
+    if (args.profile !== undefined && !profileExists(assertProfileName(args.profile)))
       throw new CatherdError("E_INPUT_INVALID", `no profile named "${args.profile}"`, {
         fix: `catherd profile new ${args.profile}`,
       });
