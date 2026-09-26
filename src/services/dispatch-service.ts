@@ -127,7 +127,7 @@ async function failover(
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { record: limited, hints, pause: paused };
   if (parseRung(standIn).backend === "claude") {
-    const agent = deps.routing.agentFor(d.admit.role, standIn);
+    const agent = deps.profiles.agentFor(d.admit.role, standIn);
     return {
       record: limited,
       hints: [

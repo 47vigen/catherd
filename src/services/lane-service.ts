@@ -4,7 +4,13 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
-import { type ClimbReason, currentRoute, nextRung, type RouteSource } from "../domain/route.ts";
+import {
+  type ClimbReason,
+  currentRoute,
+  nextRung,
+  type RouteJev,
+  type RouteSource,
+} from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { budgetOf } from "./budget.ts";
@@ -34,6 +40,9 @@ export interface RouteResult {
   backend: string;
   /** the native agent to run a `claude:` rung as */
   agent: string | null;
+  /** the Jev question set asked, and what it said, when Jev was asked */
+  questionSet: string | null;
+  jev: RouteJev | null;
 }
 
 function readLaneFile(run: Run, path: string): { lane: string; text: string } {
@@ -62,7 +71,9 @@ export async function route(
   const a = await deps.routing.route({
     runDir: run.dir,
     repo: run.meta.repo,
+    profile,
     role: i.role,
+    lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
     spentFraction: budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
   });
@@ -79,13 +90,15 @@ export async function route(
       reason: null,
       kind: a.kind,
       difficulty: a.difficulty,
+      questionSet: a.questionSet,
+      jev: a.jev,
     });
   return {
     lane: lane?.lane ?? null,
     role: i.role,
     ...a,
     backend: parseRung(a.rung).backend,
-    agent: deps.routing.agentFor(i.role, a.rung),
+    agent: deps.profiles.agentFor(i.role, a.rung),
   };
 }
 
@@ -131,7 +144,7 @@ export async function climb(
     rung,
     top: next === null,
     backend: parseRung(rung).backend,
-    agent: next ? deps.routing.agentFor(cur.role, next) : null,
+    agent: next ? deps.profiles.agentFor(cur.role, next) : null,
     ...withHints(hints),
   };
 }

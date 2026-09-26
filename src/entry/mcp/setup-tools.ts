@@ -39,7 +39,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', and whether catherd can run their backend here. Scored models first.",
+        "Models catherd can place, with capabilities, the roles they can fill, and their rungs (backend:model#effort) with scores and any 'treat like'. `listed: false`: this account's backend does not offer it; `enabled: false` rungs are unscored. Scored models first.",
       inputSchema: {
         role: z.enum(ROLES).optional(),
         backend: z.string().optional(),

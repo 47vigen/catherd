@@ -130,7 +130,7 @@ export function recordAgentRun(
     name: i.name,
     role: i.role,
     rung: i.rung,
-    agent: deps.routing.agentFor(i.role, i.rung),
+    agent: deps.profiles.agentFor(i.role, i.rung),
     totalTokens: i.totalTokens,
     costUsd: i.costUsd ?? null,
     secs: i.durationMs === undefined ? null : Math.round(i.durationMs / 1000),

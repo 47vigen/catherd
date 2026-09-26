@@ -119,7 +119,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     });
   if (rung.backend === "claude")
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is a native Claude rung`, {
-      fix: `run it as Agent(subagent_type: "${deps.routing.agentFor(i.role, i.rung)}"), then record_agent_run`,
+      fix: `run it as Agent(subagent_type: "${deps.profiles.agentFor(i.role, i.rung)}"), then record_agent_run`,
     });
   const allowed = new Set([
     ...rc.rungs,
