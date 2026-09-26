@@ -71,7 +71,7 @@ export const ModelsFileSchema = z.looseObject({
 export type ModelsFile = z.infer<typeof ModelsFileSchema>;
 
 /** A canonical rung: `<canonical model id>#<effort>`, the key scores and treat-likes use. */
-const CanonicalRung = z.string().regex(/^[^:#\s]+#[^#\s]+$/, "a canonical rung is model#effort");
+export const CanonicalRung = z.string().regex(/^[^:#\s]+#[^#\s]+$/, "a canonical rung is model#effort");
 
 export const ScoreSchema = z.object({
   rung: CanonicalRung,

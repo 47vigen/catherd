@@ -51,6 +51,24 @@ describe("catherd catalog", () => {
     expect(bad.err).toStartWith("error E_CONFIG_INVALID: a/c#high has no scores of its own to lend\nfix: ");
   });
 
+  it("refuses a malformed rung with exit 1 and leaves the override file unchanged", () => {
+    withHome();
+    expect(catherd("treat-like", "a/b#high", "gpt-6-sol#high").code).toBe(0);
+    const before = readFileSync(overridePath(), "utf8");
+    const bad = catherd("treat-like", "foo", "gpt-6-sol#high");
+    expect([bad.code, bad.out]).toEqual([1, ""]);
+    expect(bad.err).toStartWith('error E_INPUT_INVALID: "foo" is not a rung\nfix: ');
+    expect(readFileSync(overridePath(), "utf8")).toBe(before);
+    expect(catherd("list", "--backend", "codex").code).toBe(0);
+  });
+
+  it("refuses a treat-like for a rung that is already scored, with exit 1", () => {
+    withHome();
+    const r = catherd("treat-like", "codex:gpt-6-sol#high", "gpt-6-sol#xhigh");
+    expect([r.code, r.out]).toEqual([1, ""]);
+    expect(r.err).toStartWith("error E_CONFIG_INVALID: gpt-6-sol#high has scores of its own");
+  });
+
   it("refreshes every backend, keeping the claude-code list without an API key", () => {
     withHome();
     const r = catherd("refresh", "--json");

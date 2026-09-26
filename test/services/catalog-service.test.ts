@@ -79,6 +79,37 @@ describe("loadCatalog", () => {
     expect(await code(saveTreatLike("claude-opus-5-5#high", "claude-opus-5-5#xhigh"))).toBe("ok");
   });
 
+  it("refuses a malformed rung and leaves the override file byte-for-byte unchanged", async () => {
+    withHome();
+    await saveTreatLike("a/b#high", "gpt-6-sol#high");
+    const before = readFileSync(overridePath(), "utf8");
+    for (const [rung, like] of [
+      ["foo", "gpt-6-sol#high"],
+      ["a b#high", "gpt-6-sol#high"],
+      ["x#y#z", "gpt-6-sol#high"],
+    ] as const) {
+      const e = await saveTreatLike(rung, like).then(
+        () => null,
+        (x) => x,
+      );
+      expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+      expect(readFileSync(overridePath(), "utf8")).toBe(before);
+    }
+    expect(() => loadCatalog()).not.toThrow();
+  });
+
+  it("refuses a treat-like for a rung that has scores of its own", async () => {
+    withHome();
+    const e = await saveTreatLike("gpt-6-sol#high", "gpt-6-sol#xhigh").then(
+      () => null,
+      (x) => x,
+    );
+    expect(isCatherdError(e) && e.code).toBe("E_CONFIG_INVALID");
+    expect(isCatherdError(e) && e.message).toBe(
+      "gpt-6-sol#high has scores of its own; a treat-like would not change it",
+    );
+  });
+
   it("turns a corrupt override into E_CONFIG_INVALID with a fix", () => {
     withHome();
     mkdirSync(dirname(overridePath()), { recursive: true });

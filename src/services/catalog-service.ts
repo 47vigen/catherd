@@ -7,6 +7,7 @@ import "../adapters/all.ts";
 import {
   buildCatalog,
   type Catalog,
+  CanonicalRung,
   capableFor,
   DIMS,
   type Family,
@@ -171,8 +172,15 @@ export async function freshenDiscovery(rungs: string[], now = Date.now()): Promi
 
 /** A rung given as `backend:model#effort` or as a canonical `model#effort`, in canonical form. */
 function canonicalOf(c: Catalog, rung: string): string {
-  if (!rung.includes(":")) return rung;
-  return rungInfo(c, rung).canonical;
+  let canonical = rung;
+  try {
+    if (rung.includes(":")) canonical = rungInfo(c, rung).canonical;
+  } catch {}
+  if (!CanonicalRung.safeParse(canonical).success)
+    throw new CatherdError("E_INPUT_INVALID", `"${rung}" is not a rung`, {
+      fix: "name it as backend:model#effort or model#effort, e.g. codex:gpt-6-sol#high",
+    });
+  return canonical;
 }
 
 /** Spec §5.2 "treat like": the user maps an unscored rung onto a scored one in catalog.override.json. */
@@ -188,10 +196,28 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
     throw new CatherdError("E_CONFIG_INVALID", `${rung} cannot be treated like itself`, {
       fix: "name a different, scored rung",
     });
+  if (c.scores[from])
+    throw new CatherdError(
+      "E_CONFIG_INVALID",
+      `${from} has scores of its own; a treat-like would not change it`,
+      {
+        fix: "treat-like maps only unscored rungs; catalog_query shows each rung's scores",
+      },
+    );
   mkdirSync(dirname(overridePath()), { recursive: true });
   await withFileLock(overridePath(), () => {
     const cur = readOverride();
-    writeJsonAtomic(overridePath(), { ...cur, schema: 1, treatLike: { ...cur.treatLike, [from]: to } });
+    const next = { ...cur, schema: 1, treatLike: { ...cur.treatLike, [from]: to } };
+    const checked = OverrideSchema.safeParse(next);
+    if (!checked.success)
+      throw new CatherdError(
+        "E_CONFIG_INVALID",
+        `the treat-like ${from} → ${to} would not be a valid override`,
+        {
+          fix: checked.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        },
+      );
+    writeJsonAtomic(overridePath(), next);
   });
   return { rung: from, like: to };
 }
