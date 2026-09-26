@@ -45,9 +45,9 @@ describe("frames", () => {
     frames.set(keyOf(c), f);
     const lines = f.split("\n");
     for (const l of lines) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(c.w);
-    // the footer is on the last row: the keys are always in view
-    const last = lines.filter((l) => l.trim()).at(-1) ?? "";
-    expect(last).toMatch(/choose|commands/);
+    // the footer is on the last row, row h: the keys are always in view
+    expect(lines).toHaveLength(c.h + 1);
+    expect(lines[c.h - 1]).toMatch(/choose|commands/);
     if (c.plain) expect(f).toMatch(/^[\x20-\x7e\n]*$/);
     expect(f).toMatchSnapshot();
   });
