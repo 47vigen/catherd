@@ -17,3 +17,38 @@ Task 7: complete (commits 3e31a55..9210eb4, review clean). Minor (deferred, fina
 T2 cherry-picked -> 908ae31 (9b11331; incl. Claude-rung warning ruling). Review PENDING (paused by owner).
 T3 cherry-picked -> db60718 (01baae4). Review PENDING (paused by owner).
 T8 cherry-picked -> 89bed0c (8f87193; catalog-command fail() via printError, malformed-rung exit 2). Review PENDING (paused by owner). Concern: catalog list --role prints its own two-line error.
+--- session 3 (2026-09-26) ---
+Branch claude/kind-volta-5thigl restarted at main deeeff8. Gate green (884).
+Reviews dispatched: T2 (9210eb4..908ae31), T3 (908ae31..db60718), T8 (db60718..89bed0c). Reports lost; reviewed from brief+diff.
+T4 dispatched (worktree, reset deeeff8).
+Task 3: complete (db60718, review approved; static checks green on main). Minor deferred: empty catch on bad rung in agents.ts; '#default' description says 'at default effort'; no dedup test.
+Task 2: complete (908ae31, review approved). Minors for final fix wave: profile-rules.ts:147 reuse quotaOf instead of naming backends; ':153 reason '(no honesty score)' inaccurate → drop/generalise; duplicate rung issues cosmetic.
+Task 8: complete (89bed0c, review approved; gate green at deeeff8). Supervisor/OpenTUI carry-over resolved (supervise-bin.ts). Minors → final fix wave: catalog list --role use fail(CatherdError); cli-kit.ts:22 mark() doc comment. Plan 7: cli.test.ts SIGINT test sleeps 800ms (make event-driven); SIGINT lock exemption keys on own[0].
+Ruling: profile validation uses loadCatalog without repo (opencode listing not repo-scoped) — profiles are global, not per repo; brief specifies it — cost: an opencode model only listed in one repo's config may warn 'not listed' at save. T4 cherry-picked -> 1cfd08a (3d1fa6e).
+T4 review: Needs fixes. Ruling: fix plan-mandated defects — (1) `apply` itself refuses a non-catherd file at a link path (assertNoConflict before first write) so resetProfile/createProfile/deleteProfile cannot replace a user's file (§7.3/§10.4); (2) createProfile and resetProfile validate before writing and return unsaved(v) on errors; also minors: unknown `from` → E_INPUT_INVALID, assert warnings on a warning save — spec §7.3 + Task 2 rule — cost: resetProfile (init path) refuses when a user file squats a link name; user must move it (error says so).
+T4 fix round 1 dispatched (resume implementer, reset 1cfd08a).
+T4 fix1 cherry-picked -> 643a56a (aef5e67); 896 pass. Re-review dispatched.
+Task 4: complete (1cfd08a..643a56a, re-review all addressed). Final-review minors: readProfileDoc missing profile → E_CONFIG_INVALID for user-supplied names (getProfile/diffNamed); patchProfile resolves twice.
+T5 cherry-picked -> 29e2ac1 (05da32e); controller gate 896 pass. Ruling: catalog_query prices with forRepo(resolved toplevel).billing, not forRepo(null) — route prices a repo bound to another profile with that profile's billing — cost: trivial. (fix in T5 fix round)
+Wave {6,9,10,11,12} batches: A={6,11}, B={9,10} (sequential, both cli.ts), C={12}. Reset 29e2ac1a9ff82663d2bbde5bd02523fd6deb251f.
+Task 5: complete (643a56a..29e2ac1 review approved; + 91ceedf catalog_query billing ruling, controller fix with test). Minors → final: ProfileSaved duplicates Saved; viewOf aliases; lock.ts exit 2 on config errors (T11 should use exitCodeOf); architecture 'bridge' inline; profile_set 'every field' test overclaims.
+T12 cherry-picked -> 9ecb2b9 (3b9a82b). Review dispatched.
+T9,T10 cherry-picked -> 9ecb2b9..f3d582f (cff0a63,c8be578), cli.ts conflict resolved keep-all. Review dispatched.
+T12 review: approved w/ Important (unguarded validateNamed/agentsCheck → exit 1). Ruling: fix now with minors 1-4 (fix1). Minor 5 (sandbox check scope) deferred to final.
+T6,T11 cherry-picked -> f3d582f..675249e (413d3cc,7e886a2).
+T9/T10 review: T10 approved; T9 needs fixes (new/copy ignore saved; entry names backend). Ruling: fix 1-6 in fix1. Deferred to final: run-debug tail reads whole file; --name without --debug ignored.
+Wave {13,14} dispatched early from 675249e (parallel with T12 and T9/10 fix rounds; disjoint files). T13 carries rulings a-c (API key, jevStep catch, tool-count regex); T14 carries spec edits D1/D4/D8.
+T12 fix1 cherry-picked -> c38c9b1 (42e175b). Re-review dispatched.
+Task 6: complete (cdaf490, approved; minors → plan 6 handoff: shim round-trip regroups rungs by model, drops unparsable rungs; validateProfile ignores injected catalog). Task 11: complete (675249e + 682c99e env fix by controller). Minor: lock child in own group, no /dev/tty — document in --help (final).
+Task 12: complete (9ecb2b9 + c38c9b1 fix1, re-review all addressed). Deferred to final: sandbox:codex check scope (§10.3 workspace-write only).
+T9/10 fix1 = 626c51e (on 675249e). Ruling: every CLI profile subcommand that takes an optional name (show, set, validate, diff…) resolves a missing name to the profile the cwd's repo runs on (activeHere), global active outside a repo — one rule, so show and set never disagree — cost: a user in a bound repo who meant the global active must name it.
+T13 cherry-picked -> 2e1df23 (03119dd). Review dispatched.
+T14 cherry-picked -> 2e1df23..c66e8b8 (df71879,7cc8024).
+T13 review: needs fixes (initSetup ignores saved:false). Ruling: fix1 items 1-4 (errors as ! lines, init finishes exit 0; early name check; legacy move first; moveLegacy under profiles lock). Deferred: non-TTY stdin hang (document).
+T9/10 fix1 cherry-picked -> c66e8b8..401aba0 (626c51e,dbf33b3). Re-review dispatched.
+Task 14: complete (bd78625,c66e8b8 approved). Minors → final: README omits init --profile, runs show --name, catalog list filters, mcp/capture-fixtures.
+Gate at 401aba0 (controller): 923 pass 0 fail. Task 9: complete. Task 10: complete (fix1 re-review all addressed). Final-review notes: README doesn't say missing name = repo's profile; profile list --json 'active' now repo-scoped (plan-6 consumers); doctor fix text uses global activeName.
+Task 13: complete (2e1df23 + e1ffa6c fix1, re-review all addressed). All 14 tasks complete. Final whole-branch review dispatched (9e2bfac..e1ffa6c).
+Final review (a765ad0): With fixes — I1 MCP profile tools global not repo; I2 Ctrl-C in init exit 1. Ruling: one fix wave (final-fix-wave.md) with I1,I2,M1-M10; deferred enums/tail/timing → plan 7, shim save → plan 6.
+Final fix wave cherry-picked e1ffa6c..3f120ac. Re-review dispatched.
+Final fix wave: re-review all addressed; controller fixed un-awaited rejects + invalid --profile name (3f120ac). Deferred: output-schema double log (latent); doctor linkedProfiles counts gone repos → plan 7; spec §8 synopsis --name/filters → plan 7 docs. PLAN 5 IMPLEMENTATION COMPLETE → PR ready for Codex review.
