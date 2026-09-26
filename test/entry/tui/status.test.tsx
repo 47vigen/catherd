@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { CatherdError } from "../../../src/domain/errors.ts";
 import { FIXTURE_REPORT, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { StatusView } from "../../../src/entry/tui/views/status.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
@@ -97,5 +98,19 @@ describe("the Status tab (spec §9.1)", () => {
     await h!.run(() => h!.app().dispatch({ type: "tab", tab: "status" }));
     await h!.s.press("g", "j", "j", "j", "return");
     expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "default" });
+  });
+
+  it("says why with its fix when enter opens a profile that cannot be read", async () => {
+    const fx = fixtureEffects();
+    fx.readProfile = () => {
+      throw new CatherdError("E_CONFIG_INVALID", "default.json is not valid JSON", {
+        fix: "catherd profile reset default",
+      });
+    };
+    await status(fx);
+    await h!.s.press("shift+g", "k", "k", "return");
+    expect(h!.s.frame()).toContain("default.json is not valid JSON");
+    expect(h!.s.frame()).toContain("catherd profile reset default");
+    expect(h!.app().getState().tab).toBe("status");
   });
 });

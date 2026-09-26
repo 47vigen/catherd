@@ -8,6 +8,7 @@ import { glyph, STATE_TOKEN } from "../theme.ts";
 import { Line, type Part } from "../widgets/line.tsx";
 import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 import { hereWord, type RunRow } from "../effects.ts";
+import { showProfile } from "./profile-actions.ts";
 
 /** `✓ ready` / `! not logged in` / `✗ missing`: state is always glyph and word (spec §9.3). */
 export function stateParts(state: Check["state"], word: string, plain: boolean, pad = 16): Part[] {
@@ -166,7 +167,7 @@ export function StatusView(props: { width: number; height: number }) {
               ? selectedCheck.id.slice("profile:".length)
               : null;
       if (name !== null) {
-        app.dispatch({ type: "show", name, doc: app.effects.readProfile(name) });
+        showProfile(app, name);
       } else if (selected?.startsWith("run:")) {
         app.dispatch({ type: "tab", tab: "runs" });
         app.dispatch({ type: "run", id: selected.slice("run:".length) });
