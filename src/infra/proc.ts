@@ -25,6 +25,14 @@ export function processStartTime(pid: number): string | null {
  */
 export const isValidPid = (pid: unknown): pid is number => Number.isInteger(pid) && (pid as number) >= 1;
 
+/**
+ * Whether a live pid is still the process recorded with `recorded`. A start time that cannot be read now
+ * (`ps` fails for a moment on macOS) counts as the same process: a live lock holder or worker is never
+ * taken for dead, and the worst case is a lock that times out with E_IO_LOCK instead.
+ */
+export const sameProcess = (recorded: string | null, current: string | null): boolean =>
+  recorded === null || current === null || current === recorded;
+
 export function isAlive(pid: number, startTime: string | null): boolean {
   if (!isValidPid(pid)) return false;
   try {
@@ -32,7 +40,7 @@ export function isAlive(pid: number, startTime: string | null): boolean {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EPERM") return false;
   }
-  return startTime === null || processStartTime(pid) === startTime;
+  return startTime === null || sameProcess(startTime, processStartTime(pid));
 }
 
 /** Signals the process group a detached child leads (pgid === pid), falling back to the pid alone. */

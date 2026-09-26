@@ -1,5 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { isAlive, killGroup, processStartTime } from "../../src/infra/proc.ts";
+import { isAlive, killGroup, processStartTime, sameProcess } from "../../src/infra/proc.ts";
 
 describe("proc", () => {
   it("identifies a live process by pid and start time", () => {
@@ -11,6 +11,13 @@ describe("proc", () => {
 
   it("treats a live pid with a different start time as a different process (pid reuse)", () => {
     expect(isAlive(process.pid, "0-not-the-real-start")).toBe(false);
+  });
+
+  it("takes a live pid whose start time cannot be read now for the same process (a transient ps failure)", () => {
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", null)).toBe(true);
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", "Mon Sep 28 10:00:00 2026")).toBe(true);
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", "Mon Sep 28 10:05:00 2026")).toBe(false);
+    expect(sameProcess(null, "anything")).toBe(true);
   });
 
   it("reports a dead pid as not alive", async () => {
