@@ -10,6 +10,7 @@ import { formatRefreshed } from "./catalog-command.ts";
 import { mark } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
+import { mascot } from "./tui/theme.ts";
 import { type Prompter, prompter } from "./prompt.ts";
 
 /** What `init` prints last (spec §9.1): the plugin install commands, to paste into a terminal. */
@@ -19,6 +20,12 @@ export const PLUGIN_STEPS = [
   "  claude plugin install catherd@catherd",
   "Then start a new Claude Code session, so it loads the plugin and the catherd agents.",
 ];
+
+/** Spec §9.3: the full mascot greets `init` (and the TUI's empty states), nowhere else. */
+export function welcomeLines(version: string): string[] {
+  const [ears, face, paws] = mascot("good");
+  return [ears, `${face}  catherd ${version}`, `${paws}  herds your coding agents`, ""];
+}
 
 /**
  * The Jev key step. It never stops `init` (Ruling 11): a key that cannot be saved, say because
@@ -90,6 +97,7 @@ export const initCommand = defineCommand({
     if (args.profile !== undefined) assertProfileName(args.profile);
     const ask = args.input === false ? null : await prompter();
     try {
+      if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
       await jevStep(ask);
       const name = assertProfileName(

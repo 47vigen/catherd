@@ -25,7 +25,6 @@ One line per dependency: what it does for catherd, and why this one.
 - @types/react — types for the OpenTUI React components — needed alongside `react`
 - oxlint — lint — Rust, the fastest linter, sensible defaults with no config
 - oxfmt — format — Rust, Prettier-compatible output, the fastest formatter
-- string-width — measures terminal cells in the 80-column TUI tests (`test/tui/helpers.ts`'s `widest`) — the standard cell-width function; emoji glyphs (🐾, 🐈) count as 2 cells and a hand count gets that wrong
 - lefthook — git hooks for lint, format and commit messages — a single Go binary, no shell scripts to keep
 - @changesets/cli — versions, changelog and npm trusted publishing — the standard for single-package release notes
 - @commitlint/cli — checks commit messages on commit-msg — the standard checker
@@ -58,8 +57,8 @@ through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
 
 ## Dropped from the Node-toolchain plan (OVERRIDES)
 
-- xdg-basedir — no release since 2021; `src/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
+- xdg-basedir — no release since 2021; `src/infra/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
 - execa — `Bun.spawn` covers detached children with stdio on files; kept only if a detach check fails (not needed in Tasks 1-4)
-- tinyglobby — owned paths are matched literally, so `src/core/reply.ts` walks them with plain `node:fs` `readdirSync` recursion instead of a glob library at all; `Bun.CryptoHasher("sha1")` does the hashing
+- tinyglobby — owned paths are matched literally (spec §4.2), and finalize compares `git status` fingerprints (`src/infra/git.ts`) instead of walking a glob
 - tsdown — no build step; Bun runs `src/cli.ts` directly via its shebang
 - vitest — `bun test` is the runner

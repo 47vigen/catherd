@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
-import { jevStep, PLUGIN_STEPS } from "../../src/entry/init-command.ts";
+import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { credentialsPath } from "../../src/services/jev-service.ts";
 import { activeName, getProfile, patchProfile } from "../../src/services/profile-service.ts";
@@ -33,6 +33,7 @@ describe("catherd init", () => {
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
     const r = init(["--no-input"]);
     expect(r.code).toBe(0);
+    expect(r.out).not.toContain("(=^.^=)");
     expect(r.out).toContain("✓ profile default written from the defaults, and active\n");
     expect(r.out).toMatch(/✓ ready {14}MCP server — answers tools\/list with \d+ tools\n/);
     expect(r.out).toContain("✗ missing            Claude Code plugin — not installed in Claude Code\n");
@@ -119,5 +120,14 @@ describe("catherd init", () => {
     }
     expect(lines[0]).toStartWith(`! Jev: could not save the key: ${credentialsPath()} is not readable JSON`);
     expect(lines[1]).toBe(`    fix: fix or delete ${credentialsPath()}`);
+  });
+
+  it("greets a terminal with the mascot (spec §9.3)", () => {
+    expect(welcomeLines("1.0.0")).toEqual([
+      " /\\_/\\  .",
+      "(=^.^=)/   catherd 1.0.0",
+      ' (")(")    herds your coding agents',
+      "",
+    ]);
   });
 });

@@ -59,7 +59,7 @@ In a terminal:
 
 | Command                                                                                   | What it does                                                                             |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `catherd`                                                                                 | The TUI                                                                                  |
+| `catherd`                                                                                 | The dashboard: Status, Profiles and Runs (below)                                         |
 | `catherd init [--no-input] [--profile <p>]`                                               | First-run setup                                                                          |
 | `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                 |
 | `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                  |
@@ -75,11 +75,34 @@ A profile command without a profile name (`show`, `set`, `diff`, `validate`), li
 on the profile the repo you are in runs on: the one bound to it, else the active one. Run them as
 `bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes `--json`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
 `error E_CODE: message` and a `fix:` line. `--verbose` (or `CATHERD_LOG=debug`) logs more to
-`~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The TUI takes `--plain` (ASCII only)
+`~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
 and `--reduced-motion`; `doctor` takes `--plain` too.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
+
+### The dashboard
+
+`catherd` opens three tabs: **1 Status** (every check with its fix; `y` copies the fix, `r` checks again),
+**2 Profiles** (one tree per profile: roles with their access, default rung, models and efforts, then routing,
+harness, budget, failover, timeouts and notify) and **3 Runs** (live roles, climbs, routes, the budget, landed
+milestones; `p` pauses). `catherd watch` opens it on Runs.
+
+- `ctrl+p` lists every command with its key and CLI twin; `?` lists the keys that work where you are.
+- `ctrl+x` is the leader: `ctrl+x 1`–`3` tabs, `ctrl+x n` new profile, `ctrl+x l` profiles, `ctrl+x u` and
+  `ctrl+x r` undo and redo, `ctrl+x q` quit.
+- Lists: arrows or `j`/`k`, `pgup`/`pgdn`, `home`/`g`, `end`/`G`, `/` to filter; `space` ticks, `enter`
+  changes or opens, `→`/`←` expand and collapse.
+- Edits are staged: nothing is written until `ctrl+s` shows the diff and you choose Save or Save & make active.
+  `enter` never saves.
+- Inside a repo bound to a profile, the dashboard opens on that profile, and making a profile active binds the
+  repo to it (as `catherd profile use <name> --repo`).
+- `esc` backs out one level and never quits. `q` quits, asking first if something is unsaved; `ctrl+c` quits
+  when nothing is, and pressed twice within 1.5 s discards and exits 130.
+- Deleting a profile or cancelling a live role takes `ctrl+d` twice.
+- `--plain` draws ASCII without colour, `NO_COLOR` drops the colour, `--reduced-motion` stops the spinner.
+- Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
+  (the palette shows each command; the ids are in `src/entry/tui/commands.ts`).
 
 ## Develop
 
