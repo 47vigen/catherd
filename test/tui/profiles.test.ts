@@ -20,9 +20,9 @@ describe("profile files", () => {
     process.env.CATHERD_CLAUDE_AGENTS_DIR = mkdtempSync(join(tmpdir(), "catherd-agents-"));
   });
 
-  it("writes a treat-like that loadCatalog reads back, keeping the earlier ones", () => {
-    saveTreatLike("gpt-6-luna#max", "gpt-6-sol#xhigh");
-    saveTreatLike("gpt-6-luna#xhigh", "gpt-6-sol#high");
+  it("writes a treat-like that loadCatalog reads back, keeping the earlier ones", async () => {
+    await saveTreatLike("gpt-6-luna#max", "gpt-6-sol#xhigh");
+    await saveTreatLike("gpt-6-luna#xhigh", "gpt-6-sol#high");
     expect(loadCatalog().treatLike).toMatchObject({
       "gpt-6-luna#max": "gpt-6-sol#xhigh",
       "gpt-6-luna#xhigh": "gpt-6-sol#high",

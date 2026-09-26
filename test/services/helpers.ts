@@ -25,6 +25,9 @@ const role = (access: Access, rungs: string[]) => ({ enabled: true, access, rung
 export function testView(over: Partial<ProfileView> = {}): ProfileView {
   return {
     name: "test",
+    objective: "cost",
+    billing: {},
+    jev: { use: "auto" },
     roles: {
       worker: role("workspace-write", LADDER),
       writer: role("workspace-write", ["codex:gpt-6-luna#high"]),
@@ -48,14 +51,18 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
   const routing: RoutingPort = {
     async route(req) {
       const rungs = view.roles[req.role]?.rungs ?? [];
-      return { rung: rungs[0] ?? "", ladder: rungs, source: "default", kind: null, difficulty: null };
+      return {
+        rung: rungs[0] ?? "",
+        ladder: rungs,
+        source: "default",
+        kind: null,
+        difficulty: null,
+        questionSet: null,
+        jev: null,
+      };
     },
-    agentFor(r, rung) {
-      const p = parseRung(rung);
-      return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
-    },
-    finding: async () => ({ value: "code", confidence: null, source: "default" }),
-    sameDefect: async () => ({ value: "no", confidence: null, source: "default" }),
+    finding: async () => ({ value: "code", probability: null, confidence: null, source: "default" }),
+    sameDefect: async () => ({ value: "no", probability: null, confidence: null, source: "default" }),
     catalog: () => ({ total: 0, models: [] }),
   };
   const profiles: ProfilePort = {
@@ -63,6 +70,10 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
     get: () => ({ active: "test", profiles: ["test"], profile: view }),
     validate: () => ({ valid: true, errors: [] }),
     set: () => ({ saved: false, errors: ["profiles are fixed in tests"], diff: [], newSessionNeededFor: [] }),
+    agentFor(r, rung) {
+      const p = parseRung(rung);
+      return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
+    },
   };
   return { profiles, routing, version: "0.0.0-test", pollMs: 50, tickMs: 100, now: o.now ?? Date.now, view };
 }

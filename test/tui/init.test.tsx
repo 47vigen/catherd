@@ -90,6 +90,23 @@ describe("Init", () => {
     expect(f).toContain("enter accept");
   });
 
+  it("shows why a good key could not be saved, and stays on the key prompt", async () => {
+    const d = fakeDeps({
+      saveJevKey: mock(() => {
+        throw new Error("credentials.json is from a newer catherd");
+      }),
+    });
+    const setup = await testRender(<Init ui={UI} deps={d} />, { width: 100, height: 24 });
+    await setup.renderOnce();
+    await press(setup.mockInput, GOOD, KEY.enter);
+    await waitFor(() => {
+      setup.renderOnce();
+      return setup.captureCharFrame().includes("Could not save the key: credentials.json is from a newer");
+    });
+    expect(setup.captureCharFrame()).toContain("key:");
+    expect(d.detectBackends).not.toHaveBeenCalled();
+  });
+
   it("takes a pasted key", async () => {
     const d = fakeDeps();
     const setup = await testRender(<Init ui={UI} deps={d} />, { width: 100, height: 24 });

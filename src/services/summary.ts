@@ -81,7 +81,8 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       totalTokens: agents.reduce((n, a) => n + a.totalTokens, 0),
       costUsd: agents.reduce((n, a) => n + (a.costUsd ?? 0), 0),
     },
-    jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source === "default").length },
+    // a lane or default source is a decision Jev did not make
+    jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
     budget,
     milestones: lines(runPaths(run.dir).ledger).slice(1),
     warnings,

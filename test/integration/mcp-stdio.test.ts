@@ -23,7 +23,7 @@ const LIMIT: CodexScenario = { eventsFile: join(FX, "limit.jsonl"), exitCode: 1 
 function serverEnv(home: string, scenarioFile: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env))
-    if (v !== undefined && k !== "TYPESAFE_API_KEY") env[k] = v;
+    if (v !== undefined && k !== "TYPESAFE_API_KEY" && k !== "ANTHROPIC_API_KEY") env[k] = v;
   return {
     ...env,
     CATHERD_HOME: home,
@@ -124,6 +124,16 @@ function setup() {
   const sim = withScenario({});
   return { home, repo, sim, env: serverEnv(home, sim.file) };
 }
+
+describe("the server's environment", () => {
+  it("never passes the user's Anthropic or TypeSafe key through", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-fake";
+    process.env.TYPESAFE_API_KEY = "tsk-fake";
+    const env = serverEnv("/tmp/h", "/tmp/s.json");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.TYPESAFE_API_KEY).toBeUndefined();
+  });
+});
 
 describe("catherd mcp over stdio, on the Codex simulator", () => {
   it(

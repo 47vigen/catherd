@@ -28,7 +28,7 @@ Ask these, one at a time, each with its recommended answer:
 
 In one message, call:
 
-- `catalog_query({ role: "<role>" })` for each role you will discuss: what their installed backends can run, with capabilities and scores. A model whose `installed` is false is not offered;
+- `catalog_query({ role: "<role>" })` for each role you will discuss: what their backends can run, with capabilities and scores. A model whose `listed` is false is not offered: this account's backend does not offer it; `enabled: false` rungs are unscored;
 - `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line;
 - `profile_get()`: where they stand now.
 

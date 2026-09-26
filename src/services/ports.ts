@@ -1,13 +1,20 @@
 import type { Budget } from "../domain/budget.ts";
+import type { BillingMode } from "../domain/cost.ts";
+import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import type { RouteSource } from "../domain/route.ts";
+import type { RouteJev, RouteSource } from "../domain/route.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
 export interface ProfileView {
   name: string;
-  roles: Partial<Record<Role, { enabled: boolean; access: Access; rungs: string[] }>>;
+  objective: "cost" | "speed";
+  /** `defaultRung`, when set, is where a lane starts without a kind and difficulty (spec §5.4) */
+  roles: Partial<Record<Role, { enabled: boolean; access: Access; rungs: string[]; defaultRung?: string }>>;
+  /** per billing key (spec §7.1); a missing key bills as DEFAULT_BILLING */
+  billing: Partial<Record<string, BillingMode>>;
+  jev: { use: "auto" | "off" };
   /** per backend id: run its harness isolated (spec §7.1 `harness`) */
   isolated: Partial<Record<string, boolean>>;
   /** rung → its stand-in on a usage limit (spec §4.5) */
@@ -39,12 +46,17 @@ export interface ProfilePort {
     name: string | undefined,
     patch: ProfilePatch,
   ): { saved: boolean; errors: string[]; diff: unknown[]; newSessionNeededFor: string[] };
+  /** The native Claude agent that runs `rung` for `role`; null unless the rung is a `claude:` one. */
+  agentFor(role: Role, rung: string): string | null;
 }
 
 export interface RouteRequest {
   runDir: string;
   repo: string;
+  profile: ProfileView;
   role: Role;
+  /** the lane's id, for jev.jsonl; null when routing a role without a lane */
+  lane: string | null;
   laneText: string | null;
   spentFraction: number;
 }
@@ -55,13 +67,12 @@ export interface RouteAnswer {
   source: RouteSource;
   kind: Kind | null;
   difficulty: Difficulty | null;
+  /** the Jev question set asked, and its summed probabilities, for outcomes.jsonl (spec §5.6) */
+  questionSet: string | null;
+  jev: RouteJev | null;
 }
 
-export interface Verdict<T extends string> {
-  value: T;
-  confidence: number | null;
-  source: "jev" | "default";
-}
+export type { Verdict };
 
 export interface CatalogFilter {
   role?: Role;
@@ -69,12 +80,12 @@ export interface CatalogFilter {
   text?: string;
   scoredOnly: boolean;
   limit: number;
+  /** the git toplevel whose per-repository listings (opencode's) to read; none reads the global ones */
+  repo?: string;
 }
 
 export interface RoutingPort {
   route(req: RouteRequest): Promise<RouteAnswer>;
-  /** The native Claude agent that runs `rung` for `role`; null unless the rung is a `claude:` one. */
-  agentFor(role: Role, rung: string): string | null;
   finding(runDir: string, laneText: string, finding: string): Promise<Verdict<"design" | "code" | "unclear">>;
   sameDefect(runDir: string, before: string, after: string): Promise<Verdict<"yes" | "no">>;
   catalog(filter: CatalogFilter): { total: number; models: unknown[] };

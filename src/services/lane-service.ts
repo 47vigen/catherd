@@ -4,13 +4,21 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
-import { type ClimbReason, currentRoute, nextRung, type RouteSource } from "../domain/route.ts";
+import {
+  type ClimbReason,
+  currentRoute,
+  laneOutcome,
+  nextRung,
+  type RouteJev,
+  type RouteSource,
+} from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { budgetOf } from "./budget.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendLedger,
+  appendOutcome,
   appendRoute,
   findRun,
   knowledgeFile,
@@ -34,6 +42,9 @@ export interface RouteResult {
   backend: string;
   /** the native agent to run a `claude:` rung as */
   agent: string | null;
+  /** the Jev question set asked, and what it said, when Jev was asked */
+  questionSet: string | null;
+  jev: RouteJev | null;
 }
 
 function readLaneFile(run: Run, path: string): { lane: string; text: string } {
@@ -62,7 +73,9 @@ export async function route(
   const a = await deps.routing.route({
     runDir: run.dir,
     repo: run.meta.repo,
+    profile,
     role: i.role,
+    lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
     spentFraction: budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
   });
@@ -79,20 +92,22 @@ export async function route(
       reason: null,
       kind: a.kind,
       difficulty: a.difficulty,
+      questionSet: a.questionSet,
+      jev: a.jev,
     });
   return {
     lane: lane?.lane ?? null,
     role: i.role,
     ...a,
     backend: parseRung(a.rung).backend,
-    agent: deps.routing.agentFor(i.role, a.rung),
+    agent: deps.profiles.agentFor(i.role, a.rung),
   };
 }
 
 /** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
 export async function climb(
   deps: Deps,
-  i: { run: string; lane: string; reason: ClimbReason; evidence?: string },
+  i: { run: string; lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
 ): Promise<{
   lane: string;
   rung: string;
@@ -117,7 +132,13 @@ export async function climb(
       from: cur.rung,
       rung: next ?? cur.rung,
       reason: i.evidence ? `${i.reason}: ${i.evidence}` : i.reason,
+      env: i.env === true,
     });
+    // spec §5.6: a climb past the top rung ends the lane open
+    if (!next) {
+      const o = laneOutcome(readRoutes(run), i.lane, false, new Date(deps.now()).toISOString());
+      if (o) appendOutcome(run, o);
+    }
     return { cur, next };
   });
   const { hints } = await refreshState(run, {
@@ -131,7 +152,7 @@ export async function climb(
     rung,
     top: next === null,
     backend: parseRung(rung).backend,
-    agent: next ? deps.routing.agentFor(cur.role, next) : null,
+    agent: next ? deps.profiles.agentFor(cur.role, next) : null,
     ...withHints(hints),
   };
 }
@@ -174,6 +195,16 @@ export async function land(
   };
   // on a failed refresh the notes still reach state.json, so the next landing counts its minutes from this one
   const { hints } = await refreshState(run, landRow);
+  // spec §5.6: every routed lane of the milestone lands with it
+  // under the routes lock, so a racing climb cannot slip between the read and the rows
+  await withFileLock(runPaths(run.dir).routes, () => {
+    const routes = readRoutes(run);
+    for (const lane of new Set(routes.map((r) => r.lane)))
+      if (lane.startsWith(`${i.milestone}.`)) {
+        const o = laneOutcome(routes, lane, true, now.toISOString());
+        if (o) appendOutcome(run, o);
+      }
+  });
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
     mkdirSync(dirname(file), { recursive: true });

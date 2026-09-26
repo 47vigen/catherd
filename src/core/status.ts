@@ -79,7 +79,10 @@ const lines = (file: string) =>
 export function summarizeRun(run: Run): RunSummary {
   const { stillRunning } = reconcileLive(run.dir);
   const recs = readRunRecords(run.dir);
-  const jev = readJsonl<{ source?: string }>(join(run.dir, "jev.jsonl"));
+  // a 1.0 jev.jsonl opens with a `{schema, kind}` header row, which is not a decision
+  const jev = readJsonl<{ source?: string; schema?: unknown; kind?: unknown }>(
+    join(run.dir, "jev.jsonl"),
+  ).filter((j) => !(typeof j.schema === "number" && typeof j.kind === "string" && j.source === undefined));
   const now = Date.now();
   const totals: RunTotals = {
     runs: recs.length,
@@ -105,7 +108,8 @@ export function summarizeRun(run: Run): RunSummary {
       pid: m.pid,
     })),
     totals,
-    jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source === "default").length },
+    // a lane or default source is a decision Jev did not make (matches services/summary.ts)
+    jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
     milestones: lines(join(run.dir, "ledger.md")).slice(1),
     harness: harnessCosts(listRuns().map((r) => r.dir)),
     budget: budgetStatus(totals, budgetFor(run)),
@@ -123,7 +127,7 @@ export function formatSummary(s: RunSummary): string {
     "-- running",
     ...(s.live.length ? s.live.map((l) => `  ${l.name}  ${l.rung}  ${mmss(l.secs)}`) : ["  none"]),
     `-- done  ${t.runs} runs · ${t.ok} ok · ${Math.round(t.secs / 60)} min · ${t.tokens.input} in / ${t.tokens.output} out tokens · $${t.costUsd.toFixed(2)}${t.notOk.length ? ` · not ok: ${t.notOk.join(", ")}` : ""}`,
-    `-- jev  ${s.jev.decisions} decisions · ${s.jev.fallbacks} fell back to default`,
+    `-- jev  ${s.jev.decisions} decisions · ${s.jev.fallbacks} fell back`,
     ...(s.harness.length
       ? s.harness.map((h) => `-- harness  ${formatHarness(h)}`)
       : ["-- harness  no data yet"]),

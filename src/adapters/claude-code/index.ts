@@ -22,6 +22,7 @@ import {
   parseClaudeLine,
 } from "./events.ts";
 import { CLAUDE_ALIASES, CLAUDE_EFFORTS, CLAUDE_MODELS } from "./models.ts";
+import { listClaudeModels } from "./models-api.ts";
 
 /** The version whose flags catherd was verified against (`claude --help`, 2026-09-25). */
 export const CLAUDE_MIN_VERSION = "2.1.282";
@@ -206,7 +207,7 @@ export const claudeCodeAdapter: BackendAdapter = {
   id: "claude-code",
   minVersion: CLAUDE_MIN_VERSION,
   probe,
-  listModels: async () => CLAUDE_MODELS.map((m) => ({ ...m, efforts: [...m.efforts] })),
+  listModels: () => listClaudeModels(),
   prepare,
   plan,
   parse,

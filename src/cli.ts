@@ -12,7 +12,7 @@ export const main = defineCommand({
   meta: { name: "catherd", version: pkg.version, description: "Herds coding agents." },
   subCommands: {
     lock: () => import("./entry/lock.ts").then((m) => m.lockCommand),
-    catalog: () => import("./routing/commands.ts").then((m) => m.catalogCommand),
+    catalog: () => import("./entry/catalog-command.ts").then((m) => m.catalogCommand),
     "capture-fixtures": () => import("./entry/capture-fixtures.ts").then((m) => m.captureFixturesCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
     init: () => import("./tui/commands.ts").then((m) => m.initCommand),

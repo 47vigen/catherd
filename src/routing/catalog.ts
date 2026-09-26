@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createFetch } from "ofetch";
 import { z } from "zod";
 import { assetPath, readJsonFile } from "../files.ts";
-import { configDir, dataDir } from "../paths.ts";
+import { withFileLock } from "../infra/filelock.ts";
+import { writeJsonAtomic } from "../infra/store.ts";
+import { configDir } from "../paths.ts";
 import {
   type Capabilities,
   type Catalog,
@@ -50,7 +51,8 @@ const CatalogSchema = z.object({
   treatLike: z.record(Rung, Rung),
 });
 
-const OverrideSchema = z.object({
+// Loose: the 1.0 catalog service writes `schema` and `scores[]` to the same file, which a 0.x save keeps.
+const OverrideSchema = z.looseObject({
   models: z
     .record(
       z.string().min(1),
@@ -67,30 +69,14 @@ const OverrideSchema = z.object({
 });
 export type CatalogOverride = z.infer<typeof OverrideSchema>;
 
-const SnapshotSchema = z.object({
-  fetchedAt: z.string(),
-  models: z.record(z.string(), Caps.extend({ efforts: z.array(z.string()) })),
-});
-export type ModelsDevSnapshot = {
-  fetchedAt: string;
-  models: Record<string, Capabilities & { efforts: string[] }>;
-};
-
-export const snapshotPath = (): string => join(dataDir(), "models-dev.json");
 export const overridePath = (): string => join(configDir(), "catalog.override.json");
 
+/**
+ * 0.x shim: the 0.x profile validation and TUI read catalog/catalog.json until plans 5 and 6. The 1.0
+ * catalog is src/services/catalog-service.ts; the models.dev snapshot is gone (spec §5.2).
+ */
 export function loadCatalog(): Catalog {
   const c: Catalog = readJsonFile(CatalogSchema, assetPath("catalog/catalog.json"));
-  const snapshot = [snapshotPath(), assetPath("catalog/models-dev.json")].find((f) => existsSync(f));
-  if (snapshot) {
-    const known = new Set(c.models.map((m) => m.id));
-    for (const [id, { efforts, ...capabilities }] of Object.entries(
-      readJsonFile(SnapshotSchema, snapshot).models,
-    )) {
-      if (!known.has(id))
-        c.models.push({ id, backend: "opencode", efforts: ["default", ...efforts], capabilities });
-    }
-  }
   return existsSync(overridePath()) ? applyOverride(c, readJsonFile(OverrideSchema, overridePath())) : c;
 }
 
@@ -126,12 +112,9 @@ function applyOverride(c: Catalog, o: CatalogOverride): Catalog {
       if (bar) c.bars[kind][d] = bar;
     }
   }
-  for (const [rung, like] of Object.entries(o.treatLike ?? {})) {
-    if (!c.entries.some((e) => e.rung === like)) {
-      throw new Error(`catherd: ${file}: "${rung}" is treated like "${like}", which has no scores`);
-    }
-    c.treatLike[rung] = like;
-  }
+  // `catherd catalog treat-like` may name a rung only the 1.0 catalog scores; 0.x skips it
+  for (const [rung, like] of Object.entries(o.treatLike ?? {}))
+    if (c.entries.some((e) => e.rung === like)) c.treatLike[rung] = like;
   return c;
 }
 
@@ -158,70 +141,19 @@ export function isScored(c: Catalog, rung: RungId): boolean {
   return entryFor(c, rung) !== undefined;
 }
 
-/** Merges one "treat like" into <config>/catalog.override.json, keeping every other field. */
-export function saveTreatLike(rung: RungId, like: RungId): void {
+/**
+ * Merges one "treat like" into <config>/catalog.override.json, keeping every other field (the 1.0
+ * `schema` and `scores[]` too), under the same lock and atomic write as the 1.0 catalog service.
+ */
+export async function saveTreatLike(rung: RungId, like: RungId): Promise<void> {
   const base = loadCatalog();
   if (!base.entries.some((e) => e.rung === like)) {
     throw new Error(`catherd: ${overridePath()}: "${rung}" is treated like "${like}", which has no scores`);
   }
   const file = overridePath();
-  const current: CatalogOverride = existsSync(file) ? readJsonFile(OverrideSchema, file) : {};
-  const next: CatalogOverride = { ...current, treatLike: { ...current.treatLike, [rung]: like } };
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
-}
-
-export const MODELS_DEV_URL = "https://models.dev/api.json";
-
-interface ModelsDevModel {
-  tool_call?: boolean;
-  reasoning?: boolean;
-  status?: string;
-  modalities?: { input?: string[]; output?: string[] };
-  limit?: { context?: number };
-  // models.dev lists a bare "no effort" option as null alongside the named efforts.
-  reasoning_options?: { type: string; values?: (string | null)[] }[];
-}
-export type ModelsDevApi = Record<
-  string,
-  { id?: string; models?: Record<string, ModelsDevModel> } | undefined
->;
-
-export function trimModelsDev(api: ModelsDevApi, fetchedAt: string): ModelsDevSnapshot {
-  const models: ModelsDevSnapshot["models"] = {};
-  for (const [provider, p] of Object.entries(api)) {
-    for (const [id, m] of Object.entries(p?.models ?? {})) {
-      const imageOut = m.modalities?.output?.includes("image") ?? false;
-      if (m.status === "deprecated" || !(m.tool_call || imageOut)) continue;
-      models[`${provider}/${id}`] = {
-        toolCall: m.tool_call ?? false,
-        imageIn: m.modalities?.input?.includes("image") ?? false,
-        imageOut,
-        reasoning: m.reasoning ?? false,
-        context: m.limit?.context ?? 0,
-        efforts: (m.reasoning_options?.find((r) => r.type === "effort")?.values ?? []).filter(
-          (v): v is string => typeof v === "string",
-        ),
-      };
-    }
-  }
-  return { fetchedAt, models };
-}
-
-export async function refreshModelsDev(
-  o: { fetchImpl?: typeof fetch; to?: string } = {},
-): Promise<{ models: number }> {
-  const api = await createFetch({ fetch: o.fetchImpl ?? globalThis.fetch })<ModelsDevApi>(MODELS_DEV_URL, {
-    retry: 2,
-    retryDelay: 1000,
-    timeout: 60_000,
+  await withFileLock(file, () => {
+    const current: CatalogOverride = existsSync(file) ? readJsonFile(OverrideSchema, file) : {};
+    writeJsonAtomic(file, { ...current, treatLike: { ...current.treatLike, [rung]: like } });
   });
-  const snap = trimModelsDev(typeof api === "object" && api !== null ? api : {}, new Date().toISOString());
-  const count = Object.keys(snap.models).length;
-  if (count === 0) throw new Error("catherd: models.dev returned no models; the previous snapshot is kept");
-  const to = o.to ?? snapshotPath();
-  mkdirSync(dirname(to), { recursive: true });
-  writeFileSync(`${to}.tmp`, `${JSON.stringify(snap)}\n`);
-  renameSync(`${to}.tmp`, to);
-  return { models: count };
 }

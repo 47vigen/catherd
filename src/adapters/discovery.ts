@@ -33,6 +33,13 @@ export const discoveryPath = (backend: string, repo?: string): string =>
         `${backend}-${createHash("sha256").update(repo).digest("hex").slice(0, 16)}.json`,
       );
 
+/** Backends whose listing depends on the repository they run in (opencode's project config enables models). */
+const PER_REPO: ReadonlySet<string> = new Set(["opencode"]);
+
+/** The repository `backend`'s listing is kept for: `repo` for a backend listed per repository, else none. */
+export const listingRepo = (backend: string, repo?: string): string | undefined =>
+  PER_REPO.has(backend) ? repo : undefined;
+
 /** The cached listing (for `repo` when given), or null when there is none or it cannot be read. */
 export function readDiscovery(backend: string, repo?: string): DiscoveryFile | null {
   try {

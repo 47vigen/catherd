@@ -1,7 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { dataDir } from "../src/paths.ts";
 import {
   capableFor,
   entryFor,
@@ -11,6 +10,8 @@ import {
   overridePath,
   saveTreatLike,
 } from "../src/routing/catalog.ts";
+import type { Score } from "../src/domain/catalog.ts";
+import { readOverride } from "../src/services/catalog-service.ts";
 import type { CatalogEntry, CatalogModel } from "../src/types.ts";
 import { withHome } from "./helpers.ts";
 
@@ -74,42 +75,6 @@ describe("catalog", () => {
     expect(isScored(c, "gpt-6-sol#xhigh")).toBe(true);
   });
 
-  test("adds snapshot models as opencode models with a default effort, and hand-entered ids win", () => {
-    mkdirSync(dataDir(), { recursive: true });
-    writeFileSync(
-      join(dataDir(), "models-dev.json"),
-      JSON.stringify({
-        fetchedAt: "2026-09-24T00:00:00Z",
-        models: {
-          "openrouter/acme/coder-1": {
-            toolCall: true,
-            imageIn: false,
-            imageOut: false,
-            reasoning: true,
-            context: 262144,
-            efforts: ["low", "high"],
-          },
-          "gpt-6-sol": {
-            toolCall: false,
-            imageIn: false,
-            imageOut: false,
-            reasoning: false,
-            context: 1,
-            efforts: [],
-          },
-        },
-      }),
-    );
-    const c = loadCatalog();
-    expect(modelOf(c, "openrouter/acme/coder-1")).toEqual({
-      id: "openrouter/acme/coder-1",
-      backend: "opencode",
-      efforts: ["default", "low", "high"],
-      capabilities: { toolCall: true, imageIn: false, imageOut: false, reasoning: true, context: 262144 },
-    });
-    expect(modelOf(c, "gpt-6-sol")?.backend).toBe("codex");
-  });
-
   test("applies overrides to scores, bars, models and treat-like", () => {
     writeOverride({
       entries: { "gpt-6-sol#high": { scores: { repo_code: 70 } } },
@@ -147,9 +112,13 @@ describe("catalog", () => {
     });
   });
 
-  test("refuses a treat-like that points at an unscored rung", () => {
-    writeOverride({ treatLike: { "openrouter/acme/coder-1#default": "gpt-6-luna#max" } });
-    expect(() => loadCatalog()).toThrow(/treated like "gpt-6-luna#max", which has no scores/);
+  test("skips a treat-like onto a rung only the 1.0 catalog scores", () => {
+    writeOverride({
+      schema: 1,
+      treatLike: { "openrouter/acme/coder-1#default": "gpt-6-astra#xhigh" },
+      scores: [],
+    });
+    expect(loadCatalog().treatLike).toEqual({});
   });
 
   test("needs a costRank for a new entry, and every capability for a new model", () => {
@@ -181,16 +150,46 @@ describe("catalog", () => {
     );
   });
 
-  test("saveTreatLike merges into catalog.override.json, keeping the rest", () => {
+  test("saveTreatLike merges into catalog.override.json, keeping the rest", async () => {
     writeOverride({ bars: { terminal: { hard: { terminal: 25 } } } });
-    saveTreatLike("openrouter/acme/coder-1#default", "gpt-6-sol#medium");
+    await saveTreatLike("openrouter/acme/coder-1#default", "gpt-6-sol#medium");
     const c = loadCatalog();
     expect(c.bars.terminal.hard).toEqual({ terminal: 25 });
     expect(c.treatLike["openrouter/acme/coder-1#default"]).toBe("gpt-6-sol#medium");
   });
 
-  test("saveTreatLike refuses a target with no scores of its own", () => {
-    expect(() => saveTreatLike("openrouter/acme/coder-1#default", "gpt-6-luna#max")).toThrow(
+  test("saveTreatLike keeps the 1.0 schema, scores and treat-likes the TUI does not know", async () => {
+    const score = {
+      rung: "gpt-6-astra#xhigh",
+      dim: "repo_code",
+      value: 71,
+      benchmark: "SWE-bench Pro",
+      version: "1",
+      url: "https://example.com/swe-bench-pro",
+      date: "2026-09-01",
+      confidence: "inferred",
+    };
+    writeOverride({
+      schema: 1,
+      treatLike: { "opencode-go/kimi-k3#default": "gpt-6-astra#xhigh" },
+      scores: [score],
+    });
+    await saveTreatLike("openrouter/acme/coder-1#default", "gpt-6-sol#medium");
+    const saved = JSON.parse(readFileSync(overridePath(), "utf8"));
+    expect(saved).toEqual({
+      schema: 1,
+      treatLike: {
+        "opencode-go/kimi-k3#default": "gpt-6-astra#xhigh",
+        "openrouter/acme/coder-1#default": "gpt-6-sol#medium",
+      },
+      scores: [score],
+    });
+    expect(readOverride().scores).toEqual([score as Score]);
+    expect(existsSync(`${overridePath()}.lock`)).toBe(false);
+  });
+
+  test("saveTreatLike refuses a target with no scores of its own", async () => {
+    await expect(saveTreatLike("openrouter/acme/coder-1#default", "gpt-6-luna#max")).rejects.toThrow(
       /treated like "gpt-6-luna#max", which has no scores/,
     );
   });

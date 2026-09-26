@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   budgetTone,
   climbs,
   jevLine,
+  readJev,
   liveLine,
   milestoneLine,
   plainBudgetBar,
@@ -70,6 +74,45 @@ describe("watch model", () => {
     expect(jevLine({ questions: ["finding"], used: "code", source: "default" }, true)).toBe(
       "finding -> code - fell back to the profile default",
     );
+    expect(
+      jevLine({ call: "route", questionSet: "route@3f2a", used: "kind=repo_code", source: "lane" }, false),
+    ).toBe("route route@3f2a → kind=repo_code · fell back to the lane's declaration");
+  });
+
+  it("reads a 1.0 jev.jsonl: skips the schema header and shows the call and question set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "catherd-jev-"));
+    const row = {
+      at: "2026-09-26T00:00:00.000Z",
+      call: "route",
+      lane: "worker-M1.L1",
+      questionSet: "route@3f2a",
+      key: "k",
+      stateHash: "h",
+      model: null,
+      requestId: null,
+      usage: null,
+      latencyMs: null,
+      attempts: 1,
+      cached: false,
+      answers: { kind: { type: "choice", choice: "repo_code", probabilities: {}, confidence: 0.9 } },
+      derived: null,
+      used: "kind=repo_code",
+      source: "jev",
+      why: "",
+    };
+    const old = { questions: ["finding"], used: "code", source: "default" };
+    writeFileSync(
+      join(dir, "jev.jsonl"),
+      `${[{ schema: 1, kind: "jev" }, row, { ...row, answers: null, source: "default" }, old]
+        .map((r) => JSON.stringify(r))
+        .join("\n")}\n`,
+    );
+    const lines = readJev(dir).map((e) => jevLine(e, false));
+    expect(lines).toEqual([
+      "route route@3f2a · kind → kind=repo_code",
+      "route route@3f2a → kind=repo_code · fell back to the profile default",
+      "finding → code · fell back to the profile default",
+    ]);
   });
 
   it("draws a 10-cell ASCII bar with the rounded percent beside it", () => {

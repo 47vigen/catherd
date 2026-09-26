@@ -1,0 +1,362 @@
+{
+  "schema": 1,
+  "version": "2026-09-25",
+  "benchmarks": {
+    "repo_code": { "benchmark": "DeepSWE", "version": "1.1" },
+    "terminal": { "benchmark": "Terminal-Bench", "version": "4.0" },
+    "honesty": {
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2"
+    }
+  },
+  "scores": [
+    {
+      "rung": "gpt-6-sol#low",
+      "dim": "repo_code",
+      "value": 37.2,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-sol#medium",
+      "dim": "repo_code",
+      "value": 56.6,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-sol#high",
+      "dim": "repo_code",
+      "value": 65.3,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-sol#xhigh",
+      "dim": "repo_code",
+      "value": 66.6,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-sol#max",
+      "dim": "repo_code",
+      "value": 68.8,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://x.com/OpenAIDevs/status/2102461464279912495",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-6-sol#max",
+      "dim": "terminal",
+      "value": 43,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://artificialanalysis.ai/articles/gpt-6-sol-and-luna-push-the-cost-efficiency-frontier",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-sol#max",
+      "dim": "honesty",
+      "value": 95.1,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-6-sol#medium",
+      "dim": "honesty",
+      "value": 95.1,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "measured at max effort; carried to this effort"
+    },
+    {
+      "rung": "gpt-6-sol#high",
+      "dim": "honesty",
+      "value": 95.1,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "measured at max effort; carried to this effort"
+    },
+    {
+      "rung": "gpt-6-sol#xhigh",
+      "dim": "honesty",
+      "value": 95.1,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "measured at max effort; carried to this effort"
+    },
+    {
+      "rung": "gpt-6-luna#high",
+      "dim": "repo_code",
+      "value": 59.3,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "the 0.x seed; only Luna max (66.6) is published"
+    },
+    {
+      "rung": "gpt-6-luna#max",
+      "dim": "repo_code",
+      "value": 66.6,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-luna#max",
+      "dim": "terminal",
+      "value": 13,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://artificialanalysis.ai/articles/gpt-6-sol-and-luna-push-the-cost-efficiency-frontier",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-6-luna#max",
+      "dim": "honesty",
+      "value": 71.3,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-6-luna#high",
+      "dim": "honesty",
+      "value": 71.3,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "measured at max effort; carried to this effort"
+    },
+    {
+      "rung": "gpt-6-astra#xhigh",
+      "dim": "repo_code",
+      "value": 74,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://deepswe.datacurve.ai/",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-6-astra#high",
+      "dim": "terminal",
+      "value": 57.9,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "secondary",
+      "note": "OpenAI-reported, as quoted in the Opus 5.5 system card"
+    },
+    {
+      "rung": "gpt-6-astra#max",
+      "dim": "honesty",
+      "value": 98.5,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-6-astra#xhigh",
+      "dim": "honesty",
+      "value": 98.5,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "inferred",
+      "note": "measured at max effort; carried to this effort"
+    },
+    {
+      "rung": "gpt-5.6-sol#max",
+      "dim": "repo_code",
+      "value": 73,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://deepswe.datacurve.ai/",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-5.6-sol#max",
+      "dim": "terminal",
+      "value": 37.3,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "secondary"
+    },
+    {
+      "rung": "gpt-5.6-sol#max",
+      "dim": "honesty",
+      "value": 22.5,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-5.6-luna#max",
+      "dim": "repo_code",
+      "value": 67,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://deepswe.datacurve.ai/",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "gpt-5.6-luna#max",
+      "dim": "honesty",
+      "value": 21.8,
+      "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
+      "version": "GPT-6 system card appendix 11.6.4.2",
+      "url": "https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "claude-opus-5-5#max",
+      "dim": "repo_code",
+      "value": 74.2,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "verified",
+      "note": "vendor-run, mean of 5 trials (system card 8.3)"
+    },
+    {
+      "rung": "claude-opus-5-5#xhigh",
+      "dim": "terminal",
+      "value": 66.4,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "verified",
+      "note": "Claude Code --bare, 5 trials (system card 8.5)"
+    },
+    {
+      "rung": "claude-opus-5-5#max",
+      "dim": "terminal",
+      "value": 64.8,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "claude-fable-5-1#max",
+      "dim": "terminal",
+      "value": 55.8,
+      "benchmark": "Terminal-Bench",
+      "version": "4.0",
+      "url": "https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    },
+    {
+      "rung": "claude-fable-5-1#max",
+      "dim": "repo_code",
+      "value": 67.4,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://codingfleet.com/blog/deepswe-v11-leaderboard-2026/",
+      "date": "2026-09-25",
+      "confidence": "inferred",
+      "note": "a 5-trial mean from a secondary source that names no effort"
+    },
+    {
+      "rung": "claude-sonnet-5#max",
+      "dim": "repo_code",
+      "value": 54,
+      "benchmark": "DeepSWE",
+      "version": "1.1",
+      "url": "https://deepswe.datacurve.ai/",
+      "date": "2026-09-22",
+      "confidence": "verified"
+    }
+  ],
+  "treatLike": {
+    "claude-opus-5-5#low": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" },
+    "claude-opus-5-5#medium": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" },
+    "claude-opus-5-5#high": { "like": "claude-opus-5-5#xhigh", "note": "only xhigh and max are published" }
+  },
+  "bars": {
+    "repo_code": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "honesty": 90 },
+      "hard": { "repo_code": 55, "honesty": 90 }
+    },
+    "terminal": {
+      "copy": { "honesty": 90 },
+      "build": { "honesty": 90 },
+      "logic": { "honesty": 90 },
+      "hard": { "honesty": 90 }
+    },
+    "ui": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "honesty": 90 },
+      "hard": { "repo_code": 55, "honesty": 90 }
+    },
+    "prose": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "honesty": 90 },
+      "hard": { "repo_code": 55, "honesty": 90 }
+    },
+    "research": {
+      "copy": { "repo_code": 55 },
+      "build": { "repo_code": 55 },
+      "logic": { "repo_code": 55, "honesty": 90 },
+      "hard": { "repo_code": 55, "honesty": 90 }
+    }
+  },
+  "barsWhy": "Track A (copy, build) needs DeepSWE 1.1 >= 55, which Luna high and every Sol rung from medium clear. Track B (logic, hard) also needs honesty >= 90: a worker on logic or hard work must say when a tool fails, which Luna (71.3) does not and Sol (95.1) does. Terminal-Bench 4.0 is published per effort only for Opus 5.5, so terminal lanes gate on honesty alone and use terminal scores to order the speed ladder."
+}

@@ -1,16 +1,36 @@
+import { join } from "node:path";
+import { readJsonl } from "../core/runstore.ts";
 import type { RunSummary } from "../core/status.ts";
 import type { RunRecord, RungId } from "../types.ts";
 import { climbLine, clock, face, glyph, type Mood, shortRung } from "./theme.ts";
 
 /**
- * The fields `watch` shows from one `jev.jsonl` row (`JevLogRow` in `src/routing/jev.ts`):
- * which questions were asked, the answer actually used, and whether Jev answered or the
- * profile default did. `ts`, `answers` and `why` are in the file but not shown here.
+ * The fields `watch` shows from one `jev.jsonl` row. A 1.0 row (services/jev-service.ts JevRow) names
+ * the `call` and `questionSet` it asked and carries its `answers` keyed by question; a 0.x row listed
+ * its `questions`. Both carry the answer actually used and whether Jev answered or a fallback did.
  */
 export interface JevLine {
-  questions: string[];
+  questions?: string[];
+  call?: string;
+  questionSet?: string;
+  answers?: Record<string, unknown> | null;
   used: string;
-  source: "jev" | "default";
+  source: string;
+}
+
+/** 1.0 jsonl files open with a `{schema, kind}` header row, which is not a decision. */
+export const isJsonlHeader = (v: unknown): boolean =>
+  typeof v === "object" &&
+  v !== null &&
+  typeof (v as { schema?: unknown }).schema === "number" &&
+  typeof (v as { kind?: unknown }).kind === "string" &&
+  !("used" in v);
+
+/** The decisions in a run's jev.jsonl, header skipped, 0.x and 1.0 rows alike. */
+export function readJev(dir: string): JevLine[] {
+  return readJsonl<unknown>(join(dir, "jev.jsonl")).filter(
+    (r): r is JevLine => typeof r === "object" && r !== null && !isJsonlHeader(r),
+  );
 }
 
 export function runMood(s: RunSummary): Mood {
@@ -59,9 +79,22 @@ export function recordLine(r: RunRecord, plain: boolean): string {
   return `${r.name}  ${shortRung(r.rung)}  ${r.status}  ${clock(r.secs)}${tail}`;
 }
 
+/** Every non-`jev` source is a decision Jev did not make; say what it fell back to. */
+function fallbackTail(source: string, plain: boolean): string {
+  if (source === "jev") return "";
+  const to = source === "lane" ? "the lane's declaration" : "the profile default";
+  return ` ${glyph("dot", plain)} fell back to ${to}`;
+}
+
 export function jevLine(e: JevLine, plain: boolean): string {
-  const tail = e.source === "default" ? ` ${glyph("dot", plain)} fell back to the profile default` : "";
-  return `${e.questions.join(", ")} ${glyph("arrow", plain)} ${e.used}${tail}`;
+  const tail = fallbackTail(e.source, plain);
+  const arrow = glyph("arrow", plain);
+  if (e.call !== undefined) {
+    const asked = Object.keys(e.answers ?? {});
+    const head = [`${e.call} ${e.questionSet ?? "?"}`, ...(asked.length > 0 ? [asked.join(", ")] : [])];
+    return `${head.join(` ${glyph("dot", plain)} `)} ${arrow} ${e.used}${tail}`;
+  }
+  return `${(e.questions ?? []).join(", ")} ${arrow} ${e.used}${tail}`;
 }
 
 /** spec §11b: --plain's stand-in for the coloured budget bar, e.g. "[#####-----] 52%". */

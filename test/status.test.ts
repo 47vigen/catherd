@@ -17,7 +17,7 @@ describe("summarizeRun", () => {
     appendRunRecord(run.dir, fakeRecord("worker-M1.L2", { status: "failed", secs: 60 }));
     writeFileSync(
       join(run.dir, "jev.jsonl"),
-      `${JSON.stringify({ q: "difficulty", source: "jev" })}\n${JSON.stringify({ q: "finding", source: "default" })}\n`,
+      `${JSON.stringify({ schema: 1, kind: "jev" })}\n${JSON.stringify({ q: "difficulty", source: "jev" })}\n${JSON.stringify({ q: "finding", source: "default" })}\n`,
     );
     appendLedger(run.dir, "M1 | jobs list | abc1234 | vitest 12/12");
     appendJsonl(join(run.dir, "harness.jsonl"), {
@@ -64,9 +64,27 @@ describe("summarizeRun", () => {
     expect(screen).toContain("reviewer-M1  gpt-6-sol#high  01:0");
     expect(screen).toContain("2 runs · 1 ok · 3 min");
     expect(screen).toContain("not ok: worker-M1.L2 (failed)");
-    expect(screen).toContain("-- jev  2 decisions · 1 fell back to default");
+    expect(screen).toContain("-- jev  2 decisions · 1 fell back\n");
     expect(screen).toContain("-- harness  codex native: median first-turn input ~52k tokens over 1 run");
     expect(screen).toContain("  M1 | jobs list | abc1234 | vitest 12/12");
+  });
+
+  test("counts a lane-sourced Jev row as a fallback, like the 1.0 summary", () => {
+    const run = createRun(tempRepo(), "Lane fallback", []);
+    writeFileSync(
+      join(run.dir, "jev.jsonl"),
+      `${[
+        { schema: 1, kind: "jev" },
+        { call: "route", source: "jev" },
+        { call: "route", source: "lane" },
+        { call: "route", source: "default" },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join("\n")}\n`,
+    );
+    const s = summarizeRun(run);
+    expect(s.jev).toEqual({ decisions: 3, fallbacks: 2 });
+    expect(formatSummary(s)).toContain("-- jev  3 decisions · 2 fell back");
   });
 
   test("reads a run with no records, Jev calls, harness rows or ledger rows", () => {
