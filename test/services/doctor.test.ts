@@ -13,9 +13,9 @@ import {
 } from "../../src/services/doctor.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
-import { configFile, patchProfile } from "../../src/services/profile-service.ts";
+import { activate, configFile, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
@@ -199,6 +199,44 @@ describe("doctor", () => {
     });
     patchProfile("default", { jev: { use: "off" } });
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
+  });
+
+  it("validates every linked profile, one row each, and skips Jev only when every one turns it off", async () => {
+    ready();
+    createProfile("team");
+    activate("team", tempRepo());
+    const file = join(dirname(configFile()), "profiles", "team.json");
+    const doc = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(
+      file,
+      JSON.stringify({ ...doc, roles: { ...doc.roles, worker: { ...doc.roles.worker, enabled: false } } }),
+    );
+    const r = await run();
+    expect(check(r, "profile")).toMatchObject({ state: "ok", label: "profile default" });
+    expect(check(r, "profile:team")).toMatchObject({
+      state: "fail",
+      word: "invalid",
+      label: "profile team",
+      fix: "catherd profile set --profile team roles.worker.enabled true",
+    });
+    patchProfile("default", { jev: { use: "off" } });
+    expect(check(await run(), "jev")).toMatchObject({ state: "warn", word: "no key" });
+    writeFileSync(file, JSON.stringify({ ...doc, jev: { use: "off" } }));
+    expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
+  });
+
+  it("tests the Codex sandbox only when Codex serves an enabled workspace-write role", async () => {
+    ready();
+    patchProfile("default", {
+      roles: {
+        worker: { access: "read-only" },
+        writer: { access: "read-only" },
+        artist: { access: "read-only" },
+      },
+    });
+    const r = await run();
+    expect(check(r, "backend:codex")?.state).toBe("ok");
+    expect(check(r, "sandbox:codex")).toBeUndefined();
   });
 
   it("fails on a credentials file others can read", async () => {

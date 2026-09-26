@@ -93,6 +93,26 @@ function usedBackends(profiles: Profile[]): Map<string, "role" | "failover"> {
   return used;
 }
 
+/**
+ * Spec §10.3: the backends that run an enabled workspace-write role, or stand in for one of its rungs,
+ * whose sandbox must let such a worker take the heavy lock.
+ */
+function workspaceWriteBackends(profiles: Profile[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of profiles)
+    for (const role of ROLES) {
+      const rc = p.roles[role];
+      if (!rc.enabled || rc.access !== "workspace-write") continue;
+      for (const r of [...rc.rungs, ...rc.rungs.flatMap((x) => p.failover[x] ?? [])])
+        try {
+          out.add(parseRung(r).backend);
+        } catch {
+          // validate reports a bad rung
+        }
+    }
+  return out;
+}
+
 const PROBLEM_WORD: Record<string, string> = {
   E_BACKEND_MISSING: "missing",
   E_BACKEND_TOO_OLD: "too old",
@@ -274,21 +294,27 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       fix: fixOf(e) ?? "catherd init",
     });
   }
-  if (active) {
-    const name = active.name;
+  // every linked profile: the active one (row `profile`) and each repo-bound one (row `profile:<name>`).
+  // Each fix names its profile: without one, the CLI acts on the profile of the repo doctor runs in.
+  const names = active ? [active.name, ...profiles.map((p) => p.name).filter((n) => n !== active?.name)] : [];
+  for (const name of names) {
+    const id = name === active?.name ? "profile" : `profile:${name}`;
+    const validate = `catherd profile validate ${name}`;
+    const named = (fix: string) =>
+      fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name} `);
     checks.push(
-      guarded("profile", `profile ${name}`, "catherd profile validate", () => {
+      guarded(id, `profile ${name}`, validate, () => {
         const v = validateNamed(name);
         const first = v.errors[0] ?? v.warnings[0];
         return {
-          id: "profile",
+          id,
           label: `profile ${name}`,
           state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
           word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
           detail: first
             ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
             : "valid",
-          ...(first ? { fix: first.fix ?? "catherd profile validate" } : {}),
+          ...(first ? { fix: first.fix ? named(first.fix) : validate } : {}),
         };
       }),
     );
@@ -297,8 +323,14 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const used = usedBackends(profiles);
   checks.push(...(await backendChecks(used)));
 
-  if (active?.jev.use === "off")
-    checks.push({ id: "jev", label: "Jev", state: "skip", word: "off", detail: "off in the profile" });
+  if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
+    checks.push({
+      id: "jev",
+      label: "Jev",
+      state: "skip",
+      word: "off",
+      detail: profiles.length > 1 ? "off in every linked profile" : "off in the profile",
+    });
   else {
     const key = jevKey();
     if (!key)
@@ -364,7 +396,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   );
 
   checks.push(locksCheck());
-  for (const id of used.keys()) {
+  for (const id of workspaceWriteBackends(profiles)) {
     const a = adapterFor(id);
     if (!a?.canWrite) continue;
     const r = await a.canWrite(locksDir()).catch(() => null);
