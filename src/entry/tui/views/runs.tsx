@@ -75,6 +75,8 @@ function RunList(props: { width: number; height: number }) {
     ),
   }));
   const warnings = data.runs.value?.warnings ?? [];
+  // a read that failed after a good one: the rows shown are the last good ones, and it says so
+  const failed = data.runs.error !== null && data.runs.value !== null ? data.runs.error : null;
   if (rows.length === 0 && data.runs.value) {
     const art = mascot("waiting");
     return (
@@ -100,12 +102,18 @@ function RunList(props: { width: number; height: number }) {
           { text: `  ${updated}`, tone: app.state.paused ? "warning" : "muted" },
         ]}
       />
+      {failed ? (
+        <Line
+          width={props.width}
+          parts={[{ text: ` ${glyph("fail", ui.plain)} could not read the runs: ${failed}`, tone: "error" }]}
+        />
+      ) : null}
       <List
         items={items}
         selected={selected}
         onSelect={setSelected}
         width={props.width}
-        height={props.height - 1 - Math.min(2, warnings.length)}
+        height={props.height - 1 - (failed ? 1 : 0) - Math.min(2, warnings.length)}
         filter={null}
         empty="reading runs…"
       />
@@ -223,6 +231,10 @@ function RunView(props: { id: string; width: number; height: number }) {
           { text: ` ${s.title}`, bold: true },
           { text: `  ${s.repo} · started ${ago(now - Date.parse(s.createdAt))} · `, tone: "muted" },
           { text: updated, tone: app.state.paused ? "warning" : "muted" },
+          {
+            text: polled.error ? ` · ${glyph("fail", ui.plain)} could not read the run: ${polled.error}` : "",
+            tone: "error",
+          },
         ]}
       />
       <Line width={props.width} parts={[{ text: " budget " }, ...budgetParts(d, props.width, ui.plain)]} />

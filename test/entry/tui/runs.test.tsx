@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { RUN_EVERY_MS, RunsView } from "../../../src/entry/tui/views/runs.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
@@ -31,6 +32,19 @@ describe("the Runs tab (spec §9.1)", () => {
     expect(f).toContain("● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed");
     expect(f).toContain("· idle  Auth refactor");
     expect(f).toContain("updated just now");
+  });
+
+  it("says a read failed, keeping when the rows were last read, instead of 'updated just now'", async () => {
+    const fx = await runs();
+    fx.runs = () => {
+      throw new Error("runs directory is not readable");
+    };
+    await h!.advance(5 * RUNS_EVERY_MS);
+    const f = h!.s.frame();
+    expect(f).toContain("runs directory is not readable");
+    expect(f).not.toContain("updated just now");
+    expect(f).toContain("updated 10s ago");
+    expect(f).toContain("Jobs screen");
   });
 
   it("opens a run: live lanes, climbs, routes, budget bar, landed milestones; esc goes back", async () => {

@@ -6,7 +6,7 @@ import { useApp } from "./app.tsx";
 export interface Polled<T> {
   value: T | null;
   error: string | null;
-  /** clock time of the last read, null before the first */
+  /** clock time of the last good read, null before the first */
   at: number | null;
   refresh(): void;
 }
@@ -34,7 +34,8 @@ export function usePoll<T>(
       try {
         setState({ value: readRef.current(), error: null, at: clock.now() });
       } catch (e) {
-        setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e), at: clock.now() }));
+        // `at` stays the time of the last good read: old rows must not read as fresh
+        setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e) }));
       }
     };
     const first = clock.setTimeout(run, 0);
