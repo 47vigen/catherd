@@ -1,10 +1,10 @@
 import { useTerminalDimensions } from "@opentui/react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { type Change, diffProfiles, resolveProfile } from "../../../domain/profile.ts";
 import type { Validation } from "../../../domain/profile-rules.ts";
 import type { Effects } from "../effects.ts";
 import { useApp } from "../providers/app.tsx";
-import { useData } from "../providers/data.tsx";
+import { useData, useLoad } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
 import { useUi } from "../providers/theme.tsx";
 import { withStaged } from "../profile-tree.ts";
@@ -129,8 +129,14 @@ export function SaveDialog(props: { dialog: Save }) {
   const dims = useTerminalDimensions();
   const name = props.dialog.purpose.name;
   const draft = app.state.drafts[name];
-  const preview = useMemo(() => (draft ? previewSave(draft, app.effects) : null), [draft, app.effects]);
-  const blocked = (preview?.validation.errors.length ?? 1) > 0;
+  // the preview reads the catalog and agent files: off the render path, so a read that throws is shown
+  // here as the reason nothing can be saved, not as a broken screen
+  const loaded = useLoad(
+    () => (draft ? previewSave(draft, app.effects) : null),
+    draft ? JSON.stringify([draft.doc, draft.treatLikes]) : "",
+  );
+  const preview = loaded.value;
+  const blocked = loaded.error !== null || (preview?.validation.errors.length ?? 0) > 0;
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
   const labels = blocked ? ["Cancel"] : ["Save", "Save & make active", "Cancel"];
   const [focused, setFocused] = useState(0);
@@ -139,6 +145,8 @@ export function SaveDialog(props: { dialog: Save }) {
     "dialog.right": () => setFocused((f) => Math.min(labels.length - 1, f + 1)),
     "dialog.submit": () => {
       const label = labels[Math.min(focused, labels.length - 1)];
+      // nothing is saved before its diff has been shown
+      if (label !== "Cancel" && !preview) return;
       if (label === "Save") app.answer("save");
       else if (label === "Save & make active") app.answer("activate");
       else app.dispatch({ type: "close" });
@@ -147,8 +155,16 @@ export function SaveDialog(props: { dialog: Save }) {
   const rows = (inner: number): ReactNode[] => {
     const out: ReactNode[] = [];
     const line = (key: string, parts: Part[]) => out.push(<Line key={key} width={inner} parts={parts} />);
+    if (loaded.error !== null) {
+      wrap(`Cannot show what saving would do: ${loaded.error}`, inner).forEach((t, i) =>
+        line(`fail${i}`, [{ text: t, tone: "error" }]),
+      );
+      line("gap", []);
+      out.push(<Buttons key="buttons" labels={labels} focused={0} width={inner} />);
+      return out;
+    }
     if (!preview) {
-      line("gone", [{ text: "Nothing to save.", tone: "muted" }]);
+      line("gone", [{ text: draft ? "reading…" : "Nothing to save.", tone: "muted" }]);
       return out;
     }
     const repo = data.profiles.value?.repo;

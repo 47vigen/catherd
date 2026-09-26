@@ -3,6 +3,8 @@ import { COMMANDS, DEFAULT_KEYS, isPrintable, resolveKeybinds } from "../../../s
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { ARM_MS } from "../../../src/entry/tui/state.ts";
 import { App } from "../../../src/entry/tui/views/app.tsx";
+import { CatherdError } from "../../../src/domain/errors.ts";
+import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
 
@@ -180,6 +182,50 @@ describe("text inputs own printable keys (spec §9.2)", () => {
     await h!.s.type(text);
     expect(h!.s.frame()).toContain(text.slice(0, 20));
     expect(h!.exits).toEqual([]);
+  });
+});
+
+describe("an error while drawing", () => {
+  function Boom(): never {
+    throw new CatherdError("E_CONFIG_INVALID", "catalog.override.json is not valid JSON", {
+      fix: "catherd catalog refresh",
+    });
+  }
+
+  it("shows the error with its fix and quits with ctrl+c, printing it after exit", async () => {
+    withHome();
+    h = await harness(<Boom />);
+    expect(h.s.frame()).toContain("catalog.override.json is not valid JSON");
+    expect(h.s.frame()).toContain("fix: catherd catalog refresh");
+    expect(h.s.frame()).toContain("press q or ctrl+c to quit");
+    await h.s.press("ctrl+c");
+    expect(h.exits).toEqual([
+      {
+        code: 1,
+        kept: ["catherd: catalog.override.json is not valid JSON", "fix: catherd catalog refresh"],
+      },
+    ]);
+  });
+
+  /** throws as soon as a dialog opens */
+  function BoomOnDialog() {
+    if (useApp().state.dialogs.length) throw new Error("the dialog broke");
+    return null;
+  }
+
+  it("quits with q too, when it broke with a dialog open", async () => {
+    withHome();
+    h = await harness(
+      <>
+        <App />
+        <BoomOnDialog />
+      </>,
+      { effects: fixtureEffects() },
+    );
+    await h.s.press("ctrl+p");
+    expect(h.s.frame()).toContain("the dialog broke");
+    await h!.s.press("q");
+    expect(h!.exits.map((e) => e.code)).toEqual([1]);
   });
 });
 

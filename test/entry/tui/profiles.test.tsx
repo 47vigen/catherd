@@ -261,6 +261,21 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("profile file vanished");
   });
 
+  it("says in the save dialog when its preview cannot be read, instead of breaking the screen", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return");
+    fx.catalog = () => {
+      throw new Error("catalog.override.json is not valid JSON");
+    };
+    await h!.s.press("ctrl+s");
+    expect(h!.s.frame()).toContain("Save profile default");
+    expect(h!.s.frame()).toContain("catalog.override.json is not valid JSON");
+    expect(h!.s.frame()).toContain("[ Cancel ]");
+    expect(h!.s.frame()).not.toContain("[ Save ]");
+    expect(h!.s.frame()).not.toContain("press q or ctrl+c to quit");
+  });
+
   it("applies two keys that land in one tick to the draft as it is, not as it was drawn", async () => {
     await profiles();
     await find("verifier");
