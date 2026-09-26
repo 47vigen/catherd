@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
 import { type ReactNode, useState } from "react";
@@ -139,6 +139,22 @@ describe("Matrix", () => {
     const override = JSON.parse(readFileSync(join(configDir(), "catalog.override.json"), "utf8"));
     expect(override.treatLike["gpt-6-luna#xhigh"]).toBe("gpt-6-luna#high");
     expect(onChange.mock.calls.at(-1)?.[0].roles.worker.models["gpt-6-luna"]).toEqual(["high", "xhigh"]);
+  });
+
+  it("shows a failed treat-like save as a note, back on the matrix, without ticking", async () => {
+    const onChange = mock();
+    const { captureCharFrame, mockInput, renderOnce } = await mounted(<Harness onChange={onChange} />);
+    await press(mockInput, ...intoWorkerDetail, ...down(4), KEY.right, ...down(2), KEY.space);
+    await renderOnce();
+    mkdirSync(configDir(), { recursive: true });
+    writeFileSync(join(configDir(), "catalog.override.json"), "{nope");
+    await press(mockInput, KEY.enter);
+    await new Promise((r) => setImmediate(r));
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain("Could not save the treat-like:");
+    expect(frame).not.toContain("Treat it like which scored rung?");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("greys out a backend that is not ready, shows its fix, and refuses to tick there", async () => {
