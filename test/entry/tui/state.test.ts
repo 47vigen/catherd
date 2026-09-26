@@ -9,6 +9,7 @@ import {
   HISTORY_LIMIT,
   initialState,
   isArmed,
+  isSaving,
   reduce,
   totalDirty,
 } from "../../../src/entry/tui/state.ts";
@@ -82,6 +83,24 @@ describe("drafts (spec §9.2: edits are staged)", () => {
     expect(currentDraft(s)?.past).toEqual([]);
   });
 
+  it("rebases a draft edited while its save wrote: the saved file is its base, the newer edits stay", () => {
+    let s = run(shown(), { type: "edit", patch: { objective: "speed" } });
+    const from = { doc: currentDraft(s)!.doc, treatLikes: currentDraft(s)!.treatLikes };
+    s = run(
+      s,
+      { type: "edit", patch: { budget: { usd: 5 } } },
+      { type: "treatLike", rung: "r#x", like: "gpt-6-sol#high" },
+    );
+    const saved = { ...defaultProfileDoc(), objective: "speed" as const };
+    s = run(s, { type: "saved", name: "default", doc: saved, from });
+    const d = currentDraft(s)!;
+    expect(d.base).toEqual(saved);
+    expect(d.doc.objective).toBe("speed");
+    expect(d.doc.budget).toEqual({ usd: 5 });
+    expect(d.treatLikes).toEqual({ "r#x": "gpt-6-sol#high" });
+    expect(dirtyCount(d)).toBe(2);
+  });
+
   it("restarts a clean draft from the file shown again, so a change made elsewhere shows", () => {
     let s = run(shown(), { type: "tab", tab: "status" });
     const newer = { ...defaultProfileDoc(), objective: "speed" as const };
@@ -128,6 +147,20 @@ describe("dialogs and armed keys", () => {
     expect(s.dialogs).toEqual([confirm]);
     s = run(s, { type: "replace", dialog: prompt }, { type: "close" });
     expect(s.dialogs).toEqual([]);
+  });
+
+  it("does not close a save dialog while its save writes, and closes it once the write settles", () => {
+    const save: Dialog = { kind: "save", purpose: { type: "save", name: "default" }, error: null };
+    let s = run(
+      initialState(),
+      { type: "open", dialog: save },
+      { type: "saving", name: "default", on: true },
+    );
+    expect(isSaving(s)).toBe(true);
+    expect(run(s, { type: "close" }).dialogs).toHaveLength(1);
+    s = run(s, { type: "saving", name: "default", on: false }, { type: "close" });
+    expect(s.dialogs).toEqual([]);
+    expect(isSaving(s)).toBe(false);
   });
 
   it("arms a double press for its window only, on its own target", () => {

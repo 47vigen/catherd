@@ -1,10 +1,9 @@
-import { useRef } from "react";
 import { isCatherdError } from "../../../domain/errors.ts";
 import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
 import { errorToast } from "../providers/toast.tsx";
-import { currentDraft, dirtyCount } from "../state.ts";
+import { currentDraft, dirtyCount, isSaving } from "../state.ts";
 import { plural } from "../text.ts";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -155,7 +154,6 @@ function activateNow(app: AppApi, data: Data, name: string): void {
 export function useProfileDialogs(): void {
   const app = useApp();
   const data = useData();
-  const saving = useRef(false);
   const nameError = (name: string): string | null => {
     if (!PROFILE_NAME.test(name))
       return "use lowercase letters, digits and -, up to 32, starting with a letter or digit";
@@ -216,28 +214,32 @@ export function useProfileDialogs(): void {
     const d = app.getState().drafts[p.name];
     if (!d) return app.dispatch({ type: "close" });
     // a second enter while the first save is writing is not a second save
-    if (saving.current) return;
+    if (isSaving(app.getState())) return;
+    // while it writes the dialog stays open and takes no answer, and the TUI does not quit
+    app.dispatch({ type: "saving", name: p.name, on: true });
     let r: Awaited<ReturnType<AppApi["effects"]["save"]>>;
     try {
-      saving.current = true;
       r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes);
     } catch (e) {
+      app.dispatch({ type: "saving", name: p.name, on: false });
       return app.dispatch({
         type: "invalid",
         error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
       });
-    } finally {
-      saving.current = false;
     }
+    app.dispatch({ type: "saving", name: p.name, on: false });
     if (!r.saved)
       return app.dispatch({
         type: "invalid",
         error: r.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
       });
-    // saved: the dialog closes, so what fails from here on is a toast
-    app.dispatch({ type: "close" });
+    // saved: this dialog closes (only if it is still the top one), so what fails from here on is a toast
+    const top = app.getState().dialogs.at(-1);
+    if (top?.kind === "save" && top.purpose.name === p.name) app.dispatch({ type: "close" });
     try {
-      app.dispatch({ type: "saved", name: p.name, doc: app.effects.readProfile(p.name) });
+      // the draft as the save began: an edit made since stays staged over what was saved
+      const from = { doc: d.doc, treatLikes: d.treatLikes };
+      app.dispatch({ type: "saved", name: p.name, doc: app.effects.readProfile(p.name), from });
     } catch (e) {
       fail(app, e);
     }

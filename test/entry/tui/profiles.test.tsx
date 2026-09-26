@@ -322,6 +322,36 @@ describe("the Profiles tab", () => {
     expect(h!.app().getState().dialogs).toEqual([]);
   });
 
+  it("keeps the save dialog open while the save writes: esc does nothing, and the draft is clean after", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return", "ctrl+s");
+    const save = fx.save;
+    let finish = () => {};
+    const gate = new Promise<void>((r) => {
+      finish = r;
+    });
+    fx.save = async (...a) => {
+      await gate;
+      return save(...a);
+    };
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("saving…");
+    expect(h!.s.frame()).not.toContain("[ Save ]");
+    await h!.s.press("escape", "escape");
+    expect(h!.app().getState().dialogs).toHaveLength(1);
+    expect(h!.s.frame()).toContain("Save profile default");
+    await h!.run(async () => {
+      finish();
+      await gate;
+    });
+    await h!.advance(0);
+    expect(fx.writes).toEqual(['save default {"objective":"speed"}']);
+    expect(h!.app().getState().dialogs).toEqual([]);
+    expect(h!.s.frame()).not.toContain("unsaved");
+    expect(h!.app().getState().drafts.default?.base.objective).toBe("speed");
+  });
+
   it("applies two keys that land in one tick to the draft as it is, not as it was drawn", async () => {
     await profiles();
     await find("verifier");

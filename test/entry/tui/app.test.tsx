@@ -296,6 +296,36 @@ describe("an error while drawing", () => {
   });
 });
 
+describe("a save that is still writing", () => {
+  it("does not quit on ctrl+c, q or ctrl+x q, and says to wait for it", async () => {
+    const effects = fixtureEffects();
+    const save = effects.save;
+    let finish = () => {};
+    const gate = new Promise<void>((r) => {
+      finish = r;
+    });
+    effects.save = async (...a) => {
+      await gate;
+      return save(...a);
+    };
+    await app({ effects });
+    await h!.s.press("2", "j", "space", "ctrl+s", "return");
+    await h!.s.press("ctrl+c");
+    expect(h!.s.frame()).toContain("saving… wait for it to finish");
+    await h!.s.press("ctrl+c", "q", "ctrl+x", "q");
+    expect(h!.exits).toEqual([]);
+    expect(h!.app().getState().dialogs).toHaveLength(1);
+    await h!.run(async () => {
+      finish();
+      await gate;
+    });
+    await h!.advance(0);
+    expect(h!.exits).toEqual([]);
+    expect(h!.app().getState().dialogs).toEqual([]);
+    expect(effects.writes).toHaveLength(1);
+  });
+});
+
 describe("an error from a key's read", () => {
   it("shows a failed profile read from ctrl+x l as an error toast with its fix, and keeps running", async () => {
     const effects = fixtureEffects();

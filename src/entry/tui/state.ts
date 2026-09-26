@@ -1,6 +1,7 @@
 import {
   applyPatch,
   diffProfiles,
+  patchBetween,
   type ProfileDoc,
   type ProfilePatch,
   resolveProfile,
@@ -91,7 +92,13 @@ export type Dialog =
       destructive: boolean;
     }
   | { kind: "prompt"; purpose: Purpose; title: string; label: string; value: string; error: string | null }
-  | { kind: "save"; purpose: { type: "save"; name: string }; error: string | null };
+  | {
+      kind: "save";
+      purpose: { type: "save"; name: string };
+      error: string | null;
+      /** a save is writing: the dialog shows "saving…", takes no answer and cannot be closed */
+      saving?: boolean;
+    };
 
 /** A double press waiting for its second key (spec §9.2: ctrl+c when dirty, ctrl+d to delete or cancel). */
 export interface Armed {
@@ -127,11 +134,13 @@ export type Action =
   | { type: "undo" }
   | { type: "redo" }
   | { type: "revert"; name: string }
-  | { type: "saved"; name: string; doc: ProfileDoc }
+  /** `from` is the draft as the save began; edits made while it wrote stay staged over `doc` */
+  | { type: "saved"; name: string; doc: ProfileDoc; from?: Snapshot }
   | { type: "forget"; name: string }
   | { type: "open"; dialog: Dialog }
   | { type: "replace"; dialog: Dialog }
   | { type: "close" }
+  | { type: "saving"; name: string; on: boolean }
   | { type: "input"; value: string }
   | { type: "invalid"; error: string | null }
   | { type: "run"; id: string | null }
@@ -173,6 +182,10 @@ export function dirtyCount(d: Draft): number {
 
 export const totalDirty = (s: AppState): number =>
   Object.values(s.drafts).reduce((n, d) => n + dirtyCount(d), 0);
+
+/** Whether a save is writing: its dialog stays open, and the TUI does not quit, until it settles. */
+export const isSaving = (s: AppState): boolean =>
+  s.dialogs.some((d) => d.kind === "save" && d.saving === true);
 
 /** Whether the second press of `what` on `target` at `now` completes the double press. */
 export const isArmed = (s: AppState, what: Armed["what"], target: string, now: number): boolean =>
@@ -244,8 +257,18 @@ export function reduce(s: AppState, a: Action): AppState {
       });
     case "revert":
       return withDraft(s, a.name, (d) => step(d, { doc: d.base, treatLikes: {} }));
-    case "saved":
-      return { ...s, drafts: { ...s.drafts, [a.name]: fresh(a.name, a.doc) } };
+    case "saved": {
+      const d = s.drafts[a.name];
+      const from = a.from;
+      if (!from || !d || (same(d.doc, from.doc) && same(d.treatLikes, from.treatLikes)))
+        return { ...s, drafts: { ...s.drafts, [a.name]: fresh(a.name, a.doc) } };
+      // edited while the save wrote: the saved file is the new base, and the newer edits stay staged over it
+      const treatLikes = Object.fromEntries(
+        Object.entries(d.treatLikes).filter(([rung, like]) => from.treatLikes[rung] !== like),
+      );
+      const doc = applyPatch(a.doc, patchBetween(from.doc, d.doc));
+      return { ...s, drafts: { ...s.drafts, [a.name]: { ...fresh(a.name, a.doc), doc, treatLikes } } };
+    }
     case "forget": {
       const { [a.name]: _gone, ...drafts } = s.drafts;
       return { ...s, drafts, profile: s.profile === a.name ? null : s.profile };
@@ -254,8 +277,19 @@ export function reduce(s: AppState, a: Action): AppState {
       return { ...s, dialogs: [...s.dialogs, a.dialog], armed: null };
     case "replace":
       return { ...s, dialogs: [...s.dialogs.slice(0, -1), a.dialog], armed: null };
-    case "close":
+    case "close": {
+      const top = s.dialogs.at(-1);
+      if (top?.kind === "save" && top.saving) return s;
       return { ...s, dialogs: s.dialogs.slice(0, -1), armed: null };
+    }
+    case "saving": {
+      const at = s.dialogs.findIndex((d) => d.kind === "save" && d.purpose.name === a.name);
+      const d = s.dialogs[at];
+      if (d?.kind !== "save" || (d.saving === true) === a.on) return s;
+      const dialogs = [...s.dialogs];
+      dialogs[at] = { ...d, saving: a.on };
+      return { ...s, dialogs };
+    }
     case "input":
     case "invalid": {
       const top = s.dialogs.at(-1);

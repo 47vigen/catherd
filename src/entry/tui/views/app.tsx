@@ -5,7 +5,7 @@ import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { DataProvider, useData } from "../providers/data.tsx";
 import { reachableCommands, useCommandLayer, useKeybinds, useKeymap } from "../providers/keymap.tsx";
 import { useUi } from "../providers/theme.tsx";
-import { currentDraft, isArmed, TABS, totalDirty } from "../state.ts";
+import { currentDraft, isArmed, isSaving, TABS, totalDirty } from "../state.ts";
 import type { Mood } from "../theme.ts";
 import { Footer, Header, Tabs } from "../widgets/chrome.tsx";
 import { plural } from "../text.ts";
@@ -122,6 +122,8 @@ function Screen(props: { story: boolean }) {
     "app.interrupt": () => {
       const state = app.getState();
       const dirty = totalDirty(state);
+      // a save that is writing is never cut off: nothing closes or quits until it settles
+      if (isSaving(state)) return app.toast({ variant: "info", message: "saving… wait for it to finish" });
       if (state.dialogs.length) return app.dispatch({ type: "close" });
       if (app.back("input")) return;
       if (dirty === 0) return app.exit(0);

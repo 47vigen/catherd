@@ -14,7 +14,7 @@ import { useData, useLoad } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
 import { useUi } from "../providers/theme.tsx";
 import { withStaged } from "../profile-tree.ts";
-import type { Dialog as DialogState, Draft } from "../state.ts";
+import { type Dialog as DialogState, type Draft, isSaving } from "../state.ts";
 import { wrap } from "../text.ts";
 import { glyph } from "../theme.ts";
 import { Buttons } from "../widgets/dialog-confirm.tsx";
@@ -158,6 +158,8 @@ export function SaveDialog(props: { dialog: Save }) {
     "dialog.left": () => setFocused((f) => Math.max(0, f - 1)),
     "dialog.right": () => setFocused((f) => Math.min(labels.length - 1, f + 1)),
     "dialog.submit": () => {
+      // a save that is writing takes no answer
+      if (isSaving(app.getState())) return;
       const label = labels[Math.min(focused, labels.length - 1)];
       // nothing is saved before its diff has been shown
       if (label !== "Cancel" && !preview) return;
@@ -243,9 +245,16 @@ export function SaveDialog(props: { dialog: Save }) {
     // the gap and the buttons always fit: every section shares what is left of the panel
     fitSections(sections, dialogRows(dims.height) - 2).forEach((p, i) => line(`r${i}`, p));
     line("gap5", []);
-    out.push(
-      <Buttons key="buttons" labels={labels} focused={Math.min(focused, labels.length - 1)} width={inner} />,
-    );
+    if (props.dialog.saving) line("saving", [{ text: "saving…", tone: "muted" }]);
+    else
+      out.push(
+        <Buttons
+          key="buttons"
+          labels={labels}
+          focused={Math.min(focused, labels.length - 1)}
+          width={inner}
+        />,
+      );
     return out;
   };
   return <Dialog title={`Save profile ${name}`} size="large" rows={rows} />;
