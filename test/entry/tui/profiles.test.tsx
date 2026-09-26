@@ -262,9 +262,14 @@ describe("the Profiles tab", () => {
     const fx = await profiles();
     await find("objective");
     await h!.s.press("return", "ctrl+s");
-    // gone after the dialog read it for its preview
-    fx.readProfile = () => {
-      throw new Error("profile file vanished");
+    // gone once the save has written it (Save reads it again for its preview first)
+    const save = fx.save;
+    fx.save = async (...a) => {
+      const r = await save(...a);
+      fx.readProfile = () => {
+        throw new Error("profile file vanished");
+      };
+      return r;
     };
     await h!.s.press("return");
     expect(fx.writes).toEqual(['save default {"objective":"speed"}']);
@@ -294,6 +299,24 @@ describe("the Profiles tab", () => {
     fx.readProfile = (n) => applyPatch(read(n), { roles: { worker: { access: "read-only" } } });
     await h!.s.press("ctrl+s");
     expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+read-only → full/);
+  });
+
+  it("re-reads the file on Save and asks again when the preview changed on disk while open", async () => {
+    const fx = await profiles();
+    await find("worker access");
+    await h!.s.press("return", "ctrl+s");
+    expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+workspace-write → full/);
+    // another process writes the stored profile: a field the draft touches, and one it does not
+    await fx.save("default", { roles: { worker: { access: "read-only" } }, objective: "speed" }, {});
+    fx.writes.length = 0;
+    await h!.s.press("return");
+    expect(fx.writes).toEqual([]);
+    expect(h!.s.frame()).toContain("Save profile default");
+    expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+read-only → full/);
+    expect(h!.s.frame()).toContain("the profile changed on disk — check the changes and choose again");
+    await h!.s.press("return");
+    expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
+    expect(h!.app().getState().dialogs).toEqual([]);
   });
 
   it("saves once when enter is pressed again while the save is still writing", async () => {

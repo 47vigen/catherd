@@ -23,6 +23,9 @@ import { Line, type Part } from "../widgets/line.tsx";
 
 type Save = Extract<DialogState, { kind: "save" }>;
 
+/** Said when a Save found the file changed since the dialog showed what saving would do. */
+const CHANGED_ON_DISK = "the profile changed on disk — check the changes and choose again";
+
 const show = (v: unknown): string =>
   v === null || v === undefined ? "none" : Array.isArray(v) ? v.join(", ") : String(v);
 
@@ -145,12 +148,21 @@ export function SaveDialog(props: { dialog: Save }) {
   const draft = app.state.drafts[name];
   // the preview reads the catalog and agent files: off the render path, so a read that throws is shown
   // here as the reason nothing can be saved, not as a broken screen
-  const loaded = useLoad(
-    () => (draft ? previewSave(draft, app.effects) : null),
-    draft ? JSON.stringify([draft.doc, draft.treatLikes]) : "",
+  const key = draft ? JSON.stringify([draft.doc, draft.treatLikes]) : "";
+  const loaded = useLoad(() => (draft ? previewSave(draft, app.effects) : null), key);
+  // a Save re-reads the file: when that changed what saving would do, the dialog shows the new preview
+  // in place of the loaded one and asks again (another process may have written the profile meanwhile)
+  const [fresh, setFresh] = useState<{ key: string; value: SavePreview | null; error: string | null } | null>(
+    null,
   );
-  const preview = loaded.value;
-  const blocked = loaded.error !== null || (preview?.validation.errors.length ?? 0) > 0;
+  const shown = fresh?.key === key ? fresh : loaded;
+  const preview = shown.value;
+  const error = shown.error;
+  // what the dialog shows now, for keys in one burst
+  const shownRef = useRef<SavePreview | null>(preview);
+  shownRef.current = preview;
+  const [changed, setChanged] = useState(false);
+  const blocked = error !== null || (preview?.validation.errors.length ?? 0) > 0;
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
   const labels = blocked ? ["Cancel"] : ["Save", "Save & make active", "Cancel"];
   const [focused, setFocusedState] = useState(0);
@@ -168,7 +180,25 @@ export function SaveDialog(props: { dialog: Save }) {
       if (isSaving(app.getState())) return;
       const label = labels[Math.min(focusedRef.current, labels.length - 1)];
       // nothing is saved before its diff has been shown
-      if (label !== "Cancel" && !preview) return;
+      if (label !== "Cancel" && !shownRef.current) return;
+      if (label !== "Cancel") {
+        // only the save the dialog shows is made: the file is read again now, and a different preview
+        // replaces the shown one and asks again instead of saving
+        const d = app.getState().drafts[name];
+        let now: SavePreview | null = null;
+        let failed: string | null = null;
+        try {
+          now = d ? previewSave(d, app.effects) : null;
+        } catch (e) {
+          failed = e instanceof Error ? e.message : String(e);
+        }
+        if (failed !== null || JSON.stringify(now) !== JSON.stringify(shownRef.current)) {
+          shownRef.current = now;
+          setFresh({ key, value: now, error: failed });
+          setChanged(true);
+          return;
+        }
+      }
       if (label === "Save") app.answer("save");
       else if (label === "Save & make active") app.answer("activate");
       else app.dispatch({ type: "close" });
@@ -177,8 +207,8 @@ export function SaveDialog(props: { dialog: Save }) {
   const rows = (inner: number): ReactNode[] => {
     const out: ReactNode[] = [];
     const line = (key: string, parts: Part[]) => out.push(<Line key={key} width={inner} parts={parts} />);
-    if (loaded.error !== null) {
-      wrap(`Cannot show what saving would do: ${loaded.error}`, inner).forEach((t, i) =>
+    if (error !== null) {
+      wrap(`Cannot show what saving would do: ${error}`, inner).forEach((t, i) =>
         line(`fail${i}`, [{ text: t, tone: "error" }]),
       );
       line("gap", []);
@@ -249,8 +279,11 @@ export function SaveDialog(props: { dialog: Save }) {
       { head: [[]], hold: "failure", items: props.dialog.error ? [text(props.dialog.error, "error")] : [] },
     ];
     // the gap and the buttons always fit: every section shares what is left of the panel
-    fitSections(sections, dialogRows(dims.height) - 2).forEach((p, i) => line(`r${i}`, p));
+    const notice =
+      changed && !props.dialog.saving ? wrap(`${glyph("warn", ui.plain)} ${CHANGED_ON_DISK}`, inner) : [];
+    fitSections(sections, dialogRows(dims.height) - 2 - notice.length).forEach((p, i) => line(`r${i}`, p));
     line("gap5", []);
+    notice.forEach((t, i) => line(`changed${i}`, [{ text: t, tone: "warning" }]));
     if (props.dialog.saving) line("saving", [{ text: "saving…", tone: "muted" }]);
     else
       out.push(
