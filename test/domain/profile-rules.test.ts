@@ -159,7 +159,7 @@ describe("validateProfile", () => {
     expect(v.warnings.filter((w) => w.path.startsWith("roles."))).toEqual(
       ["claude-code:claude-opus-5-5#high", "claude:claude-opus-5-5#high"].map((rung) => ({
         path: "roles.worker.rungs",
-        message: `${rung} clears no routing bar (no honesty score), so a lane starts on it only as the role's default rung and never climbs onto it`,
+        message: `${rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
       })),
     );
     expect(check({ roles: { reviewer: { rungs: ["claude-code:claude-opus-5-5#high"] } } })).toEqual({

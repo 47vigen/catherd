@@ -145,12 +145,12 @@ export function validateProfile(p: Profile, c: Catalog, backends: readonly strin
       // default rung (when nothing clears) and never climbs onto it
       for (const x of usable)
         if (
-          (x.info.parsed.backend === "claude" || x.info.parsed.backend === "claude-code") &&
+          quotaOf(x.info.parsed) === "claude-code" &&
           !KINDS.some((k) => DIFFICULTIES.some((d) => clearsBar(c, x, k, d)))
         )
           warnings.push({
             path: `${at}.rungs`,
-            message: `${x.rung} clears no routing bar (no honesty score), so a lane starts on it only as the role's default rung and never climbs onto it`,
+            message: `${x.rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
           });
     if (role === "worker" && usable.length > 1) {
       const missed = KINDS.flatMap((k) =>
