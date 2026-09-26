@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { isCatherdError } from "../../../domain/errors.ts";
 import type { DoctorReport } from "../../../services/doctor.ts";
 import type { Effects, RunRow } from "../effects.ts";
 import { useApp } from "./app.tsx";
@@ -6,6 +7,8 @@ import { useApp } from "./app.tsx";
 export interface Polled<T> {
   value: T | null;
   error: string | null;
+  /** what to do about `error`, when the failure says (a CatherdError's fix) */
+  fix: string | null;
   /** clock time of the last good read, null before the first */
   at: number | null;
   refresh(): void;
@@ -21,21 +24,26 @@ export function usePoll<T>(
   o: { paused?: boolean; key?: string } = {},
 ): Polled<T> {
   const { clock } = useApp();
-  const [state, setState] = useState<{ value: T | null; error: string | null; at: number | null }>({
-    value: null,
-    error: null,
-    at: null,
-  });
+  const [state, setState] = useState<{
+    value: T | null;
+    error: string | null;
+    fix: string | null;
+    at: number | null;
+  }>({ value: null, error: null, fix: null, at: null });
   const readRef = useRef(read);
   readRef.current = read;
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
     const run = () => {
       try {
-        setState({ value: readRef.current(), error: null, at: clock.now() });
+        setState({ value: readRef.current(), error: null, fix: null, at: clock.now() });
       } catch (e) {
         // `at` stays the time of the last good read: old rows must not read as fresh
-        setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e) }));
+        setState((s) => ({
+          ...s,
+          error: e instanceof Error ? e.message : String(e),
+          fix: isCatherdError(e) && e.fix ? e.fix : null,
+        }));
       }
     };
     const first = clock.setTimeout(run, 0);

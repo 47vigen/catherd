@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { CatherdError } from "../../../src/domain/errors.ts";
 import { applyPatch, resolveProfile } from "../../../src/domain/profile.ts";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
-import { useData } from "../../../src/entry/tui/providers/data.tsx";
+import { RUNS_EVERY_MS, useData } from "../../../src/entry/tui/providers/data.tsx";
 import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
 import {
   openNewProfile,
@@ -317,6 +318,74 @@ describe("the Profiles tab", () => {
     await h!.s.press("return");
     expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
     expect(h!.app().getState().dialogs).toEqual([]);
+  });
+
+  it("shows a failed profile read with its fix, not as pending, and retries it on r", async () => {
+    let broken = true;
+    const fx = await profiles((fx) => {
+      const read = fx.profiles;
+      fx.profiles = () => {
+        if (broken)
+          throw new CatherdError("E_CONFIG_INVALID", "config.json is not valid JSON", {
+            fix: "fix or delete ~/.catherd/config.json",
+          });
+        return read();
+      };
+    });
+    const frame = h!.s.frame();
+    expect(frame).toContain("could not read the profiles: config.json is not valid JSON");
+    expect(frame).toContain("fix: fix or delete ~/.catherd/config.json");
+    expect(frame).toContain(" r retry");
+    expect(frame).not.toContain("reading the profile…");
+    expect(frame).not.toContain("reading the catalog…");
+    // r re-reads now; it does not refresh the catalog over the network
+    await h!.s.press("r");
+    expect(h!.s.frame()).toContain("could not read the profiles");
+    broken = false;
+    await h!.s.press("r");
+    await h!.advance(0);
+    expect(h!.s.frame()).toContain("PROFILE default");
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+    expect(fx.writes).toEqual([]);
+  });
+
+  it("recovers from a failed profile read on the next poll, without a key", async () => {
+    let broken = true;
+    await profiles((fx) => {
+      const read = fx.profiles;
+      fx.profiles = () => {
+        if (broken) throw new CatherdError("E_IO_PATH", "profiles/ is unreadable", { fix: "chmod u+rx it" });
+        return read();
+      };
+    });
+    expect(h!.s.frame()).toContain("could not read the profiles: profiles/ is unreadable");
+    broken = false;
+    await h!.advance(RUNS_EVERY_MS);
+    await h!.advance(0);
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+  });
+
+  it("shows a failed catalog read with its fix, and re-reads it on r", async () => {
+    let broken = true;
+    const fx = await profiles((fx) => {
+      const read = fx.catalog;
+      fx.catalog = (b) => {
+        if (broken)
+          throw new CatherdError("E_CONFIG_INVALID", "catalog.override.json is not valid JSON", {
+            fix: "fix or delete ~/.catherd/catalog.override.json",
+          });
+        return read(b);
+      };
+    });
+    const frame = h!.s.frame();
+    expect(frame).toContain("could not read the catalog: catalog.override.json is not valid JSON");
+    expect(frame).toContain("fix: fix or delete ~/.catherd/catalog.override.json");
+    expect(frame).toContain(" r retry");
+    broken = false;
+    await h!.s.press("r");
+    await h!.advance(0);
+    expect(h!.s.frame()).toContain("workspace-write · enforced");
+    expect(fx.writes).toEqual([]);
   });
 
   it("saves once when enter is pressed again while the save is still writing", async () => {

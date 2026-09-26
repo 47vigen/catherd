@@ -91,6 +91,20 @@ export function ProfilesView(props: { width: number; height: number }) {
     });
     return filter ? filterRows(all, filter) : all;
   }, [profile, catalog, loaded.value, draft, expanded, filter, validation, app.effects]);
+  // a read that failed is shown with its fix and a retry, not as one still pending: the profiles (no
+  // draft can open without them; the 2 s poll also reads them again) or, once a profile shows, the catalog
+  const failure =
+    !draft && data.profiles.error !== null
+      ? {
+          what: "the profiles",
+          error: data.profiles.error,
+          fix: data.profiles.fix,
+          retry: data.profiles.refresh,
+          polled: true,
+        }
+      : profile && loaded.error !== null && !loaded.value
+        ? { what: "the catalog", error: loaded.error, fix: loaded.fix, retry: loaded.refresh, polled: false }
+        : null;
   const row = rows.find((r) => r.key === selected) ?? null;
   /** the row the cursor is on now, which a key earlier in the same tick may have moved */
   const rowNow = () => rows.find((r) => r.key === selectedNow()) ?? null;
@@ -196,6 +210,8 @@ export function ProfilesView(props: { width: number; height: number }) {
     "profile.copy": () => draft && openNewProfile(app, draft.name),
     "profile.revert": () => openRevert(app),
     "catalog.refresh": () => {
+      // after a failed read, r reads it again (and only that)
+      if (failure) return failure.retry();
       void app.effects.refreshCatalog().then(
         () => {
           loaded.refresh();
@@ -262,7 +278,9 @@ export function ProfilesView(props: { width: number; height: number }) {
         { text: unsaved ? ` · ${unsaved} unsaved` : "", tone: "warning" },
         { text: `   ${glyph("dot", ui.plain)} ctrl+x l switch · ctrl+x n new`, tone: "muted" },
       ]
-    : [{ text: " reading the profile…", tone: "muted" }];
+    : failure
+      ? [{ text: " PROFILE", bold: true }]
+      : [{ text: " reading the profile…", tone: "muted" }];
   const about = row?.issue
     ? [
         {
@@ -323,16 +341,39 @@ export function ProfilesView(props: { width: number; height: number }) {
   return (
     <box flexDirection="column" width={props.width} height={props.height}>
       <Line width={props.width} parts={top} />
-      <List
-        items={items}
-        selected={selected}
-        onSelect={setSelected}
-        width={props.width}
-        height={props.height - 3}
-        filter={filter}
-        onFilter={setFilter}
-        empty={loaded.error ?? "reading the catalog…"}
-      />
+      {failure ? (
+        <box flexDirection="column" width={props.width} height={props.height - 3}>
+          {[
+            ...wrap(
+              ` ${glyph("fail", ui.plain)} could not read ${failure.what}: ${failure.error}`,
+              props.width,
+            ).map((text): Part => ({ text, tone: "error" })),
+            ...(failure.fix ? wrap(` fix: ${failure.fix}`, props.width) : []).map((text): Part => ({
+              text,
+              tone: "muted",
+            })),
+            {
+              text: ` r retry${failure.polled ? " · also read again every 2 s" : ""}`,
+              tone: "muted",
+            } as Part,
+          ]
+            .slice(0, Math.max(0, props.height - 3))
+            .map((p, i) => (
+              <Line key={i} width={props.width} parts={[p]} />
+            ))}
+        </box>
+      ) : (
+        <List
+          items={items}
+          selected={selected}
+          onSelect={setSelected}
+          width={props.width}
+          height={props.height - 3}
+          filter={filter}
+          onFilter={setFilter}
+          empty="reading the catalog…"
+        />
+      )}
       {[0, 1].map((i) => (
         <Line key={i} width={props.width} parts={aboutLines[i] ? [aboutLines[i]] : []} />
       ))}
