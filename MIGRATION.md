@@ -28,9 +28,22 @@ bunx catherd-cli init
 
 ## What it leaves alone
 
-0.x run folders: 1.0 keeps its runs in `~/.local/share/catherd/repos/` and does not read the old ones. In
-`~/.local/share/catherd/` (or `$XDG_DATA_HOME/catherd/`), every folder except `repos`, `logs`, `locks` and
-`discovery` is 0.x run data; delete it when you no longer need it.
+0.x run data. Your data folder is `~/.local/share/catherd/` (or `$XDG_DATA_HOME/catherd/`, or
+`$CATHERD_HOME/data/`). 1.0 keeps its runs in `repos/` there and does not read what 0.x left beside it:
+
+- **0.x runs**: one folder per repository, named after the repository's path with the leading `/` dropped
+  and every `/` turned into `-` (`/home/you/src/app` became `home-you-src-app/`). Each holds one folder
+  per run, with `meta.json`, `ledger.md`, `state.md`, `lanes/`, `roles/` and `shots/`.
+- **`models-dev.json`**: 0.x's model catalog snapshot. 1.0 ships its own catalog.
+
+Delete those when you no longer need them. Keep everything else, because 1.0 uses it:
+
+- `repos/`: 1.0's runs.
+- `logs/`: 1.0's logs.
+- `locks/`: the heavy-command slots (`catherd lock`).
+- `discovery/`: each backend's last model listing.
+- `codex-home/`: the isolated Codex home, with the sessions an isolated Codex thread resumes from.
+- `opencode-home/`: the isolated opencode config.
 
 ## Then
 
