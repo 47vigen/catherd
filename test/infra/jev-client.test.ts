@@ -69,7 +69,7 @@ describe("jevRequest", () => {
       body: { detail: { error_type: "validation_error", message: "bad" } },
     });
     const r = await jevRequest("POST", "/systemone", "k", {}, { fetchImpl: v.impl, ...clock() });
-    expect(!r.ok && r.error).toStartWith("http 422: ");
+    expect(r).toMatchObject({ ok: false, error: "http 422: validation_error: bad", attempts: 1 });
   });
 
   it("gives up after two retries, and stops early rather than sleep past the deadline", async () => {
@@ -102,6 +102,38 @@ describe("jevRequest", () => {
       { fetchImpl: f.impl, ...clock(), attemptMs: 20 },
     );
     expect(r).toMatchObject({ ok: true, attempts: 2 });
+  });
+
+  it("times out a body that stalls after the headers, aborting the request, and retries it", async () => {
+    const f = fakeFetch("stall", ok);
+    const r = await jevRequest(
+      "POST",
+      "/systemone",
+      "k",
+      {},
+      { fetchImpl: f.impl, ...clock(), attemptMs: 20 },
+    );
+    expect(r).toMatchObject({ ok: true, attempts: 2 });
+  });
+
+  it("returns by the deadline when every body stalls", async () => {
+    const f = fakeFetch("stall");
+    const r = await jevRequest(
+      "POST",
+      "/systemone",
+      "k",
+      {},
+      { fetchImpl: f.impl, ...clock(), deadlineMs: 20 },
+    );
+    expect(r).toMatchObject({ ok: false, error: "deadline (timeout)", status: null, attempts: 1 });
+  });
+
+  it("falls back to backoff on a blank Retry-After, and sends no content type without a body", async () => {
+    expect(retryAfterMs(new Headers({ "retry-after": " " }), 0)).toBeNull();
+    expect(retryAfterMs(new Headers({ "retry-after-ms": "" }), 0)).toBeNull();
+    const f = fakeFetch(ok);
+    await jevRequest("GET", "/models", "k", undefined, { fetchImpl: f.impl, ...clock() });
+    expect(f.sent[0]?.headers.get("content-type")).toBeNull();
   });
 
   it("reports a 200 that is not JSON", async () => {
