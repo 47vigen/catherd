@@ -1,7 +1,15 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { isAlive, killGroup, processStartTime, sameProcess } from "../../src/infra/proc.ts";
+import { isAlive, killGroup, processStartTime, psStartTime, sameProcess } from "../../src/infra/proc.ts";
 
 describe("proc", () => {
+  it("reads a start time with ps even when PATH does not name ps's folder (macOS has no /proc)", () => {
+    expect(psStartTime(process.pid, { PATH: "/nonexistent" })).not.toBeNull();
+  });
+
+  it("answers null instead of throwing when ps cannot run", () => {
+    expect(psStartTime(-5, { PATH: "/nonexistent" })).toBeNull();
+  });
+
   it("identifies a live process by pid and start time", () => {
     const start = processStartTime(process.pid);
     expect(start).not.toBeNull();
@@ -66,7 +74,7 @@ describe("proc", () => {
     try {
       processStartTime(p.pid);
       const calls = spawn.mock.calls as unknown as [string[], { env?: Record<string, string> }][];
-      const ps = calls.find(([cmd]) => cmd[0] === "ps");
+      const ps = calls.find(([cmd]) => cmd[0]?.endsWith("ps"));
       expect(ps?.[1].env?.LC_ALL).toBe("C");
       expect(ps?.[1].env?.TZ).toBe("UTC");
     } finally {
