@@ -66,6 +66,14 @@ export function toV0(p: Profile1): Profile {
   };
 }
 
+const sameRung = (rung1: string, r0: string): boolean => {
+  try {
+    return rung0(rung1) === r0;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * The backend a 0.x `model#effort` runs on: the one the stored role already uses for that model, else the
  * 1.0 catalog's (a Claude model: native for architect and verifier, headless otherwise, spec D3).
@@ -94,21 +102,40 @@ export function patchFromV0(
     const hash = r0.lastIndexOf("#");
     return `${backendFor(c, before, role, r0.slice(0, hash))}:${r0}`;
   };
+  // the stored 1.0 rung for a 0.x one, so a save keeps each rung's backend
+  const storedFor = (rungs: string[], r0: string) => rungs.find((r) => sameRung(r, r0));
   const roles: NonNullable<ProfilePatch["roles"]> = {};
   for (const role of ROLES) {
     const rc = p0.roles[role];
+    const wanted = Object.entries(rc.models).flatMap(([model, efforts]) =>
+      efforts.map((e) => `${model}#${e}`),
+    );
+    // the 0.x shape groups rungs by model: keep the stored ladder's order and backends for every rung still
+    // there, then add the new ones in the editor's order
+    const left = [...wanted];
+    const rungs: string[] = [];
+    for (const r of before.roles[role].rungs) {
+      const i = left.findIndex((r0) => sameRung(r, r0));
+      if (i < 0) continue;
+      rungs.push(r);
+      left.splice(i, 1);
+    }
+    rungs.push(...left.map((r0) => to1(role, r0)));
+    const dr = rc.defaultRung;
     roles[role] = {
       enabled: rc.enabled,
-      rungs: Object.entries(rc.models).flatMap(([model, efforts]) =>
-        efforts.map((e) => to1(role, `${model}#${e}`)),
-      ),
-      defaultRung: rc.defaultRung ? to1(role, rc.defaultRung) : null,
+      rungs,
+      defaultRung: dr ? (storedFor(rungs, dr) ?? to1(role, dr)) : null,
     };
   }
   const failover: Record<string, string | null> = Object.fromEntries(
     Object.keys(before.failover).map((k) => [k, null]),
   );
-  for (const [a, b] of Object.entries(p0.failover ?? {})) failover[to1(null, a)] = to1(null, b);
+  for (const [a, b] of Object.entries(p0.failover ?? {})) {
+    const key = storedFor(Object.keys(before.failover), a) ?? to1(null, a);
+    const kept = before.failover[key];
+    failover[key] = kept !== undefined && sameRung(kept, b) ? kept : to1(null, b);
+  }
   return {
     objective: p0.objective,
     roles,

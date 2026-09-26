@@ -48,6 +48,18 @@ describe("the 0.x TUI's profile shim", () => {
     expect(JSON.parse(readFileSync(join(profilesDir(), "default.json"), "utf8")).schema).toBe(1);
   });
 
+  it("keeps an interleaved ladder's order and each rung's backend when the TUI saves it unchanged", () => {
+    withHome();
+    const worker = ["codex:gpt-6-sol#medium", "codex:gpt-6-luna#high", "codex:gpt-6-sol#high"];
+    const verifier = ["claude:claude-opus-5-5#high", "claude-code:claude-opus-5-5#low"];
+    expect(
+      patchProfile("default", { roles: { worker: { rungs: worker }, verifier: { rungs: verifier } } }).saved,
+    ).toBe(true);
+    saveProfile(loadProfile());
+    const p = getProfile("default");
+    expect([p.roles.worker.rungs, p.roles.verifier.rungs]).toEqual([worker, verifier]);
+  });
+
   it("validates with the 1.0 rules, and refuses to save what they refuse", () => {
     withHome();
     const p0 = loadProfile();
