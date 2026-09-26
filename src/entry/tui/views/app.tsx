@@ -8,6 +8,7 @@ import { useUi } from "../providers/theme.tsx";
 import { currentDraft, isArmed, TABS, totalDirty } from "../state.ts";
 import type { Mood } from "../theme.ts";
 import { Footer, Header, Tabs } from "../widgets/chrome.tsx";
+import { plural } from "../text.ts";
 import { Rule } from "../widgets/line.tsx";
 import { Spinner, useDelayedPresence } from "../widgets/spinner.tsx";
 import { ToastHost } from "../widgets/toast.tsx";
@@ -100,7 +101,7 @@ function Screen(props: { story: boolean }) {
         kind: "confirm",
         purpose: { type: "quit" },
         title: "Quit with unsaved changes?",
-        message: [`${dirty} unsaved change${dirty === 1 ? "" : "s"} will be lost.`],
+        message: [`${plural(dirty, "unsaved change")} will be lost.`],
         yes: "Discard and quit",
         no: "Keep editing",
         destructive: true,
@@ -129,7 +130,7 @@ function Screen(props: { story: boolean }) {
       app.dispatch({ type: "arm", what: "interrupt", target: "app", at: now });
       app.toast({
         variant: "warning",
-        message: `${dirty} unsaved change(s): ctrl+c again to discard and quit`,
+        message: `${plural(dirty, "unsaved change")}: ctrl+c again to discard and quit`,
       });
     },
     // esc backs out one level and never quits; an armed double press is a level of its own

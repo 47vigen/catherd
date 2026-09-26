@@ -17,6 +17,9 @@ export function truncateEnd(s: string, max: number, plain = false): string {
 }
 
 /** Pads with spaces to exactly `w` columns (truncating nothing: callers truncate first). */
+/** `1 change`, `2 changes`: a count with its noun, never `change(s)`. */
+export const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
 export const padEnd = (s: string, w: number): string => s + " ".repeat(Math.max(0, w - width(s)));
 
 /**

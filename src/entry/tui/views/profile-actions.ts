@@ -4,6 +4,7 @@ import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { currentDraft, dirtyCount } from "../state.ts";
+import { plural } from "../text.ts";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const fail = (app: AppApi, e: unknown) => app.toast(errorToast(e));
@@ -111,7 +112,9 @@ export function openRevert(app: AppApi): void {
       kind: "confirm",
       purpose: { type: "revert", name: d.name },
       title: "Discard unsaved changes?",
-      message: [`${dirtyCount(d)} change(s) to ${d.name} go back to what is saved. ctrl+x u undoes this.`],
+      message: [
+        `${plural(dirtyCount(d), "change")} to ${d.name} go back to what is saved. ctrl+x u undoes this.`,
+      ],
       yes: "Discard",
       no: "Keep them",
       destructive: true,
@@ -123,7 +126,10 @@ export function openRevert(app: AppApi): void {
 function sessionsNeeded(app: AppApi, agents: string[]): void {
   if (agents.length === 0) return;
   app.keep([`catherd: start a new Claude Code session to use: ${agents.join(", ")}`]);
-  app.toast({ variant: "info", message: `New Claude Code session needed for ${agents.length} agent(s)` });
+  app.toast({
+    variant: "info",
+    message: `New Claude Code session needed for ${plural(agents.length, "agent")}`,
+  });
 }
 
 function activateNow(app: AppApi, data: Data, name: string): void {

@@ -80,6 +80,17 @@ describe("tabs and leaving (spec §9.2)", () => {
     expect(h!.exits.map((e) => e.code)).toEqual([0]);
   });
 
+  it("counts unsaved changes in words, one change or two changes (P3)", async () => {
+    await app();
+    await h!.s.press("2", "j", "space", "ctrl+c");
+    // the toast sits over the tab row, whose letters show through its spaces without colour
+    expect(h!.s.frame()).toContain("unsaved change: ctrl+c again");
+    await h!.advance(10_000);
+    await h!.s.press("j", "space", "ctrl+c");
+    expect(h!.s.frame()).toContain("unsaved changes: ctrl+c again");
+    expect(h!.s.frame()).not.toContain("(s)");
+  });
+
   it("with unsaved changes, ctrl+c twice within 1.5 s discards and exits 130; slower presses do not", async () => {
     await app();
     await h!.s.press("2", "j", "space", "ctrl+c");
