@@ -174,7 +174,7 @@ describe("the live effects", () => {
     expect(fx.enforcement("opencode:opencode-go/kimi-k3#max", "workspace-write")).toBe("advisory");
   });
 
-  it("inside a repo bound to another profile, names it here and binds the repo on activate", () => {
+  it("inside a repo bound to another profile, names it here and activates the scope it is given", () => {
     withHome();
     const repo = tempRepo();
     createProfile("cheap");
@@ -182,10 +182,11 @@ describe("the live effects", () => {
     activate("cheap", repo);
     const fx = liveEffects(repo);
     expect(fx.profiles()).toMatchObject({ active: "default", here: "cheap", repo });
-    fx.activate("other");
+    fx.activate("other", repo);
     expect([activeName(repo), activeName()]).toEqual(["other", "default"]);
-    liveEffects(tempRepo()).activate("other");
-    expect(activeName()).toBe("other");
+    // the scope the user confirmed, though this repo is bound: the global profile, the binding kept
+    fx.activate("cheap", null);
+    expect([activeName(repo), activeName()]).toEqual(["other", "cheap"]);
   });
 
   it("stamps a run again when a profile is saved or another profile is made active", () => {

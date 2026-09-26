@@ -278,11 +278,10 @@ export function fixtureEffects(
       }
       return r;
     },
-    activate(name) {
-      const r = bound();
-      if (r) {
-        bindings.set(r, name);
-        writes.push(`bind ${name} ${r}`);
+    activate(name, repo) {
+      if (repo !== null) {
+        bindings.set(repo, name);
+        writes.push(`bind ${name} ${repo}`);
       } else {
         active = name;
         writes.push(`activate ${name}`);

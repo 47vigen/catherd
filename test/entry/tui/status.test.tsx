@@ -148,7 +148,7 @@ describe("the Status tab (spec §9.1)", () => {
     await status(fx);
     expect(h!.s.frame()).toContain("default  active · 2 profiles");
     fx.create("fast");
-    fx.activate("cheap");
+    fx.activate("cheap", null);
     await h!.advance(RUNS_EVERY_MS);
     expect(h!.s.frame()).toContain("cheap  active · 3 profiles");
   });

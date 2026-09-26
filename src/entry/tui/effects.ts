@@ -123,8 +123,11 @@ export interface Effects {
     treatLikes: Record<string, string>,
     shown?: ProfileDoc,
   ): Promise<Saved>;
-  /** makes it active, or binds `repo` to it inside a bound repo */
-  activate(name: string): Synced;
+  /**
+   * applies the scope the user confirmed: binds `repo` (this TUI's repo) to it, or with null makes it the
+   * global active profile; never a scope recomputed as it writes
+   */
+  activate(name: string, repo: string | null): Synced;
   create(name: string, from?: string): Saved;
   remove(name: string): Synced;
   refreshCatalog(): Promise<Refreshed[]>;
@@ -260,7 +263,7 @@ export function liveEffects(repo: string | null = null): Effects {
       for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
       return patchProfile(name, patch, shown === undefined ? {} : { expect: shown });
     },
-    activate: (name) => activate(name, bound()),
+    activate: (name, scope) => activate(name, scope),
     create: createProfile,
     remove: deleteProfile,
     refreshCatalog: () => refreshDiscovery(),

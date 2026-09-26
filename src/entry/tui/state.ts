@@ -44,7 +44,8 @@ export type Purpose =
   | { type: "help" }
   | { type: "quit" }
   | { type: "save"; name: string }
-  | { type: "activate"; name: string }
+  /** `repo`: the scope the prompt shows, the bound repo or null for the global profile */
+  | { type: "activate"; name: string; repo: string | null }
   | { type: "revert"; name: string }
   | { type: "profiles" }
   | { type: "new" }
@@ -133,7 +134,8 @@ export type Action =
   | { type: "treatLike"; rung: string; like: string | null; patch?: ProfilePatch }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "revert"; name: string }
+  /** `doc`: the profile as it is on disk now, the new base (else the draft's own base) */
+  | { type: "revert"; name: string; doc?: ProfileDoc }
   /** `from` is the draft as the save began; edits made while it wrote stay staged over `doc` */
   | { type: "saved"; name: string; doc: ProfileDoc; from?: Snapshot }
   | { type: "forget"; name: string }
@@ -256,7 +258,24 @@ export function reduce(s: AppState, a: Action): AppState {
         };
       });
     case "revert":
-      return withDraft(s, a.name, (d) => step(d, { doc: d.base, treatLikes: {} }));
+      return withDraft(s, a.name, (d) => {
+        const base = a.doc ?? d.base;
+        if (same(base, d.base)) return step(d, { doc: d.base, treatLikes: {} });
+        // another process saved the profile since the draft opened: what is saved now is the new base, and
+        // the history (with this revert's undo step) keeps each staged change, now over that base
+        const moved = (x: Snapshot): Snapshot => ({
+          ...x,
+          doc: applyPatch(base, patchBetween(d.base, x.doc)),
+        });
+        return {
+          ...d,
+          base,
+          doc: base,
+          treatLikes: {},
+          past: [...d.past, { doc: d.doc, treatLikes: d.treatLikes }].map(moved).slice(-HISTORY_LIMIT),
+          future: [],
+        };
+      });
     case "saved": {
       const d = s.drafts[a.name];
       const from = a.from;
