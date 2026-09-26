@@ -66,6 +66,20 @@ describe("agentFiles", () => {
       version: "1.0.0",
     });
     expect(text).toContain("\nmodel: claude-haiku-4-5-20251001\ndisallowedTools: Agent\n");
+    expect(text).toContain("(profile p), on claude-haiku-4-5-20251001. Dispatched only by the catherd skill");
+    expect(text).not.toContain("effort");
+  });
+
+  it("writes one file when a stand-in is also one of the role's rungs", () => {
+    const p = profile({
+      roles: { verifier: { rungs: ["codex:gpt-6-sol#high", "claude:claude-opus-5-5#low"] } },
+      failover: { "codex:gpt-6-sol#high": "claude:claude-opus-5-5#low" },
+    });
+    expect(
+      agentFiles(p, "1.0.0")
+        .filter((f) => f.role === "verifier")
+        .map((f) => f.name),
+    ).toEqual(["catherd-default-verifier-claude-opus-5-5-low"]);
   });
 });
 
