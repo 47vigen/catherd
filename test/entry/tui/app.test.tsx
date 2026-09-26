@@ -6,7 +6,9 @@ import { App } from "../../../src/entry/tui/views/app.tsx";
 import { CatherdError } from "../../../src/domain/errors.ts";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
-import { type Harness, harness } from "./harness.tsx";
+import { errorToast } from "../../../src/entry/tui/providers/toast.tsx";
+import { wrap } from "../../../src/entry/tui/text.ts";
+import { type Harness, harness, PLAIN, UI } from "./harness.tsx";
 
 afterEach(snapshotEnv());
 let h: Harness | null = null;
@@ -83,11 +85,10 @@ describe("tabs and leaving (spec §9.2)", () => {
   it("counts unsaved changes in words, one change or two changes (P3)", async () => {
     await app();
     await h!.s.press("2", "j", "space", "ctrl+c");
-    // the toast sits over the tab row, whose letters show through its spaces without colour
-    expect(h!.s.frame()).toContain("unsaved change: ctrl+c again");
+    expect(h!.s.frame()).toContain("1 unsaved change: ctrl+c again");
     await h!.advance(10_000);
     await h!.s.press("j", "space", "ctrl+c");
-    expect(h!.s.frame()).toContain("unsaved changes: ctrl+c again");
+    expect(h!.s.frame()).toContain("2 unsaved changes: ctrl+c again");
     expect(h!.s.frame()).not.toContain("(s)");
   });
 
@@ -283,6 +284,45 @@ describe("an error while drawing", () => {
     await h!.s.press("q");
     expect(h!.exits.map((e) => e.code)).toEqual([1]);
   });
+});
+
+describe("toasts are opaque (Review Focus 4)", () => {
+  const FIX = "catherd profile use --repo --clear /home/someone/work/a-rather-long-client-name/services/api";
+
+  /** The toast's rows at the top right, each exactly `bar text-padded bar`, nothing from beneath. */
+  function expectClean(lines: string[], plain: boolean) {
+    const bar = plain ? "|" : "┃";
+    const w = Math.max(...lines.map((l) => Bun.stringWidth(l)));
+    const rows = h!.s
+      .frame()
+      .split("\n")
+      .slice(1, 1 + lines.length);
+    lines.forEach((l, i) => {
+      const want = `${bar} ${l}${" ".repeat(w - Bun.stringWidth(l))} ${bar}`;
+      const row = rows[i] ?? "";
+      expect(row.slice(row.indexOf(bar), row.indexOf(bar) + want.length)).toBe(want);
+    });
+  }
+
+  for (const [mode, ui] of [
+    ["plain", PLAIN],
+    ["colour", { ...UI, color: true }],
+  ] as const) {
+    it(`draws a one-line toast over the tab row without its letters, in ${mode}`, async () => {
+      await app({ ui, width: 80, height: 24 });
+      await h!.s.press("2", "j", "space", "ctrl+c");
+      expectClean(["1 unsaved change: ctrl+c again to discard and quit"], mode === "plain");
+    });
+
+    it(`draws a multi-line fix toast over the rule and content without them, in ${mode}`, async () => {
+      await app({ ui, width: 80, height: 24 });
+      await h!.s.press("2");
+      await h!.run(() =>
+        h!.app().toast(errorToast(new CatherdError("E_CONFIG_INVALID", "cannot delete cheap", { fix: FIX }))),
+      );
+      expectClean(["cannot delete cheap", ...wrap(FIX, 56)], mode === "plain");
+    });
+  }
 });
 
 describe("keybinds (spec §9.2 configurable)", () => {

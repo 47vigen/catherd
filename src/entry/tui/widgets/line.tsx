@@ -1,4 +1,4 @@
-import { TextAttributes } from "@opentui/core";
+import { RGBA, TextAttributes } from "@opentui/core";
 import { useTone, useUi } from "../providers/theme.tsx";
 import { ascii, truncateEnd, width as widthOf } from "../text.ts";
 import type { Token } from "../theme.ts";
@@ -33,7 +33,17 @@ export function clip(parts: Part[], max: number, plain: boolean): Part[] {
  * with the accent and bold (spec §9.3), or drawn in reverse video without colour; under --plain every
  * character is ASCII.
  */
-export function Line(props: { parts: Part[]; width: number; selected?: boolean; dim?: boolean }) {
+export function Line(props: {
+  parts: Part[];
+  width: number;
+  selected?: boolean;
+  dim?: boolean;
+  /**
+   * Paints every cell, spaces included, so nothing beneath shows through (a toast over the tabs): the
+   * raised surface with colour, reverse video without, since a plain space paints nothing.
+   */
+  opaque?: boolean;
+}) {
   const ui = useUi();
   const tone = useTone();
   const parts = clip(
@@ -46,9 +56,16 @@ export function Line(props: { parts: Part[]; width: number; selected?: boolean; 
   const sel = props.selected === true;
   const fg = (p: Part) =>
     sel ? tone("selectionText") : props.dim ? tone("muted") : p.tone ? tone(p.tone) : undefined;
-  const bg = sel ? tone("selection") : undefined;
-  const attrs = (p: Part) =>
-    (sel || p.bold ? TextAttributes.BOLD : 0) | (sel && !ui.color ? TextAttributes.INVERSE : 0);
+  // without colour, the terminal's own default background (SGR 49, no colour) makes a space paint
+  const bg = sel
+    ? tone("selection")
+    : props.opaque
+      ? ui.color
+        ? tone("surfaceRaised")
+        : RGBA.defaultBackground()
+      : undefined;
+  const inverse = (sel || props.opaque === true) && !ui.color ? TextAttributes.INVERSE : 0;
+  const attrs = (p: Part) => (sel || p.bold ? TextAttributes.BOLD : 0) | inverse;
   return (
     <text wrapMode="none">
       {parts.map((p, i) => (
@@ -56,7 +73,7 @@ export function Line(props: { parts: Part[]; width: number; selected?: boolean; 
           {p.text}
         </span>
       ))}
-      <span bg={bg} attributes={sel && !ui.color ? TextAttributes.INVERSE : 0}>
+      <span bg={bg} attributes={inverse}>
         {pad}
       </span>
     </text>

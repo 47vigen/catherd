@@ -38,6 +38,7 @@ export function ToastHost() {
     <Line
       key={i}
       width={w}
+      opaque
       parts={[
         { text: `${bar} `, tone: TONE[current.variant] },
         { text: t.padEnd(text + t.length - Bun.stringWidth(t)), tone: muted ? "muted" : undefined },
