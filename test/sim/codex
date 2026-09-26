@@ -26,6 +26,17 @@ if (args[0] === "debug" && args[1] === "models") {
   say(JSON.stringify(s.models ?? { models: [] }));
   process.exit(0);
 }
+// `codex sandbox <os> --full-auto -- <cmd…>`: "allow" runs the command, "deny" lets only `true` through
+// (as a workspace-write sandbox refuses a write outside the cwd); unset, the subcommand is unknown.
+if (args[0] === "sandbox" && s.sandbox) {
+  const cmd = args.slice(args.indexOf("--") + 1);
+  if (s.sandbox === "deny" && cmd.join(" ") !== "sh -c true") {
+    process.stderr.write("sh: 1: cannot create: Permission denied\n");
+    process.exit(1);
+  }
+  const r = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
+  process.exit(r.exitCode ?? 1);
+}
 if (args[0] !== "exec") {
   process.stderr.write(`error: unrecognized subcommand '${args[0]}'\n`);
   process.exit(2);

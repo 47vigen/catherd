@@ -30,6 +30,7 @@ export const main: Command = defineCommand({
   subCommands: {
     init: () => import("./tui/commands.ts").then((m) => m.initCommand),
     watch: () => import("./tui/commands.ts").then((m) => m.watchCommand),
+    doctor: () => import("./entry/doctor-command.ts").then((m) => m.doctorCommand),
     catalog: () => import("./entry/catalog-command.ts").then((m) => m.catalogCommand),
     lock: () => import("./entry/lock.ts").then((m) => m.lockCommand),
     "capture-fixtures": () => import("./entry/capture-fixtures.ts").then((m) => m.captureFixturesCommand),

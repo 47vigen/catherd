@@ -17,6 +17,8 @@ export interface CodexScenario {
   envTo?: string;
   touch?: { path: string; content: string }[];
   recordTo?: string;
+  /** `codex sandbox`: "allow" runs the command, "deny" refuses any write; unset, codex has no such command */
+  sandbox?: "allow" | "deny";
   /** overrides for one rung of an `exec`, keyed `model#effort` (`default` when no effort flag is passed) */
   byRung?: Record<string, Omit<CodexScenario, "byRung" | "recordTo">>;
 }

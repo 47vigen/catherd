@@ -112,6 +112,13 @@ export interface BackendAdapter {
   isBusy?(thread: string, cwd: string): Promise<boolean>;
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
   failoverFor?(rung: Rung, repo?: string): Rung | null;
+  /**
+   * Spec §10.3: whether a workspace-write worker of this backend can write `dir` (the heavy-lock dir, so
+   * `catherd lock` works inside it); null when it cannot be tested on this machine.
+   */
+  canWrite?(dir: string): Promise<{ ok: boolean; fix?: string } | null>;
+  /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
+  isolationNote?: string;
   graceAfterFinalMs: number | null;
 }
 
