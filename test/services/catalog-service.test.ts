@@ -152,6 +152,38 @@ describe("measuredSecs", () => {
     expect(m).toEqual({ "gpt-6-sol#high|*": 300, "gpt-6-sol#high|terminal": 300 });
     expect(loadCatalog().secs).toEqual(m);
   });
+
+  it("counts each run under the kind its lane was routed as when it started, not the newest route", async () => {
+    const { run } = freshRun();
+    const route = (at: string, kind: "terminal" | "prose") =>
+      appendRoute(run, {
+        at,
+        lane: "M1.L1",
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        ladder: ["codex:gpt-6-sol#high"],
+        source: "route",
+        decidedBy: "lane",
+        from: null,
+        reason: null,
+        kind,
+        difficulty: "logic",
+      });
+    route("2026-09-25T10:00:00.000Z", "terminal");
+    for (const [i, s] of [100, 300, 200, 500, 400].entries())
+      await appendRecord(
+        run,
+        makeRecord({
+          dispatchId: `D${i}`,
+          rung: "codex:gpt-6-sol#high",
+          secs: s,
+          startedAt: `2026-09-25T10:0${i + 1}:00.000Z`,
+        }),
+      );
+    route("2026-09-25T11:00:00.000Z", "prose");
+    const m = measuredSecs(loadCatalog({ timings: false }));
+    expect(m).toEqual({ "gpt-6-sol#high|*": 300, "gpt-6-sol#high|terminal": 300 });
+  });
 });
 
 describe("discovery refresh", () => {

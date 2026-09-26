@@ -24,7 +24,7 @@ import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
-import { currentRoute } from "../domain/route.ts";
+import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -72,7 +72,8 @@ const median = (xs: number[]) => {
 
 /**
  * Spec §5.2: the median seconds of the user's own successful runs per canonical rung and lane kind
- * (`|*` over every kind), kept only with at least MIN_SAMPLES runs.
+ * (`|*` over every kind), kept only with at least MIN_SAMPLES runs. A run counts under the kind of its
+ * lane's route in force when it started; a run with none counts only under `|*`.
  */
 export function measuredSecs(base: Catalog): Catalog["secs"] {
   const groups = new Map<string, number[]>();
@@ -87,7 +88,8 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
       } catch {
         continue;
       }
-      const kind: Kind | null = r.lane ? (currentRoute(routes, r.lane)?.kind ?? null) : null;
+      // the kind the lane was routed as when this run started, not its newest route
+      const kind: Kind | null = r.lane ? (routeAt(routes, r.lane, r.startedAt)?.kind ?? null) : null;
       add(`${canonical}|*`, r.secs);
       if (kind) add(`${canonical}|${kind}`, r.secs);
     }

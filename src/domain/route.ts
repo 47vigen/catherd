@@ -51,6 +51,16 @@ export const currentRoute = (rows: RouteRow[], lane: string): RouteRow | null =>
   rows.findLast((r) => r.lane === lane) ?? null;
 
 /**
+ * The lane's route in force at `at`: its last row stamped at or before that time; null when the lane
+ * had no row by then (or `at` is not a time). Rows without a parseable `at` are skipped.
+ */
+export function routeAt(rows: RouteRow[], lane: string, at: string): RouteRow | null {
+  const t = Date.parse(at);
+  if (Number.isNaN(t)) return null;
+  return rows.findLast((r) => r.lane === lane && Date.parse(r.at) <= t) ?? null;
+}
+
+/**
  * One outcomes.jsonl row (spec §5.6): how a routed lane ended, for calibrating Jev's route rule.
  * A lane can get several rows (a top-rung failure later landed, a milestone landed again):
  * the last row per lane wins; read them through `latestOutcomes`.
