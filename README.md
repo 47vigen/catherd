@@ -123,7 +123,7 @@ bun run typecheck && bun run lint && bun run format:check
 
 CI runs this on Linux and macOS, on Bun 1.4.0 and the latest Bun. What CI cannot run (the live tests,
 fixture capture, the Codex sandbox, the Jev key prompt) is in
-[`docs/live-verification.md`](docs/live-verification.md), with the exact commands.
+[`docs/dev/live-verification.md`](docs/dev/live-verification.md), with the exact commands.
 
 Design: [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
 Releases go through [Changesets](https://github.com/changesets/changesets): add one with
