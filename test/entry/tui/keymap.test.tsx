@@ -14,8 +14,8 @@ import { mount, type Screen } from "./render.tsx";
 
 let calls: string[] = [];
 let screen: Screen | null = null;
-afterEach(() => {
-  screen?.renderer.destroy();
+afterEach(async () => {
+  await screen?.close();
   screen = null;
   calls = [];
 });
