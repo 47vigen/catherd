@@ -13,6 +13,8 @@ import {
   reduce,
 } from "../../../src/entry/tui/state.ts";
 import { DialogHost } from "../../../src/entry/tui/views/dialogs.tsx";
+import { fitSections } from "../../../src/entry/tui/views/save-dialog.tsx";
+import type { Part } from "../../../src/entry/tui/widgets/line.tsx";
 import { entriesOf, matchOptions } from "../../../src/entry/tui/widgets/dialog-select.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness, UI } from "./harness.tsx";
@@ -246,6 +248,37 @@ describe("SaveDialog (spec §9.2)", () => {
     expect(h!.s.frame()).not.toContain("binds");
   });
 
+  it("lists every error beside a lone Cancel on an 80x24 screen, many changes and agent files or not", async () => {
+    const rungs = ["low", "medium", "high", "xhigh", "max"].map((e) => `claude:claude-opus-5-5#${e}`);
+    const answers = await save(
+      {
+        budget: { usd: 5 },
+        roles: {
+          worker: { enabled: false },
+          architect: { rungs: [...rungs, "codex:nope#high"] },
+          verifier: { rungs: [...rungs, "claude:nope#low"] },
+          reviewer: { rungs: ["codex:zzz#high"] },
+        },
+      },
+      fixtureEffects(),
+      { width: 80, height: 24 },
+    );
+    const f = h!.s.frame();
+    for (const e of [
+      "✗ roles.worker.enabled: the worker cannot be disabled",
+      "✗ roles.architect.rungs: codex:nope#high is unscored",
+      "✗ roles.verifier.rungs: claude:nope#low is unscored",
+      "✗ roles.reviewer.rungs: codex:zzz#high is unscored",
+      "✗ roles.reviewer.rungs: the reviewer role has no usable rung",
+    ])
+      expect(f).toContain(e);
+    expect(f).toContain("[ Cancel ]");
+    expect(f).not.toContain("[ Save ]");
+    await h!.s.press("return");
+    expect(answers).toEqual([]);
+    expect(h!.s.frame()).toContain("dialogs=0");
+  });
+
   it("keeps its buttons on an 80x24 screen however many agent files change", async () => {
     const rungs = ["low", "medium", "high", "xhigh", "max"].map((e) => `claude:claude-opus-5-5#${e}`);
     const answers = await save(
@@ -259,6 +292,58 @@ describe("SaveDialog (spec §9.2)", () => {
     expect(f).toContain("Save & make active binds /r to default.");
     await h!.s.press("return");
     expect(answers).toEqual(["save"]);
+  });
+});
+
+describe("fitSections (the save dialog's shared row budget)", () => {
+  const one = (t: string): Part[][] => [[{ text: t }]];
+  const many = (n: number, t: string, lines = 1) =>
+    Array.from({ length: n }, (_, i) => Array.from({ length: lines }, (_, j) => [{ text: `${t}${i}.${j}` }]));
+  const texts = (rows: Part[][]) => rows.map((r) => r.map((p) => p.text).join(""));
+
+  it("cuts changes and agent files, then drops them, before it cuts a single error", () => {
+    const out = texts(
+      fitSections(
+        [
+          { head: [], hold: "filler", items: many(10, "change") },
+          { head: [[]], hold: "error", items: many(3, "error", 2) },
+          { head: [[], one("Agent files")[0]!], hold: "filler", items: many(10, "agent") },
+          { head: [[]], hold: "note", items: [[...one("applies"), ...one("binds")]] },
+        ],
+        12,
+      ),
+    );
+    expect(out.length).toBeLessThanOrEqual(12);
+    for (const e of ["error0.0", "error0.1", "error1.0", "error1.1", "error2.0", "error2.1"])
+      expect(out).toContain(e);
+  });
+
+  it("keeps the first error when not even the errors fit", () => {
+    const out = texts(
+      fitSections(
+        [
+          { head: [], hold: "filler", items: many(10, "change") },
+          { head: [[]], hold: "error", items: many(5, "error", 2) },
+          { head: [[]], hold: "note", items: [one("applies")] },
+        ],
+        5,
+      ),
+    );
+    expect(out).toEqual(["", "error0.0", "error0.1", "… and 4 more"]);
+  });
+
+  it("keeps why the last save failed, and takes the lines from the others", () => {
+    const out = texts(
+      fitSections(
+        [
+          { head: [], hold: "filler", items: many(3, "change") },
+          { head: [[]], hold: "error", items: many(2, "error", 3) },
+          { head: [[]], hold: "failure", items: [[...one("failed:"), ...one("disk full")]] },
+        ],
+        4,
+      ),
+    );
+    expect(out).toEqual(["error0.0", "error0.1", "failed:", "disk full"]);
   });
 });
 
