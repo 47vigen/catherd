@@ -21,7 +21,13 @@ export function showProfile(app: AppApi, name: string): void {
 
 /** The profile list (`<leader>l`): enter shows one, ctrl+d twice deletes one. */
 export function openProfileList(app: AppApi, data: Data): void {
-  const p = data.profiles.value ?? app.effects.profiles();
+  let p: NonNullable<Data["profiles"]["value"]>;
+  try {
+    // the poll has not read them yet, or its read failed: a key handler's throw would end the TUI
+    p = data.profiles.value ?? app.effects.profiles();
+  } catch (e) {
+    return fail(app, e);
+  }
   app.dispatch({
     type: "open",
     dialog: {

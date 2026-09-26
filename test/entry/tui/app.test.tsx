@@ -296,6 +296,25 @@ describe("an error while drawing", () => {
   });
 });
 
+describe("an error from a key's read", () => {
+  it("shows a failed profile read from ctrl+x l as an error toast with its fix, and keeps running", async () => {
+    const effects = fixtureEffects();
+    effects.profiles = () => {
+      throw new CatherdError("E_CONFIG_INVALID", "projects.json is not valid JSON", {
+        fix: "catherd doctor",
+      });
+    };
+    await app({ effects });
+    await h!.s.press("ctrl+x", "l");
+    expect(h!.s.frame()).toContain("projects.json is not valid JSON");
+    expect(h!.s.frame()).toContain("catherd doctor");
+    expect(h!.app().getState().dialogs).toEqual([]);
+    expect(h!.exits).toEqual([]);
+    await h!.s.press("3");
+    expect(tabLine()).toContain("RUNS");
+  });
+});
+
 describe("toasts are opaque (Review Focus 4)", () => {
   const FIX = "catherd profile use --repo --clear /home/someone/work/a-rather-long-client-name/services/api";
 
