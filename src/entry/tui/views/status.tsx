@@ -77,6 +77,10 @@ export function StatusView(props: { width: number; height: number }) {
       ),
     });
   for (const c of checks) {
+    // the detail wraps under the label instead of being cut: it is often a path (spec §9.3)
+    const said = wrap(`${c.label}${c.detail ? ` — ${c.detail}` : ""}`, Math.max(20, props.width - 19));
+    const first = said[0] ?? "";
+    const label = first.startsWith(c.label) ? c.label : "";
     items.push({
       key: `check:${c.id}`,
       selectable: true,
@@ -87,12 +91,19 @@ export function StatusView(props: { width: number; height: number }) {
           parts={[
             { text: "   " },
             ...stateParts(c.state, c.word, ui.plain),
-            { text: c.label, bold: true },
-            { text: c.detail ? ` — ${c.detail}` : "", tone: "muted" },
+            { text: label, bold: true },
+            { text: first.slice(label.length), tone: "muted" },
           ]}
         />
       ),
     });
+    said.slice(1).forEach((line, i) =>
+      items.push({
+        key: `detail:${c.id}:${i}`,
+        selectable: false,
+        render: (_s, w) => <Line width={w} parts={[{ text: `${" ".repeat(19)}${line}`, tone: "muted" }]} />,
+      }),
+    );
     if (c.fix)
       wrap(`fix: ${c.fix}`, Math.max(20, props.width - 22)).forEach((line, i) =>
         items.push({

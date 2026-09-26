@@ -125,4 +125,21 @@ describe("the Status tab (spec §9.1)", () => {
     await h!.advance(RUNS_EVERY_MS);
     expect(h!.s.frame()).toContain("cheap  active · 3 profiles");
   });
+
+  it("wraps a long detail, such as a path, in full instead of cutting it (spec §9.3: paths wrap)", async () => {
+    const path =
+      "/home/someone/.local/share/catherd/locks/heavy-builds-for-a-rather-long-repository-name.lock";
+    const lock = {
+      id: "lock",
+      label: "heavy lock",
+      state: "warn" as const,
+      word: "held",
+      detail: `${path} held by pid 4242`,
+    };
+    await status(fixtureEffects({ report: { ...FIXTURE_REPORT, checks: [lock, ...FIXTURE_REPORT.checks] } }));
+    const f = h!.s.frame();
+    expect(f.replace(/\s+/g, "")).toContain(`heavylock—${path}heldbypid4242`);
+    expect(f).not.toContain("…");
+    for (const line of f.split("\n")) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(80);
+  });
 });
