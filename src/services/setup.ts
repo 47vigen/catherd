@@ -1,0 +1,92 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { basename, join } from "node:path";
+import type { Issue } from "../domain/profile-rules.ts";
+import { configDir } from "../infra/paths.ts";
+import { type Refreshed, refreshDiscovery } from "./catalog-service.ts";
+import {
+  activate,
+  configFile,
+  profilesDir,
+  projectsFile,
+  resetProfile,
+  type Synced,
+  withProfilesLock,
+} from "./profile-service.ts";
+
+/** True when profile `name` has a file (`default` exists as a name even before it has one). */
+export const hasProfileFile = (name: string): boolean => existsSync(join(profilesDir(), `${name}.json`));
+
+/** A JSON file written by catherd 0.x: readable JSON with no `schema` field. */
+function isLegacy(file: string): boolean {
+  try {
+    const v = JSON.parse(readFileSync(file, "utf8")) as { schema?: unknown } | null;
+    return typeof v === "object" && v !== null && v.schema === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spec D2, a clean break: 1.0 never reads a 0.x config.json, projects.json or profile, so `init` moves
+ * them to `<config>/0.x-backup-<stamp>/`, under the profiles lock. Returns the files moved.
+ */
+export function moveLegacy(now: Date = new Date()): string[] {
+  return withProfilesLock(() => moveLegacyUnlocked(now));
+}
+
+function moveLegacyUnlocked(now: Date): string[] {
+  const candidates = [
+    configFile(),
+    projectsFile(),
+    ...(existsSync(profilesDir())
+      ? readdirSync(profilesDir())
+          .filter((f) => f.endsWith(".json"))
+          .map((f) => join(profilesDir(), f))
+      : []),
+  ].filter((f) => existsSync(f) && isLegacy(f));
+  if (candidates.length === 0) return [];
+  const backup = join(configDir(), `0.x-backup-${now.toISOString().replace(/[:.]/g, "-")}`);
+  mkdirSync(join(backup, "profiles"), { recursive: true });
+  return candidates.map((f) => {
+    const to = join(backup, f.startsWith(profilesDir()) ? join("profiles", basename(f)) : basename(f));
+    renameSync(f, to);
+    return to;
+  });
+}
+
+export interface InitResult {
+  moved: string[];
+  profile: string;
+  /** true when the default profile was written under `profile` */
+  created: boolean;
+  /** why the default profile was not written: it does not validate against this machine's catalog */
+  errors: Issue[];
+  /** false when nothing was made active: the profile was not written and has no file */
+  active: boolean;
+  synced: Synced | null;
+  refreshed: Refreshed[];
+}
+
+/**
+ * Spec §8 `catherd init`, the setup half: moves 0.x files aside, writes the default profile (spec §7.2)
+ * unless a 1.0 one exists and `overwrite` is not set, makes it active and links its agents, and lists
+ * every backend's models. It never throws for a default profile that does not validate here: it writes
+ * nothing, returns the errors, and activates the profile only when it has a file.
+ */
+export async function initSetup(
+  o: { profile?: string; overwrite?: boolean; now?: Date } = {},
+): Promise<InitResult> {
+  const moved = moveLegacy(o.now);
+  const profile = o.profile ?? "default";
+  let created = false;
+  let errors: Issue[] = [];
+  if (!hasProfileFile(profile) || o.overwrite === true) {
+    const saved = resetProfile(profile);
+    created = saved.saved;
+    errors = saved.errors;
+  }
+  const active = hasProfileFile(profile);
+  const synced = active ? activate(profile) : null;
+  const refreshed = await refreshDiscovery();
+  return { moved, profile, created, errors, active, synced, refreshed };
+}

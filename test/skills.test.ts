@@ -113,6 +113,30 @@ describe("setup skill", () => {
     }
   });
 
+  it("covers every profile field profile_set stores, access with its enforcement, and the treat-like command", () => {
+    const md = skill("catherd-setup");
+    for (const field of [
+      "`objective`",
+      "`jev.use`",
+      "`billing`",
+      "`rungs`",
+      "`defaultRung`",
+      "`access`",
+      "`failover`",
+      "`budget`",
+      "`timeouts.idleMin`",
+      "`preflight.confirm`",
+      "`harness.<name>.isolated`",
+      "`lock.heavy`",
+      "`notify`",
+    ])
+      expect(md).toContain(field);
+    for (const word of ["`enforced`", "`advisory`", "`newSessionNeededFor`", "`warnings`", "`null` removes"])
+      expect(md).toContain(word);
+    expect(md).toContain("catherd catalog treat-like <rung> <scored rung>");
+    expect(md).not.toContain("the TUI edits");
+  });
+
   it("keeps spec §11's conversation rules and offers the isolation toggle", () => {
     const md = skill("catherd-setup");
     expect(md).toContain("One question at a time");

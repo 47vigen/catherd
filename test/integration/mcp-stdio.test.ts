@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { configDir, runsDir } from "../../src/infra/paths.ts";
-import { defaultProfile } from "../../src/profile/profile.ts";
+import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call } from "../mcp-helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
@@ -70,12 +70,12 @@ function finishedOnDisk(dir: string, name: string): boolean {
   );
 }
 
-/** The user's profile file, as `catherd` 0.x stores it, with extra fields; plan 5 replaces this format. */
+/** The user's profile file: the default profile document, with fields replaced. */
 function writeProfile(extra: Record<string, unknown>): void {
   mkdirSync(join(configDir(), "profiles"), { recursive: true });
   writeFileSync(
     join(configDir(), "profiles", "default.json"),
-    JSON.stringify({ ...defaultProfile(), ...extra }),
+    JSON.stringify({ ...defaultProfileDoc(), ...extra }),
   );
 }
 
@@ -187,7 +187,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#medium", top: false });
 
       // failover: Sol medium hits a usage limit; its stand-in Sol high finishes the lane.
-      writeProfile({ failover: { "gpt-6-sol#medium": "gpt-6-sol#high" } });
+      writeProfile({ failover: { "codex:gpt-6-sol#medium": "codex:gpt-6-sol#high" } });
       sim.rewrite({
         byRung: {
           "gpt-6-sol#medium": LIMIT,

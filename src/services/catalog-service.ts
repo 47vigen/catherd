@@ -258,7 +258,8 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
   return { rung: from, like: to };
 }
 
-const backendOfKey = (key: string) => (key === "opencode-go" ? "opencode" : key);
+/** The backend a billing or harness key bills or isolates: `opencode-go` is a provider of the opencode backend. */
+export const backendOfKey = (key: string) => (key === "opencode-go" ? "opencode" : key);
 
 function rungRows(
   c: Catalog,

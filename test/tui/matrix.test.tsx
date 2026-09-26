@@ -5,7 +5,7 @@ import { type ReactNode, useState } from "react";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { HarnessCost } from "../../src/core/harness.ts";
 import { configDir } from "../../src/paths.ts";
-import { defaultProfile } from "../../src/profile/profile.ts";
+import { defaultProfile } from "../../src/tui/profile-shim.ts";
 import type { BackendStatus } from "../../src/tui/backends.ts";
 import { Matrix } from "../../src/tui/matrix.tsx";
 import type { Catalog, CatalogModel, Profile } from "../../src/types.ts";
@@ -26,7 +26,8 @@ interface HarnessProps {
 }
 
 function Harness(o: HarnessProps) {
-  const [p, setP] = useState(defaultProfile);
+  // start with no failover, so the picker tests see "none" (the default profile fails Codex over to Go)
+  const [p, setP] = useState<Profile>(() => ({ ...defaultProfile(), failover: undefined }));
   const [c, setC] = useState(() => o.catalog ?? catalogFixture());
   return (
     <Matrix

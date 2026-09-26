@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
@@ -28,9 +31,10 @@ const SANDBOX: Record<Access, string> = {
 export const codexShell = { timeoutMs: 15_000 };
 
 /** Runs `codex <args>` without catherd's secrets; a run past the timeout is killed and counts as failed. */
-async function sh(args: string[]): Promise<{ ok: boolean; out: string; err: string } | null> {
+async function sh(args: string[], cwd?: string): Promise<{ ok: boolean; out: string; err: string } | null> {
   if (!Bun.which("codex", { PATH: process.env.PATH ?? "" })) return null;
   const p = Bun.spawn(["codex", ...args], {
+    cwd,
     env: scrubSecrets(process.env),
     stdin: "ignore",
     stdout: "pipe",
@@ -173,6 +177,32 @@ async function listModels(): Promise<DiscoveredModel[]> {
     }));
 }
 
+/**
+ * Spec §10.3: runs a write into `dir` under `codex sandbox <os> --full-auto`, the workspace-write sandbox,
+ * from a scratch folder. null when this machine has no Codex sandbox to test with (the control fails).
+ */
+async function canWrite(dir: string): Promise<{ ok: boolean; fix?: string } | null> {
+  const os = process.platform === "darwin" ? "macos" : process.platform === "linux" ? "linux" : null;
+  if (!os) return null;
+  const cwd = mkdtempSync(join(tmpdir(), "catherd-sandbox-"));
+  try {
+    const run = (...script: string[]) => sh(["sandbox", os, "--full-auto", "--", "sh", "-c", ...script], cwd);
+    if (!(await run("true"))?.ok) return null;
+    const probe = join(dir, `.doctor-${process.pid}`);
+    // the path goes in as $1, never into the script text
+    const r = await run('touch "$1" && rm -f "$1"', "_", probe);
+    if (!r) return null;
+    return r.ok
+      ? { ok: true }
+      : {
+          ok: false,
+          fix: `add "${dir}" to writable_roots under [sandbox_workspace_write] in ~/.codex/config.toml`,
+        };
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 export const codexAdapter: BackendAdapter = {
   id: "codex",
   minVersion: CODEX_MIN_VERSION,
@@ -197,4 +227,5 @@ export const codexAdapter: BackendAdapter = {
   errors: { limit: CODEX_LIMIT, tooOld: CODEX_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   graceAfterFinalMs: null,
+  canWrite,
 };

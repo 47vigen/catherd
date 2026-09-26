@@ -100,7 +100,7 @@ export async function route(
     role: i.role,
     ...a,
     backend: parseRung(a.rung).backend,
-    agent: deps.profiles.agentFor(i.role, a.rung),
+    agent: deps.profiles.agentFor(run.meta.repo, i.role, a.rung),
   };
 }
 
@@ -152,7 +152,7 @@ export async function climb(
     rung,
     top: next === null,
     backend: parseRung(rung).backend,
-    agent: next ? deps.profiles.agentFor(cur.role, next) : null,
+    agent: next ? deps.profiles.agentFor(run.meta.repo, cur.role, next) : null,
     ...withHints(hints),
   };
 }
@@ -230,9 +230,11 @@ export async function ask(
       });
     return v;
   };
+  // spec §5.5: a profile with Jev off never asks it, for routing or for these verdicts
+  const use = deps.profiles.forRepo(run.meta.repo).jev.use;
   if (i.question === "finding") {
     const { text } = readLaneFile(run, need("lane_file"));
-    return deps.routing.finding(run.dir, text, need("finding"));
+    return deps.routing.finding(run.dir, text, need("finding"), use);
   }
-  return deps.routing.sameDefect(run.dir, need("before"), need("after"));
+  return deps.routing.sameDefect(run.dir, need("before"), need("after"), use);
 }

@@ -4,11 +4,11 @@ import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
-import { v0Profiles } from "../../src/bridge/v0.ts";
 import { readJsonl } from "../../src/infra/store.ts";
 import { resetFreshen } from "../../src/services/catalog-service.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
+import { profileService } from "../../src/services/profile-service.ts";
 import { routingService } from "../../src/services/routing-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -274,8 +274,8 @@ describe("route and the profile", () => {
     );
   });
 
-  it("keeps the approved ladder through the default profile the bridge serves", async () => {
-    const profile = v0Profiles().forRepo(null);
+  it("keeps the approved ladder through the default profile the profile service serves", async () => {
+    const profile = profileService().forRepo(null);
     const r = routingService();
     expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(TRACK_A);
     expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_B);
@@ -300,7 +300,7 @@ describe("finding and same-defect", () => {
     const dir = runDir();
     const yes = fakeFetch({ status: 200, body: fx("finding-design.json") });
     const r = routingService({ key: "k", fetchImpl: yes.impl, ...noWait });
-    expect(await r.finding(dir, lane("repo_code", "build"), "The API shape cannot work")).toEqual({
+    expect(await r.finding(dir, lane("repo_code", "build"), "The API shape cannot work", "auto")).toEqual({
       value: "design",
       probability: 1,
       confidence: 1,
@@ -313,10 +313,11 @@ describe("finding and same-defect", () => {
           dir,
           lane(null, null),
           "x",
+          "auto",
         )
       ).source,
     ).toBe("default");
-    expect(await routingService({ key: null }).sameDefect(dir, "a", "b")).toMatchObject({
+    expect(await routingService({ key: null }).sameDefect(dir, "a", "b", "auto")).toMatchObject({
       value: "no",
       source: "default",
     });
@@ -332,13 +333,33 @@ describe("finding and same-defect", () => {
     const leak = "Token leaks. key: sk-abcdefghijklmnopqrstuv\n```ts\nqueue.drainAll();\n```";
     const f = fakeFetch({ status: 200, body: fx("finding-design.json") });
     const r = routingService({ key: "k", fetchImpl: f.impl, ...noWait });
-    await r.finding(dir, lane("repo_code", "build"), leak);
+    await r.finding(dir, lane("repo_code", "build"), leak, "auto");
     const s = fakeFetch({ status: 200, body: fx("same-defect-yes.json") });
-    await routingService({ key: "k", fetchImpl: s.impl, ...noWait }).sameDefect(dir, leak, leak);
+    await routingService({ key: "k", fetchImpl: s.impl, ...noWait }).sameDefect(dir, leak, leak, "auto");
     for (const sent of [f.sent[0]?.body, s.sent[0]?.body].map((b) => JSON.stringify(b))) {
       expect(sent).toContain("Token leaks.");
       expect(sent).not.toContain("sk-abc");
       expect(sent).not.toContain("drainAll");
     }
+  });
+
+  it("never asks Jev for finding or same-defect with jev.use off", async () => {
+    const dir = runDir();
+    // askJev swallows a transport error, so the fake counts its calls and the test checks the count
+    const asked: string[] = [];
+    const fail = (async (input: RequestInfo | URL): Promise<Response> => {
+      asked.push(String(input));
+      throw new Error("Jev was asked with jev.use off");
+    }) as typeof fetch;
+    const r = routingService({ key: "k", fetchImpl: fail, ...noWait });
+    expect(await r.finding(dir, lane("repo_code", "build"), "The API shape cannot work", "off")).toEqual({
+      value: "code",
+      probability: null,
+      confidence: null,
+      source: "default",
+    });
+    expect(await r.sameDefect(dir, "a", "a", "off")).toMatchObject({ value: "no", source: "default" });
+    expect(asked).toEqual([]);
+    expect(jevRows(dir)).toEqual([]);
   });
 });

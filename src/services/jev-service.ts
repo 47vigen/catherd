@@ -30,6 +30,11 @@ const CredentialsSchema = z.looseObject({
 });
 
 /** Spec §5.5: `TYPESAFE_API_KEY`, else `<config>/credentials.json`; null when neither has one. */
+/** Registers the saved Jev key with the redactor, for a process that reads logs without ever calling Jev. */
+export function registerSavedSecrets(): void {
+  addSecret(jevKey());
+}
+
 export function jevKey(): string | null {
   const env = process.env.TYPESAFE_API_KEY?.trim();
   if (env) return env;

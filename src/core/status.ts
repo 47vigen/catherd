@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { activeProfileName, loadProfile } from "../profile/profile.ts";
+import { activeProfileName, loadProfile } from "../tui/profile-shim.ts";
 import type { Profile, Role, RungId, Tokens } from "../types.ts";
 import { formatHarness, type HarnessCost, harnessCosts } from "./harness.ts";
 import { readRoutes } from "./lanes.ts";

@@ -26,4 +26,19 @@ describe("the MCP server's log (spec §10.2)", () => {
     expect(typeof tools[0].ms).toBe("number");
     expect(readFileSync(logFile(), "utf8")).not.toContain("secret-run-id-value");
   });
+
+  it("logs a call the SDK refuses before the tool runs, as E_INPUT_INVALID, without its input", async () => {
+    withHome();
+    delete process.env.CATHERD_LOG;
+    const c = await mcpClient();
+    const r = await call(c, "status", { run: 12345678 });
+    expect(r.error?.code).toBe("E_INPUT_INVALID");
+    const rows = readFileSync(logFile(), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((r) => r.event === "tool");
+    expect(rows.map((r) => [r.tool, r.ok, r.code])).toEqual([["status", false, "E_INPUT_INVALID"]]);
+    expect(readFileSync(logFile(), "utf8")).not.toContain("12345678");
+  });
 });

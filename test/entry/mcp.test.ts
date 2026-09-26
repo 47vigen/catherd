@@ -113,7 +113,8 @@ describe("MCP server", () => {
       (await call(c, "write_run_file", { run: run.id, path: "state.md", content: "" })).error?.code,
     ).toBe("E_IO_PATH");
     const set = await call(c, "set_next", { run: run.id, next: "paused: lunch" });
-    expect(set.raw.trimEnd().split("\n").at(-1)).toBe("Next: paused: lunch");
+    expect(set.data.state.trimEnd().split("\n").at(-1)).toBe("Next: paused: lunch");
+    expect(set.data.hints).toBeUndefined();
     const agent = await call(c, "record_agent_run", {
       run: run.id,
       name: "architect",
@@ -195,7 +196,7 @@ describe("MCP server", () => {
     expect(climbed.data.hints).toEqual([expect.stringMatching(/^state\.md not refreshed: /)]);
     const set = await call(c, "set_next", { run: run.id, next: "paused: lunch" });
     expect(set.isError).toBe(false);
-    expect(set.raw).toMatch(/^state\.md not refreshed: /);
+    expect(set.data).toEqual({ state: null, hints: [expect.stringMatching(/^state\.md not refreshed: /)] });
   });
 });
 

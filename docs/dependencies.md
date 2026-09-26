@@ -19,9 +19,8 @@ One line per dependency: what it does for catherd, and why this one.
 - zod — schemas for the catalog, profiles and MCP tool inputs — the standard TS-first validator
 - @modelcontextprotocol/sdk — the MCP server (`catherd mcp`) — the official SDK
 - @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §8.4)
-- @opentui/react — React bindings for the TUI (`init`, the profile matrix, `watch`) — pairs with `@opentui/core`
+- @opentui/react — React bindings for the dashboard TUI (`catherd` alone); `init` and `watch` print plain text — pairs with `@opentui/core`
 - react — required by `@opentui/react`'s component model — peer dependency of the TUI layer
-- microdiff — the diff `profile_set` returns — tiny, zero-dependency, maintained object diff
 
 ## Dev
 

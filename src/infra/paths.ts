@@ -11,6 +11,13 @@ function root(kind: "config" | "data"): string {
 export const configDir = (): string => root("config");
 export const dataDir = (): string => root("data");
 
+/** Claude Code's own folder, as Claude Code finds it (`CLAUDE_CONFIG_DIR`, else `~/.claude`). */
+export const claudeHome = (): string => process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+
+/** Where Claude Code reads user agents; catherd links its agent files here (spec §7.3). */
+export const claudeAgentsDir = (): string =>
+  process.env.CATHERD_CLAUDE_AGENTS_DIR || join(claudeHome(), "agents");
+
 /** A readable slug of the repo's git toplevel plus 8 hex chars of its hash: `/a-b/c` ≠ `/a/b-c`. */
 export function repoKey(toplevel: string): string {
   const slug =

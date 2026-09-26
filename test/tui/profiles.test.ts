@@ -9,7 +9,7 @@ import {
   listProfiles,
   saveProfile,
   setActiveProfile,
-} from "../../src/profile/profile.ts";
+} from "../../src/tui/profile-shim.ts";
 import { loadCatalog, saveTreatLike } from "../../src/routing/catalog.ts";
 import { deleteProfile, nameError, saveAndActivate } from "../../src/tui/profiles.ts";
 import { withHome } from "../helpers.ts";
@@ -49,8 +49,10 @@ describe("profile files", () => {
     saveProfile({ ...defaultProfile(), name: "fast" });
     setActiveProfile("default");
     expect(() => deleteProfile("default")).toThrow(/active profile/);
-    setActiveProfile("fast", "/r/app");
-    expect(() => deleteProfile("fast")).toThrow(/bound to \/r\/app/);
+    // a binding counts only while its repo exists
+    const repo = mkdtempSync(join(tmpdir(), "catherd-app-"));
+    setActiveProfile("fast", repo);
+    expect(() => deleteProfile("fast")).toThrow(`bound to ${repo}`);
     expect(listProfiles()).toContain("fast");
   });
 

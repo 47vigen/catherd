@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildServer } from "../src/entry/mcp/server.ts";
 import type { Deps } from "../src/services/ports.ts";
 
-/** An SDK client on an in-memory server; the default deps are the real 0.x bridge. */
+/** An SDK client on an in-memory server; the default deps are the real services. */
 export async function mcpClient(deps?: Deps): Promise<Client> {
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
   await buildServer(deps).connect(serverSide);

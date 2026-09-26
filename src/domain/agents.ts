@@ -24,7 +24,7 @@ export function renderAgent(o: {
   return [
     "---",
     `name: ${agentName(o.profile, o.role, o.rung)}`,
-    `description: Internal ${o.role} role of the catherd orchestrator (profile ${o.profile}), on ${model} at ${effort} effort. Dispatched only by the catherd skill while a run is in flight. Never for a plain request, even one that names this role.`,
+    `description: Internal ${o.role} role of the catherd orchestrator (profile ${o.profile}), on ${model}${effort === "default" ? "" : ` at ${effort} effort`}. Dispatched only by the catherd skill while a run is in flight. Never for a plain request, even one that names this role.`,
     `model: ${model}`,
     ...(effort === "default" ? [] : [`effort: ${effort}`]),
     `disallowedTools: ${nativeDisallowedTools(o.access).join(", ")}`,

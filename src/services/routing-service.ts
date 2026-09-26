@@ -119,10 +119,13 @@ async function verdict<T extends string>(
   set: Extract<SetName, "finding" | "same-defect">,
   state: Record<string, unknown>,
   options: readonly T[],
+  use: "auto" | "off",
   o: JevOpts,
 ): Promise<Verdict<T>> {
-  const asked = await askJev(runDir, set, state, o);
   const rule = jevQuestions().sets[set].rule;
+  // spec §5.5: Jev off means no question and no jev.jsonl row; the rule's default answers
+  if (use === "off") return judgeVerdict(rule, set, options, null);
+  const asked = await askJev(runDir, set, state, o);
   const v = judgeVerdict(rule, set, options, asked.answers as JevAnswers | null);
   logJev(runDir, {
     ...asked.meta,
@@ -141,22 +144,24 @@ async function verdict<T extends string>(
 export function routingService(o: RoutingOpts = {}): RoutingPort {
   return {
     route: (req) => route(req, o),
-    finding: (runDir, laneText, finding) =>
+    finding: (runDir, laneText, finding, use) =>
       verdict(
         runDir,
         "finding",
         { lane: laneState(laneText), finding: scrubFree(finding) },
         VERDICT_OPTIONS.finding,
+        use,
         o,
       ),
-    sameDefect: (runDir, before, after) =>
+    sameDefect: (runDir, before, after, use) =>
       verdict(
         runDir,
         "same-defect",
         { before: scrubFree(before), after: scrubFree(after) },
         VERDICT_OPTIONS["same-defect"],
+        use,
         o,
       ),
-    catalog: (filter) => catalogQuery(filter),
+    catalog: (filter, billing) => catalogQuery(filter, billing),
   };
 }

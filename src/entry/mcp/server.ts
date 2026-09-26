@@ -2,27 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../../infra/log.ts";
-import { v0Profiles } from "../../bridge/v0.ts";
-import { VERSION } from "../../infra/version.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
-import { routingService } from "../../services/routing-service.ts";
+import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
 import { sdkToolError } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
-
-export function defaultDeps(): Deps {
-  return {
-    profiles: v0Profiles(),
-    routing: routingService(),
-    version: VERSION,
-    pollMs: 250,
-    tickMs: Number(process.env.CATHERD_TICK_MS) || 30_000,
-    now: Date.now,
-  };
-}
 
 type Handler = (...args: unknown[]) => CallToolResult | Promise<CallToolResult>;
 
@@ -52,8 +39,18 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
   const server = new McpServer({ name: "catherd", version: deps.version });
   logToolCalls(server);
   // The SDK validates input before a tool's `handle` runs and reports a failure through this (private)
-  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it.
-  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = sdkToolError;
+  // method as plain text; test/entry/mcp.test.ts fails loudly if an SDK upgrade renames it. The wrapper
+  // above never sees such a call, so it is logged here (spec §10.2: every call), by the tool it names.
+  (server as unknown as { createToolError: typeof sdkToolError }).createToolError = (message) => {
+    const r = sdkToolError(message);
+    const tool = /for tool (\S+?):|^MCP error -?\d+: Tool (\S+) /.exec(message);
+    log("warn", "tool", {
+      tool: tool?.[1] ?? tool?.[2] ?? null,
+      ok: false,
+      code: (r.structuredContent as { code?: string } | undefined)?.code,
+    });
+    return r;
+  };
   registerRunTools(server, deps);
   registerLaneTools(server, deps);
   registerDispatchTools(server, deps);

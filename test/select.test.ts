@@ -1,9 +1,30 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { defaultProfile, patchProfile } from "../src/profile/profile.ts";
 import { entryFor, loadCatalog } from "../src/routing/catalog.ts";
 import { candidates, clearsBar, defaultLadder, select } from "../src/routing/select.ts";
-import { DIFFICULTIES, type Difficulty, KINDS, type Kind, type ScoreDim } from "../src/types.ts";
+import {
+  DIFFICULTIES,
+  type Difficulty,
+  KINDS,
+  type Kind,
+  type Profile,
+  type Role,
+  type RoleConfig,
+  type ScoreDim,
+} from "../src/types.ts";
+import { defaultProfile } from "../src/tui/profile-shim.ts";
 import { withHome } from "./helpers.ts";
+
+/** The 0.x default profile with the objective and some roles replaced; each role's fields merge. */
+function patched(o: {
+  objective?: Profile["objective"];
+  roles?: Partial<Record<Role, Partial<RoleConfig>>>;
+}): Profile {
+  const p = defaultProfile();
+  const roles = { ...p.roles };
+  for (const [role, rc] of Object.entries(o.roles ?? {}))
+    roles[role as Role] = { ...roles[role as Role], ...rc };
+  return { ...p, objective: o.objective ?? p.objective, roles };
+}
 
 const TRACK_A = {
   rung: "gpt-6-luna#high",
@@ -49,7 +70,7 @@ describe("select", () => {
   });
 
   test("orders by speed when the objective is speed", () => {
-    const p = patchProfile(defaultProfile(), { objective: "speed" });
+    const p = patched({ objective: "speed" });
     expect(candidates(p, loadCatalog(), "worker")).toEqual([
       "gpt-6-sol#medium",
       "gpt-6-sol#high",
@@ -60,13 +81,13 @@ describe("select", () => {
 
   test("puts an entry without secs_per_task last on speed, and by costRank on cost", () => {
     const models = { "gpt-6-sol": ["medium"], "claude-opus-5-5": ["low"], "gpt-6-luna": ["high"] };
-    const speed = patchProfile(defaultProfile(), { objective: "speed", roles: { worker: { models } } });
+    const speed = patched({ objective: "speed", roles: { worker: { models } } });
     expect(candidates(speed, loadCatalog(), "worker")).toEqual([
       "gpt-6-sol#medium",
       "gpt-6-luna#high",
       "claude-opus-5-5#low",
     ]);
-    const cost = patchProfile(defaultProfile(), { roles: { worker: { models } } });
+    const cost = patched({ roles: { worker: { models } } });
     expect(candidates(cost, loadCatalog(), "worker")).toEqual([
       "gpt-6-luna#high",
       "gpt-6-sol#medium",
@@ -76,7 +97,7 @@ describe("select", () => {
 
   test("skips models the catalog lacks, models that cannot fill the role, and unscored efforts", () => {
     const c = loadCatalog();
-    const p = patchProfile(defaultProfile(), {
+    const p = patched({
       roles: {
         worker: {
           models: {
@@ -96,7 +117,7 @@ describe("select", () => {
   });
 
   test("gives a disabled role no candidates", () => {
-    const p = patchProfile(defaultProfile(), { roles: { writer: { enabled: false } } });
+    const p = patched({ roles: { writer: { enabled: false } } });
     expect(candidates(p, loadCatalog(), "writer")).toEqual([]);
   });
 
@@ -115,7 +136,7 @@ describe("select", () => {
       capabilities: { toolCall: true, imageIn: false, imageOut: false, reasoning: true, context: 262144 },
     });
     c.treatLike["openrouter/acme/coder-1#default"] = "gpt-6-sol#medium";
-    const p = patchProfile(defaultProfile(), {
+    const p = patched({
       roles: {
         worker: {
           models: {
@@ -135,7 +156,7 @@ describe("select", () => {
   });
 
   test("starts the default ladder at the first candidate when defaultRung is unset", () => {
-    const p = patchProfile(defaultProfile(), {
+    const p = patched({
       roles: { reviewer: { models: { "gpt-6-sol": ["high", "medium"] } } },
     });
     expect(defaultLadder(p, loadCatalog(), "reviewer")).toEqual({
@@ -153,7 +174,7 @@ describe("select", () => {
  */
 describe("climbing under objective speed never gets weaker", () => {
   test("repo_code/copy starts fast (sol#medium) but climbs by strength, dipping back up through luna", () => {
-    const p = patchProfile(defaultProfile(), { objective: "speed" });
+    const p = patched({ objective: "speed" });
     const c = loadCatalog();
     const d = select(p, c, "worker", "repo_code", "copy");
     expect(d).toEqual({
@@ -163,7 +184,7 @@ describe("climbing under objective speed never gets weaker", () => {
   });
 
   test("every kind/difficulty ladder is non-decreasing on its primary dimension, under speed", () => {
-    const p = patchProfile(defaultProfile(), { objective: "speed" });
+    const p = patched({ objective: "speed" });
     const c = loadCatalog();
     for (const kind of KINDS) {
       for (const d of DIFFICULTIES) {

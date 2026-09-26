@@ -2,17 +2,17 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import { useEffect, useState } from "react";
 import { type HarnessCost, harnessCosts } from "../core/harness.ts";
 import { listRuns } from "../core/runstore.ts";
+import { loadCatalog } from "../routing/catalog.ts";
+import type { Catalog, Profile } from "../types.ts";
+import { type BackendStatus, detectBackends } from "./backends.ts";
+import { matrixHint, Matrix } from "./matrix.tsx";
 import {
   activeProfileName,
   defaultProfile,
   listProfiles,
   loadProfile,
   validateProfile,
-} from "../profile/profile.ts";
-import { loadCatalog } from "../routing/catalog.ts";
-import type { Catalog, Profile } from "../types.ts";
-import { type BackendStatus, detectBackends } from "./backends.ts";
-import { matrixHint, Matrix } from "./matrix.tsx";
+} from "./profile-shim.ts";
 import { deleteProfile, nameError, saveAndActivate } from "./profiles.ts";
 import { glyph, tint, type Ui } from "./theme.ts";
 import { CatSpinner, Frame } from "./ui.tsx";
