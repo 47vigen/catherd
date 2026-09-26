@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
+import { claudeAgentsDir } from "../../src/infra/paths.ts";
+import { credentialsPath, jevKey } from "../../src/services/jev-service.ts";
 import {
+  agentsRoot,
   configFile,
   getProfile,
   patchProfile,
@@ -55,6 +58,29 @@ describe("initSetup", () => {
     ]);
     expect(JSON.parse(readFileSync(configFile(), "utf8"))).toEqual({ schema: 1, activeProfile: "default" });
     expect(r.refreshed.map((x) => x.backend)).toContain("codex");
+  });
+
+  it("replaces the 0.x agent links with 1.0 ones, never a file of the user's, and keeps the Jev key", async () => {
+    withHome();
+    process.env.PATH = "/nonexistent";
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.TYPESAFE_API_KEY;
+    legacyFiles();
+    // 0.x linked catherd-<role>-<model>-<effort> into the agents dir, from catherd's own config folder
+    const old = join(agentsRoot(), "fast", "catherd-architect-claude-opus-5-5-high.md");
+    mkdirSync(dirname(old), { recursive: true });
+    writeFileSync(old, "a 0.x agent");
+    mkdirSync(claudeAgentsDir(), { recursive: true });
+    symlinkSync(old, join(claudeAgentsDir(), "catherd-architect-claude-opus-5-5-high.md"));
+    writeFileSync(join(claudeAgentsDir(), "mine.md"), "the user's own agent");
+    writeFileSync(credentialsPath(), JSON.stringify({ typesafeApiKey: "tsk-0x-key" }));
+    await initSetup();
+    expect(readdirSync(claudeAgentsDir()).sort()).toEqual([
+      "catherd-default-architect-claude-opus-5-5-high.md",
+      "catherd-default-verifier-claude-opus-5-5-low.md",
+      "mine.md",
+    ]);
+    expect(jevKey()).toBe("tsk-0x-key");
   });
 
   it("writes and activates nothing when the defaults do not validate here, and says why", async () => {
