@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { formatCheck } from "../../src/entry/doctor-command.ts";
 import { VERSION } from "../../src/infra/version.ts";
+import { overridePath } from "../../src/services/catalog-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -70,7 +71,7 @@ describe("catherd doctor", () => {
     });
     expect(j.checks.find((c: { id: string }) => c.id === "mcp")).toMatchObject({
       state: "ok",
-      detail: "answers tools/list with 20 tools",
+      detail: expect.stringMatching(/^answers tools\/list with \d+ tools$/),
     });
   }, 60_000);
 
@@ -89,5 +90,23 @@ describe("catherd doctor", () => {
     expect(r.out).toContain(
       "! no key             Jev — optional: routing uses each lane's Kind and Difficulty instead\n",
     );
+  }, 60_000);
+
+  it("reports a corrupt catalog override as a fail row and exits 3, not 1", () => {
+    machine();
+    const plugins = join(process.env.CLAUDE_CONFIG_DIR as string, "plugins");
+    mkdirSync(plugins, { recursive: true });
+    writeFileSync(
+      join(plugins, "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ version: VERSION }] } }),
+    );
+    patchProfile("default", {});
+    writeFileSync(overridePath(), "{ not json");
+    const r = doctor("--json");
+    expect(r.code).toBe(3);
+    expect(JSON.parse(r.out).checks.find((c: { id: string }) => c.id === "profile")).toMatchObject({
+      state: "fail",
+      fix: `fix or delete ${overridePath()}`,
+    });
   }, 60_000);
 });

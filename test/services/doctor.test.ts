@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { locksDir } from "../../src/infra/paths.ts";
@@ -11,6 +11,7 @@ import {
   type Handshake,
   PLUGIN_INSTALL,
 } from "../../src/services/doctor.ts";
+import { overridePath } from "../../src/services/catalog-service.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { configFile, patchProfile } from "../../src/services/profile-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
@@ -19,6 +20,17 @@ import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
+
+/** The simulator bin folders a test made, removed after it. */
+const bins: string[] = [];
+const binDir = (): string => {
+  const d = mkdtempSync(join(tmpdir(), "catherd-bin-"));
+  bins.push(d);
+  return d;
+};
+afterEach(() => {
+  for (const d of bins.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const SIM = join(import.meta.dir, "..", "sim");
@@ -30,7 +42,7 @@ function machine(o: { codex?: CodexScenario; opencode?: OpencodeScenario; bins?:
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
-  const bin = mkdtempSync(join(tmpdir(), "catherd-bin-"));
+  const bin = binDir();
   for (const b of o.bins ?? ["codex", "claude", "opencode"]) symlinkSync(join(SIM, b), join(bin, b));
   process.env.PATH = `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`;
   Object.assign(
@@ -94,7 +106,7 @@ describe("doctor", () => {
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {
     ready();
     process.env.PATH = process.env.PATH?.replace(/^[^:]+/, (bin) => {
-      const only = mkdtempSync(join(tmpdir(), "catherd-bin-"));
+      const only = binDir();
       symlinkSync(join(bin, "claude"), join(only, "claude"));
       return only;
     });
@@ -198,6 +210,14 @@ describe("doctor", () => {
       word: "readable by others",
       fix: `chmod 600 ${credentialsPath()}`,
     });
+  });
+
+  it("turns a corrupt catalog override into a fail row with its fix, not a throw", async () => {
+    ready();
+    writeFileSync(overridePath(), "{ not json");
+    const r = await run();
+    expect(r.ready).toBe(false);
+    expect(check(r, "profile")).toMatchObject({ state: "fail", fix: `fix or delete ${overridePath()}` });
   });
 
   it("fails on an old Bun, an invalid profile, and a 0.x config", async () => {

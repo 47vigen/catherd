@@ -186,10 +186,11 @@ async function canWrite(dir: string): Promise<{ ok: boolean; fix?: string } | nu
   if (!os) return null;
   const cwd = mkdtempSync(join(tmpdir(), "catherd-sandbox-"));
   try {
-    const run = (script: string) => sh(["sandbox", os, "--full-auto", "--", "sh", "-c", script], cwd);
+    const run = (...script: string[]) => sh(["sandbox", os, "--full-auto", "--", "sh", "-c", ...script], cwd);
     if (!(await run("true"))?.ok) return null;
     const probe = join(dir, `.doctor-${process.pid}`);
-    const r = await run(`touch '${probe}' && rm -f '${probe}'`);
+    // the path goes in as $1, never into the script text
+    const r = await run('touch "$1" && rm -f "$1"', "_", probe);
     if (!r) return null;
     return r.ok
       ? { ok: true }

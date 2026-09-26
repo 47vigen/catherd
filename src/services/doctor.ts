@@ -66,6 +66,15 @@ export const PLUGIN_UPDATE =
 const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e)) as string;
 const fixOf = (e: unknown) => (isCatherdError(e) ? e.fix : undefined);
 
+/** A check whose reads can throw (a corrupt or newer-schema file): the throw becomes its `fail` row. */
+function guarded(id: string, label: string, fallbackFix: string, check: () => Check): Check {
+  try {
+    return check();
+  } catch (e) {
+    return { id, label, state: "fail", word: "unreadable", detail: errText(e), fix: fixOf(e) ?? fallbackFix };
+  }
+}
+
 /** Every backend a linked profile runs a role on ("role"), or only fails over to ("failover"). */
 function usedBackends(profiles: Profile[]): Map<string, "role" | "failover"> {
   const used = new Map<string, "role" | "failover">();
@@ -128,7 +137,20 @@ async function backendChecks(used: Map<string, "role" | "failover">): Promise<Ch
     });
   }
   // spec §5.2: doctor refreshes discovery; a listing that fails keeps the last one
-  for (const r of await refreshDiscovery({ backends: ready })) {
+  let refreshed: Awaited<ReturnType<typeof refreshDiscovery>> = [];
+  try {
+    refreshed = await refreshDiscovery({ backends: ready });
+  } catch (e) {
+    checks.push({
+      id: "discovery",
+      label: "model discovery",
+      state: "fail",
+      word: "unreadable",
+      detail: errText(e),
+      fix: fixOf(e) ?? "catherd catalog refresh --verbose",
+    });
+  }
+  for (const r of refreshed) {
     const c = checks.find((x) => x.id === `backend:${r.backend}`);
     if (!c) continue;
     if (r.error)
@@ -209,7 +231,10 @@ function agentsCheck(): Check {
     : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
 }
 
-/** Spec §10.3: the readiness report. Reads and probes; its only writes are discovery and a lock probe. */
+/**
+ * Spec §10.3: the readiness report. Reads and probes; it writes discovery and a lock probe itself, and the
+ * handshake starts `catherd mcp`, which reconciles runs as it starts. A check that throws becomes a `fail` row.
+ */
 export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const checks: Check[] = [];
   checks.push(
@@ -250,18 +275,23 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     });
   }
   if (active) {
-    const v = validateNamed(active.name);
-    const first = v.errors[0] ?? v.warnings[0];
-    checks.push({
-      id: "profile",
-      label: `profile ${active.name}`,
-      state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
-      word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
-      detail: first
-        ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
-        : "valid",
-      ...(first ? { fix: first.fix ?? "catherd profile validate" } : {}),
-    });
+    const name = active.name;
+    checks.push(
+      guarded("profile", `profile ${name}`, "catherd profile validate", () => {
+        const v = validateNamed(name);
+        const first = v.errors[0] ?? v.warnings[0];
+        return {
+          id: "profile",
+          label: `profile ${name}`,
+          state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
+          word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
+          detail: first
+            ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
+            : "valid",
+          ...(first ? { fix: first.fix ?? "catherd profile validate" } : {}),
+        };
+      }),
+    );
   }
 
   const used = usedBackends(profiles);
@@ -301,7 +331,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
 
   checks.push(
     active
-      ? agentsCheck()
+      ? guarded("agents", "Claude agents", `catherd profile use ${activeName()}`, agentsCheck)
       : {
           id: "agents",
           label: "Claude agents",
@@ -434,7 +464,19 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       detail: "the plugin starts the MCP server with bunx",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
-  const corrupt = listRuns().corrupt;
+  let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];
+  try {
+    corrupt = listRuns().corrupt;
+  } catch (e) {
+    checks.push({
+      id: "runs",
+      label: "run data",
+      state: "fail",
+      word: "unreadable",
+      detail: errText(e),
+      fix: fixOf(e) ?? "catherd runs list --verbose",
+    });
+  }
   if (corrupt.length)
     checks.push({
       id: "runs",
