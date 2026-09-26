@@ -119,7 +119,7 @@ space turns the role on or off; enter opens its access, default rung and models
 
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose
+ ←→ button  enter choose  esc cancel
 
 ```
 
@@ -149,7 +149,7 @@ space turns the role on or off; enter opens its access, default rung and models
 
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose
+ ←→ button  enter choose  esc cancel
 
 ```
 
@@ -179,7 +179,7 @@ space turns the role on or off; enter opens its access, default rung and models
 
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose
+ enter choose  esc cancel
 
 ```
 
@@ -209,7 +209,7 @@ space turns the role on or off; enter opens its access, default rung and models
 
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose  ctrl+d delete
+ ↑↓ move  enter choose  ctrl+d delete  esc cancel
 
 ```
 
@@ -239,7 +239,7 @@ space turns the role on or off; enter opens its access, default rung and models
    ↓ 8 more
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose
+ ↑↓ move  enter choose  esc cancel
 
 ```
 
@@ -269,7 +269,7 @@ space turns the role on or off; enter opens its access, default rung and models
             ↓ 18 more
 
 ────────────────────────────────────────────────────────────────────────────────
- enter choose
+ ↑↓ move  enter choose  esc cancel
 
 ```
 

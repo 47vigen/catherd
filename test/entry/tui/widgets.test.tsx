@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { TextAttributes } from "@opentui/core";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
 import { CatherdError } from "../../../src/domain/errors.ts";
@@ -98,6 +98,39 @@ describe("Footer (spec §9.2: hints are generated)", () => {
     h = await harness(<Hinted width={60} />, { width: 60, height: 1 });
     const line = h.s.frame().split("\n")[0] ?? "";
     expect(line.trimEnd()).toBe(" space toggle  enter change  ctrl+p commands  ? help");
+  });
+});
+
+/** A select dialog's layer, as DialogSelect registers it, under the App's esc. */
+function InDialog(props: { width: number }) {
+  const app = useApp();
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current) return;
+    opened.current = true;
+    app.dispatch({
+      type: "open",
+      dialog: { kind: "select", purpose: { type: "palette" }, title: "x", empty: "", options: [] },
+    });
+  });
+  useCommandLayer("global", { "app.back": () => {}, "app.interrupt": () => {} });
+  useCommandLayer("dialog", {
+    "dialog.up": () => {},
+    "dialog.down": () => {},
+    "dialog.submit": () => {},
+  });
+  return <Footer width={props.width} />;
+}
+
+describe("Footer in a dialog (P2)", () => {
+  it("says how to move, choose and cancel", async () => {
+    h = await harness(<InDialog width={80} />, { width: 80, height: 1 });
+    expect(h.s.frame().split("\n")[0]?.trimEnd()).toBe(" ↑↓ move  enter choose  esc cancel");
+  });
+
+  it("does not offer esc as a hint outside a dialog", async () => {
+    h = await harness(<Hinted width={100} />, { width: 100, height: 1 });
+    expect(h.s.frame()).not.toContain("esc");
   });
 });
 

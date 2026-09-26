@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { usePendingSequence } from "@opentui/keymap/react";
 import { type CommandId, formatKeys, LEADER } from "../commands.ts";
-import { reachableCommands, useKeybinds, useKeymap, useKeymapVersion } from "../providers/keymap.tsx";
+import { MODE, reachableCommands, useKeybinds, useKeymap, useKeymapVersion } from "../providers/keymap.tsx";
 import { useTone, useUi } from "../providers/theme.tsx";
 import { FACES, type Mood } from "../theme.ts";
 import { TABS, type Tab } from "../state.ts";
@@ -74,13 +74,24 @@ export function Footer(props: { width: number }) {
   const keymap = useKeymap();
   const keys = useKeybinds();
   const ui = useUi();
-  const hints = reachableCommands(keymap)
-    .filter((c) => c.hint !== null && keys[c.id].length > 0)
-    .sort((a, b) => (a.hint as number) - (b.hint as number))
-    .map((c) => ({
-      id: c.id,
-      text: `${formatKeys(keys[c.id as CommandId].slice(0, 1), ui.plain)} ${c.short ?? c.title}`,
-    }));
+  const modal = keymap.getData(MODE) === "modal";
+  const hints: { id: string; text: string }[] = [];
+  let last: { order: number; label: string; keys: string[] } | null = null;
+  for (const c of reachableCommands(keymap)
+    .filter((c) => c.hint !== null && keys[c.id].length > 0 && (c.id !== "app.back" || modal))
+    .sort((a, b) => (a.hint as number) - (b.hint as number))) {
+    const key = formatKeys(keys[c.id as CommandId].slice(0, 1), ui.plain);
+    const label = c.short ?? c.title;
+    // commands with the same order and label read as one hint: `↑↓ move`
+    if (last && last.order === c.hint && last.label === label) {
+      last.keys.push(key);
+      const joined = last.keys.join(ui.plain ? "/" : "");
+      (hints.at(-1) as { text: string }).text = `${joined} ${label}`;
+      continue;
+    }
+    last = { order: c.hint as number, label, keys: [key] };
+    hints.push({ id: c.id, text: `${key} ${label}` });
+  }
   const fixed = hints.filter((h) => h.id === "app.palette" || h.id === "app.help");
   const rest = hints.filter((h) => !fixed.includes(h));
   const sep = "  ";

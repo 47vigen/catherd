@@ -56,7 +56,16 @@ export const LEADER_TIMEOUT_MS = 2_000;
 export const COMMANDS = [
   // global: live in every mode
   { id: "app.interrupt", title: "Cancel, or quit", group: "App", scope: "global", keys: ["ctrl+c"] },
-  { id: "app.back", title: "Back", group: "App", scope: "global", keys: ["escape"] },
+  // hinted only while a dialog is open (the Footer), where esc cancels it
+  {
+    id: "app.back",
+    title: "Back",
+    group: "App",
+    scope: "global",
+    keys: ["escape"],
+    hint: 80,
+    short: "cancel",
+  },
 
   // app: any tab, no dialog open
   {
@@ -335,8 +344,25 @@ export const COMMANDS = [
   },
 
   // dialog: a dialog is open
-  { id: "dialog.up", title: "Previous", group: "Dialogs", scope: "dialog", keys: ["up", "ctrl+p"] },
-  { id: "dialog.down", title: "Next", group: "Dialogs", scope: "dialog", keys: ["down", "ctrl+n"] },
+  // hints with the same short label and order show as one: `↑↓ move`
+  {
+    id: "dialog.up",
+    title: "Previous",
+    group: "Dialogs",
+    scope: "dialog",
+    keys: ["up", "ctrl+p"],
+    hint: 0,
+    short: "move",
+  },
+  {
+    id: "dialog.down",
+    title: "Next",
+    group: "Dialogs",
+    scope: "dialog",
+    keys: ["down", "ctrl+n"],
+    hint: 0,
+    short: "move",
+  },
   { id: "dialog.pageUp", title: "Page up", group: "Dialogs", scope: "dialog", keys: ["pageup"] },
   { id: "dialog.pageDown", title: "Page down", group: "Dialogs", scope: "dialog", keys: ["pagedown"] },
   {
@@ -345,8 +371,18 @@ export const COMMANDS = [
     group: "Dialogs",
     scope: "dialog",
     keys: ["left", "shift+tab"],
+    hint: 0,
+    short: "button",
   },
-  { id: "dialog.right", title: "Next button", group: "Dialogs", scope: "dialog", keys: ["right", "tab"] },
+  {
+    id: "dialog.right",
+    title: "Next button",
+    group: "Dialogs",
+    scope: "dialog",
+    keys: ["right", "tab"],
+    hint: 0,
+    short: "button",
+  },
   {
     id: "dialog.submit",
     title: "Choose",
