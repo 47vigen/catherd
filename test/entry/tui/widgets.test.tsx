@@ -3,7 +3,8 @@ import { TextAttributes } from "@opentui/core";
 import { useEffect } from "react";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
-import { TOAST_MS } from "../../../src/entry/tui/providers/toast.tsx";
+import { CatherdError } from "../../../src/domain/errors.ts";
+import { errorToast, TOAST_MS } from "../../../src/entry/tui/providers/toast.tsx";
 import { SPINNER } from "../../../src/entry/tui/theme.ts";
 import { Footer, Header, Tabs } from "../../../src/entry/tui/widgets/chrome.tsx";
 import { clip, Line } from "../../../src/entry/tui/widgets/line.tsx";
@@ -148,6 +149,40 @@ describe("toasts", () => {
     await h.advance(TOAST_MS);
     expect(h.s.frame()).toContain("┃ Catalog refreshed ┃");
     await h.advance(TOAST_MS);
+    expect(h.s.frame()).not.toContain("┃");
+  });
+});
+
+const FIX = "catherd profile use --repo --clear /home/someone/work/a-rather-long-client-name/services/api";
+
+function FailToaster() {
+  const app = useApp();
+  useEffect(() => {
+    app.toast(
+      errorToast(
+        new CatherdError("E_CONFIG_INVALID", "cannot delete cheap: a repo is bound to it", { fix: FIX }),
+      ),
+    );
+  }, [app.toast]);
+  useCommandLayer("tab.status", { "status.recheck": () => {} });
+  return <ToastHost />;
+}
+
+describe("error toasts (spec §9.3: commands wrap)", () => {
+  it("wraps the fix command in full on its own lines and keeps it until the next key", async () => {
+    h = await harness(<FailToaster />, { width: 80, height: 8 });
+    const text = () =>
+      h!.s
+        .frame()
+        .split("\n")
+        .map((l) => l.replace(/┃/g, "").trim())
+        .join(" ");
+    expect(text()).toContain("cannot delete cheap: a repo is bound to it");
+    expect(text().replace(/\s+/g, "")).toContain(FIX.replace(/\s+/g, ""));
+    for (const line of h.s.frame().split("\n")) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(80);
+    await h.advance(TOAST_MS * 10);
+    expect(text().replace(/\s+/g, "")).toContain(FIX.replace(/\s+/g, ""));
+    await h.s.press("r");
     expect(h.s.frame()).not.toContain("┃");
   });
 });

@@ -2,14 +2,11 @@ import { isCatherdError } from "../../../domain/errors.ts";
 import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
+import { errorToast } from "../providers/toast.tsx";
 import { currentDraft, dirtyCount } from "../state.ts";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const fail = (app: AppApi, e: unknown) =>
-  app.toast({
-    variant: "error",
-    message: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
-  });
+const fail = (app: AppApi, e: unknown) => app.toast(errorToast(e));
 
 /** Shows a profile in the Profiles tab, starting its draft from disk unless one is staged. */
 export function showProfile(app: AppApi, name: string): void {

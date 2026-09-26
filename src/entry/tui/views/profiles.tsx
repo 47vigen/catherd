@@ -4,6 +4,7 @@ import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { useData, useLoad } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
+import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import {
   buildRows,
@@ -200,7 +201,7 @@ export function ProfilesView(props: { width: number; height: number }) {
           loaded.refresh();
           app.toast({ variant: "success", message: "Catalog refreshed" });
         },
-        (e: unknown) => app.toast({ variant: "error", message: e instanceof Error ? e.message : String(e) }),
+        (e: unknown) => app.toast(errorToast(e)),
       );
     },
     "edit.undo": () => app.dispatch({ type: "undo" }),

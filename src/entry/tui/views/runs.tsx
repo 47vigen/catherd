@@ -1,6 +1,7 @@
 import { useApp, useBack, useNow } from "../providers/app.tsx";
 import { usePoll, useData } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
+import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import { isArmed } from "../state.ts";
 import { ago, clock, shortRung } from "../text.ts";
@@ -144,7 +145,7 @@ function RunView(props: { id: string; width: number; height: number }) {
           app.toast({ variant: "success", message: msg });
           polled.refresh();
         },
-        (e: unknown) => app.toast({ variant: "error", message: e instanceof Error ? e.message : String(e) }),
+        (e: unknown) => app.toast(errorToast(e)),
       );
     },
   });
