@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,11 +6,13 @@ import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { launchSupervisor } from "../../src/infra/launch.ts";
 import { isAlive } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
+// the supervisor and launchSupervisor log (spec §10.2): keep their rows out of the real data dir
+beforeEach(() => void withHome());
 
 async function until<T>(f: () => T | null | false, ms: number): Promise<T | null> {
   const end = Date.now() + ms;

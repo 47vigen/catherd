@@ -1,4 +1,4 @@
-# catherd 1.0 — handoff (2026-09-26)
+# catherd 1.0 — handoff (2026-09-26, second session)
 
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
@@ -10,65 +10,109 @@ Read it after the spec, before touching any plan.
 | 1 foundation | `docs/superpowers/plans/2026-09-25-01-foundation.md` | merged (PR #3) |
 | 2 run service + MCP | `…-02-run-service.md` | merged (PR #4) |
 | 3 adapters (claude-code, opencode v2, capture kit) | `…-03-adapters.md` | merged (PR #5) |
-| 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | written, pre-validated in a scratch copy, **not started** |
-| 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | written, pre-validated (864 pass / 10 skip on main+plan-4 replay), **not started** |
-| 6 TUI (opencode-style, `@opentui/keymap`) | — | to write |
+| 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6), 7 Codex review rounds |
+| 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **in progress**: tasks 1, 2, 3, 7, 8 merged (PR #7); 4, 5, 6, 9–14 to do |
+| 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | written, tasks 1–12 pre-validated against plan 5 as written; re-check after plan 5 |
 | 7 hardening, CI matrix, release 1.0 (Changesets) | — | to write |
 | 8 Cursor CLI (1.1), Grok CLI (1.2) | — | to write |
 
 Authority order: spec `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.
 Research behind the spec: `docs/research/2026-09-25-*.md` (audit, opencode, opencode-tui, tui, models, jev, cursor-grok).
 
+### Plan 5 — exact state
+
+- Merged to `main` through PR #7 (partial): Task 1 (profile schema v1), Task 7 (log), Task 2 (validation, plus
+  the Claude-rung "clears no routing bar" warning ruling), Task 3 (agent files), Task 8 (CLI runner; catalog
+  command errors go through `printError`, malformed rung exits 2). Full gate green at merge (884 tests).
+- **Reviews pending** (the owner paused the session before they ran): Task 2, Task 3, Task 8. Run a task review
+  on each first (`git log` finds the commits by subject: `feat(domain): profile validation…`,
+  `feat(domain): native agent files…`, `feat(cli): the Bun 1.4 guard…`) and fix findings on the new branch.
+  Tasks 1 and 7 were reviewed clean (minors deferred, listed in `plan5-ledger.md`).
+- Remaining waves: {4} → {5} → {6, 9, 10, 11, 12} → {13, 14}. Task 4 needs 1, 2, 3 (all on main).
+- Before dispatching, read `plan5-ledger.md` (rulings), `plan5-preflight.md` (the conflict table) and
+  `plan5-worker-notes.md` (plan 4 **as built** differs from plan 4 as written — every worker must read it).
+  Key pre-flight rulings still to apply: Task 5 makes `finding`/`sameDefect` honour `jev.use: "off"` and keeps
+  `catalog_query`'s "`enabled: false` rungs are unscored"; Tasks 12/13 delete/blank `ANTHROPIC_API_KEY` in tests
+  that reach `refreshDiscovery`; Task 13 `init` catches a `saveJevKey` failure and finishes; Task 14 files the
+  spec edits D1/D4/D8.
+
+### Plan 6 — draft status
+
+`docs/superpowers/plans/2026-09-26-06-tui.md` is written (13 tasks, 20 rulings; waves
+{1,2,4} → {3,5} → {6} → {7} → {8} → {9,10} → {11} → {12} → {13}). Tasks 1–12 were built and tested in a
+scratch clone with plan 5's profile, validation, agent-file, profile-service and doctor modules copied from
+plan 5's text (1,041 pass, 66 frame snapshots, a tmux run of `catherd` and `catherd watch`). **Not yet
+validated:** Task 12's edits to plan 5's `cli.ts` / `runs-command.ts` and its `--help` test, and Task 13 except
+the notices file. After plan 5 merges, have a plan writer re-check plan 6 against the real code, pre-validate
+Tasks 12–13, and commit the fixes before executing. Writer rulings to check: cancelling a live run uses
+`ctrl+d` pressed twice (the spec's "esc again" conflicts with `esc` only backing out); Profiles frame snapshots
+read the shipped catalog, so catalog updates mean regenerating them and `docs/tui-frames.md`; the PTY test
+skips on runners without tmux.
+
 ## Waves
 
-- Plan 4 (11 tasks): {1,4,5,6} → {2,8} → {3,7} → {9} → {10,11}
-- Plan 5 (14 tasks): {1,7} → {2,3,8} → {4} → {5} → {6,9,10,11,12} → {13,14}
+- Plan 5 remaining: {4} → {5} → {6,9,10,11,12} → {13,14}. Tasks 9, 10, 12 each add lines to `src/cli.ts`
+  (merge in order 9, 10, 12; keep every line). Tasks 10 and 13 both edit `src/tui/commands.ts` (10 first).
 
 ## Process that worked (keep it)
 
-- superpowers `subagent-driven-development`, adapted by user directive: bundle tasks per agent, run
-  independent batches in parallel git worktrees, subagents on Opus 5.5 at low/medium effort
-  (agent types `opus-low` / `opus-medium` if they exist, else general-purpose with model `opus`).
+- superpowers `subagent-driven-development`, adapted by owner directive: bundle 1–3 tasks per agent, run
+  independent batches in parallel git worktrees (`isolation: "worktree"`), workers on Opus 5.5
+  (`opus-low` / `opus-medium` agent types if loaded, else general-purpose with `model: "opus"`).
+- Contracts used for every dispatch are in `docs/superpowers/handoff/process/` — copy them to
+  `.superpowers/sdd/` (gitignored) at session start: `worker-contract.md`, `reviewer-contract.md`
+  (superpowers task-reviewer template), `re-reviewer-contract.md`. Dispatch prompts stay short: one line of
+  context, the contract path, the brief path (`task-brief` script), the reset SHA, parallel-batch boundaries.
+- **Worktree agents cannot write outside their worktree.** Their final message IS the report; the controller
+  saves it as `task-N-report.md`, cherry-picks the commits onto the branch (`git cherry-pick <sha>`; the SHA
+  changes), then generates the review package (`review-package` script) and dispatches the reviewer.
 - Worktrees start at `main`: every batch agent must `git reset --hard <branch sha>` first.
-- Agents write their full report to a file and return a short status; the controller cherry-picks batches
-  into the branch, then one review per batch (overlapped with the next wave's implementation),
-  fix rounds with scoped re-reviews, one final whole-branch review with one fix wave and its re-review.
-- Then: PR ready → Codex bot review → fix findings, reply on and resolve every thread → CI green → merge.
-- Ledger per plan in `.superpowers/sdd/<plan>/progress.md` (gitignored); rulings as
+- One review per batch (overlapped with the next wave), fix rounds by resuming the implementer
+  (`SendMessage`) with a new reset SHA, scoped re-reviews, one final whole-branch review with one fix wave and
+  its re-review. Plan-mandated defects are fixed when real, with a ledger ruling.
+- Then: PR ready → Codex bot review (`@codex review` comment re-triggers) → fix every finding (or reply why
+  not), reply on and resolve every thread → CI green → merge. Plan 4 took 7 Codex rounds; each found real bugs.
+- One branch per session is imposed by the harness; one PR per plan. After a merge, restart the branch from
+  `main` (`git checkout -B <branch> origin/main`, push with `--force-with-lease`).
+- Ledger per plan in `.superpowers/sdd/<plan>/progress.md` (gitignored); copy it to
+  `docs/superpowers/handoff/planN-ledger.md` when the plan merges. Rulings as
   `Ruling: <what> — <why> — <cost if wrong>`.
-- Commit subjects ≤ 100 chars (commitlint). Never commit a `bun.lock` rewritten by an older Bun.
-- Checks: `bun run typecheck && bun run lint && bun run format:check && bun test`. Bun ≥ 1.4 required
-  (1.3.x fails `test/tui/theme.test.ts`).
-- Tests that spawn processes must pass `env` explicitly (Bun children do not see later `process.env` edits).
-  `withHome()` in `test/helpers.ts` sets `CATHERD_HOME` and `CATHERD_CLAUDE_AGENTS_DIR`.
-
-## Plan-5 writer rulings (already reflected in the plan)
-
-- Native vs headless Claude is the rung's backend (`claude:` vs `claude-code:`); no extra per-role field.
-- Default failover: Luna → Go's own GPT-6 Luna; the three Sol rungs → Go Kimi K3 #max via a shipped
-  treat-like to sol#medium; shown as inferred, nothing extra stored.
-- "Same backend" for a stand-in means same quota: `claude` + `claude-code` are one; Go and Zen are two.
-- Profile names `[a-z0-9-]`, ≤ 32 chars. One sync lock for profiles, config, projects, agent files, links.
-- A 0.x file is refused with fix "run catherd init"; `init` moves 0.x files to a backup folder (no migration).
-- `doctor` sorts checks into fail/warn/skip; exit 3 on any fail. `watch` without `--once` redraws plain text until plan 6.
-- Unproven: `codex sandbox <os> --full-auto` vs a real Codex CLI; the hidden Jev-key prompt on a real TTY.
+- Commit subjects ≤ 100 chars and not starting with a capital (commitlint). Never commit a `bun.lock`
+  rewritten by an older Bun.
+- Checks: `bun run typecheck && bun run lint && bun run format:check && bun test`. Bun ≥ 1.4 required.
+- Tests that spawn processes must pass `env` explicitly. `withHome()` in `test/helpers.ts` sets `CATHERD_HOME`
+  and `CATHERD_CLAUDE_AGENTS_DIR`. Tests that reach claude-code discovery must delete `ANTHROPIC_API_KEY`
+  (plan 4 made that listing an HTTP call when the key is set).
+- Remove finished agent worktrees (`git worktree remove --force`) to save disk.
 
 ## Carry-overs for later plans
 
-- **Plan 7 (hardening):** test "finalizes a waiting dispatch as lost…" has the same short-timing-window
-  pattern fixed in d99e0e0 — make it event-driven; runCli grandchild kill; macOS realpath and transient `ps`
-  failure; Codex has no `isBusy` (long silent tool calls read as idle-timeout — track open item pairs);
-  opencode `isBusy` has no time bound / checks only the first non-idle; preflight never-as-root; log file;
-  null `startTime` orphan cancel is pid-only; pgid not checked vs worker pid; cancel/exit race records
-  cancelled; orphan exit.json always SIGTERM; tool-not-found labelled E_INPUT_INVALID; old spec.json not
-  cleaned; supervisor.test.ts:172 timing; macOS + Linux CI matrix.
-- **Plan 5:** failover-key rewrite for native roles; `_supervise` hidden; lazy imports (supervisor still loads
-  OpenTUI via `src/cli.ts` until then); role prompts (researcher asked for suite time without a shell).
+- **Plan 5 (remaining tasks):** failover-key rewrite for native roles; lazy imports (supervisor still loads
+  OpenTUI via `src/cli.ts` until Task 8 — now done, verify); role prompts; `finding`/`sameDefect` honour
+  `jev.use`; the 0.x profile bridge is removed (Codex P1 on PR #6 about models.dev-only rungs is resolved by
+  this). Deferred minors from plan-5 reviews: stored enums (billing mode, access, notify) are closed, so a newer
+  value makes a profile unreadable; input-validation failures get no `tool` log row.
+- **Plan 4 deferred minors** (see `plan4-ledger.md`): milestone typo in `land` matches no lane silently;
+  cached Jev answers not schema-validated; `jevKey` returns null on a corrupt credentials file.
 - **Plan 6:** `watch` shows 1.0 runs; TUI per spec §9 (reference: opencode TUI — `ctrl+p` palette,
   `ctrl+x` leader, 16 theme tokens, stay on `@opentui/react`); keymap prototype in
-  `docs/research/2026-09-25-keymap-proto/`.
-- **Live verification (needs the user's machine):** fixture capture with `CATHERD_LIVE=1` for OpenCode Go,
-  Claude and Codex (`src/entry/capture-fixtures.ts`, default out `test/fixtures/adapters`).
+  `docs/research/2026-09-25-keymap-proto/`; move the TUI onto catalog-service/jev-service and retire
+  `src/routing/{jev,catalog,select}.ts` and `catalog/catalog.json`; "treat like" picker and `inferred` markers;
+  the theme colour-depth test must not read the terminal's environment.
+- **Plan 7 (hardening):** test "finalizes a waiting dispatch as lost…" timing window → event-driven; runCli
+  grandchild kill; macOS realpath and transient `ps` failure; Codex has no `isBusy` (long silent tool calls read
+  as idle-timeout — track open item pairs); opencode `isBusy` has no time bound / checks only the first
+  non-idle; preflight never-as-root; null `startTime` orphan cancel is pid-only; pgid not checked vs worker pid;
+  cancel/exit race records cancelled; orphan exit.json always SIGTERM; tool-not-found labelled
+  E_INPUT_INVALID; old spec.json not cleaned; supervisor.test.ts:172 timing; `doctor` calls `refreshDiscovery`
+  and `testJevKey` and reports whether Codex is logged in with ChatGPT; macOS + Linux CI matrix; Changesets
+  release of 1.0.
+- **Plan 8:** Cursor CLI adapter (1.1), Grok CLI adapter (1.2) from `docs/research/2026-09-25-cursor-grok.md`,
+  each through `test/adapters/contract.ts`, a simulator in `test/sim/`, live tests gated by `CATHERD_LIVE=1`.
+- **Live verification (needs the owner's machine):** fixture capture with `CATHERD_LIVE=1` for OpenCode Go,
+  Claude and Codex (`src/entry/capture-fixtures.ts`, default out `test/fixtures/adapters`); check
+  `codex sandbox <os> --full-auto` and the hidden Jev-key prompt on a real TTY. Deliver as a short doc with
+  exact commands.
 
-Detailed ledgers, rulings and final reviews of plans 1–3 are in this folder (`plan*-ledger.md`,
-`plan*-final-review.md`, `plan*-rereview-final.md`, `plan3-progress.md`).
+Detailed ledgers, rulings and reviews of plans 1–5 are in this folder (`plan*-ledger.md`,
+`plan*-final-review.md`, `plan*-preflight.md`, `plan5-worker-notes.md`).

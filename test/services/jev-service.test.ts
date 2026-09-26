@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JEV_BASE } from "../../src/infra/jev-client.ts";
+import { logFile } from "../../src/infra/log.ts";
 import {
   askJev,
   credentialsPath,
@@ -15,6 +16,8 @@ import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
+// every test gets its own CATHERD_HOME, so Jev log rows never reach the real data dir
+beforeEach(() => void withHome());
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -189,5 +192,30 @@ describe("askJev", () => {
     expect(lines).toHaveLength(2);
     expect(lines[1]).not.toContain(STATE.body);
     expect(JSON.parse(lines[1] as string)).toMatchObject({ why: "no key", stateHash: asked.meta.stateHash });
+  });
+});
+
+describe("askJev and the log", () => {
+  it("logs each Jev call with its question set and state hash, never the state or the key", async () => {
+    withHome();
+    delete process.env.CATHERD_LOG;
+    const key = "tsk-live-abcdefghijkl";
+    const f = fakeFetch({ status: 503, body: { error: "down" } });
+    await askJev(
+      mkdtempSync(join(tmpdir(), "catherd-jevlog-")),
+      "route-v2",
+      { title: "lane secret-title" },
+      { key, fetchImpl: f.impl, retries: 0 },
+    );
+    const text = readFileSync(logFile(), "utf8");
+    const row = text
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .find((r) => r.event === "jev");
+    expect(row).toMatchObject({ level: "warn", set: "route-v2", attempts: 1, error: "http 503" });
+    expect(row.questionSet).toStartWith("route-v2#");
+    expect(text).not.toContain("secret-title");
+    expect(text).not.toContain(key);
   });
 });

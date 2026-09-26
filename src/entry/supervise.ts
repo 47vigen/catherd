@@ -27,7 +27,7 @@ export async function runSupervise(specPath: string): Promise<void> {
 }
 
 export const superviseCommand = defineCommand({
-  meta: { name: "_supervise", description: "internal: supervise one worker process" },
+  meta: { name: "_supervise", description: "internal: supervise one worker process", hidden: true },
   args: { spec: { type: "positional", required: true } },
   async run({ args }) {
     await runSupervise(args.spec);

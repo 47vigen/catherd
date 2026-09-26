@@ -1,4 +1,5 @@
 import { scrubSecrets } from "../infra/env.ts";
+import { log } from "../infra/log.ts";
 
 export interface CliResult {
   ok: boolean;
@@ -16,6 +17,7 @@ export async function runCli(
   o: { timeoutMs: number; env?: Record<string, string> },
 ): Promise<CliResult | null> {
   if (!Bun.which(bin, { PATH: process.env.PATH ?? "" })) return null;
+  log("debug", "spawn", { argv: [bin, ...args], env: o.env ?? {} });
   const p = Bun.spawn([bin, ...args], {
     env: { ...scrubSecrets(process.env), ...o.env },
     stdin: "ignore",

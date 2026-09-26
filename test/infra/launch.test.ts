@@ -1,13 +1,16 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { launchSupervisor, SUPERVISE_ENTRY } from "../../src/infra/launch.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
+import { importGraph, SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
+// the supervisor and launchSupervisor log (spec §10.2): keep their rows out of the real data dir
+beforeEach(() => void withHome());
 
 async function waitFor<T>(f: () => T | null, ms = 10_000): Promise<T> {
   const end = Date.now() + ms;
@@ -38,28 +41,6 @@ function writeSpec(script: string): { dir: string; spec: string } {
     pollMs: 20,
   });
   return { dir, spec };
-}
-
-const SRC = resolve(import.meta.dir, "../../src");
-const IMPORT =
-  /(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
-
-/** Every module `entry` reaches through static and dynamic imports: relative files, and bare packages. */
-function importGraph(entry: string): { files: string[]; packages: string[] } {
-  const files = new Set<string>();
-  const packages = new Set<string>();
-  const queue = [entry];
-  while (queue.length) {
-    const file = queue.pop() as string;
-    if (files.has(file)) continue;
-    files.add(file);
-    for (const m of readFileSync(file, "utf8").matchAll(IMPORT)) {
-      const spec = (m[1] ?? m[2] ?? m[3]) as string;
-      if (spec.startsWith(".")) queue.push(resolve(dirname(file), spec));
-      else packages.add(spec);
-    }
-  }
-  return { files: [...files].map((f) => relative(SRC, f)), packages: [...packages] };
 }
 
 describe("launchSupervisor", () => {

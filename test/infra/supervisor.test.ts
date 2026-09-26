@@ -1,9 +1,14 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
+
+afterEach(snapshotEnv());
+// the supervisor logs each spawn (spec §10.2): keep the rows out of the real data dir
+beforeEach(() => void withHome());
 
 function spec(script: string, over: Partial<SuperviseSpec> = {}): SuperviseSpec {
   const dir = mkdtempSync(join(tmpdir(), "catherd-sup-"));
