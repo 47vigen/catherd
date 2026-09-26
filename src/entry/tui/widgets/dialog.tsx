@@ -10,6 +10,11 @@ import { Line } from "./line.tsx";
 export const dialogInner = (size: DialogSize, termWidth: number): number =>
   Math.max(10, Math.min(DIALOG_WIDTH[size], termWidth - 2) - 4);
 
+/** The rows a quarter down the screen leaves for `rows`: the height less the top padding, the
+ * blank line, the title, the gap under it and the blank line at the bottom. */
+export const dialogRows = (termHeight: number): number =>
+  Math.max(1, termHeight - Math.floor(termHeight / 4) - 4);
+
 /**
  * Spec §9.3: a raised panel over a dimmed backdrop, a quarter down the screen, 60, 88 or 116 columns
  * wide, with no border; the title bold on the left and a muted `esc` on the right. `rows` returns one

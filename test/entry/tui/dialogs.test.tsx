@@ -91,7 +91,9 @@ describe("DialogSelect", () => {
 
   it("gives the filter every letter, says when nothing matches, and esc closes", async () => {
     const answers = await open(SELECT);
-    await h!.s.type("qjk?");
+    // letters and signs bound elsewhere (q quits, ? is help, j/k move, / filters, a/y/r/p act) are text here
+    await h!.s.type("q?1j/ayrp");
+    expect(h!.s.frame()).toContain("> q?1j/ayrp");
     expect(h!.s.frame()).toContain("No match");
     await h!.s.press("escape");
     expect(h!.s.frame()).toContain("dialogs=0");
@@ -181,7 +183,11 @@ describe("SaveDialog (spec §9.2)", () => {
       { type: "edit", patch },
     ].reduce<AppState>((s, a) => reduce(s, a as Action), initialState());
 
-  async function save(patch: ProfilePatch, effects = fixtureEffects()) {
+  async function save(
+    patch: ProfilePatch,
+    effects = fixtureEffects(),
+    size: { width: number; height: number } = { width: 100, height: 30 },
+  ) {
     withHome();
     const answers: string[] = [];
     h = await harness(
@@ -194,8 +200,7 @@ describe("SaveDialog (spec §9.2)", () => {
       {
         effects,
         state: dirty(patch),
-        width: 100,
-        height: 30,
+        ...size,
       },
     );
     return answers;
@@ -239,6 +244,21 @@ describe("SaveDialog (spec §9.2)", () => {
   it("says nothing of binding outside a bound repo", async () => {
     await save({ budget: { usd: 5 } });
     expect(h!.s.frame()).not.toContain("binds");
+  });
+
+  it("keeps its buttons on an 80x24 screen however many agent files change", async () => {
+    const rungs = ["low", "medium", "high", "xhigh", "max"].map((e) => `claude:claude-opus-5-5#${e}`);
+    const answers = await save(
+      { roles: { architect: { rungs }, verifier: { rungs } } },
+      fixtureEffects({ repo: "/r", bindings: { "/r": "default" } }),
+      { width: 80, height: 24 },
+    );
+    const f = h!.s.frame();
+    expect(f).toContain("[ Save ]  [ Save & make active ]  [ Cancel ]");
+    expect(f).toMatch(/… and \d+ more/);
+    expect(f).toContain("Save & make active binds /r to default.");
+    await h!.s.press("return");
+    expect(answers).toEqual(["save"]);
   });
 });
 
