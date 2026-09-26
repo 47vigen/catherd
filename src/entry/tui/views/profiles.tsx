@@ -24,7 +24,7 @@ import { currentDraft, dirtyCount } from "../state.ts";
 import { wrap } from "../text.ts";
 import { glyph, STATE_TOKEN } from "../theme.ts";
 import { Line, type Part } from "../widgets/line.tsx";
-import { List, type ListItem } from "../widgets/list.tsx";
+import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 import { openActivate, openNewProfile, openRevert, openSave, showProfile } from "./profile-actions.ts";
 
 /** What a row does, for the line under the tree when it has no issue. */
@@ -56,7 +56,7 @@ export function ProfilesView(props: { width: number; height: number }) {
   const app = useApp();
   const data = useData();
   const ui = useUi();
-  const [selected, setSelected] = useState<string | null>(null);
+  const { selected, select: setSelected, current: selectedNow } = useSelected();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["role:worker"]));
   const [filter, setFilter] = useState<string | null>(null);
   const draft = currentDraft(app.state);
@@ -91,6 +91,8 @@ export function ProfilesView(props: { width: number; height: number }) {
     return filter ? filterRows(all, filter) : all;
   }, [profile, catalog, loaded.value, draft, expanded, filter, validation, app.effects]);
   const row = rows.find((r) => r.key === selected) ?? null;
+  /** the row the cursor is on now, which a key earlier in the same tick may have moved */
+  const rowNow = () => rows.find((r) => r.key === selectedNow()) ?? null;
   // typing a filter puts the cursor on the first row that matches it; an edit under a kept filter
   // (new rows, same text) leaves the cursor where it is
   const placedFor = useRef<string | null>(null);
@@ -205,10 +207,14 @@ export function ProfilesView(props: { width: number; height: number }) {
     "edit.redo": () => app.dispatch({ type: "redo" }),
   });
   useCommandLayer("row.profiles", {
-    "tree.toggle": () => toggle(row),
-    "tree.open": () => primary(row),
-    "tree.expand": () => row?.expandable && toggleOpen(row, true),
+    "tree.toggle": () => toggle(rowNow()),
+    "tree.open": () => primary(rowNow()),
+    "tree.expand": () => {
+      const row = rowNow();
+      if (row?.expandable) toggleOpen(row, true);
+    },
     "tree.collapse": () => {
+      const row = rowNow();
       if (!row) return;
       if (row.expandable && row.expanded) return toggleOpen(row, false);
       let p = rows.find((r) => r.key === row.parent);

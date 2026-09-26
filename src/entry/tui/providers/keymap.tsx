@@ -10,7 +10,7 @@ import {
 } from "@opentui/keymap/addons/opentui";
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui";
 import { KeymapProvider, useBindings, useKeymap } from "@opentui/keymap/react";
-import { useRenderer } from "@opentui/react";
+import { flushSync, useRenderer } from "@opentui/react";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import {
   type CommandDef,
@@ -113,8 +113,10 @@ export function useCommandLayer(scope: Scope, handlers: Handlers, o: { enabled?:
     ...(c.hint !== undefined ? { hint: c.hint } : {}),
     ...(c.short ? { short: c.short } : {}),
     ...(c.cli ? { cli: c.cli } : {}),
+    // a key's update is drawn before the next key of the same chunk is read: a dialog or a filter it
+    // opens has its input mounted and focused by then, so no letter typed right after it is lost
     run: () => {
-      ref.current[c.id as CommandId]?.();
+      flushSync(() => ref.current[c.id as CommandId]?.());
     },
   });
   const defs = commandsIn(scope).filter((c) => ids.includes(c.id as CommandId));

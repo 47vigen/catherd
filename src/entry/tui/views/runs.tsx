@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useApp, useBack, useNow } from "../providers/app.tsx";
 import { usePoll, useData } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
@@ -7,7 +6,7 @@ import { isArmed } from "../state.ts";
 import { ago, clock, shortRung } from "../text.ts";
 import { glyph, mascot, type Token } from "../theme.ts";
 import { Line, type Part } from "../widgets/line.tsx";
-import { List, type ListItem } from "../widgets/list.tsx";
+import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 import type { RunDetail } from "../effects.ts";
 import { runParts } from "./status.tsx";
 
@@ -39,14 +38,14 @@ export function budgetParts(d: RunDetail, width: number, plain: boolean): Part[]
  * The selected row, where moving the cursor takes back a first ctrl+d (Ruling 3: moving or esc disarms),
  * as the dialog list does.
  */
-function useSelection(): [string | null, (key: string) => void] {
+function useSelection(): [string | null, (key: string) => void, () => string | null] {
   const app = useApp();
-  const [selected, setSelected] = useState<string | null>(null);
+  const sel = useSelected();
   const select = (key: string) => {
-    if (key !== selected && app.getState().armed) app.dispatch({ type: "disarm" });
-    setSelected(key);
+    if (key !== sel.current() && app.getState().armed) app.dispatch({ type: "disarm" });
+    sel.select(key);
   };
-  return [selected, select];
+  return [sel.selected, select, sel.current];
 }
 
 function RunList(props: { width: number; height: number }) {
@@ -54,10 +53,13 @@ function RunList(props: { width: number; height: number }) {
   const data = useData();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected] = useSelection();
+  const [selected, setSelected, selectedNow] = useSelection();
   const rows = data.runs.value?.rows ?? [];
   useCommandLayer("row.runs", {
-    "runs.open": () => selected && app.dispatch({ type: "run", id: selected }),
+    "runs.open": () => {
+      const id = selectedNow();
+      if (id) app.dispatch({ type: "run", id });
+    },
   });
   const updated = app.state.paused
     ? "paused"
@@ -121,16 +123,17 @@ function RunView(props: { id: string; width: number; height: number }) {
   const app = useApp();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected] = useSelection();
+  const [selected, setSelected, selectedNow] = useSelection();
   const polled = usePoll(() => app.effects.run(props.id), RUN_EVERY_MS, {
     paused: app.state.paused,
     key: props.id,
   });
   useBack(true, "view", () => app.dispatch({ type: "run", id: null }));
   const d = polled.value;
-  const lane = selected?.startsWith("lane:") ? selected.slice("lane:".length) : null;
+  const laneOf = (key: string | null) => (key?.startsWith("lane:") ? key.slice("lane:".length) : null);
   useCommandLayer("row.runs", {
     "runs.cancel": () => {
+      const lane = laneOf(selectedNow());
       if (!lane) return;
       const t = app.clock.now();
       if (!isArmed(app.getState(), "cancel", lane, t))

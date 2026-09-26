@@ -7,6 +7,12 @@ export interface Screen extends TestRendererSetup {
   press(...keys: string[]): Promise<void>;
   /** Types text as a person would, then flushes. */
   type(text: string): Promise<void>;
+  /**
+   * Sends keys (press syntax) and texts in one tick, as one stdin chunk (a burst, key repeat, a paste
+   * over ssh): nothing renders between them. An entry longer than one character that is not a key name
+   * is typed as text.
+   */
+  burst(...keys: string[]): Promise<void>;
   frame(): string;
   /** destroys the renderer inside act(), so unmounting effects run before the next test */
   close(): Promise<void>;
@@ -58,6 +64,12 @@ export async function mount(
     },
     async type(text: string) {
       await settle(s, () => s.mockInput.typeText(text));
+    },
+    async burst(...keys: string[]) {
+      const named = /^(?:(?:ctrl|shift|meta)\+.+|return|escape|backspace|tab|up|down|left|right|space)$/;
+      await settle(s, () => {
+        for (const k of keys) for (const key of named.test(k) ? [k] : [...k]) one(key);
+      });
     },
     frame: () => s.captureCharFrame(),
     close: () => act(async () => s.renderer.destroy()),

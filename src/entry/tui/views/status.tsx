@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { Check } from "../../../services/doctor.ts";
 import { useApp, useNow } from "../providers/app.tsx";
 import { useData } from "../providers/data.tsx";
@@ -7,7 +6,7 @@ import { useUi } from "../providers/theme.tsx";
 import { ago, wrap } from "../text.ts";
 import { glyph, STATE_TOKEN } from "../theme.ts";
 import { Line, type Part } from "../widgets/line.tsx";
-import { List, type ListItem } from "../widgets/list.tsx";
+import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 import { hereWord, type RunRow } from "../effects.ts";
 
 /** `✓ ready` / `! not logged in` / `✗ missing`: state is always glyph and word (spec §9.3). */
@@ -39,7 +38,7 @@ export function StatusView(props: { width: number; height: number }) {
   const data = useData();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected] = useState<string | null>(null);
+  const { selected, select: setSelected, current: selectedNow } = useSelected();
   const checks = data.report?.checks ?? [];
   const profiles = data.profiles.value ?? { names: [], active: "…", here: "…", repo: null };
   const runs = (data.runs.value?.rows ?? []).slice(0, 5);
@@ -138,10 +137,11 @@ export function StatusView(props: { width: number; height: number }) {
       ),
     });
 
-  const selectedCheck = checks.find((c) => selected === `check:${c.id}`);
+  const checkAt = (key: string | null) => checks.find((c) => key === `check:${c.id}`);
   useCommandLayer("tab.status", {
     "status.recheck": () => data.recheck(),
     "status.copy": () => {
+      const selectedCheck = checkAt(selectedNow());
       if (!selectedCheck?.fix) return app.toast({ variant: "info", message: "This row has no fix command" });
       const ok = app.copy(selectedCheck.fix);
       app.toast(
@@ -153,6 +153,8 @@ export function StatusView(props: { width: number; height: number }) {
   });
   useCommandLayer("row.status", {
     "status.open": () => {
+      const selected = selectedNow();
+      const selectedCheck = checkAt(selected);
       // the PROFILE row is what this directory runs on; doctor's `profile` row is the global active one,
       // and its `profile:<name>` rows are the repo-bound ones
       const name =

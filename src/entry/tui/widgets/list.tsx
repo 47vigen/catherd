@@ -59,6 +59,28 @@ export function step(items: readonly { selectable: boolean }[], from: number, by
 }
 
 /**
+ * A view's selected row: `selected` is what this render draws, `current()` what a key handler must read
+ * (a key in the same tick may have moved it already).
+ */
+export function useSelected(): {
+  selected: string | null;
+  select(key: string): void;
+  current(): string | null;
+} {
+  const [selected, setSelected] = useState<string | null>(null);
+  const ref = useRef<string | null>(null);
+  ref.current = selected;
+  return {
+    selected,
+    select(key) {
+      ref.current = key;
+      setSelected(key);
+    },
+    current: () => ref.current,
+  };
+}
+
+/**
  * A list or tree pane (spec §9.2 lists: arrows plus j/k, paging, Home/End, `/` filter). Controlled: the
  * view owns the selected key and the filter text; the list moves them and draws the visible window with
  * `↑ n more` / `↓ n more` hints instead of a scrollbar.
@@ -79,14 +101,27 @@ export function List(props: {
   const tone = useTone();
   const input = useRef<InputRenderable>(null);
   const [top, setTop] = useState(0);
+  // the command that opens the filter is drawn at once (useCommandLayer), so this runs before the next key
   const [focusTick, setFocusTick] = useState(0);
   useEffect(() => {
     if (focusTick > 0) input.current?.focus();
   }, [focusTick]);
   const filtering = props.filter !== undefined && props.filter !== null;
   const bodyHeight = Math.max(1, props.height - (filtering ? 1 : 0));
-  let index = props.items.findIndex((it) => it.key === props.selected);
-  if (index < 0 || !props.items[index]?.selectable) index = step(props.items, Math.max(0, index), 0);
+  const indexOf = (key: string | null) => {
+    const i = props.items.findIndex((it) => it.key === key);
+    return i < 0 || !props.items[i]?.selectable ? step(props.items, Math.max(0, i), 0) : i;
+  };
+  const index = indexOf(props.selected);
+  // the row a key handler moves from: the one the last key chose, which may not be drawn yet
+  const selectedRef = useRef(props.selected);
+  selectedRef.current = props.selected;
+  const choose = (i: number) => {
+    const it = props.items[i];
+    if (!it) return;
+    selectedRef.current = it.key;
+    props.onSelect(it.key);
+  };
   const w = windowOf(props.items.length, Math.max(0, index), bodyHeight, top);
   useEffect(() => {
     if (w.top !== top) setTop(w.top);
@@ -95,26 +130,15 @@ export function List(props: {
     const it = props.items[index];
     if (it && it.key !== props.selected) props.onSelect(it.key);
   });
-  const move = (by: number) => {
-    const i = step(props.items, Math.max(0, index), by);
-    const it = props.items[i];
-    if (it) props.onSelect(it.key);
-  };
+  const move = (by: number) => choose(step(props.items, Math.max(0, indexOf(selectedRef.current)), by));
   const page = Math.max(1, bodyHeight - 2);
-  const firstSel = () => step(props.items, 0, 0);
   useCommandLayer("list", {
     "list.up": () => move(-1),
     "list.down": () => move(1),
     "list.pageUp": () => move(-page),
     "list.pageDown": () => move(page),
-    "list.first": () => {
-      const it = props.items[firstSel()];
-      if (it) props.onSelect(it.key);
-    },
-    "list.last": () => {
-      const it = props.items[step(props.items, props.items.length - 1, 0)];
-      if (it) props.onSelect(it.key);
-    },
+    "list.first": () => choose(step(props.items, 0, 0)),
+    "list.last": () => choose(step(props.items, props.items.length - 1, 0)),
     ...(props.onFilter
       ? {
           "list.filter": () => {

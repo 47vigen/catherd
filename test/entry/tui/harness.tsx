@@ -82,6 +82,7 @@ export async function harness(
   };
   const press = s.press;
   const type = s.type;
+  const burst = s.burst;
   s.press = async (...keys: string[]) => {
     for (const k of keys) {
       await press(k);
@@ -90,6 +91,10 @@ export async function harness(
   };
   s.type = async (text: string) => {
     await type(text);
+    await idle();
+  };
+  s.burst = async (...keys: string[]) => {
+    await burst(...keys);
     await idle();
   };
   const h: Harness = {

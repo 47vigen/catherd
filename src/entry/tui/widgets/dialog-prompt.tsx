@@ -23,7 +23,13 @@ export function DialogPrompt(props: { dialog: Prompt }) {
   useEffect(() => {
     input.current?.focus();
   }, []);
-  useCommandLayer("dialog", { "dialog.submit": () => app.answer(d.value) });
+  // the value typed so far, not the one drawn: text typed in the same tick as enter has not drawn yet
+  useCommandLayer("dialog", {
+    "dialog.submit": () => {
+      const top = app.getState().dialogs.at(-1);
+      app.answer(top?.kind === "prompt" ? top.value : d.value);
+    },
+  });
   return (
     <Dialog
       title={d.title}

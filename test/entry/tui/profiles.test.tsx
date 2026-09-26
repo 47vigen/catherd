@@ -279,3 +279,44 @@ describe("the Profiles tab", () => {
     expect(fx.writes).toEqual([]);
   });
 });
+
+describe("keys that land in one tick (Review Focus 2)", () => {
+  it("moves twice on `jj ` and toggles the row it moved to, not the one drawn", async () => {
+    await profiles();
+    await h!.s.burst("jj ");
+    const roles = h!.app().getState().drafts.default?.doc.roles;
+    expect(roles?.architect?.enabled).toBe(true);
+    expect(roles?.worker?.enabled).toBe(false);
+  });
+
+  it("submits the name typed into the prompt in the same tick as enter", async () => {
+    const fx = await profiles();
+    await h!.s.press("ctrl+x", "n");
+    await h!.s.burst("cheap", "return");
+    expect(fx.writes).toEqual(["create cheap"]);
+  });
+
+  it("submits the number typed into the editor in the same tick as enter", async () => {
+    const fx = await profiles();
+    await find("budget usd");
+    await h!.s.press("return");
+    await h!.s.burst("5", "return");
+    await h!.s.press("ctrl+s", "return");
+    expect(fx.writes).toEqual(['save default {"budget":{"usd":5}}']);
+  });
+
+  it("puts the letters typed right after / in the filter, and runs none of them", async () => {
+    const fx = await profiles((f) => f.create("cheap"));
+    await h!.s.burst("/", "ab");
+    expect(h!.s.frame()).toContain(" / ab");
+    expect(h!.s.frame()).not.toContain("already active");
+    expect(h!.app().getState().dialogs).toEqual([]);
+    expect(fx.writes).toEqual(["create cheap"]);
+  });
+
+  it("opens the name prompt and types into it in the same tick", async () => {
+    const fx = await profiles();
+    await h!.s.burst("ctrl+x", "n", "cheap", "return");
+    expect(fx.writes).toEqual(["create cheap"]);
+  });
+});

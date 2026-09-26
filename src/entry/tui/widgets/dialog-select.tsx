@@ -63,14 +63,21 @@ export function DialogSelect(props: { dialog: Select }) {
   const input = useRef<InputRenderable>(null);
   const [text, setText] = useState("");
   const [index, setIndex] = useState(0);
+  // what a key handler reads: the filter and cursor as they are now, not as drawn (keys in one tick)
+  const textRef = useRef("");
+  const indexRef = useRef(0);
   const [top, setTop] = useState(0);
   useEffect(() => {
     input.current?.focus();
   }, []);
-  const entries = entriesOf(props.dialog, text);
-  const selectable = entries.flatMap((e, i) => (e.option ? [i] : []));
-  const cur = selectable[Math.max(0, Math.min(index, selectable.length - 1))];
-  const chosen = cur === undefined ? null : entries[cur]?.option;
+  const pick = (t: string, i: number) => {
+    const entries = entriesOf(props.dialog, t);
+    const selectable = entries.flatMap((e, n) => (e.option ? [n] : []));
+    const cur = selectable[Math.max(0, Math.min(i, selectable.length - 1))];
+    return { entries, selectable, cur, chosen: cur === undefined ? null : (entries[cur]?.option ?? null) };
+  };
+  const { entries, cur, chosen } = pick(text, index);
+  const chosenNow = () => pick(textRef.current, indexRef.current).chosen;
   const height = Math.max(3, Math.min(entries.length, Math.floor(dims.height / 2) - 6));
   const w = windowOf(entries.length, cur ?? 0, height, top);
   useEffect(() => {
@@ -79,7 +86,9 @@ export function DialogSelect(props: { dialog: Select }) {
   // moving the cursor takes back a first ctrl+d (opencode's session list does the same)
   const move = (by: number) => {
     if (app.getState().armed) app.dispatch({ type: "disarm" });
-    setIndex((i) => Math.max(0, Math.min(selectable.length - 1, i + by)));
+    const n = pick(textRef.current, indexRef.current).selectable.length;
+    indexRef.current = Math.max(0, Math.min(n - 1, indexRef.current + by));
+    setIndex(indexRef.current);
   };
   const armed = chosen ? isArmed(app.state, "delete", chosen.value, app.clock.now()) : false;
   useCommandLayer("dialog", {
@@ -88,16 +97,18 @@ export function DialogSelect(props: { dialog: Select }) {
     "dialog.pageUp": () => move(-height),
     "dialog.pageDown": () => move(height),
     "dialog.submit": () => {
-      if (chosen) app.answer(chosen.value);
+      const c = chosenNow();
+      if (c) app.answer(c.value);
     },
     ...(props.dialog.deletable
       ? {
           "dialog.delete": () => {
-            if (!chosen) return;
-            if (isArmed(app.getState(), "delete", chosen.value, app.clock.now())) {
+            const c = chosenNow();
+            if (!c) return;
+            if (isArmed(app.getState(), "delete", c.value, app.clock.now())) {
               app.dispatch({ type: "disarm" });
-              app.answer(`delete:${chosen.value}`);
-            } else app.dispatch({ type: "arm", what: "delete", target: chosen.value, at: app.clock.now() });
+              app.answer(`delete:${c.value}`);
+            } else app.dispatch({ type: "arm", what: "delete", target: c.value, at: app.clock.now() });
           },
         }
       : {}),
@@ -111,6 +122,8 @@ export function DialogSelect(props: { dialog: Select }) {
           value={text}
           placeholder="type to filter"
           onInput={(v: string) => {
+            textRef.current = v;
+            indexRef.current = 0;
             setText(v);
             setIndex(0);
             if (app.getState().armed) app.dispatch({ type: "disarm" });

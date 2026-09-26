@@ -148,6 +148,22 @@ describe("the command palette (spec §9.2)", () => {
   });
 });
 
+describe("keys that land in one tick (Review Focus 2)", () => {
+  it("runs the command typed into the palette in the same tick as ctrl+p and enter", async () => {
+    await app();
+    await h!.s.burst("ctrl+p", "quit", "return");
+    expect(h!.exits.map((e) => e.code)).toEqual([0]);
+  });
+
+  it("gives the palette opened with : the letter typed right after it", async () => {
+    await app();
+    await h!.s.burst(":", "q");
+    expect(h!.s.frame()).toContain("> q ");
+    expect(h!.s.frame()).toContain("Quit");
+    expect(h!.exits).toEqual([]);
+  });
+});
+
 describe("text inputs own printable keys (spec §9.2)", () => {
   const printable = [
     ...new Set(COMMANDS.flatMap((c) => DEFAULT_KEYS[c.id]).filter((k) => isPrintable(k) && k !== "space")),
