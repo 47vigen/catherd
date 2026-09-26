@@ -74,6 +74,11 @@ export const watchCommand = defineCommand({
   args: {
     once: { type: "boolean", description: "print one snapshot and exit" },
     interval: { type: "string", description: "seconds between text redraws when piped (default 2)" },
+    plain: {
+      type: "boolean",
+      description: "the dashboard in ASCII without colour (NO_COLOR also drops colour)",
+    },
+    "reduced-motion": { type: "boolean", description: "the dashboard without animation" },
     ...json,
   },
   async run({ args }) {
@@ -81,7 +86,11 @@ export const watchCommand = defineCommand({
     // on a terminal, watch is the dashboard's Runs tab (plan 6 Ruling 10); piped output keeps the plain view
     if (process.stdin.isTTY && process.stdout.isTTY) {
       const { openTui } = await import("./tui/run.tsx");
-      process.exitCode = await openTui({ rawArgs: process.argv.slice(2), tab: "runs" });
+      const rawArgs = [
+        ...(args.plain ? ["--plain"] : []),
+        ...(args["reduced-motion"] ? ["--reduced-motion"] : []),
+      ];
+      process.exitCode = await openTui({ rawArgs, tab: "runs", tty: true });
       return;
     }
     const every = redrawMs(args.interval);

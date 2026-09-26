@@ -7,6 +7,9 @@ import { SRC } from "../../import-graph.ts";
 
 afterEach(snapshotEnv());
 
+/** An explicit env for a spawned catherd: this test's home, and no key for discovery to spend. */
+const envFor = (home: string) => ({ ...process.env, CATHERD_HOME: home, ANTHROPIC_API_KEY: "" });
+
 describe("openTui", () => {
   it("refuses a terminal that is not interactive, with exit 2 and what to run instead", async () => {
     withHome();
@@ -31,27 +34,30 @@ describe("openTui", () => {
   });
 
   it("loads OpenTUI for a bare catherd only, never behind a subcommand (spec §3.1)", () => {
-    withHome();
+    const home = withHome();
     const code = [
       `const { runCli } = await import(${JSON.stringify(join(SRC, "cli.ts"))});`,
       `await runCli(["status", "--json"]);`,
       `console.log("opentui modules:", Object.keys(require.cache).filter((k) => k.includes("@opentui")).length);`,
     ].join("\n");
     const p = Bun.spawnSync([process.execPath, "-e", code], {
-      env: process.env,
+      env: envFor(home),
       stdout: "pipe",
       stderr: "pipe",
     });
     expect(p.stdout.toString()).toContain("opentui modules: 0");
   });
 
-  it("lists --plain and --reduced-motion in catherd --help", () => {
-    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "--help"], {
-      env: process.env,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(p.stdout.toString()).toContain("--plain");
-    expect(p.stdout.toString()).toContain("--reduced-motion");
+  it("lists --plain and --reduced-motion in catherd --help and catherd watch --help", () => {
+    const home = withHome();
+    for (const args of [["--help"], ["watch", "--help"]]) {
+      const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
+        env: envFor(home),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(p.stdout.toString()).toContain("--plain");
+      expect(p.stdout.toString()).toContain("--reduced-motion");
+    }
   });
 });

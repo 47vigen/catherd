@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -10,13 +10,19 @@ import { dirname, join } from "node:path";
  */
 const TMUX = Bun.which("tmux");
 const CLI = join(import.meta.dir, "..", "..", "..", "src", "cli.ts");
-const sessions: string[] = [];
-afterEach(() => {
-  for (const s of sessions.splice(0)) Bun.spawnSync([TMUX as string, "kill-session", "-t", s]);
-});
-
+// a private tmux server with no config: never the developer's server, its environment or ~/.tmux.conf;
+// its socket lives in a temp dir this file removes, since tmux leaves the socket file behind
+const SOCKET_DIR = mkdtempSync(join(tmpdir(), "catherd-pty-tmux-"));
+const SOCKET = join(SOCKET_DIR, "tmux");
 const tmux = (...args: string[]) =>
-  new TextDecoder().decode(Bun.spawnSync([TMUX as string, ...args], { env: process.env }).stdout);
+  new TextDecoder().decode(
+    Bun.spawnSync([TMUX as string, "-S", SOCKET, "-f", "/dev/null", ...args], { env: process.env }).stdout,
+  );
+afterEach(() => {
+  tmux("kill-server");
+});
+afterAll(() => rmSync(SOCKET_DIR, { recursive: true, force: true }));
+let started = 0;
 
 async function until(what: string, f: () => boolean, ms = 20_000): Promise<void> {
   const end = Date.now() + ms;
@@ -28,9 +34,10 @@ async function until(what: string, f: () => boolean, ms = 20_000): Promise<void>
 
 async function start(args: string) {
   const home = mkdtempSync(join(tmpdir(), "catherd-pty-"));
-  const name = `catherd-${process.pid}-${sessions.length}`;
-  sessions.push(name);
+  const name = `catherd-${started++}`;
+  // `env -i`: the binary sees only these, whatever the test runner or the tmux server has
   const env = [
+    `HOME=${home}`,
     `CATHERD_HOME=${home}`,
     `CATHERD_CLAUDE_AGENTS_DIR=${join(home, "agents")}`,
     `CLAUDE_CONFIG_DIR=${join(home, "claude")}`,
@@ -38,6 +45,9 @@ async function start(args: string) {
     `PATH=${dirname(process.execPath)}:/usr/bin:/bin`,
     "TERM=xterm-256color",
     "LANG=C.UTF-8",
+    "LC_ALL=C.UTF-8",
+    // no key: doctor's discovery never reaches the Models API
+    "ANTHROPIC_API_KEY=",
   ].join(" ");
   tmux(
     "new-session",
@@ -51,7 +61,7 @@ async function start(args: string) {
     // outside the catherd checkout, so no repo binding decides the profile
     "-c",
     home,
-    `env ${env} ${process.execPath} ${CLI} ${args}; echo $? > ${home}/exit; sleep 60`,
+    `env -i ${env} ${process.execPath} ${CLI} ${args}; echo $? > ${home}/exit; sleep 60`,
   );
   const screen = () => tmux("capture-pane", "-p", "-t", name);
   const keys = async (...k: string[]) => {

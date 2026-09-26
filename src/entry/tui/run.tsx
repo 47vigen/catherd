@@ -57,27 +57,33 @@ export async function openTui(o: TuiOptions): Promise<number> {
     useKittyKeyboard: env.CATHERD_NO_KITTY ? null : {},
     targetFps: 30,
   });
-  const ui = { ...detectUi(o.rawArgs, env), mode: await modeOf(renderer) };
   let result = { code: EXIT.ok as number, kept: [] as string[] };
   const done = new Promise<void>((resolve) => renderer.once("destroy", () => resolve()));
-  renderer.setTerminalTitle(story ? "catherd stories" : "catherd");
-  createRoot(renderer).render(
-    <Providers
-      ui={ui}
-      keybinds={keybinds}
-      keymap={createAppKeymap(renderer)}
-      effects={effects}
-      clock={new SystemClock()}
-      initial={initialState(o.tab ?? "status")}
-      copy={(text) => renderer.copyToClipboardOSC52(text)}
-      onExit={(code, kept) => {
-        result = { code, kept };
-        renderer.destroy();
-      }}
-    >
-      <App story={story} />
-    </Providers>,
-  );
+  // anything that throws once the renderer exists gives the terminal back before the error surfaces
+  try {
+    const ui = { ...detectUi(o.rawArgs, env), mode: await modeOf(renderer) };
+    renderer.setTerminalTitle(story ? "catherd stories" : "catherd");
+    createRoot(renderer).render(
+      <Providers
+        ui={ui}
+        keybinds={keybinds}
+        keymap={createAppKeymap(renderer)}
+        effects={effects}
+        clock={new SystemClock()}
+        initial={initialState(o.tab ?? "status")}
+        copy={(text) => renderer.copyToClipboardOSC52(text)}
+        onExit={(code, kept) => {
+          result = { code, kept };
+          renderer.destroy();
+        }}
+      >
+        <App story={story} />
+      </Providers>,
+    );
+  } catch (e) {
+    renderer.destroy();
+    throw e;
+  }
   await done;
   for (const line of result.kept) console.log(line);
   return result.code;
