@@ -37,7 +37,8 @@ process group (POSIX `setsid()`, confirmed with `ps -o pid,pgid,ppid`: child's p
 own pid). Verified with a throwaway parent that spawns a child sleeping 1.5s, then exits
 immediately: the child kept running, was reparented to pid 1, and wrote its marker file after the
 parent had already exited. Raw fd stdio (from `openSync`) is honoured as a real file, not a pipe
-through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
+through the parent. `Bun.spawn` alone covers `launchSupervisor` (`src/infra/launch.ts`); execa is not
+needed.
 
 ## opencode CLI check (Task 6, step 1), verified live against opencode 2.0.15
 
@@ -51,9 +52,9 @@ through the parent. `Bun.spawn` alone covers `runChild`; execa is not needed.
 - **Deviation from the busy-check text above:** on 2.0.15, `GET /api/session/<id>/message` never
   contains the string `"status":"running"` — verified live by polling mid-tool-call. The busy
   signal is structural: `.data` is newest-first, and the session is idle iff `data[0].type ===
-  "idle"`; while a tool streams, `data[0]` is the assistant message instead. `runOpencode`'s busy
-  check parses JSON and reads `data[0]?.type` rather than substring-matching `"status":"running"`,
-  and the fake `opencode`/tests use that same shape.
+  "idle"`; while a tool streams, `data[0]` is the assistant message instead. The 1.0 adapter's busy
+  check (`isBusy` in `src/adapters/opencode/index.ts`) parses JSON rather than substring-matching
+  `"status":"running"`, and its tests use recorded fixtures (`test/fixtures/adapters/opencode/`).
 
 ## Dropped from the Node-toolchain plan (OVERRIDES)
 

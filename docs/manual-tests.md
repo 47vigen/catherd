@@ -228,7 +228,7 @@ real tools — the thing the unit and contract tests cannot show.
    session start:
 
    ```bash
-   bun -e 'import { saveProfileAndAgents } from "./src/profile/agents.ts"; import { loadProfile } from "./src/profile/profile.ts"; import { loadCatalog } from "./src/routing/catalog.ts"; console.log(saveProfileAndAgents(loadProfile(), loadCatalog()));'
+   bun src/cli.ts profile use default
    ls -l ~/.claude/agents/catherd-*
    ```
 
