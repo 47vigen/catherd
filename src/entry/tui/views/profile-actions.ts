@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { isCatherdError } from "../../../domain/errors.ts";
 import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
@@ -148,6 +149,7 @@ function activateNow(app: AppApi, data: Data, name: string): void {
 export function useProfileDialogs(): void {
   const app = useApp();
   const data = useData();
+  const saving = useRef(false);
   const nameError = (name: string): string | null => {
     if (!PROFILE_NAME.test(name))
       return "use lowercase letters, digits and -, up to 32, starting with a letter or digit";
@@ -207,14 +209,19 @@ export function useProfileDialogs(): void {
     if (p.type !== "save") return;
     const d = app.getState().drafts[p.name];
     if (!d) return app.dispatch({ type: "close" });
+    // a second enter while the first save is writing is not a second save
+    if (saving.current) return;
     let r: Awaited<ReturnType<AppApi["effects"]["save"]>>;
     try {
+      saving.current = true;
       r = await app.effects.save(p.name, patchBetween(d.base, d.doc), d.treatLikes);
     } catch (e) {
       return app.dispatch({
         type: "invalid",
         error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
       });
+    } finally {
+      saving.current = false;
     }
     if (!r.saved)
       return app.dispatch({

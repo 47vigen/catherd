@@ -287,6 +287,32 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toMatch(/roles\.worker\.access\s+read-only → full/);
   });
 
+  it("saves once when enter is pressed again while the save is still writing", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return", "ctrl+s");
+    const save = fx.save;
+    let finish = () => {};
+    const gate = new Promise<void>((r) => {
+      finish = r;
+    });
+    let calls = 0;
+    fx.save = async (...a) => {
+      calls++;
+      await gate;
+      return save(...a);
+    };
+    await h!.s.press("return", "return");
+    await h!.run(async () => {
+      finish();
+      await gate;
+    });
+    await h!.advance(0);
+    expect(calls).toBe(1);
+    expect(fx.writes).toEqual(['save default {"objective":"speed"}']);
+    expect(h!.app().getState().dialogs).toEqual([]);
+  });
+
   it("applies two keys that land in one tick to the draft as it is, not as it was drawn", async () => {
     await profiles();
     await find("verifier");
