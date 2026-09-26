@@ -34,3 +34,8 @@ Listed so they are not re-proposed:
 - **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty (0.4), so 3 of 4 routes fell back to the default. Log each lane's final outcome (climbed or not) beside Jev's answer, then tune the difficulty question's wording, its options or its threshold from that data.
 - **First-turn cost on small lanes.** A native Codex turn starts at ~280k input tokens (mostly cached) whatever the lane's size. For one-line lanes, a profile rule "isolated below difficulty build" could save most of it without touching the user's harness for real work.
 - **Live coverage still missing:** an opencode lane, a climb, quota failover and a budget stop have only run in tests, never in a real run.
+
+## Plan in hand (2026-09-26)
+
+- **Architect as translator.** When the user brings finished plan files, the architect should not redesign. It reads them, then splits each task into lanes (owned files, a fast check) and each MR into a milestone with its full check. It stays the escalation target for `design` findings. Today the skill has only two paths, full architect or none (polish runs), and "you copy the plan yourself" is listed as a mistake. *Where:* a `plan:` A-line recognized in SKILL.md step 3, and a shorter architect brief.
+- **Milestone per branch.** A real multi-MR build wants one branch and one MR per milestone, some in parallel (a kit prerequisite, then the service beside kit follow-ups). `land` only commits. *Where:* an optional `branch` on milestones, and a finish step that opens the MR through the repo's own tooling.
