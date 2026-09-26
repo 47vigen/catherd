@@ -98,7 +98,7 @@ describe("doctor", () => {
       "access:full": "warn warning",
       "access:advisory": "warn warning",
     });
-    expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · \d+ models$/);
+    expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
     expect(check(r, "access:full")?.detail).toBe("no sandbox for: verifier (default), ui-reviewer (default)");
   });
@@ -133,6 +133,44 @@ describe("doctor", () => {
       word: "not logged in",
       fix: "codex login",
     });
+  });
+
+  it("says how Codex is logged in, and warns when a profile bills that login as something else", async () => {
+    machine({ codex: { login: "api-key" } });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const r = await run();
+    expect(check(r, "backend:codex")).toMatchObject({
+      state: "warn",
+      word: "billing",
+      detail: expect.stringMatching(
+        /^0\.157\.0 · API key login · profile default bills codex as chatgpt-plan, but this login is metered/,
+      ),
+      fix: "catherd profile set billing.codex metered --profile default",
+    });
+    expect(JSON.stringify(r)).not.toContain("sk-proj");
+    patchProfile("default", { billing: { codex: "metered" } });
+    expect(check(await run(), "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
+  });
+
+  it("does not warn about the Codex login's billing when no profile routes anything to Codex", async () => {
+    machine({ codex: { login: "api-key" } });
+    installPlugin(VERSION);
+    const claude = { rungs: ["claude:claude-opus-5-5#medium"] };
+    const r0 = patchProfile("default", {
+      roles: {
+        worker: { ...claude, defaultRung: "claude:claude-opus-5-5#medium" },
+        reviewer: claude,
+        "ui-reviewer": claude,
+        artist: { enabled: false },
+        writer: claude,
+        researcher: claude,
+      },
+    });
+    expect(r0).toMatchObject({ saved: true, errors: [] });
+    const r = await run();
+    expect(check(r, "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
+    expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · API key login/);
   });
 
   it("fails without the plugin, or with a plugin of another version", async () => {
@@ -261,6 +299,19 @@ describe("doctor", () => {
       word: "readable by others",
       fix: `chmod 600 ${credentialsPath()}`,
     });
+  });
+
+  it("warns on a credentials file it cannot read, which Jev takes for no key", async () => {
+    ready();
+    saveJevKey("tsk-test-key-0123456789");
+    writeFileSync(credentialsPath(), "{ not json");
+    const r = await run();
+    expect(check(r, "credentials")).toMatchObject({
+      state: "warn",
+      word: "unreadable",
+      fix: `fix or delete ${credentialsPath()}`,
+    });
+    expect(check(r, "jev")).toMatchObject({ state: "warn", word: "no key" });
   });
 
   it("turns a corrupt catalog override into a fail row with its fix, not a throw", async () => {

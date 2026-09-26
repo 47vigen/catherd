@@ -24,9 +24,18 @@ export const SuperviseSpecSchema = z.looseObject({
 });
 export type SuperviseSpec = z.infer<typeof SuperviseSpecSchema>;
 
+/** What one stream line tells the supervisor: the terminal event, the thread, a tool call opening or closing. */
+export interface LineInfo {
+  final?: boolean;
+  thread?: string;
+  /** a tool call the CLI started (`open`) or finished: while one is open the run is busy, however quiet */
+  item?: { id: string; open: boolean };
+}
+
 export interface SuperviseHooks {
-  onLine?(line: string): { final?: boolean; thread?: string };
-  isBusy?(thread: string | null): Promise<boolean>;
+  onLine?(line: string): LineInfo;
+  /** `sinceMs`: when this run started, so a backend can ignore what an earlier run on the thread left */
+  isBusy?(thread: string | null, sinceMs: number): Promise<boolean>;
   interrupt?(thread: string | null): Promise<void>;
 }
 
@@ -158,6 +167,7 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     const started = Date.now();
     let lastActivity = started;
     let finalAt: number | null = null;
+    const open = new Set<string>();
     const stream = { offset: 0, rest: "", decoder: new TextDecoder("utf-8") };
 
     while (!done && reason === null) {
@@ -165,7 +175,7 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
       const lines = readNew(p.events, stream);
       if (lines.length) lastActivity = Date.now();
       for (const line of lines) {
-        let d: { final?: boolean; thread?: string } | undefined;
+        let d: LineInfo | undefined;
         try {
           d = hooks.onLine?.(line);
         } catch {
@@ -173,14 +183,23 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
         }
         if (d?.thread) thread = d.thread;
         if (d?.final) finalAt ??= Date.now();
+        if (d?.item) {
+          if (d.item.open) open.add(d.item.id);
+          else open.delete(d.item.id);
+        }
       }
+      // a worker that ended on its own is recorded as it ended, even if a cancel or a limit arrived meanwhile
+      if (done) break;
       const now = Date.now();
       if (existsSync(p.cancel)) reason = "cancelled";
       else if (now - started >= spec.wallMs) reason = "wall-timeout";
       else if (finalAt !== null && spec.graceAfterFinalMs !== null && now - finalAt >= spec.graceAfterFinalMs)
         reason = "after-final";
       else if (now - lastActivity >= spec.idleMs) {
-        if (await bounded(() => hooks.isBusy?.(thread), hookMs, false)) lastActivity = Date.now();
+        const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
+        // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended
+        if (done) break;
+        if (busy) lastActivity = Date.now();
         else reason = "idle-timeout";
       }
     }
@@ -191,8 +210,11 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
 
   let stopped = false;
   if (reason !== null && !done) {
-    if (reason !== "after-final" && failure === null)
+    if (reason !== "after-final" && failure === null && hooks.interrupt) {
       await bounded(() => hooks.interrupt?.(thread), hookMs, undefined);
+      // a server-side stop lets the CLI end on its own: it gets the kill grace before any signal
+      await Promise.race([child.exited, Bun.sleep(spec.killGraceMs)]);
+    }
     if (!done) {
       await stopGroup(child.pid, spec.killGraceMs, spec.pollMs);
       stopped = true;

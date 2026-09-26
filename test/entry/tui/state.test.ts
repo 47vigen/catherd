@@ -122,6 +122,28 @@ describe("drafts (spec §9.2: edits are staged)", () => {
     expect([s.profile, s.drafts]).toEqual([null, {}]);
   });
 
+  it("reverts to the profile as it is on disk now, and undo stages the changes again over it", () => {
+    const theirs = { ...defaultProfileDoc(), objective: "speed" as const };
+    let s = run(
+      shown(),
+      { type: "edit", patch: { budget: { usd: 5 } } },
+      { type: "revert", name: "default", doc: theirs },
+    );
+    let d = currentDraft(s)!;
+    expect([d.base.objective, d.doc.objective, d.doc.budget?.usd, dirtyCount(d)]).toEqual([
+      "speed",
+      "speed",
+      undefined,
+      0,
+    ]);
+    s = run(s, { type: "undo" });
+    d = currentDraft(s)!;
+    // the staged cap comes back over what is saved now: the objective another process saved stays
+    expect([d.doc.objective, d.doc.budget?.usd, dirtyCount(d)]).toEqual(["speed", 5, 1]);
+    s = run(s, { type: "redo" });
+    expect(dirtyCount(currentDraft(s)!)).toBe(0);
+  });
+
   it("ignores edits with no profile shown", () => {
     const s = initialState();
     expect(run(s, { type: "edit", patch: { objective: "speed" } }, { type: "undo" })).toBe(s);

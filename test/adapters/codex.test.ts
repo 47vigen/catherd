@@ -38,6 +38,15 @@ const finished = (eventLines: string[], over: Partial<FinishedRun> = {}): Finish
   ...over,
 });
 
+describe("codex parse", () => {
+  it("reports a tool call opening and closing, so a quiet one keeps the run busy", () => {
+    const [started, completed] = lines("ok-with-reconnect.jsonl").filter((l) => l.includes('"id":"item_1"'));
+    expect(codexAdapter.parse(started as string)).toMatchObject({ item: { id: "item_1", open: true } });
+    expect(codexAdapter.parse(completed as string)).toMatchObject({ item: { id: "item_1", open: false } });
+    expect(codexAdapter.parse('{"type":"turn.started"}').item).toBeUndefined();
+  });
+});
+
 describe("codex plan", () => {
   it("sends the brief on stdin, sets model, effort and sandbox, and ends positionals after --", () => {
     const p = codexAdapter.plan(req());
@@ -167,6 +176,25 @@ describe("codex probe and discovery (simulator)", () => {
     const p = await codexAdapter.probe();
     expect(p.installed).toBe(false);
     expect(p.problems[0]).toMatchObject({ code: "E_BACKEND_MISSING", fix: "npm i -g @openai/codex" });
+  });
+
+  it("says whether codex is logged in with ChatGPT or an API key, and the billing each implies", async () => {
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({}).env);
+    expect(await codexAdapter.probe()).toMatchObject({
+      loggedIn: true,
+      login: "ChatGPT",
+      billing: "chatgpt-plan",
+    });
+    Object.assign(process.env, withScenario({ login: "api-key" }).env);
+    expect(await codexAdapter.probe()).toMatchObject({
+      loggedIn: true,
+      login: "API key",
+      billing: "metered",
+    });
+    Object.assign(process.env, withScenario({ loggedIn: false }).env);
+    const out = await codexAdapter.probe();
+    expect([out.loggedIn, out.login, out.billing]).toEqual([false, undefined, undefined]);
   });
 
   it("treats a codex login status that hangs as not logged in, within the timeout", async () => {

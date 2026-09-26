@@ -41,10 +41,12 @@ export const RungSchema = z.string().refine(isRung, "a rung is <backend>:<model>
 const positive = z.number().positive();
 
 // Stored files: every level is loose, so fields a newer catherd wrote survive a rewrite (spec §3.4), and
-// rung strings are checked by validateProfile rather than making the whole file unreadable.
+// rung strings are checked by validateProfile rather than making the whole file unreadable. The same holds
+// for values: a stored enum takes any string, resolveProfile reads one it does not know as STORED_FALLBACK
+// says, validateProfile warns, and the file keeps it.
 const RoleDocSchema = z.looseObject({
   enabled: z.boolean().optional(),
-  access: z.enum(ACCESS).optional(),
+  access: z.string().optional(),
   rungs: z.array(z.string()).optional(),
   defaultRung: z.string().optional(),
 });
@@ -52,9 +54,9 @@ const RoleDocSchema = z.looseObject({
 export const ProfileDocSchema = z.looseObject({
   schema: z.literal(PROFILE_SCHEMA),
   name: z.string().optional(),
-  objective: z.enum(["cost", "speed"]).optional(),
-  jev: z.looseObject({ use: z.enum(["auto", "off"]).optional() }).optional(),
-  billing: z.record(z.string(), z.enum(BILLING_MODES)).optional(),
+  objective: z.string().optional(),
+  jev: z.looseObject({ use: z.string().optional() }).optional(),
+  billing: z.record(z.string(), z.string()).optional(),
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
   failover: z.record(z.string(), z.string()).optional(),
@@ -66,9 +68,49 @@ export const ProfileDocSchema = z.looseObject({
   lock: z
     .looseObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]).optional() })
     .optional(),
-  notify: z.array(z.enum(NOTIFY)).optional(),
+  notify: z.array(z.string()).optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
+
+const OBJECTIVES = ["cost", "speed"] as const;
+const JEV_USES = ["auto", "off"] as const;
+const known = <T extends string>(values: readonly T[], v: string | undefined): v is T =>
+  v !== undefined && (values as readonly string[]).includes(v);
+
+/**
+ * How a stored value this catherd does not know (a newer one wrote it) is read, always the cautious way:
+ * access as read-only, billing as the key's default mode, Jev as off, so nothing is sent or written that
+ * the value may not allow; an unknown notify moment is skipped.
+ */
+export const STORED_FALLBACK = {
+  objective: "cost",
+  jevUse: "off",
+  access: "read-only",
+  billing: (key: string): BillingMode => DEFAULT_BILLING[key as BillingKey] ?? "metered",
+} as const;
+
+/** A stored value this catherd does not know, with what it is read as. */
+export interface UnknownValue {
+  path: string;
+  value: string;
+  readAs: string;
+}
+
+/** Every stored enum value in `doc` this catherd does not know (spec §3.4: newer files stay readable). */
+export function unknownValues(doc: ProfileDoc): UnknownValue[] {
+  const out: UnknownValue[] = [];
+  const check = (path: string, values: readonly string[], v: string | undefined, readAs: string) => {
+    if (v !== undefined && !values.includes(v)) out.push({ path, value: v, readAs });
+  };
+  check("objective", OBJECTIVES, doc.objective, STORED_FALLBACK.objective);
+  check("jev.use", JEV_USES, doc.jev?.use, STORED_FALLBACK.jevUse);
+  for (const [k, v] of Object.entries(doc.billing ?? {}))
+    check(`billing.${k}`, BILLING_MODES, v, STORED_FALLBACK.billing(k));
+  for (const role of ROLES)
+    check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
+  for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
+  return out;
+}
 
 // a type, not an interface, so the built-in roles can be written into a loose (indexed) document
 export type RoleConfig = {
@@ -166,7 +208,12 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
     const defaultRung = d?.defaultRung ?? (d?.rungs === undefined ? b.defaultRung : undefined);
     roles[role] = {
       enabled: d?.enabled ?? b.enabled,
-      access: d?.access ?? DEFAULT_ACCESS[role],
+      access:
+        d?.access === undefined
+          ? DEFAULT_ACCESS[role]
+          : known(ACCESS, d.access)
+            ? d.access
+            : STORED_FALLBACK.access,
       rungs: [...(d?.rungs ?? b.rungs)],
       ...(defaultRung ? { defaultRung } : {}),
     };
@@ -179,11 +226,15 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
     const v = doc.budget?.[k];
     if (v !== undefined) budget[k] = v;
   }
+  const billing: Record<string, BillingMode> = { ...DEFAULT_BILLING };
+  for (const [k, v] of Object.entries(doc.billing ?? {}))
+    billing[k] = known(BILLING_MODES, v) ? v : STORED_FALLBACK.billing(k);
+  const use = doc.jev?.use;
   return {
     name,
-    objective: doc.objective ?? "cost",
-    jev: { use: doc.jev?.use ?? "auto" },
-    billing: { ...DEFAULT_BILLING, ...doc.billing },
+    objective: known(OBJECTIVES, doc.objective) ? doc.objective : STORED_FALLBACK.objective,
+    jev: { use: use === undefined ? "auto" : known(JEV_USES, use) ? use : STORED_FALLBACK.jevUse },
+    billing,
     roles,
     harness,
     failover: { ...doc.failover },
@@ -191,7 +242,7 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
     preflight: { confirm: doc.preflight?.confirm ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
-    notify: [...(doc.notify ?? NOTIFY)],
+    notify: doc.notify === undefined ? [...NOTIFY] : doc.notify.filter((n) => known(NOTIFY, n)),
   };
 }
 

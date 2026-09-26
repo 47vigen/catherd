@@ -8,6 +8,7 @@ import type { Access } from "../domain/record.ts";
 import { sanitize, type Scrub, secretValues } from "../domain/sanitize.ts";
 import { workerEnv } from "../infra/env.ts";
 import { git } from "../infra/git.ts";
+import { killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { readyAdapter } from "./backends.ts";
 import { settled } from "./finalize.ts";
@@ -67,7 +68,20 @@ async function scratchRepo(): Promise<{ work: string; repo: string }> {
   return { work, repo };
 }
 
-/** Runs one case the way a dispatch would (prepare, plan, the worker env), without the supervisor. */
+/** Every string in `v`, cleaned: meta values are sanitized before JSON escapes them, not after. */
+function cleanStrings(v: unknown, clean: (s: string) => string): unknown {
+  if (typeof v === "string") return clean(v);
+  if (Array.isArray(v)) return v.map((x) => cleanStrings(x, clean));
+  if (v && typeof v === "object")
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cleanStrings(x, clean)]));
+  return v;
+}
+
+/**
+ * Runs one case the way an isolated dispatch would (prepare, plan, the worker env), without the
+ * supervisor. Isolated, so the stream names none of the owner's own hooks, plugins, MCP servers or config:
+ * the fixtures are committed.
+ */
 async function captureOne(
   adapter: BackendAdapter,
   version: string,
@@ -80,12 +94,12 @@ async function captureOne(
     const briefPath = join(work, "brief.md");
     writeFileSync(briefPath, c.brief);
     const rung = parseRung(c.rung);
-    await adapter.prepare?.({ rung, access: c.access, isolated: false, repo });
+    await adapter.prepare?.({ rung, access: c.access, isolated: true, repo });
     const request = {
       rung,
       access: c.access,
       thread: null,
-      isolated: false,
+      isolated: true,
       repo,
       briefPath,
       replyPath: join(work, "reply.md"),
@@ -99,8 +113,14 @@ async function captureOne(
       stdin: Bun.file(briefPath),
       stdout: "pipe",
       stderr: "pipe",
+      // its own group, so a timeout stops whatever the CLI started too, as the supervisor does
+      detached: true,
     });
-    const timer = setTimeout(() => p.kill("SIGKILL"), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup(p.pid, "SIGKILL");
+    }, timeoutMs);
     const [events, stderr, code] = await Promise.all([
       new Response(p.stdout).text(),
       new Response(p.stderr).text(),
@@ -115,7 +135,7 @@ async function captureOne(
       exit: {
         code: p.signalCode ? null : code,
         signal: p.signalCode ?? null,
-        reason: "exited",
+        reason: timedOut ? "wall-timeout" : "exited",
         endedAt: new Date().toISOString(),
       },
       startedAtMs,
@@ -141,27 +161,28 @@ async function captureOne(
     writeFileSync(join(dir, `${c.name}.stderr`), clean(stderr));
     writeJsonAtomic(
       join(dir, `${c.name}.json`),
-      JSON.parse(
-        clean(
-          JSON.stringify({
-            schema: 1,
-            backend: c.backend,
-            cliVersion: version,
-            case: c.name,
-            rung: c.rung,
-            access: c.access,
-            brief: c.brief,
-            exitCode: run.exit.code,
-            capturedAt: new Date().toISOString(),
-            outcome: {
-              status: o.status,
-              thread: o.thread,
-              tokens: o.tokens,
-              costUsd: o.costUsd,
-              error: o.error,
-            },
-          }),
-        ),
+      cleanStrings(
+        {
+          schema: 1,
+          backend: c.backend,
+          cliVersion: version,
+          case: c.name,
+          rung: c.rung,
+          access: c.access,
+          isolated: true,
+          brief: c.brief,
+          exitCode: run.exit.code,
+          reason: run.exit.reason,
+          capturedAt: new Date().toISOString(),
+          outcome: {
+            status: o.status,
+            thread: o.thread,
+            tokens: o.tokens,
+            costUsd: o.costUsd,
+            error: o.error,
+          },
+        },
+        clean,
       ),
     );
     return {

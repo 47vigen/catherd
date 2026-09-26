@@ -31,6 +31,8 @@ function serverEnv(home: string, scenarioFile: string): Record<string, string> {
     PATH: simPath(),
     CATHERD_SIM_SCENARIO: scenarioFile,
     CATHERD_TICK_MS: "200",
+    // a root container runs this suite too: preflight runs its checks there only on a disposable machine
+    IS_SANDBOX: "1",
   };
 }
 

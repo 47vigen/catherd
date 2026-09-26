@@ -8,6 +8,7 @@ import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
 import {
   openNewProfile,
   openProfileList,
+  openRevert,
   useProfileDialogs,
 } from "../../../src/entry/tui/views/profile-actions.ts";
 import { ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
@@ -183,6 +184,81 @@ describe("the Profiles tab", () => {
     await h!.s.press("return");
     expect(fx.writes.at(-1)).toBe("bind other /home/me/app");
     expect(h!.s.frame().split("\n")[0]).toContain("PROFILE other (this repo)");
+  });
+
+  it("asks again, in the new words, when another process binds this repo while the prompt is open", async () => {
+    const fx = await profiles(
+      (f) => {
+        f.create("cheap");
+        f.create("other");
+      },
+      fixtureEffects({ repo: "/home/me/app" }),
+    );
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("cheap");
+    await h!.s.press("return", "a");
+    expect(h!.s.frame()).toContain("Make cheap active?");
+    fx.activate("other", "/home/me/app");
+    await h!.s.press("return");
+    // nothing was applied on the old wording: the prompt is back, worded for the binding now
+    expect(fx.writes).toEqual(["create cheap", "create other", "bind other /home/me/app"]);
+    expect(h!.s.frame()).toContain("Use cheap in this repo?");
+    // the notice wraps in the dialog: "…/home/me/app is now" / "bound to other."
+    expect(h!.s.frame()).toMatch(
+      /Changed since this was first asked: \/home\/me\/app is now\s+bound to other\./,
+    );
+    await h!.s.press("return");
+    expect(fx.writes.at(-1)).toBe("bind cheap /home/me/app");
+    expect(h!.s.frame()).toContain("cheap is bound to /home/me/app");
+  });
+
+  it("asks again when this repo's binding is removed while the prompt is open, then makes it active", async () => {
+    const fx = await profiles(
+      (f) => {
+        f.create("cheap");
+        f.create("other");
+      },
+      fixtureEffects({ repo: "/home/me/app", bindings: { "/home/me/app": "cheap" } }),
+    );
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("other");
+    await h!.s.press("return", "a");
+    expect(h!.s.frame()).toContain("Use other in this repo?");
+    // another process removes the binding (the fixture has no unbind: its profiles read says so)
+    const list = fx.profiles;
+    fx.profiles = () => ({ ...list(), here: list().active, repo: null });
+    await h!.s.press("return");
+    expect(fx.writes).toEqual(["create cheap", "create other"]);
+    expect(h!.s.frame()).toContain("Make other active?");
+    expect(h!.s.frame()).toMatch(
+      /Changed since this was first asked: \/home\/me\/app is no\s+longer bound\./,
+    );
+    await h!.s.press("return");
+    // the scope the user confirmed, not one recomputed as the write happens
+    expect(fx.writes.at(-1)).toBe("activate other");
+    expect(h!.s.frame()).toContain("other is active");
+  });
+
+  it("goes back to the profile as saved now, when another process saved it meanwhile; undo brings the edit back", async () => {
+    const fx = await profiles();
+    await find("objective");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("1 unsaved");
+    // another process saves a budget cap while the draft is open
+    await fx.save("default", { budget: { usd: 5 } }, {});
+    await h!.run(() => openRevert(h!.app()));
+    expect(h!.s.frame()).toContain("Discard unsaved changes?");
+    await h!.s.press("right", "return");
+    let d = h!.app().getState().drafts.default!;
+    expect([d.base.budget?.usd, d.doc.budget?.usd, d.doc.objective]).toEqual([5, 5, "cost"]);
+    expect(h!.s.frame()).not.toContain("unsaved");
+    expect(h!.s.frame()).toContain("default changed on disk: showing what is saved now");
+    await h!.s.press("ctrl+x", "u");
+    d = h!.app().getState().drafts.default!;
+    expect([d.doc.budget?.usd, d.doc.objective]).toEqual([5, "speed"]);
+    expect(h!.s.frame()).toContain("1 unsaved");
+    await h!.s.press("ctrl+s", "return");
+    expect(fx.writes).toEqual(['save default {"budget":{"usd":5}}', 'save default {"objective":"speed"}']);
   });
 
   it("creates a profile from the name prompt, refusing a bad name first", async () => {

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSlots } from "../../src/entry/lock.ts";
 import { heavySlots } from "../../src/infra/heavy-lock.ts";
-import { isAlive } from "../../src/infra/proc.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { killGroup } from "../../src/infra/proc.ts";
+import { exited, snapshotEnv, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
@@ -94,14 +94,23 @@ describe("catherd lock signals (plan-2 review m10)", () => {
       const { p, grandchild } = await locked("sleep 30 & echo $! > PIDFILE; wait");
       p.kill(sig);
       expect(await p.exited).toBe(128 + (sig === "SIGTERM" ? 15 : 1));
-      await waitFor(() => !isAlive(grandchild, null));
+      await waitFor(() => exited(grandchild));
     });
 
   it("kills a command that ignores Ctrl-C on the second Ctrl-C", async () => {
-    const { p } = await locked("trap '' INT; echo $$ > PIDFILE; while :; do sleep 0.1; done");
-    p.kill("SIGINT");
-    await Bun.sleep(200);
-    p.kill("SIGINT");
-    expect(await p.exited).toBe(137);
-  });
+    const heard = join(mkdtempSync(join(tmpdir(), "catherd-lockint-")), "heard");
+    // the trap records each Ctrl-C and carries on, as a command that ignores it would
+    const { p, grandchild } = await locked(
+      `trap 'echo INT >> ${heard}' INT; echo $$ > PIDFILE; while :; do sleep 0.1; done`,
+    );
+    try {
+      p.kill("SIGINT");
+      // the second Ctrl-C only once the first reached the command: two signals sent at once may merge into one
+      await waitFor(() => existsSync(heard), 5_000);
+      p.kill("SIGINT");
+      expect(await p.exited).toBe(137);
+    } finally {
+      killGroup(grandchild, "SIGKILL");
+    }
+  }, 15_000);
 });

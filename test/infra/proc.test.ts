@@ -1,7 +1,33 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { isAlive, killGroup, processStartTime } from "../../src/infra/proc.ts";
+import {
+  isAlive,
+  isSurelyAlive,
+  killGroup,
+  processStartTime,
+  psStartTime,
+  sameProcess,
+  surelySame,
+} from "../../src/infra/proc.ts";
 
 describe("proc", () => {
+  it("never takes an unreadable or unrecorded start time as the same process for a signal", () => {
+    expect(surelySame("a", null)).toBe(false);
+    expect(surelySame(null, "a")).toBe(false);
+    expect(surelySame("a", "b")).toBe(false);
+    expect(surelySame("a", "a")).toBe(true);
+    expect(sameProcess("a", null)).toBe(true);
+    expect(isSurelyAlive(process.pid, processStartTime(process.pid))).toBe(true);
+    expect(isSurelyAlive(process.pid, null)).toBe(false);
+  });
+
+  it("reads a start time with ps even when PATH does not name ps's folder (macOS has no /proc)", () => {
+    expect(psStartTime(process.pid, { PATH: "/nonexistent" })).not.toBeNull();
+  });
+
+  it("answers null instead of throwing when ps cannot run", () => {
+    expect(psStartTime(-5, { PATH: "/nonexistent" })).toBeNull();
+  });
+
   it("identifies a live process by pid and start time", () => {
     const start = processStartTime(process.pid);
     expect(start).not.toBeNull();
@@ -11,6 +37,13 @@ describe("proc", () => {
 
   it("treats a live pid with a different start time as a different process (pid reuse)", () => {
     expect(isAlive(process.pid, "0-not-the-real-start")).toBe(false);
+  });
+
+  it("takes a live pid whose start time cannot be read now for the same process (a transient ps failure)", () => {
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", null)).toBe(true);
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", "Mon Sep 28 10:00:00 2026")).toBe(true);
+    expect(sameProcess("Mon Sep 28 10:00:00 2026", "Mon Sep 28 10:05:00 2026")).toBe(false);
+    expect(sameProcess(null, "anything")).toBe(true);
   });
 
   it("reports a dead pid as not alive", async () => {
@@ -59,7 +92,7 @@ describe("proc", () => {
     try {
       processStartTime(p.pid);
       const calls = spawn.mock.calls as unknown as [string[], { env?: Record<string, string> }][];
-      const ps = calls.find(([cmd]) => cmd[0] === "ps");
+      const ps = calls.find(([cmd]) => cmd[0]?.endsWith("ps"));
       expect(ps?.[1].env?.LC_ALL).toBe("C");
       expect(ps?.[1].env?.TZ).toBe("UTC");
     } finally {

@@ -1,9 +1,33 @@
-import { type Dispatch, pendingDispatches } from "./dispatches.ts";
+import { readFileSync, statSync } from "node:fs";
+import { dispatchPaths } from "../infra/dispatch-dir.ts";
+import { log } from "../infra/log.ts";
+import { writeJsonAtomic } from "../infra/store.ts";
+import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, type Run } from "./run-store.ts";
 import { refreshState } from "./state.ts";
-import { log } from "../infra/log.ts";
+
+/**
+ * Builds before the spec.json fix (plan-2 review I1) wrote every env value of the MCP server into
+ * spec.json, readable by others. A spec is read once, when its supervisor starts, so such a file loses
+ * its env and becomes 0600. Returns how many it scrubbed.
+ */
+export function scrubOldSpecs(run: Run): number {
+  let n = 0;
+  for (const d of listDispatches(run)) {
+    const file = dispatchPaths(d.dir).spec;
+    try {
+      if ((statSync(file).mode & 0o077) === 0) continue;
+      const doc = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      writeJsonAtomic(file, { ...doc, env: {} }, { mode: 0o600 });
+      n++;
+    } catch {
+      // no spec.json, or one that cannot be read: nothing to scrub
+    }
+  }
+  return n;
+}
 
 export interface ReconcileReport {
   finalized: string[];
@@ -43,6 +67,8 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
   for (const run of runs) {
     let pending;
     try {
+      const scrubbed = scrubOldSpecs(run);
+      if (scrubbed) log("warn", "reconcile", { run: run.id, scrubbedSpecs: scrubbed });
       pending = pendingDispatches(run, deps.now());
     } catch (e) {
       warn(run, e);

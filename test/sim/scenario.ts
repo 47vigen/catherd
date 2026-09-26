@@ -5,12 +5,16 @@ import { join } from "node:path";
 export interface CodexScenario {
   version?: string;
   loggedIn?: boolean;
+  /** how `codex login status` says it is logged in (default ChatGPT) */
+  login?: "chatgpt" | "api-key";
   models?: unknown;
   eventsFile?: string;
   reply?: string;
   exitCode?: number;
   delayMs?: number;
   hangMs?: number;
+  /** after its output, `exec` waits until this file exists, then exits */
+  holdUntil?: string;
   /** `codex login status` sleeps this long before answering */
   loginHangMs?: number;
   /** every invocation appends `{ args, envKeys }` here as one JSON line */

@@ -148,6 +148,25 @@ describe("staged edits (spec §9.2: enter never saves)", () => {
     expect(h!.s.frame().split("\n")[0]).toContain("(this repo)");
   });
 
+  it("saves, then asks again before making active when this repo was bound while the dialog was open", async () => {
+    const effects = fixtureEffects({ repo: "/r" });
+    effects.create("cheap");
+    await app({ effects });
+    await h!.s.press("ctrl+x", "l");
+    await h!.s.type("cheap");
+    await h!.s.press("return", "j", "space", "ctrl+s");
+    // another process binds this repo to default while the save dialog is open
+    effects.activate("default", "/r");
+    await h!.s.press("right", "return");
+    expect(effects.writes.slice(1)).toEqual([
+      "bind default /r",
+      'save cheap {"roles":{"verifier":{"enabled":false}}}',
+    ]);
+    expect(h!.s.frame()).toContain("Use cheap in this repo?");
+    await h!.s.press("return");
+    expect(effects.writes.at(-1)).toBe("bind cheap /r");
+  });
+
   it("undoes and redoes with the leader", async () => {
     await app();
     await h!.s.press("2", "j", "space");

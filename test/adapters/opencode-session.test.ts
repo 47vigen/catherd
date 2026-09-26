@@ -70,6 +70,31 @@ describe("opencode busy and interrupt", () => {
     expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(true);
   });
 
+  it("stays busy when the newest assistant message's usage limit is older than this run", async () => {
+    const limited = { type: "provider.quota", message: "Go limit" };
+    onSim({
+      active: { [SES]: { type: "running" } },
+      messages: [{ type: "assistant", time: { created: 1_000 }, retry: { attempt: 2, error: limited } }],
+    });
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo", 5_000)).toBe(true);
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo", 500)).toBe(false);
+  });
+
+  it("reads the newest assistant message, whatever entry comes before it", async () => {
+    onSim({
+      active: { [SES]: { type: "running" } },
+      messages: [
+        { type: "user", time: { created: 3_000 } },
+        {
+          type: "assistant",
+          time: { created: 2_000 },
+          retry: { attempt: 1, error: { type: "provider.rate-limit", message: "slow down" } },
+        },
+      ],
+    });
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(false);
+  });
+
   it("interrupts the session on the service", async () => {
     const to = join(mkdtempSync(join(tmpdir(), "catherd-int-")), "ids");
     onSim({ interruptsTo: to });

@@ -99,6 +99,21 @@ describe("capture-fixtures", () => {
     });
   });
 
+  it("captures isolated, and stops a run past the timeout with everything it started", async () => {
+    withHome();
+    process.env.PATH = simPath();
+    const recorded = join(mkdtempSync(join(tmpdir(), "catherd-rec-")), "claude.json");
+    Object.assign(process.env, withClaudeScenario({ hangMs: 30_000, recordTo: recorded }).env);
+    const out = mkdtempSync(join(tmpdir(), "catherd-fixtures-"));
+    const t0 = Date.now();
+    const results = await captureFixtures({ outDir: out, backends: ["claude-code"], timeoutMs: 500 });
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    expect(results.map((r) => r.status)).toEqual(["captured", "captured"]);
+    const meta = JSON.parse(readFileSync(join(out, "claude-code", "2.1.282", "ok.json"), "utf8"));
+    expect(meta).toMatchObject({ isolated: true, reason: "wall-timeout", exitCode: null });
+    expect(JSON.parse(readFileSync(recorded, "utf8")).args).toContain("--safe-mode");
+  });
+
   it("skips a backend that is not ready, saying why", async () => {
     withHome();
     process.env.PATH = simPath();

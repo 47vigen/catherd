@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { exited, snapshotEnv, tempDir, withHome } from "../helpers.ts";
+import { waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 // the supervisor logs each spawn (spec §10.2): keep the rows out of the real data dir
 beforeEach(() => void withHome());
 
 function spec(script: string, over: Partial<SuperviseSpec> = {}): SuperviseSpec {
-  const dir = mkdtempSync(join(tmpdir(), "catherd-sup-"));
+  const dir = tempDir("catherd-sup-");
   return {
     schema: 1,
     backend: "test",
@@ -95,21 +95,6 @@ describe("supervise", () => {
   });
 });
 
-/** Gone, or a zombie nobody has reaped yet (a container's pid 1 may never reap). */
-function dead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return true;
-  }
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
-  } catch {
-    return true;
-  }
-}
-
 describe("supervise always leaves exit.json and no live worker", () => {
   it("records a binary that cannot be spawned as lost, with the error in stderr", async () => {
     const s = { ...spec(""), cmd: "catherd-no-such-binary-4f2a", args: [] };
@@ -176,17 +161,85 @@ describe("supervise bounds its hooks", () => {
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
-  it("does not kill a worker that exited while being interrupted", async () => {
-    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 7`, { idleMs: 100, killGraceMs: 2000 });
+  it("gives an interrupted worker the kill grace to end on its own, and sends no signal when it does", async () => {
+    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 7`, { idleMs: 100, killGraceMs: 10_000 });
+    const t0 = Date.now();
     const exit = await supervise(s, {
-      interrupt: async () => {
-        writeFileSync(join(s.dispatchDir, "stop"), "");
-        await Bun.sleep(300);
-      },
+      interrupt: async () => writeFileSync(join(s.dispatchDir, "stop"), ""),
     });
     expect(exit).toMatchObject({ code: 7, signal: null, reason: "idle-timeout" });
+    // it ended when the worker did, not when the grace ran out
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });
+
+describe("supervise follows the worker's own account", () => {
+  it("keeps a run with a tool call open busy, however quiet, and idles it once the call closes", async () => {
+    const s = spec("echo open; sleep 0.5; echo close; sleep 30", { idleMs: 100 });
+    const seen: string[] = [];
+    const exit = await supervise(s, {
+      onLine: (l) => {
+        seen.push(l);
+        return l === "open" || l === "close" ? { item: { id: "item_1", open: l === "open" } } : {};
+      },
+    });
+    expect(exit.reason).toBe("idle-timeout");
+    // the idle limit (100 ms) passed five times while the call was open, and the run lived on
+    expect(seen).toEqual(["open", "close"]);
+  });
+
+  it("asks isBusy with the time the run started", async () => {
+    const t0 = Date.now();
+    let since = 0;
+    await supervise(spec("sleep 30", { idleMs: 100 }), {
+      isBusy: async (_thread, sinceMs) => {
+        since = sinceMs;
+        return false;
+      },
+    });
+    expect(since).toBeGreaterThanOrEqual(t0);
+    expect(since).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("records a worker that ended on its own as exited, though a cancel arrived after it ended", async () => {
+    const s = spec("exit 5", { pollMs: 200 });
+    const running = supervise(s);
+    const proc = dispatchPaths(s.dispatchDir).proc;
+    const { pid } = await waitFor(
+      () => existsSync(proc) && (JSON.parse(readFileSync(proc, "utf8")) as { pid: number }),
+    );
+    // reaped: this process runs the supervisor, so its exit is already known to it
+    await waitFor(() => gone(pid));
+    requestCancel(s.dispatchDir);
+    expect(await running).toMatchObject({ code: 5, signal: null, reason: "exited" });
+  });
+
+  it("records a worker that ended while isBusy was being asked as exited, not idle-timeout", async () => {
+    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 4`, { idleMs: 100 });
+    const proc = dispatchPaths(s.dispatchDir).proc;
+    const exit = await supervise(s, {
+      isBusy: async () => {
+        const { pid } = JSON.parse(readFileSync(proc, "utf8")) as { pid: number };
+        writeFileSync(join(s.dispatchDir, "stop"), "");
+        // answer "not busy" only once the worker has ended on its own
+        await waitFor(() => gone(pid));
+        return false;
+      },
+    });
+    expect(exit).toMatchObject({ code: 4, signal: null, reason: "exited" });
+    expect(readExit(s.dispatchDir)?.reason).toBe("exited");
+  });
+});
+
+/** True once `pid` no longer exists at all (reaped). */
+function gone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 describe("supervise signals the whole group", () => {
   it("SIGKILLs a group member that ignores SIGTERM even when the leader exits", async () => {
@@ -203,8 +256,7 @@ describe("supervise signals the whole group", () => {
     expect(exit.reason).toBe("cancelled");
     expect(member).toBeGreaterThan(0);
     expect(readFileSync(events, "utf8").trim()).toBe(String(member));
-    await Bun.sleep(100);
-    expect(dead(member)).toBe(true);
+    await waitFor(() => exited(member), 5_000);
   });
 
   it("kills a group member left behind when the worker exits on its own", async () => {
@@ -215,8 +267,7 @@ describe("supervise signals the whole group", () => {
     expect(member).toBeGreaterThan(0);
     expect(exit).toMatchObject({ code: 0, signal: null, reason: "exited" });
     expect(readExit(s.dispatchDir)).toMatchObject({ code: 0, reason: "exited" });
-    await Bun.sleep(100);
-    expect(dead(member)).toBe(true);
+    await waitFor(() => exited(member), 5_000);
   });
 });
 

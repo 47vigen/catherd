@@ -1,13 +1,15 @@
 # Manual tests
 
 Three checks that need a human at Claude Desktop, because MCP servers and plugins only
-load at session start; no automated test can show that. Run them before the first
-publish, and again after any Claude Code release that might change MCP call
+load at session start; no automated test can show that. Run them before each major
+release, and again after any Claude Code release that might change MCP call
 backgrounding, subagent loading or plugin discovery (see the design spec's Risks
-section).
+section). The checks that need real backend accounts (live tests, fixture capture, the
+Codex sandbox, the Jev key prompt) are in [`live-verification.md`](live-verification.md).
 
 Do these in order: S1 and S2 gate `dispatch` and the Claude agent files that the plugin
-smoke test (Task 13) then exercises end to end.
+check (the last section) then exercises end to end. S1 and S2 were written for 0.x and
+still hold for 1.0: they test Claude Code, not catherd.
 
 ## S1 — a 40-minute MCP call survives from the main thread
 
@@ -197,7 +199,7 @@ already encode its role, model and effort, so retargeting its link changes nothi
 observable) — it only tells you whether a Claude Code release picked up new files
 mid-session, in which case the setup skill's "new session" language can be dropped.
 
-## Task 13 — the plugin in a fresh Claude Desktop session
+## The plugin in a fresh Claude Desktop session
 
 **What this checks:** that Claude Code actually loads this plugin, starts the MCP
 server, registers the generated Claude agents, and that both skills run through the
@@ -224,15 +226,18 @@ real tools — the thing the unit and contract tests cannot show.
    claude plugin install catherd@catherd
    ```
 
-   Then make sure the real profile's agent files exist, so Claude Code can see them at
-   session start:
+   Then make sure a 1.0 profile and its agent files exist, so Claude Code can see them
+   at session start (`init` keeps a 1.0 profile you already have, and moves 0.x files
+   aside):
 
    ```bash
-   bun src/cli.ts profile use default
+   bun src/cli.ts init --no-input
    ls -l ~/.claude/agents/catherd-*
    ```
 
-   Look for: the architect and verifier links in that listing.
+   Look for: `catherd-default-architect-claude-opus-5-5-high.md` and
+   `catherd-default-verifier-claude-opus-5-5-low.md` in that listing (with another
+   active profile, its name in place of `default`).
 
 3. Start a **new** session in the Code tab, in a small throwaway git repository, and
    check, one at a time:
@@ -242,15 +247,17 @@ real tools — the thing the unit and contract tests cannot show.
       `plugin/skills/catherd/`, or lists one of them twice, that is a defect against
       the design (skills are already slash-invocable on their own) — record it before
       deciding whether to drop `plugin/commands/`.
-   2. Ask: "List the catherd MCP tools you have." Look for: all eighteen tool names
-      (`run_start, write_run_file, read_run_file, status, result, set_next, route,
-      climb, ask, land, read_knowledge, dispatch, catalog_query, profile_get,
-      profile_validate, profile_set, runs_summary, preflight`).
-   3. Ask: "Call the catherd status tool." Look for: `catherd: no runs yet`, or the
-      runs already on this machine.
+   2. Ask: "List the catherd MCP tools you have." Look for: all twenty tool names
+      (`run_start, write_run_file, read_run_file, status, result, set_next,
+      record_agent_run, read_knowledge, runs_summary, route, climb, ask, land,
+      preflight, dispatch, cancel, catalog_query, profile_get, profile_validate,
+      profile_set`).
+   3. Ask: "Call the catherd status tool." Look for: its `version` equal to your
+      checkout's `package.json` version, and `runs` empty on a fresh machine (or the
+      runs already on it).
    4. Ask: "Which catherd agents can you run?" Look for: both
-      `catherd-architect-claude-opus-5-5-high` and
-      `catherd-verifier-claude-opus-5-5-low` in the list.
+      `catherd-default-architect-claude-opus-5-5-high` and
+      `catherd-default-verifier-claude-opus-5-5-low` in the list.
    5. Run `/catherd-setup`. Look for: one question at a time, each with a recommended
       answer; stop it after two answers.
    6. In a repo with a one-file hello script and a test, run `/catherd Add a --shout

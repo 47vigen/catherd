@@ -224,7 +224,10 @@ describe("a failed state.md refresh", () => {
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(state);
     now += 4 * 60_000;
     // the landing time was kept although state.md was not refreshed
-    expect(await land(deps, { ...land1, milestone: "M2" })).toMatchObject({ minutes: 4, hints: [hint] });
+    expect(await land(deps, { ...land1, milestone: "M2" })).toMatchObject({
+      minutes: 4,
+      hints: [hint, expect.stringMatching(/^land: no routed lane is in milestone "M2"/)],
+    });
     expect(readFileSync(runPaths(run.dir).ledger, "utf8").trim().split("\n")).toHaveLength(3);
   });
 });

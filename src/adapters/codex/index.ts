@@ -14,7 +14,7 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
-import { scrubSecrets } from "../../infra/env.ts";
+import { type CliResult, runCli } from "../cli.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
@@ -31,38 +31,8 @@ const SANDBOX: Record<Access, string> = {
 export const codexShell = { timeoutMs: 15_000 };
 
 /** Runs `codex <args>` without catherd's secrets; a run past the timeout is killed and counts as failed. */
-async function sh(args: string[], cwd?: string): Promise<{ ok: boolean; out: string; err: string } | null> {
-  if (!Bun.which("codex", { PATH: process.env.PATH ?? "" })) return null;
-  const p = Bun.spawn(["codex", ...args], {
-    cwd,
-    env: scrubSecrets(process.env),
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), codexShell.timeoutMs);
-  });
-  try {
-    const done = await Promise.race([
-      Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]),
-      late,
-    ]);
-    if (!done) {
-      p.kill("SIGKILL");
-      return {
-        ok: false,
-        out: "",
-        err: `codex ${args.join(" ")} timed out after ${codexShell.timeoutMs} ms`,
-      };
-    }
-    const [code, out, err] = done;
-    return { ok: code === 0, out, err };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const sh = (args: string[], cwd?: string): Promise<CliResult | null> =>
+  runCli("codex", args, { timeoutMs: codexShell.timeoutMs, cwd });
 
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
@@ -143,7 +113,18 @@ async function probe(): Promise<Probe> {
     };
   const version = extractVersion(v.out);
   const versionOk = version !== null && compareVersions(version, CODEX_MIN_VERSION) >= 0;
-  const loggedIn = (await sh(["login", "status"]))?.ok ?? false;
+  const status = await sh(["login", "status"]);
+  const loggedIn = status?.ok ?? false;
+  // how: `Logged in using ChatGPT`, or `… using an API key - <masked key>` (read, never kept); on stdout
+  // or stderr, depending on the version
+  const how = `${status?.out ?? ""}\n${status?.err ?? ""}`;
+  const login = !loggedIn
+    ? null
+    : /using ChatGPT/i.test(how)
+      ? "ChatGPT"
+      : /API key/i.test(how)
+        ? "API key"
+        : null;
   const problems: Probe["problems"] = [];
   if (!versionOk)
     problems.push({
@@ -153,7 +134,14 @@ async function probe(): Promise<Probe> {
     });
   if (!loggedIn)
     problems.push({ code: "E_BACKEND_NOT_LOGGED_IN", message: "codex is not logged in", fix: "codex login" });
-  return { installed: true, version, versionOk, loggedIn, problems };
+  return {
+    installed: true,
+    version,
+    versionOk,
+    loggedIn,
+    ...(login ? { login, billing: login === "ChatGPT" ? "chatgpt-plan" : "metered" } : {}),
+    problems,
+  };
 }
 
 async function listModels(): Promise<DiscoveredModel[]> {
@@ -213,8 +201,12 @@ export const codexAdapter: BackendAdapter = {
     const e = parseCodexLine(line);
     if (!e) return {};
     const f = foldCodexEvents([line]);
+    // a tool call runs between item.started and item.completed, often printing nothing: the run is busy
+    const id = typeof e.item?.id === "string" ? e.item.id : null;
+    const open = e.type === "item.started" ? true : e.type === "item.completed" ? false : null;
     return {
       ...(f.thread ? { thread: f.thread } : {}),
+      ...(id !== null && open !== null ? { item: { id, open } } : {}),
       ...(e.type === "turn.completed" ? { tokens: f.tokens } : {}),
       lastEvent: f.lastEvent ?? undefined,
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),

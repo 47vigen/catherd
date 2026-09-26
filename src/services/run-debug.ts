@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import type { ExitInfo, RunRecord } from "../domain/record.ts";
 import { dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
 import { redact } from "../infra/log.ts";
@@ -21,12 +21,35 @@ export interface DispatchDebug {
   supervisorTail: string[];
 }
 
-function tail(file: string, n = TAIL_LINES): string[] {
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter((l) => l.trim())
-    .slice(-n);
+/**
+ * The last `n` non-blank lines of `file`, read backwards `chunk` bytes at a time until they are in hand:
+ * a worker's stderr or event stream can be large, and only its end is shown. [] when there is no file.
+ */
+export function tail(file: string, n = TAIL_LINES, chunk = 64 * 1024): string[] {
+  let fd: number;
+  try {
+    fd = openSync(file, "r");
+  } catch {
+    return [];
+  }
+  try {
+    let pos = fstatSync(fd).size;
+    let buf = Buffer.alloc(0);
+    for (;;) {
+      const lines = buf.toString("utf8").split("\n");
+      // the first line may start mid-line, or mid-character: it counts only once the file's start is read
+      if (pos > 0) lines.shift();
+      const kept = lines.filter((l) => l.trim());
+      if (kept.length >= n || pos === 0) return kept.slice(-n);
+      const len = Math.min(chunk, pos);
+      pos -= len;
+      const part = Buffer.alloc(len);
+      readSync(fd, part, 0, len, pos);
+      buf = Buffer.concat([part, buf]);
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**

@@ -12,7 +12,12 @@ permissions:
   id-token: write
 
 jobs:
+  # spec §12: releases are gated on green CI, the whole matrix
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,6 +33,8 @@ jobs:
       # OIDC trusted publishing needs a recent npm; no NPM_TOKEN is used.
       - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
+      # On main with changesets: opens or updates the "chore: release catherd" PR. On that PR's merge:
+      # publishes to npm, pushes the v<version> tag (the plugin marketplace's release tag) and a GitHub release.
       - uses: changesets/action@v2
         with:
           version-script: bun run version-packages

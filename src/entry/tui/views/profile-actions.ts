@@ -1,5 +1,6 @@
+import { isDeepStrictEqual } from "node:util";
 import { isCatherdError } from "../../../domain/errors.ts";
-import { PROFILE_NAME, patchBetween } from "../../../domain/profile.ts";
+import { PROFILE_NAME, patchBetween, type ProfileDoc } from "../../../domain/profile.ts";
 import { CHANGED_ON_DISK } from "../effects.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
@@ -106,19 +107,29 @@ export function openActivate(app: AppApi, data: Data): void {
   } catch (e) {
     return fail(app, e);
   }
-  if (p?.here === d.name)
+  askActivate(app, d.name, p);
+}
+
+/**
+ * The activate confirmation for `name`, worded for the scope `p` shows (its bound repo, or the global
+ * profile), which the answer then applies; `notice` says why it asks again.
+ */
+function askActivate(app: AppApi, name: string, p: Data["profiles"]["value"], notice?: string): void {
+  if (p?.here === name)
     return app.toast({
       variant: "info",
-      message: p.repo ? `${d.name} is already this repo's profile` : `${d.name} is already active`,
+      message: p.repo ? `${name} is already this repo's profile` : `${name} is already active`,
     });
-  const unsaved = dirtyCount(d);
+  const d = app.getState().drafts[name];
+  const unsaved = d ? dirtyCount(d) : 0;
   app.dispatch({
     type: "open",
     dialog: {
       kind: "confirm",
-      purpose: { type: "activate", name: d.name },
-      title: p?.repo ? `Use ${d.name} in this repo?` : `Make ${d.name} active?`,
+      purpose: { type: "activate", name, repo: p?.repo ?? null },
+      title: p?.repo ? `Use ${name} in this repo?` : `Make ${name} active?`,
       message: [
+        ...(notice ? [notice] : []),
         p?.repo
           ? `Binds ${p.repo} to it; the active profile (${p.active}) and other repos keep theirs.`
           : "New Claude Code sessions and catherd's next dispatch use it; repos bound to another profile keep theirs.",
@@ -162,12 +173,26 @@ function sessionsNeeded(app: AppApi, agents: string[]): void {
   });
 }
 
-function activateNow(app: AppApi, data: Data, name: string): void {
+/**
+ * Applies a confirmed activation to the scope the user was shown (`shown`: the bound repo, or null for the
+ * global profile). The binding is read again first: when another process bound or unbound this repo while
+ * the question was open, nothing is applied and the question comes back in the words for the scope now.
+ */
+function activateNow(app: AppApi, data: Data, name: string, shown: string | null): void {
   try {
-    const repo = data.profiles.value?.repo ?? null;
-    const r = app.effects.activate(name);
+    const now = app.effects.profiles();
+    if (now.repo !== shown) {
+      data.profiles.refresh();
+      return askActivate(
+        app,
+        name,
+        now,
+        `Changed since this was first asked: ${now.repo ? `${now.repo} is now bound to ${now.here}` : `${shown} is no longer bound`}.`,
+      );
+    }
+    const r = app.effects.activate(name, shown);
     data.profiles.refresh();
-    app.toast({ variant: "success", message: repo ? `${name} is bound to ${repo}` : `${name} is active` });
+    app.toast({ variant: "success", message: shown ? `${name} is bound to ${shown}` : `${name} is active` });
     sessionsNeeded(app, r.newSessionNeededFor);
   } catch (e) {
     fail(app, e);
@@ -228,14 +253,30 @@ export function useProfileDialogs(): void {
   });
   useDialogHandler("activate", (p) => {
     app.dispatch({ type: "close" });
-    if (p.type === "activate") activateNow(app, data, p.name);
+    if (p.type === "activate") activateNow(app, data, p.name, p.repo);
   });
   useDialogHandler("revert", (p) => {
     app.dispatch({ type: "close" });
-    if (p.type === "revert") app.dispatch({ type: "revert", name: p.name });
+    if (p.type !== "revert") return;
+    const d = app.getState().drafts[p.name];
+    let doc: ProfileDoc;
+    try {
+      // "what is saved" is the file now: another process may have saved it since the draft opened
+      doc = app.effects.readProfile(p.name);
+    } catch (e) {
+      return fail(app, e);
+    }
+    app.dispatch({ type: "revert", name: p.name, doc });
+    if (d && !isDeepStrictEqual(d.base, doc))
+      app.toast({
+        variant: "info",
+        message: `${p.name} changed on disk: showing what is saved now`,
+      });
   });
   useDialogHandler("save", async (p, value, extra) => {
     if (p.type !== "save") return;
+    // the scope "Save & make active" was worded for as it was answered
+    const shown = data.profiles.value?.repo ?? null;
     const d = app.getState().drafts[p.name];
     if (!d) return app.dispatch({ type: "close" });
     // a second enter while the first save is writing is not a second save
@@ -276,6 +317,6 @@ export function useProfileDialogs(): void {
     }
     app.toast({ variant: "success", message: `Saved profile ${p.name}` });
     sessionsNeeded(app, r.newSessionNeededFor);
-    if (value === "activate") activateNow(app, data, p.name);
+    if (value === "activate") activateNow(app, data, p.name, shown);
   });
 }

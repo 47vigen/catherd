@@ -141,11 +141,9 @@ export const keyRunnable = (key: string, backends: string[] = runnableBackends()
   backends.includes(backendOfKey(key));
 
 export function validateNamed(name?: string): Validation {
-  return validateProfile(
-    getProfile(name ?? activeName()),
-    loadCatalog({ timings: false }),
-    runnableBackends(),
-  );
+  const n = name ?? activeName();
+  const doc = readProfileDoc(n);
+  return validateProfile(resolveProfile(doc, n), loadCatalog({ timings: false }), runnableBackends(), doc);
 }
 
 /** Spec D10: how strongly the backend holds a role to its access mode. */
@@ -321,7 +319,7 @@ function saveAndLink(name: string, doc: ProfileDoc): Synced {
 }
 
 const validate = (doc: ProfileDoc, name: string): Validation =>
-  validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends());
+  validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends(), doc);
 
 /** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
 export type Saved = ProfileSaved;

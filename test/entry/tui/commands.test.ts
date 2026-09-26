@@ -80,6 +80,23 @@ describe("keybinds from config.json", () => {
     ])
       expect(() => resolveKeybinds(bad)).toThrow(expect.objectContaining({ code: "E_CONFIG_KEYBIND" }));
   });
+
+  it("refuses the leader as a command's own key, and a typed key on a command live while the user types", () => {
+    for (const bad of [
+      { "profile.save": "ctrl+x" },
+      { "app.palette": ["ctrl+p", "ctrl+x"] },
+      { "dialog.submit": "y" },
+      { "dialog.down": ["down", "j"] },
+      { "filter.accept": "space" },
+    ])
+      expect(() => resolveKeybinds(bad)).toThrow(expect.objectContaining({ code: "E_CONFIG_KEYBIND" }));
+    // a named key, or one with ctrl, is fine there; so is a leader chord
+    expect(resolveKeybinds({ "dialog.submit": ["return", "ctrl+y"] })["dialog.submit"]).toEqual([
+      "return",
+      "ctrl+y",
+    ]);
+    expect(resolveKeybinds({ "profile.save": "<leader>w" })["profile.save"]).toEqual(["<leader>w"]);
+  });
 });
 
 describe("formatKey", () => {

@@ -1,5 +1,6 @@
 import type { ErrorCode } from "../domain/errors.ts";
 import type { Rung } from "../domain/ids.ts";
+import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
 
 export type { ExitInfo, ExitReason } from "../domain/record.ts";
@@ -13,6 +14,10 @@ export interface Probe {
   versionOk: boolean;
   /** null when the CLI offers no way to ask */
   loggedIn: boolean | null;
+  /** how the CLI is logged in, in a word or two ("ChatGPT", "API key"), when it says */
+  login?: string;
+  /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
+  billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
 }
 
@@ -58,6 +63,8 @@ export interface EventDelta {
   retrying?: boolean;
   /** the stream's terminal event: the supervisor may kill a CLI that lingers after it */
   final?: boolean;
+  /** a tool call starting (`open`) or ending: while one is open the run is busy, however quiet */
+  item?: { id: string; open: boolean };
 }
 
 export interface FinishedRun {
@@ -109,7 +116,8 @@ export interface BackendAdapter {
   errors: { limit: RegExp[]; tooOld: RegExp[] };
   resume: { supported: boolean; sameAccessOnly: boolean; threadPattern: RegExp };
   interrupt?(thread: string, cwd: string): Promise<void>;
-  isBusy?(thread: string, cwd: string): Promise<boolean>;
+  /** `sinceMs`: when this run started, so what an earlier run on the thread left behind does not count */
+  isBusy?(thread: string, cwd: string, sinceMs?: number): Promise<boolean>;
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
   failoverFor?(rung: Rung, repo?: string): Rung | null;
   /**

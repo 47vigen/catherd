@@ -104,6 +104,15 @@ milestones; `p` pauses). `catherd watch` opens it on Runs.
 - Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
   (the palette shows each command; the ids are in `src/entry/tui/commands.ts`).
 
+## Upgrading from 0.x
+
+1.0 is a clean break: run `bunx catherd-cli init` once. It moves your 0.x `config.json`, `projects.json` and
+profiles into a `0.x-backup-<time>/` folder next to them (it never reads or deletes them), writes the 1.0
+default profile, replaces the 0.x Claude agent links with 1.0 ones and keeps your saved Jev key; 0.x run
+folders stay where they are, unread. Then update the plugin
+(`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude
+Code session. The details are in [MIGRATION.md](MIGRATION.md).
+
 ## Develop
 
 ```sh
@@ -111,6 +120,10 @@ bun install
 bun test
 bun run typecheck && bun run lint && bun run format:check
 ```
+
+CI runs this on Linux and macOS, on Bun 1.4.0 and the latest Bun. What CI cannot run (the live tests,
+fixture capture, the Codex sandbox, the Jev key prompt) is in
+[`docs/live-verification.md`](docs/live-verification.md), with the exact commands.
 
 Design: [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
 Releases go through [Changesets](https://github.com/changesets/changesets): add one with

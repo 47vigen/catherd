@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
+import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { runsDir } from "../../src/infra/paths.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
@@ -198,6 +208,24 @@ describe("reconcileAll", () => {
     expect(readRecords(run).records).toEqual([]);
     await r.done;
     expect(readRecords(run).records.map((x) => x.dispatchId)).toEqual([d.admit.dispatchId]);
+  });
+
+  it("blanks and closes a spec.json an older build left readable to others, and leaves a 0600 one", async () => {
+    const { run } = freshRun();
+    const old = await fakeDispatch(run, {}, { proc: "dead", exit: finished() });
+    const fresh = await fakeDispatch(
+      run,
+      { name: "worker-M1.L2", lane: "M1.L2" },
+      { proc: "dead", exit: finished() },
+    );
+    const oldSpec = dispatchPaths(old.dir).spec;
+    writeFileSync(oldSpec, JSON.stringify({ schema: 1, env: { OPENAI_API_KEY: "sk-live-1234567890" } }));
+    chmodSync(oldSpec, 0o644);
+    writeJsonAtomic(dispatchPaths(fresh.dir).spec, { schema: 1, env: { CODEX_HOME: "/x" } }, { mode: 0o600 });
+    await reconcileAll(fakeDeps());
+    expect(statSync(oldSpec).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(oldSpec, "utf8"))).toEqual({ schema: 1, env: {} });
+    expect(JSON.parse(readFileSync(dispatchPaths(fresh.dir).spec, "utf8")).env).toEqual({ CODEX_HOME: "/x" });
   });
 
   it("writes one record when two reconcilers race over the same dispatches", async () => {

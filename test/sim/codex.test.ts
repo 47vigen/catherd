@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tempDir } from "../helpers.ts";
 import { simPath, withScenario } from "./scenario.ts";
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
@@ -27,12 +28,15 @@ describe("codex simulator", () => {
   it("answers --version, login status and debug models from the scenario", () => {
     const s = withScenario({ version: "0.157.0", loggedIn: false, models: { models: [{ slug: "m" }] } });
     expect(run(["--version"], s.env).out.trim()).toBe("codex-cli 0.157.0");
-    expect(run(["login", "status"], s.env).code).toBe(1);
+    expect(run(["login", "status"], s.env)).toMatchObject({ code: 1, err: "Not logged in\n" });
+    expect(run(["login", "status"], withScenario({ login: "api-key" }).env).err).toContain(
+      "using an API key",
+    );
     expect(JSON.parse(run(["debug", "models"], s.env).out)).toEqual({ models: [{ slug: "m" }] });
   });
 
   it("replays events on exec, writes -o, touches files and records what it saw", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const repo = tempDir("catherd-simrepo-");
     const reply = join(repo, "reply.md");
     const s = withScenario({
       eventsFile: join(FX, "two-turns.jsonl"),
@@ -64,7 +68,7 @@ describe("codex simulator", () => {
 
 describe("codex simulator scenarios", () => {
   it("applies a rung's overrides by model and effort, and reads a rewritten scenario", () => {
-    const repo = mkdtempSync(join(tmpdir(), "catherd-simrepo-"));
+    const repo = tempDir("catherd-simrepo-");
     const reply = join(repo, "reply.md");
     const exec = (model: string, effort: string | null) => [
       "exec",

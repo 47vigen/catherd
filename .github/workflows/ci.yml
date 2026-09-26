@@ -1,12 +1,48 @@
 name: CI
 
+# Pull requests run here; main runs this same workflow from release.yml, before anything is released.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   check:
+    # spec §12: {ubuntu, macOS} × {Bun 1.4.0, latest}. 1.4.0 is the floor catherd's runtime guard allows;
+    # latest catches a new Bun before users do. bun.lock pins everything else.
+    name: ${{ matrix.os }} · Bun ${{ matrix.bun }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        bun: ["1.4.0", latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+      - name: tmux, for the TUI's terminal test (spec §11.6; it skips without tmux)
+        run: |
+          command -v tmux && exit 0
+          if [ "$RUNNER_OS" = macOS ]; then brew install tmux; else sudo apt-get update && sudo apt-get install -y tmux; fi
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run format:check
+      # every non-live test: the architecture test and docs/tui-frames.md's freshness are among them
+      - if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.bun == 'latest') }}
+        run: bun test
+      - name: bun test, with the coverage floor over src/
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.bun == 'latest' }}
+        run: |
+          bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
+          bun test/coverage-floor.ts coverage/lcov.info
+
+  package:
+    name: package · audit and npm pack smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -14,7 +50,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run format:check
-      - run: bun test
+      - name: dependency audit (spec §12)
+        run: bun audit --audit-level=high
+      - name: npm pack smoke (spec §12)
+        run: bun test/pack-smoke.ts

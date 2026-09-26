@@ -1,12 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { captureFixturesCommand } from "../../src/entry/capture-fixtures.ts";
+import { defaultOut } from "../../src/entry/capture-fixtures.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
 
 describe("catherd capture-fixtures", () => {
   it("refuses a backend it has no cases for, with the fix, and exit 2", () => {
     const p = Bun.spawnSync([process.execPath, CLI, "capture-fixtures", "--backend", "grok"], {
+      env: process.env,
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -16,8 +17,7 @@ describe("catherd capture-fixtures", () => {
     );
   });
 
-  it("writes under test/fixtures/adapters by default, where the contract fixtures live", () => {
-    const args = captureFixturesCommand.args as Record<string, { default?: unknown }>;
-    expect(args.out?.default).toBe("test/fixtures/adapters");
+  it("writes under the checkout's test/fixtures/adapters by default, wherever it runs from", () => {
+    expect(defaultOut()).toBe(join(import.meta.dir, "..", "fixtures", "adapters"));
   });
 });

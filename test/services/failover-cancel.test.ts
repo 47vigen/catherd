@@ -5,17 +5,46 @@ import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { cancel, dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
-import { isAlive } from "../../src/infra/proc.ts";
+import { cancel, dispatch, type DispatchInput, orphanLimits } from "../../src/services/dispatch-service.ts";
+import { isAlive, processStartTime } from "../../src/infra/proc.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { latestDispatch, liveDispatches, readProc } from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeGit, freshRun, testView, waitFor, writeLane } from "./helpers.ts";
+import {
+  deadProcess,
+  fakeDeps,
+  fakeDispatch,
+  fakeGit,
+  freshRun,
+  testView,
+  waitFor,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(snapshotEnv());
-beforeEach(() => resetReadiness());
+beforeEach(() => {
+  resetReadiness();
+  orphanLimits.killGraceMs = 10_000;
+});
+
+const orphans: Bun.Subprocess[] = [];
+afterEach(() => {
+  for (const p of orphans.splice(0)) p.kill("SIGKILL");
+});
+
+/** A worker left running in its own process group, as a dead supervisor leaves one. */
+function orphan(script: string): Bun.Subprocess {
+  const p = Bun.spawn(["sh", "-c", script], {
+    detached: true,
+    stdio: ["ignore", "ignore", "ignore"],
+    env: process.env,
+  });
+  orphans.push(p);
+  return p;
+}
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const LIMIT = { eventsFile: join(FX, "limit.jsonl"), exitCode: 1 };
@@ -181,16 +210,70 @@ describe("cancel", () => {
   }, 30_000);
 
   it("finalizes a waiting dispatch as lost once its supervisor died and then its worker ended", async () => {
-    const { run, deps } = setup({ hangMs: 1_500 });
+    // the worker ends only when the test says so: after its supervisor is gone, never before
+    const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+    const { run, deps } = setup({ holdUntil: release });
     const pending = dispatch(deps, input(run.id));
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
+    await waitFor(() => !isAlive(proc.supervisorPid, proc.supervisorStartTime));
+    writeFileSync(release, "");
     const { record } = await pending;
     expect(record).toMatchObject({ status: "failed", exitCode: null, error: { message: "lost, exit null" } });
     expect(readExit(live.dir)).toBeNull();
     expect(readRecords(run).records).toHaveLength(1);
   }, 30_000);
+
+  it("records SIGKILL when an orphaned worker outlasts its SIGTERM grace", async () => {
+    orphanLimits.killGraceMs = 300;
+    const { run, deps } = setup({});
+    const worker = orphan("trap '' TERM; while :; do sleep 0.05; done");
+    const dead = await deadProcess();
+    const d = await fakeDispatch(
+      run,
+      {},
+      {
+        proc: {
+          pid: worker.pid,
+          startTime: processStartTime(worker.pid),
+          supervisorPid: dead,
+          supervisorStartTime: "gone",
+        },
+      },
+    );
+    const { record } = await cancel(deps, run.id, d.admit.name);
+    expect(record.status).toBe("cancelled");
+    expect(readExit(d.dir)).toMatchObject({ reason: "cancelled", signal: "SIGKILL" });
+    expect(await worker.exited).toBe(137);
+  });
+
+  it("never signals an orphaned worker it cannot identify, and still records the cancel", async () => {
+    const { run, deps } = setup({});
+    const dead = await deadProcess();
+    const unidentified = [
+      // no start time: the pid alone may belong to another process by now
+      (pid: number) => ({ startTime: null, pgid: pid }),
+      // a process group that is not the one the worker leads
+      (pid: number) => ({ startTime: processStartTime(pid), pgid: process.pid }),
+    ];
+    for (const who of unidentified) {
+      const worker = orphan("sleep 30");
+      const d = await fakeDispatch(run, { name: `worker-${worker.pid}` });
+      writeJsonAtomic(dispatchPaths(d.dir).proc, {
+        schema: 1,
+        pid: worker.pid,
+        ...who(worker.pid),
+        supervisorPid: dead,
+        supervisorStartTime: "gone",
+        startedAt: d.admit.admittedAt,
+      });
+      const { record } = await cancel(deps, run.id, d.admit.name);
+      expect(record.status).toBe("cancelled");
+      expect(readExit(d.dir)).toMatchObject({ reason: "cancelled", signal: null });
+      expect(isAlive(worker.pid, null)).toBe(true);
+    }
+  });
 
   it("refuses a name with no live dispatch", async () => {
     const { run, deps } = setup({});
