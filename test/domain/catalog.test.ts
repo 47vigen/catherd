@@ -170,4 +170,17 @@ describe("capableFor", () => {
     expect(capableFor(c, rungInfo(c, "opencode:opencode-go/kimi-k3#default"), "worker")).toBe(true);
     expect(capableFor(c, rungInfo(c, "opencode:opencode-go/kimi-k3#default"), "ui-reviewer")).toBe(false);
   });
+
+  it("reads a native claude rung's image input from claude-code's listing, as rungInfo does", () => {
+    const listed = {
+      "claude-code": {
+        fetchedAt: "2026-09-25T00:00:00.000Z",
+        models: [{ id: "claude-next-7", efforts: [], context: 200000, imageIn: true }],
+      },
+    };
+    const c = shipped({ listed });
+    expect(rungInfo(c, "claude:claude-next-7#default").listed).toBe(true);
+    expect(capableFor(c, rungInfo(c, "claude:claude-next-7#default"), "ui-reviewer")).toBe(true);
+    expect(capableFor(c, rungInfo(c, "claude-code:claude-next-7#default"), "ui-reviewer")).toBe(true);
+  });
 });

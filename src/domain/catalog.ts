@@ -188,14 +188,16 @@ export function familyOf(c: Catalog, r: Rung): Family | null {
   return c.families.find((f) => f.on[mk]?.id === r.model) ?? null;
 }
 
+/** The backend's listing; the native `claude` backend has none of its own: it runs claude-code's models. */
+const listingOf = (c: Catalog, backend: string) => c.listed[backend === "claude" ? "claude-code" : backend];
+
 /** A rung's catalog facts; `rung` must parse (E_ADMIT_RUNG otherwise). */
 export function rungInfo(c: Catalog, rung: string): RungInfo {
   const parsed = parseRung(rung);
   const key = billingKeyOf(parsed);
   const family = familyOf(c, parsed);
   const shipped = family?.on[modelKeyOf(key)];
-  // the native `claude` backend has no listing of its own: it runs claude-code's models
-  const listing = c.listed[parsed.backend === "claude" ? "claude-code" : parsed.backend];
+  const listing = listingOf(c, parsed.backend);
   const found = listing?.models.find((m) => m.id === parsed.model);
   return {
     rung,
@@ -241,7 +243,9 @@ export const ROLE_NEEDS: Record<Role, { toolUse?: true; imageIn?: true; imageGen
  */
 export function capableFor(c: Catalog, info: RungInfo, role: Role): boolean {
   const need = ROLE_NEEDS[role];
-  const listedImage = c.listed[info.parsed.backend]?.models.find((m) => m.id === info.parsed.model)?.imageIn;
+  const listedImage = listingOf(c, info.parsed.backend)?.models.find(
+    (m) => m.id === info.parsed.model,
+  )?.imageIn;
   const caps = info.family?.capabilities ?? {
     toolUse: true,
     imageIn: listedImage ?? false,
