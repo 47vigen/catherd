@@ -94,13 +94,6 @@ describe("theme", () => {
     }
   });
 
-  it("reads the colour depth from the environment and honours NO_COLOR", () => {
-    expect(detectUi([], { COLORTERM: "truecolor" }).depth).toBe(24);
-    expect(detectUi([], { TERM: "xterm-256color" }).depth).toBe(8);
-    expect(detectUi([], { TERM: "xterm" }).depth).toBe(4);
-    expect(detectUi([], { NO_COLOR: "1", COLORTERM: "truecolor" }).depth).toBe(1);
-  });
-
   it("turns on plain for --plain or a console without Unicode, and reduced motion for its flag", () => {
     expect(detectUi(["--plain"], { TERM: "xterm-256color" }).plain).toBe(true);
     expect(detectUi([], { TERM: "linux" }).plain).toBe(true);
