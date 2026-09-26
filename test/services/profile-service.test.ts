@@ -27,12 +27,14 @@ import {
   profileFor,
   profilesDir,
   readProfileDoc,
+  readProjects,
   relink,
   resetProfile,
   roleEnforcement,
+  unbind,
   validateNamed,
 } from "../../src/services/profile-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -249,12 +251,39 @@ describe("create, delete, diff", () => {
     patchProfile("default", {});
     createProfile("fast");
     createProfile("team");
-    activate("team", "/r/app");
+    const repo = tempRepo();
+    activate("team", repo);
     expect(() => deleteProfile("default")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
-    expect(() => deleteProfile("team")).toThrow(/bound to \/r\/app/);
+    expect(() => deleteProfile("team")).toThrow(`bound to ${repo}`);
     deleteProfile("fast");
     expect(listProfiles()).toEqual(["default", "team"]);
     expect(existsSync(join(agentsRoot(), "fast"))).toBe(false);
+  });
+
+  it("deletes a profile bound only to repos that no longer exist, and prunes those bindings", () => {
+    withHome();
+    createProfile("team");
+    const gone = tempRepo();
+    const kept = tempRepo();
+    createProfile("other");
+    activate("team", gone);
+    activate("other", kept);
+    rmSync(gone, { recursive: true, force: true });
+    deleteProfile("team");
+    expect(listProfiles()).toEqual(["default", "other"]);
+    expect(readProjects().bindings).toEqual({ [kept]: "other" });
+  });
+
+  it("unbind removes a repo's binding and relinks; a repo with no binding is refused", () => {
+    withHome();
+    createProfile("team");
+    const repo = tempRepo();
+    activate("team", repo);
+    expect(linkedProfiles()).toEqual(["default", "team"]);
+    const r = unbind(repo);
+    expect([r.repo, r.was]).toEqual([repo, "team"]);
+    expect([activeName(repo), linkedProfiles()]).toEqual(["default", ["default"]]);
+    expect(() => unbind(repo)).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
   });
 });
 

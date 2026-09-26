@@ -17,10 +17,13 @@ import {
   keyRunnable,
   listProfiles,
   patchProfile,
+  profileExists,
   readProjects,
+  requireProfile,
   roleEnforcement,
   runnableBackends,
   type Synced,
+  unbind,
   validateNamed,
 } from "../services/profile-service.ts";
 import { EXIT, mark, printJson } from "./cli-kit.ts";
@@ -159,7 +162,7 @@ const show = defineCommand({
   args: { name: { type: "positional", required: false, description: "profile name" }, ...json },
   async run({ args }) {
     const here = await activeHere();
-    const name = args.name ?? here;
+    const name = args.name === undefined ? here : requireProfile(args.name);
     const p = getProfile(name);
     const o = {
       active: name === here,
@@ -172,12 +175,31 @@ const show = defineCommand({
 });
 
 const use = defineCommand({
-  meta: { name: "use", description: "Make a profile active, or bind it to this repo with --repo" },
+  meta: {
+    name: "use",
+    description:
+      "Make a profile active, bind it to this repo with --repo, or unbind this repo with --repo --clear",
+  },
   args: {
-    name: { type: "positional", required: true, description: "profile name" },
+    name: { type: "positional", required: false, description: "profile name" },
     repo: { type: "boolean", description: "bind it to the git repo you are in, instead of making it active" },
+    clear: { type: "boolean", description: "with --repo and no name: unbind the git repo you are in" },
   },
   async run({ args }) {
+    if (args.clear) {
+      if (!args.repo || args.name !== undefined)
+        throw new CatherdError("E_INPUT_INVALID", "--clear goes with --repo and no profile name", {
+          fix: "catherd profile use --repo --clear, inside the repo to unbind",
+        });
+      const r = unbind(await repoHere());
+      console.log(`${mark("ok")} ${r.repo} is unbound`);
+      printSynced(r);
+      return;
+    }
+    if (args.name === undefined)
+      throw new CatherdError("E_INPUT_INVALID", "which profile? name one", {
+        fix: "catherd profile use <name> [--repo], or catherd profile use --repo --clear",
+      });
     const r = activate(args.name, args.repo ? await repoHere() : null);
     console.log(`${mark("ok")} ${r.active} ${r.repo ? `is bound to ${r.repo}` : "is active"}`);
     printSynced(r);
@@ -233,6 +255,11 @@ const set = defineCommand({
     profile: { type: "string", description: "the profile to change (default: the one this repo runs on)" },
   },
   async run({ args }) {
+    // the CLI never creates a profile by setting a field of it: a typo would start a new one
+    if (args.profile !== undefined && !profileExists(args.profile))
+      throw new CatherdError("E_INPUT_INVALID", `no profile named "${args.profile}"`, {
+        fix: `catherd profile new ${args.profile}`,
+      });
     const r = patchProfile(args.profile ?? (await activeHere()), patchAt(args.path, args.value));
     if (!r.saved) throw refused(r.errors);
     if (r.diff.length === 0) console.log("no change");
@@ -253,7 +280,10 @@ const diff = defineCommand({
     ...json,
   },
   async run({ args }) {
-    const changes = diffNamed(args.b ?? (await activeHere()), args.a);
+    const changes = diffNamed(
+      args.b === undefined ? await activeHere() : requireProfile(args.b),
+      requireProfile(args.a),
+    );
     if (args.json) return printJson(changes);
     if (changes.length === 0) console.log("no differences");
     for (const c of changes) console.log(formatChange(c));
@@ -271,7 +301,7 @@ const validate = defineCommand({
     ...json,
   },
   async run({ args }) {
-    const v = validateNamed(args.name ?? (await activeHere()));
+    const v = validateNamed(args.name === undefined ? await activeHere() : requireProfile(args.name));
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);
     else printIssues(v.errors, v.warnings);
@@ -279,7 +309,7 @@ const validate = defineCommand({
   },
 });
 
-/** Spec §8: `catherd profile list|show|use [--repo]|new|copy|rm|set <path> <value>|diff|validate`. */
+/** Spec §8: `catherd profile list|show|use [--repo [--clear]]|new|copy|rm|set <path> <value>|diff|validate`. */
 export const profileCommand = defineCommand({
   meta: { name: "profile", description: "Profiles: which models each role runs, and how" },
   subCommands: { list, show, use, new: create, copy, rm, set, diff, validate },

@@ -72,7 +72,11 @@ export async function runForwarding(argv: string[]): Promise<number> {
 }
 
 export const lockCommand = defineCommand({
-  meta: { name: "lock", description: "Run a heavy command behind the machine-wide semaphore" },
+  meta: {
+    name: "lock",
+    description:
+      "Run a heavy command behind the machine-wide semaphore, in its own process group and session: it gets no /dev/tty and no job control",
+  },
   args: {
     slots: {
       type: "string",

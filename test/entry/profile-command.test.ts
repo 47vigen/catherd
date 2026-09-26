@@ -181,6 +181,47 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
   });
 });
 
+describe("names the user types, and unbinding", () => {
+  it("refuses a missing profile name with exit 2 in show, diff, validate and set --profile", () => {
+    withHome();
+    for (const args of [
+      ["show", "nope"],
+      ["diff", "nope"],
+      ["validate", "nope"],
+    ]) {
+      const r = catherd(args);
+      expect([r.code, r.err]).toEqual([
+        2,
+        'error E_INPUT_INVALID: no profile named "nope"\nfix: catherd profile list\n',
+      ]);
+    }
+    const set = catherd(["set", "budget.usd", "5", "--profile", "nope"]);
+    expect([set.code, set.err]).toEqual([
+      2,
+      'error E_INPUT_INVALID: no profile named "nope"\nfix: catherd profile new nope\n',
+    ]);
+    expect(existsSync(join(profilesDir(), "nope.json"))).toBe(false);
+  });
+
+  it("use --repo --clear unbinds the repo, which then runs on the active profile", () => {
+    withHome();
+    const repo = tempRepo();
+    catherd(["new", "fast"]);
+    catherd(["use", "fast", "--repo"], repo);
+    const r = catherd(["use", "--repo", "--clear"], repo);
+    expect([r.code, r.out.split("\n")[0]]).toEqual([0, expect.stringMatching(/^✓ \/.+ is unbound$/)]);
+    expect(catherd(["show"], repo).out.split("\n")[0]).toBe("profile default (active)");
+    expect(catherd(["rm", "fast"]).out).toBe("✓ deleted fast\n");
+    const again = catherd(["use", "--repo", "--clear"], repo);
+    expect([again.code, again.err.split("\n")[0]]).toEqual([
+      2,
+      expect.stringMatching(/^error E_INPUT_INVALID: \/.+ is bound to no profile$/),
+    ]);
+    const bare = catherd(["use"]);
+    expect(bare.code).toBe(2);
+  });
+});
+
 describe("catherd profile validate", () => {
   it("prints errors and warnings, and exits 1 on an error", () => {
     withHome();

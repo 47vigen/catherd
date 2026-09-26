@@ -72,14 +72,15 @@ export function profileLines(r: InitResult): string[] {
 export const initCommand = defineCommand({
   meta: {
     name: "init",
-    description: "First run: the Jev key, the default profile, its agents, and a readiness report",
+    description:
+      "First run: the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line and waits for stdin to close; --no-input asks nothing",
   },
   args: {
     // citty reads --no-input as input: false
     input: {
       type: "boolean",
       default: true,
-      description: "ask questions (piped answers are read to the end of stdin)",
+      description: "ask questions (piped: one answer per line, read once stdin closes)",
       negativeDescription: "ask nothing: keep what exists, else write the defaults",
     },
     profile: { type: "string", description: "the profile to set up and make active (default: default)" },

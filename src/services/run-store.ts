@@ -135,6 +135,9 @@ export function listRuns(): RunListing {
   return out;
 }
 
+/** The fix of an unknown run id, in the MCP tools' words; the CLI prints its own (entry/cli-kit.ts). */
+export const RUN_NOT_FOUND_FIX = "status() lists the runs";
+
 export function findRun(id: string): Run {
   assertId("run", id);
   const { runs, corrupt } = listRuns();
@@ -145,7 +148,7 @@ export function findRun(id: string): Run {
     throw new CatherdError("E_RUN_CORRUPT", `run ${id} cannot be read: ${bad.reason}`, {
       fix: `fix or delete ${bad.dir}`,
     });
-  throw new CatherdError("E_RUN_NOT_FOUND", `no run "${id}"`, { fix: "status() lists the runs" });
+  throw new CatherdError("E_RUN_NOT_FOUND", `no run "${id}"`, { fix: RUN_NOT_FOUND_FIX });
 }
 
 /** The run's records, one per dispatch; rows that are torn, invalid or repeated are skipped and counted. */

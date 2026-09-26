@@ -3,6 +3,7 @@ import { defineCommand } from "citty";
 import { formatBudget } from "../domain/budget.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
+import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { findRun, listRuns, readRecords } from "../services/run-store.ts";
@@ -134,8 +135,11 @@ const show = defineCommand({
   },
   run({ args }) {
     const run = findRun(args.id);
-    const summary = summarizeRun(defaultDeps(), run);
-    const records = readRecords(run).records;
+    // every part redacted, not only the dispatches: state.md and a record's reply can quote a secret too
+    const { summary, records } = redact({
+      summary: summarizeRun(defaultDeps(), run),
+      records: readRecords(run).records,
+    });
     const debug = args.debug ? runDebug(run, args.name) : undefined;
     if (args.json) return printJson({ summary, records, ...(debug ? { dispatches: debug } : {}) });
     for (const l of formatRun(summary)) console.log(l);

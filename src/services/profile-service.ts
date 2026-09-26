@@ -30,7 +30,7 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { type Issue, type Validation, validateProfile } from "../domain/profile-rules.ts";
+import { type Validation, validateProfile } from "../domain/profile-rules.ts";
 import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
@@ -38,7 +38,7 @@ import { claudeAgentsDir, configDir } from "../infra/paths.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { VERSION } from "../infra/version.ts";
 import { backendOfKey, loadCatalog } from "./catalog-service.ts";
-import type { ProfilePort, ProfileView } from "./ports.ts";
+import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 
 export const profilesDir = (): string => join(configDir(), "profiles");
 export const configFile = (): string => join(configDir(), "config.json");
@@ -321,12 +321,8 @@ function saveAndLink(name: string, doc: ProfileDoc): Synced {
 const validate = (doc: ProfileDoc, name: string): Validation =>
   validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends());
 
-export interface Saved extends Synced {
-  saved: boolean;
-  errors: Issue[];
-  warnings: Issue[];
-  diff: Change[];
-}
+/** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
+export type Saved = ProfileSaved;
 
 const unsaved = (v: Validation): Saved => ({
   saved: false,
@@ -384,7 +380,10 @@ export function resetProfile(name: string): Saved {
   });
 }
 
-/** Spec §7.3 `delete`: never the active profile or a repo-bound one; its agent files go with it. */
+/**
+ * Spec §7.3 `delete`: never the active profile or a repo-bound one; its agent files go with it. A binding
+ * whose repo no longer exists does not count: it is pruned with the profile.
+ */
 export function deleteProfile(name: string): Synced {
   return locked(() => {
     assertProfileName(name);
@@ -396,19 +395,26 @@ export function deleteProfile(name: string): Synced {
       throw new CatherdError("E_INPUT_INVALID", `"${name}" is the active profile`, {
         fix: "make another profile active first: catherd profile use <name>",
       });
-    const bound = Object.entries(readProjects().bindings)
-      .filter(([, p]) => p === name)
-      .map(([repo]) => repo);
+    const projects = readProjects();
+    const mine = Object.keys(projects.bindings).filter((repo) => projects.bindings[repo] === name);
+    const bound = mine.filter((repo) => existsSync(repo));
     if (bound.length)
       throw new CatherdError("E_INPUT_INVALID", `"${name}" is bound to ${bound.join(", ")}`, {
-        fix: `bind those repos to another profile: catherd profile use <name> --repo (run inside each)`,
+        fix: "run catherd profile use --repo --clear (or use <name> --repo) inside each of those repos",
       });
     const text = readFileSync(profileFile(name), "utf8");
     rmSync(profileFile(name), { force: true });
+    const gone = new Set(mine);
+    if (gone.size)
+      writeJsonAtomic(projectsFile(), {
+        ...projects,
+        bindings: Object.fromEntries(Object.entries(projects.bindings).filter(([r]) => !gone.has(r))),
+      });
     try {
       return apply(plan(), [name]);
     } catch (e) {
       writeTextAtomic(profileFile(name), text);
+      if (gone.size) writeJsonAtomic(projectsFile(), projects);
       throw e;
     }
   });
@@ -441,6 +447,27 @@ export function activate(
     } catch (e) {
       if (repo === null) writeJsonAtomic(configFile(), config);
       else writeJsonAtomic(projectsFile(), projects);
+      throw e;
+    }
+  });
+}
+
+/** `catherd profile use --repo --clear`: removes `repo`'s binding, so it runs on the active profile again. */
+export function unbind(repo: string): Synced & { repo: string; was: string } {
+  return locked(() => {
+    const projects = readProjects();
+    const was = projects.bindings[repo];
+    if (was === undefined)
+      throw new CatherdError("E_INPUT_INVALID", `${repo} is bound to no profile`, {
+        fix: "catherd profile list shows the bound repos",
+      });
+    const bindings = { ...projects.bindings };
+    delete bindings[repo];
+    writeJsonAtomic(projectsFile(), { ...projects, schema: 1, bindings });
+    try {
+      return { repo, was, ...apply(plan()) };
+    } catch (e) {
+      writeJsonAtomic(projectsFile(), projects);
       throw e;
     }
   });

@@ -88,10 +88,7 @@ describe("catherd status and watch --once", () => {
   it("names an unknown run with exit 1", () => {
     freshRun();
     const r = catherd(["status", "nope"]);
-    expect([r.code, r.err]).toEqual([
-      1,
-      'error E_RUN_NOT_FOUND: no run "nope"\nfix: status() lists the runs\n',
-    ]);
+    expect([r.code, r.err]).toEqual([1, 'error E_RUN_NOT_FOUND: no run "nope"\nfix: catherd runs list\n']);
   });
 
   it("keeps redrawing until Ctrl-C, then exits 130", async () => {
@@ -156,6 +153,19 @@ describe("catherd runs", () => {
     expect(r.out).toContain("stderr (last 2 lines):\n  boom\n  auth failed for [redacted]\n");
     expect(r.out).toContain('events (last 1 lines):\n  {"type":"turn.failed"}\n');
     expect(r.out).not.toContain("sk-live-0123456789abc");
+  });
+
+  it("redacts the summary and the records too, not only the dispatches, as JSON and as text", async () => {
+    const { run } = freshRun("parser");
+    const secret = "sk-live-0123456789abc";
+    writeFileSync(runPaths(run.dir).state, `# state\nNext: retry after auth failed for ${secret}\n`);
+    await appendRecord(run, makeRecord({ runId: run.id, replyWhy: `auth failed for ${secret}` }));
+    for (const format of [["--json"], []]) {
+      const r = catherd(["runs", "show", run.id, "--debug", ...format], { OPENAI_API_KEY: secret });
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("auth failed for [redacted]");
+      expect(r.out).not.toContain(secret);
+    }
   });
 
   it("refuses to cancel a role that is not live, with exit 1", () => {

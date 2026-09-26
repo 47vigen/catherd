@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { isCatherdError } from "../domain/errors.ts";
+import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { gitToplevel } from "../infra/git.ts";
 import {
@@ -53,12 +53,12 @@ const list = defineCommand({
     json: { type: "boolean", description: "print JSON" },
   },
   async run({ args }) {
-    if (args.role && !(ROLES as readonly string[]).includes(args.role)) {
-      console.error(`error E_INPUT_INVALID: no role "${args.role}"`);
-      console.error(`fix: pass --role ${ROLES.join("|")}`);
-      process.exitCode = 2;
-      return;
-    }
+    if (args.role && !(ROLES as readonly string[]).includes(args.role))
+      return fail(
+        new CatherdError("E_INPUT_INVALID", `no role "${args.role}"`, {
+          fix: `pass --role ${ROLES.join("|")}`,
+        }),
+      );
     try {
       const r = catalogQuery({
         backend: args.backend,
