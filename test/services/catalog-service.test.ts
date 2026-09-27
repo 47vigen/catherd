@@ -5,6 +5,7 @@ import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import { logFile } from "../../src/infra/log.ts";
 import {
   catalogQuery,
   freshenDiscovery,
@@ -360,6 +361,25 @@ describe("discovery refresh", () => {
     await freshenDiscovery(["codex:gpt-6-sol#medium"], late);
     await freshenDiscovery(["codex:gpt-6-sol#medium"], late + 60_000);
     expect(listCalls).toBe(1);
+  });
+
+  it("logs a failed listing at debug and keeps routing", async () => {
+    withHome();
+    process.env.CATHERD_LOG = "debug";
+    registerAdapter({
+      ...codex,
+      listModels: async () => {
+        throw new Error("codex listing broke");
+      },
+    });
+    await freshenDiscovery(["codex:gpt-6-sol#medium"], T0);
+    const rows = readFileSync(logFile(), "utf8")
+      .split("\n")
+      .filter((l) => l.includes('"discovery"'))
+      .map((l) => JSON.parse(l));
+    expect(rows).toEqual([
+      expect.objectContaining({ level: "debug", backend: "codex", error: "codex listing broke" }),
+    ]);
   });
 
   it("lists the due backends in parallel", async () => {

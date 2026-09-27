@@ -89,7 +89,10 @@ function collect(stream: ReadableStream<Uint8Array>): {
       if (done) return;
       text += decoder.decode(value, { stream: true });
     }
-  })().catch(() => {});
+  })().catch(() => {
+    // a pipe that breaks ends the reading; what arrived is kept
+  });
+  // cancelling a pipe that is already closed has nothing to report
   return { done, text: () => text, stop: () => void reader.cancel().catch(() => {}) };
 }
 

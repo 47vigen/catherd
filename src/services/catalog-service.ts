@@ -21,7 +21,7 @@ import {
   scoresOf,
 } from "../domain/catalog.ts";
 import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
 import { routeAt } from "../domain/route.ts";
@@ -29,6 +29,7 @@ import { ROLES, type Role } from "../domain/roles.ts";
 import { median } from "../domain/util.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
+import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
@@ -190,7 +191,7 @@ export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?:
     const b = tryParseRung(r)?.backend;
     if (b) backends.add(b === "claude" ? "claude-code" : b); // validate reports a bad rung
   }
-  const due: Promise<unknown>[] = [];
+  const due: { backend: string; listing: Promise<unknown> }[] = [];
   for (const b of backends) {
     const adapter = adapterFor(b);
     const where = listingRepo(b, repo);
@@ -199,10 +200,17 @@ export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?:
     const cached = readDiscovery(b, where);
     if (cached && now - Date.parse(cached.fetchedAt) < DAY_MS) continue;
     tried.set(key, now);
-    due.push(discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }));
+    due.push({
+      backend: b,
+      listing: discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }),
+    });
   }
-  // a failed listing keeps the last one (and the hour's backoff above)
-  await Promise.allSettled(due);
+  // a failed listing keeps the last one (and the hour's backoff above); the log says why it failed
+  const settled = await Promise.allSettled(due.map((d) => d.listing));
+  settled.forEach((r, i) => {
+    if (r.status === "rejected")
+      log("debug", "discovery", { backend: due[i]?.backend, error: errorMessage(r.reason) });
+  });
 }
 
 /** A rung given as `backend:model#effort` or as a canonical `model#effort`, in canonical form. */
@@ -210,7 +218,9 @@ function canonicalOf(c: Catalog, rung: string): string {
   let canonical = rung;
   try {
     if (rung.includes(":")) canonical = rungInfo(c, rung).canonical;
-  } catch {}
+  } catch {
+    // a rung the catalog cannot resolve stays as given; the canonical check below refuses it
+  }
   if (!CanonicalRung.safeParse(canonical).success)
     throw new CatherdError("E_INPUT_INVALID", `"${rung}" is not a rung`, {
       fix: "name it as backend:model#effort or model#effort, e.g. codex:gpt-6-sol#high",

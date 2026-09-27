@@ -39,6 +39,6 @@ export async function mcpHandshake(): Promise<Handshake> {
     return { ok: false, tools: [], error: errorMessage(e) };
   } finally {
     clearTimeout(timer);
-    await client.close().catch(() => {});
+    await client.close().catch(() => {}); // the answer (or the failure) is already in hand
   }
 }
