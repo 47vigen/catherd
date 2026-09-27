@@ -16,7 +16,9 @@ const longestFirst = <T>(xs: T[], len: (x: T) => number) => [...xs].sort((a, b) 
  * path first so a repo inside the home directory reads `<repo>`, not `~/…`.
  */
 export function sanitize(text: string, s: Scrub): string {
-  let out = scrubKeyShapes(replaceSecrets(text, s.secrets, "<redacted>"), "<redacted>");
+  // a captured stream is JSONL: a secret with a quote, a backslash or a control character is escaped there
+  const forms = s.secrets.flatMap((x) => [x, JSON.stringify(x).slice(1, -1)]);
+  let out = scrubKeyShapes(replaceSecrets(text, forms, "<redacted>"), "<redacted>");
   out = out.replace(EMAIL, "<email>");
   for (const p of longestFirst(
     s.paths.filter((x) => x.from.length > 1),

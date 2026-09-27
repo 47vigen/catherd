@@ -25,7 +25,10 @@ describe("--help says how lock and init treat the terminal", () => {
   });
 
   it("init reads piped answers line by line and waits for stdin to close", () => {
-    expect(help("init")).toContain("reads the answers from stdin one per line and waits for stdin to close");
+    expect(help("init")).toContain(
+      "reads the answers from stdin one per line, a line per question even when this machine skips it",
+    );
+    expect(help("init")).toContain("and waits for stdin to close");
   });
 });
 

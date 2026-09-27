@@ -27,7 +27,7 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
-import { readRecords, type Run, runPaths } from "./run-store.ts";
+import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 export interface AdmitInput {
   role: Role;
@@ -142,7 +142,9 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
-  const isolated = profile.isolated[rung.backend] ?? false;
+  // a resumed thread lives in the home it started in (CODEX_HOME), whatever the profile says now
+  const started = i.thread === null ? undefined : recordsOnThread(run, rung.backend, i.thread).at(-1);
+  const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
   await prepared(adapter, { rung, access: rc.access, isolated, repo: run.meta.repo });
   const plan = adapter.plan({
     rung,
@@ -157,12 +159,14 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
 
   await finalizeFinished(run, deps.now());
   return withFileLock(runPaths(run.dir).admission, async () => {
-    const records = readRecords(run).records;
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
-    // could not be recorded just now.
-    const pending = pendingDispatches(run, deps.now());
-    const live = pending.filter((d) => d.state !== "finished");
+    // could not be recorded just now. The records and the pending dispatches are one snapshot, taken
+    // under the lock appendRecord writes under, so no record lands between the two reads.
+    const { records, pending } = await withFileLock(runPaths(run.dir).runs, () => {
+      const records = readRecords(run).records;
+      return { records, pending: pendingDispatches(run, deps.now(), records) };
+    });
     const doing = (d: LiveDispatch): string => (d.state === "finished" ? "finished, unrecorded," : "running");
     const same = pending.find((d) => d.admit.name === i.name);
     if (same)
@@ -187,7 +191,8 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
           },
         );
     }
-    const budget = budgetStatus(spendOf(run, records, live, deps.now()), profile.budget);
+    // a finished dispatch not yet recorded still spent its tokens: every pending one counts
+    const budget = budgetStatus(spendOf(run, records, pending, deps.now()), profile.budget);
     if (budget && budget.fraction >= 1)
       throw new CatherdError("E_RUN_BUDGET", `the run budget is spent: ${formatBudget(budget)}`, {
         fix: "ask the user to raise profile.budget, or finish the run with what landed",

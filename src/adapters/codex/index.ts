@@ -16,6 +16,9 @@ import {
 } from "../backend.ts";
 import { type CliResult, runCli } from "../cli.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
+
+/** The item types that are a tool call running, as the idle watchdog counts them. */
+const CODEX_TOOL_ITEMS = new Set(["command_execution", "mcp_tool_call", "web_search", "file_change"]);
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
 const CODEX_MIN_VERSION = "0.157.0";
@@ -201,8 +204,9 @@ export const codexAdapter: BackendAdapter = {
     const e = parseCodexLine(line);
     if (!e) return {};
     const f = foldCodexEvents([line]);
-    // a tool call runs between item.started and item.completed, often printing nothing: the run is busy
-    const id = typeof e.item?.id === "string" ? e.item.id : null;
+    // a tool call runs between item.started and item.completed, often printing nothing: the run is busy.
+    // Not a todo_list: update_plan opens one that only completes with the turn, and would mute the watchdog
+    const id = typeof e.item?.id === "string" && CODEX_TOOL_ITEMS.has(e.item.type) ? e.item.id : null;
     const open = e.type === "item.started" ? true : e.type === "item.completed" ? false : null;
     return {
       ...(f.thread ? { thread: f.thread } : {}),

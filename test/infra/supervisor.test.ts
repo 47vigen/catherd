@@ -215,7 +215,9 @@ describe("supervise follows the worker's own account", () => {
   });
 
   it("records a worker that ended while isBusy was being asked as exited, not idle-timeout", async () => {
-    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 4`, { idleMs: 100 });
+    // the busy check is bounded by min(10s, idleMs): leave the worker a full second to see `stop` and end, or a
+    // slow runner times the check out and the worker is stopped as idle before it can exit on its own
+    const s = spec(`while [ ! -f stop ]; do sleep 0.02; done; exit 4`, { idleMs: 1000 });
     const proc = dispatchPaths(s.dispatchDir).proc;
     const exit = await supervise(s, {
       isBusy: async () => {

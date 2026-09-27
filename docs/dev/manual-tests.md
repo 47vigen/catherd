@@ -220,6 +220,10 @@ real tools — the thing the unit and contract tests cannot show.
    const j = JSON.parse(fs.readFileSync(f, "utf8"));
    j.mcpServers.catherd = { command: "bun", args: [process.cwd() + "/src/cli.ts", "mcp"] };
    fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+   const m = ".claude-plugin/marketplace.json";
+   const k = JSON.parse(fs.readFileSync(m, "utf8"));
+   k.plugins[0].source = "./plugin"; // the published marketplace serves the release tag
+   fs.writeFileSync(m, JSON.stringify(k, null, 2) + "\n");
    '
    ```
 
@@ -275,7 +279,7 @@ real tools — the thing the unit and contract tests cannot show.
 4. Restore and clean up:
 
    ```bash
-   git checkout plugin/.mcp.json
+   git checkout plugin/.mcp.json .claude-plugin/marketplace.json
    claude plugin uninstall catherd@catherd
    claude plugin marketplace remove catherd
    ```

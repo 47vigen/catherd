@@ -181,6 +181,22 @@ describe("catherd runs", () => {
     }
   });
 
+  it("redacts the state.md tail in status and watch --once, as runs show does", () => {
+    const { run } = freshRun("parser");
+    const secret = "sk-live-0123456789abc";
+    writeFileSync(runPaths(run.dir).state, `# state\nNext: retry after auth failed for ${secret}\n`);
+    for (const argv of [
+      ["status", run.id],
+      ["status", "--json"],
+      ["watch", "--once"],
+    ]) {
+      const r = catherd(argv, { OPENAI_API_KEY: secret });
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("auth failed for [redacted]");
+      expect(r.out).not.toContain(secret);
+    }
+  });
+
   it("redacts the saved Jev key, which a fresh process never registered by calling Jev", async () => {
     const { run } = freshRun("parser");
     const key = "ts-live-0123456789abcdef";

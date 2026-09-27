@@ -23,7 +23,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
-import { appendRecord, readRecords, type Run, runPaths } from "./run-store.ts";
+import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 const text = (file: string): string => {
   try {
@@ -79,11 +79,12 @@ async function snapshotOrNull(repo: string): Promise<Snapshot | null> {
 /** How long a backend may take to settle a finished session before its stream's own figures stand. */
 export const settleLimits = { timeoutMs: 20_000 };
 
-/** What the run's earlier records on `thread` already counted: a resumed session's totals repeat them. */
+/**
+ * What earlier records on `thread` already counted: a resumed session's totals repeat them. Every run's,
+ * since a role may resume a thread an earlier catherd run started.
+ */
 function priorOn(run: Run, backend: string, thread: string, self: string): Spent {
-  const earlier = readRecords(run).records.filter(
-    (r) => r.backend === backend && r.thread === thread && r.dispatchId !== self,
-  );
+  const earlier = recordsOnThread(run, backend, thread).filter((r) => r.dispatchId !== self);
   return {
     tokens: {
       input: earlier.reduce((n, r) => n + r.tokens.input, 0),
@@ -170,7 +171,8 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     ? splitChanges(
         changedPaths(a.before, after),
         a.owns,
-        othersOwns(run, d, start, end),
+        // from admission, when the before-snapshot was taken, not from the worker's start
+        othersOwns(run, d, Date.parse(a.admittedAt), end),
         a.lane !== null || a.access === "read-only",
       )
     : { changedOwned: [], violations: [] };
@@ -210,18 +212,21 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   };
 }
 
-/** A fresh thread's first-turn input, for the harness-cost line of runs_summary. */
+/**
+ * A fresh thread's first-turn input, for the harness-cost line of runs_summary: its first model request's
+ * input, from a backend whose stream reports usage per request. Codex reports it per exec: no row.
+ */
 function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
   const a = adapterFor(d.admit.backend);
   if (d.admit.thread !== null || !a) return;
   for (const line of nonBlankLines(dispatchPaths(d.dir).events)) {
-    let tokens;
+    let input;
     try {
-      tokens = a.parse(line).tokens;
+      input = a.parse(line).requestInput;
     } catch {
       continue;
     }
-    if (!tokens) continue;
+    if (input === undefined) continue;
     const file = runPaths(run.dir).harness;
     ensureJsonlHeader(file, "harness");
     appendJsonl(file, {
@@ -229,7 +234,7 @@ function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
       name: r.name,
       backend: r.backend,
       isolated: r.isolated,
-      firstTurnInput: tokens.input,
+      firstTurnInput: input,
     });
     return;
   }

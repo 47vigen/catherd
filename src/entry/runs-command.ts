@@ -39,7 +39,9 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
 }
 
 function printStatus(runId: string | undefined, asJson: boolean): void {
-  const r = status(defaultDeps(), runId);
+  // redacted as `runs show` is: the state.md tail can quote a secret, and status goes to shared terminals
+  registerSavedSecrets();
+  const r = redact(status(defaultDeps(), runId));
   if (asJson) return printJson(r);
   if (r.runs.length === 0) console.log("no runs yet");
   for (const s of r.runs) for (const l of formatRun(s)) console.log(l);

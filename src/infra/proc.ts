@@ -60,6 +60,16 @@ export function isSurelyAlive(pid: number, startTime: string | null): boolean {
   return isAlive(pid, startTime) && surelySame(startTime, processStartTime(pid));
 }
 
+/** Whether /proc shows the pid as a zombie: dead, only never reaped (a pid 1 that reaps no orphans). */
+function isZombie(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) === "Z";
+  } catch {
+    return false;
+  }
+}
+
 export function isAlive(pid: number, startTime: string | null): boolean {
   if (!isValidPid(pid)) return false;
   try {
@@ -67,15 +77,20 @@ export function isAlive(pid: number, startTime: string | null): boolean {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EPERM") return false;
   }
+  if (isZombie(pid)) return false;
   return startTime === null || sameProcess(startTime, processStartTime(pid));
 }
 
-/** Signals the process group a detached child leads (pgid === pid), falling back to the pid alone. */
+/**
+ * Signals the process group a detached child leads (pgid === pid), falling back to the pid alone. No
+ * group (ESRCH) means its leader is gone too, and that pid may belong to another process by now.
+ */
 export function killGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
   if (!isValidPid(pid) || pid === 1) return;
   try {
     process.kill(-pid, signal);
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ESRCH") return;
     try {
       process.kill(pid, signal);
     } catch {

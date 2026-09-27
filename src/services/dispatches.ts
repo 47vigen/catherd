@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { ACCESS } from "../domain/record.ts";
+import { ACCESS, type RunRecord } from "../domain/record.ts";
 import { ROLES } from "../domain/roles.ts";
 import { dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
@@ -108,8 +108,12 @@ export function dispatchState(d: Dispatch, now = Date.now()): DispatchState {
 export type LiveDispatch = Dispatch & { state: DispatchState };
 
 /** Dispatches that have no record yet, with their state; `live` keeps only the unfinished ones. */
-export function pendingDispatches(run: Run, now = Date.now()): LiveDispatch[] {
-  const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
+export function pendingDispatches(
+  run: Run,
+  now = Date.now(),
+  records: RunRecord[] = readRecords(run).records,
+): LiveDispatch[] {
+  const recorded = new Set(records.map((r) => r.dispatchId));
   return listDispatches(run)
     .filter((d) => !recorded.has(d.admit.dispatchId))
     .map((d) => ({ ...d, state: dispatchState(d, now) }));

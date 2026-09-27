@@ -13,6 +13,7 @@ import { killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { readyAdapter } from "./backends.ts";
 import { settled } from "./finalize.ts";
+import { collect, DRAIN_MS } from "./preflight.ts";
 
 interface CaptureCase {
   backend: string;
@@ -122,12 +123,20 @@ async function captureOne(
       timedOut = true;
       killGroup(p.pid, "SIGKILL");
     }, timeoutMs);
-    const [events, stderr, code] = await Promise.all([
-      new Response(p.stdout).text(),
-      new Response(p.stderr).text(),
-      p.exited,
-    ]);
+    // as preflight does: a process the CLI left behind (in its own session) may hold the pipes open
+    const out = collect(p.stdout);
+    const err = collect(p.stderr);
+    const code = await p.exited;
     clearTimeout(timer);
+    const drained = await Promise.race([
+      Promise.all([out.done, err.done]).then(() => true),
+      Bun.sleep(DRAIN_MS).then(() => false),
+    ]);
+    if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
+    out.stop();
+    err.stop();
+    const events = out.text();
+    const stderr = err.text();
     const run: FinishedRun = {
       request,
       eventLines: events.split("\n").filter((l) => l.trim()),

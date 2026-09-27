@@ -43,6 +43,12 @@ describe("codex parse", () => {
     const [started, completed] = lines("ok-with-reconnect.jsonl").filter((l) => l.includes('"id":"item_1"'));
     expect(codexAdapter.parse(started as string)).toMatchObject({ item: { id: "item_1", open: true } });
     expect(codexAdapter.parse(completed as string)).toMatchObject({ item: { id: "item_1", open: false } });
+    // update_plan's todo_list stays open until the turn ends: not a tool call the watchdog waits on
+    const plan = JSON.stringify({
+      type: "item.started",
+      item: { id: "item_2", type: "todo_list", items: [] },
+    });
+    expect(codexAdapter.parse(plan).item).toBeUndefined();
     expect(codexAdapter.parse('{"type":"turn.started"}').item).toBeUndefined();
   });
 });
@@ -135,6 +141,13 @@ describe("codex finalize", () => {
     const lim = codexAdapter.finalize(finished(lines("limit.jsonl")));
     expect(lim.status).toBe("limit");
     expect(lim.error?.message).toMatch(/usage limit/);
+  });
+
+  it("takes an exhausted 429 retry for a limit, and an overloaded server's 'try again later' for a failure", () => {
+    const failed = (message: string) =>
+      codexAdapter.finalize(finished([JSON.stringify({ type: "turn.failed", error: { message } })])).status;
+    expect(failed("exceeded retry limit, last status: 429 Too Many Requests")).toBe("limit");
+    expect(failed("The server is overloaded, please try again later.")).toBe("failed");
   });
 
   it("classifies the ChatGPT-account message as cli-too-old", () => {

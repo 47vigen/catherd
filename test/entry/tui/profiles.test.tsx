@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { CatherdError } from "../../../src/domain/errors.ts";
-import { applyPatch, resolveProfile } from "../../../src/domain/profile.ts";
+import { applyPatch, defaultProfileDoc, resolveProfile } from "../../../src/domain/profile.ts";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { RUNS_EVERY_MS, useData } from "../../../src/entry/tui/providers/data.tsx";
@@ -12,6 +12,7 @@ import {
   useProfileDialogs,
 } from "../../../src/entry/tui/views/profile-actions.ts";
 import { ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
+import { saveTreatLike } from "../../../src/services/catalog-service.ts";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
 import { Shell } from "./shell.tsx";
@@ -321,6 +322,43 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).not.toContain("Treat codex:gpt-6-sol#ultra like…");
     expect(h!.s.frame()).toContain("1 unsaved");
     expect(h!.app().getState().drafts.default?.doc.roles?.worker?.rungs).not.toContain(ultra);
+  });
+
+  it("shows a treat-like saved alone (the profile unchanged) as saved, from the catalog read again", async () => {
+    const ultra = "codex:gpt-6-sol#ultra";
+    const fx = await profiles((f) => {
+      // the profile already ticks ultra, saved while it was treated like a rung (the fixture's save is
+      // synchronous up to its write), and reads back as a new object, as a file read does
+      const rungs = resolveProfile(defaultProfileDoc(), "default").roles.worker.rungs;
+      void f.save(
+        "default",
+        { roles: { worker: { rungs: [...rungs, ultra] } } },
+        { [ultra]: "gpt-6-sol#xhigh" },
+      );
+      f.writes.length = 0;
+      const read = f.readProfile;
+      f.readProfile = (n) => structuredClone(read(n));
+      const save = f.save;
+      f.save = async (name, patch, treatLikes, shown) => {
+        const r = await save(name, patch, treatLikes, shown);
+        for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
+        return r;
+      };
+    });
+    await find("worker gpt-6-sol ultra");
+    // enter unticks the unscored rung; enter again maps it, ticking it back: only the treat-like is staged
+    await h!.s.press("return", "return");
+    await h!.s.type("gpt-6-sol#xhigh");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("treated like gpt-6-sol#xhigh · unsaved");
+    expect(h!.s.frame()).toContain("1 unsaved");
+    await h!.s.press("ctrl+s", "return");
+    await h!.advance(0);
+    expect(fx.writes).toHaveLength(1);
+    // scored through the saved treat-like, not "unscored" from the catalog read before the save
+    expect(h!.s.frame()).not.toContain("unsaved");
+    expect(h!.s.frame()).not.toContain("unscored");
+    expect(h!.s.frame()).toMatch(/\[x\] ultra +inferred/);
   });
 
   it("takes back a picked treat-like and the tick it brought in one undo", async () => {

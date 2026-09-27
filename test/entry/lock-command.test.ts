@@ -115,6 +115,13 @@ describe("catherd lock signals (plan-2 review m10)", () => {
       await waitFor(() => exited(grandchild));
     });
 
+  it("kills the command's group when catherd itself is killed outright", async () => {
+    const { p, grandchild } = await locked("sleep 30 & echo $! > PIDFILE; wait");
+    p.kill("SIGKILL");
+    await p.exited;
+    await waitFor(() => exited(grandchild));
+  });
+
   it("kills a command that ignores Ctrl-C on the second Ctrl-C", async () => {
     const heard = join(mkdtempSync(join(tmpdir(), "catherd-lockint-")), "heard");
     // the trap records each Ctrl-C and carries on, as a command that ignores it would

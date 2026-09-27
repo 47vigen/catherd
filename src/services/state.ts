@@ -85,14 +85,20 @@ export async function refreshState(
   try {
     return { text: await updateState(run, apply), hints: [] };
   } catch (e) {
+    const hints = [`state.md not refreshed: ${errorMessage(e)}`];
     // git fails before updateState reaches the notes: keep them, so a later refresh still shows them
     if (!applied) {
       const stateJson = runPaths(run.dir).stateJson;
-      await withFileLock(stateJson, () => {
-        const notes = readNotes(run);
-        writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
-      });
+      try {
+        await withFileLock(stateJson, () => {
+          const notes = readNotes(run);
+          writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
+        });
+      } catch (e2) {
+        // the lock outwaited (a slow git under another refresh): still never fail the call
+        hints.push(`notes not saved: ${errorMessage(e2)}`);
+      }
     }
-    return { text: null, hints: [`state.md not refreshed: ${errorMessage(e)}`] };
+    return { text: null, hints };
   }
 }

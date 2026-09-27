@@ -7,14 +7,20 @@ const root = join(import.meta.dir, "..");
 const readJson = (base: string, p: string) => JSON.parse(readFileSync(join(base, p), "utf8"));
 
 describe("plugin", () => {
-  it("the marketplace lists the plugin folder", () => {
+  it("the marketplace serves the plugin folder from the package version's release tag", () => {
     const m = readJson(root, ".claude-plugin/marketplace.json");
+    const { version } = readJson(root, "package.json");
     expect(m.name).toBe("catherd");
     expect(m.owner.name).toBeTruthy();
     const entry = m.plugins.find((p: { name: string }) => p.name === "catherd");
-    expect(entry.source).toBe("./plugin");
+    expect(entry.source).toEqual({
+      source: "git-subdir",
+      url: "47vigen/catherd",
+      path: "plugin",
+      ref: `v${version}`,
+    });
     expect(entry.version).toBeUndefined();
-    expect(existsSync(join(root, entry.source, ".claude-plugin", "plugin.json"))).toBe(true);
+    expect(existsSync(join(root, entry.source.path, ".claude-plugin", "plugin.json"))).toBe(true);
   });
 
   it("pins the package version in the manifest and in the MCP command", () => {
@@ -27,7 +33,7 @@ describe("plugin", () => {
 
   it("the stamp script writes a new version into both files", () => {
     const tmp = mkdtempSync(join(tmpdir(), "catherd-stamp-"));
-    for (const p of ["package.json", "plugin", "scripts"]) {
+    for (const p of ["package.json", "plugin", "scripts", ".claude-plugin"]) {
       cpSync(join(root, p), join(tmp, p), { recursive: true });
     }
     const pkg = readJson(tmp, "package.json");
@@ -36,6 +42,7 @@ describe("plugin", () => {
     expect(proc.success).toBe(true);
     expect(readJson(tmp, "plugin/.claude-plugin/plugin.json").version).toBe("9.9.9");
     expect(readJson(tmp, "plugin/.mcp.json").mcpServers.catherd.args).toEqual(["catherd-cli@9.9.9", "mcp"]);
+    expect(readJson(tmp, ".claude-plugin/marketplace.json").plugins[0].source.ref).toBe("v9.9.9");
     const skill = readFileSync(join(tmp, "plugin", "skills", "catherd", "SKILL.md"), "utf8");
     expect([...skill.matchAll(/catherd-cli@([^\s`)"]+)/g)].map((m) => m[1])).toEqual(["9.9.9", "9.9.9"]);
   });

@@ -121,7 +121,7 @@ describe("the profile tools on the profile service", () => {
 });
 
 describe("the profile tools without a name use the profile the repo runs on", () => {
-  it("profile_set and profile_get edit and read the profile bound to `repo`; outside a repo, the active one", async () => {
+  it("profile_set and profile_get edit and read the profile bound to `repo`; a path outside a repo is refused", async () => {
     withHome();
     const repo = realpathSync(tempRepo());
     createProfile("fast");
@@ -138,10 +138,12 @@ describe("the profile tools without a name use the profile the repo runs on", ()
       9,
     ]);
     expect((await call(c, "profile_validate", { repo })).data.valid).toBe(true);
-    await call(c, "profile_set", { repo: "/", patch: { budget: { usd: 3 } } });
-    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, 3]);
-    const outside = await call(c, "profile_get", { repo: "/" });
-    expect([outside.data.here, outside.data.profile.name]).toEqual(["default", "default"]);
+    // a repo path outside any repository is refused, never taken for the global active profile
+    for (const tool of ["profile_set", "profile_get", "profile_validate"]) {
+      const r = await call(c, tool, { repo: "/", patch: { budget: { usd: 3 } } });
+      expect(r.error?.code).toBe("E_IO_PATH");
+    }
+    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, undefined]);
   });
 
   it("refuses a profile name that does not exist as E_INPUT_INVALID, and profile_set still creates one", async () => {

@@ -343,7 +343,8 @@ describe("doctor", () => {
     expect(check(await run(), "jev")).toMatchObject({ state: "warn", word: "no key" });
     writeFileSync(file, JSON.stringify({ ...doc, jev: { use: "off" } }));
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
-  });
+    // three whole doctor runs, each probing every simulated CLI: a slow macOS runner outlasts the 5 s default
+  }, 30_000);
 
   it("fails on a repo bound to a profile that no longer exists", async () => {
     ready();
@@ -356,6 +357,21 @@ describe("doctor", () => {
       word: "missing",
       fix: `cd ${repo} && catherd profile use --repo --clear`,
     });
+  });
+
+  it("still checks the active profile's backends when another linked profile is corrupt, and fails that one", async () => {
+    ready();
+    createProfile("team");
+    activate("team", tempRepo());
+    writeFileSync(join(dirname(configFile()), "profiles", "team.json"), "{ not json");
+    process.env.PATH = process.env.PATH?.replace(/^[^:]+/, (bin) => {
+      const only = binDir();
+      symlinkSync(join(bin, "claude"), join(only, "claude"));
+      return only;
+    });
+    const r = await run();
+    expect(check(r, "backend:codex")).toMatchObject({ state: "fail", word: "missing" });
+    expect(check(r, "profile:team")).toMatchObject({ state: "fail" });
   });
 
   it("tests the Codex sandbox only when Codex serves an enabled workspace-write role", async () => {

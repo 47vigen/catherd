@@ -65,9 +65,22 @@ export async function runForwarding(argv: string[]): Promise<number> {
     ["SIGHUP", () => killGroup(child.pid, "SIGHUP")],
   ];
   for (const [sig, h] of handlers) process.on(sig, h);
+  // The command's own session is out of reach of a signal to catherd's group, and a SIGKILL (a
+  // supervisor's escalation) cannot be forwarded: the watchdog reads EOF when catherd dies, however it
+  // dies, and kills the command's group then.
+  const watchdog = Bun.spawn(
+    ["sh", "-c", 'read _ || kill -s KILL -- "-$1" 2>/dev/null', "sh", String(child.pid)],
+    {
+      stdin: "pipe",
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: true,
+    },
+  );
   try {
     return await child.exited;
   } finally {
+    watchdog.kill("SIGKILL");
     for (const [sig, h] of handlers) process.off(sig, h);
   }
 }

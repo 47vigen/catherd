@@ -14,7 +14,7 @@ import {
   runFile,
   runPaths,
 } from "../../src/services/run-store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -56,6 +56,19 @@ describe("run folder", () => {
       now: new Date(run.meta.createdAt),
     });
     expect(again.id).toBe(`${run.id}-2`);
+  });
+
+  it("keeps a run id unique across repos, since findRun looks an id up in all of them", () => {
+    const { run } = freshRun("same");
+    const other = createRun({
+      repo: tempRepo(),
+      title: "same",
+      aLines: [],
+      version: "x",
+      now: new Date(run.meta.createdAt),
+    });
+    expect(other.id).toBe(`${run.id}-2`);
+    expect(findRun(run.id).dir).toBe(run.dir);
   });
 
   it("skips a run with a corrupt meta.json, lists the others, and names the corrupt one", () => {

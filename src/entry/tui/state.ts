@@ -262,17 +262,22 @@ export function reduce(s: AppState, a: Action): AppState {
         const base = a.doc ?? d.base;
         if (same(base, d.base)) return step(d, { doc: d.base, treatLikes: {} });
         // another process saved the profile since the draft opened: what is saved now is the new base, and
-        // the history (with this revert's undo step) keeps each staged change, now over that base
-        const moved = (x: Snapshot): Snapshot => ({
-          ...x,
-          doc: applyPatch(base, patchBetween(d.base, x.doc)),
-        });
+        // the history (with this revert's undo step) keeps each staged change, now over that base. A step
+        // that cannot be carried over (a hand-written rung no patch accepts) is dropped: a reducer that
+        // throws from a key handler would end the TUI
+        const moved = (x: Snapshot): Snapshot[] => {
+          try {
+            return [{ ...x, doc: applyPatch(base, patchBetween(d.base, x.doc)) }];
+          } catch {
+            return [];
+          }
+        };
         return {
           ...d,
           base,
           doc: base,
           treatLikes: {},
-          past: [...d.past, { doc: d.doc, treatLikes: d.treatLikes }].map(moved).slice(-HISTORY_LIMIT),
+          past: [...d.past, { doc: d.doc, treatLikes: d.treatLikes }].flatMap(moved).slice(-HISTORY_LIMIT),
           future: [],
         };
       });

@@ -4,7 +4,7 @@ import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
 import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
-import { credentialsPath } from "../../src/services/jev-service.ts";
+import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
 import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
@@ -97,6 +97,16 @@ describe("catherd init", () => {
     expect(r.out).toContain("TypeSafe API key for Jev (optional; Enter skips): \n- Jev: no key;");
     expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
     expect([activeName(), getProfile("team").budget]).toEqual(["team", {}]);
+  }, 60_000);
+
+  it("keeps piped answers in place when a saved key skips the key question", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    saveJevKey("ts-live-0123456789abcdef");
+    const r = init([], "ts-live-0123456789abcdef\nteam\n");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
+    expect(`${r.out}${r.err}`).not.toContain("0123456789abcdef");
   }, 60_000);
 
   it("refuses a bad profile name as a usage error", () => {

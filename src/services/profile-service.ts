@@ -281,7 +281,7 @@ export function profileService(): ProfilePort {
       };
     },
     validate(name, repo = null) {
-      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name));
+      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name), repo);
       return { valid: v.errors.length === 0, ...v };
     },
     // a name that does not exist yet starts from the default profile

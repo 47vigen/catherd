@@ -76,15 +76,25 @@ export function createRun(o: {
   const root = runsDir(o.repo);
   ensurePrivateDir(root);
   const base = `${stamp(now)}-${runSlug(o.title)}`;
+  // findRun looks an id up across every repo, so an id is claimed across every repo too: the claim
+  // folder is atomic between processes, the scan covers runs made before claims existed
+  const claims = join(dataDir(), "run-ids");
+  ensurePrivateDir(claims);
+  const repos = join(dataDir(), "repos");
+  const taken = (id: string) =>
+    existsSync(repos) && readdirSync(repos).some((r) => existsSync(join(repos, r, "runs", id)));
   let id = base;
   for (let n = 2; ; n++) {
     try {
-      mkdirSync(join(root, id), { mode: PRIVATE_DIR });
-      break;
+      if (!taken(id)) {
+        mkdirSync(join(claims, id), { mode: PRIVATE_DIR });
+        mkdirSync(join(root, id), { mode: PRIVATE_DIR });
+        break;
+      }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      id = `${base}-${n}`;
     }
+    id = `${base}-${n}`;
   }
   const dir = join(root, id);
   const p = runPaths(dir);
@@ -132,6 +142,18 @@ export function listRuns(): RunListing {
   }
   out.runs.sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt));
   return out;
+}
+
+/**
+ * Every run's records on a backend's thread, oldest first: a role may resume a thread an earlier catherd
+ * run started. `run` counts even when a listing would miss it.
+ */
+export function recordsOnThread(run: Run, backend: string, thread: string): RunRecord[] {
+  const runs = listRuns().runs;
+  return (runs.some((r) => r.dir === run.dir) ? runs : [run, ...runs])
+    .flatMap((r) => readRecords(r).records)
+    .filter((r) => r.backend === backend && r.thread === thread)
+    .sort((a, b) => a.endedAt.localeCompare(b.endedAt));
 }
 
 /** The fix of an unknown run id, in the MCP tools' words; the CLI prints its own (entry/cli-kit.ts). */

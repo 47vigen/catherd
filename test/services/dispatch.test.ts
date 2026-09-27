@@ -104,7 +104,8 @@ describe("dispatch", () => {
     const state = readFileSync(runPaths(run.dir).state, "utf8");
     expect(state).toContain("Running:\n- none");
     expect(state.trimEnd().split("\n").at(-1)).toBe("Next: review M1");
-    expect(readFileSync(runPaths(run.dir).harness, "utf8")).toContain('"firstTurnInput":');
+    // codex reports usage per exec, not per request: no first-turn figure to log
+    expect(existsSync(runPaths(run.dir).harness)).toBe(false);
   });
 
   it("flags an ok run that left its owned files alone, and a write outside the lane", async () => {

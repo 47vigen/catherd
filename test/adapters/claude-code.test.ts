@@ -197,6 +197,13 @@ describe("claude-code parse", () => {
     });
   });
 
+  it("reports the first request's own input from its assistant message, not the session's total", () => {
+    const first = lines("read-only-write.jsonl")
+      .map((l) => claudeCodeAdapter.parse(l).requestInput)
+      .find((x) => x !== undefined);
+    expect(first).toBe(9 + 30314);
+  });
+
   it("counts tokens only once: assistant events carry no tokens", () => {
     const sum = lines("ok.jsonl").reduce((n, l) => n + (claudeCodeAdapter.parse(l).tokens?.output ?? 0), 0);
     expect(sum).toBe(41);

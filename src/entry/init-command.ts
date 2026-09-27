@@ -38,8 +38,14 @@ export async function jevStep(
   plain = false,
 ): Promise<void> {
   const mark = (state: State) => markOf(state, plain);
-  if (process.env.TYPESAFE_API_KEY?.trim()) return console.log(`${mark("ok")} Jev: using TYPESAFE_API_KEY`);
-  if (jevKey()) return console.log(`${mark("ok")} Jev: using the saved key`);
+  if (process.env.TYPESAFE_API_KEY?.trim()) {
+    ask?.skip?.();
+    return console.log(`${mark("ok")} Jev: using TYPESAFE_API_KEY`);
+  }
+  if (jevKey()) {
+    ask?.skip?.();
+    return console.log(`${mark("ok")} Jev: using the saved key`);
+  }
   const key = ask ? await ask.secret("TypeSafe API key for Jev (optional; Enter skips): ") : "";
   if (!key)
     return console.log(
@@ -84,7 +90,7 @@ export const initCommand = defineCommand({
   meta: {
     name: "init",
     description:
-      "First run: the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line and waits for stdin to close; --no-input asks nothing",
+      "First run: the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
@@ -102,14 +108,17 @@ export const initCommand = defineCommand({
       if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
       await jevStep(ask, {}, plain);
+      if (args.profile !== undefined) ask?.skip?.();
       const name = assertProfileName(
         args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
       );
       // 0.x files go first, so a legacy profile about to be moved aside is never asked about
       const moved = moveLegacy();
+      const exists = hasProfileFile(name);
+      if (!exists) ask?.skip?.();
       const overwrite =
         ask !== null &&
-        hasProfileFile(name) &&
+        exists &&
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
       const r = await initSetup({ profile: name, overwrite });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);

@@ -136,6 +136,11 @@ describe("objective speed", () => {
     expect(order.map((x) => x.rung).slice(0, 2)).toEqual(["codex:gpt-6-sol#high", "codex:gpt-6-sol#medium"]);
   });
 
+  it("falls back from the default rung up the cost order, not onto a slower rung", () => {
+    const secs = { "gpt-6-sol#medium|*": 100, "gpt-6-luna#high|*": 300 };
+    expect(defaultLadder(shipped({ secs }), worker({ objective: "speed" }), "worker")).toEqual(TRACK_B);
+  });
+
   it("starts fast but never climbs onto a weaker rung", () => {
     const secs = { "gpt-6-sol#medium|repo_code": 200, "gpt-6-luna#high|repo_code": 500 };
     const d = select(shipped({ secs }), worker({ objective: "speed" }), "worker", "repo_code", "copy");
