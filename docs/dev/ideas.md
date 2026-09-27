@@ -84,6 +84,21 @@ with `codex.isolated: true`. Finished in 5 min for $0.89 of Claude; `bun test` 2
   `claude-code:claude-opus-5-5#low (treated like claude-opus-5-5#xhigh)`, and failover to a Claude rung spends the
   Claude quota the user ranks last.
 
+## From the 1.0.0 platform run (2026-09-27)
+
+Dev-registry MR and the end of auth plan 5 MR A, two runs side by side in one Desktop session. With the prompt forcing
+route, reviewer and verifier, every lane was routed, both roles ran, replies carried STATUS, and lanes overlapped.
+
+- **The verifier is the bottleneck.** At 63 min into MR A: workers and reviewer took about 9 min, the verifier about
+  47 (26 min for the boot and SSO half, 20+ for the gate half, one attempt lost when it was cut and relaunched). Inside
+  the gate, building the acceptance images took about 13 min, 7 of them a `pnpm install` in two Docker stages despite
+  a cache mount; the suite itself ran after that. Ideas, catherd side: (1) the verifier runs independent gate items
+  side by side within the lock's slots instead of one after another; (2) a gate item whose inputs have not changed
+  since it last passed (tree hash of its paths) is reported as carried over, not rerun, when the milestone's diff
+  since that pass is small; (3) the verifier builds each image once per commit and the boot check and the acceptance
+  suite share it; (4) `status` shows the verifier's current step and elapsed time, so a long gate is visible instead
+  of looking stuck. Repo side (platform): the Docker `pnpm install` should hit the package mirror and a warm store.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
