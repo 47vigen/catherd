@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type Difficulty, KINDS, type Kind, parseLaneHeader } from "./lane.ts";
+import { scrubKeyShapes, scrubSecretAssignments } from "./secrets.ts";
 
 // Spec §5.5 and research 2026-09-25-jev.md: Jev's three question types, catherd's question sets as
 // versioned data (catalog/jev.json), the trimmed lane state, and the decision rules.
@@ -75,27 +76,12 @@ export function questionSetId(f: JevFile, name: SetName): string {
 export const requestKey = (model: string, state: unknown, questions: unknown): string =>
   sha256(canonicalJson({ model, state, questions }));
 
-const SECRETS: [RegExp, string][] = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[secret]"],
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, "[secret]"],
-  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[secret]"],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "[secret]"],
-  [/\bAKIA[0-9A-Z]{16}\b/g, "[secret]"],
-  [/\bxox[abpr]-[A-Za-z0-9-]{10,}/g, "[secret]"],
-  [/\b(Bearer)\s+[A-Za-z0-9._~+/-]{16,}=*/gi, "$1 [secret]"],
-  [/(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/g, "$1[secret]@"],
-  [
-    /\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password)[A-Za-z0-9_]*)\s*[:=]\s*["']?[^\s"']{6,}/gi,
-    "$1=[secret]",
-  ],
-];
-
-/** Known secret shapes replaced by [secret]; a `key = value` pair, a bearer and a URL's user keep their names. */
-export function scrubSecrets(text: string): string {
-  let out = text;
-  for (const [re, to] of SECRETS) out = out.replace(re, to);
-  return out;
-}
+/**
+ * Key-shaped strings (domain/secrets.ts) and `key = value` secrets replaced by [secret]; the pair, a
+ * bearer and a URL's user keep their names.
+ */
+export const scrubSecrets = (text: string): string =>
+  scrubSecretAssignments(scrubKeyShapes(text, "[secret]"), "[secret]");
 
 /** Research §5.3: code is not what Jev judges, and long state rots its answers. */
 export const BODY_MAX = 6000;

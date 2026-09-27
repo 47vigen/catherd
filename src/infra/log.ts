@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { MIN_SECRET, replaceSecrets, scrubKeyShapes, secretEnvValues } from "../domain/secrets.ts";
 import { logsDir } from "./paths.ts";
 import { appendJsonl, ensureJsonlHeader } from "./store.ts";
 
@@ -18,34 +19,28 @@ export function logLevel(): (typeof LEVELS)[number] {
 
 const rank = (l: string) => LEVELS.indexOf(l as (typeof LEVELS)[number]);
 
-/** Env names whose values are secrets: every `*_KEY` and `*_TOKEN`, and a few other shapes. */
-const SECRET_NAME = /(_KEY|_TOKEN|_SECRET|_PASSWORD)$/i;
-/** A value this short is never scrubbed: it would blank ordinary words. */
-const MIN_SECRET = 8;
-
 const extra = new Set<string>();
 /** A secret that lives outside the env (the saved Jev key): scrubbed from every row from now on. */
 export function addSecret(value: string | null | undefined): void {
   if (value && value.length >= MIN_SECRET) extra.add(value);
 }
 
-export function secretValues(env: Record<string, string | undefined> = process.env): string[] {
-  const vals = Object.entries(env)
-    .filter(([k, v]) => SECRET_NAME.test(k) && v !== undefined && v.length >= MIN_SECRET)
-    .map(([, v]) => v as string);
-  return [...new Set([...vals, ...extra])].sort((a, b) => b.length - a.length);
-}
+/** Every literal secret a row must not carry: credential-named env values and each added secret. */
+export const knownSecrets = (env: Record<string, string | undefined> = process.env): string[] => [
+  ...secretEnvValues(env),
+  ...extra,
+];
 
 const isPlain = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * `v` with every known secret replaced by `[redacted]`, in any string at any depth, and every env map
- * (a field named `env`) reduced to its keys.
+ * `v` with every known secret and every key-shaped string replaced by `[redacted]`, in any string at
+ * any depth, and every env map (a field named `env`) reduced to its keys.
  */
-export function redact<T>(v: T, secrets: string[] = secretValues()): T {
+export function redact<T>(v: T, secrets: string[] = knownSecrets()): T {
   const walk = (x: unknown, key: string | null): unknown => {
-    if (typeof x === "string") return secrets.reduce((s, secret) => s.split(secret).join("[redacted]"), x);
+    if (typeof x === "string") return scrubKeyShapes(replaceSecrets(x, secrets, "[redacted]"), "[redacted]");
     if (Array.isArray(x)) return x.map((y) => walk(y, null));
     if (isPlain(x)) {
       if (key === "env") return Object.keys(x).sort();

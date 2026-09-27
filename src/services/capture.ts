@@ -5,7 +5,8 @@ import type { BackendAdapter, FinishedRun } from "../adapters/backend.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import type { Access } from "../domain/record.ts";
-import { sanitize, type Scrub, secretValues } from "../domain/sanitize.ts";
+import { sanitize, type Scrub } from "../domain/sanitize.ts";
+import { secretEnvValues } from "../domain/secrets.ts";
 import { workerEnv } from "../infra/env.ts";
 import { git } from "../infra/git.ts";
 import { killGroup } from "../infra/proc.ts";
@@ -146,7 +147,7 @@ async function captureOne(
       costUsd: 0,
     }));
     const scrub: Scrub = {
-      secrets: secretValues(process.env),
+      secrets: secretEnvValues(process.env),
       paths: [
         { from: repo, to: "<repo>" },
         { from: work, to: "<tmp>" },
