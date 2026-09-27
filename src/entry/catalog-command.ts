@@ -9,12 +9,15 @@ import {
   refreshDiscovery,
   saveTreatLike,
 } from "../services/catalog-service.ts";
-import { exitCodeOf, printError } from "./cli-kit.ts";
+import { exitCodeOf, mark, printError } from "./cli-kit.ts";
 
-export function formatRefreshed(r: Refreshed): string {
-  return r.error
-    ? `! ${r.backend}: ${r.error}${r.fetchedAt ? ` (last listed ${r.fetchedAt})` : ""}`
-    : `✓ ${r.backend}: ${r.models} models`;
+/** One backend's refresh: its model count, else why it listed none, then its fix on a line of its own. */
+export function formatRefreshed(r: Refreshed, plain = false): string {
+  if (!r.error) return `${mark("ok", plain)} ${r.backend}: ${r.models} models`;
+  return [
+    `${mark("warn", plain)} ${r.backend}: ${r.error}${r.fetchedAt ? ` (last listed ${r.fetchedAt})` : ""}`,
+    ...(r.fix ? [`    fix: ${r.fix}`] : []),
+  ].join("\n");
 }
 
 export function formatModel(m: CatalogModel): string {

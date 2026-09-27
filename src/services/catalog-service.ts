@@ -135,6 +135,8 @@ export interface Refreshed {
   models: number;
   fetchedAt: string | null;
   error?: string;
+  /** the command that fixes `error`, when the backend's probe names one */
+  fix?: string;
 }
 
 /** Spec §5.2: `init`, `doctor` and `catherd catalog refresh` list every backend's models now. */
@@ -159,11 +161,15 @@ export async function refreshDiscovery(
       continue;
     }
     if (listed.length === 0) {
+      // a CLI that is missing (or not ready) lists nothing: say why, and keep only a listing that exists
+      const problem = (await adapter.probe().catch(() => null))?.problems[0];
+      const fetchedAt = readDiscovery(id, repo)?.fetchedAt ?? null;
       out.push({
         backend: id,
         models: 0,
-        fetchedAt: readDiscovery(id, repo)?.fetchedAt ?? null,
-        error: "listed no models; the previous listing is kept",
+        fetchedAt,
+        error: `${problem?.message ?? "listed no models"}${fetchedAt === null ? "" : "; the previous listing is kept"}`,
+        ...(problem?.fix ? { fix: problem.fix } : {}),
       });
       continue;
     }

@@ -107,9 +107,13 @@ describe("catherd catalog", () => {
     const r = catherd("refresh", "--json");
     const rows = JSON.parse(r.out) as { backend: string; models: number; error?: string }[];
     expect(rows.find((x) => x.backend === "claude-code")?.models).toBe(4);
-    expect(rows.find((x) => x.backend === "codex")?.error).toBe(
-      "listed no models; the previous listing is kept",
-    );
+    expect(rows.find((x) => x.backend === "codex")).toMatchObject({
+      error: "codex is not on PATH",
+      fix: "npm i -g @openai/codex",
+    });
     expect(r.code).toBe(0);
+    const text = catherd("refresh").out;
+    expect(text).toContain("! codex: codex is not on PATH\n    fix: npm i -g @openai/codex\n");
+    expect(text).not.toContain("previous listing");
   });
 });
