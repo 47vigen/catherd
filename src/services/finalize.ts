@@ -13,7 +13,8 @@ import {
   THREAD_HEAVY_INPUT,
   ZERO_TOKENS,
 } from "../domain/record.ts";
-import { dispatchPaths, readExit, tryClaim } from "../infra/dispatch-dir.ts";
+import { dispatchPaths, readClaimant, readExit, tryClaim } from "../infra/dispatch-dir.ts";
+import { isAlive } from "../infra/proc.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import {
   appendJsonl,
@@ -33,9 +34,6 @@ const text = (file: string): string => {
   }
 };
 
-/** A claim this old with no record was left by a finalizer that died between the two. */
-const CLAIM_STALE_MS = 30_000;
-
 function claimAgeMs(dir: string): number {
   try {
     return Date.now() - statSync(dispatchPaths(dir).claim).mtimeMs;
@@ -44,13 +42,15 @@ function claimAgeMs(dir: string): number {
   }
 }
 
-async function waitForRecord(run: Run, dispatchId: string, ms: number): Promise<RunRecord | null> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const r = readRecords(run).records.find((x) => x.dispatchId === dispatchId);
-    if (r || Date.now() >= end) return r ?? null;
-    await Bun.sleep(50);
-  }
+/**
+ * Whether another finalizer's claim may be taken over: its claimant is dead, or the claim is older than
+ * the longest a live claimant can take (its settle window, plus the margin for the rest of its compute).
+ * A claim that names no one (an older build's) is judged by its age alone.
+ */
+function claimStale(dir: string): boolean {
+  const who = readClaimant(dir);
+  if (who && !isAlive(who.pid, who.startTime)) return true;
+  return claimAgeMs(dir) > settleLimits.timeoutMs + settleLimits.claimMarginMs;
 }
 
 /** The owned paths of the run's other dispatches whose lifetime overlapped [start, end]. */
@@ -76,8 +76,12 @@ async function snapshotOrNull(repo: string): Promise<Snapshot | null> {
   }
 }
 
-/** How long a backend may take to settle a finished session before its stream's own figures stand. */
-export const settleLimits = { timeoutMs: 20_000 };
+/**
+ * How long a backend may take to settle a finished session before its stream's own figures stand, and
+ * how much longer than that a finalizer's claim may live (the git snapshot and the append around it)
+ * before a second finalizer takes it over.
+ */
+export const settleLimits = { timeoutMs: 20_000, claimMarginMs: 10_000 };
 
 /**
  * What earlier records on `thread` already counted: a resumed session's totals repeat them. Every run's,
@@ -245,18 +249,38 @@ function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
  * record and returns it. If the claimer died before appending, the late finalizer appends instead;
  * appendRecord's per-dispatch dedupe keeps that to one record either way (audit C2). A claimer that throws
  * releases its claim.
+ *
+ * In this process, a second finalizer (a `wait` beside the dispatch's watcher) joins the first one's
+ * promise. Across processes it waits for the claimant's record, and takes over only once the claim is
+ * stale (claimant dead, or past its settle window): never while a live claimant may still be settling.
  */
-export async function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord> {
-  const existing = readRecords(run).records.find((r) => r.dispatchId === d.admit.dispatchId);
-  if (existing) return existing;
-  const claimed = tryClaim(d.dir);
-  if (!claimed) {
-    const theirs = await waitForRecord(
-      run,
-      d.admit.dispatchId,
-      claimAgeMs(d.dir) > CLAIM_STALE_MS ? 0 : 10_000,
-    );
-    if (theirs) return theirs;
+export function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord> {
+  const id = d.admit.dispatchId;
+  const joined = inFlight.get(id);
+  if (joined) return joined;
+  const p = finalizeOnce(run, d).finally(() => inFlight.delete(id));
+  inFlight.set(id, p);
+  return p;
+}
+
+/** This process's finalizes in flight, by dispatch id. */
+const inFlight = new Map<string, Promise<RunRecord>>();
+
+const recordOf = (run: Run, id: string): RunRecord | undefined =>
+  readRecords(run).records.find((r) => r.dispatchId === id);
+
+async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
+  let claimed = false;
+  for (;;) {
+    const existing = recordOf(run, d.admit.dispatchId);
+    if (existing) return existing;
+    if (tryClaim(d.dir)) {
+      claimed = true;
+      break;
+    }
+    // a claim released by a claimer that threw is gone: claim it on the next turn
+    if (existsSync(dispatchPaths(d.dir).claim) && claimStale(d.dir)) break;
+    await Bun.sleep(50);
   }
   let saved: RunRecord;
   let mine: RunRecord;
