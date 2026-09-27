@@ -20,7 +20,17 @@ import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, fakeGit, freshRun, runRole, waitFor, writeLane } from "./helpers.ts";
+import { processStartTime } from "../../src/infra/proc.ts";
+import {
+  deadProcess,
+  fakeDeps,
+  fakeDispatch,
+  fakeGit,
+  freshRun,
+  runRole,
+  waitFor,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
@@ -460,6 +470,67 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     writeFileSync(release, "");
     expect((await pending).records).toHaveLength(1);
     expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
+  });
+});
+
+describe("collection is a lease: a crash between collecting and returning loses nothing (codex P2)", () => {
+  const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+  /** A finished dispatch a wait had collected, as its lease names `owner`: the marker is gone. */
+  async function leased(
+    run: Parameters<typeof fakeDispatch>[0],
+    owner: { pid: number; startTime: string | null },
+  ) {
+    const d = await fakeDispatch(run, {}, { proc: "dead", exit, reply: "ok\nSTATUS: complete — ok" });
+    writeFileSync(dispatchPaths(d.dir).lease, JSON.stringify(owner));
+    return d;
+  }
+
+  it("collects a lease whose owner died, returns its record and ends the lease", async () => {
+    const { run, deps } = setup(OK);
+    const d = await leased(run, { pid: await deadProcess(), startTime: "gone" });
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record.dispatchId)).toEqual([d.admit.dispatchId]);
+    expect(existsSync(dispatchPaths(d.dir).lease)).toBe(false);
+    expect(awaitsCollect(d.dir)).toBe(false);
+  });
+
+  it("lists a dead owner's lease in running when the names given leave it out", async () => {
+    const { run, deps } = setup(OK);
+    await leased(run, { pid: await deadProcess(), startTime: "gone" });
+    const w = await wait(deps, { run: run.id, names: ["worker-M9.L9"] });
+    expect(w.running).toEqual(["worker-M1.L1"]);
+  });
+
+  it("never takes a lease whose owner lives", async () => {
+    const { run, deps } = setup(OK);
+    const d = await leased(run, { pid: process.pid, startTime: processStartTime(process.pid) });
+    const w = await wait(deps, { run: run.id });
+    expect(w.records).toEqual([]);
+    expect(w.running).toEqual([]);
+    expect(existsSync(dispatchPaths(d.dir).lease)).toBe(true);
+  });
+
+  it("holds a lease, not nothing, while it fails over, and ends it when it returns", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    writeFileSync(release, "");
+    await waitFor(() => readRecords(run).records.length === 1);
+    await watchersSettled();
+    const d = listDispatches(run)[0] as { dir: string };
+    const real = state.refreshState;
+    const during: boolean[] = [];
+    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
+      during.push(existsSync(dispatchPaths(d.dir).lease));
+      return real(r, c);
+    });
+    try {
+      expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(during).toEqual([true]);
+    expect(existsSync(dispatchPaths(d.dir).lease)).toBe(false);
   });
 });
 

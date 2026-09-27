@@ -12,6 +12,8 @@ import {
   readExit,
   requestCancel,
   tryCollect,
+  endCollect,
+  putBackCollect,
 } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
@@ -220,7 +222,7 @@ export async function wait(
   let pause: string | null = null;
   let ticked = Date.now();
   const putBack = () => {
-    for (const d of taken) markForCollect(d.dir);
+    for (const d of taken) putBackCollect(d.dir);
   };
   try {
     for (;;) {
@@ -237,10 +239,12 @@ export async function wait(
           record = await finalizeDispatch(run, d);
         } catch (e) {
           // dropped, not retried: one dispatch that cannot be finalized must not hold every later wait
-          if (tryCollect(d.dir))
+          if (tryCollect(d.dir)) {
+            endCollect(d.dir);
             hints.push(
               `${d.admit.name}: not finalized: ${errorMessage(e)}; result(run, "${d.admit.name}") reads its record once it has one`,
             );
+          }
           continue;
         }
         if (signal?.aborted) break;
@@ -282,6 +286,9 @@ export async function wait(
   }
   // in the order the roles finished, however the polls happened to see them
   records.sort((a, b) => Date.parse(a.record.endedAt) - Date.parse(b.record.endedAt));
+  // the leases end only now, with the failovers launched and state.md refreshed: a crash before this
+  // leaves each lease to a dead owner, and the next wait collects that record again
+  for (const d of taken) endCollect(d.dir);
   return { records, started, running: pendingNames(run), hints };
 }
 
@@ -422,7 +429,10 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
-  const also = tryCollect(live.dir) ? [] : [`${name}: a wait in flight also returned this record`];
+  const mine = tryCollect(live.dir);
+  // cancel returns at once, so its lease ends at once
+  if (mine) endCollect(live.dir);
+  const also = mine ? [] : [`${name}: a wait in flight also returned this record`];
   const { hints } = await refreshState(run);
   return { record, hints: [...hintsFor(run, live, record), ...also, ...hints] };
 }

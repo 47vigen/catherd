@@ -296,6 +296,26 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
     expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
   });
 
+  it("re-collects a limit whose collector died after launching the stand-in: no second launch (lease)", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    const d = (await dispatch(deps, input(run.id))).dispatched;
+    const first = await wait(deps, { run: run.id });
+    expect(first.started).toHaveLength(1);
+    // as if that server died before its result went out: its lease on the limited record is left behind
+    const limited = listDispatches(run).find((x) => x.admit.dispatchId === d.dispatchId) as { dir: string };
+    writeFileSync(
+      dispatchPaths(limited.dir).lease,
+      JSON.stringify({ pid: await deadProcess(), startTime: "gone" }),
+    );
+    const again = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(again.records.map((r) => r.record.dispatchId)).toEqual([d.dispatchId]);
+    expect(again.started.map((s) => s.dispatchId)).toEqual(first.started.map((s) => s.dispatchId));
+    expect(listDispatches(run)).toHaveLength(2);
+  });
+
   it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {
     const release = held();
     const { run, deps } = setup({
