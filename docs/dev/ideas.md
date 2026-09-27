@@ -54,6 +54,36 @@ TUI.
   say "installing catherd…" before the resolve where possible (README: suggest `bun add -g catherd-cli` first).
 - **TUI first frame.** The Status tab shows "active · 0 profiles" before the profile list loads, then "1 profile".
 
+## From the 1.0.0 headless test (2026-09-27)
+
+`claude -p "/catherd:catherd ..."` on a scratch Bun + TypeScript repo, three independent utils plus an index, profile
+with `codex.isolated: true`. Finished in 5 min for $0.89 of Claude; `bun test` 21/21 and `tsc` clean.
+
+- **Parallel lanes work.** Three `dispatch` calls, then `wait({ all: true })`: the three Codex workers ran fully
+  overlapped (12:50:59 to 12:54:35); M1 took 3.6 min against 7.6 min of summed worker time. Plan 9 finding 1 is
+  fixed live.
+- **`route` skipped for 3 of 4 lanes.** The orchestrator routed M1.L1 only and reused its rung for L2, L3 and M2.L1;
+  `land` warned "no routed lane" and went on. This is a short run with no compaction, so it is not only the
+  compaction decay. Fix: `dispatch` with a `lane` routes it itself when `routes.jsonl` has no entry, or refuses with a
+  fix line.
+- **No reviewer and no verifier.** The orchestrator read the code, ran the tests and made both commits itself. Fix:
+  `land` refuses a milestone without a reviewer record and a verifier verdict, unless the call names why (and the
+  skill lists the allowed reasons).
+- **Replies carry no STATUS.** All four records have `replyStatus: null`: the orchestrator's briefs never asked for
+  the STATUS line, and `dispatch` does not add the role's reply contract itself. The auth runs 3 to 5 showed the same.
+  Fix: `dispatch` appends the role's reply contract (last line `STATUS: ...`) to every brief.
+- **Sandbox denies the network.** The worker's `bun install` failed on DNS inside `workspace-write`; it passed only
+  because `node_modules` already existed. Same root as the auth build's finding 1, on a trivial repo.
+- **Easy lanes start at the default rung.** All four "Difficulty: easy" lanes ran on `gpt-6-sol#medium`, not the
+  cheaper `gpt-6-luna#high` at the bottom of the ladder, under objective `cost`. The route should start at the
+  cheapest rung that clears the lane's difficulty.
+- **Worker first turn, isolated.** An easy lane still read 583k input tokens (L1); isolation does not make small lanes
+  cheap.
+- **Profile ladders can go down.** A ladder `... → sol#xhigh → luna#medium` validates clean. `validate` should warn when
+  a rung scores below the one before it. Inferred failover labels read oddly too:
+  `claude-code:claude-opus-5-5#low (treated like claude-opus-5-5#xhigh)`, and failover to a Claude rung spends the
+  Claude quota the user ranks last.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
