@@ -14,7 +14,7 @@ import {
 import { join } from "node:path";
 import { z } from "zod";
 import { EXIT_REASONS, type ExitInfo } from "../domain/record.ts";
-import { withFileLock } from "./filelock.ts";
+import { lockHeld, withFileLock } from "./filelock.ts";
 import { isAlive, selfIdentity } from "./proc.ts";
 import { PRIVATE_FILE, readVersioned } from "./store.ts";
 
@@ -29,6 +29,8 @@ export function dispatchPaths(dir: string) {
     exit: join(dir, "exit.json"),
     claim: join(dir, "claim"),
     cancel: join(dir, "cancel"),
+    /** held by the one supervisor of this dispatch for its lifetime (filelock, dead holders reclaimed) */
+    supervisorLock: join(dir, "supervisor.lock"),
     /** exists from launch until a `wait` hands the dispatch's record to the orchestrator */
     collect: join(dir, "collect"),
     /** while a `wait` hands the record back: names that wait's process, so a crash leaves it reclaimable */
@@ -268,3 +270,9 @@ export function readExit(dir: string): ExitInfo | null {
 export function requestCancel(dir: string): void {
   writeFileSync(dispatchPaths(dir).cancel, new Date().toISOString(), { mode: PRIVATE_FILE });
 }
+
+/** The target of the dispatch's supervisor lock (`supervisor.lock`, as `dispatchPaths` names it). */
+export const supervisorLockTarget = (dir: string): string => join(dir, "supervisor");
+
+/** Whether a live supervisor holds the dispatch: launch evidence even before launch.json or proc.json. */
+export const supervisorAlive = (dir: string): boolean => lockHeld(supervisorLockTarget(dir));

@@ -17,6 +17,7 @@ import {
 } from "../../src/services/dispatch-service.ts";
 import { isAlive, processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
+import { launchSupervisor } from "../../src/infra/launch.ts";
 import { admit } from "../../src/services/admission.ts";
 import {
   latestDispatch,
@@ -354,6 +355,37 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
     expect(w.records.map((r) => r.record.dispatchId)).toEqual([d.dispatchId]);
     expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
     expect(existsSync(launchPath(stand.d.dir))).toBe(true);
+    writeFileSync(release, "");
+    const next = await wait(deps, { run: run.id });
+    expect(next.records.map((r) => r.record)).toEqual([
+      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
+    ]);
+  });
+
+  it("reuses a stand-in whose collector died between spawning its supervisor and writing launch.json", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    const d = (await dispatch(deps, input(run.id))).dispatched;
+    await waitFor(() => readRecords(run).records.length === 1);
+    const stand = await admit(deps, run, {
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "Read lanes/M1.L1.md",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      lane: "M1.L1",
+      failoverFrom: "codex:gpt-6-sol#medium",
+      failoverOf: d.dispatchId,
+    });
+    // the collector spawned the supervisor and died before launch.json: the supervisor holds the dispatch
+    launchSupervisor(stand.specPath);
+    await waitFor(() => existsSync(dispatchPaths(stand.d.dir).supervisorLock));
+    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
+    // reused, not launched again: recovery never wrote a launch.json of its own
+    expect(existsSync(launchPath(stand.d.dir))).toBe(false);
     writeFileSync(release, "");
     const next = await wait(deps, { run: run.id });
     expect(next.records.map((r) => r.record)).toEqual([

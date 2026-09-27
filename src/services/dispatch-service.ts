@@ -9,6 +9,7 @@ import {
   awaitsCollect,
   dispatchPaths,
   readExit,
+  supervisorAlive,
   requestCancel,
   tryCollect,
   endCollect,
@@ -303,12 +304,17 @@ export async function wait(
 }
 
 /**
- * Whether a dispatch has concrete launch evidence: launch.json (written by `launch` right after the spawn),
- * proc.json (written by the supervisor once its worker runs) or exit.json. Not the collect mark or lease:
- * `start` writes the mark before it launches, so a mark alone may belong to a stand-in that never ran.
+ * Whether a dispatch has concrete launch evidence: a live supervisor holding its lock (taken first thing),
+ * launch.json (written by `launch` right after the spawn), proc.json (written by the supervisor once its
+ * worker runs) or exit.json. Not the collect mark or lease: admission writes the mark before any launch.
  */
 function launched(d: Dispatch): boolean {
-  return existsSync(launchPath(d.dir)) || readProc(d.dir) !== null || readExit(d.dir) !== null;
+  return (
+    supervisorAlive(d.dir) ||
+    existsSync(launchPath(d.dir)) ||
+    readProc(d.dir) !== null ||
+    readExit(d.dir) !== null
+  );
 }
 
 const recordOf = (run: Run, d: Dispatch): boolean =>
@@ -361,10 +367,9 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
   if (already && !recordOf(run, already) && dispatchState(already, deps.now()) === "starting") {
     // Admitted (maybe marked) by a collector that died before launching it: launch it now, never report
     // it unlaunched. Only the collector holding the limited record launches its stand-in, and we hold that
-    // record now, so that collector is dead and no one else is mid-spawn. The one residual window: it died
-    // after spawning the supervisor and before writing launch.json, and this recovery runs before that
-    // supervisor, only milliseconds old, writes proc.json; recovery runs in a later wait, after the dead
-    // collector's lease is seen dead, so the supervisor has long written proc.json (or died) by then.
+    // record now, so that collector is dead. If it died after spawning a supervisor that has not taken the
+    // dispatch's lock yet, the second supervisor started here and that one race for the lock: exactly one
+    // runs the worker, the other exits touching nothing (supervisor.ts), so no worker ever runs twice.
     start(already, dispatchPaths(already.dir).spec);
     watch(deps, run, already);
     return failedOver(already.admit.rung, already);

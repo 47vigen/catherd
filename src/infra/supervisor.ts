@@ -3,7 +3,8 @@ import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } f
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import type { ExitInfo, ExitReason } from "../domain/record.ts";
-import { dispatchPaths } from "./dispatch-dir.ts";
+import { dispatchPaths, supervisorLockTarget } from "./dispatch-dir.ts";
+import { tryLock } from "./filelock.ts";
 import { log } from "./log.ts";
 import { killGroup, processStartTime } from "./proc.ts";
 import { PRIVATE_FILE, writeJsonAtomic } from "./store.ts";
@@ -101,7 +102,27 @@ async function stopGroup(pgid: number, graceMs: number, pollMs: number): Promise
   }
 }
 
-export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {}): Promise<ExitInfo> {
+/**
+ * Supervises one dispatch's worker, as the dispatch's only supervisor: it first takes the dispatch's
+ * supervisor lock (a dead holder's is reclaimed) and holds it for its whole life. A supervisor that finds
+ * a live one holding it returns null at once, before opening events or stderr (opened with "w") and
+ * without exit.json, so a relaunch (recovery after a collector died between spawn and launch.json) never
+ * starts a second worker.
+ */
+export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {}): Promise<ExitInfo | null> {
+  const release = tryLock(supervisorLockTarget(spec.dispatchDir));
+  if (!release) {
+    log("info", "supervise", { dispatch: spec.dispatchDir, skipped: "another supervisor holds it" });
+    return null;
+  }
+  try {
+    return await superviseHeld(spec, hooks);
+  } finally {
+    release();
+  }
+}
+
+async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promise<ExitInfo> {
   const p = dispatchPaths(spec.dispatchDir);
   const finish = (info: ExitInfo): ExitInfo => {
     writeJsonAtomic(p.exit, { schema: 1, ...info });

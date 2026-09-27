@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ACCESS, type RunRecord } from "../domain/record.ts";
 import { ROLES } from "../domain/roles.ts";
-import { dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
+import { dispatchPaths, readExit, supervisorAlive } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
@@ -99,6 +99,8 @@ export const readProc = (dir: string): ProcFile | null => readJson<ProcFile>(dis
  */
 export function dispatchState(d: Dispatch, now = Date.now()): DispatchState {
   if (readExit(d.dir)) return "finished";
+  // a live supervisor holds its dispatch's lock from its first moment, before launch.json or proc.json
+  if (!readProc(d.dir) && supervisorAlive(d.dir)) return "starting";
   const proc = readProc(d.dir);
   if (proc)
     return isAlive(proc.supervisorPid, proc.supervisorStartTime) || isAlive(proc.pid, proc.startTime)

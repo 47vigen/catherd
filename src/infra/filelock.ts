@@ -151,3 +151,9 @@ export function tryLock(target: string): (() => void) | null {
   }
   return () => release(lock, self);
 }
+
+/** Whether a live process holds the lock on `target` (an unreadable holder counts as none). */
+export function lockHeld(target: string): boolean {
+  const h = readHolder(`${target}.lock`);
+  return h !== null && isAlive(h.pid, h.startTime);
+}

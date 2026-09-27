@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
@@ -80,5 +80,38 @@ describe("supervise-bin", () => {
     });
     launchSupervisor(p.spec);
     expect(await until(() => readExit(dir), 20_000)).toMatchObject({ code: 0, reason: "exited" });
+  }, 30_000);
+});
+
+describe("two supervisors launched for one dispatch", () => {
+  it("run exactly one worker; the other exits without touching events or exit.json", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "catherd-supbin-"));
+    const p = dispatchPaths(dir);
+    const count = join(dir, "workers");
+    const release = join(dir, "release");
+    writeJsonAtomic(p.spec, {
+      schema: 1,
+      backend: "codex",
+      dispatchDir: dir,
+      cmd: "sh",
+      args: ["-c", `echo run >> '${count}'; echo '{}'; while [ ! -f '${release}' ]; do sleep 0.02; done`],
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: dir,
+      stdinPath: null,
+      idleMs: 60_000,
+      wallMs: 60_000,
+      killGraceMs: 200,
+      graceAfterFinalMs: null,
+      pollMs: 20,
+    });
+    const a = launchSupervisor(p.spec);
+    const b = launchSupervisor(p.spec);
+    // one of them holds the dispatch and runs its worker; the other leaves without writing anything
+    expect(await until(() => !isAlive(a, null) || !isAlive(b, null), 20_000)).toBe(true);
+    expect(await until(() => existsSync(count), 20_000)).toBe(true);
+    expect(readExit(dir)).toBeNull();
+    writeFileSync(release, "");
+    expect((await until(() => readExit(dir), 20_000))?.reason).toBe("exited");
+    expect(readFileSync(count, "utf8")).toBe("run\n");
   }, 30_000);
 });
