@@ -82,6 +82,7 @@ const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): Run
   },
   agents: { runs: 0, totalTokens: 0, costUsd: 0 },
   jev: { decisions: 0, fallbacks: 0 },
+  harness: [],
   budget: null,
   milestones: [],
   warnings: [],

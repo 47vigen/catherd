@@ -19,11 +19,12 @@ import {
   appendLedger,
   appendRecord,
   appendRoute,
+  createRun,
   readRecords,
   runPaths,
 } from "../../src/services/run-store.ts";
 import { runsSummary, status, summarizeRun } from "../../src/services/summary.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { deadProcess, fakeDeps, fakeDispatch, fakeGit, freshRun, makeRecord, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -160,20 +161,79 @@ describe("status and summaries", () => {
     expect(s.agents).toEqual([{ rung: "claude:claude-opus-5-5#low", runs: 1, totalTokens: 5, secs: 7 }]);
   });
 
+  const harnessRow = (backend: string, isolated: boolean, firstTurnInput: number) =>
+    `${JSON.stringify({ backend, isolated, firstTurnInput })}\n`;
+  const harnessRows = (backend: string, isolated: boolean, inputs: number[]) =>
+    inputs.map((i) => harnessRow(backend, isolated, i)).join("");
+
   it("reports the harness cost as median first-turn input in whole tokens", () => {
     const { run } = freshRun();
-    const row = (isolated: boolean, firstTurnInput: number) =>
-      `${JSON.stringify({ backend: "codex", isolated, firstTurnInput })}\n`;
-    appendFileSync(runPaths(run.dir).harness, row(false, 100) + row(false, 103) + row(true, 40));
+    appendFileSync(
+      runPaths(run.dir).harness,
+      harnessRows("claude-code", false, [100, 103, 104, 110]) +
+        harnessRows("claude-code", true, [40, 41, 45]),
+    );
     expect(runsSummary({ run: run.id }).harness).toEqual([
       {
-        backend: "codex",
-        nativeRuns: 2,
-        isolatedRuns: 1,
-        nativeMedian: 102,
-        isolatedMedian: 40,
-        extraPerRun: 62,
+        backend: "claude-code",
+        nativeRuns: 4,
+        isolatedRuns: 3,
+        nativeMedian: 104,
+        isolatedMedian: 41,
+        extraPerRun: 63,
       },
+    ]);
+  });
+
+  it("gives no harness figure with fewer than 3 runs a side, or when native is not dearer", () => {
+    const { run } = freshRun();
+    appendFileSync(
+      runPaths(run.dir).harness,
+      harnessRows("claude-code", false, [100, 103]) +
+        harnessRows("claude-code", true, [40, 41, 45]) +
+        harnessRows("opencode", false, [50, 50, 50]) +
+        harnessRows("opencode", true, [60, 60, 60]),
+    );
+    expect(runsSummary({ run: run.id }).harness.map((h) => [h.backend, h.extraPerRun])).toEqual([
+      ["claude-code", null],
+      ["opencode", null],
+    ]);
+  });
+
+  it("with a run given, compares that repo's runs and ignores other repos'", () => {
+    const { repo, run } = freshRun();
+    const sibling = createRun({ repo, title: "s", aLines: ["A1"], version: "0.0.0-test" });
+    const elsewhere = createRun({ repo: tempRepo(), title: "e", aLines: ["A1"], version: "0.0.0-test" });
+    appendFileSync(runPaths(run.dir).harness, harnessRows("claude-code", false, [100, 100]));
+    appendFileSync(
+      runPaths(sibling.dir).harness,
+      harnessRows("claude-code", false, [100]) + harnessRows("claude-code", true, [40, 40, 40]),
+    );
+    appendFileSync(
+      runPaths(elsewhere.dir).harness,
+      harnessRows("claude-code", false, [9000, 9000, 9000]) + harnessRows("claude-code", true, [1, 1, 1]),
+    );
+    expect(runsSummary({ run: run.id }).harness).toEqual([
+      {
+        backend: "claude-code",
+        nativeRuns: 3,
+        isolatedRuns: 3,
+        nativeMedian: 100,
+        isolatedMedian: 40,
+        extraPerRun: 60,
+      },
+    ]);
+  });
+
+  it("shows how many of this run's dispatches ran native and isolated, per backend", async () => {
+    const { run } = freshRun();
+    await appendRecord(run, makeRecord({ dispatchId: "D1", backend: "codex", isolated: false }));
+    await appendRecord(run, makeRecord({ dispatchId: "D2", backend: "codex", isolated: false }));
+    await appendRecord(run, makeRecord({ dispatchId: "D3", backend: "codex", isolated: true }));
+    await appendRecord(run, makeRecord({ dispatchId: "D4", backend: "claude-code", isolated: false }));
+    expect(status(fakeDeps(), run.id).runs[0]?.harness).toEqual([
+      { backend: "claude-code", native: 1, isolated: 0 },
+      { backend: "codex", native: 2, isolated: 1 },
     ]);
   });
 });

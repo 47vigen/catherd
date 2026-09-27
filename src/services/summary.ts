@@ -28,6 +28,8 @@ export interface RunSummary {
   /** native subagent runs, as the orchestrator reported them: reported, not measured (spec §14) */
   agents: { runs: number; totalTokens: number; costUsd: number };
   jev: { decisions: number; fallbacks: number };
+  /** per backend, how many of this run's dispatches ran with the user's harness (native) and isolated */
+  harness: { backend: string; native: number; isolated: number }[];
   budget: BudgetStatus | null;
   milestones: string[];
   warnings: string[];
@@ -76,6 +78,14 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     },
     // a lane or default source is a decision Jev did not make
     jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
+    harness: [...new Set(records.map((r) => r.backend))].sort().map((backend) => {
+      const of = records.filter((r) => r.backend === backend);
+      return {
+        backend,
+        native: of.filter((r) => !r.isolated).length,
+        isolated: of.filter((r) => r.isolated).length,
+      };
+    }),
     budget,
     milestones: nonBlankLines(runPaths(run.dir).ledger).slice(1),
     warnings,
@@ -121,22 +131,32 @@ function tokenMedian(xs: number[]): number | null {
   return m === null ? null : Math.round(m);
 }
 
-/** What the user's own harness setup costs per run: median first-turn input, native against isolated. */
+/** Fewer first-turn samples than this on either side, and the harness line gives no figure. */
+const HARNESS_MIN_RUNS = 3;
+
+/**
+ * What the user's own harness setup costs per run: median first-turn input, native against isolated.
+ * No figure below HARNESS_MIN_RUNS a side, nor when native is not dearer: noise, not a cost.
+ */
 function harnessCosts(runs: Run[]): HarnessCost[] {
   type Row = { backend: string; isolated: boolean; firstTurnInput: number };
   const rows = runs.flatMap((r) => readJsonl<Row>(runPaths(r.dir).harness).rows);
   return [...new Set(rows.map((r) => r.backend))].sort().map((backend) => {
     const pick = (isolated: boolean) =>
       rows.filter((r) => r.backend === backend && r.isolated === isolated).map((r) => r.firstTurnInput);
+    const nativeRuns = pick(false).length;
+    const isolatedRuns = pick(true).length;
     const native = tokenMedian(pick(false));
     const isolated = tokenMedian(pick(true));
+    const enough = nativeRuns >= HARNESS_MIN_RUNS && isolatedRuns >= HARNESS_MIN_RUNS;
+    const extra = native !== null && isolated !== null ? native - isolated : 0;
     return {
       backend,
-      nativeRuns: pick(false).length,
-      isolatedRuns: pick(true).length,
+      nativeRuns,
+      isolatedRuns,
       nativeMedian: native,
       isolatedMedian: isolated,
-      extraPerRun: native !== null && isolated !== null ? native - isolated : null,
+      extraPerRun: enough && extra > 0 ? extra : null,
     };
   });
 }
@@ -149,10 +169,13 @@ export function runsSummary(f: { run?: string; repo?: string; role?: string; sin
 } {
   const since = f.sinceDays ? Date.now() - f.sinceDays * 86_400_000 : 0;
   const repo = f.repo ? resolve(f.repo) : null;
-  const runs = listRuns().runs.filter(
-    (r) =>
-      (!f.run || r.id === f.run) && (!repo || r.meta.repo === repo) && Date.parse(r.meta.createdAt) >= since,
+  const all = listRuns().runs.filter(
+    (r) => (!repo || r.meta.repo === repo) && Date.parse(r.meta.createdAt) >= since,
   );
+  const runs = all.filter((r) => !f.run || r.id === f.run);
+  // with a run given, the harness line compares like with like: every run of that run's repo
+  const harnessRepo = f.run ? runs[0]?.meta.repo : undefined;
+  const harnessRuns = f.run ? all.filter((r) => r.meta.repo === harnessRepo) : runs;
   const stats = new Map<string, RungStats>();
   const at = (role: string, rung: string): RungStats => {
     const key = `${role} ${rung}`;
@@ -199,6 +222,6 @@ export function runsSummary(f: { run?: string; repo?: string; role?: string; sin
   return {
     rungs: [...stats.values()].sort((a, b) => a.role.localeCompare(b.role) || a.rung.localeCompare(b.rung)),
     agents: [...agents.values()].sort((a, b) => a.rung.localeCompare(b.rung)),
-    harness: harnessCosts(runs),
+    harness: harnessCosts(harnessRuns),
   };
 }

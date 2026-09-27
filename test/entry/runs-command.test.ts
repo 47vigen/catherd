@@ -40,6 +40,10 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
   },
   agents: { runs: 1, totalTokens: 50_000, costUsd: 0 },
   jev: { decisions: 3, fallbacks: 1 },
+  harness: [
+    { backend: "claude-code", native: 0, isolated: 1 },
+    { backend: "codex", native: 2, isolated: 0 },
+  ],
   budget: { fraction: 0.5, minutes: { spent: 30, cap: 60 } },
   milestones: ["M1 | the parser | abc123 | 12 | bun test"],
   warnings: ["runs.jsonl: skipped 1 unreadable row(s)"],
@@ -54,6 +58,7 @@ describe("formatRun", () => {
       "  live worker-M1.L1  codex:gpt-6-sol#medium  running 42s",
       "  done 3 role run(s), 2 ok; not ok: reviewer-M1 (failed)",
       "  tokens 120,000 in (90,000 cached) · 8,000 out · $0.50 · native agents 1 run(s), 50,000 tokens (reported)",
+      "  harness claude-code 0 native, 1 isolated · codex 2 native, 0 isolated",
       "  budget 30/60 min (50%)",
       "  jev 3 decision(s), 1 fallback(s)",
       "  landed M1 | the parser | abc123 | 12 | bun test",
