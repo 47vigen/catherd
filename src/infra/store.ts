@@ -23,23 +23,30 @@ export const PRIVATE_DIR = 0o700;
 export const PRIVATE_FILE = 0o600;
 
 const tightened = new Set<string>();
-/** Once per process: the config or data dir holding `dir`, if an older catherd left it open to others. */
-function tightenRoot(dir: string): void {
-  for (const root of [configDir(), dataDir()]) {
-    if (tightened.has(root) || (dir !== root && !dir.startsWith(root + sep))) continue;
-    tightened.add(root);
-    try {
-      if (statSync(root).mode & 0o077) chmodSync(root, PRIVATE_DIR);
-    } catch {
-      // not ours to fix (another owner, a read-only mount): the files inside are still 0600
-    }
+/** Once per process per dir: `dir` at 0700, if an older catherd left it open to others. */
+function tighten(dir: string): void {
+  if (tightened.has(dir)) return;
+  tightened.add(dir);
+  try {
+    if (statSync(dir).mode & 0o077) chmodSync(dir, PRIVATE_DIR);
+  } catch {
+    // not ours to fix (another owner, a read-only mount): the files inside are still 0600
   }
 }
 
-/** `dir` and any missing parent, created 0700; catherd's own config or data dir is tightened to 0700. */
+/**
+ * `dir` and any missing parent, created 0700. `mkdirSync` leaves an existing dir as it is, so under
+ * catherd's config or data dir, `dir` and every dir up to that root are tightened to 0700 (a 0.x install).
+ */
 export function ensurePrivateDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
-  tightenRoot(dir);
+  for (const root of [configDir(), dataDir()]) {
+    if (dir !== root && !dir.startsWith(root + sep)) continue;
+    for (let d = dir; d.length >= root.length; d = dirname(d)) {
+      tighten(d);
+      if (d === root) break;
+    }
+  }
 }
 
 /** `file` at 0600 when it exists and others may read it: a file another program wrote into catherd's dirs. */
@@ -145,7 +152,21 @@ function endsMidLine(file: string): boolean {
 export function appendJsonl(file: string, value: unknown): void {
   ensurePrivateDir(dirname(file));
   const prefix = endsMidLine(file) ? "\n" : "";
-  appendFileSync(file, `${prefix}${JSON.stringify(value)}\n`, { mode: PRIVATE_FILE });
+  appendPrivate(file, `${prefix}${JSON.stringify(value)}\n`);
+}
+
+const madePrivate = new Set<string>();
+/**
+ * Appends `text` to `file`, created 0600. `appendFileSync`'s mode only applies to a new file, so one
+ * an older catherd left open to others is tightened first, once per process.
+ */
+export function appendPrivate(file: string, text: string): void {
+  ensurePrivateDir(dirname(file));
+  if (!madePrivate.has(file)) {
+    makePrivate(file);
+    madePrivate.add(file);
+  }
+  appendFileSync(file, text, { mode: PRIVATE_FILE });
 }
 
 export function ensureJsonlHeader(file: string, kind: string): void {

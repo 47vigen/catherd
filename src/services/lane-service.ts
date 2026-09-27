@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
-import { dirname, relative, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
@@ -28,7 +28,7 @@ import {
   runPaths,
 } from "./run-store.ts";
 import { type Notes, type NotesPatch, refreshState } from "./state.ts";
-import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
+import { appendPrivate } from "../infra/store.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
@@ -216,12 +216,9 @@ export async function land(
       `land: no routed lane is in milestone "${i.milestone}" (routed: ${routed.slice(0, 5).join(", ")}${routed.length > 5 ? ", …" : ""}); check its name: no lane outcome was recorded`,
     );
   if (i.learned) {
-    const file = knowledgeFile(run.meta.repo);
-    ensurePrivateDir(dirname(file));
-    appendFileSync(
-      file,
+    appendPrivate(
+      knowledgeFile(run.meta.repo),
       `- ${now.toISOString().slice(0, 10)} ${run.meta.title} ${i.milestone}: ${cell(i.learned)}\n`,
-      { mode: PRIVATE_FILE },
     );
   }
   return { ledger: row, minutes, ...withHints(hints) };

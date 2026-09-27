@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
@@ -13,7 +13,7 @@ import {
   ensureJsonlHeader,
   ensurePrivateDir,
   PRIVATE_DIR,
-  PRIVATE_FILE,
+  appendPrivate,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
@@ -232,7 +232,7 @@ export function appendAgentRun(run: Run, a: AgentRun): void {
 }
 
 export function appendLedger(run: Run, row: string): void {
-  appendFileSync(runPaths(run.dir).ledger, `${row}\n`, { mode: PRIVATE_FILE });
+  appendPrivate(runPaths(run.dir).ledger, `${row}\n`);
 }
 
 /** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel. */

@@ -16,7 +16,9 @@ import { z } from "zod";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   appendJsonl,
+  appendPrivate,
   ensureJsonlHeader,
+  ensurePrivateDir,
   nonBlankLines,
   readJsonl,
   readVersioned,
@@ -160,6 +162,35 @@ describe("private modes (audit S2)", () => {
     appendJsonl(join(home, "data", "logs", "x.jsonl"), { a: 1 });
     expect(openModes(home)).toEqual([]);
   });
+
+  it.skipIf(noPosixModes)(
+    "tightens the existing nested dirs and append targets a 0.x catherd left open",
+    () => {
+      const home = withHome();
+      const runs = join(home, "data", "repos", "r-1", "runs");
+      const logs = join(home, "data", "logs");
+      for (const d of [runs, logs]) mkdirSync(d, { recursive: true, mode: 0o755 });
+      for (const d of [
+        join(home, "data"),
+        join(home, "data", "repos"),
+        join(home, "data", "repos", "r-1"),
+        runs,
+        logs,
+      ])
+        chmodSync(d, 0o755);
+      const log = join(logs, "old.jsonl");
+      const knowledge = join(home, "data", "repos", "r-1", "knowledge.md");
+      writeFileSync(log, "{}\n", { mode: 0o644 });
+      writeFileSync(knowledge, "- old\n", { mode: 0o644 });
+      chmodSync(log, 0o644);
+      chmodSync(knowledge, 0o644);
+      ensurePrivateDir(runs);
+      appendJsonl(log, { a: 1 });
+      appendPrivate(knowledge, "- new\n");
+      expect(openModes(home)).toEqual([]);
+      expect(readFileSync(knowledge, "utf8")).toBe("- old\n- new\n");
+    },
+  );
 });
 
 describe("nonBlankLines", () => {
