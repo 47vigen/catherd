@@ -39,11 +39,10 @@ const BackendModelSchema = z.object({
   context: z.number().int().positive(),
 });
 
+/** `vendor` and `status` (current or legacy) stay in the data as documentation; nothing reads them. */
 const FamilySchema = z.looseObject({
   id: z.string().min(1),
   name: z.string(),
-  vendor: z.enum(["openai", "anthropic"]),
-  status: z.enum(["current", "legacy"]).default("current"),
   capabilities: z.object({ toolUse: z.boolean(), imageIn: z.boolean(), reasoning: z.boolean() }),
   /** API list price, dollars per million tokens */
   price: z.object({ input: z.number(), cached: z.number(), output: z.number() }),
@@ -56,10 +55,10 @@ const FamilySchema = z.looseObject({
 });
 export type Family = z.infer<typeof FamilySchema>;
 
+/** `sources` (where the data came from) stays in the file as documentation; nothing reads it. */
 export const ModelsFileSchema = z.looseObject({
   schema: z.literal(1),
   version: z.string(),
-  sources: z.record(z.string(), z.string()),
   backends: z.record(
     z.string(),
     z.looseObject({
@@ -90,6 +89,7 @@ const BarSchema = z.partialRecord(z.enum(DIMS), z.number());
 type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
 const BarsSchema = z.record(z.enum(KINDS), z.record(z.enum(DIFFICULTIES), BarSchema));
 
+/** `barsWhy` (the reasoning behind the bars) stays in the file as documentation; nothing reads it. */
 export const ScoresFileSchema = z.looseObject({
   schema: z.literal(1),
   version: z.string(),
