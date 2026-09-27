@@ -146,7 +146,7 @@ export function moveRolesFix(install: string, id: string, to: string, profiles: 
       (p) => p.roles[role].enabled && pick(p).some((r) => r !== undefined && backendOf(r) === id),
     );
   const roles = ROLES.filter((r) => on(r, (p) => p.roles[r].rungs));
-  const stuck = to === "codex" ? [] : roles.filter((r) => r === "artist");
+  const stuck: Role[] = to === "codex" ? [] : roles.filter((r) => r === "artist");
   const move = roles.filter((r) => !stuck.includes(r));
   const defaults = move.filter((r) => on(r, (p) => [p.roles[r].defaultRung]));
   const parts = [install];
