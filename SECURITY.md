@@ -54,11 +54,12 @@ repository itself.
 
 ## Secret redaction
 
-- Every log row is redacted before it is written: the value of any environment variable whose name ends in `_KEY`,
-  `_TOKEN`, `_SECRET` or `_PASSWORD` (8 characters or longer) and the saved Jev key become `[redacted]`, and any
-  environment map is reduced to its variable names.
-- `catherd capture-fixtures` strips secrets, e-mail addresses and home paths from the streams it records before
-  writing them.
+- Every log row is redacted before it is written: the value of any environment variable whose name contains
+  `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` (8 characters or longer), the saved Jev key, and anything
+  shaped like a key (private-key blocks, `sk-…`, GitHub, AWS and Slack tokens, `Bearer …`, a URL's password)
+  become `[redacted]`, and any environment map is reduced to its variable names.
+- `catherd capture-fixtures` applies the same rule, and also strips e-mail addresses and home paths, from the
+  streams it records before writing them.
 
 ## Network
 
