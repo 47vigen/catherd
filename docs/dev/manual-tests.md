@@ -196,7 +196,7 @@ an already-registered agent's symlink changes its behavior live (S2a), and wheth
 
 **Record:** S2a live yes/no; S2b scanned yes/no, and the name it registered under. S2b
 decides whether catherd's agent links (written by `ProfileService` in
-`src/services/profile-service.ts`: each agent file lives in `<config>/agents/<profile>/`
+`src/services/agent-links.ts`: each agent file lives in `<config>/agents/<profile>/`
 and gets one symlink in `~/.claude/agents/`) could become one symlinked directory per
 profile instead of one link per agent. S2a changes no code either way (an agent's file name and `name`
 already encode its role, model and effort, so retargeting its link changes nothing

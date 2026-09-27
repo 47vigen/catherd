@@ -59,7 +59,8 @@ domain -> infra -> adapters -> services -> entry
 ```
 
 `test/architecture.test.ts` enforces it. `src/cli.ts` is the entry point; each backend (Codex, Claude Code,
-opencode) is an adapter under `src/adapters/`.
+opencode) is an adapter under `src/adapters/`. Each CLI subcommand lives in `src/entry/<name>-command.ts`
+(the MCP server's in `src/entry/mcp/command.ts`).
 
 ## Commits and pull requests
 

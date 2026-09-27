@@ -215,7 +215,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     ensurePrivateDir(dir);
     writeTextAtomic(p.brief, i.brief);
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
-    // time (src/entry/supervise.ts), so no credential is ever written to disk. 0600 all the same.
+    // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(
       p.spec,
       {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSlots } from "../../src/entry/lock.ts";
+import { resolveSlots } from "../../src/entry/lock-command.ts";
 import { heavySlots } from "../../src/infra/heavy-lock.ts";
 import { killGroup } from "../../src/infra/proc.ts";
 import { exited, snapshotEnv, withHome } from "../helpers.ts";

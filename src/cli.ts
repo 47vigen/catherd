@@ -47,10 +47,11 @@ export const main: Command = defineCommand({
     profile: () => import("./entry/profile-command.ts").then((m) => m.profileCommand),
     doctor: () => import("./entry/doctor-command.ts").then((m) => m.doctorCommand),
     catalog: () => import("./entry/catalog-command.ts").then((m) => m.catalogCommand),
-    lock: () => import("./entry/lock.ts").then((m) => m.lockCommand),
-    "capture-fixtures": () => import("./entry/capture-fixtures.ts").then((m) => m.captureFixturesCommand),
+    lock: () => import("./entry/lock-command.ts").then((m) => m.lockCommand),
+    "capture-fixtures": () =>
+      import("./entry/capture-fixtures-command.ts").then((m) => m.captureFixturesCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
-    _supervise: () => import("./entry/supervise.ts").then((m) => m.superviseCommand),
+    _supervise: () => import("./entry/supervise-command.ts").then((m) => m.superviseCommand),
   },
   // citty runs this after any subcommand too; only a bare `catherd` loads and opens the dashboard
   async run(ctx) {
@@ -94,7 +95,7 @@ async function helpText(cmd: Command, path: string[]): Promise<string> {
     ? defineCommand({ meta: { name: ["catherd", ...path.slice(0, -1)].join(" "), version: VERSION } })
     : undefined;
   let text = await renderUsage(shown, parent);
-  const usage = path[0] === "lock" ? (await import("./entry/lock.ts")).LOCK_USAGE : undefined;
+  const usage = path[0] === "lock" ? (await import("./entry/lock-command.ts")).LOCK_USAGE : undefined;
   if (usage) text = text.replace(/^(\S*USAGE\S*) .*$/m, (_, head: string) => `${head} ${usage}`);
   return process.stdout.isTTY && !process.env.NO_COLOR ? text : stripAnsi(text);
 }

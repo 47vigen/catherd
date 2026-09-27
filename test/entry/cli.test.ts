@@ -177,7 +177,7 @@ describe("catherd (spec §8)", () => {
   });
 
   it("never loads OpenTUI or React for mcp, lock or _supervise (spec §3.1)", () => {
-    for (const entry of ["entry/mcp/command.ts", "entry/lock.ts", "entry/supervise.ts"]) {
+    for (const entry of ["entry/mcp/command.ts", "entry/lock-command.ts", "entry/supervise-command.ts"]) {
       const g = importGraph(join(SRC, entry));
       expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
       expect(g.files.filter((f) => f.startsWith("entry/tui/"))).toEqual([]);
