@@ -6,8 +6,8 @@
  (")(")
 ```
 
-Autopilot builds from your own Claude Code session. Claude plans and verifies, Codex and opencode
-workers write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
+Autopilot builds from your own Claude Code session. Claude plans and verifies, Codex, opencode or
+headless Claude Code workers write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
 of work, climbing a ladder only when a cheaper rung falls short.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
@@ -24,9 +24,14 @@ of work, climbing a ladder only when a cheaper rung falls short.
 
 - [Bun](https://bun.sh) ≥ 1.4
 - [Claude Code](https://claude.com/claude-code) (desktop app or CLI)
-- At least one worker backend: [Codex CLI](https://github.com/openai/codex) and/or
-  [opencode](https://opencode.ai), logged in
+- At least one worker backend, logged in:
+  - [Codex CLI](https://github.com/openai/codex) 0.157.0 or newer
+  - [opencode](https://opencode.ai) **v2**, 2.0.16 or newer: `curl -fsSL https://opencode.ai/v2/install | bash`
+    (the npm package `opencode-ai` is v1 and is not supported)
+  - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
+
+`catherd doctor` checks each backend's version and login and prints the fix for anything missing.
 
 ## Install
 
@@ -70,6 +75,8 @@ In a terminal:
 | `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                   |
 | `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                  |
 | `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty) |
+| `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                         |
+| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)       |
 
 A profile command without a profile name (`show`, `set`, `diff`, `validate`), like the MCP profile tools, acts
 on the profile the repo you are in runs on: the one bound to it, else the active one. Run them as
@@ -80,6 +87,23 @@ and `--reduced-motion`; `doctor` takes `--plain` too.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
+
+### Environment variables
+
+| Variable                    | What it does                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `TYPESAFE_API_KEY`          | The Jev key, instead of the one `catherd init` saves                                                  |
+| `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG             |
+| `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                |
+| `CATHERD_LOCK_SLOTS`        | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)           |
+| `CATHERD_REDUCED_MOTION`    | Any value: the dashboard's `--reduced-motion`                                                         |
+| `CATHERD_NO_KITTY`          | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks            |
+| `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`) |
+| `NO_COLOR`                  | Drops the dashboard's colour                                                                          |
+
+For development only: `CATHERD_STORY=1` opens the dashboard's storybook, `CATHERD_TICK_MS` sets how often a
+waiting `dispatch` reports progress (default 30000), and `CATHERD_LIVE=1` enables the live tests
+(CONTRIBUTING.md has the rest).
 
 ### The dashboard
 
@@ -102,7 +126,8 @@ milestones; `p` pauses). `catherd watch` opens it on Runs.
 - Deleting a profile or cancelling a live role takes `ctrl+d` twice.
 - `--plain` draws ASCII without colour, `NO_COLOR` drops the colour, `--reduced-motion` stops the spinner.
 - Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
-  (the palette shows each command; the ids are in `src/entry/tui/commands.ts`).
+  (the palette shows each command by title; the ids are listed in
+  [`src/entry/tui/commands.ts`](src/entry/tui/commands.ts)).
 
 ## Upgrading from 0.x
 
@@ -113,21 +138,27 @@ folders stay where they are, unread. Then update the plugin
 (`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude
 Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
-## Develop
+## Docs
 
-```sh
-bun install
-bun test
-bun run typecheck && bun run lint && bun run format:check
-```
+| Where                                                                                                                | What                                                                  |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [MIGRATION.md](MIGRATION.md)                                                                                         | Upgrading from 0.x                                                    |
+| [CHANGELOG.md](CHANGELOG.md)                                                                                         | Releases                                                              |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                                                                                   | Development setup, the checks, commits, changesets, live tests        |
+| [SECURITY.md](SECURITY.md)                                                                                           | Reporting a vulnerability; what catherd stores and how                |
+| [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md) | The 1.0 design (binding)                                              |
+| [`docs/dev/`](docs/dev/)                                                                                             | Maintainer docs: live verification, manual tests, dependencies, ideas |
+| [`docs/dev/live-verification.md`](docs/dev/live-verification.md)                                                     | What CI cannot run: live tests, fixture capture, the Codex sandbox    |
+| [`docs/tui-frames.md`](docs/tui-frames.md)                                                                           | Every dashboard screen as text (generated, checked in CI)             |
+| [`docs/superpowers/`](docs/superpowers/), [`docs/research/`](docs/research/)                                         | How 1.0 was designed and built: plans, reviews, research              |
+| [`docs/archive/0.x/`](docs/archive/0.x/)                                                                             | The 0.x design and plans, for history                                 |
 
-CI runs this on Linux and macOS, on Bun 1.4.0 and the latest Bun. What CI cannot run (the live tests,
-fixture capture, the Codex sandbox, the Jev key prompt) is in
-[`docs/dev/live-verification.md`](docs/dev/live-verification.md), with the exact commands.
+## Contributing
 
-Design: [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
-Releases go through [Changesets](https://github.com/changesets/changesets): add one with
-`bunx changeset`.
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the checks on Linux and macOS, on Bun 1.4.0 and the latest Bun;
+what CI cannot run is in [`docs/dev/live-verification.md`](docs/dev/live-verification.md). Report security issues
+privately, as [SECURITY.md](SECURITY.md) describes. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
