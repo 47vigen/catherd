@@ -36,7 +36,7 @@ export interface Pick {
 const byNull = (a: number | null, b: number | null) =>
   a === null || b === null ? (a === null ? 1 : 0) - (b === null ? 1 : 0) : a - b;
 
-export function secsOf(c: Catalog, canonical: string, kind: Kind | null): number | null {
+function secsOf(c: Catalog, canonical: string, kind: Kind | null): number | null {
   return c.secs[`${canonical}|${kind ?? "*"}`] ?? c.secs[`${canonical}|*`] ?? null;
 }
 

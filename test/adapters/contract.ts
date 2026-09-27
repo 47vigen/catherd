@@ -5,7 +5,7 @@ import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { ACCESS, type RunStatus, type Tokens } from "../../src/domain/record.ts";
 
-export interface ContractCase {
+interface ContractCase {
   name: string;
   fixture: string;
   reply?: string;
@@ -16,7 +16,7 @@ export interface ContractCase {
 }
 
 /** How the adapter's argv reads: its subcommand words and the flags that take a value. */
-export interface ArgvShape {
+interface ArgvShape {
   subcommands: string[];
   valueFlags: string[];
   /** a valid resume thread for this backend */

@@ -11,7 +11,7 @@ import { findRun, type Run, runPaths } from "./run-store.ts";
 /** Spec §4.7. Only `cannot-start` blocks the run. */
 export type PreflightOutcome = "pass" | "fails-as-expected" | "skipped" | "cannot-start";
 
-export interface PreflightResult {
+interface PreflightResult {
   lane: string;
   check: string | null;
   outcome: PreflightOutcome;
@@ -29,7 +29,7 @@ export type PreflightReport =
       blocked: boolean;
     };
 
-export const CHECK_TIMEOUT_MS = 120_000;
+const CHECK_TIMEOUT_MS = 120_000;
 
 /** Whose uid preflight runs under; tests stand in for root with it. */
 export const preflightUser = { uid: (): number => process.getuid?.() ?? -1 };

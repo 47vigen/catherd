@@ -20,7 +20,7 @@ import { RunsView } from "./runs.tsx";
 import { StatusView } from "./status.tsx";
 
 /** Rows the chrome takes at any size: header, tabs, rule, rule, footer (spec §9.3: 19 of 24 rows left). */
-export const CHROME_ROWS = 5;
+const CHROME_ROWS = 5;
 
 /** The palette's and help's rows, read from the commands a key could reach before the dialog opens. */
 function useCommandDialogs() {

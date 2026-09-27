@@ -56,7 +56,7 @@ export interface RunRow {
   budget: number | null;
 }
 
-export interface Climb {
+interface Climb {
   lane: string;
   from: string;
   to: string;
@@ -65,7 +65,7 @@ export interface Climb {
   env: boolean;
 }
 
-export interface Decision {
+interface Decision {
   lane: string;
   role: string;
   source: RouteSource;
@@ -195,7 +195,7 @@ export function rowOf(s: RunSummary): RunRow {
 }
 
 /** The climbs and route decisions in a run's routes.jsonl. */
-export function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
+function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
   const rows = readRoutes(run);
   return {
     climbs: rows

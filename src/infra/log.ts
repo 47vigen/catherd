@@ -7,13 +7,13 @@ import { appendJsonl, ensureJsonlHeader } from "./store.ts";
 
 // Spec §10.2: `<data>/logs/catherd-<date>.jsonl`, 7-day rotation, level from CATHERD_LOG or `--verbose`.
 
-export const LEVELS = ["off", "error", "warn", "info", "debug"] as const;
+const LEVELS = ["off", "error", "warn", "info", "debug"] as const;
 export type Level = Exclude<(typeof LEVELS)[number], "off">;
 /** Days of logs kept, today included. */
-export const KEEP_DAYS = 7;
+const KEEP_DAYS = 7;
 
 /** `CATHERD_LOG` (off, error, warn, info, debug); info when unset or unknown. */
-export function logLevel(): (typeof LEVELS)[number] {
+function logLevel(): (typeof LEVELS)[number] {
   const v = process.env.CATHERD_LOG?.toLowerCase();
   return (LEVELS as readonly string[]).includes(v ?? "") ? (v as Level) : "info";
 }

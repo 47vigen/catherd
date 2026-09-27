@@ -44,7 +44,7 @@ export interface SavePreview {
  * The save is a patch over the file as it is when it is written (Ruling 7), so the preview applies the
  * draft's patch to the file as it is now, not to the copy the draft began from.
  */
-export function previewSave(
+function previewSave(
   d: Draft,
   fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
   now: ProfileDoc = fx.readProfile(d.name),

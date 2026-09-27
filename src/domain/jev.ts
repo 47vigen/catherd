@@ -138,7 +138,7 @@ const AnswerSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("noul"), noul: z.number().min(0).max(1) }),
 ]);
-export type JevAnswer = z.infer<typeof AnswerSchema>;
+type JevAnswer = z.infer<typeof AnswerSchema>;
 export type JevAnswers = Record<string, JevAnswer>;
 
 const ReplySchema = z.object({

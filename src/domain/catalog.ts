@@ -23,8 +23,8 @@ export const BILLING_KEYS = [
 export type BillingKey = (typeof BILLING_KEYS)[number];
 
 /** The keys a family's `on` map uses; the native `claude` pseudo-backend runs claude-code's model ids. */
-export const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor", "grok"] as const;
-export type ModelKey = (typeof MODEL_KEYS)[number];
+const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor", "grok"] as const;
+type ModelKey = (typeof MODEL_KEYS)[number];
 
 export function billingKeyOf(r: Rung): BillingKey {
   if (r.backend === "opencode" && r.model.startsWith("opencode-go/")) return "opencode-go";
@@ -73,7 +73,7 @@ export type ModelsFile = z.infer<typeof ModelsFileSchema>;
 /** A canonical rung: `<canonical model id>#<effort>`, the key scores and treat-likes use. */
 export const CanonicalRung = z.string().regex(/^[^:#\s]+#[^#\s]+$/, "a canonical rung is model#effort");
 
-export const ScoreSchema = z.object({
+const ScoreSchema = z.object({
   rung: CanonicalRung,
   dim: z.enum(DIMS),
   value: z.number(),
@@ -87,7 +87,7 @@ export const ScoreSchema = z.object({
 export type Score = z.infer<typeof ScoreSchema>;
 
 const BarSchema = z.partialRecord(z.enum(DIMS), z.number());
-export type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
+type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
 const BarsSchema = z.record(z.enum(KINDS), z.record(z.enum(DIFFICULTIES), BarSchema));
 
 export const ScoresFileSchema = z.looseObject({
@@ -109,7 +109,7 @@ export const OverrideSchema = z.looseObject({
 });
 export type Override = z.infer<typeof OverrideSchema>;
 
-export interface Listed {
+interface Listed {
   id: string;
   efforts: string[];
   context: number | null;
@@ -183,7 +183,7 @@ export interface RungInfo {
   listed: boolean | null;
 }
 
-export function familyOf(c: Catalog, r: Rung): Family | null {
+function familyOf(c: Catalog, r: Rung): Family | null {
   const mk = modelKeyOf(billingKeyOf(r));
   return c.families.find((f) => f.on[mk]?.id === r.model) ?? null;
 }

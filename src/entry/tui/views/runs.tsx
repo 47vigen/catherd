@@ -15,7 +15,7 @@ import { runParts } from "./status.tsx";
 export const RUN_EVERY_MS = 1_000;
 
 /** `[██████░░░░] 52% · 31/60 min`, green below 80 %, amber below 100 %, red at 100 % (spec §4.6). */
-export function budgetParts(d: RunDetail, width: number, plain: boolean): Part[] {
+function budgetParts(d: RunDetail, width: number, plain: boolean): Part[] {
   const b = d.summary.budget;
   if (!b) return [{ text: "no budget cap", tone: "muted" }];
   const cells = Math.max(10, Math.min(30, width - 40));

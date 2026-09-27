@@ -478,7 +478,7 @@ export function diffNamed(a: string, b: string): Change[] {
   return diffProfiles(getProfile(a), getProfile(b));
 }
 
-export function viewOf(p: Profile): ProfileView {
+function viewOf(p: Profile): ProfileView {
   const roles: ProfileView["roles"] = {};
   for (const role of ROLES) roles[role] = { ...p.roles[role], rungs: [...p.roles[role].rungs] };
   return {

@@ -30,7 +30,7 @@ export function tryClaim(dir: string): boolean {
   }
 }
 
-export const ExitFileSchema = z.looseObject({
+const ExitFileSchema = z.looseObject({
   schema: z.literal(1),
   code: z.number().nullable(),
   signal: z.string().nullable(),

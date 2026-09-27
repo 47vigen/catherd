@@ -26,7 +26,7 @@ export const SuperviseSpecSchema = z.looseObject({
 export type SuperviseSpec = z.infer<typeof SuperviseSpecSchema>;
 
 /** What one stream line tells the supervisor: the terminal event, the thread, a tool call opening or closing. */
-export interface LineInfo {
+interface LineInfo {
   final?: boolean;
   thread?: string;
   /** a tool call the CLI started (`open`) or finished: while one is open the run is busy, however quiet */

@@ -129,7 +129,7 @@ export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_
   }
 }
 
-export interface FakeFiles {
+interface FakeFiles {
   /** "self": this test process stands in for a live supervisor; "dead": both pids are gone */
   proc?:
     | "self"

@@ -122,7 +122,7 @@ function tokenMedian(xs: number[]): number | null {
 }
 
 /** What the user's own harness setup costs per run: median first-turn input, native against isolated. */
-export function harnessCosts(runs: Run[]): HarnessCost[] {
+function harnessCosts(runs: Run[]): HarnessCost[] {
   type Row = { backend: string; isolated: boolean; firstTurnInput: number };
   const rows = runs.flatMap((r) => readJsonl<Row>(runPaths(r.dir).harness).rows);
   return [...new Set(rows.map((r) => r.backend))].sort().map((backend) => {

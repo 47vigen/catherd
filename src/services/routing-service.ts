@@ -47,7 +47,7 @@ const answer = (
 });
 
 /** How long `route` waits on the daily discovery refresh before routing on the cached listing. */
-export const DISCOVERY_BUDGET_MS = 5_000;
+const DISCOVERY_BUDGET_MS = 5_000;
 
 export interface RoutingOpts extends JevOpts {
   /** how long a route waits on the discovery refresh (DISCOVERY_BUDGET_MS) */

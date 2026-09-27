@@ -14,7 +14,7 @@ import { writeJsonAtomic } from "../infra/store.ts";
 import { readyAdapter } from "./backends.ts";
 import { settled } from "./finalize.ts";
 
-export interface CaptureCase {
+interface CaptureCase {
   backend: string;
   name: string;
   rung: string;
@@ -30,7 +30,7 @@ const HAIKU = "claude-code:claude-haiku-4-5-20251001#default";
 const BUNNY = "opencode:opencode/space-bunny-free#default";
 
 /** Spec §11.7–8: one cheap run per backend, plus a read-only role trying to write where enforcement is advisory. */
-export const CAPTURE_CASES: CaptureCase[] = [
+const CAPTURE_CASES: CaptureCase[] = [
   { backend: "codex", name: "ok", rung: "codex:gpt-6-luna#low", access: "read-only", brief: SAY_HELLO },
   { backend: "claude-code", name: "ok", rung: HAIKU, access: "read-only", brief: SAY_HELLO },
   { backend: "claude-code", name: "read-only-write", rung: HAIKU, access: "read-only", brief: TRY_WRITE },

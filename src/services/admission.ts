@@ -44,7 +44,7 @@ export const KILL_GRACE_MS = 10_000;
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
-export function laneOwns(run: Run, lane: string): string[] {
+function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
   if (!existsSync(file))
     throw new CatherdError("E_LANE_INVALID", `no lane file lanes/${lane}.md`, {

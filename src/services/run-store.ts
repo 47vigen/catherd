@@ -20,7 +20,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 
-export const RunMetaSchema = z.looseObject({
+const RunMetaSchema = z.looseObject({
   schema: z.literal(1),
   id: z.string(),
   repo: z.string(),
@@ -29,7 +29,7 @@ export const RunMetaSchema = z.looseObject({
   createdAt: z.string(),
   catherdVersion: z.string(),
 });
-export type RunMeta = z.infer<typeof RunMetaSchema>;
+type RunMeta = z.infer<typeof RunMetaSchema>;
 
 export interface Run {
   id: string;
@@ -202,7 +202,7 @@ export function readOutcomes(run: Run): OutcomeRow[] {
   return readJsonl<OutcomeRow>(runPaths(run.dir).outcomes).rows.filter((r) => typeof r?.lane === "string");
 }
 
-export const AgentRunSchema = z.looseObject({
+const AgentRunSchema = z.looseObject({
   at: z.string(),
   name: z.string(),
   role: z.string(),

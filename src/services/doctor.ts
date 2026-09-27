@@ -26,7 +26,7 @@ import {
 import { listRuns } from "./run-store.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 
-export type CheckState = "ok" | "warn" | "fail" | "skip";
+type CheckState = "ok" | "warn" | "fail" | "skip";
 
 /** One row of `catherd doctor` (spec §10.3): its state, one word, the detail and the full fix. */
 export interface Check {
@@ -62,8 +62,7 @@ export interface DoctorDeps {
 
 export const PLUGIN_INSTALL =
   "claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd";
-export const PLUGIN_UPDATE =
-  "claude plugin marketplace update catherd && claude plugin update catherd@catherd";
+const PLUGIN_UPDATE = "claude plugin marketplace update catherd && claude plugin update catherd@catherd";
 
 const errText = (e: unknown): string => errorMessage(e).split("\n")[0] as string;
 const fixOf = (e: unknown) => (isCatherdError(e) ? e.fix : undefined);

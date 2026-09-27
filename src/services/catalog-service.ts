@@ -36,18 +36,18 @@ import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts
 
 const DAY_MS = 24 * 3_600_000;
 /** Spec §5.2: `secs_per_task` counts once a rung has this many of the user's own runs. */
-export const MIN_SAMPLES = 5;
+const MIN_SAMPLES = 5;
 
 let models: ModelsFile | null = null;
 let scores: ScoresFile | null = null;
-export const shippedModels = (): ModelsFile =>
+const shippedModels = (): ModelsFile =>
   (models ??= readVersioned(assetPath("catalog/models.json"), ModelsFileSchema, 1));
-export const shippedScores = (): ScoresFile =>
+const shippedScores = (): ScoresFile =>
   (scores ??= readVersioned(assetPath("catalog/scores.json"), ScoresFileSchema, 1));
 
 export const overridePath = (): string => join(configDir(), "catalog.override.json");
 
-export function readOverride(): Override {
+function readOverride(): Override {
   const file = overridePath();
   return existsSync(file) ? readVersioned(file, OverrideSchema, 1) : OverrideSchema.parse({});
 }
@@ -56,7 +56,7 @@ export function readOverride(): Override {
  * Every backend's last listing (spec §3.5 `<data>/discovery/<backend>.json`); for a backend listed per
  * repository, its listing in `repo` (none without one).
  */
-export function listedModels(repo?: string): Catalog["listed"] {
+function listedModels(repo?: string): Catalog["listed"] {
   const out: Catalog["listed"] = {};
   for (const id of ADAPTER_IDS) {
     const d = readDiscovery(id, listingRepo(id, repo));

@@ -14,7 +14,7 @@ import {
 } from "react";
 import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 
-export type ToastVariant = "info" | "success" | "warning" | "error";
+type ToastVariant = "info" | "success" | "warning" | "error";
 export interface Toast {
   variant: ToastVariant;
   message: string;

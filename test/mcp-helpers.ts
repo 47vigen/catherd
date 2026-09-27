@@ -12,7 +12,7 @@ export async function mcpClient(deps?: Deps): Promise<Client> {
   return client;
 }
 
-export interface CallResult {
+interface CallResult {
   isError: boolean;
   // oxlint-disable-next-line typescript/no-explicit-any
   data: any;

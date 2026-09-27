@@ -13,7 +13,7 @@ export const TABS = ["status", "profiles", "runs"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** What a draft can undo to: the edited document and the treat-likes staged with it. */
-export interface Snapshot {
+interface Snapshot {
   doc: ProfileDoc;
   /** rung → the scored rung it is treated like; written to catalog.override.json on save */
   treatLikes: Record<string, string>;
@@ -29,7 +29,7 @@ export interface Draft extends Snapshot {
 }
 
 /** The number fields a value editor sets. */
-export const NUMBER_PATHS = [
+const NUMBER_PATHS = [
   "budget.minutes",
   "budget.tokens",
   "budget.usd",

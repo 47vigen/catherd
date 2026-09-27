@@ -11,7 +11,7 @@ import { liveDispatches } from "./dispatches.ts";
 import { type Run, runPaths } from "./run-store.ts";
 
 /** state.json: the orchestrator's notes that state.md shows beside the live facts. */
-export const NotesSchema = z.looseObject({
+const NotesSchema = z.looseObject({
   schema: z.literal(1),
   next: z.string(),
   lastCheck: z.string().nullable(),
