@@ -343,7 +343,8 @@ describe("doctor", () => {
     expect(check(await run(), "jev")).toMatchObject({ state: "warn", word: "no key" });
     writeFileSync(file, JSON.stringify({ ...doc, jev: { use: "off" } }));
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
-  });
+    // three whole doctor runs, each probing every simulated CLI: a slow macOS runner outlasts the 5 s default
+  }, 30_000);
 
   it("fails on a repo bound to a profile that no longer exists", async () => {
     ready();
