@@ -58,10 +58,15 @@ export const statusCommand = defineCommand({
   },
 });
 
-/** `watch --interval <secs>` in ms: 2 s when absent or not a number, never under 1 s (so 0 means 1 s). */
+/** `watch --interval <secs>` in ms: 2 s when absent, never under 1 s (so 0 means 1 s); not a number is refused. */
 export function redrawMs(interval: string | undefined): number {
-  const secs = interval === undefined || interval.trim() === "" ? Number.NaN : Number(interval);
-  return Math.max(1, Number.isFinite(secs) ? secs : 2) * 1000;
+  if (interval === undefined) return 2000;
+  const secs = interval.trim() === "" ? Number.NaN : Number(interval);
+  if (!Number.isFinite(secs) || secs < 0)
+    throw new CatherdError("E_INPUT_INVALID", `--interval takes a number of seconds, not "${interval}"`, {
+      fix: "catherd watch --interval <seconds>",
+    });
+  return Math.max(1, secs) * 1000;
 }
 
 /** Spec §8 `catherd watch [--once]`: the TUI's Runs tab on a terminal, else a plain redraw. */
@@ -82,6 +87,7 @@ export const watchCommand = defineCommand({
     ...json,
   },
   async run({ args }) {
+    const every = redrawMs(args.interval);
     if (args.once || args.json) return printStatus(undefined, args.json === true);
     // on a terminal, watch is the dashboard's Runs tab (plan 6 Ruling 10); piped output keeps the plain view
     if (process.stdin.isTTY && process.stdout.isTTY) {
@@ -93,7 +99,6 @@ export const watchCommand = defineCommand({
       process.exitCode = await openTui({ rawArgs, tab: "runs", tty: true });
       return;
     }
-    const every = redrawMs(args.interval);
     for (;;) {
       if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
       printStatus(undefined, false);
