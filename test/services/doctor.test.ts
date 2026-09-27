@@ -161,6 +161,33 @@ describe("doctor", () => {
     expect(after.ready).toBe(true);
   });
 
+  it("resets a customised default rung the moved ladder would not hold, so every printed command runs", async () => {
+    machine({ bins: ["claude"] });
+    installPlugin(VERSION);
+    const saved = patchProfile("default", {
+      roles: {
+        worker: {
+          rungs: ["codex:gpt-6-sol#medium", "claude-code:claude-opus-5-5#high"],
+          defaultRung: "claude-code:claude-opus-5-5#high",
+        },
+      },
+    });
+    expect(saved.saved).toBe(true);
+    const fix = check(await run(), "backend:codex")?.fix ?? "";
+    const commands = fix.split("\n").filter((l) => l.startsWith("catherd "));
+    expect(commands).toContain("catherd profile set roles.worker.defaultRung null --profile default");
+    const bin = binDir();
+    const cli = join(import.meta.dir, "..", "..", "src", "cli.ts");
+    writeFileSync(join(bin, "catherd"), `#!/bin/sh\nexec '${process.execPath}' '${cli}' "$@"\n`);
+    chmodSync(join(bin, "catherd"), 0o755);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, ANTHROPIC_API_KEY: "" };
+    for (const c of commands) {
+      const p = Bun.spawnSync(["sh", "-c", c], { env, stdout: "pipe", stderr: "pipe" });
+      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({ c, exit: 0, err: "" });
+    }
+    expect((await run()).ready).toBe(true);
+  });
+
   it("offers opencode when it is the backend that is ready", async () => {
     machine({ bins: ["opencode"] });
     installPlugin(VERSION);

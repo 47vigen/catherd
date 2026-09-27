@@ -65,7 +65,7 @@ const shellWord = (w: string): string => (/^[\w./:=@,+-]+$/.test(w) ? w : `'${w.
 
 /**
  * Install `id`, or move the roles that run on it to `to`: one runnable `catherd profile set` per line, for
- * each linked profile, a default rung on `id` reset first. The artist draws, which only Codex does, so
+ * each linked profile, any default rung the new ladder would not hold reset first. The artist draws, which only Codex does, so
  * off Codex it is turned off instead.
  */
 export function moveRolesFix(install: string, id: string, to: string, profiles: Profile[]): string {
@@ -83,8 +83,11 @@ export function moveRolesFix(install: string, id: string, to: string, profiles: 
         commands.push(set(p, `roles.${role}.enabled`, "false"));
         continue;
       }
-      if (onIt(rc.defaultRung)) commands.push(set(p, `roles.${role}.defaultRung`, "null"));
-      commands.push(set(p, `roles.${role}.rungs`, MOVE_TO[to] as string));
+      const target = MOVE_TO[to] as string;
+      // the new ladder holds only `target`, so any other default would fail validation: reset it first
+      if (rc.defaultRung !== undefined && rc.defaultRung !== null && rc.defaultRung !== target)
+        commands.push(set(p, `roles.${role}.defaultRung`, "null"));
+      commands.push(set(p, `roles.${role}.rungs`, target));
     }
   if (!commands.length) return install;
   const off = stuck.size ? ` (${[...stuck].join(", ")} needs ${id}, so it is turned off)` : "";
