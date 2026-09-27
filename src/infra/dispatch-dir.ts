@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { EXIT_REASONS, type ExitInfo } from "../domain/record.ts";
 import { withFileLock } from "./filelock.ts";
-import { isAlive, processStartTime } from "./proc.ts";
+import { isAlive, selfIdentity } from "./proc.ts";
 import { PRIVATE_FILE, readVersioned } from "./store.ts";
 
 export function dispatchPaths(dir: string) {
@@ -50,7 +50,7 @@ export function tryClaim(dir: string): boolean {
     return false;
   }
   try {
-    writeSync(fd, JSON.stringify({ pid: process.pid, startTime: processStartTime(process.pid) }));
+    writeSync(fd, JSON.stringify(selfIdentity()));
   } catch (e) {
     // a claim that names no one would hold every other finalizer off until it is stale: drop it
     closeSync(fd);
@@ -96,7 +96,7 @@ const OWNERLESS_STALE_MS = 5_000;
 /** A lease temp file this old, or whose pid is dead, was left by a crash. */
 const TEMP_STALE_MS = 60_000;
 
-const self = () => ({ pid: process.pid, startTime: processStartTime(process.pid) });
+const self = selfIdentity;
 
 /** Who holds a collection lease, or null when none can be read. */
 function leaseOwner(file: string): { pid: number; startTime: string | null } | null {
@@ -219,8 +219,8 @@ export async function tryCollect(dir: string): Promise<boolean> {
 export function endCollect(dir: string): void {
   const p = dispatchPaths(dir);
   const who = leaseOwner(p.lease);
-  if (who && who.pid === process.pid && who.startTime === processStartTime(process.pid))
-    rmSync(p.lease, { force: true });
+  // the pid alone: while this process lives no other can hold its pid, so a lease naming it is its own
+  if (who?.pid === process.pid) rmSync(p.lease, { force: true });
   sweepLeaseTemps(dir);
 }
 

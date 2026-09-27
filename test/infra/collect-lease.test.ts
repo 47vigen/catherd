@@ -133,3 +133,38 @@ describe("leftover lease temp files (M-3)", () => {
     expect(readdirSync(dir).sort()).toEqual([`collect.lease.${process.pid}.fresh`]);
   });
 });
+
+describe("this process's own identity (macOS: ps can fail for a moment)", () => {
+  it("ends its own lease even when the start time it recorded differs from a fresh read", async () => {
+    const dir = dispatchDir();
+    markForCollect(dir);
+    expect(await tryCollect(dir)).toBe(true);
+    // as if ps failed while the lease was written, or while it is ended
+    lease(dir, { pid: process.pid, startTime: null });
+    endCollect(dir);
+    expect(leased(dir)).toBe(false);
+  });
+
+  it("puts back its own lease as a mark whatever start time it recorded", async () => {
+    const dir = dispatchDir();
+    markForCollect(dir);
+    expect(await tryCollect(dir)).toBe(true);
+    lease(dir, { pid: process.pid, startTime: "Mon Jan  1 00:00:00 2001" });
+    putBackCollect(dir);
+    expect(marked(dir)).toBe(true);
+    expect(leased(dir)).toBe(false);
+  });
+
+  it("writes every lease with one start time, read once", async () => {
+    const a = dispatchDir();
+    const b = dispatchDir();
+    for (const d of [a, b]) {
+      markForCollect(d);
+      expect(await tryCollect(d)).toBe(true);
+    }
+    const read = (d: string) =>
+      JSON.parse(readFileSync(dispatchPaths(d).lease, "utf8")) as { startTime: unknown };
+    expect(read(a).startTime).toBe(read(b).startTime);
+    expect(read(a).startTime).toBe(me().startTime);
+  });
+});
