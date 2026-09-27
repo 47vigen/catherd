@@ -99,6 +99,148 @@ route, reviewer and verifier, every lane was routed, both roles ran, replies car
   suite share it; (4) `status` shows the verifier's current step and elapsed time, so a long gate is visible instead
   of looking stuck. Repo side (platform): the Docker `pnpm install` should hit the package mirror and a warm store.
 
+## Scores and catalog from public sources (2026-09-27)
+
+_What:_ `catherd catalog sync` pulls every independent, machine-readable source of model facts and scores, merges them
+into the catalog routing already reads, and asks the user to pick a stand-in only for the rungs no source covers.
+_Why:_ `catalog/models.json` and `scores.json` are written by hand today. A release like 2026-09-22 (Opus 5.5, GPT-6
+Sol/Luna/Astra) leaves every new rung unscored until someone reads blog posts and types numbers in, and each unscored
+rung needs a hand `treat-like`. Every source below was called with curl on 2026-09-27; none of the chosen ones is run
+by a model vendor.
+
+### Sources
+
+Keyless, always on:
+
+| Source | Call | Gives | License |
+|---|---|---|---|
+| models.dev | `GET https://models.dev/api.json` | per model: `reasoning_options` (the effort list), `limit.context`/`output`, `cost` (input, output, cache read/write, fast mode), `tool_call`, `modalities`, `release_date`, `knowledge` | MIT; opencode reads the same file |
+| OpenRouter models | `GET https://openrouter.ai/api/v1/models` | id, context, pricing; new models appear the day they ship | public API |
+| OpenRouter endpoints | `GET https://openrouter.ai/api/v1/models/{author}/{slug}/endpoints` | per provider: `uptime_last_5m/30m/1d`, `latency_last_30m`, `throughput_last_30m` | public API |
+| LiteLLM | `GET https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | price and context, `supports_xhigh/max_reasoning_effort`; cross-check only | MIT |
+| Arena (LMArena) | `GET https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/leaderboard-dataset&config=<c>&split=latest&length=100` | Agent Arena configs `agent` (Net Improvement), `agent_task_outcome_explicit`, `agent_bash_recovery_steps`, `agent_steerability`, `agent_tool_hallucination`, `agent_praise_complaint`; plus `webdev` and `text` (rating, CI, votes); `leaderboard_publish_date` | CC-BY-4.0, attribution |
+| Vectara hallucination | `GET https://raw.githubusercontent.com/vectara/hallucination-leaderboard/main/README.md` (markdown table, parsed) | hallucination rate, factual consistency; "Last updated" line | Apache-2.0 |
+| Epoch AI | `GET https://epoch.ai/data/benchmark_data.zip` (CSV per benchmark) | `frontiercode_external`, `webdev_arena_external`, `terminalbench_external`, `metr_time_horizons_external`, … with reasoning effort in `Model version` (`gpt-6-astra_max`) | CC-BY; external tables keep their own license |
+
+Keyed, optional (asked in `init` like the Jev key):
+
+| Source | Call | Gives | Terms |
+|---|---|---|---|
+| Artificial Analysis | `GET https://artificialanalysis.ai/api/v2/data/llms/models`, header `x-api-key` | one request, 674 rows, **one row per effort** (`gpt-6-astra-xhigh`, bare slug = `max`): `terminalbench_v2_1`, `terminalbench_hard`, `livecodebench`, `scicode`, `tau2`, `tau_banking`, `ifbench`, `lcr`, `hle`, `gpqa`, coding/intelligence/math index, pricing, `median_output_tokens_per_second`, `median_time_to_first_token_seconds` | free key, 100 requests/day, internal use only, attribution |
+| same, fallback | `GET https://artificialanalysis.ai/api/v2/language/models/free?page=N` (4 pages) | intelligence/coding/agentic index, `cost_per_task`, pricing, speed | same |
+
+The first AA path is the legacy v2 route: the free key reads it today but the current docs no longer list it, so a
+404/403 there falls back to `/language/models/free`. `/language/models`, `/language/models/{slug}` (Pro) and
+`/language/providers` (Commercial) answer 403 to a free key and are not used.
+
+Checked and left out: Aider polyglot (last row 2025-10), SWE-rebench (last month 2026-07, no GPT-6), official SWE-bench
+`leaderboards.json` (2026-02), the Terminal-Bench leaderboard repo (self-submitted by agent vendors, last 2025-11),
+Galileo agent leaderboard and Helicone (stale), Scale SEAL / SWE-bench Pro and Vellum (403), BridgeBench (no API,
+Cloudflare, `/api/` disallowed), llm-stats / benchlm / modelgrep (resell other sources), Kilo and OpenRouter rankings
+(usage, not quality). Unresolved, worth a second look: BFCL, LiveBench and Design Arena have data but no endpoint was
+pinned down.
+
+### The AA key, like the Jev key
+
+- `init` gains a second optional step after Jev: `ARTIFICIAL_ANALYSIS_API_KEY` in the env wins; else the saved key;
+  else `Artificial Analysis API key (optional; Enter skips): `. The key is tested before it is saved (one request to
+  `/language/models/free?page=1`: 200 saves, 401 does not) and never stops `init` (Ruling 11).
+- Saved in `credentials.json` as `artificialAnalysisApiKey` beside `typesafeApiKey`, mode 600; the schema is a
+  `looseObject`, so no schema bump. The env name joins `SECRET_ENV` in `infra/env.ts`, the saved key goes through
+  `addSecret`, so workers never see it and logs redact it.
+- Per-user keys keep the licence clean: each user reads AA for their own use, and catherd never ships AA numbers. The
+  keyless sources are CC-BY or Apache, so their values could be shipped in `scores.json` too, with attribution.
+- `doctor` gets a row: key present, last sync time, requests left today (`x-ratelimit-remaining`).
+
+### The sync
+
+- **At every session start, in the background.** The plugin's MCP server starts with each Claude Code session, so its
+  boot fires the sync without awaiting it: no hook to add, and the server's handshake and first tool call never wait
+  on the network. One TTL for every source, 12 h: a source is fetched only if its cached file is older than that. It
+  costs AA 2 requests a day (10 on fallback) of the key's 100. A lock file in `<data>/sources/` keeps two sessions
+  opened together from fetching twice.
+- **Refresh on demand.** `catherd catalog sync --force` ignores the TTL (CLI); the TUI's catalog view gets an `r`
+  key that does the same and shows each source's age and last error; and an MCP tool `catalog_sync` lets the setup
+  skill or the user refresh from inside a session, returning what changed (new rungs scored, stand-ins no longer
+  needed, sources that failed). Routing reads whatever is cached when it is asked; a sync that lands mid-run
+  is picked up by the next `route`, and a failed one logs at debug and leaves the last good files.
+- `catherd catalog sync` runs the same thing in the foreground (also run by `init`, and by `freshenDiscovery` when the
+  cache is older than the TTL). It fetches all
+  sources in parallel with the Jev client's retry policy, one timeout per source, and writes each raw answer to
+  `<data>/sources/<source>.json` with its fetch time. A source that fails keeps its last good file; the sync reports it
+  and goes on.
+- Id mapping: lowercase, `.` → `-` (`gpt-5.6-sol` → `gpt-5-6-sol`), then a small alias table in `catalog/sources.json`
+  for the irregular ones (AA `claude-4-5-haiku` → `claude-haiku-4-5`). Effort: AA slug suffix (none = `max`), Arena's
+  `(Max)` / `(xHigh)` / `(High)`, Epoch's `_max` suffix. A model with no effort in its name maps to the family's
+  default effort, marked `effort: assumed`. Unmatched ids are listed by `catalog sync --unmatched`, never guessed.
+- Catalog facts: models.dev fills `efforts`, `context`, `price`, `capabilities` for families on the user's backends;
+  OpenRouter and LiteLLM only cross-check (a price that disagrees by more than 10 % is a warning). The shipped
+  `models.json` stays the floor, and the backend's own listing still decides what is callable.
+
+### Dimensions and sources
+
+| Dim | Anchor (the unit of the bars) | Other sources, calibrated |
+|---|---|---|
+| `repo_code` | DeepSWE (today's shipped values) | AA `livecodebench`, `scicode`, coding index; Epoch FrontierCode |
+| `terminal` | AA `terminalbench_v2_1` | Epoch `terminalbench_external` |
+| `honesty` | shipped (Broken Search Tool) | Vectara factual consistency; Arena `agent_tool_hallucination` |
+| `agentic` (new) | Arena `agent` Net Improvement | Arena task outcome and bash recovery; AA `tau2` |
+| `steer` (new) | Arena `agent_steerability` | — |
+| `frontend` (new) | Arena `webdev` | Epoch WebDev |
+| `speed` (fact, not a bar) | AA tokens/s and time to first token | OpenRouter `latency_last_30m`, `throughput_last_30m` |
+| `cost` (fact, not a bar) | models.dev price | AA `cost_per_task` |
+
+Bars are in each dim's anchor unit, so a value from another source is never compared to a bar raw. Calibration: on
+the rungs both sources cover, fit anchor = a·x + b (at least 5 shared rungs, else the source is not used for that
+dim) and store the fit with its R² in `<data>/sources/calibration.json`. A calibrated value carries its source and
+the fit. New dims ship with no bars, so they change nothing until a profile sets one; `route` shows them.
+
+### Precedence and confidence
+
+`Score.confidence` grows from `verified | secondary | inferred` to, best first: `verified` (vendor or official
+source), `measured` (an independent source for this exact rung, anchor unit), `calibrated` (an independent source for
+this rung, mapped onto the anchor), `adjacent` (same model, another effort, from any source), `secondary`,
+`inferred`. The user's override always wins, as today. Two sources at the same level: the newer `date` wins. A value
+older than 90 days drops one level. Every value keeps `benchmark`, `version`, `url`, `date` and its source, so `route`
+and the TUI can say where a number came from.
+
+### When a rung has no data: the user picks its stand-in
+
+1. `sync` ends with the list of enabled rungs that still have no value on a dim their bars need.
+2. For each, catherd ranks the scored rungs by similarity on what every source does have for new models: AA
+   intelligence index, `hle`, `scicode`, `lcr`, `cost_per_task`, tokens/s, models.dev price and context, same vendor
+   and family. The distance is a z-score Euclidean over the features both rungs have, and a pair with fewer than 3
+   shared features is not suggested.
+3. The TUI's treat-like picker opens with the top 3 suggestions first, each with its distance and the features it
+   rests on ("Opus 5.5#high ≈ Fable 5.1#medium: intelligence 53.6 vs 48.9, scicode 0.60 vs 0.59, price $4/$20 vs
+   $10/$50"). The CLI prints the same: `catherd catalog treat-like <rung> --suggest`. The user picks, or types any
+   rung; the choice goes to `catalog.override.json` as today, marked `source: "user"`.
+4. `init --no-input` and headless runs never block on it: they take the top suggestion as `inferred`, and `doctor`
+   lists it as a warning to confirm.
+5. When a later sync brings real data for that rung, the stand-in is no longer needed: `sync` says so and
+   `catherd catalog treat-like <rung> --clear` removes it (a user's pick is never removed silently).
+
+### Where it lives
+
+- `src/infra/sources/<source>.ts`: one fetcher and parser per source, returning `{ rung, field, value, date, url }` rows.
+- `src/services/source-sync.ts`: fetch, cache, id mapping, calibration, merge into the `Catalog` layers in
+  `catalog-service.ts`.
+- `src/domain/catalog.ts`: new dims in `DIMS`, the longer confidence enum, `RANK` extended.
+- `src/entry/init-command.ts`: `aaStep` beside `jevStep`; `catalog-command.ts`: `sync [--force]`,
+  `treat-like --suggest|--clear`; `entry/mcp/`: the background sync at server boot and the `catalog_sync` tool;
+  `entry/tui/`: the `r` refresh key and the stand-in picker's suggestions.
+- `catalog/sources.json`: aliases and the list of sources with their licence and attribution line.
+- Tests: one recorded fixture per source (parsers), the id mapping table, the calibration fit, precedence, and the
+  suggestion ranking on the 2026-09-27 data (Opus 5.5 has no coding or terminal value in any source that day).
+
+### Today's gap, for calibration
+
+On 2026-09-27 AA has full per-effort values for GPT-6 Astra, Claude Fable 5.1 and GPT-5.6 Sol/Terra/Luna, but only
+intelligence index, `hle`, `scicode` and `lcr` for Opus 5.5 and GPT-6 Sol/Luna (released five days earlier); Arena's
+agent board has GPT-6 Sol (Max) but not Opus 5.5 or GPT-6 Luna; Vectara has GPT-6 Sol and Astra. So the stand-in
+picker is the path for exactly the rungs a fresh release adds, and each daily sync shrinks that list without anyone
+typing a number.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
