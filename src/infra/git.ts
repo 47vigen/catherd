@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
+import { scrubSecrets } from "./env.ts";
 
 /** How one git command ended: its stdout, a failure (exit null when git could not start), or a timeout. */
 export type GitResult =
@@ -21,7 +22,7 @@ export async function git(repo: string, args: string[], timeoutMs = 15_000): Pro
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
+      env: { ...scrubSecrets(process.env), GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
     });
   } catch {
     return { kind: "failed", exit: null };

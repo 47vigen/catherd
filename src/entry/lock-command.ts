@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
+import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
@@ -47,7 +48,7 @@ export async function runForwarding(argv: string[]): Promise<number> {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
-    env: process.env,
+    env: scrubSecrets(process.env),
     detached: true,
   });
   let lastInt = 0;
