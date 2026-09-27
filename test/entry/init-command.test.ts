@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { credentialsPath } from "../../src/services/jev-service.ts";
-import { activeName, getProfile, patchProfile } from "../../src/services/profile-service.ts";
+import { patchProfile } from "../../src/services/profile-service.ts";
+import { activeName, getProfile } from "../../src/services/profile-store.ts";
 import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 

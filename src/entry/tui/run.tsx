@@ -1,7 +1,7 @@
 import { type CliRenderer, createCliRenderer, SystemClock } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { gitToplevel } from "../../infra/git.ts";
-import { readConfig } from "../../services/profile-service.ts";
+import { readConfig } from "../../services/profile-store.ts";
 import { CatherdError } from "../../domain/errors.ts";
 import { EXIT, printError } from "../cli-kit.ts";
 import { type Keybinds, resolveKeybinds } from "./commands.ts";

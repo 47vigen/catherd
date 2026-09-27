@@ -18,23 +18,25 @@ import {
 } from "../../services/catalog-service.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type DoctorReport, doctor } from "../../services/doctor.ts";
+import type { Synced } from "../../services/agent-links.ts";
 import {
   activate,
-  activeName,
   createProfile,
   deleteProfile,
+  patchProfile,
+  type Saved,
+} from "../../services/profile-service.ts";
+import {
+  activeName,
+  configFile,
   enforcementOf,
   listProfiles,
-  patchProfile,
   profilesDir,
-  configFile,
   projectsFile,
   readProfileDoc,
   readProjects,
   runnableBackends,
-  type Saved,
-  type Synced,
-} from "../../services/profile-service.ts";
+} from "../../services/profile-store.ts";
 import { findRun, listRuns, readRoutes, type Run, runPaths } from "../../services/run-store.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
 import { defaultDeps } from "../deps.ts";

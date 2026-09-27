@@ -3,7 +3,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
-import { profileFor } from "../services/profile-service.ts";
+import { profileFor } from "../services/profile-store.ts";
 import { printError } from "./cli-kit.ts";
 
 /**

@@ -4,16 +4,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { locksDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import {
-  type Check,
-  type DoctorReport,
-  doctor,
-  type Handshake,
-  PLUGIN_INSTALL,
-} from "../../src/services/doctor.ts";
+import { type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
+import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
-import { activate, configFile, createProfile, patchProfile } from "../../src/services/profile-service.ts";
+import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
+import { configFile } from "../../src/services/profile-store.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";

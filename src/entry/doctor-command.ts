@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
-import { type Check, type DoctorReport, doctor } from "../services/doctor.ts";
+import { type DoctorReport, doctor } from "../services/doctor.ts";
+import type { Check } from "../services/doctor-checks.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
 

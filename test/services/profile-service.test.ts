@@ -12,28 +12,29 @@ import {
 import { join } from "node:path";
 import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { claudeAgentsDir, configDir } from "../../src/infra/paths.ts";
+import { agentLinkState, linkedProfiles } from "../../src/services/agent-links.ts";
 import {
   activate,
-  activeName,
-  agentLinkState,
-  agentsRoot,
   createProfile,
   deleteProfile,
   diffNamed,
+  patchProfile,
+  resetProfile,
+  unbind,
+} from "../../src/services/profile-service.ts";
+import {
+  activeName,
+  agentsRoot,
   enforcementOf,
   getProfile,
-  linkedProfiles,
   listProfiles,
-  patchProfile,
   profileFor,
   profilesDir,
   readProfileDoc,
   readProjects,
-  resetProfile,
   roleEnforcement,
-  unbind,
   validateNamed,
-} from "../../src/services/profile-service.ts";
+} from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());

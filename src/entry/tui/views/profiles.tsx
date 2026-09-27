@@ -8,20 +8,15 @@ import { useCommandLayer } from "../providers/keymap.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import {
-  buildRows,
   failoverOptions,
-  filterRows,
-  firstMatch,
   numberPatch,
   numberValue,
   parseNumber,
   patchFor,
-  type Row,
-  type RowAction,
   startOptions,
   treatLikeOptions,
-  withStaged,
-} from "../profile-tree.ts";
+} from "../profile-edits.ts";
+import { buildRows, filterRows, firstMatch, type Row, type RowAction, withStaged } from "../profile-tree.ts";
 import { currentDraft, dirtyCount } from "../state.ts";
 import { wrap } from "../text.ts";
 import { glyph, STATE_TOKEN } from "../theme.ts";

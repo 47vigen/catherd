@@ -8,25 +8,27 @@ import { inferredScores, type Issue } from "../domain/profile-rules.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { loadCatalog } from "../services/catalog-service.ts";
+import type { Synced } from "../services/agent-links.ts";
 import {
   activate,
-  activeName,
   createProfile,
   deleteProfile,
   diffNamed,
+  patchProfile,
+  unbind,
+} from "../services/profile-service.ts";
+import {
+  activeName,
   getProfile,
   keyRunnable,
   listProfiles,
-  patchProfile,
   profileExists,
   readProjects,
   requireProfile,
   roleEnforcement,
   runnableBackends,
-  type Synced,
-  unbind,
   validateNamed,
-} from "../services/profile-service.ts";
+} from "../services/profile-store.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 
 const json = JSON_ARG;
