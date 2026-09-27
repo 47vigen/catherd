@@ -22,7 +22,7 @@ stories (`src/entry/tui/stories.ts`) on the fixtures; do not edit by hand.
                     fix: claude plugin marketplace add 47vigen/catherd &&
                     claude plugin install catherd@catherd
    ✓ ready         Claude agents — 2 linked
-   ✓ ready         MCP server — 20 tools
+   ✓ ready         MCP server — 21 tools
  PROFILE
    default  active · 1 profile
  RECENT RUNS

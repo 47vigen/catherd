@@ -41,7 +41,8 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 | `run_start(repo, title, a_lines)`                                                                | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                            |
 | `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`   |
 | `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                        |
-| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Runs one process role (Codex, claude-code or opencode) and returns its `record` and `hints`                                                              |
+| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`; `wait` collects its record         |
+| `wait(run, names?, all?)`                                                                        | Blocks until a running role finishes (every one with `all: true`); returns `records` (each role's `record` and `hints`), `started` and `running`         |
 | `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                       |
 | `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind                        |
 | `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                          |
@@ -111,9 +112,9 @@ A lane starts on the lowest rung that can do it, and climbs one rung when it sho
 
 - your fast check fails twice on that lane (`check-failed-twice`);
 - the lane gets a BLOCKER (`blocker`), or Jev calls a returning finding the same defect (`same-defect`);
-- the reply says `STATUS: refused` or `blocked`, or the run exits 0 while the lane's owned files are unchanged: that is a refusal, whatever the reply says (`refused`, `blocked`, `unchanged`). `dispatch` flags each of these in its `hints` as `climb: <reason>`.
+- the reply says `STATUS: refused` or `blocked`, or the run exits 0 while the lane's owned files are unchanged: that is a refusal, whatever the reply says (`refused`, `blocked`, `unchanged`). `wait` flags each of these in the record's `hints` as `climb: <reason>`.
 
-A usage limit is not a climb. When the profile names a stand-in for that rung, `dispatch` has already rerun the role on it, on a fresh thread, and its first hint says `limit: … failed over to <rung>`: carry on with the record it returned. With no stand-in, the hint is `limit: …` and the run is paused.
+A usage limit is not a climb. When the profile names a stand-in for that rung, `wait` has already started the role on it, on a fresh thread: the limited record's first hint says `limit: … failed over to <rung>`, the stand-in is in `started` and its name stays in `running`, and a later `wait` returns its record. With no stand-in, the hint is `limit: …` and the run is paused.
 
 A failure on the top rung (`top: true`) goes to the architect when Jev calls it design, else to the report as open.
 
@@ -133,7 +134,7 @@ A resumed thread replays its whole history on every tool call. In the first real
 
 Your context is re-read on every turn, and it is the run's most expensive token. In the first real run you were 68% of the Claude spend: 269 turns at about 220k tokens each.
 
-- **One message per transition.** Independent tool calls (a `land`, the next lanes' dispatches, a `route`) go in the same message.
+- **One message per transition.** Independent tool calls (a `land`, the next lanes' dispatches, a `route`) go in the same message. They run one after another, and each `dispatch` returns in about a second; the `wait` comes after them.
 - **Read little, and read it narrowly.**
   - From the architect, read its short reply. The plan lives in `plan.md` and the lane files; read a section with `read_run_file` only when a decision needs it.
   - From a role, read its record and its capped reply.
@@ -143,7 +144,14 @@ Your context is re-read on every turn, and it is the run's most expensive token.
 
 ## Waiting
 
-Call `dispatch` from your main thread, never from a subagent: a subagent's MCP call never backgrounds, so it would hold that subagent for the whole run. Launch every independent role in the same message. Each dispatch backgrounds by itself after two minutes, and its result arrives as a notification that wakes you. Then end your turn with one status line. Never `sleep` and never poll.
+Call `dispatch` and `wait` from your main thread only, never from a subagent: a subagent's MCP call never backgrounds, so a `wait` there would hold that subagent for the whole run.
+
+- **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
+- **Then call `wait(run)`.** It returns once one of them finishes, and its result wakes you. After two minutes Claude Code backgrounds it: end your turn with one status line, and its notification wakes you.
+- **Act on each record it returns,** dispatch what follows, and call `wait(run)` again while its `running` is not empty.
+- **A single role is `dispatch`, then `wait`.**
+
+Never `sleep` and never poll.
 
 **When the user asks where it stands,** call `status(run)` once and answer from it.
 
@@ -167,9 +175,9 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 - **`roles/<name>/<dispatchId>/`** (each dispatch's brief, reply, events and stderr) and **`shots/`** (screenshots).
 - **The repo's `knowledge.md`** (beside the runs, per repo, not per run): what past runs learned. `land`'s `learned` appends to it; `read_knowledge` reads it.
 
-**Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `dispatch` has already written the pause.
+**Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `wait` has already written the pause.
 
-**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`; its dispatch call returns the same record.
+**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`; a `wait` returns the same record.
 
 **Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
 
@@ -206,13 +214,13 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 **Per milestone:**
 
-5. **Lanes.** Launch every lane of the milestone in one message, each at its rung: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
+5. **Lanes.** Dispatch every lane of the milestone, one after another, each at its rung, then `wait(run)`: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
    - When a worker returns, check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
    - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
 6. **writer,** when the milestone changes docs. It starts once the workers are done.
 7. **reviewer,** once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
-8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. All lanes go at once. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.
+8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. Dispatch every lane's fix, then `wait`. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.
    - Before routing a finding that questions the plan, `ask(run, "finding", …)`. `design` goes to the architect (`SendMessage` to the same agent), and its delta rewrites the lane files.
    - A finding that comes back: `ask(run, "same-defect", …)`. `yes` gets one climb and one re-check of that line. Anything still open goes to the report, not into another round.
 9. **verifier,** with the milestone's A-lines and the **full check**, on a frozen tree. A full check that starts while a role still edits proves nothing, and it has to run again. Never give it a worker's reply.
@@ -286,7 +294,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 
 ## Reading results
 
-- Read the record `dispatch` returns, its `hints`, and the reply (`result(run, name)`), nothing else. Read the stderr the `failed: read <path>` hint names, with `read_run_file`, only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
+- Read each record `wait` returns, its `hints`, and the reply (`result(run, name)`), nothing else. Read the stderr the `failed: read <path>` hint names, with `read_run_file`, only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
 - Exit 0 means the model finished, not that it is right. The STATUS line is the role's claim; `changedOwned` and your fast check are the facts.
 - `failed` comes only from a real turn failure or an exit with no reply; a reconnect mid-run does not count. Read the reply before you retry.
 - `cli-too-old`: tell the user the upgrade command its `cli-too-old:` hint names. `limit` with no stand-in: a usage limit is the user's to fix: pause, report and push that turn. `timeout`: the role went quiet for the profile's idle minutes, or ran past its wall minutes; resume its thread once with where it stopped, then climb.
@@ -296,7 +304,8 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 
 | You notice                                                                                                                          | Do instead                                                                                                             |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| A lane waits on another lane that shares none of its files                                                                          | Launch it now, in the same message                                                                                     |
+| A lane waits on another lane that shares none of its files                                                                          | Dispatch it now, beside the others, then `wait`                                                                        |
+| A role dispatched, then waited on, before the next independent one is dispatched                                                    | Dispatch every independent role first, then one `wait(run)`                                                            |
 | A worker or fix loop runs the full suite to check one change                                                                        | Its fast check. The full check is the verifier's, once per milestone                                                   |
 | A reviewer or verifier runs after each lane                                                                                         | Once per milestone, over the whole milestone                                                                           |
 | A third review round                                                                                                                | One fix round, one climb for a returning defect, one re-check. The rest goes to the report                             |
@@ -330,7 +339,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | A push for progress that is not a landed milestone, the finish or a block                                                           | No push. `status(run)` answers when the user asks                                                                      |
 | Your own decision changes behavior that already exists and no A-line asked for it (e.g. re-numbering `list` to match a new command) | Pick the option that keeps existing behavior, and fit the new code to it                                               |
 | `Agent(subagent_type: "Plan", model: "opus")` for the architect                                                                     | The `agent` that `route(run, role: "architect")` returned, with no model                                               |
-| `dispatch` called from a subagent                                                                                                   | The main thread. A subagent's MCP call never backgrounds                                                               |
+| `dispatch` or `wait` called from a subagent                                                                                         | The main thread. A subagent's MCP call never backgrounds                                                               |
 | `codex exec` or `opencode run` called by hand                                                                                       | Always `dispatch`: it records the run, keeps `state.md` true and guards the lanes                                      |
 | You isolate a role's harness yourself, or tell a role to ignore the user's config                                                   | Never. Only the profile's `harness.<name>.isolated`, which the user sets                                               |
 | The architect's plan contains function bodies                                                                                       | Ask for decisions and signatures. The worker writes the code                                                           |

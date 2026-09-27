@@ -34,6 +34,7 @@ describe("orchestrator skill", () => {
       "route",
       "preflight",
       "dispatch",
+      "wait",
       "cancel",
       "record_agent_run",
       "climb",
@@ -45,6 +46,25 @@ describe("orchestrator skill", () => {
     ]) {
       expect(used).toContain(core);
     }
+  });
+
+  it("dispatches roles one after another, then waits: never the 0.x claim that dispatches run at once (plan 9)", () => {
+    const md = skill("catherd");
+    const waiting = md.slice(md.indexOf("## Waiting"), md.indexOf("\n## ", md.indexOf("## Waiting") + 1));
+    expect(waiting).toContain("one after another");
+    expect(waiting).toContain("`wait(run)`");
+    expect(waiting).toContain("A single role is `dispatch`, then `wait`.");
+    expect(waiting).toMatch(/`dispatch` and `wait` from your main thread only/);
+    for (const old of [
+      "Launch every independent role in the same message",
+      "Each dispatch backgrounds by itself",
+      "in one message, each at its rung",
+      "All lanes go at once",
+      "its dispatch call returns the same record",
+      "Launch it now, in the same message",
+      "`dispatch` has already",
+    ])
+      expect(md).not.toContain(old);
   });
 
   it("writes every rung as backend:model#effort, and pins this package's version", () => {
