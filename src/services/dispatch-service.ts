@@ -280,6 +280,8 @@ export async function wait(
     putBack();
     return { records: [], started: [], running: pendingNames(run), hints: [ABORTED] };
   }
+  // in the order the roles finished, however the polls happened to see them
+  records.sort((a, b) => Date.parse(a.record.endedAt) - Date.parse(b.record.endedAt));
   return { records, started, running: pendingNames(run), hints };
 }
 

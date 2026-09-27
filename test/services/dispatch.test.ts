@@ -244,6 +244,19 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect(w.running).toEqual([]);
   });
 
+  it("returns the records of one wait in the order the roles finished, whatever order it saw them in", async () => {
+    const { run, deps, releaseA, releaseB } = twoLanes();
+    await dispatch(deps, input(run.id));
+    await dispatch(deps, input(run.id, L2));
+    // both finish, M1.L2 first, before any wait polls: one poll then sees both at once
+    releaseB();
+    await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L2"));
+    releaseA();
+    await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L1"));
+    const w = await wait(deps, { run: run.id, all: true });
+    expect(w.records.map((r) => r.record.name)).toEqual(["worker-M1.L2", "worker-M1.L1"]);
+  });
+
   it("returns at once, with a hint, when nothing is uncollected", async () => {
     const { run, deps } = setup(OK);
     expect(await wait(deps, { run: run.id })).toEqual({

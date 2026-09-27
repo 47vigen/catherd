@@ -51,7 +51,7 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
     "wait",
     {
       description:
-        "Block until at least one of the run's uncollected dispatches has finished (only those in names, when given; every one of them with all: true), reporting progress meanwhile, and return { records, started, running, hints }. records holds each finished role's { record, hints }, each returned by one wait only; a role that hit a usage limit has its failover stand-in launched, listed in started. running names every uncollected role this call did not return, still running or already finished, stand-ins included: act on the records, then wait again while running is not empty. Returns at once, with a hint, when nothing is uncollected. Call it from the main thread.",
+        "Block until at least one of the run's uncollected dispatches has finished (only those in names, when given; every one of them with all: true), reporting progress meanwhile, and return { records, started, running, hints }. records holds each finished role's { record, hints }, in the order they finished, each returned by one wait only; a role that hit a usage limit has its failover stand-in launched, listed in started. running names every uncollected role this call did not return, still running or already finished, stand-ins included: act on the records, then wait again while running is not empty. Returns at once, with a hint, when nothing is uncollected. Call it from the main thread.",
       inputSchema: {
         run: z.string(),
         names: z.array(z.string().regex(ID_PATTERN)).optional(),
