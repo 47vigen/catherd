@@ -36,9 +36,17 @@ export function tryClaim(dir: string): boolean {
   }
   try {
     writeSync(fd, JSON.stringify({ pid: process.pid, startTime: processStartTime(process.pid) }));
-  } finally {
+  } catch (e) {
+    // a claim that names no one would hold every other finalizer off until it is stale: drop it
     closeSync(fd);
+    try {
+      unlinkSync(dispatchPaths(dir).claim);
+    } catch {
+      // already gone
+    }
+    throw e;
   }
+  closeSync(fd);
   return true;
 }
 
