@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
+import * as backends from "../../src/services/backends.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import {
   cancel,
@@ -11,12 +12,14 @@ import {
   type DispatchInput,
   orphanLimits,
   wait,
+  watchersSettled,
 } from "../../src/services/dispatch-service.ts";
 import { isAlive, processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { latestDispatch, liveDispatches, readProc } from "../../src/services/dispatches.ts";
+import { latestDispatch, listDispatches, liveDispatches, readProc } from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
+import type { Deps } from "../../src/services/ports.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import {
@@ -31,6 +34,7 @@ import {
   writeLane,
 } from "./helpers.ts";
 
+afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
 beforeEach(() => {
   resetReadiness();
@@ -109,6 +113,34 @@ describe("failover", () => {
       failoverFrom: "codex:gpt-6-sol#medium",
     });
     expect(next.running).toEqual([]);
+  });
+
+  it("is never done by the watcher that finalizes a role at exit, only by wait, once (I-2)", async () => {
+    const { run, deps } = setup(LIMIT, FAILOVER);
+    await dispatch(deps, input(run.id));
+    await waitFor(() => readRecords(run).records.length === 1);
+    await watchersSettled();
+    expect(listDispatches(run)).toHaveLength(1);
+    expect(readNotes(run).next).not.toMatch(/^paused/);
+    const w = await wait(deps, { run: run.id });
+    expect(w.started.map((s) => s.rung)).toEqual(["codex:gpt-6-sol#high"]);
+  });
+
+  it("still returns the limited record, paused, when the failover throws an unexpected error (I-3)", async () => {
+    const { run, deps } = setup(LIMIT);
+    await dispatch(deps, input(run.id));
+    const spy = spyOn(backends, "standInFor").mockImplementation(() => {
+      throw new Error("profile vanished");
+    });
+    try {
+      const w = await wait(deps, { run: run.id });
+      expect(w.records.map((r) => r.record.status)).toEqual(["limit"]);
+      expect(w.records[0]?.hints.at(-1)).toBe("failover: profile vanished");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
+    expect((await wait(deps, { run: run.id })).records).toEqual([]);
   });
 
   it("reruns a fresh round's own brief on the stand-in, and records both runs", async () => {
@@ -206,21 +238,43 @@ describe("failover", () => {
   });
 });
 
+/** A cancelled record reaches at most the wait already in flight, never a later one (M-1). */
+async function collectedOnce(
+  run: { id: string },
+  deps: Deps,
+  pending: ReturnType<typeof wait>,
+  id: string,
+): Promise<void> {
+  expect((await pending).records.every((r) => r.record.dispatchId === id)).toBe(true);
+  expect((await wait(deps, { run: run.id })).records).toEqual([]);
+}
+
 describe("cancel", () => {
-  it("stops a live dispatch, records it once as cancelled, and the waiting dispatch returns the same record", async () => {
+  it("collects the record it returns, so the next wait does not return it again (M-1)", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
-    const pending = runRole(deps, input(run.id));
+    await dispatch(deps, input(run.id));
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const { record } = await cancel(deps, run.id, "worker-M1.L1");
     expect(record.status).toBe("cancelled");
-    expect((await pending).record.dispatchId).toBe(record.dispatchId);
+    expect(await wait(deps, { run: run.id })).toMatchObject({ records: [], running: [] });
+  });
+
+  it("stops a live dispatch, records it once as cancelled, and and no later wait returns it again", async () => {
+    const { run, deps } = setup({ hangMs: 30_000 });
+    await dispatch(deps, input(run.id));
+    const pending = wait(deps, { run: run.id });
+    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    const { record } = await cancel(deps, run.id, "worker-M1.L1");
+    expect(record.status).toBe("cancelled");
+    await collectedOnce(run, deps, pending, record.dispatchId);
     expect(readRecords(run).records).toHaveLength(1);
     expect(liveDispatches(run)).toEqual([]);
   });
 
   it("still records a cancel when git breaks mid-run, and says what it could not see", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
-    const pending = runRole(deps, input(run.id));
+    await dispatch(deps, input(run.id));
+    const pending = wait(deps, { run: run.id });
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     fakeGit("exit 128");
     const { record, hints } = await cancel(deps, run.id, "worker-M1.L1");
@@ -228,13 +282,14 @@ describe("cancel", () => {
     expect(hints).toHaveLength(2);
     expect(hints[0]).toBe("git-unavailable: changed files unknown");
     expect(hints[1]).toMatch(/^state\.md not refreshed: git status failed in /);
-    expect((await pending).record.dispatchId).toBe(record.dispatchId);
+    await collectedOnce(run, deps, pending, record.dispatchId);
     expect(readRecords(run).records).toHaveLength(1);
   });
 
-  it("stops a worker whose supervisor died, records it as cancelled, and the waiting dispatch returns", async () => {
+  it("stops a worker whose supervisor died, records it as cancelled, and the wait in flight returns", async () => {
     const { run, deps } = setup({ hangMs: 60_000 });
-    const pending = runRole(deps, input(run.id));
+    await dispatch(deps, input(run.id));
+    const pending = wait(deps, { run: run.id });
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
@@ -246,7 +301,7 @@ describe("cancel", () => {
     expect(record.status).toBe("cancelled");
     expect(isAlive(proc.pid, proc.startTime)).toBe(false);
     expect(readExit(live.dir)).toMatchObject({ reason: "cancelled", signal: "SIGTERM" });
-    expect((await pending).record.dispatchId).toBe(record.dispatchId);
+    await collectedOnce(run, deps, pending, record.dispatchId);
     expect(readRecords(run).records).toHaveLength(1);
   }, 30_000);
 
@@ -254,13 +309,14 @@ describe("cancel", () => {
     // the worker ends only when the test says so: after its supervisor is gone, never before
     const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
     const { run, deps } = setup({ holdUntil: release });
-    const pending = runRole(deps, input(run.id));
+    await dispatch(deps, input(run.id));
+    const pending = wait(deps, { run: run.id });
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
     await waitFor(() => !isAlive(proc.supervisorPid, proc.supervisorStartTime));
     writeFileSync(release, "");
-    const { record } = await pending;
+    const record = (await pending).records[0]?.record;
     expect(record).toMatchObject({ status: "failed", exitCode: null, error: { message: "lost, exit null" } });
     expect(readExit(live.dir)).toBeNull();
     expect(readRecords(run).records).toHaveLength(1);

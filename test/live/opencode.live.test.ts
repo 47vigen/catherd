@@ -71,7 +71,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
 
   it("stops a running shell on cancel: the session is interrupted server-side", async () => {
     const { repo, run, deps } = live("workspace-write");
-    const pending = runRole(deps, {
+    await dispatch(deps, {
       run: run.id,
       role: "worker",
       name: "worker-1",
@@ -82,7 +82,6 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
     await Bun.sleep(15_000);
     const { record } = await cancel(deps, run.id, "worker-1");
     expect(record.status).toBe("cancelled");
-    await pending;
     await Bun.sleep(40_000);
     expect(existsSync(join(repo, "done.txt"))).toBe(false);
   }, 300_000);

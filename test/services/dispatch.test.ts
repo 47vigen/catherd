@@ -1,11 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
-import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { dispatch, type DispatchInput, wait } from "../../src/services/dispatch-service.ts";
+import * as fin from "../../src/services/finalize.ts";
+import * as state from "../../src/services/state.ts";
+import {
+  dispatch,
+  type DispatchInput,
+  launcher,
+  wait,
+  watchersSettled,
+} from "../../src/services/dispatch-service.ts";
 import { listDispatches, liveDispatches } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
@@ -14,6 +22,7 @@ import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, runRole, waitFor, writeLane } from "./helpers.ts";
 
+afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
 
@@ -155,6 +164,8 @@ describe("dispatch", () => {
 /** A file the simulated worker waits for before it exits: the test decides when each worker ends. */
 const holdFile = () => join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
 const OK = { reply: "Done.\nSTATUS: complete — ok" };
+const NOTHING = "nothing to wait for: every dispatch of this run has been collected; dispatch a role first";
+const NOTHING_FOR = (n: string) => `${n} has nothing to collect: result(run, "${n}") reads its last record`;
 const L2 = { name: "worker-M1.L2", lane: "M1.L2", rung: "codex:gpt-6-sol#medium" };
 
 /** Two lanes whose workers each run until released: M1.L1 at Luna, M1.L2 at Sol medium. */
@@ -233,18 +244,127 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect(w.running).toEqual([]);
   });
 
-  it("returns at once, with a hint, when nothing is live", async () => {
+  it("returns at once, with a hint, when nothing is uncollected", async () => {
     const { run, deps } = setup(OK);
     expect(await wait(deps, { run: run.id })).toEqual({
       records: [],
       started: [],
       running: [],
-      hints: ["nothing to wait for: no dispatch of this run is running; dispatch a role first"],
+      hints: [NOTHING],
     });
     expect((await wait(deps, { run: run.id, names: ["worker-M9.L9"] })).hints).toEqual([
-      'worker-M9.L9 is not running: result(run, "worker-M9.L9") reads its last record',
-      "nothing to wait for: no dispatch of this run is running; dispatch a role first",
+      NOTHING_FOR("worker-M9.L9"),
+      NOTHING,
     ]);
+  });
+
+  it("keeps the run's other roles in running when the names given have nothing to collect", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    expect(await wait(deps, { run: run.id, names: ["worker-M9.L9"] })).toEqual({
+      records: [],
+      started: [],
+      running: ["worker-M1.L1"],
+      hints: [NOTHING_FOR("worker-M9.L9")],
+    });
+    writeFileSync(release, "");
+    expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
+  });
+
+  it("lists in running a role that finished but was not collected, and the next wait returns it (I-1)", async () => {
+    const { run, deps, releaseA, releaseB } = twoLanes();
+    await dispatch(deps, input(run.id));
+    const b = await dispatch(deps, input(run.id, L2));
+    releaseB();
+    await waitFor(() =>
+      readExit(listDispatches(run).find((d) => d.admit.dispatchId === b.dispatched.dispatchId)?.dir ?? ""),
+    );
+    releaseA();
+    const first = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(first.records.map((r) => r.record.name)).toEqual(["worker-M1.L1"]);
+    expect(first.running).toEqual(["worker-M1.L2"]);
+    const next = await wait(deps, { run: run.id });
+    expect(next.records.map((r) => r.record.name)).toEqual(["worker-M1.L2"]);
+    expect(next.running).toEqual([]);
+  });
+
+  it("finalizes a role as soon as it exits, and leaves its record for wait to hand back (I-2)", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    writeFileSync(release, "");
+    await waitFor(() => readRecords(run).records.length === 1);
+    await waitFor(() => readFileSync(runPaths(run.dir).state, "utf8").includes("Running:\n- none"));
+    const d = listDispatches(run)[0];
+    expect(awaitsCollect(d?.dir ?? "")).toBe(true);
+    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+  });
+
+  it("hints and drops a dispatch it cannot finalize, and still returns the others (I-3)", async () => {
+    const { run, deps } = setup(OK);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const files = { proc: "dead" as const, exit, reply: "ok\nSTATUS: complete — ok", collect: true };
+    const broken = await fakeDispatch(run, {}, files);
+    const fine = await fakeDispatch(run, { name: "writer", role: "writer", lane: null, owns: [] }, files);
+    const real = fin.finalizeDispatch;
+    const spy = spyOn(fin, "finalizeDispatch").mockImplementation((r, d) =>
+      d.admit.dispatchId === broken.admit.dispatchId ? Promise.reject(new Error("disk on fire")) : real(r, d),
+    );
+    try {
+      const w = await wait(deps, { run: run.id, all: true });
+      expect(w.records.map((r) => r.record.dispatchId)).toEqual([fine.admit.dispatchId]);
+      expect(w.hints).toContain(
+        'worker-M1.L1: not finalized: disk on fire; result(run, "worker-M1.L1") reads its record once it has one',
+      );
+      expect(w.running).toEqual([]);
+      expect((await wait(deps, { run: run.id })).hints).toEqual([NOTHING]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("puts back what it collected when an error escapes, so the next wait returns it (I-3)", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    writeFileSync(release, "");
+    await waitFor(() => readRecords(run).records.length === 1);
+    await watchersSettled();
+    const spy = spyOn(state, "refreshState").mockImplementation(() => Promise.reject(new Error("no disk")));
+    try {
+      expect(await wait(deps, { run: run.id }).catch((e: Error) => e.message)).toBe("no disk");
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+  });
+
+  it("stops without collecting when its caller aborts it (I-3)", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    const ac = new AbortController();
+    const pending = wait(deps, { run: run.id }, undefined, ac.signal);
+    ac.abort();
+    writeFileSync(release, "");
+    expect((await pending).records).toEqual([]);
+    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+  });
+
+  it("leaves no collect marker behind when the launch throws (M-4)", async () => {
+    const { run, deps } = setup(OK);
+    const real = launcher.launch;
+    launcher.launch = () => {
+      throw new Error("no fork");
+    };
+    try {
+      expect(await dispatch(deps, input(run.id)).catch((e: Error) => e.message)).toBe("no fork");
+    } finally {
+      launcher.launch = real;
+    }
+    const d = listDispatches(run)[0];
+    expect(d && awaitsCollect(d.dir)).toBe(false);
   });
 
   it("collects a dispatch that finished while no wait ran, as after a server restart, once", async () => {

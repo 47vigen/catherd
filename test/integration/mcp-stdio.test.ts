@@ -176,7 +176,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
         records: [],
         started: [],
         running: [],
-        hints: ["nothing to wait for: no dispatch of this run is running; dispatch a role first"],
+        hints: ["nothing to wait for: every dispatch of this run has been collected; dispatch a role first"],
       });
       await call(c, "write_run_file", {
         run,
@@ -293,7 +293,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(stopped.error?.fix).toBeTruthy();
       writeProfile({});
 
-      // cancel: a hanging role is stopped, recorded once as cancelled, and the wait on it returns that record.
+      // cancel: a hanging role is stopped and recorded once as cancelled.
       sim.rewrite({ hangMs: 60_000 });
       expect((await call(c, "dispatch", second)).isError).toBe(false);
       const hanging = call(c, "wait", { run, names: ["worker-M1.L2"] });
@@ -304,7 +304,11 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       );
       const cancelled = await call(c, "cancel", { run, name: "worker-M1.L2" });
       expect(cancelled.data.record.status).toBe("cancelled");
-      expect((await hanging).data.records[0].record.dispatchId).toBe(cancelled.data.record.dispatchId);
+      // cancel collects the record: the wait in flight may return it too, and no later wait does
+      const id = cancelled.data.record.dispatchId;
+      const inFlight = (await hanging).data.records as { record: { dispatchId: string } }[];
+      expect(inFlight.every((r) => r.record.dispatchId === id)).toBe(true);
+      expect((await call(c, "wait", { run })).data.records).toEqual([]);
 
       // restart mid-run: the server dies while a role runs; the next server's wait collects its one record.
       sim.rewrite({

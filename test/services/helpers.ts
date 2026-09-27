@@ -6,7 +6,13 @@ import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { dispatch, type DispatchInput, type Progress, wait } from "../../src/services/dispatch-service.ts";
+import {
+  dispatch,
+  type DispatchInput,
+  type Progress,
+  wait,
+  watchersSettled,
+} from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
@@ -153,6 +159,7 @@ export async function runRole(
     for (const h of w.hints) if (!state.includes(h)) state.push(h);
     if (!w.running.includes(i.name)) break;
   }
+  await watchersSettled();
   if (!record) throw new Error(`no record for ${i.name}`);
   return { record, hints: [...hints, ...state.filter((h) => !hints.includes(h))] };
 }

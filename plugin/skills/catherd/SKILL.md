@@ -35,25 +35,25 @@ The catherd server keeps `state.md` true: it rewrites it on every dispatch, clim
 
 The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd_catherd__<name>`. If they are deferred, load them all with one ToolSearch call at the start, together with `PushNotification`.
 
-| Tool                                                                                             | Use                                                                                                                                                      |
-| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status(run?)`                                                                                   | First, and whenever the user asks where it stands: `version`, then per run the `state.md` tail, live roles, totals, Claude subagents, budget, milestones |
-| `run_start(repo, title, a_lines)`                                                                | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                            |
-| `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`   |
-| `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                        |
-| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`; `wait` collects its record         |
-| `wait(run, names?, all?)`                                                                        | Blocks until a running role finishes (every one with `all: true`); returns `records` (each role's `record` and `hints`), `started` and `running`         |
-| `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                       |
-| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind                        |
-| `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                          |
-| `ask(run, question, state)`                                                                      | Jev's `finding` or `same-defect` answer                                                                                                                  |
-| `land(run, milestone, what, commit, evidence, next, learned?)`                                   | A landed milestone's ledger row, with the minutes it took, and `state.md`. `learned` appends to this repo's `knowledge.md`                               |
-| `read_knowledge(repo)`                                                                           | What past runs of this repo learned. The dossier brief reads it                                                                                          |
-| `write_run_file(run, path, content)`, `read_run_file(run, path)`                                 | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                          |
-| `result(run, name)`                                                                              | A role's latest reply, capped, and its record                                                                                                            |
-| `set_next(run, next)`                                                                            | The next step, when you pause or the plan changes. Returns `state` and, when git fails, `hints`                                                          |
-| `runs_summary(run?, repo?, role?, since_days?)`                                                  | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                      |
-| `profile_get(repo?)`                                                                             | The profile this repo runs on: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                            |
+| Tool                                                                                             | Use                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status(run?)`                                                                                   | First, and whenever the user asks where it stands: `version`, then per run the `state.md` tail, live roles, totals, Claude subagents, budget, milestones            |
+| `run_start(repo, title, a_lines)`                                                                | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                                       |
+| `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`              |
+| `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                                   |
+| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`; `wait` collects its record                    |
+| `wait(run, names?, all?)`                                                                        | Blocks until a role finishes (every one with `all: true`); returns `records` (each role's `record` and `hints`), `started`, and `running`: what is still to collect |
+| `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                                  |
+| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind                                   |
+| `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                                     |
+| `ask(run, question, state)`                                                                      | Jev's `finding` or `same-defect` answer                                                                                                                             |
+| `land(run, milestone, what, commit, evidence, next, learned?)`                                   | A landed milestone's ledger row, with the minutes it took, and `state.md`. `learned` appends to this repo's `knowledge.md`                                          |
+| `read_knowledge(repo)`                                                                           | What past runs of this repo learned. The dossier brief reads it                                                                                                     |
+| `write_run_file(run, path, content)`, `read_run_file(run, path)`                                 | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                                     |
+| `result(run, name)`                                                                              | A role's latest reply, capped, and its record                                                                                                                       |
+| `set_next(run, next)`                                                                            | The next step, when you pause or the plan changes. Returns `state` and, when git fails, `hints`                                                                     |
+| `runs_summary(run?, repo?, role?, since_days?)`                                                  | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                                 |
+| `profile_get(repo?)`                                                                             | The profile this repo runs on: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                                       |
 
 **A tool returns `hints` when it has any:** one line each, on what to do next. Read them before you move on.
 
@@ -148,7 +148,7 @@ Call `dispatch` and `wait` from your main thread only, never from a subagent: a 
 
 - **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
 - **Then call `wait(run)`.** It returns once one of them finishes, and its result wakes you. After two minutes Claude Code backgrounds it: end your turn with one status line, and its notification wakes you.
-- **Act on each record it returns,** dispatch what follows, and call `wait(run)` again while its `running` is not empty.
+- **Act on each record it returns,** dispatch what follows, and call `wait(run)` again while its `running` is not empty. `running` names every role whose record no `wait` has returned yet, still running or already finished; each record comes back once.
 - **A single role is `dispatch`, then `wait`.**
 
 Never `sleep` and never poll.
@@ -177,9 +177,9 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 **Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `wait` has already written the pause.
 
-**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`; a `wait` returns the same record.
+**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`, and no later `wait` returns it again.
 
-**Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
+**Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Before dispatching anything, call `wait(run)`, again while its `running` is not empty, to collect the roles the last session left running or unread (`dispatch` refuses a name that is still running). Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
 
 ## The sequence
 

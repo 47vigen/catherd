@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { relative } from "node:path";
-import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -13,6 +13,7 @@ import {
   requestCancel,
   tryCollect,
 } from "../infra/dispatch-dir.ts";
+import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
@@ -56,7 +57,7 @@ export interface DispatchStarted {
 
 export interface WaitInput {
   run: string;
-  /** the role names to wait on; default: every live dispatch of the run */
+  /** the role names to wait on; default: every uncollected dispatch of the run */
   names?: string[];
   /** wait until every one of them has finished, not only the first */
   all?: boolean;
@@ -67,7 +68,7 @@ export interface WaitResult {
   records: DispatchResult[];
   /** failover stand-ins launched for a usage limit, not awaited */
   started: Dispatched[];
-  /** the names of the run's dispatches still running, stand-ins included */
+  /** every uncollected role of the run this call did not return, running or finished, stand-ins included */
   running: string[];
   hints: string[];
 }
@@ -90,15 +91,50 @@ async function refresh(run: Run, change: NotesPatch, hints: string[]): Promise<v
   for (const h of (await refreshState(run, change)).hints) if (!hints.includes(h)) hints.push(h);
 }
 
-/** Marks an admitted dispatch for a `wait` to collect, then starts its supervisor. */
+/** How a dispatch's supervisor is started; tests replace it to make a launch fail. */
+export const launcher = { launch };
+
+/** Marks an admitted dispatch for a `wait` to collect, then starts its supervisor; no mark outlives a failed launch. */
 function start(d: Dispatch, specPath: string): void {
   markForCollect(d.dir);
-  launch(d, specPath);
+  try {
+    launcher.launch(d, specPath);
+  } catch (e) {
+    rmSync(dispatchPaths(d.dir).collect, { force: true });
+    throw e;
+  }
+}
+
+/** The watchers `dispatch` started, each until its dispatch is finalized. */
+const watchers = new Set<Promise<void>>();
+
+/** Settles once every watcher has: tests await it so none outlives its test. */
+export async function watchersSettled(): Promise<void> {
+  while (watchers.size > 0) await Promise.all(watchers);
 }
 
 /**
- * Spec §4.4, plan 9 ruling 1: admit and launch one role, then refresh state.md with `next` (after the
- * launch, so nothing delays it). Returns at once; `wait` collects the record.
+ * Finalizes a dispatch as soon as it exits and refreshes state.md, as reconcile's watcher does, so its
+ * after-snapshot holds only its own writes and the live list and the spend stay true. It never collects
+ * the record and never fails over: `wait` does both, once. Its errors are logged; `wait` finalizes then.
+ */
+function watch(deps: Deps, run: Run, d: Dispatch): void {
+  const w = (async () => {
+    await waitForFinish(d, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
+    await finalizeDispatch(run, d);
+    const { hints } = await refreshState(run);
+    if (hints[0]) log("warn", "dispatch", { run: run.id, name: d.admit.name, hint: hints[0] });
+  })()
+    .catch((e: unknown) =>
+      log("warn", "dispatch", { run: run.id, name: d.admit.name, error: errorMessage(e) }),
+    )
+    .finally(() => watchers.delete(w));
+  watchers.add(w);
+}
+
+/**
+ * Spec §4.4, plan 9 ruling 1: admit and launch one role, start its watcher, then refresh state.md with
+ * `next` (after the launch, so nothing delays it). Returns at once; `wait` collects the record.
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
@@ -112,23 +148,23 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     failoverFrom: null,
   });
   start(d, specPath);
+  watch(deps, run, d);
   const hints: string[] = [];
   await refresh(run, i.next ? { next: i.next } : {}, hints);
   return { dispatched: dispatchedOf(d), hints };
 }
 
-const NOTHING = "nothing to wait for: no dispatch of this run is running; dispatch a role first";
+const NOTHING = "nothing to wait for: every dispatch of this run has been collected; dispatch a role first";
+const nothingFor = (n: string) => `${n} has nothing to collect: result(run, "${n}") reads its last record`;
+const takenElsewhere = (n: string) =>
+  `${n}: its record went to another call (cancel or wait); result(run, "${n}") reads it`;
+const ABORTED = "wait was cancelled: nothing collected";
 
 /** The run's dispatches a `wait` has yet to hand back, read from disk, so a restarted server finds them. */
 const uncollected = (run: Run): Dispatch[] => listDispatches(run).filter((d) => awaitsCollect(d.dir));
 
-/** Of the uncollected dispatches, the names of those still running. */
-function runningNames(run: Run, now: number): string[] {
-  const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
-  return uncollected(run)
-    .filter((d) => !recorded.has(d.admit.dispatchId) && dispatchState(d, now) !== "finished")
-    .map((d) => d.admit.name);
-}
+/** Every uncollected role of the run, running or finished: what a `wait` still has to return. */
+const pendingNames = (run: Run): string[] => [...new Set(uncollected(run).map((d) => d.admit.name))];
 
 interface Collected {
   result: DispatchResult;
@@ -136,63 +172,110 @@ interface Collected {
   pause: string | null;
 }
 
+/** The record of a dispatch this wait has collected, with its failover; an unexpected failover error becomes a hint. */
+async function collected(deps: Deps, run: Run, d: Dispatch, record: RunRecord): Promise<Collected> {
+  if (record.status !== "limit")
+    return { result: { record, hints: hintsFor(run, d, record) }, started: null, pause: null };
+  try {
+    return await failover(deps, run, d, record);
+  } catch (e) {
+    return {
+      result: { record, hints: [...hintsFor(run, d, record), `failover: ${errorMessage(e)}`] },
+      started: null,
+      pause: `paused: ${record.backend} usage limit; resume when the user says so`,
+    };
+  }
+}
+
 /**
  * Plan 9 ruling 1: blocks until one of the named uncollected dispatches (default: every one of the run)
- * has finished, or every one with `all`; finalizes each (claim-based, so a concurrent cancel, reconcile or
- * other server finalizes it once), hands each record to this wait only, launches a usage limit's stand-in
- * without awaiting it, then refreshes state.md, with the pause a limit calls for.
+ * has finished, or every one with `all`; finalizes each (claim-based, so the dispatch's watcher, a cancel,
+ * reconcile or another server finalizes it once), hands each record to this wait only, launches a usage
+ * limit's stand-in without awaiting it, then refreshes state.md, with the pause a limit calls for.
+ * `running` names every uncollected role this call did not return. One dispatch that cannot be finalized
+ * becomes a hint and is dropped; an error that still escapes puts back what this call collected, and so
+ * does an abort, which returns without collecting.
  */
-export async function wait(deps: Deps, i: WaitInput, onProgress?: Progress): Promise<WaitResult> {
+export async function wait(
+  deps: Deps,
+  i: WaitInput,
+  onProgress?: Progress,
+  signal?: AbortSignal,
+): Promise<WaitResult> {
   const run = findRun(i.run);
   const names = i.names ? [...new Set(i.names)] : null;
   for (const n of names ?? []) assertId("role name", n);
   const hints: string[] = [];
   const targets = uncollected(run).filter((d) => !names || names.includes(d.admit.name));
-  for (const n of names ?? [])
-    if (!targets.some((d) => d.admit.name === n))
-      hints.push(`${n} is not running: result(run, "${n}") reads its last record`);
-  if (targets.length === 0) return { records: [], started: [], running: [], hints: [...hints, NOTHING] };
+  for (const n of names ?? []) if (!targets.some((d) => d.admit.name === n)) hints.push(nothingFor(n));
+  if (targets.length === 0) {
+    const running = pendingNames(run);
+    return { records: [], started: [], running, hints: running.length ? hints : [...hints, NOTHING] };
+  }
 
   const open = new Map(targets.map((d) => [d.admit.dispatchId, d]));
+  const taken: Dispatch[] = [];
   const records: DispatchResult[] = [];
   const started: Dispatched[] = [];
   let pause: string | null = null;
   let ticked = Date.now();
-  for (;;) {
-    const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
-    for (const d of open.values()) {
-      if (!recorded.has(d.admit.dispatchId) && dispatchState(d, deps.now()) !== "finished") continue;
-      open.delete(d.admit.dispatchId);
-      const record = await finalizeDispatch(run, d);
-      if (!tryCollect(d.dir)) {
-        hints.push(`${d.admit.name}: another wait returned its record`);
-        continue;
+  const putBack = () => {
+    for (const d of taken) markForCollect(d.dir);
+  };
+  try {
+    for (;;) {
+      if (signal?.aborted) {
+        putBack();
+        return { records: [], started: [], running: pendingNames(run), hints: [ABORTED] };
       }
-      const c: Collected =
-        record.status === "limit"
-          ? await failover(deps, run, d, record)
-          : { result: { record, hints: hintsFor(run, d, record) }, started: null, pause: null };
-      records.push(c.result);
-      if (c.started) started.push(c.started);
-      if (c.pause) pause = c.pause;
-    }
-    if (open.size === 0 || (!i.all && records.length > 0)) break;
-    await Bun.sleep(deps.pollMs);
-    if (onProgress && Date.now() - ticked >= deps.tickMs) {
-      ticked = Date.now();
+      const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
       for (const d of open.values()) {
-        const secs = Math.max(0, Math.round((ticked - Date.parse(d.admit.admittedAt)) / 1000));
-        const ev = lastEvent(d);
+        if (!recorded.has(d.admit.dispatchId) && dispatchState(d, deps.now()) !== "finished") continue;
+        open.delete(d.admit.dispatchId);
+        let record: RunRecord;
         try {
-          onProgress(`${d.admit.name} · ${d.admit.rung} · ${secs}s${ev ? ` · ${ev}` : ""}`);
-        } catch {
-          // a progress report must never stop the wait
+          record = await finalizeDispatch(run, d);
+        } catch (e) {
+          // dropped, not retried: one dispatch that cannot be finalized must not hold every later wait
+          if (tryCollect(d.dir))
+            hints.push(
+              `${d.admit.name}: not finalized: ${errorMessage(e)}; result(run, "${d.admit.name}") reads its record once it has one`,
+            );
+          continue;
+        }
+        if (signal?.aborted) break;
+        if (!tryCollect(d.dir)) {
+          hints.push(takenElsewhere(d.admit.name));
+          continue;
+        }
+        taken.push(d);
+        const c = await collected(deps, run, d, record);
+        records.push(c.result);
+        if (c.started) started.push(c.started);
+        if (c.pause) pause = c.pause;
+      }
+      if (signal?.aborted) continue;
+      if (open.size === 0 || (!i.all && records.length > 0)) break;
+      await Bun.sleep(deps.pollMs);
+      if (onProgress && Date.now() - ticked >= deps.tickMs) {
+        ticked = Date.now();
+        for (const d of open.values()) {
+          const secs = Math.max(0, Math.round((ticked - Date.parse(d.admit.admittedAt)) / 1000));
+          const ev = lastEvent(d);
+          try {
+            onProgress(`${d.admit.name} · ${d.admit.rung} · ${secs}s${ev ? ` · ${ev}` : ""}`);
+          } catch {
+            // a progress report must never stop the wait
+          }
         }
       }
     }
+    await refresh(run, pause ? { next: pause } : {}, hints);
+  } catch (e) {
+    putBack();
+    throw e;
   }
-  await refresh(run, pause ? { next: pause } : {}, hints);
-  return { records, started, running: runningNames(run, deps.now()), hints };
+  return { records, started, running: pendingNames(run), hints };
 }
 
 /**
@@ -212,7 +295,8 @@ function standInBrief(run: Run, d: Dispatch): string {
 
 /**
  * Spec §4.5: on a limit, launch the rung's stand-in on a fresh thread, through admission again (budget
- * included), without awaiting it. A stand-in that hits a limit too pauses the run.
+ * included), without awaiting it. A stand-in that hits a limit too pauses the run. A stand-in already
+ * launched for this record (by a wait whose collection was put back) is reused, never launched twice.
  */
 async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): Promise<Collected> {
   const hints = hintsFor(run, d, limited);
@@ -224,6 +308,22 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       pause: `paused: ${limited.backend} usage limit on ${limited.rung} and on ${d.admit.failoverFrom}`,
     };
   const paused = `paused: ${limited.backend} usage limit; resume when the user says so`;
+  const failedOver = (standIn: string, next: Dispatch): Collected => ({
+    result: result([
+      `limit: ${limited.rung} hit a usage limit; failed over to ${standIn}`,
+      // the stand-in's before-snapshot already holds the limited run's writes: surface them here
+      ...hints.filter((h) => /^(violation|git-unavailable):/.test(h)),
+    ]),
+    started: dispatchedOf(next),
+    pause: null,
+  });
+  const already = listDispatches(run).find(
+    (x) =>
+      x.admit.name === d.admit.name &&
+      x.admit.failoverFrom === limited.rung &&
+      x.admit.dispatchId > d.admit.dispatchId,
+  );
+  if (already) return failedOver(already.admit.rung, already);
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { result: result(hints), started: null, pause: paused };
   if (parseRung(standIn).backend === "claude") {
@@ -257,15 +357,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
     };
   }
   start(next.d, next.specPath);
-  return {
-    result: result([
-      `limit: ${limited.rung} hit a usage limit; failed over to ${standIn}`,
-      // the stand-in's before-snapshot already holds the limited run's writes: surface them here
-      ...hints.filter((h) => /^(violation|git-unavailable):/.test(h)),
-    ]),
-    started: dispatchedOf(next.d),
-    pause: null,
-  };
+  watch(deps, run, next.d);
+  return failedOver(standIn, next.d);
 }
 
 /** How long an orphaned worker gets between SIGTERM and SIGKILL; tests shorten it. */
@@ -309,7 +402,10 @@ async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
   });
 }
 
-/** Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. */
+/**
+ * Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. It collects the
+ * record it returns, so no later `wait` returns it again.
+ */
 export async function cancel(deps: Deps, runId: string, name: string): Promise<DispatchResult> {
   const run = findRun(runId);
   assertId("role name", name);
@@ -322,6 +418,7 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
+  tryCollect(live.dir);
   const { hints } = await refreshState(run);
   return { record, hints: [...hintsFor(run, live, record), ...hints] };
 }
