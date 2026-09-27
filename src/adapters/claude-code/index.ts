@@ -154,6 +154,9 @@ function parse(line: string): EventDelta {
   if (typeof e.session_id === "string" && e.session_id) d.thread = e.session_id;
   if (e.type === "system" && e.subtype === "api_retry") d.retrying = true;
   if (e.type === "rate_limit_event" && e.rate_limit_info?.status === "rejected") d.limit = true;
+  // each assistant message of the main thread carries its own request's usage; `result` sums the session
+  if (e.type === "assistant" && !e.parent_tool_use_id && e.message?.usage)
+    d.requestInput = claudeTokens(e.message.usage).input;
   if (e.type === "result") {
     const f = foldClaudeEvents([line]);
     d.final = true;

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { scrubSecrets as scrubSecretShapes } from "../domain/jev.ts";
 import { logsDir } from "./paths.ts";
 import { appendJsonl, ensureJsonlHeader } from "./store.ts";
 
@@ -18,8 +19,8 @@ export function logLevel(): (typeof LEVELS)[number] {
 
 const rank = (l: string) => LEVELS.indexOf(l as (typeof LEVELS)[number]);
 
-/** Env names whose values are secrets: every `*_KEY` and `*_TOKEN`, and a few other shapes. */
-const SECRET_NAME = /(_KEY|_TOKEN|_SECRET|_PASSWORD)$/i;
+/** Env names whose values are secrets: every `*_KEY` and `*_TOKEN`, a few other shapes, any credential. */
+const SECRET_NAME = /(_KEY|_TOKEN|_SECRET|_PASSWORD)$|CREDENTIAL/i;
 /** A value this short is never scrubbed: it would blank ordinary words. */
 const MIN_SECRET = 8;
 
@@ -40,12 +41,14 @@ const isPlain = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * `v` with every known secret replaced by `[redacted]`, in any string at any depth, and every env map
- * (a field named `env`) reduced to its keys.
+ * `v` with every known secret replaced by `[redacted]` and every secret-shaped string (a key read from a
+ * file, not the env: a bearer in a backend's stderr) by `[secret]`, in any string at any depth, and every
+ * env map (a field named `env`) reduced to its keys.
  */
 export function redact<T>(v: T, secrets: string[] = secretValues()): T {
   const walk = (x: unknown, key: string | null): unknown => {
-    if (typeof x === "string") return secrets.reduce((s, secret) => s.split(secret).join("[redacted]"), x);
+    if (typeof x === "string")
+      return scrubSecretShapes(secrets.reduce((s, secret) => s.split(secret).join("[redacted]"), x));
     if (Array.isArray(x)) return x.map((y) => walk(y, null));
     if (isPlain(x)) {
       if (key === "env") return Object.keys(x).sort();

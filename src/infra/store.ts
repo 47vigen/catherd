@@ -96,9 +96,13 @@ export function appendJsonl(file: string, value: unknown): void {
 export function ensureJsonlHeader(file: string, kind: string): void {
   mkdirSync(dirname(file), { recursive: true });
   try {
-    const fd = openSync(file, "wx");
-    writeSync(fd, `${JSON.stringify({ schema: 1, kind })}\n`);
-    closeSync(fd);
+    // O_APPEND: a row another process appends between the create and this write is kept, not overwritten
+    const fd = openSync(file, "ax");
+    try {
+      writeSync(fd, `${JSON.stringify({ schema: 1, kind })}\n`);
+    } finally {
+      closeSync(fd);
+    }
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
   }
@@ -117,7 +121,7 @@ export function readJsonl<T>(file: string, current = 1): { kind: string | null; 
   let kind: string | null = null;
   let corrupt = 0;
   const lines = readFileSync(file, "utf8").split("\n");
-  lines.forEach((line, i) => {
+  lines.forEach((line) => {
     if (!line.trim()) return;
     let v: unknown;
     try {
@@ -126,7 +130,8 @@ export function readJsonl<T>(file: string, current = 1): { kind: string | null; 
       corrupt++;
       return;
     }
-    if (i === 0 && isHeader(v)) {
+    // the header is first unless another writer's row won the race to a new file (ensureJsonlHeader)
+    if (kind === null && isHeader(v)) {
       if (v.schema > current) throw newer(file, v.schema, current);
       kind = v.kind;
       return;

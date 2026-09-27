@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { CatherdError } from "../../domain/errors.ts";
 import { PROFILE_NAME, ProfilePatchSchema } from "../../domain/profile.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { gitToplevel } from "../../infra/git.ts";
@@ -9,9 +10,18 @@ import { handle } from "./result.ts";
 const PROFILE = z.string().regex(PROFILE_NAME).optional();
 const REPO = z.string().min(1).optional();
 
-/** The git toplevel of `repo` (default: this server's directory); null outside a repository. */
-const toplevel = async (repo: string | undefined): Promise<string | null> =>
-  gitToplevel(repo ?? process.cwd());
+/**
+ * The git toplevel of `repo` (default: this server's directory, null outside a repository). A `repo`
+ * given outside a repository is refused, as run_start does: never the global profile in its stead.
+ */
+const toplevel = async (repo: string | undefined): Promise<string | null> => {
+  const top = await gitToplevel(repo ?? process.cwd());
+  if (top === null && repo !== undefined)
+    throw new CatherdError("E_IO_PATH", `${repo} is not inside a git repository`, {
+      fix: "pass the path of the repository, or leave repo out for the active profile",
+    });
+  return top;
+};
 
 export function registerSetupTools(server: McpServer, deps: Deps): void {
   server.registerTool(

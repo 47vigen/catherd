@@ -77,15 +77,25 @@ export function createRun(o: {
   const root = runsDir(o.repo);
   mkdirSync(root, { recursive: true });
   const base = `${stamp(now)}-${slug(o.title)}`;
+  // findRun looks an id up across every repo, so an id is claimed across every repo too: the claim
+  // folder is atomic between processes, the scan covers runs made before claims existed
+  const claims = join(dataDir(), "run-ids");
+  mkdirSync(claims, { recursive: true });
+  const repos = join(dataDir(), "repos");
+  const taken = (id: string) =>
+    existsSync(repos) && readdirSync(repos).some((r) => existsSync(join(repos, r, "runs", id)));
   let id = base;
   for (let n = 2; ; n++) {
     try {
-      mkdirSync(join(root, id));
-      break;
+      if (!taken(id)) {
+        mkdirSync(join(claims, id));
+        mkdirSync(join(root, id));
+        break;
+      }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      id = `${base}-${n}`;
     }
+    id = `${base}-${n}`;
   }
   const dir = join(root, id);
   const p = runPaths(dir);

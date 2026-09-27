@@ -81,6 +81,14 @@ describe("jsonl", () => {
     expect(readJsonl(f)).toEqual({ kind: "runs", rows: [{ a: 1 }, { a: 2 }], corrupt: 0 });
   });
 
+  it("keeps a row another writer appended before the header landed, and still reads the header", () => {
+    const f = join(dir(), "runs.jsonl");
+    appendJsonl(f, { a: 1 });
+    appendFileSync(f, '{"schema":1,"kind":"runs"}\n');
+    appendJsonl(f, { a: 2 });
+    expect(readJsonl(f)).toEqual({ kind: "runs", rows: [{ a: 1 }, { a: 2 }], corrupt: 0 });
+  });
+
   it("skips a truncated tail and a corrupt middle line, counting them", () => {
     const f = join(dir(), "runs.jsonl");
     ensureJsonlHeader(f, "runs");

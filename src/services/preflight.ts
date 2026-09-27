@@ -72,10 +72,10 @@ function laneChecks(run: Run): LaneCheck[] {
 }
 
 /** How long the pipes may stay open after the check's own process exits. */
-const DRAIN_MS = 500;
+export const DRAIN_MS = 500;
 
 /** Reads a pipe chunk by chunk, so what arrived is kept when the reading stops early. */
-function collect(stream: ReadableStream<Uint8Array>): {
+export function collect(stream: ReadableStream<Uint8Array>): {
   done: Promise<void>;
   text: () => string;
   stop: () => void;

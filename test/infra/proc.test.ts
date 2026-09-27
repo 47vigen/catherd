@@ -62,6 +62,32 @@ describe("proc", () => {
     expect(p.signalCode).toBe("SIGKILL");
   });
 
+  it("killGroup never falls back to a bare pid whose group is gone: that pid may be reused", () => {
+    const kill = spyOn(process, "kill").mockImplementation((pid: number) => {
+      if (pid < 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      return true;
+    });
+    try {
+      killGroup(424242, "SIGKILL");
+      expect(kill.mock.calls.map((c) => c[0])).toEqual([-424242]);
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it.skipIf(process.platform !== "linux")("isAlive reports a zombie no one reaps as dead", async () => {
+    // `true` exits at once; its parent then execs sleep, which never reaps it
+    const p = Bun.spawn(["sh", "-c", "true & echo $!; exec sleep 5"], { stdout: "pipe" });
+    try {
+      const reader = p.stdout.getReader();
+      const zombie = Number(new TextDecoder().decode((await reader.read()).value).trim());
+      await Bun.sleep(200);
+      expect(isAlive(zombie, null)).toBe(false);
+    } finally {
+      p.kill("SIGKILL");
+    }
+  });
+
   describe("invalid pids", () => {
     it("killGroup never signals a pid that is not an integer > 1 (0 and -1 are whole groups)", () => {
       const kill = spyOn(process, "kill").mockImplementation(() => true);

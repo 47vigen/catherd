@@ -10,7 +10,16 @@ export interface CodexFold {
   lastEvent: string | null;
 }
 
-export const CODEX_LIMIT = [/usage limit/i, /rate limit reached/i, /quota exceeded/i, /try again later/i];
+/**
+ * An account limit, not any error that says "try again later" (an overloaded server does too). A rate
+ * limit codex retried until it gave up reads "exceeded retry limit, last status: 429 Too Many Requests".
+ */
+export const CODEX_LIMIT = [
+  /usage limit/i,
+  /rate limit reached/i,
+  /quota exceeded/i,
+  /status: 429|too many requests/i,
+];
 export const CODEX_TOO_OLD = [/not supported when using Codex with a ChatGPT account/i];
 
 type Event = Record<string, any>;

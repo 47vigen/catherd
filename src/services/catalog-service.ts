@@ -107,7 +107,9 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
       // a row is written when the subagent ends; it started `secs` earlier
       const lane = typeof a.lane === "string" ? a.lane : null;
       const end = Date.parse(a.at);
-      const startedAt = Number.isNaN(end) ? a.at : new Date(end - a.secs * 1000).toISOString();
+      // a duration past the Date range (record_agent_run takes any) keeps the end, not a RangeError
+      const start = new Date(end - a.secs * 1000);
+      const startedAt = Number.isNaN(start.getTime()) ? a.at : start.toISOString();
       count(routes, a.rung, a.secs, lane, startedAt);
     }
   }
@@ -212,6 +214,13 @@ function canonicalOf(c: Catalog, rung: string): string {
   try {
     if (rung.includes(":")) canonical = rungInfo(c, rung).canonical;
   } catch {}
+  // a backend's own model id without its backend: the family that backend runs it for names it
+  const hash = canonical.lastIndexOf("#");
+  const model = canonical.slice(0, hash);
+  if (hash > 0 && !c.families.some((f) => f.id === model)) {
+    const family = c.families.find((f) => Object.values(f.on).some((m) => m?.id === model));
+    if (family) canonical = `${family.id}${canonical.slice(hash)}`;
+  }
   if (!CanonicalRung.safeParse(canonical).success)
     throw new CatherdError("E_INPUT_INVALID", `"${rung}" is not a rung`, {
       fix: "name it as backend:model#effort or model#effort, e.g. codex:gpt-6-sol#high",

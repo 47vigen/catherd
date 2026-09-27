@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
 import type { Access, RunStatus, Tokens } from "../../domain/record.ts";
@@ -15,6 +18,7 @@ import {
   type Spent,
 } from "../backend.ts";
 import { jsonOf, runCli } from "../cli.ts";
+import { configDir } from "../../infra/paths.ts";
 import { discovered, readDiscovery } from "../discovery.ts";
 import { installAgents, isolatedConfigRoot, OPENCODE_AGENT, userConfigRoot } from "./agents.ts";
 import {
@@ -46,6 +50,23 @@ export async function opencodeApi(method: "GET" | "POST", path: string): Promise
   return j && typeof j === "object" ? (j as Record<string, any>) : null;
 }
 
+/**
+ * An isolated worker's XDG_CONFIG_HOME holds only catherd's opencode config, and every process the worker
+ * starts inherits it: point catherd (`catherd lock`), gh and git back at the user's own config.
+ */
+function isolatedEnv(): Record<string, string> {
+  const user = userConfigRoot();
+  const env: Record<string, string> = {
+    XDG_CONFIG_HOME: isolatedConfigRoot(),
+    CATHERD_CONFIG_DIR: configDir(),
+  };
+  if (!process.env.GH_CONFIG_DIR) env.GH_CONFIG_DIR = join(user, "gh");
+  const gitXdg = join(user, "git", "config");
+  if (!process.env.GIT_CONFIG_GLOBAL && !existsSync(join(homedir(), ".gitconfig")) && existsSync(gitXdg))
+    env.GIT_CONFIG_GLOBAL = gitXdg;
+  return env;
+}
+
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not an opencode session id`, {
@@ -67,7 +88,7 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.isolated ? ["--standalone"] : []),
       ...(r.thread === null ? [] : ["-s", r.thread]),
     ],
-    env: r.isolated ? { XDG_CONFIG_HOME: isolatedConfigRoot() } : {},
+    env: r.isolated ? isolatedEnv() : {},
     cwd: r.repo,
     stdinPath: r.briefPath,
   };
@@ -167,6 +188,7 @@ function parse(line: string): EventDelta {
   if (typeof e.sessionID === "string") d.thread = e.sessionID;
   if (e.type === "step_finish") {
     d.tokens = opencodeTokens(e.part?.tokens);
+    d.requestInput = d.tokens.input;
     if (typeof e.part?.cost === "number") d.costUsd = e.part.cost;
   }
   if (e.type === "error") {

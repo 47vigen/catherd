@@ -140,10 +140,12 @@ export const runnableBackends = (): string[] => ["claude", ...ADAPTER_IDS.filter
 export const keyRunnable = (key: string, backends: string[] = runnableBackends()): boolean =>
   backends.includes(backendOfKey(key));
 
-export function validateNamed(name?: string): Validation {
-  const n = name ?? activeName();
+/** `repo`: the git toplevel whose listing route reads (opencode lists its models per repository). */
+export function validateNamed(name?: string, repo: string | null = null): Validation {
+  const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
-  return validateProfile(resolveProfile(doc, n), loadCatalog({ timings: false }), runnableBackends(), doc);
+  const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
+  return validateProfile(resolveProfile(doc, n), catalog, runnableBackends(), doc);
 }
 
 /** Spec D10: how strongly the backend holds a role to its access mode. */
@@ -536,7 +538,7 @@ export function profileService(): ProfilePort {
       };
     },
     validate(name, repo = null) {
-      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name));
+      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name), repo);
       return { valid: v.errors.length === 0, ...v };
     },
     // a name that does not exist yet starts from the default profile

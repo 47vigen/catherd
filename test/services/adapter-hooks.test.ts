@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
@@ -9,7 +10,8 @@ import { resetReadiness, standInFor } from "../../src/services/backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, testView } from "./helpers.ts";
+import { appendRecord } from "../../src/services/run-store.ts";
+import { fakeDeps, fakeDispatch, freshRun, makeRecord, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 afterEach(() => {
@@ -130,6 +132,24 @@ describe("prepare", () => {
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
   });
 
+  it("resumes a thread in the home it started in, whatever the profile's isolation says now", async () => {
+    const seen: { isolated: boolean }[] = [];
+    fake({
+      prepare: async (r) => {
+        seen.push(r);
+        throw new CatherdError("E_BACKEND_MODEL_UNKNOWN", "stop here", { fix: "none" });
+      },
+    });
+    const { run, deps } = setup();
+    await appendRecord(
+      run,
+      makeRecord({ dispatchId: "D0", rung: "cursor:go-m1#default", thread: "th-7", isolated: true }),
+    );
+    await refusal(admit(deps, run, input({ thread: "th-7" })));
+    await refusal(admit(deps, run, input()));
+    expect(seen.map((r) => r.isolated)).toEqual([true, false]);
+  });
+
   it("refuses the dispatch when prepare never settles, and writes nothing", async () => {
     prepareLimits.timeoutMs = 50;
     fake({ prepare: () => new Promise(() => {}) });
@@ -142,6 +162,28 @@ describe("prepare", () => {
       fix: expect.stringContaining("cursor"),
     });
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+  });
+});
+
+describe("finalize's overlap window", () => {
+  it("counts a lane that ended between this dispatch's admission and its worker's start as another's", async () => {
+    const { run } = freshRun();
+    const t = Date.parse("2026-09-25T10:00:00.000Z");
+    const at = (s: number) => new Date(t + s * 1000).toISOString();
+    const done = (endedAt: string) => ({ code: 0, signal: null, reason: "exited" as const, endedAt });
+    // B wrote src/b.ts and ended at +1 s; A was admitted at 0 s, its worker only started at +2 s
+    const b = await fakeDispatch(
+      run,
+      { name: "worker-M1.L2", lane: "M1.L2", owns: ["src/b.ts"], admittedAt: at(-10) },
+      { proc: "dead", exit: done(at(1)) },
+    );
+    await finalizeDispatch(run, b);
+    const a = await fakeDispatch(run, { admittedAt: at(0) }, { proc: "dead", exit: done(at(5)) });
+    const proc = JSON.parse(readFileSync(dispatchPaths(a.dir).proc, "utf8"));
+    writeFileSync(dispatchPaths(a.dir).proc, JSON.stringify({ ...proc, startedAt: at(2) }));
+    mkdirSync(join(run.meta.repo, "src"), { recursive: true });
+    writeFileSync(join(run.meta.repo, "src", "b.ts"), "b");
+    expect((await finalizeDispatch(run, a)).violations).toEqual([]);
   });
 });
 

@@ -55,6 +55,8 @@ export interface SpawnPlan {
 export interface EventDelta {
   thread?: string;
   tokens?: Tokens;
+  /** the input tokens of one model request, from an event that reports them per request (the harness cost) */
+  requestInput?: number;
   costUsd?: number;
   lastEvent?: string;
   failure?: string;

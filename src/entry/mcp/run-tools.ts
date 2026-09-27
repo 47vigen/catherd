@@ -2,6 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
+import { redact } from "../../infra/log.ts";
+import { registerSavedSecrets } from "../../services/jev-service.ts";
 import type { Deps } from "../../services/ports.ts";
 import {
   readKnowledge,
@@ -56,7 +58,11 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
         "catherd's version, and one screen per run: the state.md tail, live roles, totals, reported Claude subagents, Jev fallbacks, budget and landed milestones. Without a run: every run with live roles, else the newest. Reads only.",
       inputSchema: { run: z.string().optional() },
     },
-    (a) => handle(() => status(deps, a.run)),
+    (a) =>
+      handle(() => {
+        registerSavedSecrets();
+        return redact(status(deps, a.run));
+      }),
   );
 
   server.registerTool(

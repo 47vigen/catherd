@@ -20,4 +20,10 @@ writeFileSync(
   read("plugin/.claude-plugin/plugin.json").replace(/"version": "[^"]+"/, `"version": "${version}"`),
 );
 
+// the marketplace serves the plugin from its release tag, so `main` never ships skills ahead of the server
+writeFileSync(
+  path(".claude-plugin/marketplace.json"),
+  read(".claude-plugin/marketplace.json").replace(/"ref": "v[^"]+"/, `"ref": "v${version}"`),
+);
+
 console.log(`plugin stamped with catherd@${version}`);

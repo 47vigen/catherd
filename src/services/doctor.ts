@@ -283,12 +283,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   );
 
   let profiles: Profile[] = [];
+  let linked: string[] = [];
   let active: Profile | null = null;
   try {
     readConfig();
     readProjects();
     active = getProfile(activeName());
-    profiles = linkedProfiles().map(getProfile);
+    linked = linkedProfiles();
     checks.push({
       id: "config",
       label: "config",
@@ -306,6 +307,14 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       fix: fixOf(e) ?? "catherd init",
     });
   }
+  // one unreadable linked profile must not hide the others' backends: its own row below reports it
+  profiles = linked.flatMap((n) => {
+    try {
+      return [getProfile(n)];
+    } catch {
+      return [];
+    }
+  });
   // a repo bound to a profile whose file is gone: every command run in that repo fails to load it
   try {
     for (const [repo, name] of Object.entries(readProjects().bindings))
@@ -323,7 +332,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
   // every linked profile: the active one (row `profile`) and each repo-bound one (row `profile:<name>`).
   // Each fix names its profile: without one, the CLI acts on the profile of the repo doctor runs in.
-  const names = active ? [active.name, ...profiles.map((p) => p.name).filter((n) => n !== active?.name)] : [];
+  const names = active ? [active.name, ...linked.filter((n) => n !== active?.name)] : [];
   for (const name of names) {
     const id = name === active?.name ? "profile" : `profile:${name}`;
     const validate = `catherd profile validate ${name}`;

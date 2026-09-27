@@ -122,6 +122,16 @@ describe("drafts (spec §9.2: edits are staged)", () => {
     expect([s.profile, s.drafts]).toEqual([null, {}]);
   });
 
+  it("reverts to the profile on disk even when a staged step holds a rung no patch accepts", () => {
+    const doc = defaultProfileDoc();
+    const bogus = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, rungs: ["bogus"] } } };
+    const theirs = { ...bogus, objective: "speed" as const };
+    let s = run(initialState(), { type: "show", name: "default", doc: bogus });
+    s = run(s, { type: "edit", patch: { roles: { worker: { rungs: ["bogus", "codex:gpt-6-sol#high"] } } } });
+    s = run(s, { type: "revert", name: "default", doc: theirs });
+    expect(currentDraft(s)?.doc.objective).toBe("speed");
+  });
+
   it("reverts to the profile as it is on disk now, and undo stages the changes again over it", () => {
     const theirs = { ...defaultProfileDoc(), objective: "speed" as const };
     let s = run(

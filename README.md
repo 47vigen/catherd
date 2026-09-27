@@ -37,7 +37,7 @@ bunx catherd-cli init
 The npm package is `catherd-cli`; the command it installs is `catherd`. `init` asks for the optional Jev key,
 writes the default profile and links its Claude agents, lists your backends' models, and ends with a readiness
 report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile
-instead of `default`; piped, it reads one answer per line once stdin closes). Then add the plugin to Claude Code:
+instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to Claude Code:
 
 ```sh
 claude plugin marketplace add 47vigen/catherd

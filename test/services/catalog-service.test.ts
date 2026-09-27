@@ -80,6 +80,14 @@ describe("loadCatalog", () => {
     expect(await code(saveTreatLike("claude-opus-5-5#high", "claude-opus-5-5#xhigh"))).toBe("ok");
   });
 
+  it("saves a backend's own model id under its family's canonical rung, the key routing looks up", async () => {
+    withHome();
+    expect(await saveTreatLike("claude-haiku-4-5-20251001#high", "gpt-6-sol#high")).toEqual({
+      rung: "claude-haiku-4-5#high",
+      like: "gpt-6-sol#high",
+    });
+  });
+
   it("refuses a malformed rung and leaves the override file byte-for-byte unchanged", async () => {
     withHome();
     await saveTreatLike("a/b#high", "gpt-6-sol#high");
@@ -204,6 +212,22 @@ describe("measuredSecs", () => {
     agent(9999, "failed");
     const m = measuredSecs(loadCatalog({ timings: false }));
     expect(m).toEqual({ "claude-opus-5-5#high|*": 30 });
+  });
+
+  it("survives an agent row whose duration runs past the Date range", async () => {
+    const { run } = freshRun();
+    appendAgentRun(run, {
+      at: "2026-09-25T10:00:00.000Z",
+      name: "architect",
+      role: "architect",
+      rung: "claude:claude-opus-5-5#high",
+      agent: null,
+      totalTokens: 100,
+      costUsd: null,
+      secs: 1e16,
+      status: "ok",
+    });
+    expect(() => loadCatalog()).not.toThrow();
   });
 
   it("counts an agent row that names its lane under that lane's kind too", async () => {

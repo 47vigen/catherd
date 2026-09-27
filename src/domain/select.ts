@@ -85,9 +85,12 @@ function noRung(role: Role): CatherdError {
   });
 }
 
-/** The role's default rung and every candidate above it (the whole list when it has no default). */
+/**
+ * The role's default rung and every candidate above it (the whole list when it has no default), in cost
+ * order under either objective: speed order would put slower, not stronger, rungs above the default.
+ */
 export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
-  const all = candidates(c, p, role).map((x) => x.rung);
+  const all = candidates(c, { ...p, objective: "cost" }, role).map((x) => x.rung);
   if (all.length === 0) throw noRung(role);
   const i = Math.max(0, all.indexOf(p.role.defaultRung ?? ""));
   return { rung: all[i] as string, ladder: all.slice(i) };

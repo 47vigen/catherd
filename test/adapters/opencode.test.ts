@@ -5,6 +5,7 @@ import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import { isolatedConfigRoot } from "../../src/adapters/opencode/agents.ts";
 import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
+import { configDir } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "opencode");
@@ -73,7 +74,19 @@ describe("opencode plan", () => {
     withHome();
     const p = opencodeAdapter.plan(req({ isolated: true }));
     expect(p.args).toContain("--standalone");
-    expect(p.env).toEqual({ XDG_CONFIG_HOME: isolatedConfigRoot() });
+    expect(p.env).toMatchObject({ XDG_CONFIG_HOME: isolatedConfigRoot(), CATHERD_CONFIG_DIR: configDir() });
+  });
+
+  it("points catherd, gh and git back at the user's own config inside an isolated worker", () => {
+    const home = withHome();
+    delete process.env.CATHERD_HOME;
+    delete process.env.GH_CONFIG_DIR;
+    const env = opencodeAdapter.plan(req({ isolated: true })).env;
+    expect(env.GH_CONFIG_DIR).toBe(join(home, "xdg-config", "gh"));
+    // what `catherd lock` in the worker resolves: the user's config, not the isolated root's
+    process.env.CATHERD_CONFIG_DIR = env.CATHERD_CONFIG_DIR;
+    process.env.XDG_CONFIG_HOME = env.XDG_CONFIG_HOME;
+    expect(configDir()).toBe(join(home, "xdg-config", "catherd"));
   });
 });
 

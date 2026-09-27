@@ -5,6 +5,8 @@ import { EXIT } from "./cli-kit.ts";
 export interface Prompter {
   ask(question: string): Promise<string>;
   secret(question: string): Promise<string>;
+  /** A question this machine does not need asked: piped, its line is still consumed, so answers keep their place */
+  skip?(): void;
   close(): void;
 }
 
@@ -72,7 +74,8 @@ export function terminalAsk(
 
 /**
  * Questions for `catherd init`. On a terminal they are asked one by one; piped, stdin is read once and each
- * question takes the next line (an empty or missing line takes the default), so scripts can answer them.
+ * question takes its own line (an empty or missing line takes the default), whether or not this machine
+ * asks it, so a script's answers never shift onto another question.
  */
 export async function prompter(): Promise<Prompter> {
   if (!process.stdin.isTTY) {
@@ -82,7 +85,7 @@ export async function prompter(): Promise<Prompter> {
       process.stdout.write(`${q}\n`);
       return answer;
     };
-    return { ask: next, secret: next, close() {} };
+    return { ask: next, secret: next, skip: () => void lines.shift(), close() {} };
   }
   let rl: Interface | null = null;
   let ask: ((q: string) => Promise<string>) | null = null;

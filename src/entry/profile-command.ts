@@ -302,7 +302,8 @@ const validate = defineCommand({
     ...json,
   },
   async run({ args }) {
-    const v = validateNamed(args.name === undefined ? await activeHere() : requireProfile(args.name));
+    const repo = await gitToplevel(process.cwd());
+    const v = validateNamed(args.name === undefined ? activeName(repo) : requireProfile(args.name), repo);
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);
     else printIssues(v.errors, v.warnings);

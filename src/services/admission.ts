@@ -142,7 +142,14 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
-  const isolated = profile.isolated[rung.backend] ?? false;
+  // a resumed thread lives in the home it started in (CODEX_HOME), whatever the profile says now
+  const started =
+    i.thread === null
+      ? undefined
+      : readRecords(run)
+          .records.filter((r) => r.thread === i.thread)
+          .at(-1);
+  const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
   await prepared(adapter, { rung, access: rc.access, isolated, repo: run.meta.repo });
   const plan = adapter.plan({
     rung,
@@ -161,7 +168,8 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
     // could not be recorded just now.
-    const pending = pendingDispatches(run, deps.now());
+    // the same read as `records`: a record appended in between would be in neither, and escape the budget
+    const pending = pendingDispatches(run, deps.now(), records);
     const live = pending.filter((d) => d.state !== "finished");
     const doing = (d: LiveDispatch): string => (d.state === "finished" ? "finished, unrecorded," : "running");
     const same = pending.find((d) => d.admit.name === i.name);

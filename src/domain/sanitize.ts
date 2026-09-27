@@ -23,11 +23,9 @@ const longestFirst = <T>(xs: T[], len: (x: T) => number) => [...xs].sort((a, b) 
  */
 export function sanitize(text: string, s: Scrub): string {
   let out = text;
-  for (const v of longestFirst(
-    s.secrets.filter((x) => x.length >= 8),
-    (x) => x.length,
-  ))
-    out = out.split(v).join("<redacted>");
+  // a captured stream is JSONL: a secret with a quote, a backslash or a control character is escaped there
+  const forms = s.secrets.filter((x) => x.length >= 8).flatMap((x) => [x, JSON.stringify(x).slice(1, -1)]);
+  for (const v of longestFirst([...new Set(forms)], (x) => x.length)) out = out.split(v).join("<redacted>");
   for (const re of KEYS) out = out.replace(re, "<redacted>");
   out = out.replace(EMAIL, "<email>");
   for (const p of longestFirst(

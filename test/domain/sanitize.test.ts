@@ -29,6 +29,12 @@ describe("sanitize", () => {
     );
   });
 
+  it("replaces a secret as JSONL escapes it too", () => {
+    const secret = 'pa\\ss"word99';
+    const line = JSON.stringify({ text: `db ${secret}` });
+    expect(sanitize(line, { secrets: [secret], paths: [] })).toBe(JSON.stringify({ text: "db <redacted>" }));
+  });
+
   it("leaves short values alone: they would shred ordinary text", () => {
     expect(sanitize("a short word", scrub)).toBe("a short word");
   });

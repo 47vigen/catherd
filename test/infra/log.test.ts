@@ -69,6 +69,15 @@ describe("redact", () => {
     });
   });
 
+  it("scrubs a secret-shaped string no env var holds, and any credential env var's value", () => {
+    expect(redact("Authorization: Bearer sk-proj-abcdefghijklmnopqrstuvwx", [])).toBe(
+      "Authorization: Bearer [secret]",
+    );
+    expect(secretValues({ GOOGLE_APPLICATION_CREDENTIALS_JSON: "{ private json }" })).toContain(
+      "{ private json }",
+    );
+  });
+
   it("leaves short values alone, so an ordinary word is never blanked", () => {
     expect(secretValues({ SOME_KEY: "yes" })).not.toContain("yes");
   });
