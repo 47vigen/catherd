@@ -82,6 +82,22 @@ describe("catherd (spec §8)", () => {
     ]);
   });
 
+  it("takes citty's negated dashboard booleans, --no-plain and --no-reduced-motion, but no --no-<unknown>", () => {
+    withHome();
+    for (const flag of ["--no-plain", "--no-reduced-motion"]) {
+      const r = catherd([flag], { ANTHROPIC_API_KEY: "" });
+      expect([flag, r.code, r.err]).toEqual([
+        flag,
+        2,
+        "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
+          "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
+      ]);
+    }
+    expect(catherd(["--no-bogus"], { ANTHROPIC_API_KEY: "" }).err).toBe(
+      "error E_INPUT_INVALID: unknown option --no-bogus\nfix: catherd --help\n",
+    );
+  });
+
   it("says in the spec's error format that the dashboard needs a terminal (audit N4)", () => {
     withHome();
     const r = catherd(["--plain"], { ANTHROPIC_API_KEY: "" });

@@ -125,7 +125,11 @@ export async function runCli(argv: string[]): Promise<number> {
   const command = own.find((a) => !a.startsWith("-"));
   // a bare `catherd` opens the dashboard, which takes only its own flags: a typo is not a terminal problem
   const flag = (a: string) => (a.startsWith("--") ? (a.slice(2).split("=")[0] ?? "") : "");
-  const unknown = command === undefined ? own.find((a) => !Object.hasOwn(dashboardArgs, flag(a))) : undefined;
+  // citty negates a boolean as `--no-<name>`
+  const known = (name: string) =>
+    Object.hasOwn(dashboardArgs, name) ||
+    (name.startsWith("no-") && dashboardArgs[name.slice(3)]?.type === "boolean");
+  const unknown = command === undefined ? own.find((a) => !known(flag(a))) : undefined;
   if (unknown !== undefined) {
     printError(new CatherdError("E_INPUT_INVALID", `unknown option ${unknown}`, { fix: "catherd --help" }));
     return EXIT.usage;
