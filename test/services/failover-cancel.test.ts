@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { cancel, dispatch, type DispatchInput, orphanLimits } from "../../src/services/dispatch-service.ts";
+import {
+  cancel,
+  dispatch,
+  type DispatchInput,
+  orphanLimits,
+  wait,
+} from "../../src/services/dispatch-service.ts";
 import { isAlive, processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { latestDispatch, liveDispatches, readProc } from "../../src/services/dispatches.ts";
@@ -19,6 +25,7 @@ import {
   fakeDispatch,
   fakeGit,
   freshRun,
+  runRole,
   testView,
   waitFor,
   writeLane,
@@ -70,9 +77,43 @@ const input = (run: string, over: Partial<DispatchInput> = {}): DispatchInput =>
 });
 
 describe("failover", () => {
+  it("is done by wait: the limit is recorded, its stand-in launched and not awaited", async () => {
+    const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    await dispatch(deps, input(run.id));
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record.status)).toEqual(["limit"]);
+    expect(w.records[0]?.hints).toEqual([
+      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
+    ]);
+    const stand = latestDispatch(run, "worker-M1.L1");
+    expect(w.started).toEqual([
+      {
+        name: "worker-M1.L1",
+        role: "worker",
+        rung: "codex:gpt-6-sol#high",
+        dispatchId: stand?.admit.dispatchId as string,
+        admittedAt: stand?.admit.admittedAt as string,
+      },
+    ]);
+    expect(w.running).toEqual(["worker-M1.L1"]);
+    expect(readRecords(run).records.map((r) => r.status)).toEqual(["limit"]);
+    expect(readNotes(run).next).not.toMatch(/^paused/);
+    writeFileSync(release, "");
+    const next = await wait(deps, { run: run.id });
+    expect(next.records[0]?.record).toMatchObject({
+      status: "ok",
+      rung: "codex:gpt-6-sol#high",
+      failoverFrom: "codex:gpt-6-sol#medium",
+    });
+    expect(next.running).toEqual([]);
+  });
+
   it("reruns a fresh round's own brief on the stand-in, and records both runs", async () => {
     const { run, deps } = setup({ byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": DONE } });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({
       status: "ok",
       rung: "codex:gpt-6-sol#high",
@@ -96,7 +137,7 @@ describe("failover", () => {
         "gpt-6-sol#high": DONE,
       },
     });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("ok");
     expect(readRecords(run).records[0]?.violations).toEqual(["src/other.ts"]);
     expect(hints).toEqual([
@@ -107,7 +148,7 @@ describe("failover", () => {
 
   it("hands a fix round's stand-in the lane file and the fix brief by path, both of which exist", async () => {
     const { run, deps } = setup({ byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": DONE } });
-    const { record } = await dispatch(
+    const { record } = await runRole(
       deps,
       input(run.id, { thread: "t-earlier-thread", brief: "Fix: BUG src/a.ts:3 — off by one" }),
     );
@@ -135,7 +176,7 @@ describe("failover", () => {
       byRung: { "gpt-6-sol#medium": { eventsFile: events, exitCode: 1 }, "gpt-6-sol#high": DONE },
     });
     deps.view.budget = { tokens: 1000 };
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints.at(-1)).toMatch(/^failover: codex:gpt-6-sol#high refused: E_RUN_BUDGET/);
     expect(readRecords(run).records).toHaveLength(1);
@@ -148,7 +189,7 @@ describe("failover", () => {
     // the ~1 s "running" window instead missed it whenever this process stalled >1.1 s, and then hung
     const roles = runPaths(run.dir).roles;
     fakeGit(`for e in '${roles}'/*/*/exit.json; do [ -f "$e" ] && exit 128; done\nexec "$REAL_GIT" "$@"`);
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({ status: "limit", gitUnavailable: true });
     expect(hints.at(-1)).toMatch(/^state\.md not refreshed: /);
     expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
@@ -156,7 +197,7 @@ describe("failover", () => {
 
   it("names the agent when the stand-in is a native Claude rung, without pausing", async () => {
     const { run, deps } = setup(LIMIT, { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints.at(-1)).toBe(
       'failover: run worker-M1.L1 as Agent(subagent_type: "catherd-worker-claude-opus-5-5-high"), standing in for codex:gpt-6-sol#medium',
@@ -168,7 +209,7 @@ describe("failover", () => {
 describe("cancel", () => {
   it("stops a live dispatch, records it once as cancelled, and the waiting dispatch returns the same record", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
-    const pending = dispatch(deps, input(run.id));
+    const pending = runRole(deps, input(run.id));
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const { record } = await cancel(deps, run.id, "worker-M1.L1");
     expect(record.status).toBe("cancelled");
@@ -179,7 +220,7 @@ describe("cancel", () => {
 
   it("still records a cancel when git breaks mid-run, and says what it could not see", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
-    const pending = dispatch(deps, input(run.id));
+    const pending = runRole(deps, input(run.id));
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     fakeGit("exit 128");
     const { record, hints } = await cancel(deps, run.id, "worker-M1.L1");
@@ -193,7 +234,7 @@ describe("cancel", () => {
 
   it("stops a worker whose supervisor died, records it as cancelled, and the waiting dispatch returns", async () => {
     const { run, deps } = setup({ hangMs: 60_000 });
-    const pending = dispatch(deps, input(run.id));
+    const pending = runRole(deps, input(run.id));
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
@@ -213,7 +254,7 @@ describe("cancel", () => {
     // the worker ends only when the test says so: after its supervisor is gone, never before
     const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
     const { run, deps } = setup({ holdUntil: release });
-    const pending = dispatch(deps, input(run.id));
+    const pending = runRole(deps, input(run.id));
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");

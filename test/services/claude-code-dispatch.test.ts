@@ -8,7 +8,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type ClaudeScenario, withClaudeScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -43,7 +43,7 @@ describe("dispatch on claude-code (simulator)", () => {
       eventsFile: join(FX, "retry.jsonl"),
       touch: [{ path: "src/a.ts", content: "new" }],
     });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     const seen = sim.recorded();
     const session = seen.args[seen.args.indexOf("--session-id") + 1];
     expect(record).toMatchObject({
@@ -68,14 +68,14 @@ describe("dispatch on claude-code (simulator)", () => {
   it("resumes a fix round on the same session", async () => {
     const thread = "670d1ec2-db2b-471f-a1a5-3cda1416c061";
     const { run, sim, deps } = setup({ eventsFile: join(FX, "resume.jsonl") });
-    const { record } = await dispatch(deps, input(run.id, { thread, brief: "Fix: BUG src/a.ts:1" }));
+    const { record } = await runRole(deps, input(run.id, { thread, brief: "Fix: BUG src/a.ts:1" }));
     expect(record).toMatchObject({ status: "ok", thread });
     expect(sim.recorded().args).toContain("--resume");
   });
 
   it("records a usage limit as limit and pauses the run, having no stand-in", async () => {
     const { run, deps } = setup({ eventsFile: join(FX, "limit.jsonl"), exitCode: 1 });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints.join("\n")).toContain("limit");
   });

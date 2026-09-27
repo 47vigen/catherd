@@ -5,15 +5,22 @@ import { assertId, parseRung } from "../domain/ids.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import { dispatchPaths, readExit, requestCancel } from "../infra/dispatch-dir.ts";
+import {
+  awaitsCollect,
+  dispatchPaths,
+  markForCollect,
+  readExit,
+  requestCancel,
+  tryCollect,
+} from "../infra/dispatch-dir.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
-import { type Dispatch, liveDispatches, readProc } from "./dispatches.ts";
-import { finalizeDispatch, waitForFinish } from "./finalize.ts";
+import { type Dispatch, dispatchState, listDispatches, liveDispatches, readProc } from "./dispatches.ts";
+import { finalizeDispatch, lastEvent, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
-import { findRun, type Run } from "./run-store.ts";
+import { findRun, readRecords, type Run } from "./run-store.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -27,8 +34,41 @@ export interface DispatchInput {
   next?: string;
 }
 
+/** One finished dispatch: its record and what to do next. */
 export interface DispatchResult {
   record: RunRecord;
+  hints: string[];
+}
+
+/** A dispatch that has been admitted and launched. */
+export interface Dispatched {
+  name: string;
+  role: Role;
+  rung: string;
+  dispatchId: string;
+  admittedAt: string;
+}
+
+export interface DispatchStarted {
+  dispatched: Dispatched;
+  hints: string[];
+}
+
+export interface WaitInput {
+  run: string;
+  /** the role names to wait on; default: every live dispatch of the run */
+  names?: string[];
+  /** wait until every one of them has finished, not only the first */
+  all?: boolean;
+}
+
+export interface WaitResult {
+  /** each dispatch that finished, with its record and hints */
+  records: DispatchResult[];
+  /** failover stand-ins launched for a usage limit, not awaited */
+  started: Dispatched[];
+  /** the names of the run's dispatches still running, stand-ins included */
+  running: string[];
   hints: string[];
 }
 
@@ -37,39 +77,30 @@ export type Progress = (message: string) => void;
 const hintsFor = (run: Run, d: Dispatch, r: RunRecord) =>
   dispatchHints(r, d.admit.owns, relative(run.dir, d.dir));
 
+const dispatchedOf = (d: Dispatch): Dispatched => ({
+  name: d.admit.name,
+  role: d.admit.role,
+  rung: d.admit.rung,
+  dispatchId: d.admit.dispatchId,
+  admittedAt: d.admit.admittedAt,
+});
+
 /** Refreshes state.md (spec §4.5 notes kept on a git failure); a refresh that fails adds its hint once. */
 async function refresh(run: Run, change: NotesPatch, hints: string[]): Promise<void> {
   for (const h of (await refreshState(run, change)).hints) if (!hints.includes(h)) hints.push(h);
 }
 
-/**
- * Launches an admitted dispatch, then refreshes state.md with `change` (after the launch, so nothing
- * delays it), waits for it with progress, and finalizes it. A refresh that fails adds its hint to `stateHints`.
- */
-async function runToEnd(
-  deps: Deps,
-  run: Run,
-  d: Dispatch,
-  specPath: string,
-  onProgress?: Progress,
-  stateHints: string[] = [],
-  change: NotesPatch = {},
-): Promise<RunRecord> {
+/** Marks an admitted dispatch for a `wait` to collect, then starts its supervisor. */
+function start(d: Dispatch, specPath: string): void {
+  markForCollect(d.dir);
   launch(d, specPath);
-  await refresh(run, change, stateHints);
-  await waitForFinish(d, {
-    pollMs: deps.pollMs,
-    tickMs: deps.tickMs,
-    now: deps.now,
-    onTick:
-      onProgress &&
-      ((secs, ev) => onProgress(`${d.admit.name} · ${d.admit.rung} · ${secs}s${ev ? ` · ${ev}` : ""}`)),
-  });
-  return finalizeDispatch(run, d);
 }
 
-/** Spec §4.4: admit, run and finalize one role; returns its record and what to do next. */
-export async function dispatch(deps: Deps, i: DispatchInput, onProgress?: Progress): Promise<DispatchResult> {
+/**
+ * Spec §4.4, plan 9 ruling 1: admit and launch one role, then refresh state.md with `next` (after the
+ * launch, so nothing delays it). Returns at once; `wait` collects the record.
+ */
+export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
   const { d, specPath } = await admit(deps, run, {
     role: i.role,
@@ -80,22 +111,88 @@ export async function dispatch(deps: Deps, i: DispatchInput, onProgress?: Progre
     lane: i.lane ?? null,
     failoverFrom: null,
   });
-  const stateHints: string[] = [];
-  const first = await runToEnd(
-    deps,
-    run,
-    d,
-    specPath,
-    onProgress,
-    stateHints,
-    i.next ? { next: i.next } : {},
-  );
-  const out =
-    first.status === "limit"
-      ? await failover(deps, run, d, first, onProgress, stateHints)
-      : { record: first, hints: hintsFor(run, d, first), pause: null };
-  await refresh(run, out.pause ? { next: out.pause } : {}, stateHints);
-  return { record: out.record, hints: [...out.hints, ...stateHints] };
+  start(d, specPath);
+  const hints: string[] = [];
+  await refresh(run, i.next ? { next: i.next } : {}, hints);
+  return { dispatched: dispatchedOf(d), hints };
+}
+
+const NOTHING = "nothing to wait for: no dispatch of this run is running; dispatch a role first";
+
+/** The run's dispatches a `wait` has yet to hand back, read from disk, so a restarted server finds them. */
+const uncollected = (run: Run): Dispatch[] => listDispatches(run).filter((d) => awaitsCollect(d.dir));
+
+/** Of the uncollected dispatches, the names of those still running. */
+function runningNames(run: Run, now: number): string[] {
+  const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
+  return uncollected(run)
+    .filter((d) => !recorded.has(d.admit.dispatchId) && dispatchState(d, now) !== "finished")
+    .map((d) => d.admit.name);
+}
+
+interface Collected {
+  result: DispatchResult;
+  started: Dispatched | null;
+  pause: string | null;
+}
+
+/**
+ * Plan 9 ruling 1: blocks until one of the named uncollected dispatches (default: every one of the run)
+ * has finished, or every one with `all`; finalizes each (claim-based, so a concurrent cancel, reconcile or
+ * other server finalizes it once), hands each record to this wait only, launches a usage limit's stand-in
+ * without awaiting it, then refreshes state.md, with the pause a limit calls for.
+ */
+export async function wait(deps: Deps, i: WaitInput, onProgress?: Progress): Promise<WaitResult> {
+  const run = findRun(i.run);
+  const names = i.names ? [...new Set(i.names)] : null;
+  for (const n of names ?? []) assertId("role name", n);
+  const hints: string[] = [];
+  const targets = uncollected(run).filter((d) => !names || names.includes(d.admit.name));
+  for (const n of names ?? [])
+    if (!targets.some((d) => d.admit.name === n))
+      hints.push(`${n} is not running: result(run, "${n}") reads its last record`);
+  if (targets.length === 0) return { records: [], started: [], running: [], hints: [...hints, NOTHING] };
+
+  const open = new Map(targets.map((d) => [d.admit.dispatchId, d]));
+  const records: DispatchResult[] = [];
+  const started: Dispatched[] = [];
+  let pause: string | null = null;
+  let ticked = Date.now();
+  for (;;) {
+    const recorded = new Set(readRecords(run).records.map((r) => r.dispatchId));
+    for (const d of open.values()) {
+      if (!recorded.has(d.admit.dispatchId) && dispatchState(d, deps.now()) !== "finished") continue;
+      open.delete(d.admit.dispatchId);
+      const record = await finalizeDispatch(run, d);
+      if (!tryCollect(d.dir)) {
+        hints.push(`${d.admit.name}: another wait returned its record`);
+        continue;
+      }
+      const c: Collected =
+        record.status === "limit"
+          ? await failover(deps, run, d, record)
+          : { result: { record, hints: hintsFor(run, d, record) }, started: null, pause: null };
+      records.push(c.result);
+      if (c.started) started.push(c.started);
+      if (c.pause) pause = c.pause;
+    }
+    if (open.size === 0 || (!i.all && records.length > 0)) break;
+    await Bun.sleep(deps.pollMs);
+    if (onProgress && Date.now() - ticked >= deps.tickMs) {
+      ticked = Date.now();
+      for (const d of open.values()) {
+        const secs = Math.max(0, Math.round((ticked - Date.parse(d.admit.admittedAt)) / 1000));
+        const ev = lastEvent(d);
+        try {
+          onProgress(`${d.admit.name} · ${d.admit.rung} · ${secs}s${ev ? ` · ${ev}` : ""}`);
+        } catch {
+          // a progress report must never stop the wait
+        }
+      }
+    }
+  }
+  await refresh(run, pause ? { next: pause } : {}, hints);
+  return { records, started, running: runningNames(run, deps.now()), hints };
 }
 
 /**
@@ -113,27 +210,30 @@ function standInBrief(run: Run, d: Dispatch): string {
   ].join("\n");
 }
 
-/** Spec §4.5: on a limit, run the rung's stand-in on a fresh thread, through admission again (budget included). */
-async function failover(
-  deps: Deps,
-  run: Run,
-  d: Dispatch,
-  limited: RunRecord,
-  onProgress?: Progress,
-  stateHints: string[] = [],
-): Promise<DispatchResult & { pause: string | null }> {
-  const paused = `paused: ${limited.backend} usage limit; resume when the user says so`;
+/**
+ * Spec §4.5: on a limit, launch the rung's stand-in on a fresh thread, through admission again (budget
+ * included), without awaiting it. A stand-in that hits a limit too pauses the run.
+ */
+async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): Promise<Collected> {
   const hints = hintsFor(run, d, limited);
+  const result = (h: string[]): DispatchResult => ({ record: limited, hints: h });
+  if (d.admit.failoverFrom !== null)
+    return {
+      result: result(hints),
+      started: null,
+      pause: `paused: ${limited.backend} usage limit on ${limited.rung} and on ${d.admit.failoverFrom}`,
+    };
+  const paused = `paused: ${limited.backend} usage limit; resume when the user says so`;
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
-  if (!standIn) return { record: limited, hints, pause: paused };
+  if (!standIn) return { result: result(hints), started: null, pause: paused };
   if (parseRung(standIn).backend === "claude") {
     const agent = deps.profiles.agentFor(run.meta.repo, d.admit.role, standIn);
     return {
-      record: limited,
-      hints: [
+      result: result([
         ...hints,
         `failover: run ${d.admit.name} as Agent(subagent_type: "${agent}"), standing in for ${limited.rung}`,
-      ],
+      ]),
+      started: null,
       pause: null,
     };
   }
@@ -151,24 +251,20 @@ async function failover(
   } catch (e) {
     if (!isCatherdError(e)) throw e;
     return {
-      record: limited,
-      hints: [...hints, `failover: ${standIn} refused: ${e.code} ${e.message}`],
+      result: result([...hints, `failover: ${standIn} refused: ${e.code} ${e.message}`]),
+      started: null,
       pause: paused,
     };
   }
-  const record = await runToEnd(deps, run, next.d, next.specPath, onProgress, stateHints);
+  start(next.d, next.specPath);
   return {
-    record,
-    hints: [
+    result: result([
       `limit: ${limited.rung} hit a usage limit; failed over to ${standIn}`,
       // the stand-in's before-snapshot already holds the limited run's writes: surface them here
       ...hints.filter((h) => /^(violation|git-unavailable):/.test(h)),
-      ...hintsFor(run, next.d, record),
-    ],
-    pause:
-      record.status === "limit"
-        ? `paused: ${record.backend} usage limit on ${record.rung} and on ${limited.rung}`
-        : null,
+    ]),
+    started: dispatchedOf(next.d),
+    pause: null,
   };
 }
 

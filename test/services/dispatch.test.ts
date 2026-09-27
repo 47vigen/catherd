@@ -2,16 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { isCatherdError } from "../../src/domain/errors.ts";
+import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
-import { listDispatches } from "../../src/services/dispatches.ts";
+import { dispatch, type DispatchInput, wait } from "../../src/services/dispatch-service.ts";
+import { listDispatches, liveDispatches } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, fakeGit, freshRun, waitFor, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, fakeGit, freshRun, runRole, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -46,7 +47,7 @@ describe("dispatch", () => {
     fakeGit(
       `for a in '${roles}'/*/*/admit.json; do [ -f "$a" ] && [ ! -f "$(dirname "$a")/launch.json" ] && echo "$*" >> '${log}'; done\nexec "$REAL_GIT" "$@"`,
     );
-    const { record } = await dispatch(deps, input(run.id, { next: "review M1" }));
+    const { record } = await runRole(deps, input(run.id, { next: "review M1" }));
     expect(record.status).toBe("ok");
     expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
     expect(readNotes(run).next).toBe("review M1");
@@ -56,7 +57,7 @@ describe("dispatch", () => {
     "keeps the run, its dispatch folder, locks and logs private: 0700 dirs, 0600 files (audit S2)",
     async () => {
       const { run, deps } = setup({ reply: "Done.\nSTATUS: complete — ok" });
-      const { record } = await dispatch(deps, input(run.id));
+      const { record } = await runRole(deps, input(run.id));
       expect(record.status).toBe("ok");
       const home = process.env.CATHERD_HOME as string;
       expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
@@ -67,7 +68,7 @@ describe("dispatch", () => {
     const envTo = join(mkdtempSync(join(tmpdir(), "catherd-env-")), "env.jsonl");
     const { run, deps } = setup({ envTo, reply: "Done.\nSTATUS: complete — ok" });
     Object.assign(process.env, { OPENAI_API_KEY: "sk-user", TYPESAFE_API_KEY: "secret" });
-    const { record } = await dispatch(deps, input(run.id));
+    const { record } = await runRole(deps, input(run.id));
     expect(record.status).toBe("ok");
     const exec = readFileSync(envTo, "utf8")
       .trim()
@@ -84,7 +85,7 @@ describe("dispatch", () => {
       reply: "Done.\nSTATUS: complete — lane finished",
       touch: [{ path: "src/a.ts", content: "new" }],
     });
-    const { record, hints } = await dispatch(deps, input(run.id, { next: "review M1" }));
+    const { record, hints } = await runRole(deps, input(run.id, { next: "review M1" }));
     expect(record).toMatchObject({
       status: "ok",
       rung: "codex:gpt-6-luna#high",
@@ -113,7 +114,7 @@ describe("dispatch", () => {
       reply: "x\nSTATUS: complete — ok",
       touch: [{ path: "src/other.ts", content: "x" }],
     });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.changedOwned).toEqual([]);
     expect(record.violations).toEqual(["src/other.ts"]);
     expect(hints).toEqual(["climb: unchanged", "violation: src/other.ts"]);
@@ -121,26 +122,18 @@ describe("dispatch", () => {
 
   it("points a failed run at its stderr", async () => {
     const { run, deps } = setup({ eventsFile: join(FX, "turn-failed.jsonl"), exitCode: 1 });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("failed");
     expect(hints).toEqual([`failed: read ${join("roles", "worker-M1.L1", record.dispatchId, "stderr")}`]);
   });
 
   it("pauses the run on a usage limit when the rung has no stand-in", async () => {
     const { run, deps } = setup({ eventsFile: join(FX, "limit.jsonl"), exitCode: 1 });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints).toEqual(["limit: codex hit a usage limit on codex:gpt-6-luna#high"]);
     const last = readFileSync(runPaths(run.dir).state, "utf8").trimEnd().split("\n").at(-1);
     expect(last).toBe("Next: paused: codex usage limit; resume when the user says so");
-  });
-
-  it("reports progress while the role runs", async () => {
-    const { run, deps } = setup({ delayMs: 600, reply: "x\nSTATUS: complete — ok" });
-    const ticks: string[] = [];
-    await dispatch(deps, input(run.id), (m) => ticks.push(m));
-    expect(ticks.length).toBeGreaterThan(0);
-    expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
   });
 
   it("keeps the lane's Owns as they were at admission, even if the lane file changes mid-run", async () => {
@@ -149,13 +142,170 @@ describe("dispatch", () => {
       reply: "x\nSTATUS: complete — ok",
       touch: [{ path: "src/a.ts", content: "x" }],
     });
-    const pending = dispatch(deps, input(run.id));
+    const pending = runRole(deps, input(run.id));
     // admit.json is written once admission fixed the Owns; the rewrite must land after that, mid-run
     const d = await waitFor(() => listDispatches(run)[0], 5_000);
     expect(existsSync(dispatchPaths(d.dir).exit)).toBe(false);
     writeLane(run, "M1.L1", ["docs/"]);
     const { record } = await pending;
     expect(record.changedOwned).toEqual(["src/a.ts"]);
+  });
+});
+
+/** A file the simulated worker waits for before it exits: the test decides when each worker ends. */
+const holdFile = () => join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+const OK = { reply: "Done.\nSTATUS: complete — ok" };
+const L2 = { name: "worker-M1.L2", lane: "M1.L2", rung: "codex:gpt-6-sol#medium" };
+
+/** Two lanes whose workers each run until released: M1.L1 at Luna, M1.L2 at Sol medium. */
+function twoLanes() {
+  const [a, b] = [holdFile(), holdFile()];
+  const s = setup({
+    byRung: { "gpt-6-luna#high": { ...OK, holdUntil: a }, "gpt-6-sol#medium": { ...OK, holdUntil: b } },
+  });
+  writeLane(s.run, "M1.L2", ["src/b.ts"]);
+  return { ...s, releaseA: () => writeFileSync(a, ""), releaseB: () => writeFileSync(b, "") };
+}
+
+describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => {
+  it("returns while the worker still runs, with its name and admission time", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    const out = await dispatch(deps, input(run.id, { next: "review M1" }));
+    const d = listDispatches(run)[0];
+    expect(out).toEqual({
+      dispatched: {
+        name: "worker-M1.L1",
+        role: "worker",
+        rung: "codex:gpt-6-luna#high",
+        dispatchId: d?.admit.dispatchId as string,
+        admittedAt: d?.admit.admittedAt as string,
+      },
+      hints: [],
+    });
+    expect(readExit(d?.dir ?? "")).toBeNull();
+    expect(liveDispatches(run).map((x) => x.admit.name)).toEqual(["worker-M1.L1"]);
+    expect(readRecords(run).records).toEqual([]);
+    expect(readNotes(run).next).toBe("review M1");
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).not.toContain("Running:\n- none");
+    writeFileSync(release, "");
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record.status)).toEqual(["ok"]);
+    expect(w.records[0]?.hints).toEqual(["climb: unchanged"]);
+    expect({ started: w.started, running: w.running }).toEqual({ started: [], running: [] });
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Running:\n- none");
+  });
+
+  it("has two dispatches issued one after the other live at once; wait returns the first to finish", async () => {
+    const { run, deps, releaseA, releaseB } = twoLanes();
+    const a = await dispatch(deps, input(run.id));
+    const b = await dispatch(deps, input(run.id, L2));
+    // each worker runs until the test releases it: the second was admitted while the first still ran
+    expect(Date.parse(b.dispatched.admittedAt) - Date.parse(a.dispatched.admittedAt)).toBeLessThan(5_000);
+    expect(liveDispatches(run).map((d) => d.admit.name)).toEqual([a, b].map((x) => x.dispatched.name).sort());
+    releaseB();
+    const first = await wait(deps, { run: run.id });
+    expect(first.records.map((r) => r.record.name)).toEqual(["worker-M1.L2"]);
+    expect(first.running).toEqual(["worker-M1.L1"]);
+    releaseA();
+    const second = await wait(deps, { run: run.id });
+    expect(second.records.map((r) => r.record.name)).toEqual(["worker-M1.L1"]);
+    expect(second.running).toEqual([]);
+    expect(readRecords(run).records).toHaveLength(2);
+  });
+
+  it("waits for every one of them with all: true", async () => {
+    const { run, deps, releaseA, releaseB } = twoLanes();
+    await dispatch(deps, input(run.id));
+    await dispatch(deps, input(run.id, L2));
+    releaseB();
+    let done = false;
+    const all = wait(deps, { run: run.id, all: true }).then((w) => {
+      done = true;
+      return w;
+    });
+    // wait records M1.L2 once it finishes, and goes on waiting for M1.L1
+    await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L2"));
+    expect(done).toBe(false);
+    releaseA();
+    const w = await all;
+    expect(w.records.map((r) => r.record.name)).toEqual(["worker-M1.L2", "worker-M1.L1"]);
+    expect(w.running).toEqual([]);
+  });
+
+  it("returns at once, with a hint, when nothing is live", async () => {
+    const { run, deps } = setup(OK);
+    expect(await wait(deps, { run: run.id })).toEqual({
+      records: [],
+      started: [],
+      running: [],
+      hints: ["nothing to wait for: no dispatch of this run is running; dispatch a role first"],
+    });
+    expect((await wait(deps, { run: run.id, names: ["worker-M9.L9"] })).hints).toEqual([
+      'worker-M9.L9 is not running: result(run, "worker-M9.L9") reads its last record',
+      "nothing to wait for: no dispatch of this run is running; dispatch a role first",
+    ]);
+  });
+
+  it("collects a dispatch that finished while no wait ran, as after a server restart, once", async () => {
+    const { run, deps } = setup(OK);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const files = { proc: "dead" as const, exit, reply: "ok\nSTATUS: complete — ok", collect: true };
+    const unrecorded = await fakeDispatch(run, {}, files);
+    // one the new server's reconcile recorded first is collected too
+    const reconciled = await fakeDispatch(
+      run,
+      { name: "writer", role: "writer", lane: null, owns: [] },
+      files,
+    );
+    await finalizeDispatch(run, reconciled);
+    // one no catherd dispatch launched for a wait (an older build's) is left to reconcile
+    await fakeDispatch(
+      run,
+      { name: "writer-old", role: "writer", lane: null, owns: [] },
+      { ...files, collect: false },
+    );
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record.dispatchId).sort()).toEqual(
+      [unrecorded, reconciled].map((d) => d.admit.dispatchId).sort(),
+    );
+    expect(w.records.find((r) => r.record.name === "writer")?.record.status).toBe("ok");
+    expect(readRecords(run).records).toHaveLength(2);
+    expect((await wait(deps, { run: run.id })).records).toEqual([]);
+  });
+
+  it("hands a record to one wait only, when two wait at once", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    const both = Promise.all([wait(deps, { run: run.id }), wait(deps, { run: run.id })]);
+    writeFileSync(release, "");
+    const [x, y] = await both;
+    expect([...x.records, ...y.records]).toHaveLength(1);
+    expect(readRecords(run).records).toHaveLength(1);
+  });
+
+  it("still refuses from dispatch, before anything starts", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    const e = await dispatch(deps, input(run.id)).catch((x: unknown) => x);
+    expect(isCatherdError(e) && e.code).toBe("E_ADMIT_DUPLICATE");
+    expect(listDispatches(run)).toHaveLength(1);
+    writeFileSync(release, "");
+    expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
+  });
+
+  it("reports progress while it waits", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    const ticks: string[] = [];
+    const pending = wait(deps, { run: run.id }, (m) => ticks.push(m));
+    await waitFor(() => ticks.length > 0);
+    writeFileSync(release, "");
+    expect((await pending).records).toHaveLength(1);
+    expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
   });
 });
 
@@ -238,7 +388,7 @@ describe("dispatch when git fails after admission", () => {
     });
     // 1 admission, 2 state (launched, with next), 3 finalize, 4 state (done)
     flakyGitStatus((n) => n === 2);
-    const { record, hints } = await dispatch(deps, input(run.id, { next: "review M1" }));
+    const { record, hints } = await runRole(deps, input(run.id, { next: "review M1" }));
     expect(record).toMatchObject({ status: "ok", changedOwned: ["src/a.ts"] });
     expect(hints).toHaveLength(1);
     expect(hints[0]).toMatch(/^state\.md not refreshed: git status failed in /);
@@ -253,7 +403,7 @@ describe("dispatch when git fails after admission", () => {
       touch: [{ path: "src/a.ts", content: "x" }],
     });
     flakyGitStatus((n) => n >= 2);
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({ status: "ok", changedOwned: [], violations: [], gitUnavailable: true });
     expect(hints[0]).toBe("git-unavailable: changed files unknown");
     expect(hints.slice(1)).toHaveLength(1);

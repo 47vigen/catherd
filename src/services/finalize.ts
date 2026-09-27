@@ -272,7 +272,8 @@ export async function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord
   return saved;
 }
 
-function lastEvent(d: Dispatch): string | null {
+/** The last event of a running dispatch worth showing in a progress line, if any. */
+export function lastEvent(d: Dispatch): string | null {
   const a = adapterFor(d.admit.backend);
   const line = nonBlankLines(dispatchPaths(d.dir).events).at(-1);
   if (!a || !line) return null;

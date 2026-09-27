@@ -1,4 +1,4 @@
-import { closeSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { EXIT_REASONS, type ExitInfo } from "../domain/record.ts";
@@ -15,6 +15,8 @@ export function dispatchPaths(dir: string) {
     exit: join(dir, "exit.json"),
     claim: join(dir, "claim"),
     cancel: join(dir, "cancel"),
+    /** exists from launch until a `wait` hands the dispatch's record to the orchestrator */
+    collect: join(dir, "collect"),
     supervisorLog: join(dir, "supervisor.log"),
   };
 }
@@ -26,6 +28,24 @@ export function tryClaim(dir: string): boolean {
     return true;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    return false;
+  }
+}
+
+/** Marks a dispatch as one a `wait` is to hand back; written before its launch. */
+export function markForCollect(dir: string): void {
+  writeFileSync(dispatchPaths(dir).collect, "", { mode: PRIVATE_FILE });
+}
+
+export const awaitsCollect = (dir: string): boolean => existsSync(dispatchPaths(dir).collect);
+
+/** Removes the mark: true for the one caller that removed it, so each record reaches one `wait` only. */
+export function tryCollect(dir: string): boolean {
+  try {
+    unlinkSync(dispatchPaths(dir).collect);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     return false;
   }
 }

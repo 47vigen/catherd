@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { dispatch } from "../../src/services/dispatch-service.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, testView } from "../services/helpers.ts";
+import { fakeDeps, freshRun, runRole, testView } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -23,7 +22,7 @@ function live() {
 describe.skipIf(!process.env.CATHERD_LIVE)("live codex", () => {
   it("answers a tiny brief, then resumes the same thread", async () => {
     const { run, deps } = live();
-    const first = await dispatch(deps, {
+    const first = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-1",
@@ -33,7 +32,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live codex", () => {
     });
     expect(first.record).toMatchObject({ status: "ok", replyStatus: "complete", backend: "codex" });
     expect(first.record.thread).not.toBeNull();
-    const again = await dispatch(deps, {
+    const again = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-1",
@@ -46,7 +45,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live codex", () => {
 
   it("returns the images its image tool made (the 0.x spike S3, now through the adapter)", async () => {
     const { run, deps } = live();
-    const { record } = await dispatch(deps, {
+    const { record } = await runRole(deps, {
       run: run.id,
       role: "artist",
       name: "artist-1",

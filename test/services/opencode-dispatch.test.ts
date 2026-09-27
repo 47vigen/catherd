@@ -10,7 +10,7 @@ import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type OpencodeModel, type OpencodeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => {
@@ -55,7 +55,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
       eventsFile: join(FX, "shell-ok.jsonl"),
       touch: [{ path: "src/a.ts", content: "new" }],
     });
-    const { record } = await dispatch(deps, input(run.id));
+    const { record } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({
       status: "ok",
       backend: "opencode",
@@ -86,7 +86,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
         "opencode/kimi-k3#max": { eventsFile: join(FX, "shell-ok.jsonl") },
       },
     });
-    const { record, hints } = await dispatch(deps, input(run.id));
+    const { record, hints } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({ status: "ok", rung: ZEN, failoverFrom: GO, attempt: 2 });
     expect(hints[0]).toBe(`limit: ${GO} hit a usage limit; failed over to ${ZEN}`);
     expect(readRecords(run).records.map((r) => [r.rung, r.status])).toEqual([
@@ -109,7 +109,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
   it("runs an isolated role on a standalone server that reads catherd's own agents", async () => {
     const { run, sim, deps } = setup({ eventsFile: join(FX, "ok-simple.jsonl") });
     deps.view.isolated = { opencode: true };
-    const { record } = await dispatch(deps, input(run.id));
+    const { record } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({ status: "ok", isolated: true });
     expect(sim.recorded().args).toContain("--standalone");
     expect(sim.recorded().xdgConfig).toBe(isolatedConfigRoot());
@@ -125,7 +125,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
       interruptsTo: interrupts,
     });
     deps.view.timeouts = { idleMin: 0.01, wallMin: 5 };
-    const { record } = await dispatch(deps, input(run.id));
+    const { record } = await runRole(deps, input(run.id));
     expect(record.status).toBe("timeout");
     expect(readFileSync(interrupts, "utf8")).toBe("ses_f2679cc68ffeAfP2dtLA9zEfTh\n");
   }, 30_000);

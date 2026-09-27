@@ -17,7 +17,7 @@ exports[`frames status 80x24 1`] = `
                     fix: claude plugin marketplace add 47vigen/catherd &&
                     claude plugin install catherd@catherd
    ✓ ready         Claude agents — 2 linked
-   ✓ ready         MCP server — 20 tools
+   ✓ ready         MCP server — 21 tools
  PROFILE
    default  active · 1 profile
  RECENT RUNS
@@ -45,7 +45,7 @@ exports[`frames status 80x24 plain 1`] = `
                     fix: claude plugin marketplace add 47vigen/catherd &&
                     claude plugin install catherd@catherd
    + ready         Claude agents - 2 linked
-   + ready         MCP server - 20 tools
+   + ready         MCP server - 21 tools
  PROFILE
    default  active - 1 profile
  RECENT RUNS
@@ -73,7 +73,7 @@ exports[`frames status 100x30 1`] = `
                     fix: claude plugin marketplace add 47vigen/catherd && claude plugin install
                     catherd@catherd
    ✓ ready         Claude agents — 2 linked
-   ✓ ready         MCP server — 20 tools
+   ✓ ready         MCP server — 21 tools
  PROFILE
    default  active · 1 profile
  RECENT RUNS
@@ -107,7 +107,7 @@ exports[`frames status 100x30 plain 1`] = `
                     fix: claude plugin marketplace add 47vigen/catherd && claude plugin install
                     catherd@catherd
    + ready         Claude agents - 2 linked
-   + ready         MCP server - 20 tools
+   + ready         MCP server - 21 tools
  PROFILE
    default  active - 1 profile
  RECENT RUNS
@@ -140,7 +140,7 @@ exports[`frames status 120x40 1`] = `
    ✗ missing       Claude Code plugin — not installed
                     fix: claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
    ✓ ready         Claude agents — 2 linked
-   ✓ ready         MCP server — 20 tools
+   ✓ ready         MCP server — 21 tools
  PROFILE
    default  active · 1 profile
  RECENT RUNS
@@ -184,7 +184,7 @@ exports[`frames status 120x40 plain 1`] = `
    x missing       Claude Code plugin - not installed
                     fix: claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
    + ready         Claude agents - 2 linked
-   + ready         MCP server - 20 tools
+   + ready         MCP server - 21 tools
  PROFILE
    default  active - 1 profile
  RECENT RUNS
