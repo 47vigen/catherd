@@ -3,9 +3,9 @@ export const MIN_BUN = "1.4.0";
 
 const parts = (v: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(v)?.slice(1) ?? ["0", "0", "0"]).map(Number);
 
-export function bunTooOld(version: string, min: string = MIN_BUN): boolean {
+export function bunTooOld(version: string): boolean {
   const a = parts(version);
-  const b = parts(min);
+  const b = parts(MIN_BUN);
   for (let i = 0; i < 3; i++)
     if ((a[i] as number) !== (b[i] as number)) return (a[i] as number) < (b[i] as number);
   return false;

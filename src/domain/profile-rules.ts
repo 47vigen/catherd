@@ -8,7 +8,7 @@ import {
   rungInfo,
   scoresOf,
 } from "./catalog.ts";
-import { parseRung, type Rung } from "./ids.ts";
+import { type Rung, tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
@@ -41,14 +41,6 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
  */
 export const quotaOf = (r: Rung): string => (billingKeyOf(r) === "claude" ? "claude-code" : billingKeyOf(r));
 
-function parsed(rung: string): Rung | null {
-  try {
-    return parseRung(rung);
-  } catch {
-    return null;
-  }
-}
-
 /** Whether a rung's scores are catherd's guess: borrowed through a treat-like, or only `inferred` ones. */
 export function inferredScores(c: Catalog, info: RungInfo): { inferred: boolean; via: string | null } {
   const s = scoresOf(c, info.canonical);
@@ -77,7 +69,7 @@ export function validateProfile(
     warnings.push({
       path: u.path,
       message: `"${u.value}" is not a value this catherd knows (a newer one wrote it?); it is read as ${u.readAs}`,
-      fix: "upgrade catherd (bunx catherd-cli@latest), or set a value this version knows",
+      fix: "upgrade catherd (bun add -g catherd-cli@latest), or set a value this version knows",
     });
   if (!p.roles.worker.enabled)
     errors.push({
@@ -96,7 +88,7 @@ export function validateProfile(
       });
     if (!rc.enabled) continue;
     for (const rung of rc.rungs) {
-      const r = parsed(rung);
+      const r = tryParseRung(rung);
       if (!r) {
         errors.push({
           path: `${at}.rungs`,
@@ -179,8 +171,8 @@ export function validateProfile(
   const ladders = new Set(ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs));
   for (const [from, to] of Object.entries(p.failover)) {
     const at = `failover.${from}`;
-    const a = parsed(from);
-    const b = parsed(to);
+    const a = tryParseRung(from);
+    const b = tryParseRung(to);
     if (!a || !b) {
       errors.push({
         path: at,

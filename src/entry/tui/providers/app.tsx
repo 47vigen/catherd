@@ -19,7 +19,7 @@ import { type Toast, useToasts } from "./toast.tsx";
 export type BackKind = "input" | "view";
 
 /** What an answer carries besides its value. */
-export interface AnswerExtra {
+interface AnswerExtra {
   /** the save dialog's: the profile file as its last preview read it, the only one the save may write over */
   shown?: ProfileDoc;
   /** the save dialog's: reads the file again and shows the new preview with the changed-on-disk notice */

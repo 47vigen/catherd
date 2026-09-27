@@ -5,6 +5,7 @@ import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import { logFile } from "../../src/infra/log.ts";
 import {
   catalogQuery,
   freshenDiscovery,
@@ -297,6 +298,52 @@ describe("discovery refresh", () => {
     expect(readDiscovery("codex")?.models).toHaveLength(1);
   });
 
+  it("says a backend that is not installed is missing, not that its listing was kept", async () => {
+    withHome();
+    registerAdapter({
+      ...codex,
+      listModels: async () => [],
+      probe: async () => ({
+        installed: false,
+        version: null,
+        versionOk: false,
+        loggedIn: null,
+        problems: [
+          { code: "E_BACKEND_MISSING", message: "codex is not on PATH", fix: "npm i -g @openai/codex" },
+        ],
+      }),
+    });
+    expect(await refreshDiscovery({ backends: ["codex"], now: T0 })).toEqual([
+      {
+        backend: "codex",
+        models: 0,
+        fetchedAt: null,
+        error: "codex is not on PATH",
+        fix: "npm i -g @openai/codex",
+      },
+    ]);
+  });
+
+  it("says the previous listing is kept only when there is one", async () => {
+    withHome();
+    registerAdapter({
+      ...codex,
+      listModels: async () => [],
+      probe: async () => ({
+        installed: true,
+        version: "0.157.0",
+        versionOk: true,
+        loggedIn: true,
+        problems: [],
+      }),
+    });
+    expect((await refreshDiscovery({ backends: ["codex"], now: T0 }))[0]?.error).toBe("listed no models");
+    writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: [], context: null, imageIn: false }], T0);
+    expect((await refreshDiscovery({ backends: ["codex"], now: T0 }))[0]?.error).toBe(
+      "listed no models; the previous listing is kept",
+    );
+  });
+
   it("lists again on route at most daily, and not again within the hour after a failure", async () => {
     withHome();
     // the claude rung reaches claudeCodeAdapter.listModels(), which calls the Models API with a key
@@ -314,6 +361,25 @@ describe("discovery refresh", () => {
     await freshenDiscovery(["codex:gpt-6-sol#medium"], late);
     await freshenDiscovery(["codex:gpt-6-sol#medium"], late + 60_000);
     expect(listCalls).toBe(1);
+  });
+
+  it("logs a failed listing at debug and keeps routing", async () => {
+    withHome();
+    process.env.CATHERD_LOG = "debug";
+    registerAdapter({
+      ...codex,
+      listModels: async () => {
+        throw new Error("codex listing broke");
+      },
+    });
+    await freshenDiscovery(["codex:gpt-6-sol#medium"], T0);
+    const rows = readFileSync(logFile(), "utf8")
+      .split("\n")
+      .filter((l) => l.includes('"discovery"'))
+      .map((l) => JSON.parse(l));
+    expect(rows).toEqual([
+      expect.objectContaining({ level: "debug", backend: "codex", error: "codex listing broke" }),
+    ]);
   });
 
   it("lists the due backends in parallel", async () => {

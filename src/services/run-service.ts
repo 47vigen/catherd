@@ -74,7 +74,7 @@ export async function setNext(i: {
 const CAP_LINES = 250;
 const CAP_CHARS = 20_000;
 
-export function capReply(reply: string, path: string): string {
+function capReply(reply: string, path: string): string {
   const lines = reply.split("\n");
   const head = lines.length > CAP_LINES ? lines.slice(0, CAP_LINES).join("\n") : reply;
   if (head === reply && reply.length <= CAP_CHARS) return reply;

@@ -2,7 +2,7 @@ import { closeSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { EXIT_REASONS, type ExitInfo } from "../domain/record.ts";
-import { readVersioned } from "./store.ts";
+import { PRIVATE_FILE, readVersioned } from "./store.ts";
 
 export function dispatchPaths(dir: string) {
   return {
@@ -22,7 +22,7 @@ export function dispatchPaths(dir: string) {
 /** Exclusive create: the first caller finalizes; every later caller reads the record it wrote. */
 export function tryClaim(dir: string): boolean {
   try {
-    closeSync(openSync(dispatchPaths(dir).claim, "wx"));
+    closeSync(openSync(dispatchPaths(dir).claim, "wx", PRIVATE_FILE));
     return true;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -30,7 +30,7 @@ export function tryClaim(dir: string): boolean {
   }
 }
 
-export const ExitFileSchema = z.looseObject({
+const ExitFileSchema = z.looseObject({
   schema: z.literal(1),
   code: z.number().nullable(),
   signal: z.string().nullable(),
@@ -48,5 +48,5 @@ export function readExit(dir: string): ExitInfo | null {
 }
 
 export function requestCancel(dir: string): void {
-  writeFileSync(dispatchPaths(dir).cancel, new Date().toISOString());
+  writeFileSync(dispatchPaths(dir).cancel, new Date().toISOString(), { mode: PRIVATE_FILE });
 }

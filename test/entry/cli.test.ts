@@ -53,7 +53,58 @@ describe("catherd (spec §8)", () => {
     const r = catherd(["nope"], { NO_COLOR: "1" });
     expect([r.code, r.err]).toEqual([
       2,
-      "error E_INPUT_INVALID: Unknown command nope\nfix: catherd --help\n",
+      "error E_INPUT_INVALID: unknown command nope\nfix: catherd --help\n",
+    ]);
+  });
+
+  it("words citty's usage errors as its own: lower case, no full stop (audit N5)", () => {
+    withHome();
+    const env = { NO_COLOR: "1", ANTHROPIC_API_KEY: "" };
+    expect(catherd(["profile"], env).err).toBe(
+      "error E_INPUT_INVALID: no command specified\nfix: catherd profile --help\n",
+    );
+    expect(catherd(["runs", "show"], env).err).toBe(
+      "error E_INPUT_INVALID: missing required positional argument: ID\nfix: catherd runs show --help\n",
+    );
+  });
+
+  it("runs runs list when runs names no subcommand, as status needs none (audit N5)", () => {
+    withHome();
+    expect(catherd(["runs"], { ANTHROPIC_API_KEY: "" })).toEqual({ code: 0, out: "no runs yet\n", err: "" });
+  });
+
+  it("refuses an unknown top-level option as such, not as a terminal problem (audit N4)", () => {
+    withHome();
+    const r = catherd(["--bogus"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.err]).toEqual([
+      2,
+      "error E_INPUT_INVALID: unknown option --bogus\nfix: catherd --help\n",
+    ]);
+  });
+
+  it("takes citty's negated dashboard booleans, --no-plain and --no-reduced-motion, but no --no-<unknown>", () => {
+    withHome();
+    for (const flag of ["--no-plain", "--no-reduced-motion"]) {
+      const r = catherd([flag], { ANTHROPIC_API_KEY: "" });
+      expect([flag, r.code, r.err]).toEqual([
+        flag,
+        2,
+        "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
+          "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
+      ]);
+    }
+    expect(catherd(["--no-bogus"], { ANTHROPIC_API_KEY: "" }).err).toBe(
+      "error E_INPUT_INVALID: unknown option --no-bogus\nfix: catherd --help\n",
+    );
+  });
+
+  it("says in the spec's error format that the dashboard needs a terminal (audit N4)", () => {
+    withHome();
+    const r = catherd(["--plain"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.err]).toEqual([
+      2,
+      "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
+        "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
     ]);
   });
 
@@ -61,7 +112,7 @@ describe("catherd (spec §8)", () => {
     withHome();
     const r = catherd(["_supervise", "/nonexistent/spec.json"]);
     expect(r.code).toBe(1);
-    expect(r.err).toStartWith("error E_CONFIG_INVALID: /nonexistent/spec.json is not readable JSON");
+    expect(r.err).toStartWith("error E_CONFIG_INVALID: /nonexistent/spec.json cannot be read (ENOENT)");
     expect(r.err).toContain("\nfix: fix or delete /nonexistent/spec.json\n");
   });
 
@@ -142,7 +193,7 @@ describe("catherd (spec §8)", () => {
   });
 
   it("never loads OpenTUI or React for mcp, lock or _supervise (spec §3.1)", () => {
-    for (const entry of ["entry/mcp/command.ts", "entry/lock.ts", "entry/supervise.ts"]) {
+    for (const entry of ["entry/mcp/command.ts", "entry/lock-command.ts", "entry/supervise-command.ts"]) {
       const g = importGraph(join(SRC, entry));
       expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
       expect(g.files.filter((f) => f.startsWith("entry/tui/"))).toEqual([]);

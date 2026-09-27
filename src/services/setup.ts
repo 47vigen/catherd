@@ -1,17 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Issue } from "../domain/profile-rules.ts";
 import { configDir } from "../infra/paths.ts";
 import { type Refreshed, refreshDiscovery } from "./catalog-service.ts";
-import {
-  activate,
-  configFile,
-  profilesDir,
-  projectsFile,
-  resetProfile,
-  type Synced,
-  withProfilesLock,
-} from "./profile-service.ts";
+import type { Synced } from "./agent-links.ts";
+import { activate, resetProfile, withProfilesLock } from "./profile-service.ts";
+import { configFile, profilesDir, projectsFile } from "./profile-store.ts";
+import { ensurePrivateDir } from "../infra/store.ts";
 
 /** True when profile `name` has a file (`default` exists as a name even before it has one). */
 export const hasProfileFile = (name: string): boolean => existsSync(join(profilesDir(), `${name}.json`));
@@ -46,7 +41,7 @@ function moveLegacyUnlocked(now: Date): string[] {
   ].filter((f) => existsSync(f) && isLegacy(f));
   if (candidates.length === 0) return [];
   const backup = join(configDir(), `0.x-backup-${now.toISOString().replace(/[:.]/g, "-")}`);
-  mkdirSync(join(backup, "profiles"), { recursive: true });
+  ensurePrivateDir(join(backup, "profiles"));
   return candidates.map((f) => {
     const to = join(backup, f.startsWith(profilesDir()) ? join("profiles", basename(f)) : basename(f));
     renameSync(f, to);

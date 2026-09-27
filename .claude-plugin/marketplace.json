@@ -6,7 +6,7 @@
     {
       "name": "catherd",
       "source": "./plugin",
-      "description": "Herds coding agents: Claude plans and verifies, Codex and opencode workers write the code, and Jev picks the model and effort for each piece.",
+      "description": "Herds coding agents: Claude plans and verifies, Codex, opencode or headless Claude Code workers write the code, and Jev picks the model and effort for each piece.",
       "license": "MIT",
       "repository": "https://github.com/47vigen/catherd",
       "keywords": ["orchestration", "codex", "opencode", "subagents", "mcp"]

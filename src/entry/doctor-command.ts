@@ -1,14 +1,18 @@
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
-import { type Check, type DoctorReport, doctor } from "../services/doctor.ts";
-import { EXIT, mark, printJson } from "./cli-kit.ts";
+import { type DoctorReport, doctor } from "../services/doctor.ts";
+import type { Check } from "../services/doctor-checks.ts";
+import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
 
-/** One row per check: `✓ ready  Bun — 1.4.2`, then the full fix command on its own line. */
+/**
+ * One row per check: `✓ ready  Bun — 1.4.2`, then the full fix on its own line; a fix of several lines
+ * (one command each) keeps them under the first.
+ */
 export function formatCheck(c: Check, plain = false): string[] {
   return [
     `${mark(c.state, plain)} ${c.word.padEnd(18)} ${c.label}${c.detail ? ` — ${c.detail}` : ""}`,
-    ...(c.fix ? [`    fix: ${c.fix}`] : []),
+    ...(c.fix ? c.fix.split("\n").map((l, i) => `${i ? "         " : "    fix: "}${l}`) : []),
   ];
 }
 
@@ -29,13 +33,13 @@ export const doctorCommand = defineCommand({
     description: "Readiness report: Bun, backends, Jev, the plugin, agents, the MCP server, locks",
   },
   args: {
-    json: { type: "boolean", description: "print JSON" },
-    plain: { type: "boolean", description: "ASCII glyphs" },
+    ...JSON_ARG,
+    plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
     const r = await doctor({ bunVersion: Bun.version, version: VERSION, handshake: () => mcpHandshake() });
     if (args.json) printJson(r);
-    else for (const l of formatReport(r, args.plain === true || !!process.env.NO_COLOR)) console.log(l);
+    else for (const l of formatReport(r, args.plain === true)) console.log(l);
     process.exitCode = r.ready ? EXIT.ok : EXIT.notReady;
   },
 });

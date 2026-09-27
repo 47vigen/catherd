@@ -1,4 +1,5 @@
 import { BUDGET_CHEAP_AT } from "../domain/budget.ts";
+import { errorMessage } from "../domain/errors.ts";
 import {
   type JevAnswers,
   judgeRoute,
@@ -12,6 +13,7 @@ import { type Difficulty, type Kind, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import type { RouteJev } from "../domain/route.ts";
 import { candidates, defaultLadder, type Pick, type RoutingProfile, select } from "../domain/select.ts";
+import { log } from "../infra/log.ts";
 import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
@@ -47,7 +49,7 @@ const answer = (
 });
 
 /** How long `route` waits on the daily discovery refresh before routing on the cached listing. */
-export const DISCOVERY_BUDGET_MS = 5_000;
+const DISCOVERY_BUDGET_MS = 5_000;
 
 export interface RoutingOpts extends JevOpts {
   /** how long a route waits on the discovery refresh (DISCOVERY_BUDGET_MS) */
@@ -56,7 +58,9 @@ export interface RoutingOpts extends JevOpts {
 
 /** A wedged listing never holds a route: past `ms` it routes on the cache while the refresh finishes. */
 async function freshenWithin(rungs: string[], repo: string, ms: number): Promise<void> {
-  const refresh = freshenDiscovery(rungs, Date.now(), repo).catch(() => {});
+  const refresh = freshenDiscovery(rungs, Date.now(), repo).catch((e: unknown) =>
+    log("debug", "discovery", { error: errorMessage(e) }),
+  );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, ms);

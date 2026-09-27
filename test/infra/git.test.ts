@@ -69,6 +69,22 @@ describe("git", () => {
   });
 });
 
+describe("git environment", () => {
+  it("keeps catherd's own secret out of git's environment, and the rest in", async () => {
+    const repo = tempRepo();
+    process.env.TYPESAFE_API_KEY = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
+    process.env.CATHERD_TEST_KEEP = "kept";
+    fakeGit("env");
+    const r = await git(repo, ["status"]);
+    expect(r.kind).toBe("ok");
+    const out = r.kind === "ok" ? r.out : "";
+    expect(out).not.toContain("TYPESAFE_API_KEY");
+    expect(out).not.toContain("FAKEKEY");
+    expect(out).toContain("CATHERD_TEST_KEEP=kept");
+    expect(out).toContain("GIT_OPTIONAL_LOCKS=0");
+  });
+});
+
 describe("git failures", () => {
   it("tells ok, a failed exit and a timeout apart", async () => {
     const repo = tempRepo();

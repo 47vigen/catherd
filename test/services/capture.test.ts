@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { opencodeShell } from "../../src/adapters/opencode/index.ts";
-import { formatCaptured } from "../../src/entry/capture-fixtures.ts";
+import { formatCaptured } from "../../src/entry/capture-fixtures-command.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { captureFixtures } from "../../src/services/capture.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";

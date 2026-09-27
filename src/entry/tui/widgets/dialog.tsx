@@ -7,7 +7,7 @@ import { DIALOG_WIDTH, type DialogSize } from "../theme.ts";
 import { Line } from "./line.tsx";
 
 /** The panel's inner width: its size, clamped to the terminal less a margin, less the padding. */
-export const dialogInner = (size: DialogSize, termWidth: number): number =>
+const dialogInner = (size: DialogSize, termWidth: number): number =>
   Math.max(10, Math.min(DIALOG_WIDTH[size], termWidth - 2) - 4);
 
 /** The rows a quarter down the screen leaves for `rows`: the height less the top padding, the

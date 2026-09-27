@@ -1,4 +1,4 @@
-export interface Sent {
+interface Sent {
   url: string;
   method: string;
   headers: Headers;

@@ -1,16 +1,8 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readlinkSync,
-  statSync,
-  symlinkSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { dataDir } from "../../infra/paths.ts";
+import { ensurePrivateDir } from "../../infra/store.ts";
 
 export const userCodexHome = (): string => process.env.CODEX_HOME || join(homedir(), ".codex");
 
@@ -20,7 +12,7 @@ export const isolatedCodexHomePath = (): string => join(dataDir(), "codex-home")
 /** Isolated runs only: `--ignore-user-config` alone still loads the global AGENTS.md, so the home goes too. */
 export function isolatedCodexHome(): string {
   const home = isolatedCodexHomePath();
-  mkdirSync(home, { recursive: true });
+  ensurePrivateDir(home);
   const auth = join(userCodexHome(), "auth.json");
   const link = join(home, "auth.json");
   if (!existsSync(auth)) return home;

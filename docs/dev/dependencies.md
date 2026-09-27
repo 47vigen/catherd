@@ -30,36 +30,36 @@ One line per dependency: what it does for catherd, and why this one.
 - @commitlint/cli — checks commit messages on commit-msg — the standard checker
 - @commitlint/config-conventional — the Conventional Commits rule set — the standard rule set
 
-## Detach check (Task 5, step 0)
+## Why no process library: detached children
 
-`Bun.spawn(cmd, { detached: true, stdin/stdout/stderr: <fd> })` starts the child in its own
-process group (POSIX `setsid()`, confirmed with `ps -o pid,pgid,ppid`: child's pgid equals its
-own pid). Verified with a throwaway parent that spawns a child sleeping 1.5s, then exits
-immediately: the child kept running, was reparented to pid 1, and wrote its marker file after the
-parent had already exited. Raw fd stdio (from `openSync`) is honoured as a real file, not a pipe
-through the parent. `Bun.spawn` alone covers `launchSupervisor` (`src/infra/launch.ts`); execa is not
-needed.
+`Bun.spawn(cmd, { detached: true, stdin/stdout/stderr: <fd> })` starts the child in its own process group (POSIX
+`setsid()`: the child's pgid equals its own pid). A child spawned this way keeps running after its parent exits, is
+reparented to pid 1, and writes to raw fd stdio (from `openSync`) as a real file, not a pipe through the parent.
+`Bun.spawn` alone covers `launchSupervisor` (`src/infra/launch.ts`), so catherd needs no execa.
 
-## opencode CLI check (Task 6, step 1), verified live against opencode 2.0.15
+## opencode: the v2 facts the adapter relies on
 
-- `opencode run --help` matches the plan's flags exactly: `--standalone`, `--format json`, `-m`,
-  `--agent`, `--auto`, `-s`. No renaming needed.
-- `--standalone` plus an empty `XDG_CONFIG_HOME` runs a real turn end-to-end (confirmed with a
-  live `opencode/space-bunny-free` call): JSON events on stdout, a `sessionID` on every event.
-- `opencode api GET /api/session/<id>` returns `.data.cost` for both a native session and one
-  created under `--standalone`, because only the *config* dir is isolated — the session database
-  is in opencode's *data* dir, which stays shared. So `costUsd` is never `null` for isolated runs.
-- **Deviation from the busy-check text above:** on 2.0.15, `GET /api/session/<id>/message` never
-  contains the string `"status":"running"` — verified live by polling mid-tool-call. The busy
-  signal is structural: `.data` is newest-first, and the session is idle iff `data[0].type ===
-  "idle"`; while a tool streams, `data[0]` is the assistant message instead. The 1.0 adapter's busy
-  check (`isBusy` in `src/adapters/opencode/index.ts`) parses JSON rather than substring-matching
-  `"status":"running"`, and its tests use recorded fixtures (`test/fixtures/adapters/opencode/`).
+catherd supports opencode v2 only, 2.0.16 or newer (`OPENCODE_MIN_VERSION` in `src/adapters/opencode/index.ts`;
+install with `curl -fsSL https://opencode.ai/v2/install | bash`). The npm package `opencode-ai` is v1 and fails the
+version probe. The full research is in `docs/research/2026-09-25-opencode.md`.
 
-## Dropped from the Node-toolchain plan (OVERRIDES)
+- A role runs as `opencode run --format json --auto --agent <agent> -m <model>[#<variant>]`, with `-s <session>` to
+  continue a thread. The brief arrives on stdin. The stream is JSON events on stdout, each carrying a `sessionID`.
+- An isolated run (the profile's `harness.opencode.isolated`) adds `--standalone` and points `XDG_CONFIG_HOME` at
+  catherd's own config root: v2's background service ignores the client's config env, a standalone server reads it.
+  Only the config dir is isolated; the session database stays in opencode's shared data dir.
+- Token and cost totals come from `opencode api GET /api/session/<id>` after the run (the stream often drops its last
+  `step_finish`), minus what earlier records on the same session already counted.
+- Busy check (`isBusy`): a session is busy while `GET /api/session/active` lists it, unless its messages
+  (`GET /api/session/<id>/message`) show it only waiting out a usage limit (`limitRetry`). Empty or failed API output
+  counts as not busy, so a hung run still times out.
+- Cancelling also sends `POST /api/session/<id>/interrupt`, because killing the v2 client does not stop its session.
+- The adapter's tests replay recorded fixtures from `test/fixtures/adapters/opencode/`.
+
+## Considered and not used
 
 - xdg-basedir — no release since 2021; `src/infra/paths.ts` reads `XDG_CONFIG_HOME`/`XDG_DATA_HOME` itself
-- execa — `Bun.spawn` covers detached children with stdio on files; kept only if a detach check fails (not needed in Tasks 1-4)
+- execa — `Bun.spawn` covers detached children with stdio on files (above)
 - tinyglobby — owned paths are matched literally (spec §4.2), and finalize compares `git status` fingerprints (`src/infra/git.ts`) instead of walking a glob
 - tsdown — no build step; Bun runs `src/cli.ts` directly via its shebang
 - vitest — `bun test` is the runner

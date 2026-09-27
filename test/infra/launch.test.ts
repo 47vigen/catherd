@@ -77,13 +77,11 @@ describe("launchSupervisor", () => {
     },
   );
 
-  it("runs a thin entry that never reaches the 0.x TUI or @opentui", () => {
+  it("runs a thin entry that never reaches the TUI, cli.ts or @opentui", () => {
     expect(relative(SRC, SUPERVISE_ENTRY)).toBe("entry/supervise-bin.ts");
     const g = importGraph(SUPERVISE_ENTRY);
-    expect(g.files).toContain("entry/supervise.ts");
-    expect(g.files.filter((f) => /^(tui|core|mcp|routing|profile)\/|^types\.ts$|^cli\.ts$/.test(f))).toEqual(
-      [],
-    );
+    expect(g.files).toContain("entry/supervise-command.ts");
+    expect(g.files.filter((f) => f.startsWith("entry/tui/") || f === "cli.ts")).toEqual([]);
     expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
   });
 });

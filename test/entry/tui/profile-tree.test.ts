@@ -4,16 +4,18 @@ import { validateProfile } from "../../../src/domain/profile-rules.ts";
 import type { CatalogModel } from "../../../src/services/catalog-service.ts";
 import { catalogQuery, loadCatalog } from "../../../src/services/catalog-service.ts";
 import {
-  buildRows,
   failoverOptions,
-  filterRows,
   numberPatch,
   parseNumber,
   patchFor,
-  type Row,
   startOptions,
-  type TreeInput,
   treatLikeOptions,
+} from "../../../src/entry/tui/profile-edits.ts";
+import {
+  buildRows,
+  filterRows,
+  type Row,
+  type TreeInput,
   withStaged,
 } from "../../../src/entry/tui/profile-tree.ts";
 import { snapshotEnv, withHome } from "../../helpers.ts";

@@ -1,6 +1,6 @@
 import { type Tokens, ZERO_TOKENS } from "../../domain/record.ts";
 
-export interface ClaudeResult {
+interface ClaudeResult {
   isError: boolean;
   text: string;
   apiStatus: number | null;

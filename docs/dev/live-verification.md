@@ -140,4 +140,4 @@ Clean up with `rm -rf "$CATHERD_HOME" "$CATHERD_CLAUDE_AGENTS_DIR"; unset CATHER
 ## 6. One orchestrated run
 
 The last check drives the plugin in Claude Code on a sample repository: "the plugin in a fresh Claude
-Code session" in [`docs/manual-tests.md`](manual-tests.md).
+Code session" in [`docs/dev/manual-tests.md`](manual-tests.md).

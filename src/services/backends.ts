@@ -2,7 +2,7 @@ import type { BackendAdapter, Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { formatRung, parseRung } from "../domain/ids.ts";
+import { formatRung, tryParseRung } from "../domain/ids.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -14,10 +14,8 @@ export const resetReadiness = (): void => ready.clear();
  * Spec §4.4: the adapter for `backend` once its last probe says it is ready. A ready probe is kept
  * for 10 minutes; a failing one is never kept, so a fixed backend works on the next dispatch.
  */
-export async function readyAdapter(
-  backend: string,
-  now = Date.now(),
-): Promise<{ adapter: BackendAdapter; probe: Probe }> {
+export async function readyAdapter(backend: string): Promise<{ adapter: BackendAdapter; probe: Probe }> {
+  const now = Date.now();
   const adapter = adapterFor(backend);
   if (!adapter)
     throw new CatherdError("E_BACKEND_MISSING", `catherd has no ${backend} adapter yet`, {
@@ -39,12 +37,8 @@ export async function readyAdapter(
 export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
   const own = failover[rung];
   if (own) return own;
-  let r: ReturnType<typeof parseRung>;
-  try {
-    r = parseRung(rung);
-  } catch {
-    return null;
-  }
+  const r = tryParseRung(rung);
+  if (!r) return null;
   const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? null;
   return byAdapter && formatRung(byAdapter);
 }

@@ -3,10 +3,10 @@ import { z } from "zod";
 export const ACCESS = ["read-only", "workspace-write", "full"] as const;
 export type Access = (typeof ACCESS)[number];
 
-export const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
+const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-export const REPLY_STATUSES = ["complete", "partial", "blocked", "refused"] as const;
+const REPLY_STATUSES = ["complete", "partial", "blocked", "refused"] as const;
 export type ReplyStatus = (typeof REPLY_STATUSES)[number];
 
 export interface Tokens {

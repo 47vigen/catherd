@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSlots } from "../../src/entry/lock.ts";
+import { resolveSlots } from "../../src/entry/lock-command.ts";
 import { heavySlots } from "../../src/infra/heavy-lock.ts";
 import { killGroup } from "../../src/infra/proc.ts";
 import { exited, snapshotEnv, withHome } from "../helpers.ts";
@@ -26,6 +26,24 @@ describe("catherd lock", () => {
       }),
     ).toBe(heavySlots("cpus/2"));
     expect(() => resolveSlots("zero", () => 1)).toThrow(/slots/);
+  });
+
+  it("keeps catherd's own secret out of the command's environment (SECURITY.md)", () => {
+    const home = withHome();
+    const p = Bun.spawnSync([process.execPath, CLI, "lock", "--slots", "1", "--", "env"], {
+      env: {
+        ...process.env,
+        CATHERD_HOME: home,
+        TYPESAFE_API_KEY: "tsk_FAKEKEY_DO_NOT_USE_1234567890",
+        CATHERD_TEST_KEEP: "kept",
+      },
+      stdout: "pipe",
+    });
+    const out = p.stdout.toString();
+    expect(p.exitCode).toBe(0);
+    expect(out).not.toContain("TYPESAFE_API_KEY");
+    expect(out).not.toContain("FAKEKEY");
+    expect(out).toContain("CATHERD_TEST_KEEP=kept");
   });
 
   it("runs the command behind a slot and passes its exit code through", () => {

@@ -18,7 +18,7 @@ import { type CliResult, runCli } from "../cli.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
-export const CODEX_MIN_VERSION = "0.157.0";
+const CODEX_MIN_VERSION = "0.157.0";
 const THREAD = /^[A-Za-z0-9][A-Za-z0-9-]{3,127}$/;
 
 const SANDBOX: Record<Access, string> = {

@@ -20,7 +20,7 @@ export const DEFAULT_BILLING: Record<BillingKey, BillingMode> = {
  * (low 0.16, medium 0.38, high 0.64, xhigh 1.00, max 2.74; research 2026-09-25-models.md §3.1).
  * `ultra` is `max` with parallel subagents: ×4 is catherd's estimate. An unknown variant counts as 1.
  */
-export const EFFORT_FACTOR: Record<string, number> = {
+const EFFORT_FACTOR: Record<string, number> = {
   none: 0.3,
   minimal: 0.3,
   low: 0.4,
@@ -33,7 +33,7 @@ export const EFFORT_FACTOR: Record<string, number> = {
 };
 
 /** A reference task at medium effort: uncached input, cached input and output tokens (≈ $0.38 on Sol). */
-export const REF_TASK = { input: 60_000, cached: 400_000, output: 18_000 };
+const REF_TASK = { input: 60_000, cached: 400_000, output: 18_000 };
 
 export const effortFactor = (effort: string): number => EFFORT_FACTOR[effort] ?? 1;
 

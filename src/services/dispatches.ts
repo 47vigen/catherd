@@ -9,7 +9,7 @@ import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 
 /** admit.json: what admission decided. Written last, so a dispatch exists once it does. */
-export const AdmitSchema = z.looseObject({
+const AdmitSchema = z.looseObject({
   schema: z.literal(1),
   runId: z.string(),
   dispatchId: z.string(),

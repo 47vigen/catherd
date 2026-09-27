@@ -1,22 +1,26 @@
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type { OutcomeRow, RouteRow } from "../domain/route.ts";
+import { slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
+  ensurePrivateDir,
+  PRIVATE_DIR,
+  appendPrivate,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
   writeTextAtomic,
 } from "../infra/store.ts";
 
-export const RunMetaSchema = z.looseObject({
+const RunMetaSchema = z.looseObject({
   schema: z.literal(1),
   id: z.string(),
   repo: z.string(),
@@ -25,7 +29,7 @@ export const RunMetaSchema = z.looseObject({
   createdAt: z.string(),
   catherdVersion: z.string(),
 });
-export type RunMeta = z.infer<typeof RunMetaSchema>;
+type RunMeta = z.infer<typeof RunMetaSchema>;
 
 export interface Run {
   id: string;
@@ -57,12 +61,7 @@ export function runPaths(dir: string) {
 
 export const LEDGER_HEADER = "milestone | what | commit | minutes | evidence";
 
-const slug = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40) || "run";
+const runSlug = (title: string) => slug(title).slice(0, 40) || "run";
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
 /** Creates a run folder under the repo's runs dir. `repo` is a git toplevel; meta.json is written last. */
@@ -75,12 +74,12 @@ export function createRun(o: {
 }): Run {
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
-  mkdirSync(root, { recursive: true });
-  const base = `${stamp(now)}-${slug(o.title)}`;
+  ensurePrivateDir(root);
+  const base = `${stamp(now)}-${runSlug(o.title)}`;
   let id = base;
   for (let n = 2; ; n++) {
     try {
-      mkdirSync(join(root, id));
+      mkdirSync(join(root, id), { mode: PRIVATE_DIR });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -89,7 +88,7 @@ export function createRun(o: {
   }
   const dir = join(root, id);
   const p = runPaths(dir);
-  for (const d of [p.lanes, p.roles, p.shots]) mkdirSync(d, { recursive: true });
+  for (const d of [p.lanes, p.roles, p.shots]) ensurePrivateDir(d);
   writeTextAtomic(p.ledger, `${LEDGER_HEADER}\n`);
   ensureJsonlHeader(p.runs, "runs");
   ensureJsonlHeader(p.routes, "routes");
@@ -203,7 +202,7 @@ export function readOutcomes(run: Run): OutcomeRow[] {
   return readJsonl<OutcomeRow>(runPaths(run.dir).outcomes).rows.filter((r) => typeof r?.lane === "string");
 }
 
-export const AgentRunSchema = z.looseObject({
+const AgentRunSchema = z.looseObject({
   at: z.string(),
   name: z.string(),
   role: z.string(),
@@ -233,7 +232,7 @@ export function appendAgentRun(run: Run, a: AgentRun): void {
 }
 
 export function appendLedger(run: Run, row: string): void {
-  appendFileSync(runPaths(run.dir).ledger, `${row}\n`);
+  appendPrivate(runPaths(run.dir).ledger, `${row}\n`);
 }
 
 /** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel. */

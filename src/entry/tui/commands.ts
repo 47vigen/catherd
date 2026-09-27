@@ -27,7 +27,7 @@ export const SCOPES = [
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
-export type Group = "App" | "Tabs" | "Profiles" | "Edit" | "Status" | "Runs" | "Lists" | "Dialogs";
+type Group = "App" | "Tabs" | "Profiles" | "Edit" | "Status" | "Runs" | "Lists" | "Dialogs";
 
 export interface CommandDef {
   id: string;
@@ -407,7 +407,6 @@ export type CommandId = (typeof COMMANDS)[number]["id"];
 export type Keybinds = Record<CommandId, readonly string[]>;
 
 const BY_ID = new Map<string, CommandDef>(COMMANDS.map((c) => [c.id, c]));
-export const commandDef = (id: CommandId): CommandDef => BY_ID.get(id) as CommandDef;
 export const commandsIn = (scope: Scope): CommandDef[] => COMMANDS.filter((c) => c.scope === scope);
 
 /** Keys a text input would take as typing: one character, `space`, or a shifted letter. */
@@ -419,14 +418,14 @@ const GUARDED: readonly Scope[] = ["app", "tab.status", "tab.profiles", "tab.run
 export const isGuarded = (scope: Scope): boolean => GUARDED.includes(scope);
 
 /** Commands only the ctrl+c layering may run; rebinding them could leave no way out. */
-export const RESERVED: readonly CommandId[] = ["app.interrupt", "app.back"];
+const RESERVED: readonly CommandId[] = ["app.interrupt", "app.back"];
 
 export const DEFAULT_KEYS: Keybinds = Object.fromEntries(
   COMMANDS.map((c): [string, readonly string[]] => [c.id, c.keys]),
 ) as Keybinds;
 
 /** Spec §9.2 `config.json` `keybinds`: `{ <command id>: string | string[] | "none" }`. */
-export const KeybindsSchema = z.record(z.string(), z.union([z.string().min(1), z.array(z.string().min(1))]));
+const KeybindsSchema = z.record(z.string(), z.union([z.string().min(1), z.array(z.string().min(1))]));
 
 /** The stacks of scopes that can be live at once; a key must mean one thing in each. */
 export const CONTEXTS: readonly { tab: "status" | "profiles" | "runs" | null; typing: boolean }[] = [

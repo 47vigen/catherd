@@ -14,7 +14,6 @@ import {
   ago,
   ascii,
   clock,
-  fit,
   padEnd,
   shortRung,
   truncateEnd,
@@ -118,10 +117,7 @@ describe("text", () => {
     expect(wrap("", 10)).toEqual([""]);
   });
 
-  it("fits a left and a right part to one line, the left giving way", () => {
-    expect(fit("worker", "4 rungs", 20)).toBe("worker       4 rungs");
-    expect(width(fit("a very long label that will not fit", "value", 20))).toBe(20);
-    expect(fit("a very long label that will not fit", "value", 20)).toEndWith("  value");
+  it("pads a line to its width", () => {
     expect(padEnd("ab", 4)).toBe("ab  ");
   });
 

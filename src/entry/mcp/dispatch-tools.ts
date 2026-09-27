@@ -20,7 +20,7 @@ export function progressTo(token: string | number | undefined, send: Notify): Pr
       send({
         method: "notifications/progress",
         params: { progressToken: token, progress: ++n, message },
-      }).catch(() => {});
+      }).catch(() => {}); // the client is gone: progress is best effort
     } catch {
       // the transport is closed
     }

@@ -3,8 +3,8 @@
 Three checks that need a human at Claude Desktop, because MCP servers and plugins only
 load at session start; no automated test can show that. Run them before each major
 release, and again after any Claude Code release that might change MCP call
-backgrounding, subagent loading or plugin discovery (see the design spec's Risks
-section). The checks that need real backend accounts (live tests, fixture capture, the
+backgrounding, subagent loading or plugin discovery (see §14, Risks, of the
+[1.0 design](../superpowers/specs/2026-09-25-catherd-1.0-design.md)). The checks that need real backend accounts (live tests, fixture capture, the
 Codex sandbox, the Jev key prompt) are in [`live-verification.md`](live-verification.md).
 
 Do these in order: S1 and S2 gate `dispatch` and the Claude agent files that the plugin
@@ -16,10 +16,11 @@ still hold for 1.0: they test Claude Code, not catherd.
 **What this checks:** a long `dispatch` call must background itself after about two
 minutes and let the orchestrator keep working, then wake it with the result when the
 role finishes — without the stdio connection timing out. If this fails, `dispatch`
-needs to return a job id instead of blocking, and the orchestrator polls it through
-`catherd wait` (see the plan's Task 14).
+would need to return a handle instead of blocking, with a separate tool that waits for
+it (see "Parallel dispatch" in [`ideas.md`](ideas.md)). catherd 1.0 has no such tool.
 
-1. Create `spikes/s1/server.mjs` in your catherd checkout:
+1. Create `spikes/s1/server.mjs` in your catherd checkout (it is not committed; the
+   `spikes/` directory is scratch and you delete it at the end):
 
    ```js
    import { appendFileSync } from "node:fs";
@@ -115,14 +116,15 @@ needs to return a job id instead of blocking, and the orchestrator polls it thro
 **Verdict:** S1 **passes** only if all three hold — the call backgrounded within about
 2.5 minutes; it survived the full 40 minutes; the model woke by itself with the
 result. A missing progress token is fine if the call still survived. Otherwise S1
-**fails**, and `dispatch` needs the job/`wait` fallback (plan Task 14).
+**fails**, and `dispatch` needs the handle-and-wait design above; file an issue.
 
-Clean up: `claude mcp remove catherd-s1 --scope user`. Keep `spikes/s1/server.mjs` in
-the repository — re-run this check on new Claude Code releases.
+Clean up: `claude mcp remove catherd-s1 --scope user`, then `rm -r spikes`. The server
+source stays here, so you can re-create it when re-running this check on a new Claude
+Code release.
 
 ## S2 — symlinked agent files in a fresh session
 
-**What this checks:** two things `writeClaudeAgents` depends on — whether retargeting
+**What this checks:** two things catherd's agent links depend on — whether retargeting
 an already-registered agent's symlink changes its behavior live (S2a), and whether a
 *symlinked directory* under `~/.claude/agents/` is scanned at all, and under which name
 (S2b).
@@ -193,8 +195,10 @@ an already-registered agent's symlink changes its behavior live (S2a), and wheth
    ```
 
 **Record:** S2a live yes/no; S2b scanned yes/no, and the name it registered under. S2b
-decides whether `writeClaudeAgents` can symlink one directory per profile instead of
-one file per agent. S2a changes no code either way (an agent's file name and `name`
+decides whether catherd's agent links (written by `ProfileService` in
+`src/services/agent-links.ts`: each agent file lives in `<config>/agents/<profile>/`
+and gets one symlink in `~/.claude/agents/`) could become one symlinked directory per
+profile instead of one link per agent. S2a changes no code either way (an agent's file name and `name`
 already encode its role, model and effort, so retargeting its link changes nothing
 observable) — it only tells you whether a Claude Code release picked up new files
 mid-session, in which case the setup skill's "new session" language can be dropped.

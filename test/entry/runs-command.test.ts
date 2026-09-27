@@ -5,7 +5,7 @@ import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { appendRecord, runPaths } from "../../src/services/run-store.ts";
 import type { RunSummary } from "../../src/services/summary.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { fakeDispatch, freshRun, makeRecord } from "../services/helpers.ts";
 import { saveJevKey } from "../../src/services/jev-service.ts";
@@ -65,9 +65,21 @@ describe("formatRun", () => {
 
 describe("redrawMs", () => {
   it("defaults to 2 s and clamps to the 1 s floor, 0 included", () => {
-    expect([undefined, "", "x", "0", "-3", "0.5", "5"].map(redrawMs)).toEqual([
-      2000, 2000, 2000, 1000, 1000, 1000, 5000,
-    ]);
+    expect([undefined, "0", "0.5", "5"].map(redrawMs)).toEqual([2000, 1000, 1000, 5000]);
+  });
+
+  it("refuses an interval that is not a number of seconds (audit N10)", () => {
+    for (const bad of ["", "x", "-3", "2s"])
+      expect(() => redrawMs(bad)).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+  });
+
+  it("makes watch exit 2 on a bad --interval, before it prints anything", () => {
+    withHome();
+    expect(catherd(["watch", "--once", "--interval", "abc"])).toEqual({
+      code: 2,
+      out: "",
+      err: 'error E_INPUT_INVALID: --interval takes a number of seconds, not "abc"\nfix: catherd watch --interval <seconds>\n',
+    });
   });
 });
 

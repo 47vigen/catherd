@@ -7,7 +7,8 @@ import {
   type RunRow,
   stampOf,
 } from "../../../src/entry/tui/effects.ts";
-import { activate, activeName, createProfile, patchProfile } from "../../../src/services/profile-service.ts";
+import { activate, createProfile, patchProfile } from "../../../src/services/profile-service.ts";
+import { activeName } from "../../../src/services/profile-store.ts";
 import { appendRoute, type Run } from "../../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../../helpers.ts";
 import { freshRun } from "../../services/helpers.ts";

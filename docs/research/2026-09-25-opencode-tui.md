@@ -1,7 +1,7 @@
 # opencode's TUI as the reference for catherd's redesign
 
-Research date: 2026-09-25. Companion to `research/tui.md` (the audit, sections C1-C6) and
-`research/opencode.md` (the opencode integration research).
+Research date: 2026-09-25. Companion to `2026-09-25-tui.md` (the audit, sections C1-C6) and
+`2026-09-25-opencode.md` (the opencode integration research).
 
 **Sources.** I read the opencode source directly, from shallow clones in
 `scratchpad/opencode-src/{dev,v2}`:
@@ -20,7 +20,7 @@ Those sources are the same pages as https://opencode.ai/docs/tui, /docs/keybinds
 `https://opencode.ai/v2/docs/keybinds/` returns 404. The v2 docs still describe the v1-style
 underscored keybind names, which v2 accepts through `src/config/v1/keybind.ts`.
 
-**Verified.** I built a prototype in `scratchpad/keymap-proto/keymap.test.tsx` (passes with `bun test`). It shows that opencode's
+**Verified.** I built a prototype in `2026-09-25-keymap-proto/keymap.test.tsx.txt` (passes with `bun test`). It shows that opencode's
 keymap engine, `@opentui/keymap`, works with **@opentui/react 0.5.12**, the exact version catherd uses. The test covers
 focus-scoped bare-letter bindings, global chords, a `ctrl+x` leader, inputs that own their printable keys, and a footer
 that lists the active keys. Details are in §3.6.
@@ -388,7 +388,7 @@ Unknown ids throw `Unrecognized keybind: …` (`config/keybind.ts:parse`). Every
 JSON-schema description and the binding's `desc`. Source: `config/keybind.ts` and `docs/keybinds.mdx`
 ("Binding Values", "Disable Keybind").
 
-**Prototype result** (`scratchpad/keymap-proto/keymap.test.tsx`, React 19.3 plus `@opentui/react` 0.5.12 plus `@opentui/keymap` 0.5.12, passing):
+**Prototype result** (`2026-09-25-keymap-proto/keymap.test.tsx.txt`, React 19.3 plus `@opentui/react` 0.5.12 plus `@opentui/keymap` 0.5.12, passing):
 
 | Case | Result |
 |---|---|
@@ -705,7 +705,7 @@ the themes in one TS object (`src/tui/theme.ts`). Loading JSON themes (opencode'
 - Keep C6. Use `@opentui/react/test-utils` `testRender`, plus `createTestRenderer` with **`ManualClock`** from
   `@opentui/core/testing` for spinners, toasts, the leader timeout and double-press windows. That replaces `tick(30)`.
 - Port opencode's `keymap-scope.test.tsx` cases to React: modal isolation, disabled scopes, `dispatch` reachability,
-  and the "input owns printable keys" matrix. `scratchpad/keymap-proto/keymap.test.tsx` is a working seed.
+  and the "input owns printable keys" matrix. `2026-09-25-keymap-proto/keymap.test.tsx.txt` is a working seed.
 - Assert breakpoints as pure functions, as `homeFooterVisibility` and `ui/layout.ts` do. Keep golden frames (C6.3) to a
   few screens; opencode uses targeted `toContain` and row-slice assertions far more than snapshots.
 - An optional `CATHERD_STORY=<name>` route that renders one widget with fixtures, similar to opencode's in-TUI storybook,

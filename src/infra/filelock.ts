@@ -1,6 +1,7 @@
 import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { CatherdError } from "../domain/errors.ts";
 import { isAlive, isValidPid, processStartTime } from "./proc.ts";
+import { PRIVATE_FILE } from "./store.ts";
 
 interface Holder {
   pid: number;
@@ -37,7 +38,7 @@ function olderThan(file: string, ms: number): boolean {
 /** Creates `file` exclusively with `content`; false when it already exists. */
 function tryCreate(file: string, content: string): boolean {
   try {
-    const fd = openSync(file, "wx");
+    const fd = openSync(file, "wx", PRIVATE_FILE);
     try {
       writeSync(fd, content);
     } finally {
@@ -114,7 +115,7 @@ export async function withFileLock<T>(
 
 /**
  * `withFileLock` for a synchronous critical section, waiting with a blocking sleep. For writers whose
- * callers are synchronous (the profile service under the 0.x TUI); the lock is held for milliseconds.
+ * callers are synchronous (`withProfilesLock` in the profile service); the lock is held for milliseconds.
  * Not reentrant: a section must not take the same lock again.
  */
 export function withFileLockSync<T>(

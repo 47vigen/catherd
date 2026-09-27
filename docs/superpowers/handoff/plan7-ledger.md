@@ -46,3 +46,7 @@ Final review (final-review.md): With fixes — I1 supervisor: exit during isBusy
 Ruling: one fix wave = I1, I2, M2, M3; M1 documented for the owner (close/reopen the release PR is a no-go for me per rules — instead I'll note it; publish is still gated by release.yml's CI job); M4 → 1.0.x — cost: small.
 Final fix wave cherry-picked: e1dfcc4 (I1 supervisor done-after-busy + test), 13ff876 (I2 MIGRATION exact folders), d3e1ee9 (M3), 8d17deb (M2 billing warn only for used backend + test). Controller read the diffs; Ruling: no separate re-review (small, each with RED/GREEN) — cost: low.
 Task 12: complete (reviewed in final review). PLAN 7 IMPLEMENTATION COMPLETE → PR ready for Codex (cap 4 rounds).
+PR #10 ready; Codex round 1 requested on 40166af.
+Codex r1 (40166af): P2 detached probe groups orphaned on ctrl+c exit → fixed 455ffeb (exit hook kills live groups; RED/GREEN test).
+Codex r2 (455ffeb): P1 unreadable start time treated as pid match in stopOrphan → fixed 2c13bb7 (surelySame/isSurelyAlive before each signal).
+PLAN 7 MERGED (PR #10 → d87a791) after 3 Codex rounds (r3 clean).

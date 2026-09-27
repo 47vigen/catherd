@@ -4,14 +4,14 @@ import { basename, dirname, join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { credentialsPath, jevKey } from "../../src/services/jev-service.ts";
+import { patchProfile } from "../../src/services/profile-service.ts";
 import {
   agentsRoot,
   configFile,
   getProfile,
-  patchProfile,
   profilesDir,
   projectsFile,
-} from "../../src/services/profile-service.ts";
+} from "../../src/services/profile-store.ts";
 import { initSetup, moveLegacy } from "../../src/services/setup.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 

@@ -1,5 +1,4 @@
 import { statSync } from "node:fs";
-import { ADAPTER_IDS } from "../../adapters/backend.ts";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
@@ -19,23 +18,25 @@ import {
 } from "../../services/catalog-service.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type DoctorReport, doctor } from "../../services/doctor.ts";
+import type { Synced } from "../../services/agent-links.ts";
 import {
   activate,
-  activeName,
   createProfile,
   deleteProfile,
+  patchProfile,
+  type Saved,
+} from "../../services/profile-service.ts";
+import {
+  activeName,
+  configFile,
   enforcementOf,
   listProfiles,
-  patchProfile,
   profilesDir,
-  configFile,
   projectsFile,
   readProfileDoc,
   readProjects,
   runnableBackends,
-  type Saved,
-  type Synced,
-} from "../../services/profile-service.ts";
+} from "../../services/profile-store.ts";
 import { findRun, listRuns, readRoutes, type Run, runPaths } from "../../services/run-store.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
 import { defaultDeps } from "../deps.ts";
@@ -57,7 +58,7 @@ export interface RunRow {
   budget: number | null;
 }
 
-export interface Climb {
+interface Climb {
   lane: string;
   from: string;
   to: string;
@@ -66,7 +67,7 @@ export interface Climb {
   env: boolean;
 }
 
-export interface Decision {
+interface Decision {
   lane: string;
   role: string;
   source: RouteSource;
@@ -196,7 +197,7 @@ export function rowOf(s: RunSummary): RunRow {
 }
 
 /** The climbs and route decisions in a run's routes.jsonl. */
-export function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
+function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
   const rows = readRoutes(run);
   return {
     climbs: rows
@@ -228,9 +229,7 @@ export function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
 export function liveEffects(repo: string | null = null): Effects {
   const deps = defaultDeps();
   const rows = memoRuns((r) => rowOf(summarizeRun(deps, r)));
-  const harnesses = HARNESS_KEYS.filter(
-    (h) => (ADAPTER_IDS as readonly string[]).includes(h) && adapterFor(h),
-  );
+  const harnesses = HARNESS_KEYS.filter((h) => adapterFor(h));
   const bound = () => (repo !== null && readProjects().bindings[repo] !== undefined ? repo : null);
   return {
     version: VERSION,

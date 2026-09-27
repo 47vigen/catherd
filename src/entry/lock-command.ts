@@ -1,9 +1,10 @@
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
+import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
-import { profileFor } from "../services/profile-service.ts";
+import { profileFor } from "../services/profile-store.ts";
 import { printError } from "./cli-kit.ts";
 
 /**
@@ -47,7 +48,7 @@ export async function runForwarding(argv: string[]): Promise<number> {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
-    env: process.env,
+    env: scrubSecrets(process.env),
     detached: true,
   });
   let lastInt = 0;
@@ -71,6 +72,9 @@ export async function runForwarding(argv: string[]): Promise<number> {
   }
 }
 
+/** Spec §8: what `--help` and the usage error show; the command runs after `--`. */
+export const LOCK_USAGE = "catherd lock [--slots N] -- <command> [args...]";
+
 export const lockCommand = defineCommand({
   meta: {
     name: "lock",
@@ -89,7 +93,7 @@ export const lockCommand = defineCommand({
     if (argv.length === 0) {
       printError(
         new CatherdError("E_INPUT_INVALID", "no command to run", {
-          fix: "catherd lock [--slots N] -- <command> [args...]",
+          fix: LOCK_USAGE,
         }),
       );
       process.exitCode = 2;

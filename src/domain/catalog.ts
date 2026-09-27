@@ -23,8 +23,8 @@ export const BILLING_KEYS = [
 export type BillingKey = (typeof BILLING_KEYS)[number];
 
 /** The keys a family's `on` map uses; the native `claude` pseudo-backend runs claude-code's model ids. */
-export const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor", "grok"] as const;
-export type ModelKey = (typeof MODEL_KEYS)[number];
+const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor", "grok"] as const;
+type ModelKey = (typeof MODEL_KEYS)[number];
 
 export function billingKeyOf(r: Rung): BillingKey {
   if (r.backend === "opencode" && r.model.startsWith("opencode-go/")) return "opencode-go";
@@ -39,11 +39,10 @@ const BackendModelSchema = z.object({
   context: z.number().int().positive(),
 });
 
+/** `vendor` and `status` (current or legacy) stay in the data as documentation; nothing reads them. */
 const FamilySchema = z.looseObject({
   id: z.string().min(1),
   name: z.string(),
-  vendor: z.enum(["openai", "anthropic"]),
-  status: z.enum(["current", "legacy"]).default("current"),
   capabilities: z.object({ toolUse: z.boolean(), imageIn: z.boolean(), reasoning: z.boolean() }),
   /** API list price, dollars per million tokens */
   price: z.object({ input: z.number(), cached: z.number(), output: z.number() }),
@@ -56,10 +55,10 @@ const FamilySchema = z.looseObject({
 });
 export type Family = z.infer<typeof FamilySchema>;
 
+/** `sources` (where the data came from) stays in the file as documentation; nothing reads it. */
 export const ModelsFileSchema = z.looseObject({
   schema: z.literal(1),
   version: z.string(),
-  sources: z.record(z.string(), z.string()),
   backends: z.record(
     z.string(),
     z.looseObject({
@@ -73,7 +72,7 @@ export type ModelsFile = z.infer<typeof ModelsFileSchema>;
 /** A canonical rung: `<canonical model id>#<effort>`, the key scores and treat-likes use. */
 export const CanonicalRung = z.string().regex(/^[^:#\s]+#[^#\s]+$/, "a canonical rung is model#effort");
 
-export const ScoreSchema = z.object({
+const ScoreSchema = z.object({
   rung: CanonicalRung,
   dim: z.enum(DIMS),
   value: z.number(),
@@ -87,9 +86,10 @@ export const ScoreSchema = z.object({
 export type Score = z.infer<typeof ScoreSchema>;
 
 const BarSchema = z.partialRecord(z.enum(DIMS), z.number());
-export type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
+type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
 const BarsSchema = z.record(z.enum(KINDS), z.record(z.enum(DIFFICULTIES), BarSchema));
 
+/** `barsWhy` (the reasoning behind the bars) stays in the file as documentation; nothing reads it. */
 export const ScoresFileSchema = z.looseObject({
   schema: z.literal(1),
   version: z.string(),
@@ -109,7 +109,7 @@ export const OverrideSchema = z.looseObject({
 });
 export type Override = z.infer<typeof OverrideSchema>;
 
-export interface Listed {
+interface Listed {
   id: string;
   efforts: string[];
   context: number | null;
@@ -183,7 +183,7 @@ export interface RungInfo {
   listed: boolean | null;
 }
 
-export function familyOf(c: Catalog, r: Rung): Family | null {
+function familyOf(c: Catalog, r: Rung): Family | null {
   const mk = modelKeyOf(billingKeyOf(r));
   return c.families.find((f) => f.on[mk]?.id === r.model) ?? null;
 }

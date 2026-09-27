@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ADAPTER_IDS, type DiscoveredModel } from "../adapters/backend.ts";
+import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -21,32 +21,34 @@ import {
   scoresOf,
 } from "../domain/catalog.ts";
 import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
-import { CatherdError } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
+import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
 import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import { median } from "../domain/util.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
+import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
-import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
 
 const DAY_MS = 24 * 3_600_000;
 /** Spec §5.2: `secs_per_task` counts once a rung has this many of the user's own runs. */
-export const MIN_SAMPLES = 5;
+const MIN_SAMPLES = 5;
 
 let models: ModelsFile | null = null;
 let scores: ScoresFile | null = null;
-export const shippedModels = (): ModelsFile =>
+const shippedModels = (): ModelsFile =>
   (models ??= readVersioned(assetPath("catalog/models.json"), ModelsFileSchema, 1));
-export const shippedScores = (): ScoresFile =>
+const shippedScores = (): ScoresFile =>
   (scores ??= readVersioned(assetPath("catalog/scores.json"), ScoresFileSchema, 1));
 
 export const overridePath = (): string => join(configDir(), "catalog.override.json");
 
-export function readOverride(): Override {
+function readOverride(): Override {
   const file = overridePath();
   return existsSync(file) ? readVersioned(file, OverrideSchema, 1) : OverrideSchema.parse({});
 }
@@ -55,7 +57,7 @@ export function readOverride(): Override {
  * Every backend's last listing (spec §3.5 `<data>/discovery/<backend>.json`); for a backend listed per
  * repository, its listing in `repo` (none without one).
  */
-export function listedModels(repo?: string): Catalog["listed"] {
+function listedModels(repo?: string): Catalog["listed"] {
   const out: Catalog["listed"] = {};
   for (const id of ADAPTER_IDS) {
     const d = readDiscovery(id, listingRepo(id, repo));
@@ -63,12 +65,6 @@ export function listedModels(repo?: string): Catalog["listed"] {
   }
   return out;
 }
-
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2;
-};
 
 /**
  * Spec §5.2: the median seconds of the user's own successful runs per canonical rung and lane kind
@@ -112,7 +108,7 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
     }
   }
   const secs: Catalog["secs"] = {};
-  for (const [k, xs] of groups) if (xs.length >= MIN_SAMPLES) secs[k] = median(xs);
+  for (const [k, xs] of groups) if (xs.length >= MIN_SAMPLES) secs[k] = median(xs) as number;
   return secs;
 }
 
@@ -135,6 +131,8 @@ export interface Refreshed {
   models: number;
   fetchedAt: string | null;
   error?: string;
+  /** the command that fixes `error`, when the backend's probe names one */
+  fix?: string;
 }
 
 /** Spec §5.2: `init`, `doctor` and `catherd catalog refresh` list every backend's models now. */
@@ -159,11 +157,15 @@ export async function refreshDiscovery(
       continue;
     }
     if (listed.length === 0) {
+      // a CLI that is missing (or not ready) lists nothing: say why, and keep only a listing that exists
+      const problem = (await adapter.probe().catch(() => null))?.problems[0];
+      const fetchedAt = readDiscovery(id, repo)?.fetchedAt ?? null;
       out.push({
         backend: id,
         models: 0,
-        fetchedAt: readDiscovery(id, repo)?.fetchedAt ?? null,
-        error: "listed no models; the previous listing is kept",
+        fetchedAt,
+        error: `${problem?.message ?? "listed no models"}${fetchedAt === null ? "" : "; the previous listing is kept"}`,
+        ...(problem?.fix ? { fix: problem.fix } : {}),
       });
       continue;
     }
@@ -186,12 +188,10 @@ export const resetFreshen = (): void => tried.clear();
 export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?: string): Promise<void> {
   const backends = new Set<string>();
   for (const r of rungs) {
-    try {
-      const b = parseRung(r).backend;
-      backends.add(b === "claude" ? "claude-code" : b);
-    } catch {}
+    const b = tryParseRung(r)?.backend;
+    if (b) backends.add(b === "claude" ? "claude-code" : b); // validate reports a bad rung
   }
-  const due: Promise<unknown>[] = [];
+  const due: { backend: string; listing: Promise<unknown> }[] = [];
   for (const b of backends) {
     const adapter = adapterFor(b);
     const where = listingRepo(b, repo);
@@ -200,10 +200,17 @@ export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?:
     const cached = readDiscovery(b, where);
     if (cached && now - Date.parse(cached.fetchedAt) < DAY_MS) continue;
     tried.set(key, now);
-    due.push(discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }));
+    due.push({
+      backend: b,
+      listing: discovered(b, () => adapter.listModels(where), { maxAgeMs: DAY_MS, now, repo: where }),
+    });
   }
-  // a failed listing keeps the last one (and the hour's backoff above)
-  await Promise.allSettled(due);
+  // a failed listing keeps the last one (and the hour's backoff above); the log says why it failed
+  const settled = await Promise.allSettled(due.map((d) => d.listing));
+  settled.forEach((r, i) => {
+    if (r.status === "rejected")
+      log("debug", "discovery", { backend: due[i]?.backend, error: errorMessage(r.reason) });
+  });
 }
 
 /** A rung given as `backend:model#effort` or as a canonical `model#effort`, in canonical form. */
@@ -211,7 +218,9 @@ function canonicalOf(c: Catalog, rung: string): string {
   let canonical = rung;
   try {
     if (rung.includes(":")) canonical = rungInfo(c, rung).canonical;
-  } catch {}
+  } catch {
+    // a rung the catalog cannot resolve stays as given; the canonical check below refuses it
+  }
   if (!CanonicalRung.safeParse(canonical).success)
     throw new CatherdError("E_INPUT_INVALID", `"${rung}" is not a rung`, {
       fix: "name it as backend:model#effort or model#effort, e.g. codex:gpt-6-sol#high",
@@ -240,7 +249,7 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
         fix: "treat-like maps only unscored rungs; catalog_query shows each rung's scores",
       },
     );
-  mkdirSync(dirname(overridePath()), { recursive: true });
+  ensurePrivateDir(dirname(overridePath()));
   await withFileLock(overridePath(), () => {
     const cur = readOverride();
     const next = { ...cur, schema: 1, treatLike: { ...cur.treatLike, [from]: to } };

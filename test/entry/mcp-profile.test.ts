@@ -2,13 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
-import {
-  activate,
-  createProfile,
-  getProfile,
-  profileService,
-  profilesDir,
-} from "../../src/services/profile-service.ts";
+import { activate, createProfile, profileService } from "../../src/services/profile-service.ts";
+import { getProfile, profilesDir } from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 

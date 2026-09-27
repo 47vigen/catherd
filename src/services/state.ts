@@ -1,6 +1,6 @@
 import { relative } from "node:path";
 import { z } from "zod";
-import { isCatherdError } from "../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { overlaps } from "../domain/lane.ts";
 import { renderState } from "../domain/state.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
@@ -11,7 +11,7 @@ import { liveDispatches } from "./dispatches.ts";
 import { type Run, runPaths } from "./run-store.ts";
 
 /** state.json: the orchestrator's notes that state.md shows beside the live facts. */
-export const NotesSchema = z.looseObject({
+const NotesSchema = z.looseObject({
   schema: z.literal(1),
   next: z.string(),
   lastCheck: z.string().nullable(),
@@ -93,6 +93,6 @@ export async function refreshState(
         writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
       });
     }
-    return { text: null, hints: [`state.md not refreshed: ${e instanceof Error ? e.message : String(e)}`] };
+    return { text: null, hints: [`state.md not refreshed: ${errorMessage(e)}`] };
   }
 }

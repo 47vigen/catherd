@@ -1,7 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -14,11 +16,18 @@ import { z } from "zod";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   appendJsonl,
+  appendPrivate,
   ensureJsonlHeader,
+  ensurePrivateDir,
+  nonBlankLines,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
+  writeTextAtomic,
 } from "../../src/infra/store.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
+
+afterEach(snapshotEnv());
 
 const dir = () => mkdtempSync(join(tmpdir(), "catherd-store-"));
 const Thing = z.looseObject({ schema: z.literal(1), name: z.string() });
@@ -55,6 +64,10 @@ describe("readVersioned", () => {
       throw new Error("expected a throw");
     } catch (e) {
       expect(isCatherdError(e) && e.code).toBe("E_CONFIG_NEWER_SCHEMA");
+      // bunx alone opens the dashboard of the newest catherd and upgrades nothing installed (audit N12)
+      expect(isCatherdError(e) && e.fix).toBe(
+        "upgrade catherd: bun add -g catherd-cli@latest (or run bunx catherd-cli@latest <command>)",
+      );
     }
   });
 
@@ -68,6 +81,25 @@ describe("readVersioned", () => {
     } catch (e) {
       expect(isCatherdError(e) && e.code).toBe("E_CONFIG_INVALID");
     }
+  });
+
+  it("names a file that is not JSON without quoting it, so a pasted key never reaches the message (B1)", () => {
+    const f = join(dir(), "credentials.json");
+    writeFileSync(f, "tsk_FAKEKEY_DO_NOT_USE_1234567890\n");
+    let err: unknown;
+    try {
+      readVersioned(f, Thing, 1);
+    } catch (e) {
+      err = e;
+    }
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_CONFIG_INVALID",
+      message: `${f} is not valid JSON`,
+      fix: `fix or delete ${f}`,
+    });
+    expect(() => readVersioned(f, Thing, 1, { fix: "run x" })).toThrow(
+      expect.objectContaining({ fix: "run x" }),
+    );
   });
 });
 
@@ -107,5 +139,65 @@ describe("jsonl", () => {
     writeFileSync(f, '{"schema":9,"kind":"runs"}\n');
     expect(() => readJsonl(f, 1)).toThrow(/newer/);
     expect(existsSync(f)).toBe(true);
+  });
+});
+
+describe("private modes (audit S2)", () => {
+  it.skipIf(noPosixModes)("creates new dirs 0700 and files 0600, whatever the umask lets through", () => {
+    const d = dir();
+    writeTextAtomic(join(d, "a", "b", "c.txt"), "x");
+    appendJsonl(join(d, "logs", "l.jsonl"), { a: 1 });
+    ensureJsonlHeader(join(d, "runs", "h.jsonl"), "runs");
+    expect(openModes(d)).toEqual([]);
+    expect(statSync(join(d, "a", "b", "c.txt")).mode & 0o777).toBe(0o600);
+  });
+
+  it.skipIf(noPosixModes)("tightens catherd's existing config and data dirs on the next write", () => {
+    const home = withHome();
+    for (const sub of ["config", "data"]) {
+      mkdirSync(join(home, sub));
+      chmodSync(join(home, sub), 0o755);
+    }
+    writeJsonAtomic(join(home, "config", "config.json"), { schema: 1 });
+    appendJsonl(join(home, "data", "logs", "x.jsonl"), { a: 1 });
+    expect(openModes(home)).toEqual([]);
+  });
+
+  it.skipIf(noPosixModes)(
+    "tightens the existing nested dirs and append targets a 0.x catherd left open",
+    () => {
+      const home = withHome();
+      const runs = join(home, "data", "repos", "r-1", "runs");
+      const logs = join(home, "data", "logs");
+      for (const d of [runs, logs]) mkdirSync(d, { recursive: true, mode: 0o755 });
+      for (const d of [
+        join(home, "data"),
+        join(home, "data", "repos"),
+        join(home, "data", "repos", "r-1"),
+        runs,
+        logs,
+      ])
+        chmodSync(d, 0o755);
+      const log = join(logs, "old.jsonl");
+      const knowledge = join(home, "data", "repos", "r-1", "knowledge.md");
+      writeFileSync(log, "{}\n", { mode: 0o644 });
+      writeFileSync(knowledge, "- old\n", { mode: 0o644 });
+      chmodSync(log, 0o644);
+      chmodSync(knowledge, 0o644);
+      ensurePrivateDir(runs);
+      appendJsonl(log, { a: 1 });
+      appendPrivate(knowledge, "- new\n");
+      expect(openModes(home)).toEqual([]);
+      expect(readFileSync(knowledge, "utf8")).toBe("- old\n- new\n");
+    },
+  );
+});
+
+describe("nonBlankLines", () => {
+  it("drops blank lines, and reads a missing file as none", () => {
+    const f = join(dir(), "x.txt");
+    expect(nonBlankLines(f)).toEqual([]);
+    writeFileSync(f, "a\n\n  \nb\n");
+    expect(nonBlankLines(f)).toEqual(["a", "b"]);
   });
 });

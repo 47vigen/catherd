@@ -1,21 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 const SRC = resolve(import.meta.dir, "../src");
 const RANK: Record<string, number> = { domain: 0, infra: 1, adapters: 2, services: 3, entry: 4 };
-/** 0.x modules; `cli.ts` is the entry point, which the new layers never import, so it is not listed. */
-const LEGACY = new Set([
-  "core",
-  "mcp",
-  "routing",
-  "profile",
-  "tui",
-  "paths.ts",
-  "files.ts",
-  "version.ts",
-  "types.ts",
-]);
 /** `… from "x"`, `import("x")` and the side-effect form `import "x"`. */
 const IMPORT =
   /(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|\bimport\s*["']([^"']+)["']/g;
@@ -37,26 +25,22 @@ function violationsIn(file: string, text: string): string[] {
     if (!spec?.startsWith(".")) continue;
     const target = relative(SRC, resolve(dirname(join(SRC, file)), spec));
     const top = target.split("/")[0] as string;
-    if (LEGACY.has(top) || top === "bridge") violations.push(`${file} imports 0.x ${target}`);
-    else if (top in RANK && (RANK[top] as number) > (RANK[from] as number))
+    if (top in RANK && (RANK[top] as number) > (RANK[from] as number))
       violations.push(`${file} (${from}) imports upward ${target} (${top})`);
   }
   return violations;
 }
 
 describe("architecture", () => {
-  it("flags 0.x and upward imports in every import form", () => {
+  it("flags upward imports in every import form", () => {
     const flagged = (line: string) => violationsIn("infra/x.ts", line).length;
-    expect(flagged(`import "../core/x.ts";`)).toBe(1);
-    expect(flagged(`import '../mcp/y.ts'`)).toBe(1);
-    expect(flagged(`import { a } from "../core/x.ts";`)).toBe(1);
-    expect(flagged(`import {\n  a,\n  b,\n} from "../routing/r.ts";`)).toBe(1);
-    expect(flagged(`export * from "../tui/t.tsx";`)).toBe(1);
-    expect(flagged(`const m = await import("../profile/p.ts");`)).toBe(1);
-    for (const root of ["paths", "files", "version", "types"])
-      expect(flagged(`import { x } from "../${root}.ts";`)).toBe(1);
-    expect(flagged(`import { x } from "../adapters/a.ts";`)).toBe(1);
-    expect(flagged(`import "../entry/e.ts";`)).toBe(1);
+    expect(flagged(`import "../services/x.ts";`)).toBe(1);
+    expect(flagged(`import '../entry/mcp/y.ts'`)).toBe(1);
+    expect(flagged(`import { a } from "../adapters/x.ts";`)).toBe(1);
+    expect(flagged(`import {\n  a,\n  b,\n} from "../services/r.ts";`)).toBe(1);
+    expect(flagged(`export * from "../entry/tui/t.tsx";`)).toBe(1);
+    expect(flagged(`const m = await import("../services/p.ts");`)).toBe(1);
+    expect(flagged(`import { x } from "./paths.ts";`)).toBe(0);
   });
 
   it("allows downward, same-layer, package and cli.ts imports", () => {
@@ -69,13 +53,11 @@ describe("architecture", () => {
     expect(flagged(`import { main } from "../../cli.ts";`)).toBe(0);
   });
 
-  it("flags the 0.x bridge, which plan 5 removed, from every layer", () => {
-    expect(
-      violationsIn("entry/mcp/server.ts", `import { v0Profiles } from "../../bridge/v0.ts";`),
-    ).toHaveLength(1);
+  it("src holds only the five layers and cli.ts", () => {
+    expect(readdirSync(SRC).sort()).toEqual([...Object.keys(RANK), "cli.ts"].sort());
   });
 
-  it("new layers import only downward and never from 0.x modules", () => {
+  it("every layer imports only downward", () => {
     const violations = layerFiles().flatMap((file) =>
       violationsIn(file, readFileSync(join(SRC, file), "utf8")),
     );
