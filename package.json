@@ -2,7 +2,24 @@
   "name": "catherd-cli",
   "version": "0.2.1",
   "description": "Herds coding agents: autopilot builds from your own Claude Code session.",
+  "keywords": [
+    "autopilot",
+    "claude-code",
+    "claude-code-plugin",
+    "cli",
+    "codex",
+    "coding-agents",
+    "mcp",
+    "opencode",
+    "orchestration",
+    "tui"
+  ],
+  "homepage": "https://github.com/47vigen/catherd#readme",
+  "bugs": {
+    "url": "https://github.com/47vigen/catherd/issues"
+  },
   "license": "MIT",
+  "author": "47vigen",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/47vigen/catherd.git"
