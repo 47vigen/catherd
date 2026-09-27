@@ -178,22 +178,25 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 **Once per project:**
 
 1. **A-lines.** Write the request as numbered, observable lines `A1…An`. Ask the user every open product question now; after this point, run without them. Then `run_start(repo, title, a_lines)`.
+   - **Plan in hand:** when the request names a plan the user already has, keep it as an A-line, `plan: <path>[, <path>…]`. The run then skips the dossier, and the architect translates that plan instead of designing one (step 3).
 2. **Dossier.** One researcher, `researcher-dossier`, maps the code the A-lines touch. Its brief asks for, with `file:line` everywhere:
    - what past runs of this repo learned (`read_knowledge(repo)`), so it maps only what changed since then;
    - the files and folders involved, one line each on what they hold;
    - the existing patterns the work should copy, by path;
    - the build, test and run commands, with how long the full suite takes;
+   - the lint and type-check commands, and how to scope each to one package;
    - the symbols the change will call or alter, with their signatures;
    - the repo's rules (`CLAUDE.md`, `AGENTS.md`, conventions) that bind this work;
    - risks: shared files, generated code, slow or flaky tests.
 
    It may run to 200 lines; the 15-line cap does not apply to it. Its reply is `result(run, "researcher-dossier")`, at the record's `replyPath`. A Claude researcher writes it to `R/dossier.md` with `write_run_file` instead.
 
-3. **Architect,** once, with the A-lines, the run id and the dossier's path. It reads the dossier first, writes `plan.md` and every `lanes/Mx.Ly.md` itself with `write_run_file`, and replies with a short list of milestones and lanes. Each lane names its owned files and its **fast check** (targeted tests, seconds to a minute or two); each milestone names its **full check** (the whole suite).
+3. **Architect,** once, with the A-lines, the run id and the dossier's path. It reads the dossier first, writes `plan.md` and every `lanes/Mx.Ly.md` itself with `write_run_file`, and replies with a short list of milestones and lanes. Each lane names its owned files and its **fast check**: its targeted tests plus the linter, and the type check when the repo has one, scoped to the lane's owned packages (seconds to a minute or two). Each milestone names its **full check** (the whole suite).
    - A full check slower than about five minutes is a problem to solve, not to live with. The architect makes speeding it up (parallel tests, a shared fixture) an early lane.
    - Every lane file starts with these lines: `# Mx.Ly — <title>`, `Owns: <paths>` (repo-relative, a trailing `/` for a folder, never a glob), `Fast check: <command>`, `Kind: repo_code|terminal|ui|prose|research` and `Difficulty: copy|build|logic|hard`.
+   - **Plan in hand** (a `plan:` A-line): no dossier. Brief the architect with the A-lines, the run id and the plan's paths, to translate, not design: each plan task becomes lanes (`Owns:`, `Fast check:`, `Kind:`, `Difficulty:`), each MR or phase a milestone with its full check. It copies the plan's decisions into `plan.md` and the lane files, redesigns only what the plan leaves undecided, and stays the target for `design` findings.
    - **No dossier and no architect** for a polish or fix run (a list of known defects or tweaks to code that exists) or a single mechanical task. You write the lane files yourself with `write_run_file`, straight from the A-lines: one lane per cluster of defects that share files, with owned files found by `grep -n`, and the same header lines.
-4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, all in one message. Then, once every lane file exists, `preflight(run)` once, before dispatching any lane. Each lane comes back as one of:
+4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane; each may wait up to 25 s on Jev. Then, once every lane file exists, `preflight(run)` once, before dispatching any lane. Each lane comes back as one of:
    - `pass`: the check already passes on the base tree;
    - `fails-as-expected`: it runs and fails, because the lane has not been done yet;
    - `skipped`: it checks a file the lane creates;
@@ -235,7 +238,7 @@ Then report to the user, in their language, and push if `notify` has `finish`:
 - the commits;
 - one line per role run, with its rung;
 - the time and token sums per backend and per rung, and the climbs with their reasons (`runs_summary({ run })`), the Claude subagent runs you reported (say they are reported, not measured), and the Jev decisions with how many fell back (`status(run)`);
-- the harness line from `runs_summary`: what the user's Codex customizations cost per run, so they can judge the isolation toggle (`/catherd-setup` offers it);
+- the harness line from `runs_summary`: what the user's claude-code and opencode customizations cost per run, so they can judge the isolation toggle (`/catherd-setup` offers it). Codex reports no per-request input, so it has no harness figure: say so instead of offering one;
 - the run's budget spend (`status(run)`), if the profile set one;
 - what was left open, and why.
 
@@ -250,7 +253,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 3. The files it owns, and the files it must not touch. If the repo has a `CLAUDE.md`, add "Read CLAUDE.md first": Codex loads only `AGENTS.md`.
 4. For a worker:
    - "Read `<R>/lanes/Mx.Ly.md`": decisions, signatures, data shapes;
-   - its fast check, to run until it passes;
+   - its fast check (targeted tests, lint and type check), to run until it passes;
    - "Run the full suite only if this brief says so", and "Wrap any full build or full test suite in `bunx catherd-cli@0.2.1 lock -- <command>`": other lanes share the machine.
 5. For a reviewer: the A-lines and the changed files, with new files read in full. It reports every finding as `BLOCKER|BUG|NIT file:line — problem — fix`, covering:
    - unmet A-lines and edge cases;
@@ -304,7 +307,8 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | A new bug, cleanup, re-run or climb sent with `thread`                                                                              | A fresh thread. Resume only for that piece's own findings at the same rung                                             |
 | One transition spread over several turns (a land, routes, dispatches)                                                               | One message, with every independent call in it                                                                         |
 | A plan, log or test file read whole into your context                                                                               | `read_run_file` for the one section, or `grep -n` then those lines. Or name the path in a brief                        |
-| You copy the architect's plan into `plan.md` yourself                                                                               | The architect writes `plan.md` and the lane files                                                                      |
+| You copy the architect's plan into `plan.md` yourself                                                                               | The architect writes `plan.md` and the lane files. With a plan in hand, it copies the user's plan into them            |
+| A dossier, or an architect designing afresh, with a plan in hand                                                                    | No dossier. Brief the architect to translate the plan, and to design only what it leaves undecided                     |
 | A dossier or an architect for a polish or fix run                                                                                   | Write the lane files from the A-lines yourself                                                                         |
 | A lane file without an `Owns:` line                                                                                                 | Add it: `dispatch` refuses the lane without one                                                                        |
 | A Claude subagent returned and you moved on                                                                                         | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                     |
