@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ADAPTER_IDS, type Probe } from "../adapters/backend.ts";
+import type { Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { isCatherdError } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";

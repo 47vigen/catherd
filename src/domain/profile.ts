@@ -3,7 +3,7 @@ import type { Budget } from "./budget.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
-import { parseRung } from "./ids.ts";
+import { ADAPTER_IDS, parseRung } from "./ids.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 
@@ -25,7 +25,7 @@ export const NOTIFY = ["milestone", "finish", "blocked"] as const;
 export type NotifyMoment = (typeof NOTIFY)[number];
 
 /** The harnesses a profile can isolate (spec §7.1 `harness`); the native `claude` path has none. */
-export const HARNESS_KEYS = ["codex", "claude-code", "opencode", "cursor", "grok"] as const;
+export const HARNESS_KEYS = ADAPTER_IDS;
 
 const isRung = (s: string): boolean => {
   try {

@@ -1,5 +1,4 @@
 import { statSync } from "node:fs";
-import { ADAPTER_IDS } from "../../adapters/backend.ts";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
@@ -228,9 +227,7 @@ export function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
 export function liveEffects(repo: string | null = null): Effects {
   const deps = defaultDeps();
   const rows = memoRuns((r) => rowOf(summarizeRun(deps, r)));
-  const harnesses = HARNESS_KEYS.filter(
-    (h) => (ADAPTER_IDS as readonly string[]).includes(h) && adapterFor(h),
-  );
+  const harnesses = HARNESS_KEYS.filter((h) => adapterFor(h));
   const bound = () => (repo !== null && readProjects().bindings[repo] !== undefined ? repo : null);
   return {
     version: VERSION,

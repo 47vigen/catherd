@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ADAPTER_IDS, type DiscoveredModel } from "../adapters/backend.ts";
+import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -22,7 +22,7 @@ import {
 } from "../domain/catalog.ts";
 import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
 import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";

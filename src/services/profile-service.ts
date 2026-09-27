@@ -11,12 +11,11 @@ import {
 import { basename, join, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { ADAPTER_IDS } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { type AgentFile, agentFiles } from "../domain/agents.ts";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
 import {
   agentName,
   applyPatch,
