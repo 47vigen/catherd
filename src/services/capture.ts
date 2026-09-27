@@ -128,7 +128,11 @@ async function captureOne(
     const err = collect(p.stderr);
     const code = await p.exited;
     clearTimeout(timer);
-    await Promise.race([Promise.all([out.done, err.done]), Bun.sleep(DRAIN_MS)]);
+    const drained = await Promise.race([
+      Promise.all([out.done, err.done]).then(() => true),
+      Bun.sleep(DRAIN_MS).then(() => false),
+    ]);
+    if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
     out.stop();
     err.stop();
     const events = out.text();
