@@ -144,6 +144,18 @@ export function listRuns(): RunListing {
   return out;
 }
 
+/**
+ * Every run's records on a backend's thread, oldest first: a role may resume a thread an earlier catherd
+ * run started. `run` counts even when a listing would miss it.
+ */
+export function recordsOnThread(run: Run, backend: string, thread: string): RunRecord[] {
+  const runs = listRuns().runs;
+  return (runs.some((r) => r.dir === run.dir) ? runs : [run, ...runs])
+    .flatMap((r) => readRecords(r).records)
+    .filter((r) => r.backend === backend && r.thread === thread)
+    .sort((a, b) => a.endedAt.localeCompare(b.endedAt));
+}
+
 /** The fix of an unknown run id, in the MCP tools' words; the CLI prints its own (entry/cli-kit.ts). */
 export const RUN_NOT_FOUND_FIX = "status() lists the runs";
 

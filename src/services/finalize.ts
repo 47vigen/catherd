@@ -23,7 +23,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
-import { appendRecord, listRuns, readRecords, type Run, runPaths } from "./run-store.ts";
+import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 const text = (file: string): string => {
   try {
@@ -84,10 +84,7 @@ export const settleLimits = { timeoutMs: 20_000 };
  * since a role may resume a thread an earlier catherd run started.
  */
 function priorOn(run: Run, backend: string, thread: string, self: string): Spent {
-  const runs = listRuns().runs;
-  const earlier = (runs.some((r) => r.dir === run.dir) ? runs : [run, ...runs])
-    .flatMap((r) => readRecords(r).records)
-    .filter((r) => r.backend === backend && r.thread === thread && r.dispatchId !== self);
+  const earlier = recordsOnThread(run, backend, thread).filter((r) => r.dispatchId !== self);
   return {
     tokens: {
       input: earlier.reduce((n, r) => n + r.tokens.input, 0),

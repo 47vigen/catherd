@@ -27,7 +27,7 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
-import { readRecords, type Run, runPaths } from "./run-store.ts";
+import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 export interface AdmitInput {
   role: Role;
@@ -143,12 +143,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   // a resumed thread lives in the home it started in (CODEX_HOME), whatever the profile says now
-  const started =
-    i.thread === null
-      ? undefined
-      : readRecords(run)
-          .records.filter((r) => r.thread === i.thread)
-          .at(-1);
+  const started = i.thread === null ? undefined : recordsOnThread(run, rung.backend, i.thread).at(-1);
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
   await prepared(adapter, { rung, access: rc.access, isolated, repo: run.meta.repo });
   const plan = adapter.plan({

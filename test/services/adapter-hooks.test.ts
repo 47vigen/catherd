@@ -9,8 +9,8 @@ import { type AdmitInput, admit, prepareLimits } from "../../src/services/admiss
 import { resetReadiness, standInFor } from "../../src/services/backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
-import { snapshotEnv } from "../helpers.ts";
-import { appendRecord } from "../../src/services/run-store.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { appendRecord, createRun } from "../../src/services/run-store.ts";
 import { fakeDeps, fakeDispatch, freshRun, makeRecord, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -143,11 +143,30 @@ describe("prepare", () => {
     const { run, deps } = setup();
     await appendRecord(
       run,
-      makeRecord({ dispatchId: "D0", rung: "cursor:go-m1#default", thread: "th-7", isolated: true }),
+      makeRecord({
+        dispatchId: "D0",
+        backend: "cursor",
+        rung: "cursor:go-m1#default",
+        thread: "th-7",
+        isolated: true,
+      }),
     );
     await refusal(admit(deps, run, input({ thread: "th-7" })));
     await refusal(admit(deps, run, input()));
-    expect(seen.map((r) => r.isolated)).toEqual([true, false]);
+    // a thread an earlier catherd run started
+    const earlier = createRun({ repo: tempRepo(), title: "earlier", aLines: [], version: "x" });
+    await appendRecord(
+      earlier,
+      makeRecord({
+        dispatchId: "E0",
+        backend: "cursor",
+        rung: "cursor:go-m1#default",
+        thread: "th-8",
+        isolated: true,
+      }),
+    );
+    await refusal(admit(deps, run, input({ thread: "th-8" })));
+    expect(seen.map((r) => r.isolated)).toEqual([true, false, true]);
   });
 
   it("refuses the dispatch when prepare never settles, and writes nothing", async () => {
