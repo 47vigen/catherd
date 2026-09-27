@@ -30,12 +30,12 @@ export const doctorCommand = defineCommand({
   },
   args: {
     json: { type: "boolean", description: "print JSON" },
-    plain: { type: "boolean", description: "ASCII glyphs" },
+    plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
     const r = await doctor({ bunVersion: Bun.version, version: VERSION, handshake: () => mcpHandshake() });
     if (args.json) printJson(r);
-    else for (const l of formatReport(r, args.plain === true || !!process.env.NO_COLOR)) console.log(l);
+    else for (const l of formatReport(r, args.plain === true)) console.log(l);
     process.exitCode = r.ready ? EXIT.ok : EXIT.notReady;
   },
 });

@@ -85,7 +85,7 @@ on the profile the repo you are in runs on: the one bound to it, else the active
 `bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes `--json`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
 `error E_CODE: message` and a `fix:` line. `--verbose` (or `CATHERD_LOG=debug`) logs more to
 `~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
-and `--reduced-motion`; `doctor` takes `--plain` too.
+and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too. `NO_COLOR` drops colour, never glyphs.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
@@ -101,7 +101,7 @@ Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (bot
 | `CATHERD_REDUCED_MOTION`    | Any value: the dashboard's `--reduced-motion`                                                         |
 | `CATHERD_NO_KITTY`          | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks            |
 | `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`) |
-| `NO_COLOR`                  | Drops the dashboard's colour                                                                          |
+| `NO_COLOR`                  | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                         |
 
 For development only: `CATHERD_STORY=1` opens the dashboard's storybook, `CATHERD_TICK_MS` sets how often a
 waiting `dispatch` reports progress (default 30000), and `CATHERD_LIVE=1` enables the live tests

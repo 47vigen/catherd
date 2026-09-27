@@ -41,6 +41,19 @@ describe("catherd init", () => {
     expect(activeName()).toBe("default");
   }, 60_000);
 
+  it("--plain prints ASCII glyphs as doctor --plain does, and NO_COLOR keeps doctor's own (audit N2)", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const plain = init(["--no-input", "--plain"]).out;
+    expect(plain).toContain("+ profile default written from the defaults, and active\n");
+    expect(plain).toContain("x missing            Claude Code plugin — not installed in Claude Code\n");
+    expect(plain).not.toMatch(/[✓✗]/);
+    process.env.NO_COLOR = "1";
+    const noColor = init(["--no-input"]).out;
+    expect(noColor).toContain("✓ profile default kept as it was, and active\n");
+    expect(noColor).toContain("✗ missing            Claude Code plugin");
+  }, 60_000);
+
   it("--no-input never prints a bare key pasted into credentials.json (B1)", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");

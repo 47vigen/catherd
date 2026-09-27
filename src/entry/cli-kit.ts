@@ -1,5 +1,6 @@
 import { type CatherdError, isCatherdError } from "../domain/errors.ts";
 import { RUN_NOT_FOUND_FIX } from "../services/run-store.ts";
+import { glyph, type State } from "./glyphs.ts";
 
 /** Spec §8: 0 ok, 1 error, 2 usage, 3 not ready (doctor), 130 interrupted. */
 export const EXIT = { ok: 0, error: 1, usage: 2, notReady: 3, interrupted: 130 } as const;
@@ -25,10 +26,8 @@ export const exitCodeOf = (e: unknown): number =>
 
 export const printJson = (v: unknown): void => console.log(JSON.stringify(v, null, 2));
 
-/** The glyph for a state, as in `✓ ready` (spec §9.3; ASCII with `--plain`); the caller adds the word. */
-export function mark(state: "ok" | "warn" | "fail" | "skip", plain = false): string {
-  const g = plain
-    ? { ok: "+", warn: "!", fail: "x", skip: "-" }
-    : { ok: "✓", warn: "!", fail: "✗", skip: "-" };
-  return g[state];
-}
+/**
+ * The glyph for a state, as in `✓ ready`: the dashboard's own (spec §9.3), ASCII with `--plain` only;
+ * NO_COLOR drops colour, never glyphs. The caller adds the word.
+ */
+export const mark = (state: State, plain = false): string => glyph(state, plain);

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { mark } from "../../src/entry/cli-kit.ts";
 import { formatCheck } from "../../src/entry/doctor-command.ts";
+import { glyph } from "../../src/entry/tui/theme.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
@@ -73,7 +75,23 @@ describe("formatCheck", () => {
   });
 });
 
+describe("mark", () => {
+  it("draws the theme's glyphs, ASCII under --plain (audit N2)", () => {
+    for (const state of ["ok", "warn", "fail", "skip"] as const)
+      for (const plain of [false, true]) expect(mark(state, plain)).toBe(glyph(state, plain));
+  });
+});
+
 describe("catherd doctor", () => {
+  it("keeps init's glyphs under NO_COLOR, which drops only colour; --plain is ASCII (audit N2)", () => {
+    machine();
+    process.env.NO_COLOR = "1";
+    const text = doctor().out;
+    expect(text).toContain("✓ ready              Bun");
+    expect(text).not.toContain("+ ready");
+    expect(doctor("--plain").out).toContain("+ ready              Bun");
+  });
+
   it("never prints or logs a bare key pasted into credentials.json, and names the file (B1)", () => {
     machine();
     mkdirSync(dirname(credentialsPath()), { recursive: true });

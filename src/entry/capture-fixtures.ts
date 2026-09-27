@@ -4,7 +4,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { assetPath } from "../infra/assets.ts";
 import { CAPTURE_BACKENDS, type Captured, captureFixtures } from "../services/capture.ts";
-import { exitCodeOf, printError } from "./cli-kit.ts";
+import { exitCodeOf, mark, printError } from "./cli-kit.ts";
 
 /**
  * Spec §11.8: fixtures go to the catherd checkout's test/fixtures/adapters, next to the contract fixtures
@@ -17,8 +17,8 @@ export function defaultOut(): string | null {
 
 export function formatCaptured(r: Captured): string {
   return r.status === "captured"
-    ? `✓ ${r.backend} ${r.cliVersion} ${r.name} → ${r.dir}/${r.name}.jsonl (exit ${r.exitCode})`
-    : `- ${r.backend} ${r.name} skipped: ${r.reason}`;
+    ? `${mark("ok")} ${r.backend} ${r.cliVersion} ${r.name} → ${r.dir}/${r.name}.jsonl (exit ${r.exitCode})`
+    : `${mark("skip")} ${r.backend} ${r.name} skipped: ${r.reason}`;
 }
 
 export const captureFixturesCommand = defineCommand({

@@ -7,9 +7,10 @@ import { doctor } from "../services/doctor.ts";
 import { jevKey, saveJevKey, testJevKey } from "../services/jev-service.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
 import { formatRefreshed } from "./catalog-command.ts";
-import { mark } from "./cli-kit.ts";
+import { mark as markOf } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
+import type { State } from "./glyphs.ts";
 import { mascot } from "./tui/theme.ts";
 import { type Prompter, prompter } from "./prompt.ts";
 
@@ -34,7 +35,9 @@ export function welcomeLines(version: string): string[] {
 export async function jevStep(
   ask: Prompter | null,
   d: { testJevKey?: (key: string) => Promise<boolean>; saveJevKey?: (key: string) => void } = {},
+  plain = false,
 ): Promise<void> {
+  const mark = (state: State) => markOf(state, plain);
   if (process.env.TYPESAFE_API_KEY?.trim()) return console.log(`${mark("ok")} Jev: using TYPESAFE_API_KEY`);
   if (jevKey()) return console.log(`${mark("ok")} Jev: using the saved key`);
   const key = ask ? await ask.secret("TypeSafe API key for Jev (optional; Enter skips): ") : "";
@@ -55,7 +58,8 @@ export async function jevStep(
 }
 
 /** What happened to the profile: written, kept, or (when the defaults do not validate here) why not. */
-export function profileLines(r: InitResult): string[] {
+export function profileLines(r: InitResult, plain = false): string[] {
+  const mark = (state: State) => markOf(state, plain);
   const out: string[] = [];
   if (r.errors.length) {
     out.push(
@@ -86,15 +90,18 @@ export const initCommand = defineCommand({
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
     "no-input": { type: "boolean", description: "ask nothing: keep what exists, else write the defaults" },
     profile: { type: "string", description: "the profile to set up and make active (default: default)" },
+    plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
     // a bad --profile is refused before any question is asked
     if (args.profile !== undefined) assertProfileName(args.profile);
     const ask = (args as { input?: boolean }).input === false ? null : await prompter();
+    const plain = args.plain === true;
+    const mark = (state: State) => markOf(state, plain);
     try {
       if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
-      await jevStep(ask);
+      await jevStep(ask, {}, plain);
       const name = assertProfileName(
         args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
       );
@@ -106,17 +113,17 @@ export const initCommand = defineCommand({
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
       const r = await initSetup({ profile: name, overwrite });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
-      for (const l of profileLines(r)) console.log(l);
+      for (const l of profileLines(r, plain)) console.log(l);
       if (r.synced?.linked.length)
         console.log(`${mark("ok")} Claude agents linked: ${r.synced.linked.join(", ")}`);
-      for (const x of r.refreshed) console.log(formatRefreshed(x));
+      for (const x of r.refreshed) console.log(formatRefreshed(x, plain));
       console.log("");
       const report = await doctor({
         bunVersion: Bun.version,
         version: VERSION,
         handshake: () => mcpHandshake(),
       });
-      for (const l of formatReport(report)) console.log(l);
+      for (const l of formatReport(report, plain)) console.log(l);
       console.log("");
       for (const l of PLUGIN_STEPS) console.log(l);
     } finally {
