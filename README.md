@@ -31,7 +31,9 @@ of work, climbing a ladder only when a cheaper rung falls short.
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
 
-`catherd doctor` checks each backend's version and login and prints the fix for anything missing.
+`catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
+profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
+you have (`/catherd-setup` in Claude Code, or `catherd profile set roles.<role>.rungs <rung>`).
 
 ## Install
 

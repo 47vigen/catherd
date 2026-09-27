@@ -112,16 +112,43 @@ describe("doctor", () => {
     });
     const r = await run();
     expect(r.ready).toBe(false);
-    expect(check(r, "backend:codex")).toMatchObject({
-      state: "fail",
-      word: "missing",
-      fix: "npm i -g @openai/codex",
-    });
+    expect(check(r, "backend:codex")).toMatchObject({ state: "fail", word: "missing" });
+    expect(check(r, "backend:codex")?.fix).toStartWith(
+      "npm i -g @openai/codex; or move its roles to claude-code",
+    );
     expect(check(r, "backend:opencode")).toMatchObject({
       state: "warn",
       word: "missing",
       detail: "opencode is not on PATH (a failover stand-in uses it)",
     });
+  });
+
+  it("offers to move a missing Codex's roles to claude-code when that is ready", async () => {
+    machine({ bins: ["claude"] });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    expect(check(await run(), "backend:codex")?.fix).toBe(
+      "npm i -g @openai/codex; or move its roles to claude-code: /catherd-setup in Claude Code, or " +
+        "catherd profile set roles.<role>.rungs claude-code:claude-opus-5-5#medium for worker, reviewer, " +
+        "ui-reviewer, writer, researcher (first set roles.worker.defaultRung to null); " +
+        "artist needs Codex: catherd profile set roles.artist.enabled false",
+    );
+  });
+
+  it("offers opencode when it is the backend that is ready", async () => {
+    machine({ bins: ["opencode"] });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    expect(check(await run(), "backend:codex")?.fix).toContain(
+      "or move its roles to opencode: /catherd-setup in Claude Code, or catherd profile set roles.<role>.rungs opencode:opencode-go/gpt-6-luna#high for worker",
+    );
+  });
+
+  it("offers only the install when no other backend is ready", async () => {
+    machine({ bins: [] });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    expect(check(await run(), "backend:codex")?.fix).toBe("npm i -g @openai/codex");
   });
 
   it("names the login a backend needs", async () => {

@@ -6,7 +6,7 @@ import "../adapters/all.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
-import { ROLES } from "../domain/roles.ts";
+import { ROLES, type Role } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
 import { claudeHome, locksDir } from "../infra/paths.ts";
@@ -121,6 +121,46 @@ const PROBLEM_WORD: Record<string, string> = {
   E_BACKEND_NOT_LOGGED_IN: "not logged in",
 };
 
+/**
+ * Spec §7.2 keeps the default profile Codex-first. When a backend a role runs on is missing and another is
+ * ready, its fix also offers to move those roles there, onto a rung the shipped catalog scores.
+ */
+const MOVE_TO: Record<string, string> = {
+  "claude-code": "claude-code:claude-opus-5-5#medium",
+  opencode: "opencode:opencode-go/gpt-6-luna#high",
+  codex: "codex:gpt-6-sol#medium",
+};
+
+const backendOf = (rung: string): string | null => {
+  try {
+    return parseRung(rung).backend;
+  } catch {
+    return null; // validate reports a bad rung
+  }
+};
+
+/** Install `id`, or move the roles that run on it to `to`; the artist draws, which only Codex does. */
+export function moveRolesFix(install: string, id: string, to: string, profiles: Profile[]): string {
+  const on = (role: Role, pick: (p: Profile) => (string | undefined)[]) =>
+    profiles.some(
+      (p) => p.roles[role].enabled && pick(p).some((r) => r !== undefined && backendOf(r) === id),
+    );
+  const roles = ROLES.filter((r) => on(r, (p) => p.roles[r].rungs));
+  const stuck = to === "codex" ? [] : roles.filter((r) => r === "artist");
+  const move = roles.filter((r) => !stuck.includes(r));
+  const defaults = move.filter((r) => on(r, (p) => [p.roles[r].defaultRung]));
+  const parts = [install];
+  if (move.length)
+    parts.push(
+      `or move its roles to ${to}: /catherd-setup in Claude Code, or catherd profile set roles.<role>.rungs ${MOVE_TO[to]} for ${move.join(", ")}` +
+        (defaults.length
+          ? ` (first set ${defaults.map((r) => `roles.${r}.defaultRung`).join(", ")} to null)`
+          : ""),
+    );
+  if (stuck.length) parts.push("artist needs Codex: catherd profile set roles.artist.enabled false");
+  return parts.join("; ");
+}
+
 async function backendChecks(used: Map<string, "role" | "failover">, profiles: Profile[]): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
@@ -168,6 +208,12 @@ async function backendChecks(used: Map<string, "role" | "failover">, profiles: P
       detail: `${problem.message}${use === "failover" ? " (a failover stand-in uses it)" : use ? "" : " (no profile uses it)"}`,
       fix: problem.fix,
     });
+  }
+  const to = Object.keys(MOVE_TO).find((b) => ready.includes(b));
+  for (const c of checks) {
+    const id = c.id.slice("backend:".length);
+    if (to && c.state === "fail" && c.word === PROBLEM_WORD.E_BACKEND_MISSING && c.fix && id !== to)
+      c.fix = moveRolesFix(c.fix, id, to, profiles);
   }
   // spec §5.2: doctor refreshes discovery; a listing that fails keeps the last one
   let refreshed: Awaited<ReturnType<typeof refreshDiscovery>> = [];
