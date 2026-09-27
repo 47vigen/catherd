@@ -6,7 +6,7 @@ import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-comman
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { credentialsPath } from "../../src/services/jev-service.ts";
 import { activeName, getProfile, patchProfile } from "../../src/services/profile-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
@@ -53,6 +53,18 @@ describe("catherd init", () => {
     expect(pieces.filter((p) => (r.out + r.err).includes(p))).toEqual([]);
     expect(r.out).toContain(`${credentialsPath()} is not valid JSON`);
   }, 60_000);
+
+  it.skipIf(noPosixModes)(
+    "--no-input keeps every config and data dir at 0700 and file at 0600 (audit S2)",
+    () => {
+      const home = withHome();
+      process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+      expect(init(["--no-input"]).code).toBe(0);
+      expect(existsSync(join(home, "config", "config.json"))).toBe(true);
+      expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
+    },
+    60_000,
+  );
 
   it("--no-input keeps a profile it finds", () => {
     const home = withHome();

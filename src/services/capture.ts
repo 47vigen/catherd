@@ -185,6 +185,7 @@ async function captureOne(
         },
         clean,
       ),
+      { mode: 0o644 },
     );
     return {
       backend: c.backend,

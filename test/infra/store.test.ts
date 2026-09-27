@@ -1,7 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -18,7 +20,11 @@ import {
   readJsonl,
   readVersioned,
   writeJsonAtomic,
+  writeTextAtomic,
 } from "../../src/infra/store.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
+
+afterEach(snapshotEnv());
 
 const dir = () => mkdtempSync(join(tmpdir(), "catherd-store-"));
 const Thing = z.looseObject({ schema: z.literal(1), name: z.string() });
@@ -126,5 +132,27 @@ describe("jsonl", () => {
     writeFileSync(f, '{"schema":9,"kind":"runs"}\n');
     expect(() => readJsonl(f, 1)).toThrow(/newer/);
     expect(existsSync(f)).toBe(true);
+  });
+});
+
+describe("private modes (audit S2)", () => {
+  it.skipIf(noPosixModes)("creates new dirs 0700 and files 0600, whatever the umask lets through", () => {
+    const d = dir();
+    writeTextAtomic(join(d, "a", "b", "c.txt"), "x");
+    appendJsonl(join(d, "logs", "l.jsonl"), { a: 1 });
+    ensureJsonlHeader(join(d, "runs", "h.jsonl"), "runs");
+    expect(openModes(d)).toEqual([]);
+    expect(statSync(join(d, "a", "b", "c.txt")).mode & 0o777).toBe(0o600);
+  });
+
+  it.skipIf(noPosixModes)("tightens catherd's existing config and data dirs on the next write", () => {
+    const home = withHome();
+    for (const sub of ["config", "data"]) {
+      mkdirSync(join(home, sub));
+      chmodSync(join(home, sub), 0o755);
+    }
+    writeJsonAtomic(join(home, "config", "config.json"), { schema: 1 });
+    appendJsonl(join(home, "data", "logs", "x.jsonl"), { a: 1 });
+    expect(openModes(home)).toEqual([]);
   });
 });

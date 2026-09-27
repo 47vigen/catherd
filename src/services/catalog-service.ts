@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ADAPTER_IDS, type DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
@@ -29,7 +29,7 @@ import { ROLES, type Role } from "../domain/roles.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
-import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
 
@@ -240,7 +240,7 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
         fix: "treat-like maps only unscored rungs; catalog_query shows each rung's scores",
       },
     );
-  mkdirSync(dirname(overridePath()), { recursive: true });
+  ensurePrivateDir(dirname(overridePath()));
   await withFileLock(overridePath(), () => {
     const cur = readOverride();
     const next = { ...cur, schema: 1, treatLike: { ...cur.treatLike, [from]: to } };

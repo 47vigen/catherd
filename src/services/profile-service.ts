@@ -36,7 +36,7 @@ import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { claudeAgentsDir, configDir } from "../infra/paths.ts";
-import { readJsonFile, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, readJsonFile, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { VERSION } from "../infra/version.ts";
 import { backendOfKey, loadCatalog } from "./catalog-service.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
@@ -223,7 +223,7 @@ function apply(p: Planned, removed: string[] = []): Synced {
   const changed = new Set<string>();
   for (const [name, files] of p.files) {
     const dir = join(agentsRoot(), name);
-    mkdirSync(dir, { recursive: true });
+    ensurePrivateDir(dir);
     const keep = new Set(files.map((f) => `${f.name}.md`));
     for (const f of files) {
       const path = join(dir, `${f.name}.md`);
@@ -291,7 +291,7 @@ export function countLinkedAgents(): number {
 
 /** The profiles lock every writer here takes; `init` moves 0.x files aside under it too. */
 export const withProfilesLock = <T>(fn: () => T): T => {
-  mkdirSync(configDir(), { recursive: true });
+  ensurePrivateDir(configDir());
   return withFileLockSync(join(configDir(), "profiles"), fn);
 };
 const locked = withProfilesLock;

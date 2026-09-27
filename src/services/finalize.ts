@@ -15,7 +15,7 @@ import {
 } from "../domain/record.ts";
 import { dispatchPaths, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { statusSnapshot } from "../infra/git.ts";
-import { appendJsonl, ensureJsonlHeader, writeTextAtomic } from "../infra/store.ts";
+import { appendJsonl, ensureJsonlHeader, makePrivate, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
 import { appendRecord, readRecords, type Run, runPaths } from "./run-store.ts";
 
@@ -158,6 +158,8 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     : first;
   // A CLI that streams its reply (claude, opencode) leaves reply.md to catherd.
   if (o.reply !== undefined && o.reply !== reply) writeTextAtomic(p.reply, o.reply);
+  // one the CLI wrote itself (codex) has the CLI's mode
+  else makePrivate(p.reply);
   const replyText = o.reply ?? reply;
   const start = Date.parse(startedAt);
   const end = Date.parse(exit.endedAt);

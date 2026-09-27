@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ADAPTER_IDS, type Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -24,6 +24,7 @@ import {
   validateNamed,
 } from "./profile-service.ts";
 import { listRuns } from "./run-store.ts";
+import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "skip";
 
@@ -230,9 +231,9 @@ function pluginCheck(version: string): Check {
 function locksCheck(): Check {
   const base = { id: "locks", label: "heavy-lock dir" };
   try {
-    mkdirSync(locksDir(), { recursive: true });
+    ensurePrivateDir(locksDir());
     const probe = join(locksDir(), `.doctor-${process.pid}`);
-    writeFileSync(probe, "");
+    writeFileSync(probe, "", { mode: PRIVATE_FILE });
     rmSync(probe, { force: true });
     return { ...base, state: "ok", word: "ready", detail: locksDir() };
   } catch (e) {

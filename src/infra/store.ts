@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
   existsSync,
   fchmodSync,
@@ -12,17 +13,52 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
+import { configDir, dataDir } from "./paths.ts";
 
-/** `mode`, when given, is the file's exact permission bits (umask aside), set before any byte is written. */
-export function writeTextAtomic(file: string, text: string, o: { mode?: number } = {}): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  const fd = openSync(tmp, "w", o.mode);
+// Audit S2: catherd's dirs hold briefs, argv, stderr tails and logs, so they are 0700 and its files 0600.
+export const PRIVATE_DIR = 0o700;
+export const PRIVATE_FILE = 0o600;
+
+const tightened = new Set<string>();
+/** Once per process: the config or data dir holding `dir`, if an older catherd left it open to others. */
+function tightenRoot(dir: string): void {
+  for (const root of [configDir(), dataDir()]) {
+    if (tightened.has(root) || (dir !== root && !dir.startsWith(root + sep))) continue;
+    tightened.add(root);
+    try {
+      if (statSync(root).mode & 0o077) chmodSync(root, PRIVATE_DIR);
+    } catch {
+      // not ours to fix (another owner, a read-only mount): the files inside are still 0600
+    }
+  }
+}
+
+/** `dir` and any missing parent, created 0700; catherd's own config or data dir is tightened to 0700. */
+export function ensurePrivateDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
+  tightenRoot(dir);
+}
+
+/** `file` at 0600 when it exists and others may read it: a file another program wrote into catherd's dirs. */
+export function makePrivate(file: string): void {
   try {
-    if (o.mode !== undefined) fchmodSync(fd, o.mode);
+    if (statSync(file).mode & 0o077) chmodSync(file, PRIVATE_FILE);
+  } catch {
+    // missing, or not ours: its dir is 0700 all the same
+  }
+}
+
+/** `mode` (0600 by default) is the file's exact permission bits (umask aside), set before any byte is written. */
+export function writeTextAtomic(file: string, text: string, o: { mode?: number } = {}): void {
+  const mode = o.mode ?? PRIVATE_FILE;
+  ensurePrivateDir(dirname(file));
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  const fd = openSync(tmp, "w", mode);
+  try {
+    fchmodSync(fd, mode);
     writeSync(fd, text);
     fsyncSync(fd);
   } finally {
@@ -107,15 +143,15 @@ function endsMidLine(file: string): boolean {
  * tail left by an earlier crash is ended first, in the same write, so the new row stays whole.
  */
 export function appendJsonl(file: string, value: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
+  ensurePrivateDir(dirname(file));
   const prefix = endsMidLine(file) ? "\n" : "";
-  appendFileSync(file, `${prefix}${JSON.stringify(value)}\n`);
+  appendFileSync(file, `${prefix}${JSON.stringify(value)}\n`, { mode: PRIVATE_FILE });
 }
 
 export function ensureJsonlHeader(file: string, kind: string): void {
-  mkdirSync(dirname(file), { recursive: true });
+  ensurePrivateDir(dirname(file));
   try {
-    const fd = openSync(file, "wx");
+    const fd = openSync(file, "wx", PRIVATE_FILE);
     writeSync(fd, `${JSON.stringify({ schema: 1, kind })}\n`);
     closeSync(fd);
   } catch (e) {

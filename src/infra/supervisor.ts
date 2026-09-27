@@ -5,7 +5,7 @@ import type { ExitInfo, ExitReason } from "../domain/record.ts";
 import { dispatchPaths } from "./dispatch-dir.ts";
 import { log } from "./log.ts";
 import { killGroup, processStartTime } from "./proc.ts";
-import { writeJsonAtomic } from "./store.ts";
+import { PRIVATE_FILE, writeJsonAtomic } from "./store.ts";
 
 export const SuperviseSpecSchema = z.looseObject({
   schema: z.literal(1),
@@ -113,9 +113,9 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
   try {
     const stdin = spec.stdinPath ? openSync(spec.stdinPath, "r") : "ignore";
     if (typeof stdin === "number") fds.push(stdin);
-    const stdout = openSync(p.events, "w");
+    const stdout = openSync(p.events, "w", PRIVATE_FILE);
     fds.push(stdout);
-    const stderr = openSync(p.stderr, "w");
+    const stderr = openSync(p.stderr, "w", PRIVATE_FILE);
     fds.push(stderr);
     child = Bun.spawn([spec.cmd, ...spec.args], {
       cwd: spec.cwd,
@@ -135,7 +135,9 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     });
   } catch (e) {
     try {
-      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${message(e)}\n`);
+      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${message(e)}\n`, {
+        mode: PRIVATE_FILE,
+      });
     } catch {
       // exit.json below still records that the worker never ran
     }

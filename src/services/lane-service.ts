@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
@@ -28,6 +28,7 @@ import {
   runPaths,
 } from "./run-store.ts";
 import { type Notes, type NotesPatch, refreshState } from "./state.ts";
+import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
@@ -216,10 +217,11 @@ export async function land(
     );
   if (i.learned) {
     const file = knowledgeFile(run.meta.repo);
-    mkdirSync(dirname(file), { recursive: true });
+    ensurePrivateDir(dirname(file));
     appendFileSync(
       file,
       `- ${now.toISOString().slice(0, 10)} ${run.meta.title} ${i.milestone}: ${cell(i.learned)}\n`,
+      { mode: PRIVATE_FILE },
     );
   }
   return { ledger: row, minutes, ...withHints(hints) };

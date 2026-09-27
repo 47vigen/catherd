@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 /** Points CATHERD_HOME, and the Claude agents dir, at a fresh temp dir for the duration of one test. */
 export function withHome(): string {
@@ -27,6 +27,25 @@ export function tempRepo(): string {
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
   return dir;
 }
+
+/**
+ * Every dir and file under `root` (itself included) that its group or others may read, write or enter,
+ * as `<path relative to root> <octal mode>`; symlinks are skipped. Empty when all of it is private.
+ */
+export function openModes(root: string): string[] {
+  const out: string[] = [];
+  const walk = (p: string) => {
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) return;
+    if (st.mode & 0o077) out.push(`${relative(root, p) || "."} ${(st.mode & 0o777).toString(8)}`);
+    if (st.isDirectory()) for (const f of readdirSync(p)) walk(join(p, f));
+  };
+  if (existsSync(root)) walk(root);
+  return out;
+}
+
+/** Permission bits mean nothing on Windows: mode tests skip there. */
+export const noPosixModes = process.platform === "win32";
 
 /** Call at module scope as `afterEach(snapshotEnv())`: restores process.env key by key after each test. */
 export function snapshotEnv(): () => void {

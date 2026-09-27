@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addSecret, knownSecrets, log, logFile, redact, resetRotation, rotate } from "../../src/infra/log.ts";
 import { logsDir } from "../../src/infra/paths.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetRotation());
@@ -39,6 +39,14 @@ describe("log", () => {
         .slice(1)
         .map((r) => r.event),
     ).toEqual(["b", "c"]);
+  });
+
+  it.skipIf(noPosixModes)("keeps the data and log dirs at 0700 and the log file at 0600 (audit S2)", () => {
+    const home = withHome();
+    delete process.env.CATHERD_LOG;
+    log("info", "tool", { argv: ["codex", "exec"] });
+    expect(statSync(logFile()).mode & 0o777).toBe(0o600);
+    expect(openModes(join(home, "data"))).toEqual([]);
   });
 
   it("never throws, even when the data dir cannot be written", () => {

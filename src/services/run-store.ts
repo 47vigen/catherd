@@ -10,6 +10,9 @@ import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
+  ensurePrivateDir,
+  PRIVATE_DIR,
+  PRIVATE_FILE,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
@@ -75,12 +78,12 @@ export function createRun(o: {
 }): Run {
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
-  mkdirSync(root, { recursive: true });
+  ensurePrivateDir(root);
   const base = `${stamp(now)}-${slug(o.title)}`;
   let id = base;
   for (let n = 2; ; n++) {
     try {
-      mkdirSync(join(root, id));
+      mkdirSync(join(root, id), { mode: PRIVATE_DIR });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -89,7 +92,7 @@ export function createRun(o: {
   }
   const dir = join(root, id);
   const p = runPaths(dir);
-  for (const d of [p.lanes, p.roles, p.shots]) mkdirSync(d, { recursive: true });
+  for (const d of [p.lanes, p.roles, p.shots]) ensurePrivateDir(d);
   writeTextAtomic(p.ledger, `${LEDGER_HEADER}\n`);
   ensureJsonlHeader(p.runs, "runs");
   ensureJsonlHeader(p.routes, "routes");
@@ -233,7 +236,7 @@ export function appendAgentRun(run: Run, a: AgentRun): void {
 }
 
 export function appendLedger(run: Run, row: string): void {
-  appendFileSync(runPaths(run.dir).ledger, `${row}\n`);
+  appendFileSync(runPaths(run.dir).ledger, `${row}\n`, { mode: PRIVATE_FILE });
 }
 
 /** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel. */
