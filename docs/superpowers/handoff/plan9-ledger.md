@@ -18,3 +18,6 @@
 - Codex r6 (d5785e5, requested without waiting for CI per owner): P2 persist collect intent at admission → added to fix round 5. CI green on d5785e5. OWNER: call Codex right after each push, don't wait for CI.
 - Fix round 5: 1fe80de 4717544 (serialized stale-claim takeover; launch evidence = launch/proc/exit json; collect mark written at admission; failed launch keeps mark → lost record later). Gate 1178/10/0.
 - Codex r7 (4717544): clean ('Didn't find any major issues'). CI green. All threads resolved. Final re-review requested before merge.
+- Final re-review (2c7aff9..4717544): nothing blocking; macOS finding closed. 1.0.x candidate: hint when failover abandons an unlaunched stand-in past its grace. PR marked ready (this auto-triggers a Codex review on 9caa03a).
+- Codex r8 (9caa03a, auto on ready): P2 relaunch before first supervisor registered → two workers. Fix round 6: supervisor-exclusive lock per dispatch. CI green on 9caa03a.
+- Fix round 6: 2f873d7 supervisor lock per dispatch (loser exits untouched; lock = launch evidence; dispatchState starting while lock live). Gate 1182/10/0.
