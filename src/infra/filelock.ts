@@ -115,7 +115,7 @@ export async function withFileLock<T>(
 
 /**
  * `withFileLock` for a synchronous critical section, waiting with a blocking sleep. For writers whose
- * callers are synchronous (the profile service under the 0.x TUI); the lock is held for milliseconds.
+ * callers are synchronous (`withProfilesLock` in the profile service); the lock is held for milliseconds.
  * Not reentrant: a section must not take the same lock again.
  */
 export function withFileLockSync<T>(

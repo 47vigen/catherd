@@ -12,8 +12,8 @@ import { showProfile } from "./profile-actions.ts";
 import { staleLines } from "./profiles.tsx";
 
 /** `✓ ready` / `! not logged in` / `✗ missing`: state is always glyph and word (spec §9.3). */
-export function stateParts(state: Check["state"], word: string, plain: boolean, pad = 16): Part[] {
-  return [{ text: `${glyph(state, plain)} ${word}`.padEnd(pad), tone: STATE_TOKEN[state] }];
+function stateParts(state: Check["state"], word: string, plain: boolean): Part[] {
+  return [{ text: `${glyph(state, plain)} ${word}`.padEnd(16), tone: STATE_TOKEN[state] }];
 }
 
 /** A run in one line: its state word first, then title, repo and progress (research C4). */

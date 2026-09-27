@@ -14,10 +14,8 @@ export const resetReadiness = (): void => ready.clear();
  * Spec §4.4: the adapter for `backend` once its last probe says it is ready. A ready probe is kept
  * for 10 minutes; a failing one is never kept, so a fixed backend works on the next dispatch.
  */
-export async function readyAdapter(
-  backend: string,
-  now = Date.now(),
-): Promise<{ adapter: BackendAdapter; probe: Probe }> {
+export async function readyAdapter(backend: string): Promise<{ adapter: BackendAdapter; probe: Probe }> {
+  const now = Date.now();
   const adapter = adapterFor(backend);
   if (!adapter)
     throw new CatherdError("E_BACKEND_MISSING", `catherd has no ${backend} adapter yet`, {

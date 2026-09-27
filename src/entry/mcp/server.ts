@@ -55,7 +55,8 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
 }
 
 /** Spec §4.7: connect first, so the client never waits on a scan; then reconcile every run. */
-export async function startMcpServer(deps: Deps = defaultDeps()): Promise<void> {
+export async function startMcpServer(): Promise<void> {
+  const deps = defaultDeps();
   await buildServer(deps).connect(new StdioServerTransport());
   try {
     const r = await reconcileAll(deps);

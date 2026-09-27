@@ -72,13 +72,9 @@ export const resetRotation = (): void => {
 };
 
 /** One redacted JSONL row. Never throws: logging must not fail the work it records. */
-export function log(
-  level: Level,
-  event: string,
-  fields: Record<string, unknown> = {},
-  now: Date = new Date(),
-): void {
+export function log(level: Level, event: string, fields: Record<string, unknown> = {}): void {
   if (rank(level) > rank(logLevel())) return;
+  const now = new Date();
   try {
     rotate(now);
     const file = logFile(now);

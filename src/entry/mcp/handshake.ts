@@ -5,9 +5,10 @@ import { VERSION } from "../../infra/version.ts";
 import type { Handshake } from "../../services/doctor.ts";
 
 const CLI = fileURLToPath(new URL("../../cli.ts", import.meta.url));
+const TIMEOUT_MS = 20_000;
 
 /** Spec §10.3: starts `catherd mcp` over stdio, as Claude Code would, and asks it for tools/list. */
-export async function mcpHandshake(timeoutMs = 20_000): Promise<Handshake> {
+export async function mcpHandshake(): Promise<Handshake> {
   const client = new Client({ name: "catherd-doctor", version: VERSION });
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -20,8 +21,8 @@ export async function mcpHandshake(timeoutMs = 20_000): Promise<Handshake> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<Handshake>((resolve) => {
     timer = setTimeout(
-      () => resolve({ ok: false, tools: [], error: `no answer within ${timeoutMs / 1000} s` }),
-      timeoutMs,
+      () => resolve({ ok: false, tools: [], error: `no answer within ${TIMEOUT_MS / 1000} s` }),
+      TIMEOUT_MS,
     );
   });
   try {

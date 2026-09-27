@@ -281,12 +281,6 @@ export function agentLinkState(): { missing: string[]; stale: string[]; ok: stri
   return out;
 }
 
-/** Read-only: how many of catherd's links are in the agents dir (the 0.x dashboard's status row). */
-export function countLinkedAgents(): number {
-  const target = claudeAgentsDir();
-  return existsSync(target) ? readdirSync(target).filter((e) => isOurLink(join(target, e))).length : 0;
-}
-
 // ---- writers: one lock over profiles, config.json, projects.json, agent files and links ----
 
 /** The profiles lock every writer here takes; `init` moves 0.x files aside under it too. */
@@ -485,9 +479,6 @@ export function unbind(repo: string): Synced & { repo: string; was: string } {
     }
   });
 }
-
-/** Rewrites every agent file and link from the profiles as they are (after an upgrade, or for doctor's fix). */
-export const relink = (): Synced => locked(() => apply(plan()));
 
 export function diffNamed(a: string, b: string): Change[] {
   return diffProfiles(getProfile(a), getProfile(b));

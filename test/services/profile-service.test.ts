@@ -29,7 +29,6 @@ import {
   profilesDir,
   readProfileDoc,
   readProjects,
-  relink,
   resetProfile,
   roleEnforcement,
   unbind,
@@ -265,14 +264,14 @@ describe("agent files and links", () => {
     ).toBe(false);
   });
 
-  it("reports missing and stale links, and relink makes them current", () => {
+  it("reports missing and stale links, and activating the profile makes them current", () => {
     withHome();
     patchProfile("default", {});
     expect(agentLinkState()).toEqual({ missing: [], stale: [], ok: DEFAULT_AGENTS });
     writeFileSync(join(agentsRoot(), "default", `${ARCHITECT}.md`), "edited");
     rmSync(join(claudeAgentsDir(), `${VERIFIER}.md`));
     expect(agentLinkState()).toEqual({ missing: [VERIFIER], stale: [ARCHITECT], ok: [] });
-    relink();
+    activate("default");
     expect(agentLinkState().ok).toEqual(DEFAULT_AGENTS);
   });
 });

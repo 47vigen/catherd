@@ -407,7 +407,6 @@ export type CommandId = (typeof COMMANDS)[number]["id"];
 export type Keybinds = Record<CommandId, readonly string[]>;
 
 const BY_ID = new Map<string, CommandDef>(COMMANDS.map((c) => [c.id, c]));
-export const commandDef = (id: CommandId): CommandDef => BY_ID.get(id) as CommandDef;
 export const commandsIn = (scope: Scope): CommandDef[] => COMMANDS.filter((c) => c.scope === scope);
 
 /** Keys a text input would take as typing: one character, `space`, or a shifted letter. */

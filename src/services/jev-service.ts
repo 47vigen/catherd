@@ -120,10 +120,10 @@ export interface Asked {
 
 const jevLog = (runDir: string) => join(runDir, "jev.jsonl");
 
-export function logJev(runDir: string, row: Omit<JevRow, "at">, now = Date.now()): void {
+export function logJev(runDir: string, row: Omit<JevRow, "at">): void {
   const f = jevLog(runDir);
   ensureJsonlHeader(f, "jev");
-  appendJsonl(f, { at: new Date(now).toISOString(), ...row });
+  appendJsonl(f, { at: new Date().toISOString(), ...row });
 }
 
 /**

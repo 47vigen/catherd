@@ -3,8 +3,6 @@ import type { Rung } from "../domain/ids.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
 
-export type { ExitInfo, ExitReason } from "../domain/record.ts";
-
 export const ADAPTER_IDS = ["codex", "claude-code", "opencode", "cursor", "grok"] as const;
 export type AdapterId = (typeof ADAPTER_IDS)[number];
 

@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  agentsDir,
-  installAgents,
-  OPENCODE_AGENT_FILES,
-  staleAgents,
-} from "../../src/adapters/opencode/agents.ts";
+import { agentsDir, installAgents, OPENCODE_AGENT_FILES } from "../../src/adapters/opencode/agents.ts";
 import {
   foldOpencodeEvents,
   isV1Error,
@@ -78,14 +73,14 @@ describe("opencode agents", () => {
     const root = join(withHome(), "xdg");
     mkdirSync(agentsDir(root), { recursive: true });
     writeFileSync(join(agentsDir(root), "mine.md"), "mine");
-    expect(staleAgents(root)).toEqual(["catherd-ro", "catherd-worker", "catherd-full"]);
+    const text = (name: string) => readFileSync(join(agentsDir(root), `${name}.md`), "utf8");
     expect(installAgents(root)).toBe(true);
     expect(installAgents(root)).toBe(false);
-    expect(staleAgents(root)).toEqual([]);
-    expect(readFileSync(join(agentsDir(root), "mine.md"), "utf8")).toBe("mine");
+    for (const [name, want] of Object.entries(OPENCODE_AGENT_FILES)) expect(text(name)).toBe(want);
+    expect(text("mine")).toBe("mine");
     writeFileSync(join(agentsDir(root), "catherd-ro.md"), "edited");
-    expect(staleAgents(root)).toEqual(["catherd-ro"]);
     expect(installAgents(root)).toBe(true);
+    expect(text("catherd-ro")).toBe(OPENCODE_AGENT_FILES["catherd-ro"] as string);
   });
 
   it("denies everything but reading to catherd-ro, and commits and pushes to catherd-worker", () => {
