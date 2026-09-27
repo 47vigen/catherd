@@ -21,6 +21,39 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **One owner question stops everything.** A blocked milestone should park with a push while independent milestones
   and runs continue; one question held the auth build for 4.5 h. _Evidence:_ the same report, finding 4.
 
+## From the 1.0.0 fresh install (2026-09-27)
+
+A clean 1.0.0 setup on macOS after removing every 0.x file: `bunx catherd-cli init`, the plugin commands, `doctor`, the
+TUI.
+
+- **Plugin install fails without GitHub SSH (blocker).** `marketplace.json` gives the plugin a `git-subdir` source
+  with `"url": "47vigen/catherd"`. The marketplace itself clones over HTTPS, but Claude Code clones that shorthand over
+  SSH, so `claude plugin install catherd@catherd` dies with `ssh: connect to host github.com port 22` on any machine
+  without GitHub SSH. 0.x used `"source": "./plugin"` and installed fine. Fix: `"url": "https://github.com/47vigen/catherd.git"`,
+  keeping `path` and `ref`. Workaround used: `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf
+  GIT_CONFIG_VALUE_0=git@github.com: claude plugin install catherd@catherd`.
+- **`doctor`'s sandbox probe is dead on current Codex.** `canWrite` runs `codex sandbox macos --full-auto`; Codex
+  0.157 has no `macos` subcommand (`codex sandbox [COMMAND]`, seatbelt implied) and no `--full-auto` there, so the row
+  reads "not tested: no codex sandbox to test with" on every current install. It is the one check meant to catch the
+  auth build's top finding. Fix: probe `codex sandbox -- sh -c ...` first, fall back to the old form.
+- **The worker sandbox still cannot run checks (auth-build finding 1, confirmed on 1.0).** Under `codex sandbox`, a
+  write to the locks dir, the Docker socket (`docker ps`), a loopback `bind()` and a write to `/tmp` are all denied.
+  The default worker is `workspace-write`, so a Go monorepo with testcontainers repeats the auth build. Fix options: a
+  worker access level between `workspace-write` and `full` (network, loopback, the lock dir, `DOCKER_HOST`), or a
+  `check(run, lane)` tool that runs the fast check outside the sandbox behind the lock; `doctor` should say which one
+  this machine needs.
+- **Failover downgrades high rungs.** The inferred failover maps `codex:gpt-6-sol#high` and `#xhigh` to
+  `opencode-go/kimi-k3#max` "treated like gpt-6-sol#medium". A usage limit on a climbed lane silently drops it back
+  to the medium tier it just climbed from. Prefer a stand-in that clears the rung's own bar, or mark the row as a
+  downgrade in `profile show` and `doctor`.
+- **Warnings on the defaults.** A fresh `doctor` shows two `!` rows (full access for verifier and ui-reviewer, advisory
+  access for the Claude roles) about the shipped defaults, which the user did not choose and cannot act on. Show them
+  as info, or only when the profile departs from the defaults.
+- **Silent first `bunx`.** The first `bunx catherd-cli init` resolves about 108 packages (TypeScript among them,
+  pulled in transitively) for about 30 s before any output. Check what pulls TypeScript into the runtime tree, and
+  say "installing catherd…" before the resolve where possible (README: suggest `bun add -g catherd-cli` first).
+- **TUI first frame.** The Status tab shows "active · 0 profiles" before the profile list loads, then "1 profile".
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
