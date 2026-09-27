@@ -16,7 +16,10 @@ describe("openTui", () => {
     const err = spyOn(console, "error").mockImplementation(() => {});
     try {
       expect(await openTui({ rawArgs: [], tty: false })).toBe(2);
-      expect(String(err.mock.calls[0]?.[0])).toContain("catherd watch --once");
+      expect(err.mock.calls.map((c) => String(c[0]))).toEqual([
+        "error E_INPUT_INVALID: the dashboard needs an interactive terminal",
+        "fix: in a script, run catherd status, catherd doctor or catherd watch --once",
+      ]);
     } finally {
       err.mockRestore();
     }
