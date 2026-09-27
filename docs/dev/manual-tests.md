@@ -275,6 +275,10 @@ real tools — the thing the unit and contract tests cannot show.
       the verifier running as the generated agent, a `land`, and a final report with
       the harness line. If S1 passed, the dispatch backgrounds after two minutes only
       if the role actually runs that long — a quicker finish is fine.
+   7. Run the five checks of [live verification §6](live-verification.md#6-one-orchestrated-run) in
+      the same repository: two lanes whose records overlap in time, an opencode worker, a forced
+      climb, quota failover through a fake `codex` on the PATH, and a tiny token budget ending in
+      `E_RUN_BUDGET`. Look for what each check names.
 
 4. Restore and clean up:
 

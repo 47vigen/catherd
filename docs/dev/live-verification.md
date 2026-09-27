@@ -140,4 +140,68 @@ Clean up with `rm -rf "$CATHERD_HOME" "$CATHERD_CLAUDE_AGENTS_DIR"; unset CATHER
 ## 6. One orchestrated run
 
 The last check drives the plugin in Claude Code on a sample repository: "the plugin in a fresh Claude
-Code session" in [`docs/dev/manual-tests.md`](manual-tests.md).
+Code session" in [`docs/dev/manual-tests.md`](manual-tests.md). Its first run has one lane; then run the
+five checks below, which only a real orchestrated run can show (the real runs so far covered none of them).
+Use a throwaway profile, so your own is untouched, and bind it to the sample repository:
+
+```sh
+cd <the sample repository>
+bun <catherd checkout>/src/cli.ts profile new live-kit
+bun <catherd checkout>/src/cli.ts profile use live-kit --repo
+```
+
+Every `profile set` below takes `--profile live-kit`. After each check, `bun <catherd checkout>/src/cli.ts
+runs show <run id> --json` holds the records; write down what you saw.
+
+1. **Two lanes at once.** Ask `/catherd` for two changes to files that share nothing (for example a
+   `--shout` flag in `hello.ts` and a `--count` flag in a separate `count.ts`), in one milestone. Look for:
+   two `dispatch` calls whose `admittedAt` values are seconds apart, not a whole lane apart, and in the
+   records the second worker's `startedAt` earlier than the first worker's `endedAt`:
+
+   ```sh
+   bun <catherd checkout>/src/cli.ts runs show <run id> --json |
+     jq -r '.records[] | select(.role == "worker") | "\(.startedAt) \(.endedAt) \(.name)"'
+   ```
+
+   Serial intervals (each start after the previous end) are the 0.x defect coming back: record it.
+2. **An opencode worker.** `profile set roles.worker.rungs '["opencode:opencode-go/gpt-6-luna#high"]'` (with
+   Zen credit instead of OpenCode Go, `opencode:opencode/gpt-6-luna#high`), then a one-lane run. Look for:
+   `route` returning that rung with `backend: "opencode"`, a record with `backend` `opencode`, the lane's
+   owned file changed, and a `STATUS:` line in the reply. Put the worker rungs back with
+   `profile set roles.worker.rungs null`.
+3. **A forced climb.** In a one-lane run, once the worker returns, tell the orchestrator: "climb that lane
+   with reason `unchanged` and dispatch it again." Look for: `climb` returning the next rung of the lane's
+   ladder, a second record for the lane on that rung, dispatched on a fresh thread (no `thread` passed), and the climb
+   in `runs_summary({ run })` as `climbsFrom: 1` on the first rung.
+4. **Quota failover.** Put a fake `codex` first on the PATH that prints a usage limit for `exec` and
+   forwards everything else to your real one, and start Claude Code from that shell, so the catherd
+   server inherits the PATH:
+
+   ```sh
+   mkdir -p /tmp/fake-codex
+   cat > /tmp/fake-codex/codex <<EOF
+   #!/bin/sh
+   if [ "\$1" = exec ]; then
+     cat >/dev/null
+     echo '{"type":"thread.started","thread_id":"fake-limit"}'
+     echo '{"type":"turn.failed","error":{"message":"You have hit your usage limit. Try again later."}}'
+     exit 1
+   fi
+   exec $(command -v codex) "\$@"
+   EOF
+   chmod +x /tmp/fake-codex/codex
+   PATH="/tmp/fake-codex:$PATH" claude
+   ```
+
+   Keep the default failover map (each Codex rung to OpenCode Go), or without Go point the Codex rung
+   `route` picks for the lane at a stand-in you have, for example: `profile set failover.codex:gpt-6-luna#high claude-code:claude-sonnet-5#high`.
+   Run a one-lane task. Look for: a record with status `limit` on the Codex rung, and a second record on the
+   stand-in rung whose `failoverFrom` names the Codex rung; the lane finishes on the stand-in. Afterwards
+   `rm -rf /tmp/fake-codex` and start Claude Code again from a normal shell.
+5. **A budget stop.** `profile set budget.tokens 1000`, then a run with two milestones. Look for: the first
+   dispatch running (the budget is a soft cap), the next `dispatch` refused with `E_RUN_BUDGET` and its
+   `fix`, the orchestrator pausing (`set_next` with "paused: …"), and `status(run)` showing the budget
+   spent past its cap. Remove it with `profile set budget.tokens null`.
+
+Clean up with `bun <catherd checkout>/src/cli.ts profile use --repo --clear` and
+`bun <catherd checkout>/src/cli.ts profile rm live-kit`.
