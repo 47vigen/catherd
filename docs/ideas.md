@@ -1,0 +1,10 @@
+
+## From the full auth build (2026-09-26/27)
+
+Five runs, one Desktop session, 20.3 h wall: 16 MRs merged to staging, 607 files, +35.6k/−22.9k. 187 Codex dispatches, all exit ok, 8 climbs; reviewers caught real BLOCKERs in most milestones. Main thread: 1,462 Opus turns, 454M cache-read tokens, four compactions.
+
+- **The worker sandbox cannot run the checks (top priority).** 60 of 171 worker replies were `partial`/`blocked`, nearly all "Docker/testcontainers, port binding or the lock are blocked by the sandbox". The lock dir sits outside the workspace, the Docker socket and loopback ports are denied. So the Opus main thread ran 156 `go test`/`task` commands and 71 pnpm chains itself, and in one 3 h stretch debugged the notification acceptance suite by editing test files, breaking "you never edit product files". Fix: the worker sandbox gets network access, the lock dir as a writable root and `DOCKER_HOST`; or catherd exposes a `check(run, lane)` tool that runs the lane's fast check outside the sandbox behind the lock and returns the tail.
+- **Parallelism never happened.** Across all five runs at most two Codex roles overlapped, for 25 minutes in total; one role ran for 8.2 h and none for 11.7 h. Confirms the serial `dispatch` bug above.
+- **An owner question stops everything.** The Harbor-project question held the whole session for 4.5 h, though plan 2 (panel) did not depend on it. A blocked milestone should park with a push and let independent milestones and runs continue.
+- **Skill adherence decays after compaction.** The three runs started after compactions never called `route` (no Jev decisions, no ladder) and their replies carry no parsed STATUS. `run_start` should return the per-run checklist, and `state.md` should name the next skill step, so a compacted orchestrator re-enters the protocol.
+- **Polling.** 46 `sleep`/`until`/`kill -0` loops on the main thread, which the skill forbids; they come from waiting on backgrounded dispatches. The `wait(run, any)` tool above removes the need.
