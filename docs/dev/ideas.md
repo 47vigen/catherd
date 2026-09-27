@@ -19,6 +19,16 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   backgrounds after two minutes like any long call). Alternatively, a batch `dispatch` with a `roles` array. Do not
   mark `dispatch` `readOnlyHint`: that would be a lie that also loosens permission prompts.
 
+- **Workers cannot run their own checks.** In the auth build 60 of 171 worker replies were `partial`/`blocked`
+  because the sandbox denied Docker, loopback ports or the lock dir, so the Opus main thread ran the tests itself and
+  even edited test files. Fix: network, the lock dir and `DOCKER_HOST` in the worker sandbox, or a `check(run, lane)`
+  tool that runs the fast check outside it. _Evidence:_ `reports/2026-09-27-auth-build.md`, finding 1.
+- **The skill decays after compaction.** Runs started after a compaction called no `route`, no reviewer and no
+  verifier. Fix: `run_start` returns the checklist, `state.md` names the next protocol step, and `land` refuses a
+  milestone without a review and a verdict unless the run says why. _Evidence:_ the same report, finding 3.
+- **One owner question stops everything.** A blocked milestone should park with a push while independent milestones
+  and runs continue; one question held the auth build for 4.5 h. _Evidence:_ the same report, finding 4.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
@@ -53,6 +63,13 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **Lint in the fast check.** Both M1 fix rounds in one run were lint findings that only the milestone gate caught. A
   lane's fast check should run the linter on its own packages (for example `golangci-lint run ./authz/...`).
 
+- **Climb only for capability.** Half the climbs in the auth build were plan contradictions or file-ownership limits,
+  which a stronger model cannot fix. Before climbing a `blocked` reply, `ask(run, "finding")`, and send `design` or
+  ownership to the architect. _Evidence:_ `reports/2026-09-27-auth-build.md`, finding 5.
+- **Verifier in the foreground, no polling.** All nine verifier calls ran in the background, and the main thread ran
+  46 sleep/poll loops while waiting on dispatches. The `wait` tool removes the loops; `land` should record how the
+  verdict was produced.
+
 ## Later
 
 - **Race mode.** For lanes a profile marks as critical, dispatch two rungs at once in separate worktrees and keep the
@@ -65,4 +82,5 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 ## Live coverage still missing
 
-An opencode lane, a climb, quota failover and a budget stop have run only in tests, never in a real orchestrated run.
+An opencode lane, quota failover and a budget stop have run only in tests, never in a real orchestrated run. A climb
+and a multi-milestone, multi-MR build are now covered live (the auth build, 8 climbs, 16 MRs).
