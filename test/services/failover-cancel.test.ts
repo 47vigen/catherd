@@ -331,6 +331,36 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
     ]);
   });
 
+  it("launches a stand-in whose collector died after marking it but before launching it (codex P2)", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    const d = (await dispatch(deps, input(run.id))).dispatched;
+    await waitFor(() => readRecords(run).records.length === 1);
+    const stand = await admit(deps, run, {
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "Read lanes/M1.L1.md",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      lane: "M1.L1",
+      failoverFrom: "codex:gpt-6-sol#medium",
+      failoverOf: d.dispatchId,
+    });
+    // start() wrote the mark, and the process died before launcher.launch
+    dispatchDir.markForCollect(stand.d.dir);
+    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(w.records.map((r) => r.record.dispatchId)).toEqual([d.dispatchId]);
+    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
+    expect(existsSync(launchPath(stand.d.dir))).toBe(true);
+    writeFileSync(release, "");
+    const next = await wait(deps, { run: run.id });
+    expect(next.records.map((r) => r.record)).toEqual([
+      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
+    ]);
+  });
+
   it("re-collects a limit whose collector died after launching the stand-in: no second launch (lease)", async () => {
     const release = held();
     const { run, deps } = setup({

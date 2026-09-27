@@ -299,12 +299,13 @@ export async function wait(
   return { records, started, running: pendingNames(run), hints };
 }
 
-/** Whether a dispatch was started: launched, running, or marked (or leased) for a wait by `start`. */
+/**
+ * Whether a dispatch has concrete launch evidence: launch.json (written by `launch` right after the spawn),
+ * proc.json (written by the supervisor once its worker runs) or exit.json. Not the collect mark or lease:
+ * `start` writes the mark before it launches, so a mark alone may belong to a stand-in that never ran.
+ */
 function launched(d: Dispatch): boolean {
-  const p = dispatchPaths(d.dir);
-  return (
-    existsSync(launchPath(d.dir)) || readProc(d.dir) !== null || existsSync(p.collect) || existsSync(p.lease)
-  );
+  return existsSync(launchPath(d.dir)) || readProc(d.dir) !== null || readExit(d.dir) !== null;
 }
 
 const recordOf = (run: Run, d: Dispatch): boolean =>
@@ -355,7 +356,12 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
     .at(-1);
   if (already && launched(already)) return failedOver(already.admit.rung, already);
   if (already && !recordOf(run, already) && dispatchState(already, deps.now()) === "starting") {
-    // admitted by a collector that died before launching it: launch it now, never report it unlaunched
+    // Admitted (maybe marked) by a collector that died before launching it: launch it now, never report
+    // it unlaunched. Only the collector holding the limited record launches its stand-in, and we hold that
+    // record now, so that collector is dead and no one else is mid-spawn. The one residual window: it died
+    // after spawning the supervisor and before writing launch.json, and this recovery runs before that
+    // supervisor, only milliseconds old, writes proc.json; recovery runs in a later wait, after the dead
+    // collector's lease is seen dead, so the supervisor has long written proc.json (or died) by then.
     start(already, dispatchPaths(already.dir).spec);
     watch(deps, run, already);
     return failedOver(already.admit.rung, already);

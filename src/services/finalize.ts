@@ -15,6 +15,7 @@ import {
 } from "../domain/record.ts";
 import { dispatchPaths, readClaimant, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { gitLimits, statusSnapshot } from "../infra/git.ts";
 import {
   appendJsonl,
@@ -270,17 +271,39 @@ const inFlight = new Map<string, Promise<RunRecord>>();
 const recordOf = (run: Run, id: string): RunRecord | undefined =>
   readRecords(run).records.find((r) => r.dispatchId === id);
 
+/** Test seam: runs after a finalizer judged a claim stale, before it takes the lock to take it over. */
+export const claimSeams = { beforeTakeover: async (_dir: string): Promise<void> => {} };
+
+/**
+ * Takes over a stale claim, serialized by a lock on the claim: under it, reads the claim again, removes it
+ * only if it is still stale, and claims it. True for the one caller that now holds the claim; a caller that
+ * finds it live (another took it over, or its claimant woke) or loses the claim to a fresh claimant gets
+ * false and goes back to waiting for the record. A claim is removed only here and by its own claimant, and
+ * here only right before claiming it, so there is never a second live computer, and never none for long:
+ * a claim that vanished is claimed by the next finalizer's poll.
+ */
+export async function takeOverStaleClaim(dir: string): Promise<boolean> {
+  const claim = dispatchPaths(dir).claim;
+  return withFileLock(claim, () => {
+    if (existsSync(claim)) {
+      if (!claimStale(dir)) return false;
+      rmSync(claim, { force: true });
+    }
+    return tryClaim(dir);
+  });
+}
+
 async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
-  let claimed = false;
   for (;;) {
     const existing = recordOf(run, d.admit.dispatchId);
     if (existing) return existing;
-    if (tryClaim(d.dir)) {
-      claimed = true;
-      break;
+    // a claim released by a claimer that threw is gone: this claims it
+    if (tryClaim(d.dir)) break;
+    if (existsSync(dispatchPaths(d.dir).claim) && claimStale(d.dir)) {
+      await claimSeams.beforeTakeover(d.dir);
+      if (await takeOverStaleClaim(d.dir)) break;
+      continue;
     }
-    // a claim released by a claimer that threw is gone: claim it on the next turn
-    if (existsSync(dispatchPaths(d.dir).claim) && claimStale(d.dir)) break;
     await Bun.sleep(50);
   }
   let saved: RunRecord;
@@ -289,8 +312,9 @@ async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
     mine = await compute(run, d);
     saved = await appendRecord(run, mine);
   } catch (e) {
-    // no record: let the next finalizer try at once rather than wait on this claim
-    if (claimed) rmSync(dispatchPaths(d.dir).claim, { force: true });
+    // no record: let the next finalizer try at once rather than wait on this claim; ours only, since a
+    // claim held past its window may have been taken over
+    if (readClaimant(d.dir)?.pid === process.pid) rmSync(dispatchPaths(d.dir).claim, { force: true });
     throw e;
   }
   if (saved === mine) recordHarness(run, d, mine);

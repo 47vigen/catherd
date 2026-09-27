@@ -8,7 +8,12 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
 import { resetReadiness, standInFor } from "../../src/services/backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
-import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
+import {
+  claimSeams,
+  finalizeDispatch,
+  settleLimits,
+  takeOverStaleClaim,
+} from "../../src/services/finalize.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { appendRecord, createRun, readRecords } from "../../src/services/run-store.ts";
 import { gitLimits } from "../../src/infra/git.ts";
@@ -18,6 +23,7 @@ import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, wa
 afterEach(snapshotEnv());
 afterEach(() => {
   unregisterAdapter("cursor");
+  claimSeams.beforeTakeover = async () => {};
   settleLimits.timeoutMs = 20_000;
   settleLimits.claimMarginMs = 10_000;
   gitLimits.timeoutMs = 15_000;
@@ -320,6 +326,39 @@ describe("finalize with a streamed reply and a settled session", () => {
       expect(Date.now() - started).toBeGreaterThanOrEqual(400);
       expect(Date.now() - started).toBeLessThan(3_000);
       expect(n.finalize).toBe(1);
+    });
+
+    it("serializes the takeover of a stale claim: one computer, never two, never none (codex P2)", async () => {
+      const n = counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const claimed: boolean[] = [];
+      // the other waiting process gets there first: it takes the claim over and writes the record
+      claimSeams.beforeTakeover = async () => {
+        claimSeams.beforeTakeover = async () => {};
+        claimed.push(await takeOverStaleClaim(d.dir));
+        claimed.push(existsSync(dispatchPaths(d.dir).claim));
+        await appendRecord(
+          run,
+          makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: d.admit.name, secs: 42 }),
+        );
+      };
+      const r = await finalizeDispatch(run, d);
+      expect(claimed).toEqual([true, true]);
+      expect(r.secs).toBe(42);
+      expect(n.finalize).toBe(0);
+      expect(readRecords(run).records).toHaveLength(1);
+    });
+
+    it("lets only one of two takers of the same stale claim win it", async () => {
+      counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const both = await Promise.all([takeOverStaleClaim(d.dir), takeOverStaleClaim(d.dir)]);
+      expect(both.filter(Boolean)).toHaveLength(1);
+      expect(existsSync(dispatchPaths(d.dir).claim)).toBe(true);
     });
 
     it("returns the original claimant's record when it lands before the taker's own", async () => {
