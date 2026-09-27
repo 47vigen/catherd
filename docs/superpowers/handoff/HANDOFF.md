@@ -1,4 +1,4 @@
-# catherd 1.0 — handoff (2026-09-27, fourth session)
+# catherd 1.0 — handoff (2026-09-27, fourth session, updated after plan 9)
 
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
@@ -14,10 +14,12 @@ Read it after the spec, before touching any plan.
 | 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds) |
 | 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | **merged** (PR #9; final review + fix wave, 6 Codex rounds; ledger `plan6-ledger.md`) |
 | 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | **merged** (PR #10; 14 tasks, final review + fix wave, 3 Codex rounds; ledger `plan7-ledger.md`). Release PR #11 (catherd-cli@1.0.0) **held for the owner's live-verification results** (`docs/dev/live-verification.md`) |
-| — pre-1.0 cleanup | (no plan file; audits + briefs in the PR) | PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC. Merge before #11 |
+| — pre-1.0 cleanup | (no plan file; audits + briefs in the PR) | **merged** PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC |
+| — whole-project review fixes | (another session) | **merged** (PR #13: 30 of 32 review findings; a macOS supervisor-test race fixed before merge) |
+| 9 findings from the real 0.x runs | `docs/superpowers/plans/2026-09-27-09-run-findings.md` | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
 | 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/superpowers/plans/2026-09-26-08-cursor-grok.md` | written, pre-validated, re-checked on `d87a791` (Part A 1093 / Part B 1145 pass). **Not executed (owner: hold).** Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
 
-Owner process rules added in session 4: Codex review rounds are capped at 4 per PR; worker scratch files stay inside the worker's worktree (a shared scratchpad collided).
+Owner process rules added in session 4: Codex review rounds are capped at 4 per PR (PR #14 exempt: rounds until clean; request Codex right after each push without waiting for CI); worker scratch files stay inside the worker's worktree (a shared scratchpad collided).
 
 Authority order: spec `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.
 Research behind the spec: `docs/research/2026-09-25-*.md` (audit, opencode, opencode-tui, tui, models, jev, cursor-grok).
@@ -53,7 +55,8 @@ change what later plans consume).
 1. **Owner:** run `docs/dev/live-verification.md` §1–6 on a machine with the three backends, report the
    results (notably which stream `codex login status` answers on, and the Codex sandbox lock-dir probe), and
    turn on GitHub private vulnerability reporting (SECURITY.md relies on it).
-2. Merge PR #12 (cleanup), then the release PR #11 once the owner's results are in: merging it publishes
+2. PRs #12, #13 and #14 are merged; the release PR #11 goes once the owner's results are in (§6 now also
+   checks parallel lanes, an opencode worker, a climb, failover and a budget stop): merging it publishes
    catherd-cli@1.0.0 (npm OIDC) and the plugin stamped 1.0.0.
 3. Plan 8 when the owner says go: re-check anchors after #12, then Part A (Cursor, 1.1), release, Part B
    (Grok, 1.2), release.
