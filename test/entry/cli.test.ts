@@ -53,7 +53,42 @@ describe("catherd (spec §8)", () => {
     const r = catherd(["nope"], { NO_COLOR: "1" });
     expect([r.code, r.err]).toEqual([
       2,
-      "error E_INPUT_INVALID: Unknown command nope\nfix: catherd --help\n",
+      "error E_INPUT_INVALID: unknown command nope\nfix: catherd --help\n",
+    ]);
+  });
+
+  it("words citty's usage errors as its own: lower case, no full stop (audit N5)", () => {
+    withHome();
+    const env = { NO_COLOR: "1", ANTHROPIC_API_KEY: "" };
+    expect(catherd(["profile"], env).err).toBe(
+      "error E_INPUT_INVALID: no command specified\nfix: catherd profile --help\n",
+    );
+    expect(catherd(["runs", "show"], env).err).toBe(
+      "error E_INPUT_INVALID: missing required positional argument: ID\nfix: catherd runs show --help\n",
+    );
+  });
+
+  it("runs runs list when runs names no subcommand, as status needs none (audit N5)", () => {
+    withHome();
+    expect(catherd(["runs"], { ANTHROPIC_API_KEY: "" })).toEqual({ code: 0, out: "no runs yet\n", err: "" });
+  });
+
+  it("refuses an unknown top-level option as such, not as a terminal problem (audit N4)", () => {
+    withHome();
+    const r = catherd(["--bogus"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.err]).toEqual([
+      2,
+      "error E_INPUT_INVALID: unknown option --bogus\nfix: catherd --help\n",
+    ]);
+  });
+
+  it("says in the spec's error format that the dashboard needs a terminal (audit N4)", () => {
+    withHome();
+    const r = catherd(["--plain"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.err]).toEqual([
+      2,
+      "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
+        "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
     ]);
   });
 

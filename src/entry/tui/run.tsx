@@ -2,7 +2,8 @@ import { type CliRenderer, createCliRenderer, SystemClock } from "@opentui/core"
 import { createRoot } from "@opentui/react";
 import { gitToplevel } from "../../infra/git.ts";
 import { readConfig } from "../../services/profile-service.ts";
-import { EXIT } from "../cli-kit.ts";
+import { CatherdError } from "../../domain/errors.ts";
+import { EXIT, printError } from "../cli-kit.ts";
 import { type Keybinds, resolveKeybinds } from "./commands.ts";
 import type { Effects } from "./effects.ts";
 import { liveEffects } from "./effects.ts";
@@ -39,8 +40,10 @@ export async function openTui(o: TuiOptions): Promise<number> {
   const env = o.env ?? process.env;
   const tty = o.tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!tty) {
-    console.error(
-      "catherd: the dashboard needs an interactive terminal; scripts can use catherd status, catherd doctor or catherd watch --once",
+    printError(
+      new CatherdError("E_INPUT_INVALID", "the dashboard needs an interactive terminal", {
+        fix: "in a script, run catherd status, catherd doctor or catherd watch --once",
+      }),
     );
     return EXIT.usage;
   }

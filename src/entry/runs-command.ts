@@ -198,8 +198,9 @@ const cancelCmd = defineCommand({
   },
 });
 
-/** Spec §8 `catherd runs list|show [--debug]|cancel`. */
+/** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
-  meta: { name: "runs", description: "Runs: list them, show one, cancel a live role" },
+  meta: { name: "runs", description: "Runs: list them (the default), show one, cancel a live role" },
   subCommands: { list, show, cancel: cancelCmd },
+  default: "list",
 });

@@ -98,6 +98,9 @@ async function helpText(cmd: Command, path: string[]): Promise<string> {
   return process.stdout.isTTY && !process.env.NO_COLOR ? text : stripAnsi(text);
 }
 
+/** citty's "Unknown command x." worded as catherd's own messages: lower case, no full stop (audit N5). */
+const cittyWording = (m: string): string => `${m.charAt(0).toLowerCase()}${m.slice(1)}`.replace(/\.$/, "");
+
 const isCliError = (e: unknown): e is Error & { code: string } => e instanceof Error && e.name === "CLIError";
 
 /** Runs `catherd <argv>` and returns its exit code (spec §8). */
@@ -117,10 +120,17 @@ export async function runCli(argv: string[]): Promise<number> {
     console.log(`${await helpText(cmd, path)}\n`);
     return EXIT.ok;
   }
+  const command = own.find((a) => !a.startsWith("-"));
+  // a bare `catherd` opens the dashboard, which takes only its own flags: a typo is not a terminal problem
+  const flag = (a: string) => (a.startsWith("--") ? (a.slice(2).split("=")[0] ?? "") : "");
+  const unknown = command === undefined ? own.find((a) => !Object.hasOwn(dashboardArgs, flag(a))) : undefined;
+  if (unknown !== undefined) {
+    printError(new CatherdError("E_INPUT_INVALID", `unknown option ${unknown}`, { fix: "catherd --help" }));
+    return EXIT.usage;
+  }
   // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
   // the first word that is not a flag: `catherd --plain lock -- …` is `lock` too.
-  if (own.find((a) => !a.startsWith("-")) !== "lock")
-    process.once("SIGINT", () => process.exit(EXIT.interrupted));
+  if (command !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
   try {
     await runCommand(main, { rawArgs });
     return Number(process.exitCode ?? EXIT.ok);
@@ -128,7 +138,9 @@ export async function runCli(argv: string[]): Promise<number> {
     if (isCliError(e)) {
       const [, , path] = await commandFor(own);
       printError(
-        new CatherdError("E_INPUT_INVALID", e.message, { fix: `catherd ${[...path, "--help"].join(" ")}` }),
+        new CatherdError("E_INPUT_INVALID", cittyWording(stripAnsi(e.message)), {
+          fix: `catherd ${[...path, "--help"].join(" ")}`,
+        }),
       );
       return EXIT.usage;
     }
