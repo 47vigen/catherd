@@ -37,6 +37,8 @@ export interface AdmitInput {
   thread: string | null;
   lane: string | null;
   failoverFrom: string | null;
+  /** the dispatch id of the limited dispatch this stand-in replaces */
+  failoverOf?: string;
 }
 
 /** Spec §3.3: SIGTERM, then SIGKILL this long after. */
@@ -210,6 +212,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
       thread: i.thread,
       attempt: listDispatches(run).filter((d) => d.admit.name === i.name).length + 1,
       failoverFrom: i.failoverFrom,
+      ...(i.failoverOf ? { failoverOf: i.failoverOf } : {}),
       access: rc.access,
       isolated,
       cliVersion: probe.version,

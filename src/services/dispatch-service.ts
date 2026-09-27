@@ -275,6 +275,11 @@ export async function wait(
     putBack();
     throw e;
   }
+  // aborted during the refresh: the result would reach no one, so put back what it collected
+  if (signal?.aborted) {
+    putBack();
+    return { records: [], started: [], running: pendingNames(run), hints: [ABORTED] };
+  }
   return { records, started, running: pendingNames(run), hints };
 }
 
@@ -317,12 +322,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
     started: dispatchedOf(next),
     pause: null,
   });
-  const already = listDispatches(run).find(
-    (x) =>
-      x.admit.name === d.admit.name &&
-      x.admit.failoverFrom === limited.rung &&
-      x.admit.dispatchId > d.admit.dispatchId,
-  );
+  // tied to this limited dispatch's id: a later dispatch of the same name, rung and limit is not its stand-in
+  const already = listDispatches(run).find((x) => x.admit.failoverOf === d.admit.dispatchId);
   if (already) return failedOver(already.admit.rung, already);
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { result: result(hints), started: null, pause: paused };
@@ -347,6 +348,7 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       thread: null,
       lane: d.admit.lane,
       failoverFrom: limited.rung,
+      failoverOf: d.admit.dispatchId,
     });
   } catch (e) {
     if (!isCatherdError(e)) throw e;
@@ -418,7 +420,7 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
-  tryCollect(live.dir);
+  const also = tryCollect(live.dir) ? [] : [`${name}: a wait in flight also returned this record`];
   const { hints } = await refreshState(run);
-  return { record, hints: [...hintsFor(run, live, record), ...hints] };
+  return { record, hints: [...hintsFor(run, live, record), ...also, ...hints] };
 }

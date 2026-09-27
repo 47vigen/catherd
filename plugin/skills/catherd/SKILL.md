@@ -177,7 +177,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 **Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, `wait` has already written the pause.
 
-**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`, and no later `wait` returns it again.
+**Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`, and no later `wait` returns it again; a `wait` already in flight may return it too, and `cancel` then says so in its `hints`.
 
 **Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Before dispatching anything, call `wait(run)`, again while its `running` is not empty, to collect the roles the last session left running or unread (`dispatch` refuses a name that is still running). Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
 

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import * as dispatchDir from "../../src/infra/dispatch-dir.ts";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import * as backends from "../../src/services/backends.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
@@ -18,6 +19,7 @@ import { isAlive, processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { latestDispatch, listDispatches, liveDispatches, readProc } from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
+import * as state from "../../src/services/state.ts";
 import { readNotes } from "../../src/services/state.ts";
 import type { Deps } from "../../src/services/ports.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -249,7 +251,84 @@ async function collectedOnce(
   expect((await wait(deps, { run: run.id })).records).toEqual([]);
 }
 
+describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
+  // every held stand-in is released after its test, pass or fail, so no watcher outlives it
+  const releases: string[] = [];
+  const held = () => {
+    const f = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+    releases.push(f);
+    return f;
+  };
+  afterEach(() => {
+    for (const f of releases.splice(0)) writeFileSync(f, "");
+  });
+
+  it("reuses the stand-in when a collected limit is put back and collected again: no second launch", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    await dispatch(deps, input(run.id));
+    await waitFor(() => readRecords(run).records.length === 1);
+    // the watcher has refreshed state.md: only wait's own refresh, after its failover, aborts
+    await watchersSettled();
+    const ac = new AbortController();
+    const real = state.refreshState;
+    // aborted during wait's final refresh, after the failover: the collection is put back
+    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
+      ac.abort();
+      return real(r, c);
+    });
+    let first;
+    try {
+      first = await wait(deps, { run: run.id }, undefined, ac.signal);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(first.records).toEqual([]);
+    expect(listDispatches(run)).toHaveLength(2);
+    const again = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(again.records.map((r) => r.record.status)).toEqual(["limit"]);
+    const stand = latestDispatch(run, "worker-M1.L1")?.admit.dispatchId as string;
+    expect(again.started.map((s) => s.dispatchId)).toEqual([stand]);
+    expect(listDispatches(run)).toHaveLength(2);
+    writeFileSync(release, "");
+    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+  });
+
+  it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    await dispatch(deps, input(run.id));
+    await waitFor(() => readRecords(run).records.length === 1);
+    // the first limit is recorded, not collected: the same name may run again, and hits the limit too
+    await dispatch(deps, input(run.id));
+    await waitFor(() => readRecords(run).records.length === 2);
+    const w = await wait(deps, { run: run.id, all: true });
+    expect(w.records.map((r) => r.record.status)).toEqual(["limit", "limit"]);
+    expect(w.started).toHaveLength(1);
+    expect(w.records[1]?.hints.at(-1)).toMatch(/^failover: codex:gpt-6-sol#high refused: E_ADMIT_DUPLICATE/);
+    writeFileSync(release, "");
+    await wait(deps, { run: run.id });
+  });
+});
+
 describe("cancel", () => {
+  it("says so when a wait in flight collected the record it returns (N-2)", async () => {
+    const { run, deps } = setup({ hangMs: 30_000 });
+    await dispatch(deps, input(run.id));
+    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(() => false);
+    try {
+      const { hints } = await cancel(deps, run.id, "worker-M1.L1");
+      expect(hints).toContain("worker-M1.L1: a wait in flight also returned this record");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("collects the record it returns, so the next wait does not return it again (M-1)", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
@@ -259,7 +338,7 @@ describe("cancel", () => {
     expect(await wait(deps, { run: run.id })).toMatchObject({ records: [], running: [] });
   });
 
-  it("stops a live dispatch, records it once as cancelled, and and no later wait returns it again", async () => {
+  it("stops a live dispatch, records it once as cancelled, and no later wait returns it again", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
     const pending = wait(deps, { run: run.id });
@@ -279,9 +358,11 @@ describe("cancel", () => {
     fakeGit("exit 128");
     const { record, hints } = await cancel(deps, run.id, "worker-M1.L1");
     expect(record).toMatchObject({ status: "cancelled", changedOwned: [], gitUnavailable: true });
-    expect(hints).toHaveLength(2);
-    expect(hints[0]).toBe("git-unavailable: changed files unknown");
-    expect(hints[1]).toMatch(/^state\.md not refreshed: git status failed in /);
+    // the wait in flight may have collected it first: cancel then says so too
+    const own = hints.filter((h) => !h.endsWith("a wait in flight also returned this record"));
+    expect(own).toHaveLength(2);
+    expect(own[0]).toBe("git-unavailable: changed files unknown");
+    expect(own[1]).toMatch(/^state\.md not refreshed: git status failed in /);
     await collectedOnce(run, deps, pending, record.dispatchId);
     expect(readRecords(run).records).toHaveLength(1);
   });

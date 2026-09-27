@@ -22,6 +22,8 @@ const AdmitSchema = z.looseObject({
   thread: z.string().nullable(),
   attempt: z.number().int().min(1),
   failoverFrom: z.string().nullable(),
+  /** the limited dispatch a failover stand-in replaces (plan 9); absent on any other dispatch */
+  failoverOf: z.string().optional(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
   cliVersion: z.string().nullable(),

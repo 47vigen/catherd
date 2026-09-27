@@ -352,6 +352,27 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
   });
 
+  it("puts back what it collected when aborted during its final refresh (N-1)", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    await dispatch(deps, input(run.id));
+    writeFileSync(release, "");
+    await waitFor(() => readRecords(run).records.length === 1);
+    await watchersSettled();
+    const ac = new AbortController();
+    const real = state.refreshState;
+    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
+      ac.abort();
+      return real(r, c);
+    });
+    try {
+      expect((await wait(deps, { run: run.id }, undefined, ac.signal)).records).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+  });
+
   it("leaves no collect marker behind when the launch throws (M-4)", async () => {
     const { run, deps } = setup(OK);
     const real = launcher.launch;
