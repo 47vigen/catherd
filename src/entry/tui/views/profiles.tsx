@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Profile, resolveProfile } from "../../../domain/profile.ts";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData, useLoad } from "../providers/data.tsx";
@@ -95,7 +95,7 @@ export function ProfilesView(props: { width: number; height: number }) {
         ? null
         : {
             name: here,
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
             fix: isCatherdError(e) && e.fix ? e.fix : null,
           },
     );

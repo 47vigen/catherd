@@ -1,5 +1,5 @@
 import { type CallToolResult, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
-import { CatherdError, isCatherdError } from "../../domain/errors.ts";
+import { CatherdError, errorMessage, isCatherdError } from "../../domain/errors.ts";
 
 /** A service's value as a tool result; its `hints`, when it has any, pass through as they are. */
 export const ok = (v: unknown): CallToolResult => ({
@@ -12,7 +12,7 @@ export function fail(e: unknown): CallToolResult {
     ? { fix: "", ...e.toJSON() }
     : {
         code: "E_IO_UNEXPECTED",
-        message: e instanceof Error ? e.message : String(e),
+        message: errorMessage(e),
         fix: "this is a catherd bug: report it with the message",
       };
   return { isError: true, content: [{ type: "text", text: JSON.stringify(err) }], structuredContent: err };

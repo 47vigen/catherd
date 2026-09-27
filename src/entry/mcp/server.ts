@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { errorMessage } from "../../domain/errors.ts";
 import { log } from "../../infra/log.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
@@ -66,6 +67,6 @@ export async function startMcpServer(): Promise<void> {
       for (const w of r.warnings.slice(shown)) console.error(`catherd: ${w}`);
     });
   } catch (e) {
-    console.error(`catherd: reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`catherd: reconcile failed: ${errorMessage(e)}`);
   }
 }

@@ -1,6 +1,6 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { Component, type ReactNode, useEffect } from "react";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import { wrap } from "../text.ts";
 import { Line } from "../widgets/line.tsx";
 import { useApp } from "./app.tsx";
@@ -16,7 +16,7 @@ function Crashed(props: { error: unknown }) {
   const keymap = useKeymap();
   const dims = useTerminalDimensions();
   const e = props.error;
-  const message = e instanceof Error ? e.message : String(e);
+  const message = errorMessage(e);
   const fix = isCatherdError(e) ? e.fix : undefined;
   // a dialog open when it broke is gone with the rest: its modal mode would keep q from reaching quit
   useEffect(() => setModal(keymap, false), [keymap]);

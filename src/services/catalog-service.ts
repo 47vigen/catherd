@@ -22,7 +22,7 @@ import {
 } from "../domain/catalog.ts";
 import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
 import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
@@ -187,10 +187,8 @@ export const resetFreshen = (): void => tried.clear();
 export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?: string): Promise<void> {
   const backends = new Set<string>();
   for (const r of rungs) {
-    try {
-      const b = parseRung(r).backend;
-      backends.add(b === "claude" ? "claude-code" : b);
-    } catch {}
+    const b = tryParseRung(r)?.backend;
+    if (b) backends.add(b === "claude" ? "claude-code" : b); // validate reports a bad rung
   }
   const due: Promise<unknown>[] = [];
   for (const b of backends) {

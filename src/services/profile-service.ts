@@ -15,7 +15,7 @@ import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { type AgentFile, agentFiles } from "../domain/agents.ts";
 import { CatherdError, UPGRADE } from "../domain/errors.ts";
-import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
+import { ADAPTER_IDS, parseRung, tryParseRung } from "../domain/ids.ts";
 import {
   agentName,
   applyPatch,
@@ -140,13 +140,8 @@ export function validateNamed(name?: string): Validation {
 
 /** Spec D10: how strongly the backend holds a role to its access mode. */
 export function enforcementOf(rung: string, access: Access): "enforced" | "advisory" {
-  let backend: string;
-  try {
-    backend = parseRung(rung).backend;
-  } catch {
-    return "advisory";
-  }
-  return adapterFor(backend)?.enforcement[access] ?? "advisory";
+  const r = tryParseRung(rung);
+  return (r && adapterFor(r.backend)?.enforcement[access]) ?? "advisory";
 }
 
 /** Each role's weakest enforcement over its rungs, for `profile show` and profile_get. */

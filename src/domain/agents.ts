@@ -1,4 +1,4 @@
-import { parseRung } from "./ids.ts";
+import { parseRung, tryParseRung } from "./ids.ts";
 import { agentName, type Profile } from "./profile.ts";
 import type { Access } from "./record.ts";
 import { nativeDisallowedTools, rolePrompt } from "./role-prompts.ts";
@@ -46,13 +46,7 @@ export function agentFiles(p: Profile, version: string): AgentFile[] {
     if (!rc.enabled) continue;
     const rungs = [...rc.rungs, ...rc.rungs.flatMap((r) => p.failover[r] ?? [])];
     for (const rung of rungs) {
-      let native: boolean;
-      try {
-        native = parseRung(rung).backend === "claude";
-      } catch {
-        continue;
-      }
-      if (!native) continue;
+      if (tryParseRung(rung)?.backend !== "claude") continue;
       const name = agentName(p.name, role, rung);
       out.set(name, {
         name,

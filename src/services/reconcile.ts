@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
@@ -61,7 +62,7 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
   };
   const watchers: Promise<void>[] = [];
   const warn = (run: Run, e: unknown): void => {
-    const w = `${run.id}: ${e instanceof Error ? e.message : String(e)}`;
+    const w = `${run.id}: ${errorMessage(e)}`;
     if (!report.warnings.includes(w)) report.warnings.push(w);
   };
   for (const run of runs) {

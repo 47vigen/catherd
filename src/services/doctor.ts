@@ -3,8 +3,8 @@ import { join } from "node:path";
 import type { Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import { isCatherdError } from "../domain/errors.ts";
-import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
+import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
@@ -65,7 +65,7 @@ export const PLUGIN_INSTALL =
 export const PLUGIN_UPDATE =
   "claude plugin marketplace update catherd && claude plugin update catherd@catherd";
 
-const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e)) as string;
+const errText = (e: unknown): string => errorMessage(e).split("\n")[0] as string;
 const fixOf = (e: unknown) => (isCatherdError(e) ? e.fix : undefined);
 
 /** A check whose reads can throw (a corrupt or newer-schema file): the throw becomes its `fail` row. */
@@ -77,16 +77,15 @@ function guarded(id: string, label: string, fallbackFix: string, check: () => Ch
   }
 }
 
+/** A rung's backend; null for a malformed rung, which validate reports. */
+const backendOf = (rung: string): string | null => tryParseRung(rung)?.backend ?? null;
+
 /** Every backend a linked profile runs a role on ("role"), or only fails over to ("failover"). */
 function usedBackends(profiles: Profile[]): Map<string, "role" | "failover"> {
   const used = new Map<string, "role" | "failover">();
   const note = (rung: string, how: "role" | "failover") => {
-    try {
-      const b = parseRung(rung).backend;
-      if (used.get(b) !== "role") used.set(b, how);
-    } catch {
-      // validate reports a bad rung
-    }
+    const b = backendOf(rung);
+    if (b && used.get(b) !== "role") used.set(b, how);
   };
   for (const p of profiles) {
     for (const role of ROLES) if (p.roles[role].enabled) for (const r of p.roles[role].rungs) note(r, "role");
@@ -105,12 +104,10 @@ function workspaceWriteBackends(profiles: Profile[]): Set<string> {
     for (const role of ROLES) {
       const rc = p.roles[role];
       if (!rc.enabled || rc.access !== "workspace-write") continue;
-      for (const r of [...rc.rungs, ...rc.rungs.flatMap((x) => p.failover[x] ?? [])])
-        try {
-          out.add(parseRung(r).backend);
-        } catch {
-          // validate reports a bad rung
-        }
+      for (const r of [...rc.rungs, ...rc.rungs.flatMap((x) => p.failover[x] ?? [])]) {
+        const b = backendOf(r);
+        if (b) out.add(b);
+      }
     }
   return out;
 }
@@ -129,14 +126,6 @@ const MOVE_TO: Record<string, string> = {
   "claude-code": "claude-code:claude-opus-5-5#medium",
   opencode: "opencode:opencode-go/gpt-6-luna#high",
   codex: "codex:gpt-6-sol#medium",
-};
-
-const backendOf = (rung: string): string | null => {
-  try {
-    return parseRung(rung).backend;
-  } catch {
-    return null; // validate reports a bad rung
-  }
 };
 
 /** Install `id`, or move the roles that run on it to `to`; the artist draws, which only Codex does. */

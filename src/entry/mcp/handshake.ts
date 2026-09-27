@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { errorMessage } from "../../domain/errors.ts";
 import { VERSION } from "../../infra/version.ts";
 import type { Handshake } from "../../services/doctor.ts";
 
@@ -35,7 +36,7 @@ export async function mcpHandshake(): Promise<Handshake> {
       late,
     ]);
   } catch (e) {
-    return { ok: false, tools: [], error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, tools: [], error: errorMessage(e) };
   } finally {
     clearTimeout(timer);
     await client.close().catch(() => {});

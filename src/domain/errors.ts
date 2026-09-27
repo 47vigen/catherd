@@ -53,3 +53,6 @@ export class CatherdError extends Error {
 }
 
 export const isCatherdError = (e: unknown): e is CatherdError => e instanceof CatherdError;
+
+/** The message of anything thrown: an Error's message, else the value as a string. */
+export const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));

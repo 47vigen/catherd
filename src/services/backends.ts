@@ -2,7 +2,7 @@ import type { BackendAdapter, Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { formatRung, parseRung } from "../domain/ids.ts";
+import { formatRung, tryParseRung } from "../domain/ids.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -37,12 +37,8 @@ export async function readyAdapter(backend: string): Promise<{ adapter: BackendA
 export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
   const own = failover[rung];
   if (own) return own;
-  let r: ReturnType<typeof parseRung>;
-  try {
-    r = parseRung(rung);
-  } catch {
-    return null;
-  }
+  const r = tryParseRung(rung);
+  if (!r) return null;
   const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? null;
   return byAdapter && formatRung(byAdapter);
 }

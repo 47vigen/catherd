@@ -1,5 +1,5 @@
 import { billingKeyOf, type Catalog, rungInfo, scoresOf } from "../../domain/catalog.ts";
-import { parseRung } from "../../domain/ids.ts";
+import { parseRung, tryParseRung } from "../../domain/ids.ts";
 import { NOTIFY, type NotifyMoment, type Profile, type ProfilePatch } from "../../domain/profile.ts";
 import {
   type Issue,
@@ -128,12 +128,8 @@ function modelsFor(models: CatalogModel[], role: Role, rungs: string[]): ModelEn
     });
   }
   for (const rung of rungs) {
-    let r: ReturnType<typeof parseRung>;
-    try {
-      r = parseRung(rung);
-    } catch {
-      continue;
-    }
+    const r = tryParseRung(rung);
+    if (!r) continue;
     const m = find(r.backend, r.model);
     if (m) {
       if (!m.efforts.includes(r.effort)) m.efforts.push(r.effort);
@@ -511,12 +507,9 @@ export function failoverOptions(
   c: Catalog,
   rung: string,
 ): SelectOption[] {
-  let quota: string;
-  try {
-    quota = quotaOf(parseRung(rung));
-  } catch {
-    return [];
-  }
+  const parsed = tryParseRung(rung);
+  if (!parsed) return [];
+  const quota = quotaOf(parsed);
   const cur = p.failover[rung];
   const out: SelectOption[] = [{ value: "", title: "none", current: cur === undefined }];
   // usable: scored in catalog_query, or through a treat-like staged in `c` (`withStaged`)

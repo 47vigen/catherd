@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import type { ArgsDef } from "citty";
+import { errorMessage } from "./domain/errors.ts";
 import { runtimeRefusal } from "./domain/runtime.ts";
 
 // Spec §3.1: refuse an old Bun before anything else loads.
@@ -150,7 +151,7 @@ export async function runCli(argv: string[]): Promise<number> {
     }
     printError({
       code: "E_IO_UNEXPECTED",
-      message: e instanceof Error ? e.message : String(e),
+      message: errorMessage(e),
       fix: "this is a catherd bug: report it with this message and the output of the same command with --verbose",
     });
     return EXIT.error;

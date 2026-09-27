@@ -1,6 +1,7 @@
 import type { Subprocess } from "bun";
 import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { z } from "zod";
+import { errorMessage } from "../domain/errors.ts";
 import type { ExitInfo, ExitReason } from "../domain/record.ts";
 import { dispatchPaths } from "./dispatch-dir.ts";
 import { log } from "./log.ts";
@@ -100,8 +101,6 @@ async function stopGroup(pgid: number, graceMs: number, pollMs: number): Promise
   }
 }
 
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {}): Promise<ExitInfo> {
   const p = dispatchPaths(spec.dispatchDir);
   const finish = (info: ExitInfo): ExitInfo => {
@@ -135,7 +134,7 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     });
   } catch (e) {
     try {
-      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${message(e)}\n`, {
+      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${errorMessage(e)}\n`, {
         mode: PRIVATE_FILE,
       });
     } catch {

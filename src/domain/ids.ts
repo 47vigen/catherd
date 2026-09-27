@@ -47,6 +47,15 @@ export function parseRung(s: string): Rung {
   return { backend: backend as RungBackend, model, effort };
 }
 
+/** `parseRung`, or null for a malformed rung (profile validation is what reports it). */
+export function tryParseRung(s: string): Rung | null {
+  try {
+    return parseRung(s);
+  } catch {
+    return null;
+  }
+}
+
 export const formatRung = (r: Rung): string => `${r.backend}:${r.model}#${r.effort}`;
 
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";

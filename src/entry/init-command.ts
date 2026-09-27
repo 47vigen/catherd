@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { assertProfileName } from "../domain/profile.ts";
-import { isCatherdError } from "../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { configDir } from "../infra/paths.ts";
 import { VERSION } from "../infra/version.ts";
 import { doctor } from "../services/doctor.ts";
@@ -51,7 +51,7 @@ export async function jevStep(
     (d.saveJevKey ?? saveJevKey)(key);
     console.log(`${mark("ok")} Jev: the key answers; saved with mode 600`);
   } catch (e) {
-    const message = (e instanceof Error ? e.message : String(e)).split("\n").join(" ");
+    const message = errorMessage(e).split("\n").join(" ");
     console.log(`${mark("warn")} Jev: could not save the key: ${message}`);
     if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
   }

@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
 export interface Toast {
@@ -28,7 +28,7 @@ export const TOAST_MS = 4_000;
 /** An error as a toast: its message, and its fix command when it has one. */
 export const errorToast = (e: unknown): Toast => ({
   variant: "error",
-  message: e instanceof Error ? e.message : String(e),
+  message: errorMessage(e),
   ...(isCatherdError(e) && e.fix ? { fix: e.fix } : {}),
 });
 
