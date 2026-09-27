@@ -19,3 +19,9 @@ Wave 3 C (dead code/dupes/splits) dispatched (reset 1a8edee).
 Batch C done: 9 commits cherry-picked → a6f25a0. Splits: doctor → doctor-checks/doctor-backends; profile-service → profile-store/agent-links; profile-tree → profile-edits; entry *-command.ts renames. Kept _supervise, readOutcomes, reserved plan-8 fields. Deviation: nonBlankLines returns [] on any read error (summary used to throw on EACCES).
 Ruling: plan 8 needs a fresh anchor re-check before execution (doctor/profile-service splits, capture-fixtures rename) — note added to ledger; owner said no plan-8 execution now — cost: one re-check later.
 Draft PR #12 opened + subscribed; check-in trig_01R61BGVgJ9K676GZceQoZ2S. Final whole-branch review dispatched (d87a791..a6f25a0).
+Final review (final-review.md): ready after SECURITY redaction wording → fixed 1d6df4f (+CONTRIBUTING, changeset modes). HANDOFF updated a655cb6; ledgers copied. PR #12 ready; Codex round 1 requested.
+Codex r1 on #12 (a655cb6): P2 doctor fallback not executable; P2 lock/git pass TYPESAFE_API_KEY (SECURITY promise); P3 --no-plain refused. Ruling: scrub secrets from lock-run commands and git subprocesses (promise holds as written). Fix worker dispatched.
+Codex r1 fixed: 3 commits (doctor runnable per-role commands; scrub secrets in lock/git/ps; negated booleans).
+Codex r2 (0a0d079): P2 doctor handshake MCP spawn raw env → fixed 82bcd12; audited all spawns (preflight allowlist, capture/workerEnv, launch scrubbed, supervisor spec.env from workerEnv, cli.ts scrubSecrets).
+Codex r3 (82bcd12): P2 migration left a non-target default → fixed 0695fc2 with shell-run test. Next is round 4 (cap).
+- Codex r4 (0695fc2, cap reached): 2×P2 upgrade modes (nested dirs, existing append targets) → fixed 1457de6 with test; threads resolved. No further Codex rounds; merge on green CI.
