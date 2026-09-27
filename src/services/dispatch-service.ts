@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
@@ -8,7 +8,6 @@ import type { Role } from "../domain/roles.ts";
 import {
   awaitsCollect,
   dispatchPaths,
-  markForCollect,
   readExit,
   requestCancel,
   tryCollect,
@@ -103,14 +102,18 @@ async function refresh(run: Run, change: NotesPatch, hints: string[]): Promise<v
 /** How a dispatch's supervisor is started; tests replace it to make a launch fail. */
 export const launcher = { launch };
 
-/** Marks an admitted dispatch for a `wait` to collect, then starts its supervisor; no mark outlives a failed launch. */
+/**
+ * Starts an admitted dispatch's supervisor. Admission already left its collect mark, and a launch that
+ * throws keeps it: the dispatch is recorded as lost once its start grace passes, and a `wait` returns that
+ * record, as the error says.
+ */
 function start(d: Dispatch, specPath: string): void {
-  markForCollect(d.dir);
   try {
     launcher.launch(d, specPath);
   } catch (e) {
-    rmSync(dispatchPaths(d.dir).collect, { force: true });
-    throw e;
+    throw new CatherdError("E_IO_UNEXPECTED", `could not launch ${d.admit.name}: ${errorMessage(e)}`, {
+      fix: "wait(run) returns its record, lost, once its start grace passes; then dispatch it again",
+    });
   }
 }
 

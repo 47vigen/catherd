@@ -42,6 +42,8 @@ export type DispatchState = "starting" | "running" | "finished";
 
 /** How long an admitted dispatch may go without a launch.json before it counts as never started. */
 export const STARTING_GRACE_MS = 30_000;
+/** The start grace in force; tests shorten it. */
+export const startLimits = { graceMs: STARTING_GRACE_MS };
 
 export const admitPath = (dir: string): string => join(dir, "admit.json");
 export const launchPath = (dir: string): string => join(dir, "launch.json");
@@ -104,7 +106,7 @@ export function dispatchState(d: Dispatch, now = Date.now()): DispatchState {
       : "finished";
   const launch = readJson<LaunchFile>(launchPath(d.dir));
   if (launch) return isAlive(launch.supervisorPid, launch.supervisorStartTime) ? "starting" : "finished";
-  return now - Date.parse(d.admit.admittedAt) < STARTING_GRACE_MS ? "starting" : "finished";
+  return now - Date.parse(d.admit.admittedAt) < startLimits.graceMs ? "starting" : "finished";
 }
 
 export type LiveDispatch = Dispatch & { state: DispatchState };

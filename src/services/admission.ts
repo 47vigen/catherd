@@ -6,7 +6,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { overlaps, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
-import { dispatchPaths } from "../infra/dispatch-dir.ts";
+import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
@@ -243,6 +243,9 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
       },
       { mode: 0o600 },
     );
+    // the collect mark before admit.json: no admitted dispatch ever exists without it, so a process that
+    // dies before launching it still leaves a record (lost, once its start grace passes) for a `wait`
+    markForCollect(dir);
     writeJsonAtomic(admitPath(dir), admitted);
     setLatest(run, i.name, id);
     return { d: { dir, admit: admitted }, specPath: p.spec };

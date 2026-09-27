@@ -14,7 +14,8 @@ import {
   wait,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
-import { listDispatches, liveDispatches } from "../../src/services/dispatches.ts";
+import { admit } from "../../src/services/admission.ts";
+import { listDispatches, liveDispatches, startLimits } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
@@ -33,6 +34,9 @@ import {
 } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
+afterEach(() => {
+  startLimits.graceMs = 30_000;
+});
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
 
@@ -396,19 +400,47 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
   });
 
-  it("leaves no collect marker behind when the launch throws (M-4)", async () => {
+  it("keeps the mark when the launch throws: dispatch says so, and a wait returns the lost record (M-4)", async () => {
     const { run, deps } = setup(OK);
+    startLimits.graceMs = 300;
     const real = launcher.launch;
     launcher.launch = () => {
       throw new Error("no fork");
     };
+    let e: unknown;
     try {
-      expect(await dispatch(deps, input(run.id)).catch((e: Error) => e.message)).toBe("no fork");
+      e = await dispatch(deps, input(run.id)).catch((x: unknown) => x);
     } finally {
       launcher.launch = real;
     }
+    expect(isCatherdError(e) && e.message).toMatch(/no fork/);
+    expect(isCatherdError(e) && e.fix).toMatch(/wait\(run\) returns its record/);
     const d = listDispatches(run)[0];
-    expect(d && awaitsCollect(d.dir)).toBe(false);
+    expect(d && awaitsCollect(d.dir)).toBe(true);
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record)).toEqual([
+      expect.objectContaining({ status: "failed", exitCode: null }),
+    ]);
+  });
+
+  it("returns the lost record of a dispatch whose server died after admitting it, before launching it", async () => {
+    const { run, deps } = setup(OK);
+    startLimits.graceMs = 300;
+    // what dispatch had done when its process died: admission only
+    const { d } = await admit(deps, run, {
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "b",
+      rung: "codex:gpt-6-luna#high",
+      thread: null,
+      lane: "M1.L1",
+      failoverFrom: null,
+    });
+    expect(awaitsCollect(d.dir)).toBe(true);
+    const w = await wait(deps, { run: run.id });
+    expect(w.records.map((r) => r.record)).toEqual([
+      expect.objectContaining({ dispatchId: d.admit.dispatchId, status: "failed", exitCode: null }),
+    ]);
   });
 
   it("collects a dispatch that finished while no wait ran, as after a server restart, once", async () => {
