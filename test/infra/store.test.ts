@@ -61,6 +61,10 @@ describe("readVersioned", () => {
       throw new Error("expected a throw");
     } catch (e) {
       expect(isCatherdError(e) && e.code).toBe("E_CONFIG_NEWER_SCHEMA");
+      // bunx alone opens the dashboard of the newest catherd and upgrades nothing installed (audit N12)
+      expect(isCatherdError(e) && e.fix).toBe(
+        "upgrade catherd: bun add -g catherd-cli@latest (or run bunx catherd-cli@latest <command>)",
+      );
     }
   });
 

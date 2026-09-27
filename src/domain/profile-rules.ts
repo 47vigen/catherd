@@ -77,7 +77,7 @@ export function validateProfile(
     warnings.push({
       path: u.path,
       message: `"${u.value}" is not a value this catherd knows (a newer one wrote it?); it is read as ${u.readAs}`,
-      fix: "upgrade catherd (bunx catherd-cli@latest), or set a value this version knows",
+      fix: "upgrade catherd (bun add -g catherd-cli@latest), or set a value this version knows",
     });
   if (!p.roles.worker.enabled)
     errors.push({

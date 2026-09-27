@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { dirname, sep } from "node:path";
 import { z } from "zod";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import { configDir, dataDir } from "./paths.ts";
 
 // Audit S2: catherd's dirs hold briefs, argv, stderr tails and logs, so they are 0700 and its files 0600.
@@ -75,7 +75,7 @@ function newer(file: string, found: number, current: number): CatherdError {
     "E_CONFIG_NEWER_SCHEMA",
     `${file} has schema ${found}, newer than this catherd (${current})`,
     {
-      fix: "upgrade catherd: bunx catherd-cli@latest",
+      fix: `upgrade catherd: ${UPGRADE}`,
     },
   );
 }

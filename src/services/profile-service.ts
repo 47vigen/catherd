@@ -15,7 +15,7 @@ import { ADAPTER_IDS } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { type AgentFile, agentFiles } from "../domain/agents.ts";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, UPGRADE } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
   agentName,
@@ -72,7 +72,7 @@ function readV1<T>(file: string, schema: z.ZodType<T>): T {
       "E_CONFIG_NEWER_SCHEMA",
       `${file} has schema ${found}, newer than this catherd (1)`,
       {
-        fix: "upgrade catherd: bunx catherd-cli@latest",
+        fix: `upgrade catherd: ${UPGRADE}`,
       },
     );
   const r = schema.safeParse(raw);
