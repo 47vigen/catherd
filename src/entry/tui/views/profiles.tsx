@@ -97,9 +97,11 @@ export function ProfilesView(props: { width: number; height: number }) {
   }, [app.state.profile, here, app, polledAt, openTries]);
   const profile = useMemo(() => (draft ? resolveProfile(draft.doc, draft.name) : null), [draft]);
   const billingKey = JSON.stringify(profile?.billing ?? {});
-  // read again when the saved profile changes too: a save writes the staged treat-likes to the catalog
-  // override and clears them from the draft, so the catalog read before it would lack them
-  const savedKey = useMemo(() => JSON.stringify(draft?.base ?? null), [draft?.base]);
+  // read again after every save too, by the identity of the base it reads back (the same bytes when only
+  // treat-likes changed): a save writes the staged treat-likes to the catalog override and clears them
+  // from the draft, so the catalog read before it would lack them
+  const reads = useRef(0);
+  const savedKey = useMemo(() => ++reads.current, [draft?.base]);
   const loaded = useLoad(
     () => (profile ? app.effects.catalog(profile.billing) : null),
     `${billingKey}|${savedKey}`,
