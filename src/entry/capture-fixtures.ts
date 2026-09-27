@@ -31,21 +31,22 @@ export const captureFixturesCommand = defineCommand({
     out: { type: "string", description: "fixture root (default: this checkout's test/fixtures/adapters)" },
   },
   async run({ args }) {
-    const out = args.out ? resolve(args.out) : defaultOut();
-    if (!out) {
-      const e = new CatherdError("E_INPUT_INVALID", "no --out, and this catherd is not a source checkout", {
-        fix: "catherd capture-fixtures --out <dir>",
-      });
+    const refuse = (message: string, fix: string): void => {
+      const e = new CatherdError("E_INPUT_INVALID", message, { fix });
       printError(e);
       process.exitCode = exitCodeOf(e);
-      return;
-    }
-    if (args.backend && !CAPTURE_BACKENDS.includes(args.backend)) {
-      console.error(`error E_INPUT_INVALID: no capture cases for backend "${args.backend}"`);
-      console.error(`fix: pass --backend ${CAPTURE_BACKENDS.join("|")}`);
-      process.exitCode = 2;
-      return;
-    }
+    };
+    const out = args.out ? resolve(args.out) : defaultOut();
+    if (!out)
+      return refuse(
+        "no --out, and this catherd is not a source checkout",
+        "catherd capture-fixtures --out <dir>",
+      );
+    if (args.backend && !CAPTURE_BACKENDS.includes(args.backend))
+      return refuse(
+        `no capture cases for backend "${args.backend}"`,
+        `catherd capture-fixtures --backend ${CAPTURE_BACKENDS.join("|")}`,
+      );
     const results = await captureFixtures({
       outDir: out,
       backends: args.backend ? [args.backend] : undefined,
