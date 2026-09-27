@@ -63,7 +63,7 @@ export const FIXTURE_REPORT: DoctorReport = {
       fix: "claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd",
     },
     { id: "agents", label: "Claude agents", state: "ok", word: "ready", detail: "2 linked" },
-    { id: "mcp", label: "MCP server", state: "ok", word: "ready", detail: "20 tools" },
+    { id: "mcp", label: "MCP server", state: "ok", word: "ready", detail: "21 tools" },
   ],
 };
 
@@ -82,6 +82,7 @@ const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): Run
   },
   agents: { runs: 0, totalTokens: 0, costUsd: 0 },
   jev: { decisions: 0, fallbacks: 0 },
+  harness: [],
   budget: null,
   milestones: [],
   warnings: [],

@@ -63,7 +63,7 @@ describe("supervise", () => {
         return false;
       },
     });
-    expect(exit.reason).toBe("idle-timeout");
+    expect(exit?.reason).toBe("idle-timeout");
     expect(asked).toBeGreaterThan(0);
   });
 
@@ -76,22 +76,22 @@ describe("supervise", () => {
         interrupted = true;
       },
     });
-    expect(exit.reason).toBe("wall-timeout");
+    expect(exit?.reason).toBe("wall-timeout");
     expect(interrupted).toBe(true);
   });
 
   it("kills a CLI that lingers after its final event", async () => {
     const s = spec(`echo '{"type":"result"}'; sleep 30`, { graceAfterFinalMs: 100 });
     const exit = await supervise(s, { onLine: (l) => ({ final: l.includes("result") }) });
-    expect(exit.reason).toBe("after-final");
+    expect(exit?.reason).toBe("after-final");
   });
 
   it("stops on a cancel request and escalates to SIGKILL when SIGTERM is ignored", async () => {
     const s = spec(`trap '' TERM; sleep 30`, { killGraceMs: 100 });
     setTimeout(() => requestCancel(s.dispatchDir), 100);
     const exit = await supervise(s);
-    expect(exit.reason).toBe("cancelled");
-    expect(exit.signal).toBe("SIGKILL");
+    expect(exit?.reason).toBe("cancelled");
+    expect(exit?.signal).toBe("SIGKILL");
   });
 });
 
@@ -113,7 +113,7 @@ describe("supervise always leaves exit.json and no live worker", () => {
         throw new Error("probe failed");
       },
     });
-    expect(exit.reason).toBe("idle-timeout");
+    expect(exit?.reason).toBe("idle-timeout");
     expect(readExit(s.dispatchDir)?.reason).toBe("idle-timeout");
   });
 
@@ -146,7 +146,7 @@ describe("supervise bounds its hooks", () => {
     const s = spec("sleep 30", { idleMs: 100 });
     const t0 = Date.now();
     const exit = await supervise(s, { isBusy: () => new Promise<boolean>(() => {}) });
-    expect(exit.reason).toBe("idle-timeout");
+    expect(exit?.reason).toBe("idle-timeout");
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
@@ -157,7 +157,7 @@ describe("supervise bounds its hooks", () => {
       isBusy: async () => true,
       interrupt: () => new Promise<void>(() => {}),
     });
-    expect(exit.reason).toBe("wall-timeout");
+    expect(exit?.reason).toBe("wall-timeout");
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
@@ -183,7 +183,7 @@ describe("supervise follows the worker's own account", () => {
         return l === "open" || l === "close" ? { item: { id: "item_1", open: l === "open" } } : {};
       },
     });
-    expect(exit.reason).toBe("idle-timeout");
+    expect(exit?.reason).toBe("idle-timeout");
     // the idle limit (100 ms) passed five times while the call was open, and the run lived on
     expect(seen).toEqual(["open", "close"]);
   });
@@ -255,7 +255,7 @@ describe("supervise signals the whole group", () => {
         return {};
       },
     });
-    expect(exit.reason).toBe("cancelled");
+    expect(exit?.reason).toBe("cancelled");
     expect(member).toBeGreaterThan(0);
     expect(readFileSync(events, "utf8").trim()).toBe(String(member));
     await waitFor(() => exited(member), 5_000);
@@ -284,5 +284,34 @@ describe("supervise decodes output", () => {
       },
     });
     expect(seen).toEqual(["é🐈"]);
+  });
+});
+
+describe("one supervisor per dispatch (codex P2: a relaunch between spawn and launch.json)", () => {
+  it("lets a second supervisor for a live one's dispatch exit at once, touching nothing", async () => {
+    const release = join(tempDir("catherd-hold-"), "release");
+    const s = spec(`echo '{"type":"first"}'; while [ ! -f '${release}' ]; do sleep 0.02; done`);
+    const p = dispatchPaths(s.dispatchDir);
+    const first = supervise(s);
+    await waitFor(() => existsSync(p.proc) && readFileSync(p.events, "utf8").length > 0);
+    const events = readFileSync(p.events, "utf8");
+    const proc = readFileSync(p.proc, "utf8");
+    expect(await supervise({ ...s, args: ["-c", "echo second"] })).toBeNull();
+    expect(readFileSync(p.events, "utf8")).toBe(events);
+    expect(readFileSync(p.proc, "utf8")).toBe(proc);
+    expect(readExit(s.dispatchDir)).toBeNull();
+    writeFileSync(release, "");
+    expect(await first).toMatchObject({ reason: "exited" });
+    // released on exit: a later supervisor may run the dispatch again
+    expect(existsSync(p.supervisorLock)).toBe(false);
+  });
+
+  it("takes over the lock of a supervisor that died", async () => {
+    const s = spec("exit 0");
+    const p = dispatchPaths(s.dispatchDir);
+    const dead = Bun.spawn(["true"]);
+    await dead.exited;
+    writeFileSync(p.supervisorLock, JSON.stringify({ pid: dead.pid, startTime: "gone" }));
+    expect(await supervise(s)).toMatchObject({ reason: "exited", code: 0 });
   });
 });

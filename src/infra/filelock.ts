@@ -1,6 +1,6 @@
 import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { CatherdError } from "../domain/errors.ts";
-import { isAlive, isValidPid, processStartTime } from "./proc.ts";
+import { isAlive, isValidPid, selfIdentity } from "./proc.ts";
 import { PRIVATE_FILE } from "./store.ts";
 
 interface Holder {
@@ -11,7 +11,7 @@ interface Holder {
 /** A lock or reclaim marker this old whose owner cannot be identified was left by a crash. */
 const STALE_MS = 5_000;
 
-const me = (): Holder => ({ pid: process.pid, startTime: processStartTime(process.pid) });
+const me = (): Holder => selfIdentity();
 
 /** The holder recorded in `lock`, or null when it is missing, empty, unparsable or malformed. */
 function readHolder(lock: string): Holder | null {
@@ -150,4 +150,10 @@ export function tryLock(target: string): (() => void) | null {
     if (!tryTake(lock, self)) return null;
   }
   return () => release(lock, self);
+}
+
+/** Whether a live process holds the lock on `target` (an unreadable holder counts as none). */
+export function lockHeld(target: string): boolean {
+  const h = readHolder(`${target}.lock`);
+  return h !== null && isAlive(h.pid, h.startTime);
 }

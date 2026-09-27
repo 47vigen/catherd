@@ -2,10 +2,17 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
-import type { Access, ExitReason } from "../../src/domain/record.ts";
+import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
+import {
+  dispatch,
+  type DispatchInput,
+  type Progress,
+  wait,
+  watchersSettled,
+} from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
@@ -129,6 +136,34 @@ export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_
   }
 }
 
+/**
+ * `dispatch`, then `wait` on that name until nothing of it runs (a failover stand-in included): what one
+ * 0.x dispatch call did. The last record, and every hint on the way (the records' first, then the state
+ * hints, once each).
+ */
+export async function runRole(
+  deps: Deps,
+  i: DispatchInput,
+  onProgress?: Progress,
+): Promise<{ record: RunRecord; hints: string[] }> {
+  const started = await dispatch(deps, i);
+  const hints: string[] = [];
+  const state = [...started.hints];
+  let record: RunRecord | null = null;
+  for (;;) {
+    const w = await wait(deps, { run: i.run, names: [i.name] }, onProgress);
+    for (const r of w.records) {
+      hints.push(...r.hints);
+      record = r.record;
+    }
+    for (const h of w.hints) if (!state.includes(h)) state.push(h);
+    if (!w.running.includes(i.name)) break;
+  }
+  await watchersSettled();
+  if (!record) throw new Error(`no record for ${i.name}`);
+  return { record, hints: [...hints, ...state.filter((h) => !hints.includes(h))] };
+}
+
 interface FakeFiles {
   /** "self": this test process stands in for a live supervisor; "dead": both pids are gone */
   proc?:
@@ -138,6 +173,8 @@ interface FakeFiles {
   exit?: { code: number | null; signal: string | null; reason: ExitReason; endedAt: string };
   events?: string;
   reply?: string;
+  /** leave the marker `dispatch` leaves for `wait`, as any catherd server that launched it does */
+  collect?: boolean;
 }
 
 let deadPid = 0;
@@ -208,6 +245,7 @@ export async function fakeDispatch(
     writeJsonAtomic(p.proc, { schema: 1, ...proc, pgid: proc.pid, startedAt: admit.admittedAt });
   }
   if (files.exit) writeJsonAtomic(p.exit, { schema: 1, ...files.exit });
+  if (files.collect) writeFileSync(p.collect, "");
   writeJsonAtomic(admitPath(dir), admit);
   setLatest(run, admit.name, admit.dispatchId);
   return { dir, admit };

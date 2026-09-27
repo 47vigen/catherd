@@ -29,7 +29,7 @@ Ask these, one at a time, each with its recommended answer:
 In one message, call:
 
 - `catalog_query({ role: "<role>" })` for each role you will discuss: the models that can fill it, their scored rungs, any "treat like", each rung's cost under their billing, and whether their backend's last listing offers it (`listed: false` means their account does not);
-- `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line;
+- `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line, for claude-code and opencode only: Codex reports no per-request input, so it has no harness figure;
 - `profile_get({ repo })`: where they stand now, with each role's `access` and `enforcement`. Pass the user's repo: without a name, the profile tools act on the profile this repo runs on (the one bound to it, else the active one), which `here` names; `active` is the global active profile.
 
 ## 3. Propose one decision at a time
@@ -59,7 +59,7 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 **Budget and timeouts.** `budget` (`minutes`, `tokens`, `usd`) is a soft cap: from 80 % routing starts at the cheapest rung that clears the bar, and at 100 % no new role starts. `timeouts.idleMin` (15) stops a role that has gone quiet, `timeouts.wallMin` (90) one that runs too long. `preflight.confirm: true` makes `preflight` show its commands for the user to approve first.
 
-**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`), offer `harness.<name>.isolated` with its harness line from `runs_summary` and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
+**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`), offer `harness.<name>.isolated` with its harness line from `runs_summary` (Codex has none: it reports no per-request input, so say there is no figure for it instead of offering one) and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
 
 ## 4. Write it
 

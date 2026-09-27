@@ -55,7 +55,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "status",
     {
       description:
-        "catherd's version, and one screen per run: the state.md tail, live roles, totals, reported Claude subagents, Jev fallbacks, budget and landed milestones. Without a run: every run with live roles, else the newest. Reads only.",
+        "catherd's version, and one screen per run: the state.md tail, live roles, totals, reported Claude subagents, Jev fallbacks, per backend how many dispatches ran native and isolated, budget and landed milestones. Without a run: every run with live roles, else the newest. Reads only.",
       inputSchema: { run: z.string().optional() },
     },
     (a) =>
@@ -131,7 +131,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "runs_summary",
     {
       description:
-        "Per role and rung over past runs: runs, ok, refusals, climbs from that rung, seconds and tokens; reported Claude subagent runs; and what the user's harness customizations cost per run. Reads only.",
+        "Per role and rung over past runs: runs, ok, refusals, climbs from that rung, seconds and tokens; reported Claude subagent runs; and what the user's harness customizations cost per run (median first-turn input, native against isolated; with a run, over that run's repo; null below 3 runs a side or when native is not dearer; none for Codex, which reports no per-request input). Reads only.",
       inputSchema: {
         run: z.string().optional(),
         repo: z.string().optional(),

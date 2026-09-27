@@ -171,6 +171,34 @@ describe("route with Jev", () => {
     expect(jevRows(r.runDir)[0]?.why).toBe("P(A) 0.55, P(B) 0.45: both below 0.8");
   });
 
+  it("keeps a sure kind in the dead band, with the lane's Difficulty", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
+    const r = req(lane("prose", "build"));
+    const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
+    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
+    expect(jevRows(r.runDir)[0]).toMatchObject({ source: "jev-kind", used: `worker ${TRACK_A.rung}` });
+  });
+
+  it("keeps a sure kind in the dead band without a Difficulty line, at the default rung's difficulty", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
+    const r = req(lane("prose", null));
+    const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
+    // the default rung, gpt-6-sol#medium, clears repo_code up to hard
+    expect(a).toMatchObject({ ...TRACK_B, source: "jev-kind", kind: "repo_code", difficulty: "hard" });
+    expect(jevRows(r.runDir)[0]?.source).toBe("jev-kind");
+  });
+
+  it("falls back as before when neither the kind nor the difficulty is sure", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-unsure.json") });
+    const svc = routingService({ key: "k", fetchImpl: f.impl, ...noWait });
+    expect(await svc.route(req(lane(null, "build")))).toMatchObject({
+      ...TRACK_B,
+      source: "default",
+      kind: null,
+      difficulty: null,
+    });
+  });
+
   it("routes a confident track with no declared kind as repo_code", async () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-track-a.json") });
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(req(lane(null, null)));

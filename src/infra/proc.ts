@@ -13,6 +13,16 @@ export function processStartTime(pid: number): string | null {
   }
 }
 
+let ownStart: string | null = null;
+/**
+ * This process's own identity for the leases and claims it writes. The start time is read once and kept:
+ * on macOS `ps` can fail for a moment, and a second read must never make a process a stranger to itself.
+ */
+export function selfIdentity(): { pid: number; startTime: string | null } {
+  ownStart ??= processStartTime(process.pid);
+  return { pid: process.pid, startTime: ownStart };
+}
+
 /** `ps` by absolute path where it lives, so a caller with a narrow PATH (a test, a sandbox) still finds it. */
 const PS = existsSync("/bin/ps") ? "/bin/ps" : "ps";
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { DIFFICULTIES, type Difficulty, KINDS, type Kind } from "../../src/domain/lane.ts";
-import { candidates, defaultLadder, type RoutingProfile, select } from "../../src/domain/select.ts";
+import {
+  candidates,
+  defaultDifficulty,
+  defaultLadder,
+  type RoutingProfile,
+  select,
+} from "../../src/domain/select.ts";
 import { shipped } from "./shipped.ts";
 
 const LADDER = [
@@ -158,5 +164,13 @@ describe("objective speed", () => {
   it("keeps the approved pin under cost whatever the timings", () => {
     const secs = { "gpt-6-sol#medium|*": 1, "gpt-6-luna#high|*": 9999 };
     expect(select(shipped({ secs }), worker(), "worker", "repo_code", "copy")).toEqual(TRACK_A);
+  });
+});
+
+describe("defaultDifficulty", () => {
+  it("never falls to copy, the cheapest start, when the default rung clears no bar (M-3)", () => {
+    const c = shipped();
+    for (const d of DIFFICULTIES) c.bars.repo_code[d] = { repo_code: 1e9 };
+    expect(defaultDifficulty(c, worker(), "worker", "repo_code")).toBe("build");
   });
 });

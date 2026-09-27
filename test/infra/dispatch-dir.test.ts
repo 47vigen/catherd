@@ -1,4 +1,5 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,20 @@ describe("dispatch folder", () => {
     const dir = d();
     const results = [tryClaim(dir), tryClaim(dir), tryClaim(dir)];
     expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("drops a claim it could not write its name into, so no finalizer waits on it until it is stale", () => {
+    const dir = d();
+    const write = spyOn(fs, "writeSync").mockImplementation(() => {
+      throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+    });
+    try {
+      expect(() => tryClaim(dir)).toThrow("no space left");
+    } finally {
+      write.mockRestore();
+    }
+    expect(existsSync(dispatchPaths(dir).claim)).toBe(false);
+    expect(tryClaim(dir)).toBe(true);
   });
 
   it("reads exit.json, or null when absent or unreadable", () => {

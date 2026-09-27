@@ -8,15 +8,25 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
 import { resetReadiness, standInFor } from "../../src/services/backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
-import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
+import {
+  claimSeams,
+  finalizeDispatch,
+  settleLimits,
+  takeOverStaleClaim,
+} from "../../src/services/finalize.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
-import { appendRecord, createRun } from "../../src/services/run-store.ts";
-import { fakeDeps, fakeDispatch, freshRun, makeRecord, testView } from "./helpers.ts";
+import { appendRecord, createRun, readRecords } from "../../src/services/run-store.ts";
+import { gitLimits } from "../../src/infra/git.ts";
+import { processStartTime } from "../../src/infra/proc.ts";
+import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, waitFor } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 afterEach(() => {
   unregisterAdapter("cursor");
+  claimSeams.beforeTakeover = async () => {};
   settleLimits.timeoutMs = 20_000;
+  settleLimits.claimMarginMs = 10_000;
+  gitLimits.timeoutMs = 15_000;
   prepareLimits.timeoutMs = 60_000;
 });
 beforeEach(() => resetReadiness());
@@ -244,6 +254,132 @@ describe("finalize with a streamed reply and a settled session", () => {
     const second = await finalizeDispatch(run, await dispatchOn(run, "th-1"));
     expect(second.tokens).toEqual({ input: 500, cached: 100, output: 30 });
     expect(second.costUsd).toBeCloseTo(0.3);
+  });
+
+  describe("a second finalizer while the first still settles (codex P2)", () => {
+    const counting = (gate?: Promise<void>) => {
+      const n = { finalize: 0, settle: 0 };
+      fake({
+        finalize: () => {
+          n.finalize++;
+          return { ...OK };
+        },
+        settle: async (o) => {
+          n.settle++;
+          await gate;
+          return o;
+        },
+      });
+      return n;
+    };
+    const claimBy = (d: { dir: string }, pid: number, startTime: string | null) =>
+      writeFileSync(dispatchPaths(d.dir).claim, JSON.stringify({ pid, startTime }));
+
+    it("joins this process's finalize in flight: one settle, one record, the same for both", async () => {
+      let open = () => {};
+      const n = counting(new Promise<void>((r) => (open = r)));
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      const first = finalizeDispatch(run, d);
+      await waitFor(() => n.settle === 1);
+      const second = finalizeDispatch(run, d);
+      open();
+      const [a, b] = await Promise.all([first, second]);
+      expect(a).toEqual(b);
+      expect(n).toEqual({ finalize: 1, settle: 1 });
+      expect(readRecords(run).records).toHaveLength(1);
+    });
+
+    it("returns a live claimant's record once it appears, never computing its own", async () => {
+      const n = counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, process.pid, processStartTime(process.pid));
+      const pending = finalizeDispatch(run, d);
+      const theirs = makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: d.admit.name });
+      await appendRecord(run, theirs);
+      expect((await pending).dispatchId).toBe(d.admit.dispatchId);
+      expect(n.finalize).toBe(0);
+    });
+
+    it("takes over at once a claim whose claimant is dead", async () => {
+      const n = counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const started = Date.now();
+      expect((await finalizeDispatch(run, d)).status).toBe("ok");
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(n.finalize).toBe(1);
+    });
+
+    it("takes over a live claim only once settle, the git snapshot's timeout and the margin are past", async () => {
+      settleLimits.timeoutMs = 50;
+      settleLimits.claimMarginMs = 50;
+      gitLimits.timeoutMs = 300;
+      const n = counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, process.pid, processStartTime(process.pid));
+      const started = Date.now();
+      expect((await finalizeDispatch(run, d)).status).toBe("ok");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(n.finalize).toBe(1);
+    });
+
+    it("serializes the takeover of a stale claim: one computer, never two, never none (codex P2)", async () => {
+      const n = counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const claimed: boolean[] = [];
+      // the other waiting process gets there first: it takes the claim over and writes the record
+      claimSeams.beforeTakeover = async () => {
+        claimSeams.beforeTakeover = async () => {};
+        claimed.push(await takeOverStaleClaim(d.dir));
+        claimed.push(existsSync(dispatchPaths(d.dir).claim));
+        await appendRecord(
+          run,
+          makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: d.admit.name, secs: 42 }),
+        );
+      };
+      const r = await finalizeDispatch(run, d);
+      expect(claimed).toEqual([true, true]);
+      expect(r.secs).toBe(42);
+      expect(n.finalize).toBe(0);
+      expect(readRecords(run).records).toHaveLength(1);
+    });
+
+    it("lets only one of two takers of the same stale claim win it", async () => {
+      counting();
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const both = await Promise.all([takeOverStaleClaim(d.dir), takeOverStaleClaim(d.dir)]);
+      expect(both.filter(Boolean)).toHaveLength(1);
+      expect(existsSync(dispatchPaths(d.dir).claim)).toBe(true);
+    });
+
+    it("returns the original claimant's record when it lands before the taker's own", async () => {
+      let open = () => {};
+      const n = counting(new Promise<void>((r) => (open = r)));
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const taking = finalizeDispatch(run, d);
+      await waitFor(() => n.settle === 1);
+      const theirs = makeRecord({
+        runId: run.id,
+        dispatchId: d.admit.dispatchId,
+        name: d.admit.name,
+        tokens: { input: 7, cached: 0, output: 1 },
+      });
+      await appendRecord(run, theirs);
+      open();
+      expect((await taking).tokens.input).toBe(7);
+      expect(readRecords(run).records).toHaveLength(1);
+    });
   });
 
   it("keeps the stream's outcome when settle throws or hangs", async () => {

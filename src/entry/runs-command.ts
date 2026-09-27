@@ -30,6 +30,10 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
         ? ` · native agents ${s.agents.runs} run(s), ${n(s.agents.totalTokens)} tokens (reported)`
         : ""),
   );
+  if (s.harness.length)
+    lines.push(
+      `  harness ${s.harness.map((h) => `${h.backend} ${h.native} native, ${h.isolated} isolated`).join(" · ")}`,
+    );
   if (s.budget) lines.push(`  budget ${formatBudget(s.budget)}`);
   if (s.jev.decisions) lines.push(`  jev ${s.jev.decisions} decision(s), ${s.jev.fallbacks} fallback(s)`);
   for (const m of s.milestones) lines.push(`  landed ${m}`);

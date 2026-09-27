@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -102,6 +111,22 @@ async function until<T>(f: () => Promise<T | null | undefined | false>, ms = 20_
   }
 }
 
+/** A `wait` call whose progress notifications reach `onTick`; its parsed result. */
+async function waitWithProgress(
+  c: Client,
+  args: Record<string, unknown>,
+  onTick: (message: string) => void,
+  // oxlint-disable-next-line typescript/no-explicit-any
+): Promise<any> {
+  const r = await c.callTool({ name: "wait", arguments: args }, undefined, {
+    timeout: 60_000,
+    resetTimeoutOnProgress: true,
+    onprogress: (p) => onTick(p.message ?? ""),
+  });
+  if (r.isError) throw new Error(JSON.stringify(r.content));
+  return JSON.parse((r.content as { text: string }[])[0]?.text ?? "null");
+}
+
 /** runs.jsonl's whole rows; a torn tail line is skipped, as catherd's own reader does. */
 function recordsOf(dir: string): { dispatchId: string; status: string }[] {
   return readFileSync(join(dir, "runs.jsonl"), "utf8")
@@ -147,6 +172,12 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect((await call(c, "status")).data.version).toBe(PKG.version);
       const started = await call(c, "run_start", { repo, title: "Add a", a_lines: ["A1 a exists"] });
       const { run, dir } = started.data as { run: string; dir: string };
+      expect((await call(c, "wait", { run })).data).toEqual({
+        records: [],
+        started: [],
+        running: [],
+        hints: ["nothing to wait for: every dispatch of this run has been collected; dispatch a role first"],
+      });
       await call(c, "write_run_file", {
         run,
         path: "lanes/M1.L1.md",
@@ -170,10 +201,12 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       ]);
       expect(pre.data.blocked).toBe(false);
 
-      // dispatch at Luna, which refuses; climb to Sol medium.
+      // dispatch at Luna, which returns at launch; wait, with progress, collects the refusal; climb.
+      const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
       sim.rewrite({
         eventsFile: join(FX, "two-turns.jsonl"),
         reply: "Tried.\nSTATUS: refused — needs a stronger model",
+        holdUntil: release,
       });
       const worker = {
         run,
@@ -182,9 +215,19 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
         brief: "Read lanes/M1.L1.md",
         lane: "M1.L1",
       };
-      const refused = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-luna#high" });
-      expect(refused.data.record).toMatchObject({ status: "ok", replyStatus: "refused" });
-      expect(refused.data.hints).toContain("climb: refused");
+      const launched = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-luna#high" });
+      expect(launched.data.dispatched).toMatchObject({ name: "worker-M1.L1", rung: "codex:gpt-6-luna#high" });
+      expect(Date.parse(launched.data.dispatched.admittedAt)).toBeGreaterThan(0);
+      expect((await call(c, "status", { run })).data.runs[0].live).toHaveLength(1);
+      const ticks: string[] = [];
+      const waiting = waitWithProgress(c, { run }, (m) => ticks.push(m));
+      await until(async () => ticks.length > 0);
+      writeFileSync(release, "");
+      const refused = await waiting;
+      expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
+      expect(refused.records[0].record).toMatchObject({ status: "ok", replyStatus: "refused" });
+      expect(refused.records[0].hints).toContain("climb: refused");
+      expect(refused.running).toEqual([]);
       const climbed = await call(c, "climb", { run, lane: "M1.L1", reason: "refused" });
       expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#medium", top: false });
 
@@ -201,15 +244,25 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
         },
       });
       const failed = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-sol#medium" });
-      expect(failed.data.record).toMatchObject({
+      expect(failed.data.dispatched.rung).toBe("codex:gpt-6-sol#medium");
+      // wait records the limit and launches the stand-in without awaiting it; the next wait collects it
+      const limited = (await call(c, "wait", { run })).data;
+      expect(limited.records[0].record).toMatchObject({ status: "limit", rung: "codex:gpt-6-sol#medium" });
+      expect(limited.records[0].hints[0]).toBe(
+        "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
+      );
+      expect(limited.started).toEqual([
+        expect.objectContaining({ name: "worker-M1.L1", rung: "codex:gpt-6-sol#high" }),
+      ]);
+      expect(limited.running).toEqual(["worker-M1.L1"]);
+      const stood = (await call(c, "wait", { run })).data;
+      expect(stood.records[0].record).toMatchObject({
         status: "ok",
         rung: "codex:gpt-6-sol#high",
         failoverFrom: "codex:gpt-6-sol#medium",
         changedOwned: ["src/a.ts"],
       });
-      expect(failed.data.hints[0]).toBe(
-        "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
-      );
+      expect(stood.running).toEqual([]);
 
       // land: five columns with minutes, and what it learned goes to the repo's knowledge.
       const sha = commitAll(repo);
@@ -240,9 +293,10 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(stopped.error?.fix).toBeTruthy();
       writeProfile({});
 
-      // cancel: a hanging role is stopped, recorded once as cancelled, and its dispatch returns that record.
+      // cancel: a hanging role is stopped and recorded once as cancelled.
       sim.rewrite({ hangMs: 60_000 });
-      const hanging = call(c, "dispatch", second);
+      expect((await call(c, "dispatch", second)).isError).toBe(false);
+      const hanging = call(c, "wait", { run, names: ["worker-M1.L2"] });
       await until(async () =>
         (await call(c, "status", { run })).data.runs[0].live.some(
           (l: { state: string }) => l.state === "running",
@@ -250,9 +304,13 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       );
       const cancelled = await call(c, "cancel", { run, name: "worker-M1.L2" });
       expect(cancelled.data.record.status).toBe("cancelled");
-      expect((await hanging).data.record.dispatchId).toBe(cancelled.data.record.dispatchId);
+      // cancel collects the record: the wait in flight may return it too, and no later wait does
+      const id = cancelled.data.record.dispatchId;
+      const inFlight = (await hanging).data.records as { record: { dispatchId: string } }[];
+      expect(inFlight.every((r) => r.record.dispatchId === id)).toBe(true);
+      expect((await call(c, "wait", { run })).data.records).toEqual([]);
 
-      // restart mid-run: the server dies while a role runs; the next server reconciles it into one record.
+      // restart mid-run: the server dies while a role runs; the next server's wait collects its one record.
       sim.rewrite({
         delayMs: 2_000,
         eventsFile: join(FX, "two-turns.jsonl"),
@@ -260,17 +318,17 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
         touch: [{ path: "src/b.ts", content: "b" }],
       });
       const recordedBefore = recordsOf(dir).length;
-      const orphan = call(c, "dispatch", second).catch(() => null);
-      await until(async () => (await call(c, "status", { run })).data.runs[0].live.length > 0);
+      expect((await call(c, "dispatch", second)).isError).toBe(false);
       await crash(c);
-      expect(await orphan).toBeNull();
-      // the dead server recorded nothing: the record below is the next server's reconcile
+      // the dead server recorded nothing: the record below is the next server's
       expect(recordsOf(dir)).toHaveLength(recordedBefore);
       c = await connect(env);
-      const done = await until(async () => {
-        const r = await call(c, "result", { run, name: "worker-M1.L2" });
-        return r.data.record?.status === "ok" ? r.data.record : null;
-      });
+      const collected = (await call(c, "wait", { run })).data;
+      expect(collected.records.map((r: { record: { name: string } }) => r.record.name)).toEqual([
+        "worker-M1.L2",
+      ]);
+      const done = collected.records[0].record;
+      expect(done.status).toBe("ok");
       expect(done.changedOwned).toEqual(["src/b.ts"]);
       const ids = recordsOf(dir).map((r) => r.dispatchId);
       expect(new Set(ids).size).toBe(ids.length);
@@ -310,6 +368,8 @@ describe("concurrency and corruption, over stdio", () => {
         call(c, "dispatch", { ...base, name: "writer", role: "writer" }),
       ]);
       expect(names.map((r) => r.error?.code ?? "ok").sort()).toEqual(["E_ADMIT_DUPLICATE", "ok"]);
+      const all = (await call(c, "wait", { run, all: true })).data;
+      expect(all.records.map((r: { record: { status: string } }) => r.record.status)).toEqual(["ok", "ok"]);
       await c.close();
     },
     { timeout: 60_000 },
@@ -322,16 +382,15 @@ describe("concurrency and corruption, over stdio", () => {
       const c = await connect(env);
       const { run, dir } = (await call(c, "run_start", { repo, title: "r", a_lines: ["A1"] })).data;
       sim.rewrite({ delayMs: 2_000, reply: "x\nSTATUS: complete — ok" });
-      const pending = call(c, "dispatch", {
+      const launched = await call(c, "dispatch", {
         run,
         role: "writer",
         name: "writer",
         brief: "b",
         rung: "codex:gpt-6-luna#high",
-      }).catch(() => null);
-      await until(async () => (await call(c, "status", { run })).data.runs[0].live.length > 0);
+      });
+      expect(launched.isError).toBe(false);
       await crash(c);
-      expect(await pending).toBeNull();
       // the dispatch finishes with no server alive, so both new servers find it finished and unrecorded
       await until(async () => finishedOnDisk(dir, "writer"));
       expect(recordsOf(dir)).toEqual([]);
@@ -368,7 +427,8 @@ describe("concurrency and corruption, over stdio", () => {
         brief: "b",
         rung: "codex:gpt-6-luna#high",
       });
-      expect(r.data.record.status).toBe("ok");
+      expect(r.data.dispatched.name).toBe("writer");
+      expect((await call(c2, "wait", { run })).data.records[0].record.status).toBe("ok");
       expect(recordsOf(dir).map((x) => x.status)).toEqual(["ok"]);
       await c2.close();
     },

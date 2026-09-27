@@ -20,6 +20,7 @@ const TOOLS = [
   "preflight",
   "dispatch",
   "cancel",
+  "wait",
   "climb",
   "ask",
   "land",

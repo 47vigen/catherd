@@ -93,4 +93,39 @@ describe("rolePrompt", () => {
     expect(text).toContain("how long the full suite takes when the docs, the CI config or a log say so");
     expect(text).toContain('never run the suite to find out; write "unknown" instead');
   });
+
+  it("has the researcher report the lint and type-check commands", () => {
+    expect(rolePrompt("researcher", "1.0.0")).toContain(
+      "the lint and type-check commands, and how to scope each to one package",
+    );
+  });
+
+  it("gives the architect all five lane header lines the skill names", () => {
+    const text = rolePrompt("architect", "1.0.0");
+    expect(text).toContain("Its first five lines are exactly:");
+    expect(text).toContain(
+      [
+        "    # Mx.Ly — <one line>",
+        "    Owns: <repo-relative paths, comma-separated>",
+        "    Fast check: <command>",
+        "    Kind: repo_code|terminal|ui|prose|research",
+        "    Difficulty: copy|build|logic|hard",
+      ].join("\n"),
+    );
+    expect(text).not.toContain("first three lines");
+  });
+
+  it("puts the linter and the type check in the architect's fast check", () => {
+    expect(rolePrompt("architect", "1.0.0")).toContain(
+      "its targeted tests plus the linter, and the type check when the project has one, scoped to the packages the lane owns",
+    );
+  });
+
+  it("has the architect translate a plan in hand instead of designing one", () => {
+    const text = rolePrompt("architect", "1.0.0");
+    expect(text).toContain("plan: <path>[, <path>…]");
+    expect(text).toContain("Translate it, do not design");
+    expect(text).toContain("decide only what the plan leaves undecided");
+    expect(text).toContain("When the orchestrator sends you a design finding later");
+  });
 });

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import type { RouteSource } from "../domain/route.ts";
 import {
   canonicalJson,
   type JevAnswers,
@@ -107,7 +108,7 @@ export interface JevRow {
   answers: JevAnswers | null;
   derived: Record<string, unknown> | null;
   used: string;
-  source: "jev" | "lane" | "default";
+  source: RouteSource;
   why: string;
 }
 

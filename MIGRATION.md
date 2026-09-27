@@ -62,6 +62,7 @@ Delete those when you no longer need them. Keep everything else, because 1.0 use
 
 - Bun 1.4 or newer; catherd refuses to start on an older one and says how to upgrade.
 - `catherd watch` and the dashboard show 1.0 runs only.
-- The MCP server has 20 tools (0.x had 18), and every error is `{ code, message, fix }`; the plugin's skills
+- The MCP server has 21 tools (0.x had 18), and every error is `{ code, message, fix }`. `dispatch` now returns
+  as soon as its role starts, and the new `wait` returns the records; the plugin's skills
   are updated to match, so update the plugin with catherd.
 - Exit codes: `0` ok, `1` error, `2` usage, `3` not ready (`doctor`), `130` interrupted.

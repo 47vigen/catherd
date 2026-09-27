@@ -7,17 +7,16 @@ backgrounding, subagent loading or plugin discovery (see §14, Risks, of the
 [1.0 design](../superpowers/specs/2026-09-25-catherd-1.0-design.md)). The checks that need real backend accounts (live tests, fixture capture, the
 Codex sandbox, the Jev key prompt) are in [`live-verification.md`](live-verification.md).
 
-Do these in order: S1 and S2 gate `dispatch` and the Claude agent files that the plugin
+Do these in order: S1 and S2 gate `wait` and the Claude agent files that the plugin
 check (the last section) then exercises end to end. S1 and S2 were written for 0.x and
 still hold for 1.0: they test Claude Code, not catherd.
 
 ## S1 — a 40-minute MCP call survives from the main thread
 
-**What this checks:** a long `dispatch` call must background itself after about two
-minutes and let the orchestrator keep working, then wake it with the result when the
-role finishes — without the stdio connection timing out. If this fails, `dispatch`
-would need to return a handle instead of blocking, with a separate tool that waits for
-it (see "Parallel dispatch" in [`ideas.md`](ideas.md)). catherd 1.0 has no such tool.
+**What this checks:** a long MCP call (in 1.0, `wait`; in 0.x it was `dispatch`) must
+background itself after about two minutes and let the orchestrator keep working, then
+wake it with the result when the role finishes — without the stdio connection timing
+out. `dispatch` itself returns at launch in 1.0, so it no longer needs to background.
 
 1. Create `spikes/s1/server.mjs` in your catherd checkout (it is not committed; the
    `spikes/` directory is scratch and you delete it at the end):
@@ -111,12 +110,12 @@ it (see "Parallel dispatch" in [`ideas.md`](ideas.md)). catherd 1.0 has no such 
 
 8. Optional control, only if step 6 passed with a token present: in another new
    session, ask for `sleep` with `minutes 35` and `progress false`. If that call dies
-   near 30 minutes, the progress notifications are what keep a long dispatch alive.
+   near 30 minutes, the progress notifications are what keep a long `wait` alive.
 
 **Verdict:** S1 **passes** only if all three hold — the call backgrounded within about
 2.5 minutes; it survived the full 40 minutes; the model woke by itself with the
 result. A missing progress token is fine if the call still survived. Otherwise S1
-**fails**, and `dispatch` needs the handle-and-wait design above; file an issue.
+**fails**: a long `wait` would not survive either, so file an issue.
 
 Clean up: `claude mcp remove catherd-s1 --scope user`, then `rm -r spikes`. The server
 source stays here, so you can re-create it when re-running this check on a new Claude
@@ -255,10 +254,10 @@ real tools — the thing the unit and contract tests cannot show.
       `plugin/skills/catherd/`, or lists one of them twice, that is a defect against
       the design (skills are already slash-invocable on their own) — record it before
       deciding whether to drop `plugin/commands/`.
-   2. Ask: "List the catherd MCP tools you have." Look for: all twenty tool names
+   2. Ask: "List the catherd MCP tools you have." Look for: all twenty-one tool names
       (`run_start, write_run_file, read_run_file, status, result, set_next,
       record_agent_run, read_knowledge, runs_summary, route, climb, ask, land,
-      preflight, dispatch, cancel, catalog_query, profile_get, profile_validate,
+      preflight, dispatch, wait, cancel, catalog_query, profile_get, profile_validate,
       profile_set`).
    3. Ask: "Call the catherd status tool." Look for: its `version` equal to your
       checkout's `package.json` version, and `runs` empty on a fresh machine (or the
@@ -271,10 +270,15 @@ real tools — the thing the unit and contract tests cannot show.
    6. In a repo with a one-file hello script and a test, run `/catherd Add a --shout
       flag to the hello script that upper-cases its output`. Look for: A-lines,
       `run_start`, lane files written through `write_run_file` (no permission prompt
-      for the run folder, since it is outside the repo), `route`, a worker `dispatch`,
-      the verifier running as the generated agent, a `land`, and a final report with
-      the harness line. If S1 passed, the dispatch backgrounds after two minutes only
-      if the role actually runs that long — a quicker finish is fine.
+      for the run folder, since it is outside the repo), `route`, a worker `dispatch`
+      that returns in about a second, then a `wait`, the verifier running as the
+      generated agent, a `land`, and a final report with the harness line. If S1
+      passed, the `wait` backgrounds after two minutes only if the role actually runs
+      that long — a quicker finish is fine.
+   7. Run the five checks of [live verification §6](live-verification.md#6-one-orchestrated-run) in
+      the same repository: two lanes whose records overlap in time, an opencode worker, a forced
+      climb, quota failover through a fake `codex` on the PATH, and a tiny token budget ending in
+      `E_RUN_BUDGET`. Look for what each check names.
 
 4. Restore and clean up:
 

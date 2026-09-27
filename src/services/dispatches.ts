@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ACCESS, type RunRecord } from "../domain/record.ts";
 import { ROLES } from "../domain/roles.ts";
-import { dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
+import { dispatchPaths, readExit, supervisorAlive } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
@@ -22,6 +22,8 @@ const AdmitSchema = z.looseObject({
   thread: z.string().nullable(),
   attempt: z.number().int().min(1),
   failoverFrom: z.string().nullable(),
+  /** the limited dispatch a failover stand-in replaces (plan 9); absent on any other dispatch */
+  failoverOf: z.string().optional(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
   cliVersion: z.string().nullable(),
@@ -40,6 +42,8 @@ export type DispatchState = "starting" | "running" | "finished";
 
 /** How long an admitted dispatch may go without a launch.json before it counts as never started. */
 export const STARTING_GRACE_MS = 30_000;
+/** The start grace in force; tests shorten it. */
+export const startLimits = { graceMs: STARTING_GRACE_MS };
 
 export const admitPath = (dir: string): string => join(dir, "admit.json");
 export const launchPath = (dir: string): string => join(dir, "launch.json");
@@ -95,6 +99,8 @@ export const readProc = (dir: string): ProcFile | null => readJson<ProcFile>(dis
  */
 export function dispatchState(d: Dispatch, now = Date.now()): DispatchState {
   if (readExit(d.dir)) return "finished";
+  // a live supervisor holds its dispatch's lock from its first moment, before launch.json or proc.json
+  if (!readProc(d.dir) && supervisorAlive(d.dir)) return "starting";
   const proc = readProc(d.dir);
   if (proc)
     return isAlive(proc.supervisorPid, proc.supervisorStartTime) || isAlive(proc.pid, proc.startTime)
@@ -102,7 +108,7 @@ export function dispatchState(d: Dispatch, now = Date.now()): DispatchState {
       : "finished";
   const launch = readJson<LaunchFile>(launchPath(d.dir));
   if (launch) return isAlive(launch.supervisorPid, launch.supervisorStartTime) ? "starting" : "finished";
-  return now - Date.parse(d.admit.admittedAt) < STARTING_GRACE_MS ? "starting" : "finished";
+  return now - Date.parse(d.admit.admittedAt) < startLimits.graceMs ? "starting" : "finished";
 }
 
 export type LiveDispatch = Dispatch & { state: DispatchState };

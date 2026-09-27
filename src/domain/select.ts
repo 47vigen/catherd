@@ -9,7 +9,7 @@ import {
 } from "./catalog.ts";
 import { type BillingMode, type Cost, compareCost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
-import type { Difficulty, Kind } from "./lane.ts";
+import { DIFFICULTIES, type Difficulty, type Kind } from "./lane.ts";
 import type { Role } from "./roles.ts";
 
 /** What routing reads from a profile for one role. */
@@ -94,6 +94,18 @@ export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
   if (all.length === 0) throw noRung(role);
   const i = Math.max(0, all.indexOf(p.role.defaultRung ?? ""));
   return { rung: all[i] as string, ladder: all.slice(i) };
+}
+
+/**
+ * The role's default difficulty for a kind: the hardest difficulty whose bar the role's default rung clears
+ * (`build` when it clears none, or is no candidate: never `copy`, whose start is the cheapest rung, below
+ * what the `default` source would pick). A route sure of the kind but not the difficulty starts there.
+ */
+export function defaultDifficulty(c: Catalog, p: RoutingProfile, role: Role, kind: Kind): Difficulty {
+  const start = defaultLadder(c, p, role).rung;
+  const cand = candidates(c, p, role, kind).find((x) => x.rung === start);
+  const cleared = cand ? DIFFICULTIES.filter((d) => clearsBar(c, cand, kind, d)) : [];
+  return cleared.at(-1) ?? "build";
 }
 
 /**

@@ -6,7 +6,7 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { cancel, dispatch } from "../../src/services/dispatch-service.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, testView, waitFor } from "../services/helpers.ts";
+import { fakeDeps, freshRun, runRole, testView, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -30,7 +30,7 @@ function live(access: "read-only" | "workspace-write" = "read-only") {
 describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
   it("runs a brief that starts with --- from stdin in the repo, with totals from the API", async () => {
     const { run, deps } = live();
-    const { record } = await dispatch(deps, {
+    const { record } = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-1",
@@ -57,7 +57,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
 
   it("keeps the catherd-ro agent from writing (spec §14)", async () => {
     const { repo, run, deps } = live();
-    const { record } = await dispatch(deps, {
+    const { record } = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-3",
@@ -71,7 +71,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
 
   it("stops a running shell on cancel: the session is interrupted server-side", async () => {
     const { repo, run, deps } = live("workspace-write");
-    const pending = dispatch(deps, {
+    await dispatch(deps, {
       run: run.id,
       role: "worker",
       name: "worker-1",
@@ -82,7 +82,6 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live opencode v2", () => {
     await Bun.sleep(15_000);
     const { record } = await cancel(deps, run.id, "worker-1");
     expect(record.status).toBe("cancelled");
-    await pending;
     await Bun.sleep(40_000);
     expect(existsSync(join(repo, "done.txt"))).toBe(false);
   }, 300_000);

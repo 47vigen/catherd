@@ -11,8 +11,11 @@ export const CLIMB_REASONS = [
 ] as const;
 export type ClimbReason = (typeof CLIMB_REASONS)[number];
 
-/** Spec §5.4: where a lane's kind and difficulty came from. */
-export type RouteSource = "jev" | "lane" | "default";
+/**
+ * Spec §5.4: where a lane's kind and difficulty came from. `jev-kind`: Jev was sure of the kind only, and the
+ * difficulty came from the lane's `Difficulty:` line, else from the role's default rung.
+ */
+export type RouteSource = "jev" | "jev-kind" | "lane" | "default";
 
 /** What Jev said about a lane, kept with its route for outcomes.jsonl (spec §5.6). */
 export interface RouteJev {

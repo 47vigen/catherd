@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { dispatch } from "../../src/services/dispatch-service.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, testView } from "../services/helpers.ts";
+import { fakeDeps, freshRun, runRole, testView } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -22,7 +21,7 @@ function live() {
 describe.skipIf(!process.env.CATHERD_LIVE)("live claude-code", () => {
   it("answers a tiny brief headless, then resumes the same session", async () => {
     const { run, deps } = live();
-    const first = await dispatch(deps, {
+    const first = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-1",
@@ -33,7 +32,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live claude-code", () => {
     expect(first.record).toMatchObject({ status: "ok", replyStatus: "complete", backend: "claude-code" });
     expect(first.record.tokens.input).toBeGreaterThan(0);
     expect(first.record.costUsd).toBeGreaterThan(0);
-    const again = await dispatch(deps, {
+    const again = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-1",
@@ -46,7 +45,7 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live claude-code", () => {
 
   it("keeps a read-only role from writing", async () => {
     const { repo, run, deps } = live();
-    const { record } = await dispatch(deps, {
+    const { record } = await runRole(deps, {
       run: run.id,
       role: "researcher",
       name: "researcher-2",

@@ -34,6 +34,7 @@ describe("orchestrator skill", () => {
       "route",
       "preflight",
       "dispatch",
+      "wait",
       "cancel",
       "record_agent_run",
       "climb",
@@ -45,6 +46,25 @@ describe("orchestrator skill", () => {
     ]) {
       expect(used).toContain(core);
     }
+  });
+
+  it("dispatches roles one after another, then waits: never the 0.x claim that dispatches run at once (plan 9)", () => {
+    const md = skill("catherd");
+    const waiting = md.slice(md.indexOf("## Waiting"), md.indexOf("\n## ", md.indexOf("## Waiting") + 1));
+    expect(waiting).toContain("one after another");
+    expect(waiting).toContain("`wait(run)`");
+    expect(waiting).toContain("A single role is `dispatch`, then `wait`.");
+    expect(waiting).toMatch(/`dispatch` and `wait` from your main thread only/);
+    for (const old of [
+      "Launch every independent role in the same message",
+      "Each dispatch backgrounds by itself",
+      "in one message, each at its rung",
+      "All lanes go at once",
+      "its dispatch call returns the same record",
+      "Launch it now, in the same message",
+      "`dispatch` has already",
+    ])
+      expect(md).not.toContain(old);
   });
 
   it("writes every rung as backend:model#effort, and pins this package's version", () => {
@@ -92,6 +112,59 @@ describe("orchestrator skill", () => {
     }
     expect(md).toContain("never isolate it");
     expect(md).toContain("${CODEX_HOME:-~/.codex}/generated_images/");
+  });
+});
+
+describe("orchestrator skill, run findings", () => {
+  const md = () => skill("catherd");
+
+  it("takes a plan in hand as an A-line: no dossier, an architect that translates", () => {
+    const s = md();
+    expect(s).toContain("`plan: <path>[, <path>…]`");
+    expect(s).toContain("The run then skips the dossier");
+    expect(s).toContain("**Plan in hand** (a `plan:` A-line): no dossier.");
+    expect(s).toContain("to translate, not design");
+    expect(s).toContain(
+      "redesigns only what the plan leaves undecided, and stays the target for `design` findings",
+    );
+    expect(s).toContain("With a plan in hand, it copies the user's plan into them");
+  });
+
+  it("puts the linter and the type check in every fast check it describes", () => {
+    const s = md();
+    expect(s).toContain(
+      "its targeted tests plus the linter, and the type check when the repo has one, scoped to the lane's owned packages",
+    );
+    expect(s).toContain("its fast check (targeted tests, lint and type check), to run until it passes");
+    expect(s).toContain("the lint and type-check commands, and how to scope each to one package;");
+    expect(s).not.toContain("(targeted tests, seconds to a minute or two)");
+  });
+
+  it("names all five lane header lines", () => {
+    for (const line of [
+      "`# Mx.Ly — <title>`",
+      "`Owns: <paths>`",
+      "`Fast check: <command>`",
+      "`Kind: ",
+      "`Difficulty: ",
+    ])
+      expect(md()).toContain(line);
+  });
+
+  it("says a sure kind survives an unsure difficulty", () => {
+    expect(md()).toContain("keeps Jev's kind and takes the difficulty from the lane's `Difficulty:` line");
+    expect(md()).toContain('`source: "jev-kind"`');
+  });
+
+  it("no longer claims the routes run at once", () => {
+    expect(md()).not.toContain("all in one message");
+    expect(md()).toContain('`route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane');
+  });
+
+  it("offers no Codex harness figure", () => {
+    const s = md();
+    expect(s).not.toContain("what the user's Codex customizations cost per run");
+    expect(s).toContain("Codex reports no per-request input, so it has no harness figure");
   });
 });
 
@@ -145,6 +218,8 @@ describe("setup skill", () => {
     expect(md).toContain("You never edit a file by hand");
     expect(md).toContain("native keeps your hooks, skills and AGENTS.md");
     expect(md).toContain("Recommend native");
+    expect(md).toContain("Codex reports no per-request input, so it has no harness figure");
+    expect(md).toContain("Codex has none: it reports no per-request input");
     for (const bad of ["Vigen", "agora"]) expect(md).not.toContain(bad);
   });
 });
