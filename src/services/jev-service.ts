@@ -47,7 +47,12 @@ export function savedJevKey(): { key: string | null; problem: CatherdError | nul
   try {
     return { key: readCredentials().typesafeApiKey?.trim() || null, problem: null };
   } catch (e) {
-    return { key: null, problem: isCatherdError(e) ? e : new CatherdError("E_CONFIG_INVALID", String(e)) };
+    return {
+      key: null,
+      problem: isCatherdError(e)
+        ? e
+        : new CatherdError("E_CONFIG_INVALID", String(e), { fix: credentialsFix() }),
+    };
   }
 }
 

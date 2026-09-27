@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JEV_BASE } from "../../src/infra/jev-client.ts";
 import { logFile } from "../../src/infra/log.ts";
+import * as store from "../../src/infra/store.ts";
 import {
   askJev,
   credentialsPath,
@@ -84,6 +85,22 @@ describe("the Jev key", () => {
     expect(rows.filter((r) => r.event === "jev").map((r) => r.error)).toEqual([
       expect.stringContaining(`no key: ${credentialsPath()} is not valid JSON`),
     ]);
+  });
+
+  it("gives even an unexpected credentials read failure a fix (audit N11)", () => {
+    saveJevKey("a");
+    const read = spyOn(store, "readVersioned").mockImplementation(() => {
+      throw new TypeError("boom");
+    });
+    try {
+      expect(savedJevKey().problem).toMatchObject({
+        code: "E_CONFIG_INVALID",
+        message: "TypeError: boom",
+        fix: `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
+      });
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it("refuses to overwrite a newer-schema or unreadable credentials file", () => {
