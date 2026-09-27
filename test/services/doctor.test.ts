@@ -309,7 +309,7 @@ describe("doctor", () => {
     expect(check(r, "credentials")).toMatchObject({
       state: "warn",
       word: "unreadable",
-      fix: `fix or delete ${credentialsPath()}`,
+      fix: `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
     });
     expect(check(r, "jev")).toMatchObject({ state: "warn", word: "no key" });
   });

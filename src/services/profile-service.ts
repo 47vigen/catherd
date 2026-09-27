@@ -36,7 +36,7 @@ import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { claudeAgentsDir, configDir } from "../infra/paths.ts";
-import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
+import { readJsonFile, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { VERSION } from "../infra/version.ts";
 import { backendOfKey, loadCatalog } from "./catalog-service.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
@@ -61,14 +61,7 @@ export type Projects = z.infer<typeof ProjectsSchema>;
  * (spec D2): `catherd init` moves those aside.
  */
 function readV1<T>(file: string, schema: z.ZodType<T>): T {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
-  } catch (e) {
-    throw new CatherdError("E_CONFIG_INVALID", `${file} is not readable JSON: ${(e as Error).message}`, {
-      fix: `fix or delete ${file}`,
-    });
-  }
+  const raw = readJsonFile(file);
   const found = (raw as { schema?: unknown } | null)?.schema;
   if (found === undefined)
     throw new CatherdError("E_CONFIG_INVALID", `${file} is from catherd 0.x`, {

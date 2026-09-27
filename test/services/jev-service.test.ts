@@ -74,7 +74,7 @@ describe("the Jev key", () => {
     expect(jevKey()).toBeNull();
     expect(savedJevKey().problem).toMatchObject({
       code: "E_CONFIG_INVALID",
-      fix: `fix or delete ${credentialsPath()}`,
+      fix: `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
     });
     const rows = readFileSync(logFile(), "utf8")
       .trim()
@@ -82,7 +82,7 @@ describe("the Jev key", () => {
       .slice(1)
       .map((l) => JSON.parse(l));
     expect(rows.filter((r) => r.event === "jev").map((r) => r.error)).toEqual([
-      expect.stringContaining(`no key: ${credentialsPath()} is not readable JSON`),
+      expect.stringContaining(`no key: ${credentialsPath()} is not valid JSON`),
     ]);
   });
 

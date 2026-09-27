@@ -69,6 +69,25 @@ describe("readVersioned", () => {
       expect(isCatherdError(e) && e.code).toBe("E_CONFIG_INVALID");
     }
   });
+
+  it("names a file that is not JSON without quoting it, so a pasted key never reaches the message (B1)", () => {
+    const f = join(dir(), "credentials.json");
+    writeFileSync(f, "tsk_FAKEKEY_DO_NOT_USE_1234567890\n");
+    let err: unknown;
+    try {
+      readVersioned(f, Thing, 1);
+    } catch (e) {
+      err = e;
+    }
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_CONFIG_INVALID",
+      message: `${f} is not valid JSON`,
+      fix: `fix or delete ${f}`,
+    });
+    expect(() => readVersioned(f, Thing, 1, { fix: "run x" })).toThrow(
+      expect.objectContaining({ fix: "run x" }),
+    );
+  });
 });
 
 describe("jsonl", () => {

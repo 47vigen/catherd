@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { formatCheck } from "../../src/entry/doctor-command.ts";
+import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
+import { credentialsPath } from "../../src/services/jev-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -14,6 +16,19 @@ afterEach(snapshotEnv());
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
+
+const BARE_KEY = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
+/** Every 6-character piece of the pasted key that `text` contains: none, when nothing leaked. */
+const keyPieces = (text: string): string[] =>
+  Array.from({ length: BARE_KEY.length - 5 }, (_, i) => BARE_KEY.slice(i, i + 6)).filter((p) =>
+    text.includes(p),
+  );
+const allLogs = (): string =>
+  existsSync(logsDir())
+    ? readdirSync(logsDir())
+        .map((f) => readFileSync(join(logsDir(), f), "utf8"))
+        .join("")
+    : "";
 
 function machine(): void {
   const home = withHome();
@@ -59,6 +74,21 @@ describe("formatCheck", () => {
 });
 
 describe("catherd doctor", () => {
+  it("never prints or logs a bare key pasted into credentials.json, and names the file (B1)", () => {
+    machine();
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), `${BARE_KEY}\n`, { mode: 0o600 });
+    const json = doctor("--json");
+    const text = doctor("--plain");
+    expect(keyPieces(json.out + text.out + allLogs())).toEqual([]);
+    expect(JSON.parse(json.out).checks.find((c: { id: string }) => c.id === "credentials")).toMatchObject({
+      state: "warn",
+      detail: `${credentialsPath()} is not valid JSON`,
+      fix: expect.stringContaining('"typesafeApiKey"'),
+    });
+    expect(allLogs()).toContain(`${credentialsPath()} is not valid JSON`);
+  }, 60_000);
+
   it("exits 3 when not ready, and its JSON shows the real MCP server answering over stdio", () => {
     machine();
     const r = doctor("--json");

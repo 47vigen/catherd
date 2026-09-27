@@ -61,7 +61,7 @@ describe("catherd (spec §8)", () => {
     withHome();
     const r = catherd(["_supervise", "/nonexistent/spec.json"]);
     expect(r.code).toBe(1);
-    expect(r.err).toStartWith("error E_CONFIG_INVALID: /nonexistent/spec.json is not readable JSON");
+    expect(r.err).toStartWith("error E_CONFIG_INVALID: /nonexistent/spec.json cannot be read (ENOENT)");
     expect(r.err).toContain("\nfix: fix or delete /nonexistent/spec.json\n");
   });
 

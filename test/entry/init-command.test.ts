@@ -41,6 +41,19 @@ describe("catherd init", () => {
     expect(activeName()).toBe("default");
   }, 60_000);
 
+  it("--no-input never prints a bare key pasted into credentials.json (B1)", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const key = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), `${key}\n`, { mode: 0o600 });
+    const r = init(["--no-input"]);
+    expect(r.code).toBe(0);
+    const pieces = Array.from({ length: key.length - 5 }, (_, i) => key.slice(i, i + 6));
+    expect(pieces.filter((p) => (r.out + r.err).includes(p))).toEqual([]);
+    expect(r.out).toContain(`${credentialsPath()} is not valid JSON`);
+  }, 60_000);
+
   it("--no-input keeps a profile it finds", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
@@ -118,8 +131,10 @@ describe("catherd init", () => {
     } finally {
       log.mockRestore();
     }
-    expect(lines[0]).toStartWith(`! Jev: could not save the key: ${credentialsPath()} is not readable JSON`);
-    expect(lines[1]).toBe(`    fix: fix or delete ${credentialsPath()}`);
+    expect(lines[0]).toStartWith(`! Jev: could not save the key: ${credentialsPath()} is not valid JSON`);
+    expect(lines[1]).toBe(
+      `    fix: delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
+    );
   });
 
   it("greets a terminal with the mascot (spec §9.3)", () => {

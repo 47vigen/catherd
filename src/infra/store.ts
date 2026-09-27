@@ -44,23 +44,42 @@ function newer(file: string, found: number, current: number): CatherdError {
   );
 }
 
-/** Reads a `"schema": n` JSON file. Schemas are loose objects, so unknown fields survive a rewrite. */
-export function readVersioned<T>(file: string, schema: z.ZodType<T>, current: number): T {
-  let raw: unknown;
+/**
+ * The parsed content of a JSON file catherd keeps. The error never carries the parser's message: it
+ * quotes the offending text, which for a key pasted into credentials.json is the key itself (audit B1).
+ */
+export function readJsonFile(file: string, fix = `fix or delete ${file}`): unknown {
+  let text: string;
   try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
+    text = readFileSync(file, "utf8");
   } catch (e) {
-    throw new CatherdError("E_CONFIG_INVALID", `${file} is not readable JSON: ${(e as Error).message}`, {
-      fix: `fix or delete ${file}`,
-    });
+    const code = (e as NodeJS.ErrnoException).code ?? "an I/O error";
+    throw new CatherdError("E_CONFIG_INVALID", `${file} cannot be read (${code})`, { fix });
   }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new CatherdError("E_CONFIG_INVALID", `${file} is not valid JSON`, { fix });
+  }
+}
+
+/**
+ * Reads a `"schema": n` JSON file. Schemas are loose objects, so unknown fields survive a rewrite.
+ * `fix` replaces the default fix of an unreadable or invalid file.
+ */
+export function readVersioned<T>(
+  file: string,
+  schema: z.ZodType<T>,
+  current: number,
+  o: { fix?: string } = {},
+): T {
+  const fix = o.fix ?? `fix or delete ${file}`;
+  const raw = readJsonFile(file, fix);
   const found = (raw as { schema?: unknown } | null)?.schema;
   if (typeof found === "number" && found > current) throw newer(file, found, current);
   const r = schema.safeParse(raw);
   if (!r.success)
-    throw new CatherdError("E_CONFIG_INVALID", `${file} is invalid:\n${z.prettifyError(r.error)}`, {
-      fix: `fix or delete ${file}`,
-    });
+    throw new CatherdError("E_CONFIG_INVALID", `${file} is invalid:\n${z.prettifyError(r.error)}`, { fix });
   return r.data;
 }
 
