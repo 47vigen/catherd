@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
-import { activeName, getProfile, patchProfile } from "../../src/services/profile-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { patchProfile } from "../../src/services/profile-service.ts";
+import { activeName, getProfile } from "../../src/services/profile-store.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
@@ -40,6 +41,44 @@ describe("catherd init", () => {
     expect(r.out.trimEnd().split("\n").slice(-4)).toEqual(PLUGIN_STEPS);
     expect(activeName()).toBe("default");
   }, 60_000);
+
+  it("--plain prints ASCII glyphs as doctor --plain does, and NO_COLOR keeps doctor's own (audit N2)", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const plain = init(["--no-input", "--plain"]).out;
+    expect(plain).toContain("+ profile default written from the defaults, and active\n");
+    expect(plain).toContain("x missing            Claude Code plugin — not installed in Claude Code\n");
+    expect(plain).not.toMatch(/[✓✗]/);
+    process.env.NO_COLOR = "1";
+    const noColor = init(["--no-input"]).out;
+    expect(noColor).toContain("✓ profile default kept as it was, and active\n");
+    expect(noColor).toContain("✗ missing            Claude Code plugin");
+  }, 60_000);
+
+  it("--no-input never prints a bare key pasted into credentials.json (B1)", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const key = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), `${key}\n`, { mode: 0o600 });
+    const r = init(["--no-input"]);
+    expect(r.code).toBe(0);
+    const pieces = Array.from({ length: key.length - 5 }, (_, i) => key.slice(i, i + 6));
+    expect(pieces.filter((p) => (r.out + r.err).includes(p))).toEqual([]);
+    expect(r.out).toContain(`${credentialsPath()} is not valid JSON`);
+  }, 60_000);
+
+  it.skipIf(noPosixModes)(
+    "--no-input keeps every config and data dir at 0700 and file at 0600 (audit S2)",
+    () => {
+      const home = withHome();
+      process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+      expect(init(["--no-input"]).code).toBe(0);
+      expect(existsSync(join(home, "config", "config.json"))).toBe(true);
+      expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
+    },
+    60_000,
+  );
 
   it("--no-input keeps a profile it finds", () => {
     const home = withHome();
@@ -128,8 +167,10 @@ describe("catherd init", () => {
     } finally {
       log.mockRestore();
     }
-    expect(lines[0]).toStartWith(`! Jev: could not save the key: ${credentialsPath()} is not readable JSON`);
-    expect(lines[1]).toBe(`    fix: fix or delete ${credentialsPath()}`);
+    expect(lines[0]).toStartWith(`! Jev: could not save the key: ${credentialsPath()} is not valid JSON`);
+    expect(lines[1]).toBe(
+      `    fix: delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
+    );
   });
 
   it("greets a terminal with the mascot (spec §9.3)", () => {

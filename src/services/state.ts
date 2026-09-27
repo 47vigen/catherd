@@ -1,6 +1,6 @@
 import { relative } from "node:path";
 import { z } from "zod";
-import { isCatherdError } from "../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { overlaps } from "../domain/lane.ts";
 import { renderState } from "../domain/state.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
@@ -11,7 +11,7 @@ import { liveDispatches } from "./dispatches.ts";
 import { type Run, runPaths } from "./run-store.ts";
 
 /** state.json: the orchestrator's notes that state.md shows beside the live facts. */
-export const NotesSchema = z.looseObject({
+const NotesSchema = z.looseObject({
   schema: z.literal(1),
   next: z.string(),
   lastCheck: z.string().nullable(),
@@ -85,7 +85,7 @@ export async function refreshState(
   try {
     return { text: await updateState(run, apply), hints: [] };
   } catch (e) {
-    const hints = [`state.md not refreshed: ${e instanceof Error ? e.message : String(e)}`];
+    const hints = [`state.md not refreshed: ${errorMessage(e)}`];
     // git fails before updateState reaches the notes: keep them, so a later refresh still shows them
     if (!applied) {
       const stateJson = runPaths(run.dir).stateJson;
@@ -96,7 +96,7 @@ export async function refreshState(
         });
       } catch (e2) {
         // the lock outwaited (a slow git under another refresh): still never fail the call
-        hints.push(`notes not saved: ${e2 instanceof Error ? e2.message : String(e2)}`);
+        hints.push(`notes not saved: ${errorMessage(e2)}`);
       }
     }
     return { text: null, hints };

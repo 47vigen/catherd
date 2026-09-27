@@ -3,12 +3,13 @@ import type { Budget } from "./budget.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
-import { parseRung } from "./ids.ts";
+import { ADAPTER_IDS, parseRung, tryParseRung } from "./ids.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
+import { isPlain, slug } from "./util.ts";
 
 /** Spec §3.4: every file carries its schema version; a profile is schema 1. */
-export const PROFILE_SCHEMA = 1;
+const PROFILE_SCHEMA = 1;
 
 /** Profile names end up in agent names (`catherd-<profile>-…`), which Claude Code wants lowercase. */
 export const PROFILE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -25,18 +26,11 @@ export const NOTIFY = ["milestone", "finish", "blocked"] as const;
 export type NotifyMoment = (typeof NOTIFY)[number];
 
 /** The harnesses a profile can isolate (spec §7.1 `harness`); the native `claude` path has none. */
-export const HARNESS_KEYS = ["codex", "claude-code", "opencode", "cursor", "grok"] as const;
+export const HARNESS_KEYS = ADAPTER_IDS;
 
-const isRung = (s: string): boolean => {
-  try {
-    parseRung(s);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const isRung = (s: string): boolean => tryParseRung(s) !== null;
 /** A `<backend>:<model>#<effort>` rung, for input schemas; stored profiles keep any string and validate. */
-export const RungSchema = z.string().refine(isRung, "a rung is <backend>:<model>#<effort>");
+const RungSchema = z.string().refine(isRung, "a rung is <backend>:<model>#<effort>");
 
 const positive = z.number().positive();
 
@@ -82,7 +76,7 @@ const known = <T extends string>(values: readonly T[], v: string | undefined): v
  * access as read-only, billing as the key's default mode, Jev as off, so nothing is sent or written that
  * the value may not allow; an unknown notify moment is skipped.
  */
-export const STORED_FALLBACK = {
+const STORED_FALLBACK = {
   objective: "cost",
   jevUse: "off",
   access: "read-only",
@@ -246,12 +240,6 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
   };
 }
 
-const slug = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
 /** Spec §7.3: `catherd-<profile>-<role>-<model slug>-<effort>`, the native subagent for a `claude:` rung. */
 export function agentName(profile: string, role: Role, rung: string): string {
   const r = parseRung(rung);
@@ -287,11 +275,8 @@ export const ProfilePatchSchema = z.strictObject({
 });
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
 
-const isPlain = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
 /** RFC 7396 merge: objects merge key by key, `null` deletes, anything else (arrays too) replaces. */
-export function mergePatch(target: unknown, patch: unknown): unknown {
+function mergePatch(target: unknown, patch: unknown): unknown {
   if (!isPlain(patch)) return patch;
   const out: Record<string, unknown> = isPlain(target) ? { ...target } : {};
   for (const [k, v] of Object.entries(patch)) {

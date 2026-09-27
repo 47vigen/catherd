@@ -1,41 +1,33 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { ADAPTER_IDS, type Probe } from "../adapters/backend.ts";
+import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import { isCatherdError } from "../domain/errors.ts";
-import { parseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
-import { claudeHome, locksDir } from "../infra/paths.ts";
-import { refreshDiscovery } from "./catalog-service.ts";
+import { locksDir } from "../infra/paths.ts";
+import { linkedProfiles } from "./agent-links.ts";
+import { backendChecks, usedBackends, workspaceWriteBackends } from "./doctor-backends.ts";
+import {
+  agentsCheck,
+  type Check,
+  errText,
+  fixOf,
+  guarded,
+  locksCheck,
+  pluginCheck,
+} from "./doctor-checks.ts";
 import { credentialsPath, jevKey, savedJevKey, testJevKey } from "./jev-service.ts";
 import {
   activeName,
-  agentLinkState,
   enforcementOf,
   getProfile,
-  linkedProfiles,
   profileExists,
   readConfig,
   readProjects,
   validateNamed,
-} from "./profile-service.ts";
+} from "./profile-store.ts";
 import { listRuns } from "./run-store.ts";
-
-export type CheckState = "ok" | "warn" | "fail" | "skip";
-
-/** One row of `catherd doctor` (spec §10.3): its state, one word, the detail and the full fix. */
-export interface Check {
-  id: string;
-  label: string;
-  state: CheckState;
-  word: string;
-  detail: string;
-  fix?: string;
-}
 
 export interface DoctorReport {
   /** false when any check failed: `catherd doctor` exits 3 */
@@ -57,210 +49,6 @@ export interface DoctorDeps {
   /** starts `catherd mcp` over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
   jev?: JevTransport;
-}
-
-export const PLUGIN_INSTALL =
-  "claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd";
-export const PLUGIN_UPDATE =
-  "claude plugin marketplace update catherd && claude plugin update catherd@catherd";
-
-const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e)) as string;
-const fixOf = (e: unknown) => (isCatherdError(e) ? e.fix : undefined);
-
-/** A check whose reads can throw (a corrupt or newer-schema file): the throw becomes its `fail` row. */
-function guarded(id: string, label: string, fallbackFix: string, check: () => Check): Check {
-  try {
-    return check();
-  } catch (e) {
-    return { id, label, state: "fail", word: "unreadable", detail: errText(e), fix: fixOf(e) ?? fallbackFix };
-  }
-}
-
-/** Every backend a linked profile runs a role on ("role"), or only fails over to ("failover"). */
-function usedBackends(profiles: Profile[]): Map<string, "role" | "failover"> {
-  const used = new Map<string, "role" | "failover">();
-  const note = (rung: string, how: "role" | "failover") => {
-    try {
-      const b = parseRung(rung).backend;
-      if (used.get(b) !== "role") used.set(b, how);
-    } catch {
-      // validate reports a bad rung
-    }
-  };
-  for (const p of profiles) {
-    for (const role of ROLES) if (p.roles[role].enabled) for (const r of p.roles[role].rungs) note(r, "role");
-    for (const to of Object.values(p.failover)) note(to, "failover");
-  }
-  return used;
-}
-
-/**
- * Spec §10.3: the backends that run an enabled workspace-write role, or stand in for one of its rungs,
- * whose sandbox must let such a worker take the heavy lock.
- */
-function workspaceWriteBackends(profiles: Profile[]): Set<string> {
-  const out = new Set<string>();
-  for (const p of profiles)
-    for (const role of ROLES) {
-      const rc = p.roles[role];
-      if (!rc.enabled || rc.access !== "workspace-write") continue;
-      for (const r of [...rc.rungs, ...rc.rungs.flatMap((x) => p.failover[x] ?? [])])
-        try {
-          out.add(parseRung(r).backend);
-        } catch {
-          // validate reports a bad rung
-        }
-    }
-  return out;
-}
-
-const PROBLEM_WORD: Record<string, string> = {
-  E_BACKEND_MISSING: "missing",
-  E_BACKEND_TOO_OLD: "too old",
-  E_BACKEND_NOT_LOGGED_IN: "not logged in",
-};
-
-async function backendChecks(used: Map<string, "role" | "failover">, profiles: Profile[]): Promise<Check[]> {
-  const checks: Check[] = [];
-  const ready: string[] = [];
-  for (const id of ADAPTER_IDS) {
-    const a = adapterFor(id);
-    if (!a) continue;
-    const probe: Probe = await a.probe().catch((e: unknown) => ({
-      installed: false,
-      version: null,
-      versionOk: false,
-      loggedIn: null,
-      problems: [
-        { code: "E_IO_UNEXPECTED" as const, message: errText(e), fix: `run ${id} --version to see why` },
-      ],
-    }));
-    const problem = probe.problems[0];
-    const use = used.get(id);
-    if (!problem) {
-      ready.push(id);
-      const detail = [probe.version, probe.login && `${probe.login} login`].filter(Boolean).join(" · ");
-      // a login billed apart from what a profile says (a plan, or per token) ranks that backend's cost wrongly;
-      // only a profile that routes something to this backend is ranked by it
-      const billed =
-        probe.billing &&
-        profiles.find((p) => p.billing[id] && p.billing[id] !== probe.billing && usedBackends([p]).has(id));
-      checks.push(
-        billed
-          ? {
-              id: `backend:${id}`,
-              label: id,
-              state: "warn",
-              word: "billing",
-              detail: `${detail} · profile ${billed.name} bills ${id} as ${billed.billing[id]}, but this login is ${probe.billing}`,
-              fix: `catherd profile set billing.${id} ${probe.billing} --profile ${billed.name}`,
-            }
-          : { id: `backend:${id}`, label: id, state: "ok", word: "ready", detail },
-      );
-      continue;
-    }
-    checks.push({
-      id: `backend:${id}`,
-      label: id,
-      state: use === "role" ? "fail" : use === "failover" ? "warn" : "skip",
-      word: PROBLEM_WORD[problem.code] ?? "not ready",
-      detail: `${problem.message}${use === "failover" ? " (a failover stand-in uses it)" : use ? "" : " (no profile uses it)"}`,
-      fix: problem.fix,
-    });
-  }
-  // spec §5.2: doctor refreshes discovery; a listing that fails keeps the last one
-  let refreshed: Awaited<ReturnType<typeof refreshDiscovery>> = [];
-  try {
-    refreshed = await refreshDiscovery({ backends: ready });
-  } catch (e) {
-    checks.push({
-      id: "discovery",
-      label: "model discovery",
-      state: "fail",
-      word: "unreadable",
-      detail: errText(e),
-      fix: fixOf(e) ?? "catherd catalog refresh --verbose",
-    });
-  }
-  for (const r of refreshed) {
-    const c = checks.find((x) => x.id === `backend:${r.backend}`);
-    if (!c) continue;
-    if (r.error)
-      Object.assign(c, {
-        state: "warn",
-        word: "no listing",
-        detail: `${c.detail} · ${r.error}`,
-        fix: "catherd catalog refresh",
-      });
-    else c.detail = `${c.detail} · ${r.models} models`;
-  }
-  return checks;
-}
-
-function pluginCheck(version: string): Check {
-  const base = { id: "plugin", label: "Claude Code plugin" };
-  const file = join(claudeHome(), "plugins", "installed_plugins.json");
-  let installed: string | null = null;
-  try {
-    const j = JSON.parse(readFileSync(file, "utf8")) as { plugins?: Record<string, { version?: string }[]> };
-    const entry = Object.entries(j.plugins ?? {}).find(([k]) => k.startsWith("catherd@"))?.[1]?.[0];
-    installed = entry ? (entry.version ?? "unknown") : null;
-  } catch {
-    installed = null;
-  }
-  if (installed === null)
-    return {
-      ...base,
-      state: "fail",
-      word: "missing",
-      detail: "not installed in Claude Code",
-      fix: PLUGIN_INSTALL,
-    };
-  if (installed !== version)
-    return {
-      ...base,
-      state: "fail",
-      word: "stale",
-      detail: `plugin ${installed}, catherd ${version}`,
-      fix: PLUGIN_UPDATE,
-    };
-  return { ...base, state: "ok", word: "ready", detail: installed };
-}
-
-function locksCheck(): Check {
-  const base = { id: "locks", label: "heavy-lock dir" };
-  try {
-    mkdirSync(locksDir(), { recursive: true });
-    const probe = join(locksDir(), `.doctor-${process.pid}`);
-    writeFileSync(probe, "");
-    rmSync(probe, { force: true });
-    return { ...base, state: "ok", word: "ready", detail: locksDir() };
-  } catch (e) {
-    return {
-      ...base,
-      state: "fail",
-      word: "not writable",
-      detail: `${locksDir()}: ${errText(e)}`,
-      fix: `chmod -R u+w ${locksDir()}`,
-    };
-  }
-}
-
-function agentsCheck(): Check {
-  const base = { id: "agents", label: "Claude agents" };
-  const links = agentLinkState();
-  const broken = [...links.missing, ...links.stale];
-  if (broken.length)
-    return {
-      ...base,
-      state: "fail",
-      word: links.missing.length ? "missing" : "stale",
-      detail: broken.join(", "),
-      fix: `catherd profile use ${activeName()}`,
-    };
-  return links.ok.length
-    ? { ...base, state: "ok", word: "ready", detail: `${links.ok.length} linked` }
-    : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
 }
 
 /**

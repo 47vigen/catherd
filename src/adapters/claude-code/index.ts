@@ -25,7 +25,7 @@ import { CLAUDE_ALIASES, CLAUDE_EFFORTS, CLAUDE_MODELS } from "./models.ts";
 import { listClaudeModels } from "./models-api.ts";
 
 /** The version whose flags catherd was verified against (`claude --help`, 2026-09-25). */
-export const CLAUDE_MIN_VERSION = "2.1.282";
+const CLAUDE_MIN_VERSION = "2.1.282";
 const THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** How long a `claude` query (version, login) may take before it counts as failed. */

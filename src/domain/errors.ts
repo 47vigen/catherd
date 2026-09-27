@@ -27,6 +27,12 @@ export type ErrorCode =
   | "E_INPUT_INVALID"
   | "E_RUNTIME_TOO_OLD";
 
+/**
+ * How to get a newer catherd. `bunx catherd-cli@latest` alone opens the newest one's dashboard and upgrades
+ * nothing that is installed (audit N12).
+ */
+export const UPGRADE = "bun add -g catherd-cli@latest (or run bunx catherd-cli@latest <command>)";
+
 /** Every failure catherd reports: a stable code, a message, and the exact action that fixes it. */
 export class CatherdError extends Error {
   readonly code: ErrorCode;
@@ -47,3 +53,6 @@ export class CatherdError extends Error {
 }
 
 export const isCatherdError = (e: unknown): e is CatherdError => e instanceof CatherdError;
+
+/** The message of anything thrown: an Error's message, else the value as a string. */
+export const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));

@@ -1,5 +1,5 @@
 ---
-description: Orchestrate a task with catherd — Claude plans and verifies, Codex and opencode workers write the code
+description: Orchestrate a task with catherd — Claude plans and verifies, Codex, opencode or headless Claude Code workers write the code
 argument-hint: "<task, or nothing to resume the latest run>"
 ---
 

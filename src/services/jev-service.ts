@@ -35,16 +35,24 @@ export function registerSavedSecrets(): void {
   addSecret(jevKey());
 }
 
+/** How to repair a credentials file catherd cannot read: `init` alone refuses to overwrite it. */
+const credentialsFix = (): string =>
+  `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`;
+const readCredentials = () =>
+  readVersioned(credentialsPath(), CredentialsSchema, 1, { fix: credentialsFix() });
+
 /** The key saved in credentials.json, or why that file cannot be read (unparsable, newer schema). */
 export function savedJevKey(): { key: string | null; problem: CatherdError | null } {
   if (!existsSync(credentialsPath())) return { key: null, problem: null };
   try {
-    return {
-      key: readVersioned(credentialsPath(), CredentialsSchema, 1).typesafeApiKey?.trim() || null,
-      problem: null,
-    };
+    return { key: readCredentials().typesafeApiKey?.trim() || null, problem: null };
   } catch (e) {
-    return { key: null, problem: isCatherdError(e) ? e : new CatherdError("E_CONFIG_INVALID", String(e)) };
+    return {
+      key: null,
+      problem: isCatherdError(e)
+        ? e
+        : new CatherdError("E_CONFIG_INVALID", String(e), { fix: credentialsFix() }),
+    };
   }
 }
 
@@ -67,7 +75,7 @@ export function jevKey(): string | null {
  */
 export function saveJevKey(key: string): void {
   const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
-    ? readVersioned(credentialsPath(), CredentialsSchema, 1)
+    ? readCredentials()
     : { schema: 1 };
   writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, typesafeApiKey: key.trim() }, { mode: 0o600 });
 }
@@ -112,10 +120,10 @@ export interface Asked {
 
 const jevLog = (runDir: string) => join(runDir, "jev.jsonl");
 
-export function logJev(runDir: string, row: Omit<JevRow, "at">, now = Date.now()): void {
+export function logJev(runDir: string, row: Omit<JevRow, "at">): void {
   const f = jevLog(runDir);
   ensureJsonlHeader(f, "jev");
-  appendJsonl(f, { at: new Date(now).toISOString(), ...row });
+  appendJsonl(f, { at: new Date().toISOString(), ...row });
 }
 
 /**

@@ -112,7 +112,10 @@ export function writeLane(
   extra = "Kind: repo_code\nDifficulty: build\n",
 ): string {
   const file = join(runPaths(run.dir).lanes, `${id}.md`);
-  writeFileSync(file, `# ${id} — test lane\nOwns: ${owns.join(", ")}\nFast check: ${check}\n${extra}`);
+  // 0600, as catherd's own writeRunFile writes it
+  writeFileSync(file, `# ${id} — test lane\nOwns: ${owns.join(", ")}\nFast check: ${check}\n${extra}`, {
+    mode: 0o600,
+  });
   return file;
 }
 
@@ -126,7 +129,7 @@ export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_
   }
 }
 
-export interface FakeFiles {
+interface FakeFiles {
   /** "self": this test process stands in for a live supervisor; "dead": both pids are gone */
   proc?:
     | "self"

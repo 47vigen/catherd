@@ -57,14 +57,6 @@ export function wrap(s: string, max: number): string[] {
   return lines;
 }
 
-/** `left` then `right` on one line of exactly `w` columns; `left` gives way (end-truncated) first. */
-export function fit(left: string, right: string, w: number, plain = false): string {
-  if (!right) return padEnd(truncateEnd(left, w, plain), w);
-  const r = truncateEnd(right, Math.max(0, w - 2), plain);
-  const l = truncateEnd(left, Math.max(0, w - width(r) - 2), plain);
-  return l + " ".repeat(Math.max(1, w - width(l) - width(r))) + r;
-}
-
 /** `04:12`, or `1:02:03` past an hour. */
 export function clock(secs: number): string {
   const s = Math.max(0, Math.floor(secs));

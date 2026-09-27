@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
@@ -13,7 +14,7 @@ import { refreshState } from "./state.ts";
  * spec.json, readable by others. A spec is read once, when its supervisor starts, so such a file loses
  * its env and becomes 0600. Returns how many it scrubbed.
  */
-export function scrubOldSpecs(run: Run): number {
+function scrubOldSpecs(run: Run): number {
   let n = 0;
   for (const d of listDispatches(run)) {
     const file = dispatchPaths(d.dir).spec;
@@ -41,7 +42,7 @@ export interface ReconcileReport {
  * Waits for a live dispatch this process did not start, then finalizes it. A state.md refresh that
  * fails rejects, after the record is written, with a message that says so.
  */
-export async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
+async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
   await waitForFinish(d, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   await finalizeDispatch(run, d);
   const { hints } = await refreshState(run);
@@ -61,7 +62,7 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
   };
   const watchers: Promise<void>[] = [];
   const warn = (run: Run, e: unknown): void => {
-    const w = `${run.id}: ${e instanceof Error ? e.message : String(e)}`;
+    const w = `${run.id}: ${errorMessage(e)}`;
     if (!report.warnings.includes(w)) report.warnings.push(w);
   };
   for (const run of runs) {

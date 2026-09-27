@@ -88,7 +88,7 @@ const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): Run
   ...o,
 });
 
-export const FIXTURE_RUNS: RunDetail[] = [
+const FIXTURE_RUNS: RunDetail[] = [
   {
     summary: summary({
       id: "20260926-114800-jobs-screen",
@@ -170,7 +170,7 @@ export const FIXTURE_RUNS: RunDetail[] = [
   },
 ];
 
-export const fixtureRow = (d: RunDetail): RunRow => rowOf(d.summary);
+const fixtureRow = (d: RunDetail): RunRow => rowOf(d.summary);
 
 const BACKENDS = ["claude", "codex", "claude-code", "opencode"];
 

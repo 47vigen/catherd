@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { scrubSecrets } from "./env.ts";
 
 /** A string that differs between two processes that held the same pid: /proc starttime, else `ps lstart`. */
 export function processStartTime(pid: number): string | null {
@@ -25,7 +26,7 @@ export function psStartTime(
     const ps = Bun.spawnSync([PS, "-o", "lstart=", "-p", String(pid)], {
       stdout: "pipe",
       stderr: "ignore",
-      env: { ...env, LC_ALL: "C", TZ: "UTC" },
+      env: { ...scrubSecrets(env), LC_ALL: "C", TZ: "UTC" },
     });
     const out = ps.success ? ps.stdout.toString("utf8").trim() : "";
     return out || null;

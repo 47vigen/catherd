@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
@@ -11,7 +11,7 @@ import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
 import { processStartTime } from "../infra/proc.ts";
-import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, PRIVATE_FILE, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { readyAdapter, standInFor } from "./backends.ts";
 import { spendOf } from "./budget.ts";
 import {
@@ -44,7 +44,7 @@ export const KILL_GRACE_MS = 10_000;
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
-export function laneOwns(run: Run, lane: string): string[] {
+function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
   if (!existsSync(file))
     throw new CatherdError("E_LANE_INVALID", `no lane file lanes/${lane}.md`, {
@@ -220,10 +220,10 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
       repo: run.meta.repo,
       before: await statusSnapshot(run.meta.repo),
     };
-    mkdirSync(dir, { recursive: true });
+    ensurePrivateDir(dir);
     writeTextAtomic(p.brief, i.brief);
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
-    // time (src/entry/supervise.ts), so no credential is ever written to disk. 0600 all the same.
+    // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(
       p.spec,
       {
@@ -260,7 +260,9 @@ export function launch(d: Dispatch, specPath: string): void {
     });
   } catch (e) {
     const p = dispatchPaths(d.dir);
-    appendFileSync(p.stderr, `catherd: could not start the supervisor: ${(e as Error).message}\n`);
+    appendFileSync(p.stderr, `catherd: could not start the supervisor: ${(e as Error).message}\n`, {
+      mode: PRIVATE_FILE,
+    });
     writeJsonAtomic(p.exit, {
       schema: 1,
       code: null,

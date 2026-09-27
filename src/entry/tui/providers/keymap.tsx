@@ -83,26 +83,18 @@ const modeOf = (scope: Scope): "global" | "modal" | "base" =>
  * is mounted. Printable keys of guarded scopes, and every key of a `row.*` scope, go quiet while a text
  * input has focus, so the input gets them as text; a `filter` layer is live only then.
  */
-export function useCommandLayer(scope: Scope, handlers: Handlers, o: { enabled?: () => boolean } = {}): void {
+export function useCommandLayer(scope: Scope, handlers: Handlers): void {
   const renderer = useRenderer();
   const keys = useKeybinds();
   const ref = useRef(handlers);
   ref.current = handlers;
-  const enabledRef = useRef(o.enabled);
-  enabledRef.current = o.enabled;
   const ids = commandsIn(scope)
     .filter((c) => handlers[c.id as CommandId])
     .map((c) => c.id as CommandId);
   const idsKey = ids.join(" ");
   const mode = modeOf(scope);
   const typing = () => renderer.currentFocusedEditor !== null;
-  const allowed = () => enabledRef.current?.() ?? true;
-  const layerEnabled =
-    scope === "filter"
-      ? () => typing() && allowed()
-      : scope.startsWith("row.")
-        ? () => !typing() && allowed()
-        : allowed;
+  const layerEnabled = scope === "filter" ? typing : scope.startsWith("row.") ? () => !typing() : () => true;
   const command = (c: CommandDef) => ({
     name: c.id,
     title: c.title,
@@ -133,7 +125,7 @@ export function useCommandLayer(scope: Scope, handlers: Handlers, o: { enabled?:
   );
   // printable keys of a guarded scope: their own layer, quiet while a text input has focus
   useBindings(
-    () => ({ mode, enabled: () => !typing() && allowed(), bindings: guarded ? bindingsFor(true) : [] }),
+    () => ({ mode, enabled: () => !typing(), bindings: guarded ? bindingsFor(true) : [] }),
     [scope, idsKey, keys],
   );
 }

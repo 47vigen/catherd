@@ -1,5 +1,6 @@
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { errorMessage } from "../../../domain/errors.ts";
 import {
   applyPatch,
   type Change,
@@ -43,7 +44,7 @@ export interface SavePreview {
  * The save is a patch over the file as it is when it is written (Ruling 7), so the preview applies the
  * draft's patch to the file as it is now, not to the copy the draft began from.
  */
-export function previewSave(
+function previewSave(
   d: Draft,
   fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
   now: ProfileDoc = fx.readProfile(d.name),
@@ -189,7 +190,7 @@ export function SaveDialog(props: { dialog: Save }) {
       doc = d ? app.effects.readProfile(name) : null;
       now = d && doc ? previewSave(d, app.effects, doc) : null;
     } catch (e) {
-      failed = e instanceof Error ? e.message : String(e);
+      failed = errorMessage(e);
     }
     if (failed === null && JSON.stringify(now) === JSON.stringify(shownRef.current))
       return { same: true, now: doc };

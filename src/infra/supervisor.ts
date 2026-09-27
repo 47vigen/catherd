@@ -1,11 +1,12 @@
 import type { Subprocess } from "bun";
 import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { z } from "zod";
+import { errorMessage } from "../domain/errors.ts";
 import type { ExitInfo, ExitReason } from "../domain/record.ts";
 import { dispatchPaths } from "./dispatch-dir.ts";
 import { log } from "./log.ts";
 import { killGroup, processStartTime } from "./proc.ts";
-import { writeJsonAtomic } from "./store.ts";
+import { PRIVATE_FILE, writeJsonAtomic } from "./store.ts";
 
 export const SuperviseSpecSchema = z.looseObject({
   schema: z.literal(1),
@@ -25,7 +26,7 @@ export const SuperviseSpecSchema = z.looseObject({
 export type SuperviseSpec = z.infer<typeof SuperviseSpecSchema>;
 
 /** What one stream line tells the supervisor: the terminal event, the thread, a tool call opening or closing. */
-export interface LineInfo {
+interface LineInfo {
   final?: boolean;
   thread?: string;
   /** a tool call the CLI started (`open`) or finished: while one is open the run is busy, however quiet */
@@ -100,8 +101,6 @@ async function stopGroup(pgid: number, graceMs: number, pollMs: number): Promise
   }
 }
 
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {}): Promise<ExitInfo> {
   const p = dispatchPaths(spec.dispatchDir);
   const finish = (info: ExitInfo): ExitInfo => {
@@ -113,9 +112,9 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
   try {
     const stdin = spec.stdinPath ? openSync(spec.stdinPath, "r") : "ignore";
     if (typeof stdin === "number") fds.push(stdin);
-    const stdout = openSync(p.events, "w");
+    const stdout = openSync(p.events, "w", PRIVATE_FILE);
     fds.push(stdout);
-    const stderr = openSync(p.stderr, "w");
+    const stderr = openSync(p.stderr, "w", PRIVATE_FILE);
     fds.push(stderr);
     child = Bun.spawn([spec.cmd, ...spec.args], {
       cwd: spec.cwd,
@@ -135,7 +134,9 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
     });
   } catch (e) {
     try {
-      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${message(e)}\n`);
+      appendFileSync(p.stderr, `catherd: could not start ${spec.cmd}: ${errorMessage(e)}\n`, {
+        mode: PRIVATE_FILE,
+      });
     } catch {
       // exit.json below still records that the worker never ran
     }

@@ -28,8 +28,6 @@ export interface ProfileView {
   notify: string[];
 }
 
-export type { ProfilePatch };
-
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */
 export interface ProfileSaved {
   saved: boolean;

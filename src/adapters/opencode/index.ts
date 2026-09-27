@@ -33,10 +33,10 @@ import {
 } from "./events.ts";
 
 /** Spec §6.3: v2 only (`@opencode/cli` 2.0.16 or newer). */
-export const OPENCODE_MIN_VERSION = "2.0.16";
+const OPENCODE_MIN_VERSION = "2.0.16";
 export const OPENCODE_INSTALL = "curl -fsSL https://opencode.ai/v2/install | bash";
 /** Spec §6.3: discovery is limited to OpenCode Zen and Go. */
-export const OPENCODE_PROVIDERS = ["opencode", "opencode-go"];
+const OPENCODE_PROVIDERS = ["opencode", "opencode-go"];
 const THREAD = /^ses_[A-Za-z0-9]{20,40}$/;
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -44,7 +44,7 @@ const DAY_MS = 24 * 60 * 60_000;
 export const opencodeShell = { timeoutMs: 15_000, retryDelayMs: 1_500 };
 
 /** `opencode api <method> <path>`: the JSON the service answered, or null when it failed or said nothing. */
-export async function opencodeApi(method: "GET" | "POST", path: string): Promise<Record<string, any> | null> {
+async function opencodeApi(method: "GET" | "POST", path: string): Promise<Record<string, any> | null> {
   const r = await runCli("opencode", ["api", method, path], opencodeShell);
   const j = r?.ok ? jsonOf(r.out) : null;
   return j && typeof j === "object" ? (j as Record<string, any>) : null;

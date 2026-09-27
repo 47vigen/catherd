@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { errorMessage } from "../../domain/errors.ts";
 import { log } from "../../infra/log.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
@@ -55,7 +56,8 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
 }
 
 /** Spec §4.7: connect first, so the client never waits on a scan; then reconcile every run. */
-export async function startMcpServer(deps: Deps = defaultDeps()): Promise<void> {
+export async function startMcpServer(): Promise<void> {
+  const deps = defaultDeps();
   await buildServer(deps).connect(new StdioServerTransport());
   try {
     const r = await reconcileAll(deps);
@@ -65,6 +67,6 @@ export async function startMcpServer(deps: Deps = defaultDeps()): Promise<void> 
       for (const w of r.warnings.slice(shown)) console.error(`catherd: ${w}`);
     });
   } catch (e) {
-    console.error(`catherd: reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`catherd: reconcile failed: ${errorMessage(e)}`);
   }
 }

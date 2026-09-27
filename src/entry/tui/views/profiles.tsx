@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Profile, resolveProfile } from "../../../domain/profile.ts";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData, useLoad } from "../providers/data.tsx";
@@ -8,20 +8,15 @@ import { useCommandLayer } from "../providers/keymap.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import {
-  buildRows,
   failoverOptions,
-  filterRows,
-  firstMatch,
   numberPatch,
   numberValue,
   parseNumber,
   patchFor,
-  type Row,
-  type RowAction,
   startOptions,
   treatLikeOptions,
-  withStaged,
-} from "../profile-tree.ts";
+} from "../profile-edits.ts";
+import { buildRows, filterRows, firstMatch, type Row, type RowAction, withStaged } from "../profile-tree.ts";
 import { currentDraft, dirtyCount } from "../state.ts";
 import { wrap } from "../text.ts";
 import { glyph, STATE_TOKEN } from "../theme.ts";
@@ -95,7 +90,7 @@ export function ProfilesView(props: { width: number; height: number }) {
         ? null
         : {
             name: here,
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
             fix: isCatherdError(e) && e.fix ? e.fix : null,
           },
     );

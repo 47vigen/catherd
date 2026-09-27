@@ -1,8 +1,8 @@
-import { mkdirSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { tryLock } from "./filelock.ts";
 import { locksDir } from "./paths.ts";
+import { ensurePrivateDir } from "./store.ts";
 
 /** A profile's `lock.heavy` as a slot count: a number, or half the cores. */
 export function heavySlots(setting: number | "cpus/2" | undefined): number {
@@ -20,7 +20,7 @@ export async function withHeavySlot<T>(
   o: { pollMs?: number } = {},
 ): Promise<T> {
   const dir = locksDir();
-  mkdirSync(dir, { recursive: true });
+  ensurePrivateDir(dir);
   for (;;) {
     for (let i = 0; i < slots; i++) {
       const release = tryLock(join(dir, `slot-${i}`));

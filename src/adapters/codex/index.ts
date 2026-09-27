@@ -21,7 +21,7 @@ import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./e
 const CODEX_TOOL_ITEMS = new Set(["command_execution", "mcp_tool_call", "web_search", "file_change"]);
 import { generatedImages, isolatedCodexHome, isolatedCodexHomePath, userCodexHome } from "./home.ts";
 
-export const CODEX_MIN_VERSION = "0.157.0";
+const CODEX_MIN_VERSION = "0.157.0";
 const THREAD = /^[A-Za-z0-9][A-Za-z0-9-]{3,127}$/;
 
 const SANDBOX: Record<Access, string> = {

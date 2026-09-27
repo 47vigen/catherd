@@ -1,0 +1,103 @@
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
+import { claudeHome, locksDir } from "../infra/paths.ts";
+import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
+import { agentLinkState } from "./agent-links.ts";
+import { activeName } from "./profile-store.ts";
+
+// The rows of `catherd doctor` and the checks that stand alone; doctor.ts assembles the report.
+
+type CheckState = "ok" | "warn" | "fail" | "skip";
+
+/** One row of `catherd doctor` (spec §10.3): its state, one word, the detail and the full fix. */
+export interface Check {
+  id: string;
+  label: string;
+  state: CheckState;
+  word: string;
+  detail: string;
+  fix?: string;
+}
+
+export const PLUGIN_INSTALL =
+  "claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd";
+const PLUGIN_UPDATE = "claude plugin marketplace update catherd && claude plugin update catherd@catherd";
+
+export const errText = (e: unknown): string => errorMessage(e).split("\n")[0] as string;
+export const fixOf = (e: unknown) => (isCatherdError(e) ? e.fix : undefined);
+
+/** A check whose reads can throw (a corrupt or newer-schema file): the throw becomes its `fail` row. */
+export function guarded(id: string, label: string, fallbackFix: string, check: () => Check): Check {
+  try {
+    return check();
+  } catch (e) {
+    return { id, label, state: "fail", word: "unreadable", detail: errText(e), fix: fixOf(e) ?? fallbackFix };
+  }
+}
+
+export function pluginCheck(version: string): Check {
+  const base = { id: "plugin", label: "Claude Code plugin" };
+  const file = join(claudeHome(), "plugins", "installed_plugins.json");
+  let installed: string | null = null;
+  try {
+    const j = JSON.parse(readFileSync(file, "utf8")) as { plugins?: Record<string, { version?: string }[]> };
+    const entry = Object.entries(j.plugins ?? {}).find(([k]) => k.startsWith("catherd@"))?.[1]?.[0];
+    installed = entry ? (entry.version ?? "unknown") : null;
+  } catch {
+    installed = null;
+  }
+  if (installed === null)
+    return {
+      ...base,
+      state: "fail",
+      word: "missing",
+      detail: "not installed in Claude Code",
+      fix: PLUGIN_INSTALL,
+    };
+  if (installed !== version)
+    return {
+      ...base,
+      state: "fail",
+      word: "stale",
+      detail: `plugin ${installed}, catherd ${version}`,
+      fix: PLUGIN_UPDATE,
+    };
+  return { ...base, state: "ok", word: "ready", detail: installed };
+}
+
+export function locksCheck(): Check {
+  const base = { id: "locks", label: "heavy-lock dir" };
+  try {
+    ensurePrivateDir(locksDir());
+    const probe = join(locksDir(), `.doctor-${process.pid}`);
+    writeFileSync(probe, "", { mode: PRIVATE_FILE });
+    rmSync(probe, { force: true });
+    return { ...base, state: "ok", word: "ready", detail: locksDir() };
+  } catch (e) {
+    return {
+      ...base,
+      state: "fail",
+      word: "not writable",
+      detail: `${locksDir()}: ${errText(e)}`,
+      fix: `chmod -R u+w ${locksDir()}`,
+    };
+  }
+}
+
+export function agentsCheck(): Check {
+  const base = { id: "agents", label: "Claude agents" };
+  const links = agentLinkState();
+  const broken = [...links.missing, ...links.stale];
+  if (broken.length)
+    return {
+      ...base,
+      state: "fail",
+      word: links.missing.length ? "missing" : "stale",
+      detail: broken.join(", "),
+      fix: `catherd profile use ${activeName()}`,
+    };
+  return links.ok.length
+    ? { ...base, state: "ok", word: "ready", detail: `${links.ok.length} linked` }
+    : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
+}

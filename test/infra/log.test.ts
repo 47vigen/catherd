@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { addSecret, log, logFile, redact, resetRotation, rotate, secretValues } from "../../src/infra/log.ts";
+import { addSecret, knownSecrets, log, logFile, redact, resetRotation, rotate } from "../../src/infra/log.ts";
 import { logsDir } from "../../src/infra/paths.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetRotation());
@@ -41,6 +41,14 @@ describe("log", () => {
     ).toEqual(["b", "c"]);
   });
 
+  it.skipIf(noPosixModes)("keeps the data and log dirs at 0700 and the log file at 0600 (audit S2)", () => {
+    const home = withHome();
+    delete process.env.CATHERD_LOG;
+    log("info", "tool", { argv: ["codex", "exec"] });
+    expect(statSync(logFile()).mode & 0o777).toBe(0o600);
+    expect(openModes(join(home, "data"))).toEqual([]);
+  });
+
   it("never throws, even when the data dir cannot be written", () => {
     const home = withHome();
     writeFileSync(join(home, "data"), "a file where the data dir should be");
@@ -52,7 +60,7 @@ describe("redact", () => {
   it("scrubs every *_KEY and *_TOKEN value and added secrets at any depth, and keeps an env map's keys only", () => {
     const env = { OPENAI_API_KEY: "sk-live-0123456789", GH_TOKEN: "ghp_abcdefghij", HOME: "/home/me" };
     addSecret("tsk-jev-key-000111");
-    const secrets = secretValues(env);
+    const secrets = knownSecrets(env);
     expect(
       redact<unknown>(
         {
@@ -69,17 +77,35 @@ describe("redact", () => {
     });
   });
 
-  it("scrubs a secret-shaped string no env var holds, and any credential env var's value", () => {
-    expect(redact("Authorization: Bearer sk-proj-abcdefghijklmnopqrstuvwx", [])).toBe(
-      "Authorization: Bearer [secret]",
-    );
-    expect(secretValues({ GOOGLE_APPLICATION_CREDENTIALS_JSON: "{ private json }" })).toContain(
-      "{ private json }",
+  it("scrubs values of any credential-named env var, as fixture capture does (audit S1)", () => {
+    const env = {
+      OPENAI_API_KEY_2: "openai-key-two-0123",
+      GH_TOKEN_FILE: "gh-file-0123",
+      AWS_CREDENTIALS: "aws-0123456",
+    };
+    expect(redact("openai-key-two-0123 gh-file-0123 aws-0123456", knownSecrets(env))).toBe(
+      "[redacted] [redacted] [redacted]",
     );
   });
 
+  it("scrubs an sk- key and a Bearer header no env var names, in the log file too (audit S1)", () => {
+    withHome();
+    delete process.env.CATHERD_LOG;
+    const argv = ["codex", "--api-key", "sk-proj-abcdefghijklmnopqrstu"];
+    const stderr = "curl -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc' failed";
+    expect(redact({ argv, stderr }, [])).toEqual({
+      argv: ["codex", "--api-key", "[redacted]"],
+      stderr: "curl -H 'Authorization: Bearer [redacted]' failed",
+    });
+    log("warn", "spawn", { argv, stderr });
+    const text = readFileSync(logFile(), "utf8");
+    expect(text).not.toContain("sk-proj-abcdefghijklmnopqrstu");
+    expect(text).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(text).toContain("Bearer [redacted]");
+  });
+
   it("leaves short values alone, so an ordinary word is never blanked", () => {
-    expect(secretValues({ SOME_KEY: "yes" })).not.toContain("yes");
+    expect(knownSecrets({ SOME_KEY: "yes" })).not.toContain("yes");
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { defaultOut } from "../../src/entry/capture-fixtures.ts";
+import { defaultOut } from "../../src/entry/capture-fixtures-command.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
 
@@ -13,7 +13,7 @@ describe("catherd capture-fixtures", () => {
     });
     expect(p.exitCode).toBe(2);
     expect(p.stderr.toString()).toBe(
-      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: pass --backend codex|claude-code|opencode\n',
+      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode\n',
     );
   });
 

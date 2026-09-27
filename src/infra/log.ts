@@ -1,28 +1,24 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { scrubSecrets as scrubSecretShapes } from "../domain/jev.ts";
+import { MIN_SECRET, replaceSecrets, scrubKeyShapes, secretEnvValues } from "../domain/secrets.ts";
+import { isPlain } from "../domain/util.ts";
 import { logsDir } from "./paths.ts";
 import { appendJsonl, ensureJsonlHeader } from "./store.ts";
 
 // Spec §10.2: `<data>/logs/catherd-<date>.jsonl`, 7-day rotation, level from CATHERD_LOG or `--verbose`.
 
-export const LEVELS = ["off", "error", "warn", "info", "debug"] as const;
+const LEVELS = ["off", "error", "warn", "info", "debug"] as const;
 export type Level = Exclude<(typeof LEVELS)[number], "off">;
 /** Days of logs kept, today included. */
-export const KEEP_DAYS = 7;
+const KEEP_DAYS = 7;
 
 /** `CATHERD_LOG` (off, error, warn, info, debug); info when unset or unknown. */
-export function logLevel(): (typeof LEVELS)[number] {
+function logLevel(): (typeof LEVELS)[number] {
   const v = process.env.CATHERD_LOG?.toLowerCase();
   return (LEVELS as readonly string[]).includes(v ?? "") ? (v as Level) : "info";
 }
 
 const rank = (l: string) => LEVELS.indexOf(l as (typeof LEVELS)[number]);
-
-/** Env names whose values are secrets: every `*_KEY` and `*_TOKEN`, a few other shapes, any credential. */
-const SECRET_NAME = /(_KEY|_TOKEN|_SECRET|_PASSWORD)$|CREDENTIAL/i;
-/** A value this short is never scrubbed: it would blank ordinary words. */
-const MIN_SECRET = 8;
 
 const extra = new Set<string>();
 /** A secret that lives outside the env (the saved Jev key): scrubbed from every row from now on. */
@@ -30,25 +26,19 @@ export function addSecret(value: string | null | undefined): void {
   if (value && value.length >= MIN_SECRET) extra.add(value);
 }
 
-export function secretValues(env: Record<string, string | undefined> = process.env): string[] {
-  const vals = Object.entries(env)
-    .filter(([k, v]) => SECRET_NAME.test(k) && v !== undefined && v.length >= MIN_SECRET)
-    .map(([, v]) => v as string);
-  return [...new Set([...vals, ...extra])].sort((a, b) => b.length - a.length);
-}
-
-const isPlain = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
+/** Every literal secret a row must not carry: credential-named env values and each added secret. */
+export const knownSecrets = (env: Record<string, string | undefined> = process.env): string[] => [
+  ...secretEnvValues(env),
+  ...extra,
+];
 
 /**
- * `v` with every known secret replaced by `[redacted]` and every secret-shaped string (a key read from a
- * file, not the env: a bearer in a backend's stderr) by `[secret]`, in any string at any depth, and every
- * env map (a field named `env`) reduced to its keys.
+ * `v` with every known secret and every key-shaped string replaced by `[redacted]`, in any string at
+ * any depth, and every env map (a field named `env`) reduced to its keys.
  */
-export function redact<T>(v: T, secrets: string[] = secretValues()): T {
+export function redact<T>(v: T, secrets: string[] = knownSecrets()): T {
   const walk = (x: unknown, key: string | null): unknown => {
-    if (typeof x === "string")
-      return scrubSecretShapes(secrets.reduce((s, secret) => s.split(secret).join("[redacted]"), x));
+    if (typeof x === "string") return scrubKeyShapes(replaceSecrets(x, secrets, "[redacted]"), "[redacted]");
     if (Array.isArray(x)) return x.map((y) => walk(y, null));
     if (isPlain(x)) {
       if (key === "env") return Object.keys(x).sort();
@@ -80,13 +70,9 @@ export const resetRotation = (): void => {
 };
 
 /** One redacted JSONL row. Never throws: logging must not fail the work it records. */
-export function log(
-  level: Level,
-  event: string,
-  fields: Record<string, unknown> = {},
-  now: Date = new Date(),
-): void {
+export function log(level: Level, event: string, fields: Record<string, unknown> = {}): void {
   if (rank(level) > rank(logLevel())) return;
+  const now = new Date();
   try {
     rotate(now);
     const file = logFile(now);

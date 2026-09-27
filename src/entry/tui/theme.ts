@@ -1,3 +1,5 @@
+import type { State } from "../glyphs.ts";
+
 /** Spec §9.3: the 16 semantic tokens every widget paints with. */
 export const TOKENS = [
   "text",
@@ -99,35 +101,9 @@ export function detectUi(rawArgs: readonly string[], env: Env): Omit<Ui, "mode">
 export const paint = (ui: Ui, token: Token): string | undefined =>
   ui.color ? PALETTES[ui.mode][token] : undefined;
 
-const GLYPHS = {
-  ok: ["✓", "+"],
-  warn: ["!", "!"],
-  fail: ["✗", "x"],
-  skip: ["-", "-"],
-  live: ["●", "*"],
-  waiting: ["◌", "."],
-  on: ["[x]", "[x]"],
-  off: ["[ ]", "[ ]"],
-  open: ["▾", "v"],
-  shut: ["▸", ">"],
-  arrow: ["→", "->"],
-  dot: ["·", "-"],
-  more: ["…", "..."],
-  up: ["↑", "^"],
-  down: ["↓", "v"],
-  bar: ["┃", "|"],
-  rule: ["─", "-"],
-  current: ["●", "*"],
-  full: ["█", "#"],
-  empty: ["░", "."],
-} as const;
-export type Glyph = keyof typeof GLYPHS;
-export const GLYPH_NAMES = Object.keys(GLYPHS) as Glyph[];
+export { glyph, GLYPH_NAMES, type Glyph, type State } from "../glyphs.ts";
 
-export const glyph = (g: Glyph, plain: boolean): string => GLYPHS[g][plain ? 1 : 0];
-
-/** The words state always travels with (spec §9.3: green/amber/red only for state, always with a word). */
-export type State = "ok" | "warn" | "fail" | "skip";
+/** Each state's colour token; the word travels with it. */
 export const STATE_TOKEN: Record<State, Token> = {
   ok: "success",
   warn: "warning",

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
-import { activeName, getProfile, profilesDir } from "../../src/services/profile-service.ts";
+import { activeName, getProfile, profilesDir } from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 

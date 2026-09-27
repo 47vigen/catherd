@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import type { Tokens } from "../domain/record.ts";
-import { readJsonl } from "../infra/store.ts";
+import { median } from "../domain/util.ts";
+import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { type DispatchState, liveDispatches } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
@@ -33,13 +33,6 @@ export interface RunSummary {
   warnings: string[];
 }
 
-const lines = (file: string) =>
-  existsSync(file)
-    ? readFileSync(file, "utf8")
-        .split("\n")
-        .filter((l) => l.trim())
-    : [];
-
 /** One run at a glance. Spec §3.4: reads are pure; nothing here finalizes a dispatch or writes a file. */
 export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const now = deps.now();
@@ -60,7 +53,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     title: run.meta.title,
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,
-    stateTail: lines(runPaths(run.dir).state).slice(-3),
+    stateTail: nonBlankLines(runPaths(run.dir).state).slice(-3),
     live: live.map((d) => ({
       name: d.admit.name,
       rung: d.admit.rung,
@@ -84,7 +77,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     // a lane or default source is a decision Jev did not make
     jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
     budget,
-    milestones: lines(runPaths(run.dir).ledger).slice(1),
+    milestones: nonBlankLines(runPaths(run.dir).ledger).slice(1),
     warnings,
   };
 }
@@ -122,22 +115,21 @@ export interface HarnessCost {
   extraPerRun: number | null;
 }
 
-function median(xs: number[]): number | null {
-  if (xs.length === 0) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? (s[m] as number) : Math.round(((s[m - 1] as number) + (s[m] as number)) / 2);
+/** A median in whole tokens: an even count's mean of the two middle values is rounded. */
+function tokenMedian(xs: number[]): number | null {
+  const m = median(xs);
+  return m === null ? null : Math.round(m);
 }
 
 /** What the user's own harness setup costs per run: median first-turn input, native against isolated. */
-export function harnessCosts(runs: Run[]): HarnessCost[] {
+function harnessCosts(runs: Run[]): HarnessCost[] {
   type Row = { backend: string; isolated: boolean; firstTurnInput: number };
   const rows = runs.flatMap((r) => readJsonl<Row>(runPaths(r.dir).harness).rows);
   return [...new Set(rows.map((r) => r.backend))].sort().map((backend) => {
     const pick = (isolated: boolean) =>
       rows.filter((r) => r.backend === backend && r.isolated === isolated).map((r) => r.firstTurnInput);
-    const native = median(pick(false));
-    const isolated = median(pick(true));
+    const native = tokenMedian(pick(false));
+    const isolated = tokenMedian(pick(true));
     return {
       backend,
       nativeRuns: pick(false).length,

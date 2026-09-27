@@ -9,7 +9,7 @@ import { listDispatches } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, waitFor, writeLane } from "./helpers.ts";
 
@@ -51,6 +51,17 @@ describe("dispatch", () => {
     expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
     expect(readNotes(run).next).toBe("review M1");
   });
+
+  it.skipIf(noPosixModes)(
+    "keeps the run, its dispatch folder, locks and logs private: 0700 dirs, 0600 files (audit S2)",
+    async () => {
+      const { run, deps } = setup({ reply: "Done.\nSTATUS: complete — ok" });
+      const { record } = await dispatch(deps, input(run.id));
+      expect(record.status).toBe("ok");
+      const home = process.env.CATHERD_HOME as string;
+      expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
+    },
+  );
 
   it("hands the worker the user's backend credentials at spawn time, never catherd's own secrets", async () => {
     const envTo = join(mkdtempSync(join(tmpdir(), "catherd-env-")), "env.jsonl");

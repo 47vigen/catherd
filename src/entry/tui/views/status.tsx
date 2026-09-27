@@ -1,9 +1,9 @@
-import type { Check } from "../../../services/doctor.ts";
+import type { Check } from "../../../services/doctor-checks.ts";
 import { useApp, useNow } from "../providers/app.tsx";
 import { useData } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
 import { useUi } from "../providers/theme.tsx";
-import { ago, wrap } from "../text.ts";
+import { ago, plural, wrap } from "../text.ts";
 import { glyph, STATE_TOKEN } from "../theme.ts";
 import { Line, type Part } from "../widgets/line.tsx";
 import { List, type ListItem, useSelected } from "../widgets/list.tsx";
@@ -12,13 +12,13 @@ import { showProfile } from "./profile-actions.ts";
 import { staleLines } from "./profiles.tsx";
 
 /** `✓ ready` / `! not logged in` / `✗ missing`: state is always glyph and word (spec §9.3). */
-export function stateParts(state: Check["state"], word: string, plain: boolean, pad = 16): Part[] {
-  return [{ text: `${glyph(state, plain)} ${word}`.padEnd(pad), tone: STATE_TOKEN[state] }];
+function stateParts(state: Check["state"], word: string, plain: boolean): Part[] {
+  return [{ text: `${glyph(state, plain)} ${word}`.padEnd(16), tone: STATE_TOKEN[state] }];
 }
 
 /** A run in one line: its state word first, then title, repo and progress (research C4). */
 export function runParts(r: RunRow, now: number, plain: boolean): Part[] {
-  const bits = [`${r.roleRuns} role run${r.roleRuns === 1 ? "" : "s"}`, `${r.landed} landed`];
+  const bits = [plural(r.roleRuns, "role run"), `${r.landed} landed`];
   if (r.budget !== null) bits.push(`${Math.round(r.budget * 100)}% budget`);
   return [
     r.live
@@ -127,7 +127,7 @@ export function StatusView(props: { width: number; height: number }) {
         parts={[
           { text: `   ${profiles.here}`, bold: true },
           {
-            text: `  ${hereWord(profiles)} · ${profiles.names.length} profile${profiles.names.length === 1 ? "" : "s"}`,
+            text: `  ${hereWord(profiles)} · ${plural(profiles.names.length, "profile")}`,
             tone: "muted",
           },
         ]}

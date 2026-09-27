@@ -82,13 +82,3 @@ export function installAgents(root: string): boolean {
   }
   return changed;
 }
-
-/** For `doctor`: the catherd agents that are missing or out of date under `root`. */
-export function staleAgents(root: string): string[] {
-  return Object.entries(OPENCODE_AGENT_FILES)
-    .filter(([name, text]) => {
-      const file = join(agentsDir(root), `${name}.md`);
-      return !existsSync(file) || readFileSync(file, "utf8") !== text;
-    })
-    .map(([name]) => name);
-}

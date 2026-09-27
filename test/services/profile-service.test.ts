@@ -12,29 +12,29 @@ import {
 import { join } from "node:path";
 import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { claudeAgentsDir, configDir } from "../../src/infra/paths.ts";
+import { agentLinkState, linkedProfiles } from "../../src/services/agent-links.ts";
 import {
   activate,
-  activeName,
-  agentLinkState,
-  agentsRoot,
   createProfile,
   deleteProfile,
   diffNamed,
+  patchProfile,
+  resetProfile,
+  unbind,
+} from "../../src/services/profile-service.ts";
+import {
+  activeName,
+  agentsRoot,
   enforcementOf,
   getProfile,
-  linkedProfiles,
   listProfiles,
-  patchProfile,
   profileFor,
   profilesDir,
   readProfileDoc,
   readProjects,
-  relink,
-  resetProfile,
   roleEnforcement,
-  unbind,
   validateNamed,
-} from "../../src/services/profile-service.ts";
+} from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -65,7 +65,12 @@ describe("reading profiles", () => {
       }),
     );
     writeFileSync(file("new"), JSON.stringify({ schema: 2 }));
-    expect(() => readProfileDoc("new")).toThrow(expect.objectContaining({ code: "E_CONFIG_NEWER_SCHEMA" }));
+    expect(() => readProfileDoc("new")).toThrow(
+      expect.objectContaining({
+        code: "E_CONFIG_NEWER_SCHEMA",
+        fix: "upgrade catherd: bun add -g catherd-cli@latest (or run bunx catherd-cli@latest <command>)",
+      }),
+    );
   });
 });
 
@@ -105,7 +110,7 @@ describe("patchProfile", () => {
       path: "roles.reviewer.access",
       message:
         '"network-off" is not a value this catherd knows (a newer one wrote it?); it is read as read-only',
-      fix: "upgrade catherd (bunx catherd-cli@latest), or set a value this version knows",
+      fix: "upgrade catherd (bun add -g catherd-cli@latest), or set a value this version knows",
     });
     expect(patchProfile("default", { budget: { usd: 5 } }).saved).toBe(true);
     expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.reviewer.access).toBe("network-off");
@@ -260,14 +265,14 @@ describe("agent files and links", () => {
     ).toBe(false);
   });
 
-  it("reports missing and stale links, and relink makes them current", () => {
+  it("reports missing and stale links, and activating the profile makes them current", () => {
     withHome();
     patchProfile("default", {});
     expect(agentLinkState()).toEqual({ missing: [], stale: [], ok: DEFAULT_AGENTS });
     writeFileSync(join(agentsRoot(), "default", `${ARCHITECT}.md`), "edited");
     rmSync(join(claudeAgentsDir(), `${VERIFIER}.md`));
     expect(agentLinkState()).toEqual({ missing: [VERIFIER], stale: [ARCHITECT], ok: [] });
-    relink();
+    activate("default");
     expect(agentLinkState().ok).toEqual(DEFAULT_AGENTS);
   });
 });

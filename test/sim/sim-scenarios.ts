@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** What a simulator saw of one run: argv, the brief on stdin, where it ran and a few env values. */
-export interface Recorded {
+interface Recorded {
   args: string[];
   stdin: string;
   cwd: string;

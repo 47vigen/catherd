@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { mark } from "../../src/entry/cli-kit.ts";
 import { formatCheck } from "../../src/entry/doctor-command.ts";
+import { glyph } from "../../src/entry/tui/theme.ts";
+import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
+import { credentialsPath } from "../../src/services/jev-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -14,6 +18,19 @@ afterEach(snapshotEnv());
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
+
+const BARE_KEY = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
+/** Every 6-character piece of the pasted key that `text` contains: none, when nothing leaked. */
+const keyPieces = (text: string): string[] =>
+  Array.from({ length: BARE_KEY.length - 5 }, (_, i) => BARE_KEY.slice(i, i + 6)).filter((p) =>
+    text.includes(p),
+  );
+const allLogs = (): string =>
+  existsSync(logsDir())
+    ? readdirSync(logsDir())
+        .map((f) => readFileSync(join(logsDir(), f), "utf8"))
+        .join("")
+    : "";
 
 function machine(): void {
   const home = withHome();
@@ -56,9 +73,56 @@ describe("formatCheck", () => {
       formatCheck({ id: "bun", label: "Bun", state: "ok", word: "ready", detail: "1.4.2" }, true),
     ).toEqual(["+ ready              Bun — 1.4.2"]);
   });
+
+  it("keeps each line of a fix of several commands under the first, whole", () => {
+    expect(
+      formatCheck(
+        {
+          id: "backend:codex",
+          label: "codex",
+          state: "fail",
+          word: "missing",
+          detail: "",
+          fix: "install\nor run\na b",
+        },
+        true,
+      ),
+    ).toEqual(["x missing            codex", "    fix: install", "         or run", "         a b"]);
+  });
+});
+
+describe("mark", () => {
+  it("draws the theme's glyphs, ASCII under --plain (audit N2)", () => {
+    for (const state of ["ok", "warn", "fail", "skip"] as const)
+      for (const plain of [false, true]) expect(mark(state, plain)).toBe(glyph(state, plain));
+  });
 });
 
 describe("catherd doctor", () => {
+  it("keeps init's glyphs under NO_COLOR, which drops only colour; --plain is ASCII (audit N2)", () => {
+    machine();
+    process.env.NO_COLOR = "1";
+    const text = doctor().out;
+    expect(text).toContain("✓ ready              Bun");
+    expect(text).not.toContain("+ ready");
+    expect(doctor("--plain").out).toContain("+ ready              Bun");
+  });
+
+  it("never prints or logs a bare key pasted into credentials.json, and names the file (B1)", () => {
+    machine();
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), `${BARE_KEY}\n`, { mode: 0o600 });
+    const json = doctor("--json");
+    const text = doctor("--plain");
+    expect(keyPieces(json.out + text.out + allLogs())).toEqual([]);
+    expect(JSON.parse(json.out).checks.find((c: { id: string }) => c.id === "credentials")).toMatchObject({
+      state: "warn",
+      detail: `${credentialsPath()} is not valid JSON`,
+      fix: expect.stringContaining('"typesafeApiKey"'),
+    });
+    expect(allLogs()).toContain(`${credentialsPath()} is not valid JSON`);
+  }, 60_000);
+
   it("exits 3 when not ready, and its JSON shows the real MCP server answering over stdio", () => {
     machine();
     const r = doctor("--json");

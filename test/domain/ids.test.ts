@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
-import { assertId, formatRung, newDispatchId, parseRung } from "../../src/domain/ids.ts";
+import { CatherdError, errorMessage, isCatherdError } from "../../src/domain/errors.ts";
+import { assertId, formatRung, newDispatchId, parseRung, tryParseRung } from "../../src/domain/ids.ts";
 
 describe("CatherdError", () => {
   it("carries a code and a fix, and serialises without the stack", () => {
@@ -12,6 +12,13 @@ describe("CatherdError", () => {
       message: "bad rung",
       fix: "use backend:model#effort",
     });
+  });
+
+  it("reads the message of anything thrown", () => {
+    expect(errorMessage(new CatherdError("E_ADMIT_RUNG", "bad rung"))).toBe("bad rung");
+    expect(errorMessage(new Error("boom"))).toBe("boom");
+    expect(errorMessage("plain")).toBe("plain");
+    expect(errorMessage(42)).toBe("42");
   });
 });
 
@@ -28,6 +35,12 @@ describe("parseRung", () => {
       effort: "default",
     });
     expect(parseRung("claude:claude-opus-5-5#high").backend).toBe("claude");
+  });
+
+  it("tryParseRung gives the rung, or null for a malformed one", () => {
+    expect(tryParseRung("codex:gpt-6-sol#high")).toEqual(parseRung("codex:gpt-6-sol#high"));
+    expect(tryParseRung("codex:gpt-6-sol")).toBeNull();
+    expect(tryParseRung("nope:x#high")).toBeNull();
   });
 
   it("round-trips through formatRung", () => {

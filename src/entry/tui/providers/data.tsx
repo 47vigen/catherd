@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import type { DoctorReport } from "../../../services/doctor.ts";
 import type { Effects, RunRow } from "../effects.ts";
 import { useApp } from "./app.tsx";
@@ -41,7 +41,7 @@ export function usePoll<T>(
         // `at` stays the time of the last good read: old rows must not read as fresh
         setState((s) => ({
           ...s,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
           fix: isCatherdError(e) && e.fix ? e.fix : null,
         }));
       }
@@ -102,7 +102,7 @@ export function DataProvider(props: { children: ReactNode }) {
           setReport(r);
           setCheckError(null);
         })
-        .catch((e: unknown) => live && setCheckError(e instanceof Error ? e.message : String(e)))
+        .catch((e: unknown) => live && setCheckError(errorMessage(e)))
         .finally(() => {
           if (!live) return;
           setChecking(false);

@@ -46,7 +46,7 @@ async function refresh(run: Run, change: NotesPatch, hints: string[]): Promise<v
  * Launches an admitted dispatch, then refreshes state.md with `change` (after the launch, so nothing
  * delays it), waits for it with progress, and finalizes it. A refresh that fails adds its hint to `stateHints`.
  */
-export async function runToEnd(
+async function runToEnd(
   deps: Deps,
   run: Run,
   d: Dispatch,

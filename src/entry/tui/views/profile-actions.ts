@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { isCatherdError } from "../../../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import { PROFILE_NAME, patchBetween, type ProfileDoc } from "../../../domain/profile.ts";
 import { CHANGED_ON_DISK } from "../effects.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
@@ -8,7 +8,6 @@ import { errorToast } from "../providers/toast.tsx";
 import { currentDraft, dirtyCount, isSaving } from "../state.ts";
 import { plural } from "../text.ts";
 
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const fail = (app: AppApi, e: unknown) => app.toast(errorToast(e));
 
 /**
@@ -228,7 +227,7 @@ export function useProfileDialogs(): void {
     } catch (e) {
       app.dispatch({
         type: "invalid",
-        error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
+        error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : errorMessage(e),
       });
     }
   };
@@ -290,7 +289,7 @@ export function useProfileDialogs(): void {
       app.dispatch({ type: "saving", name: p.name, on: false });
       return app.dispatch({
         type: "invalid",
-        error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : message(e),
+        error: isCatherdError(e) && e.fix ? `${e.message}. ${e.fix}` : errorMessage(e),
       });
     }
     app.dispatch({ type: "saving", name: p.name, on: false });
