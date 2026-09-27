@@ -80,7 +80,7 @@ writer re-check its anchors against `main` (as was done for plan 6) and commit t
   `bun run version-packages` was dry-run (1.0.0, CHANGELOG, plugin stamped). Publishing happens when the
   "chore: release catherd" PR opened by the Release workflow is merged (npm OIDC, no token).
 - Unverified without the owner's machine: whether `codex login status` prints on stderr, and
-  `codex sandbox <os> --full-auto`; `docs/live-verification.md` (Task 11) has the owner check both.
+  `codex sandbox <os> --full-auto`; `docs/dev/live-verification.md` (Task 11) has the owner check both.
 - Plan 1–3 minors marked "plan 7" that no carry-over names are listed in the plan as 1.0.x, with reasons.
 
 **Open questions for the owner** (asked at handoff; if unanswered, apply the default in brackets and record it):
