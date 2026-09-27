@@ -110,7 +110,7 @@ describe("doctor", () => {
     expect(r.ready).toBe(false);
     expect(check(r, "backend:codex")).toMatchObject({ state: "fail", word: "missing" });
     expect(check(r, "backend:codex")?.fix).toStartWith(
-      "npm i -g @openai/codex; or move its roles to claude-code",
+      "npm i -g @openai/codex\nor move its roles to claude-code",
     );
     expect(check(r, "backend:opencode")).toMatchObject({
       state: "warn",
@@ -119,24 +119,56 @@ describe("doctor", () => {
     });
   });
 
-  it("offers to move a missing Codex's roles to claude-code when that is ready", async () => {
+  it("offers to move a missing Codex's roles to claude-code when that is ready, one command a line", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
     patchProfile("default", {});
-    expect(check(await run(), "backend:codex")?.fix).toBe(
-      "npm i -g @openai/codex; or move its roles to claude-code: /catherd-setup in Claude Code, or " +
-        "catherd profile set roles.<role>.rungs claude-code:claude-opus-5-5#medium for worker, reviewer, " +
-        "ui-reviewer, writer, researcher (first set roles.worker.defaultRung to null); " +
-        "artist needs Codex: catherd profile set roles.artist.enabled false",
-    );
+    const to = (role: string) =>
+      `catherd profile set roles.${role}.rungs 'claude-code:claude-opus-5-5#medium' --profile default`;
+    expect(check(await run(), "backend:codex")?.fix?.split("\n")).toEqual([
+      "npm i -g @openai/codex",
+      "or move its roles to claude-code: /catherd-setup in Claude Code, or run (artist needs codex, so it is turned off)",
+      "catherd profile set roles.worker.defaultRung null --profile default",
+      to("worker"),
+      to("reviewer"),
+      to("ui-reviewer"),
+      "catherd profile set roles.artist.enabled false --profile default",
+      to("writer"),
+      to("researcher"),
+    ]);
+  });
+
+  it("prints move commands a shell runs as they are, after which no role needs the missing Codex", async () => {
+    machine({ bins: ["claude"] });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const fix = check(await run(), "backend:codex")?.fix ?? "";
+    const commands = fix.split("\n").filter((l) => l.startsWith("catherd "));
+    expect(commands.length).toBeGreaterThan(0);
+    const bin = binDir();
+    const cli = join(import.meta.dir, "..", "..", "src", "cli.ts");
+    writeFileSync(join(bin, "catherd"), `#!/bin/sh\nexec '${process.execPath}' '${cli}' "$@"\n`);
+    chmodSync(join(bin, "catherd"), 0o755);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, ANTHROPIC_API_KEY: "" };
+    for (const c of commands) {
+      const p = Bun.spawnSync(["sh", "-c", c], { env, stdout: "pipe", stderr: "pipe" });
+      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({ c, exit: 0, err: "" });
+    }
+    const after = await run();
+    // stale failover entries may warn; nothing blocks a save
+    expect(check(after, "profile")?.state).not.toBe("fail");
+    expect(check(after, "backend:codex")?.state).not.toBe("fail");
+    expect(after.ready).toBe(true);
   });
 
   it("offers opencode when it is the backend that is ready", async () => {
     machine({ bins: ["opencode"] });
     installPlugin(VERSION);
     patchProfile("default", {});
-    expect(check(await run(), "backend:codex")?.fix).toContain(
-      "or move its roles to opencode: /catherd-setup in Claude Code, or catherd profile set roles.<role>.rungs opencode:opencode-go/gpt-6-luna#high for worker",
+    const fix = check(await run(), "backend:codex")?.fix ?? "";
+    expect(fix).toContain("or move its roles to opencode: /catherd-setup in Claude Code, or run");
+    expect(fix).toContain(
+      "\ncatherd profile set roles.worker.rungs 'opencode:opencode-go/gpt-6-luna#high' --profile default\n",
     );
   });
 

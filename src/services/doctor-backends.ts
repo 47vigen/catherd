@@ -60,26 +60,39 @@ const MOVE_TO: Record<string, string> = {
   codex: "codex:gpt-6-sol#medium",
 };
 
-/** Install `id`, or move the roles that run on it to `to`; the artist draws, which only Codex does. */
+/** `w` as one shell word: bare when plainly safe, else single-quoted (zsh can glob a bare `#`). */
+const shellWord = (w: string): string => (/^[\w./:=@,+-]+$/.test(w) ? w : `'${w.replaceAll("'", `'\\''`)}'`);
+
+/**
+ * Install `id`, or move the roles that run on it to `to`: one runnable `catherd profile set` per line, for
+ * each linked profile, a default rung on `id` reset first. The artist draws, which only Codex does, so
+ * off Codex it is turned off instead.
+ */
 export function moveRolesFix(install: string, id: string, to: string, profiles: Profile[]): string {
-  const on = (role: Role, pick: (p: Profile) => (string | undefined)[]) =>
-    profiles.some(
-      (p) => p.roles[role].enabled && pick(p).some((r) => r !== undefined && backendOf(r) === id),
-    );
-  const roles = ROLES.filter((r) => on(r, (p) => p.roles[r].rungs));
-  const stuck: Role[] = to === "codex" ? [] : roles.filter((r) => r === "artist");
-  const move = roles.filter((r) => !stuck.includes(r));
-  const defaults = move.filter((r) => on(r, (p) => [p.roles[r].defaultRung]));
-  const parts = [install];
-  if (move.length)
-    parts.push(
-      `or move its roles to ${to}: /catherd-setup in Claude Code, or catherd profile set roles.<role>.rungs ${MOVE_TO[to]} for ${move.join(", ")}` +
-        (defaults.length
-          ? ` (first set ${defaults.map((r) => `roles.${r}.defaultRung`).join(", ")} to null)`
-          : ""),
-    );
-  if (stuck.length) parts.push("artist needs Codex: catherd profile set roles.artist.enabled false");
-  return parts.join("; ");
+  const onIt = (r: string | undefined) => r !== undefined && backendOf(r) === id;
+  const set = (p: Profile, path: string, v: string) =>
+    `catherd profile set ${path} ${shellWord(v)} --profile ${shellWord(p.name)}`;
+  const stuck = new Set<Role>();
+  const commands: string[] = [];
+  for (const p of profiles)
+    for (const role of ROLES) {
+      const rc = p.roles[role];
+      if (!rc.enabled || !rc.rungs.some(onIt)) continue;
+      if (role === "artist" && to !== "codex") {
+        stuck.add(role);
+        commands.push(set(p, `roles.${role}.enabled`, "false"));
+        continue;
+      }
+      if (onIt(rc.defaultRung)) commands.push(set(p, `roles.${role}.defaultRung`, "null"));
+      commands.push(set(p, `roles.${role}.rungs`, MOVE_TO[to] as string));
+    }
+  if (!commands.length) return install;
+  const off = stuck.size ? ` (${[...stuck].join(", ")} needs ${id}, so it is turned off)` : "";
+  return [
+    install,
+    `or move its roles to ${to}: /catherd-setup in Claude Code, or run${off}`,
+    ...commands,
+  ].join("\n");
 }
 
 export async function backendChecks(

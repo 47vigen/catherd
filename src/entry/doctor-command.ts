@@ -5,11 +5,14 @@ import type { Check } from "../services/doctor-checks.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
 
-/** One row per check: `✓ ready  Bun — 1.4.2`, then the full fix command on its own line. */
+/**
+ * One row per check: `✓ ready  Bun — 1.4.2`, then the full fix on its own line; a fix of several lines
+ * (one command each) keeps them under the first.
+ */
 export function formatCheck(c: Check, plain = false): string[] {
   return [
     `${mark(c.state, plain)} ${c.word.padEnd(18)} ${c.label}${c.detail ? ` — ${c.detail}` : ""}`,
-    ...(c.fix ? [`    fix: ${c.fix}`] : []),
+    ...(c.fix ? c.fix.split("\n").map((l, i) => `${i ? "         " : "    fix: "}${l}`) : []),
   ];
 }
 

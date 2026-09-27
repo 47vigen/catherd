@@ -73,6 +73,22 @@ describe("formatCheck", () => {
       formatCheck({ id: "bun", label: "Bun", state: "ok", word: "ready", detail: "1.4.2" }, true),
     ).toEqual(["+ ready              Bun — 1.4.2"]);
   });
+
+  it("keeps each line of a fix of several commands under the first, whole", () => {
+    expect(
+      formatCheck(
+        {
+          id: "backend:codex",
+          label: "codex",
+          state: "fail",
+          word: "missing",
+          detail: "",
+          fix: "install\nor run\na b",
+        },
+        true,
+      ),
+    ).toEqual(["x missing            codex", "    fix: install", "         or run", "         a b"]);
+  });
 });
 
 describe("mark", () => {
