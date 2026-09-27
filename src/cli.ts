@@ -11,9 +11,9 @@ if (refusal) {
 
 const { realpathSync } = await import("node:fs");
 const { fileURLToPath } = await import("node:url");
-const { defineCommand, runCommand, showUsage } = await import("citty");
+const { defineCommand, renderUsage, runCommand } = await import("citty");
 const { CatherdError, isCatherdError } = await import("./domain/errors.ts");
-const { EXIT, exitCodeOf, printError } = await import("./entry/cli-kit.ts");
+const { EXIT, exitCodeOf, printError, stripAnsi } = await import("./entry/cli-kit.ts");
 const { VERSION } = await import("./infra/version.ts");
 
 type Command = ReturnType<typeof defineCommand>;
@@ -35,7 +35,7 @@ export const main: Command = defineCommand({
   meta: {
     name: "catherd",
     version: VERSION,
-    description: "Herds coding agents. Any command takes --verbose: log at debug level (CATHERD_LOG=debug).",
+    description: "Herds coding agents",
   },
   args: dashboardArgs,
   subCommands: {
@@ -78,6 +78,26 @@ async function commandFor(argv: string[]): Promise<[Command, Command | undefined
   return [cmd, parent, path];
 }
 
+/** runCli takes `--verbose` before any command, so every command's help lists it. */
+const VERBOSE_ARG: ArgsDef = {
+  verbose: { type: "boolean", description: "log at debug level (CATHERD_LOG=debug)" },
+};
+
+/**
+ * `--help` for the command `path` names (spec §8): `catherd <path>` with the version at every depth, the
+ * usage line a command spells out itself, and no colour codes when piped or under NO_COLOR.
+ */
+async function helpText(cmd: Command, path: string[]): Promise<string> {
+  const shown = { ...cmd, args: { ...(await resolve(cmd.args ?? {})), ...VERBOSE_ARG } };
+  const parent = path.length
+    ? defineCommand({ meta: { name: ["catherd", ...path.slice(0, -1)].join(" "), version: VERSION } })
+    : undefined;
+  let text = await renderUsage(shown, parent);
+  const usage = path[0] === "lock" ? (await import("./entry/lock.ts")).LOCK_USAGE : undefined;
+  if (usage) text = text.replace(/^(\S*USAGE\S*) .*$/m, (_, head: string) => `${head} ${usage}`);
+  return process.stdout.isTTY && !process.env.NO_COLOR ? text : stripAnsi(text);
+}
+
 const isCliError = (e: unknown): e is Error & { code: string } => e instanceof Error && e.name === "CLIError";
 
 /** Runs `catherd <argv>` and returns its exit code (spec §8). */
@@ -93,8 +113,8 @@ export async function runCli(argv: string[]): Promise<number> {
     return EXIT.ok;
   }
   if (own.includes("--help") || own.includes("-h")) {
-    const [cmd, parent] = await commandFor(own);
-    await showUsage(cmd, parent);
+    const [cmd, , path] = await commandFor(own);
+    console.log(`${await helpText(cmd, path)}\n`);
     return EXIT.ok;
   }
   // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is

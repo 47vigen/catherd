@@ -71,6 +71,9 @@ export async function runForwarding(argv: string[]): Promise<number> {
   }
 }
 
+/** Spec §8: what `--help` and the usage error show; the command runs after `--`. */
+export const LOCK_USAGE = "catherd lock [--slots N] -- <command> [args...]";
+
 export const lockCommand = defineCommand({
   meta: {
     name: "lock",
@@ -89,7 +92,7 @@ export const lockCommand = defineCommand({
     if (argv.length === 0) {
       printError(
         new CatherdError("E_INPUT_INVALID", "no command to run", {
-          fix: "catherd lock [--slots N] -- <command> [args...]",
+          fix: LOCK_USAGE,
         }),
       );
       process.exitCode = 2;

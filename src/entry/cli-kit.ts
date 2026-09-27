@@ -7,12 +7,15 @@ export const EXIT = { ok: 0, error: 1, usage: 2, notReady: 3, interrupted: 130 }
 // oxlint-disable-next-line no-control-regex -- citty colours its messages; the one-line error must not
 const ANSI = /\x1b\[[0-9;]*m/g;
 
+/** `text` without colour codes: for output that is piped, or under NO_COLOR. */
+export const stripAnsi = (text: string): string => text.replace(ANSI, "");
+
 /** A service's fix worded for the MCP tools, as the CLI says it. */
 const CLI_FIX: Record<string, string> = { [RUN_NOT_FOUND_FIX]: "catherd runs list" };
 
 /** Spec §8: one line `error E_CODE: message`, then `fix: …` when there is one. */
 export function printError(e: Pick<CatherdError, "code" | "message" | "fix">): void {
-  console.error(`error ${e.code}: ${e.message.replace(ANSI, "").split("\n").join(" ")}`);
+  console.error(`error ${e.code}: ${stripAnsi(e.message).split("\n").join(" ")}`);
   if (e.fix) console.error(`fix: ${CLI_FIX[e.fix] ?? e.fix}`);
 }
 

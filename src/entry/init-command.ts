@@ -83,19 +83,14 @@ export const initCommand = defineCommand({
       "First run: the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line and waits for stdin to close; --no-input asks nothing",
   },
   args: {
-    // citty reads --no-input as input: false
-    input: {
-      type: "boolean",
-      default: true,
-      description: "ask questions (piped: one answer per line, read once stdin closes)",
-      negativeDescription: "ask nothing: keep what exists, else write the defaults",
-    },
+    // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
+    "no-input": { type: "boolean", description: "ask nothing: keep what exists, else write the defaults" },
     profile: { type: "string", description: "the profile to set up and make active (default: default)" },
   },
   async run({ args }) {
     // a bad --profile is refused before any question is asked
     if (args.profile !== undefined) assertProfileName(args.profile);
-    const ask = args.input === false ? null : await prompter();
+    const ask = (args as { input?: boolean }).input === false ? null : await prompter();
     try {
       if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
