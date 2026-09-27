@@ -36,17 +36,19 @@ starts; your backends' own keys stay, because the workers need them.
 Config lives in `~/.config/catherd/` and data in `~/.local/share/catherd/` (both follow `XDG_CONFIG_HOME` and
 `XDG_DATA_HOME`, or sit under `$CATHERD_HOME` when it is set).
 
-| What                                       | Where                                                         | Mode       |
-| ------------------------------------------ | ------------------------------------------------------------- | ---------- |
-| The Jev (TypeSafe) API key, if you save it | `<config>/credentials.json`                                   | `600`      |
-| Profiles, `config.json`                    | `<config>/`                                                   | your umask |
-| Each role's launch spec (`spec.json`)      | the run folder, under `<data>/repos/…/runs/`                  | `600`      |
-| Run records, briefs, replies, `state.md`   | the run folder                                                | your umask |
-| Per-repo `knowledge.md`                    | `<data>/repos/<slug>-<hash8>/`                                | your umask |
-| Logs, kept 7 days                          | `<data>/logs/`                                                | your umask |
-| Claude agent files                         | `<config>/agents/<profile>/`, linked into `~/.claude/agents/` | your umask |
+| What                                       | Where                                                         | Mode  |
+| ------------------------------------------ | ------------------------------------------------------------- | ----- |
+| The Jev (TypeSafe) API key, if you save it | `<config>/credentials.json`                                   | `600` |
+| Profiles, `config.json`                    | `<config>/`                                                   | `600` |
+| Each role's launch spec (`spec.json`)      | the run folder, under `<data>/repos/…/runs/`                  | `600` |
+| Run records, briefs, replies, `state.md`   | the run folder                                                | `600` |
+| Per-repo `knowledge.md`                    | `<data>/repos/<slug>-<hash8>/`                                | `600` |
+| Logs, kept 7 days                          | `<data>/logs/`                                                | `600` |
+| Claude agent files                         | `<config>/agents/<profile>/`, linked into `~/.claude/agents/` | `600` |
 
-`catherd doctor` warns when `credentials.json` is readable by anyone but you and prints the `chmod 600` fix.
+catherd creates its config and data folders, and every folder under them, `700` (only you), and tightens an
+existing config or data folder to `700` the first time it writes there. `catherd doctor` warns when
+`credentials.json` is readable by anyone but you and prints the `chmod 600` fix.
 Run folders hold your briefs and the workers' replies, which can quote your code: they are as sensitive as the
 repository itself.
 
