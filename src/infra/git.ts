@@ -10,12 +10,15 @@ export type GitResult =
   | { kind: "failed"; exit: number | null }
   | { kind: "timed-out" };
 
+/** How long one git command may run by default; finalize's claim window counts it (tests shorten it). */
+export const gitLimits = { timeoutMs: 15_000 };
+
 /**
  * `git -C repo <args>` with a timeout. GIT_OPTIONAL_LOCKS=0 keeps `status` from taking index.lock,
  * which would fail a worker's own git command running at the same moment. On a timeout git is killed
  * and its stdout is not awaited, since a grandchild may still hold the pipe open.
  */
-export async function git(repo: string, args: string[], timeoutMs = 15_000): Promise<GitResult> {
+export async function git(repo: string, args: string[], timeoutMs = gitLimits.timeoutMs): Promise<GitResult> {
   let p: Bun.Subprocess<"ignore", "pipe", "ignore">;
   try {
     p = Bun.spawn(["git", "-C", repo, ...args], {

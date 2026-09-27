@@ -17,7 +17,14 @@ import {
 } from "../../src/services/dispatch-service.ts";
 import { isAlive, processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import { latestDispatch, listDispatches, liveDispatches, readProc } from "../../src/services/dispatches.ts";
+import { admit } from "../../src/services/admission.ts";
+import {
+  latestDispatch,
+  launchPath,
+  listDispatches,
+  liveDispatches,
+  readProc,
+} from "../../src/services/dispatches.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import * as state from "../../src/services/state.ts";
 import { readNotes } from "../../src/services/state.ts";
@@ -296,6 +303,34 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
     expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
   });
 
+  it("starts a stand-in admitted before a crash but never launched, instead of reporting it started (M-5)", async () => {
+    const release = held();
+    const { run, deps } = setup({
+      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
+    });
+    const d = (await dispatch(deps, input(run.id))).dispatched;
+    await waitFor(() => readRecords(run).records.length === 1);
+    // the collector that crashed had admitted the stand-in (admit.json, spec.json) and died before its launch
+    const stand = await admit(deps, run, {
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "Read lanes/M1.L1.md",
+      rung: "codex:gpt-6-sol#high",
+      thread: null,
+      lane: "M1.L1",
+      failoverFrom: "codex:gpt-6-sol#medium",
+      failoverOf: d.dispatchId,
+    });
+    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
+    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
+    await waitFor(() => existsSync(launchPath(stand.d.dir)), 4_000);
+    writeFileSync(release, "");
+    const next = await wait(deps, { run: run.id });
+    expect(next.records.map((r) => r.record)).toEqual([
+      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
+    ]);
+  });
+
   it("re-collects a limit whose collector died after launching the stand-in: no second launch (lease)", async () => {
     const release = held();
     const { run, deps } = setup({
@@ -340,7 +375,7 @@ describe("cancel", () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
-    const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(() => false);
+    const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(async () => false);
     try {
       const { hints } = await cancel(deps, run.id, "worker-M1.L1");
       expect(hints).toContain("worker-M1.L1: a wait in flight also returned this record");

@@ -11,6 +11,7 @@ import { roleDir } from "../../src/services/dispatches.ts";
 import { finalizeDispatch, settleLimits } from "../../src/services/finalize.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { appendRecord, createRun, readRecords } from "../../src/services/run-store.ts";
+import { gitLimits } from "../../src/infra/git.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, waitFor } from "./helpers.ts";
 
@@ -19,6 +20,7 @@ afterEach(() => {
   unregisterAdapter("cursor");
   settleLimits.timeoutMs = 20_000;
   settleLimits.claimMarginMs = 10_000;
+  gitLimits.timeoutMs = 15_000;
   prepareLimits.timeoutMs = 60_000;
 });
 beforeEach(() => resetReadiness());
@@ -305,18 +307,39 @@ describe("finalize with a streamed reply and a settled session", () => {
       expect(n.finalize).toBe(1);
     });
 
-    it("takes over a live claim only once the claimant's settle window is past", async () => {
+    it("takes over a live claim only once settle, the git snapshot's timeout and the margin are past", async () => {
       settleLimits.timeoutMs = 50;
       settleLimits.claimMarginMs = 50;
+      gitLimits.timeoutMs = 300;
       const n = counting();
       const { run } = freshRun();
       const d = await dispatchOn(run, null);
       claimBy(d, process.pid, processStartTime(process.pid));
       const started = Date.now();
       expect((await finalizeDispatch(run, d)).status).toBe("ok");
-      expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(400);
       expect(Date.now() - started).toBeLessThan(3_000);
       expect(n.finalize).toBe(1);
+    });
+
+    it("returns the original claimant's record when it lands before the taker's own", async () => {
+      let open = () => {};
+      const n = counting(new Promise<void>((r) => (open = r)));
+      const { run } = freshRun();
+      const d = await dispatchOn(run, null);
+      claimBy(d, await deadProcess(), "gone");
+      const taking = finalizeDispatch(run, d);
+      await waitFor(() => n.settle === 1);
+      const theirs = makeRecord({
+        runId: run.id,
+        dispatchId: d.admit.dispatchId,
+        name: d.admit.name,
+        tokens: { input: 7, cached: 0, output: 1 },
+      });
+      await appendRecord(run, theirs);
+      open();
+      expect((await taking).tokens.input).toBe(7);
+      expect(readRecords(run).records).toHaveLength(1);
     });
   });
 

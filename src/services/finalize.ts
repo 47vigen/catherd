@@ -15,7 +15,7 @@ import {
 } from "../domain/record.ts";
 import { dispatchPaths, readClaimant, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { isAlive } from "../infra/proc.ts";
-import { statusSnapshot } from "../infra/git.ts";
+import { gitLimits, statusSnapshot } from "../infra/git.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
@@ -44,13 +44,14 @@ function claimAgeMs(dir: string): number {
 
 /**
  * Whether another finalizer's claim may be taken over: its claimant is dead, or the claim is older than
- * the longest a live claimant can take (its settle window, plus the margin for the rest of its compute).
- * A claim that names no one (an older build's) is judged by its age alone.
+ * the longest a live claimant can take: every bounded step of `compute` (the adapter's settle, the one
+ * `git status` snapshot, each at its own timeout) plus the margin for its unbounded file work. A claim
+ * that names no one (an older build's) is judged by its age alone.
  */
 function claimStale(dir: string): boolean {
   const who = readClaimant(dir);
   if (who && !isAlive(who.pid, who.startTime)) return true;
-  return claimAgeMs(dir) > settleLimits.timeoutMs + settleLimits.claimMarginMs;
+  return claimAgeMs(dir) > settleLimits.timeoutMs + gitLimits.timeoutMs + settleLimits.claimMarginMs;
 }
 
 /** The owned paths of the run's other dispatches whose lifetime overlapped [start, end]. */
@@ -78,8 +79,8 @@ async function snapshotOrNull(repo: string): Promise<Snapshot | null> {
 
 /**
  * How long a backend may take to settle a finished session before its stream's own figures stand, and
- * how much longer than that a finalizer's claim may live (the git snapshot and the append around it)
- * before a second finalizer takes it over.
+ * how much longer than that and the git snapshot's timeout (gitLimits) a finalizer's claim may live (its file
+ * work and the append) before a second finalizer takes it over.
  */
 export const settleLimits = { timeoutMs: 20_000, claimMarginMs: 10_000 };
 

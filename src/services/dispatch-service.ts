@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { relative } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
@@ -20,7 +20,14 @@ import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
-import { type Dispatch, dispatchState, listDispatches, liveDispatches, readProc } from "./dispatches.ts";
+import {
+  type Dispatch,
+  dispatchState,
+  launchPath,
+  listDispatches,
+  liveDispatches,
+  readProc,
+} from "./dispatches.ts";
 import { finalizeDispatch, lastEvent, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, readRecords, type Run } from "./run-store.ts";
@@ -239,7 +246,7 @@ export async function wait(
           record = await finalizeDispatch(run, d);
         } catch (e) {
           // dropped, not retried: one dispatch that cannot be finalized must not hold every later wait
-          if (tryCollect(d.dir)) {
+          if (await tryCollect(d.dir)) {
             endCollect(d.dir);
             hints.push(
               `${d.admit.name}: not finalized: ${errorMessage(e)}; result(run, "${d.admit.name}") reads its record once it has one`,
@@ -248,7 +255,7 @@ export async function wait(
           continue;
         }
         if (signal?.aborted) break;
-        if (!tryCollect(d.dir)) {
+        if (!(await tryCollect(d.dir))) {
           hints.push(takenElsewhere(d.admit.name));
           continue;
         }
@@ -292,6 +299,17 @@ export async function wait(
   return { records, started, running: pendingNames(run), hints };
 }
 
+/** Whether a dispatch was started: launched, running, or marked (or leased) for a wait by `start`. */
+function launched(d: Dispatch): boolean {
+  const p = dispatchPaths(d.dir);
+  return (
+    existsSync(launchPath(d.dir)) || readProc(d.dir) !== null || existsSync(p.collect) || existsSync(p.lease)
+  );
+}
+
+const recordOf = (run: Run, d: Dispatch): boolean =>
+  readRecords(run).records.some((r) => r.dispatchId === d.admit.dispatchId);
+
 /**
  * The stand-in's brief (spec §4.5, audit C4). A fresh round reruns its own brief; a fix round hands
  * over the lane file and the fix brief by path, since the stand-in cannot resume the old thread.
@@ -332,8 +350,17 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
     pause: null,
   });
   // tied to this limited dispatch's id: a later dispatch of the same name, rung and limit is not its stand-in
-  const already = listDispatches(run).find((x) => x.admit.failoverOf === d.admit.dispatchId);
-  if (already) return failedOver(already.admit.rung, already);
+  const already = listDispatches(run)
+    .filter((x) => x.admit.failoverOf === d.admit.dispatchId)
+    .at(-1);
+  if (already && launched(already)) return failedOver(already.admit.rung, already);
+  if (already && !recordOf(run, already) && dispatchState(already, deps.now()) === "starting") {
+    // admitted by a collector that died before launching it: launch it now, never report it unlaunched
+    start(already, dispatchPaths(already.dir).spec);
+    watch(deps, run, already);
+    return failedOver(already.admit.rung, already);
+  }
+  // else that stand-in never ran and is over (recorded as lost, or past its start grace): admit a new one
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { result: result(hints), started: null, pause: paused };
   if (parseRung(standIn).backend === "claude") {
@@ -429,7 +456,7 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
   const record = await finalizeDispatch(run, live);
-  const mine = tryCollect(live.dir);
+  const mine = await tryCollect(live.dir);
   // cancel returns at once, so its lease ends at once
   if (mine) endCollect(live.dir);
   const also = mine ? [] : [`${name}: a wait in flight also returned this record`];
