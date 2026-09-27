@@ -2,11 +2,17 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { errorMessage } from "../../domain/errors.ts";
+import { scrubSecrets } from "../../infra/env.ts";
 import { VERSION } from "../../infra/version.ts";
 import type { Handshake } from "../../services/doctor.ts";
 
 const CLI = fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const TIMEOUT_MS = 20_000;
+
+/** The env the doctor's MCP server starts with: catherd's own secrets scrubbed, as for every process it starts. */
+export const handshakeEnv = (
+  base: Record<string, string | undefined> = process.env,
+): Record<string, string> => scrubSecrets(base);
 
 /** Spec §10.3: starts `catherd mcp` over stdio, as Claude Code would, and asks it for tools/list. */
 export async function mcpHandshake(): Promise<Handshake> {
@@ -14,9 +20,7 @@ export async function mcpHandshake(): Promise<Handshake> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [CLI, "mcp"],
-    env: Object.fromEntries(
-      Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
-    ),
+    env: handshakeEnv(),
     stderr: "ignore",
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
