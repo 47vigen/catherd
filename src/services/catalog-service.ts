@@ -26,6 +26,7 @@ import { ADAPTER_IDS, parseRung } from "../domain/ids.ts";
 import type { Kind } from "../domain/lane.ts";
 import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import { median } from "../domain/util.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
@@ -63,12 +64,6 @@ export function listedModels(repo?: string): Catalog["listed"] {
   }
   return out;
 }
-
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2;
-};
 
 /**
  * Spec §5.2: the median seconds of the user's own successful runs per canonical rung and lane kind
@@ -112,7 +107,7 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
     }
   }
   const secs: Catalog["secs"] = {};
-  for (const [k, xs] of groups) if (xs.length >= MIN_SAMPLES) secs[k] = median(xs);
+  for (const [k, xs] of groups) if (xs.length >= MIN_SAMPLES) secs[k] = median(xs) as number;
   return secs;
 }
 

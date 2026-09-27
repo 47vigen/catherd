@@ -159,6 +159,23 @@ describe("status and summaries", () => {
     ]);
     expect(s.agents).toEqual([{ rung: "claude:claude-opus-5-5#low", runs: 1, totalTokens: 5, secs: 7 }]);
   });
+
+  it("reports the harness cost as median first-turn input in whole tokens", () => {
+    const { run } = freshRun();
+    const row = (isolated: boolean, firstTurnInput: number) =>
+      `${JSON.stringify({ backend: "codex", isolated, firstTurnInput })}\n`;
+    appendFileSync(runPaths(run.dir).harness, row(false, 100) + row(false, 103) + row(true, 40));
+    expect(runsSummary({ run: run.id }).harness).toEqual([
+      {
+        backend: "codex",
+        nativeRuns: 2,
+        isolatedRuns: 1,
+        nativeMedian: 102,
+        isolatedMedian: 40,
+        extraPerRun: 62,
+      },
+    ]);
+  });
 });
 
 describe("reconcileAll", () => {

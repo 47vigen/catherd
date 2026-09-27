@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
 import { type Check, type DoctorReport, doctor } from "../services/doctor.ts";
-import { EXIT, mark, printJson } from "./cli-kit.ts";
+import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
 
 /** One row per check: `✓ ready  Bun — 1.4.2`, then the full fix command on its own line. */
@@ -29,7 +29,7 @@ export const doctorCommand = defineCommand({
     description: "Readiness report: Bun, backends, Jev, the plugin, agents, the MCP server, locks",
   },
   args: {
-    json: { type: "boolean", description: "print JSON" },
+    ...JSON_ARG,
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {

@@ -27,9 +27,9 @@ import {
   unbind,
   validateNamed,
 } from "../services/profile-service.ts";
-import { EXIT, mark, printJson } from "./cli-kit.ts";
+import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 
-const json = { json: { type: "boolean", description: "print JSON" } } as const;
+const json = JSON_ARG;
 
 export interface StandIn {
   from: string;

@@ -5,6 +5,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type { OutcomeRow, RouteRow } from "../domain/route.ts";
+import { slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
@@ -60,12 +61,7 @@ export function runPaths(dir: string) {
 
 export const LEDGER_HEADER = "milestone | what | commit | minutes | evidence";
 
-const slug = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40) || "run";
+const runSlug = (title: string) => slug(title).slice(0, 40) || "run";
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
 /** Creates a run folder under the repo's runs dir. `repo` is a git toplevel; meta.json is written last. */
@@ -79,7 +75,7 @@ export function createRun(o: {
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
   ensurePrivateDir(root);
-  const base = `${stamp(now)}-${slug(o.title)}`;
+  const base = `${stamp(now)}-${runSlug(o.title)}`;
   let id = base;
   for (let n = 2; ; n++) {
     try {

@@ -9,7 +9,7 @@ import {
   refreshDiscovery,
   saveTreatLike,
 } from "../services/catalog-service.ts";
-import { exitCodeOf, mark, printError } from "./cli-kit.ts";
+import { exitCodeOf, JSON_ARG, mark, printError } from "./cli-kit.ts";
 
 /** One backend's refresh: its model count, else why it listed none, then its fix on a line of its own. */
 export function formatRefreshed(r: Refreshed, plain = false): string {
@@ -37,7 +37,7 @@ function fail(e: unknown): void {
 
 const refresh = defineCommand({
   meta: { name: "refresh", description: "List every backend's models now" },
-  args: { json: { type: "boolean", description: "print JSON" } },
+  args: JSON_ARG,
   async run({ args }) {
     const r = await refreshDiscovery({ repo: await hereRepo() });
     if (args.json) console.log(JSON.stringify(r, null, 2));
@@ -53,7 +53,7 @@ const list = defineCommand({
     role: { type: "string", description: `only models for this role (${ROLES.join(", ")})` },
     text: { type: "string", description: "only ids containing this" },
     scored: { type: "boolean", description: "only models with a scored rung" },
-    json: { type: "boolean", description: "print JSON" },
+    ...JSON_ARG,
   },
   async run({ args }) {
     if (args.role && !(ROLES as readonly string[]).includes(args.role))

@@ -9,10 +9,10 @@ import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { findRun, listRuns, readRecords } from "../services/run-store.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
-import { mark, printJson } from "./cli-kit.ts";
+import { JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
 
-const json = { json: { type: "boolean", description: "print JSON" } } as const;
+const json = JSON_ARG;
 const n = (x: number) => x.toLocaleString("en-US");
 
 /** One run at a glance: what is live, what finished, spend against the budget, landed milestones. */

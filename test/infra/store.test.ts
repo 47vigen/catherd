@@ -17,6 +17,7 @@ import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
+  nonBlankLines,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
@@ -158,5 +159,14 @@ describe("private modes (audit S2)", () => {
     writeJsonAtomic(join(home, "config", "config.json"), { schema: 1 });
     appendJsonl(join(home, "data", "logs", "x.jsonl"), { a: 1 });
     expect(openModes(home)).toEqual([]);
+  });
+});
+
+describe("nonBlankLines", () => {
+  it("drops blank lines, and reads a missing file as none", () => {
+    const f = join(dir(), "x.txt");
+    expect(nonBlankLines(f)).toEqual([]);
+    writeFileSync(f, "a\n\n  \nb\n");
+    expect(nonBlankLines(f)).toEqual(["a", "b"]);
   });
 });

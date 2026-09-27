@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { MIN_SECRET, replaceSecrets, scrubKeyShapes, secretEnvValues } from "../domain/secrets.ts";
+import { isPlain } from "../domain/util.ts";
 import { logsDir } from "./paths.ts";
 import { appendJsonl, ensureJsonlHeader } from "./store.ts";
 
@@ -30,9 +31,6 @@ export const knownSecrets = (env: Record<string, string | undefined> = process.e
   ...secretEnvValues(env),
   ...extra,
 ];
-
-const isPlain = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * `v` with every known secret and every key-shaped string replaced by `[redacted]`, in any string at

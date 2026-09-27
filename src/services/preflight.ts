@@ -5,6 +5,7 @@ import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
 import type { Deps } from "./ports.ts";
+import { TAIL_LINES } from "./run-debug.ts";
 import { findRun, type Run, runPaths } from "./run-store.ts";
 
 /** Spec §4.7. Only `cannot-start` blocks the run. */
@@ -40,7 +41,6 @@ export const preflightUser = { uid: (): number => process.getuid?.() ?? -1 };
 const refusesRoot = (): boolean => preflightUser.uid() === 0 && !process.env.IS_SANDBOX;
 const AS_ROOT =
   "not run: catherd runs as root, and preflight never runs a lane's check as root (spec §10.4); run catherd as a normal user, or set IS_SANDBOX=1 on a disposable machine";
-const TAIL_LINES = 20;
 
 interface LaneCheck {
   lane: string;

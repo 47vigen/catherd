@@ -6,6 +6,7 @@ import { CatherdError } from "./errors.ts";
 import { ADAPTER_IDS, parseRung } from "./ids.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
+import { isPlain, slug } from "./util.ts";
 
 /** Spec §3.4: every file carries its schema version; a profile is schema 1. */
 export const PROFILE_SCHEMA = 1;
@@ -246,12 +247,6 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
   };
 }
 
-const slug = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
 /** Spec §7.3: `catherd-<profile>-<role>-<model slug>-<effort>`, the native subagent for a `claude:` rung. */
 export function agentName(profile: string, role: Role, rung: string): string {
   const r = parseRung(rung);
@@ -286,9 +281,6 @@ export const ProfilePatchSchema = z.strictObject({
   notify: z.array(z.enum(NOTIFY)).optional(),
 });
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
-
-const isPlain = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** RFC 7396 merge: objects merge key by key, `null` deletes, anything else (arrays too) replaces. */
 export function mergePatch(target: unknown, patch: unknown): unknown {

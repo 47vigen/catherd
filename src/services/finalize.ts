@@ -15,7 +15,13 @@ import {
 } from "../domain/record.ts";
 import { dispatchPaths, readExit, tryClaim } from "../infra/dispatch-dir.ts";
 import { statusSnapshot } from "../infra/git.ts";
-import { appendJsonl, ensureJsonlHeader, makePrivate, writeTextAtomic } from "../infra/store.ts";
+import {
+  appendJsonl,
+  ensureJsonlHeader,
+  makePrivate,
+  nonBlankLines,
+  writeTextAtomic,
+} from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
 import { appendRecord, readRecords, type Run, runPaths } from "./run-store.ts";
 
@@ -26,10 +32,6 @@ const text = (file: string): string => {
     return "";
   }
 };
-const lines = (file: string): string[] =>
-  text(file)
-    .split("\n")
-    .filter((l) => l.trim());
 
 /** A claim this old with no record was left by a finalizer that died between the two. */
 const CLAIM_STALE_MS = 30_000;
@@ -136,7 +138,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
       replyPath: p.reply,
       dispatchDir: d.dir,
     },
-    eventLines: lines(p.events),
+    eventLines: nonBlankLines(p.events),
     reply,
     stderr: text(p.stderr),
     exit,
@@ -212,7 +214,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
 function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
   const a = adapterFor(d.admit.backend);
   if (d.admit.thread !== null || !a) return;
-  for (const line of lines(dispatchPaths(d.dir).events)) {
+  for (const line of nonBlankLines(dispatchPaths(d.dir).events)) {
     let tokens;
     try {
       tokens = a.parse(line).tokens;
@@ -267,7 +269,7 @@ export async function finalizeDispatch(run: Run, d: Dispatch): Promise<RunRecord
 
 function lastEvent(d: Dispatch): string | null {
   const a = adapterFor(d.admit.backend);
-  const line = lines(dispatchPaths(d.dir).events).at(-1);
+  const line = nonBlankLines(dispatchPaths(d.dir).events).at(-1);
   if (!a || !line) return null;
   try {
     return a.parse(line).lastEvent ?? null;

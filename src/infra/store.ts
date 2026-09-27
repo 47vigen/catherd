@@ -166,6 +166,17 @@ const isHeader = (v: unknown): v is { schema: number; kind: string } =>
   typeof (v as { schema?: unknown }).schema === "number" &&
   typeof (v as { kind?: unknown }).kind === "string";
 
+/** The non-blank lines of `file`; none when it cannot be read (missing, or not written yet). */
+export function nonBlankLines(file: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  return text.split("\n").filter((l) => l.trim());
+}
+
 export function readJsonl<T>(file: string, current = 1): { kind: string | null; rows: T[]; corrupt: number } {
   if (!existsSync(file)) return { kind: null, rows: [], corrupt: 0 };
   const rows: T[] = [];
