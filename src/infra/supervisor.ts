@@ -198,8 +198,9 @@ export async function supervise(spec: SuperviseSpec, hooks: SuperviseHooks = {})
         reason = "after-final";
       else if (now - lastActivity >= spec.idleMs) {
         const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
-        // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended
-        if (done) break;
+        // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended, read
+        // from the child itself too, since `done` is set by a callback that may not have run yet
+        if (done || child.exitCode !== null || child.signalCode !== null) break;
         if (busy) lastActivity = Date.now();
         else reason = "idle-timeout";
       }
