@@ -1,49 +1,68 @@
-# Ideas backlog
+# Ideas for 1.x
 
-Improvement and polish ideas collected while catherd is being built. They come from running the older `codex-orchestration` and `opencode-orchestration` skills, and from designing catherd itself. Those skills are frozen; every improvement lands here, and is picked up into a spec or plan when its time comes. One entry per idea: what, why (the evidence), and where it would live.
+Improvements collected from real catherd runs and from designing it, not yet planned. When one is picked up it moves
+into a spec or plan under `docs/superpowers/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
+(the evidence), and where it would live.
 
-## Already in the v1 spec
+Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
+report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
+(`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
+`route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); and the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`).
 
-Listed so they are not re-proposed:
-- Only `turn.failed` fails a Codex run, never a reconnect `error` event (spec §7). This bit `artist-m1` on 2026-09-24.
-- The server, not the orchestrator, writes `state.md`, because the polish run left it stale while four workers ran (spec §9).
-- Every run record carries its rung (`model#effort`), so effort is measurable per run (spec §7).
-- The UI pass covers changed screens only; findings carry screenshot paths; the orchestrator opens an image only to decide (spec §10).
+## Top priority
 
-- Per-profile, per-harness isolation toggle, default off: spec §8.2 (added 2026-09-24).
-- Quota failover, preflight, per-repo knowledge and run budget: spec §11b (chosen for v1 on 2026-09-24).
+- **Parallel dispatch is serial today.** The orchestrator sent four `dispatch` calls in one message at 09:20; the
+  server started them at 09:20, 09:22, 09:24 and 09:28, each the moment the previous one returned. Claude Code runs
+  MCP tool calls that are not marked read-only one after another, so "launch every lane in one message" buys nothing,
+  and the main thread sits blocked for the sum of the lanes (15 min in M1 instead of about 7). Fix: `dispatch` spawns
+  and returns at once with a handle, and a new `wait(run, any: true)` tool blocks until the next role finishes (and
+  backgrounds after two minutes like any long call). Alternatively, a batch `dispatch` with a `roles` array. Do not
+  mark `dispatch` `readOnlyHint`: that would be a lie that also loosens permission prompts.
 
-## Open
+## Routing and cost
 
-- **`catherd doctor`.** One command that checks the versions and logins of claude, codex and opencode, the Jev key, the plugin install, the agent symlinks, and whether the MCP server starts. *Why:* three runs so far were blocked on tool drift: a Claude CLI too old for Opus 5.5, a Codex CLI too old for the Sol/Luna ids, and a Codex CLI that could not parse its config. *Where:* plan 4, beside `init`.
-- **The cost of the user's harness customizations, shown and not stripped.** Report the per-run token cost of the user's Codex hooks, skills and `AGENTS.md` in `status` and the final report, e.g. "your Codex AGENTS.md adds ~12k tokens per run". The user then decides whether to trim it. *Why:* the harness is never isolated (spec §2), and in one run the global `AGENTS.md` was read 27 times; the user should see that number instead of catherd silently removing it. *Where:* runner records plus the report.
-- **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind × difficulty: "build lanes on luna#high climbed 3 of 10". *Why:* it is the raw material for v2's catalog tuning, and it tells the user whether a bar is too low today. *Where:* `runs_summary`, `watch`, and the setup skill.
-- **A per-milestone digest.** One screen per landed milestone: A-lines met, commits, climbs, open findings, time and tokens. The push notification links it. *Why:* the user asked "where is it" about 8 times in phase 2; the milestone push answers when, and the digest answers what. *Where:* the `land` tool writes it into the run folder; `watch` shows it.
-- **Quota failover.** Each rung in a profile can name a stand-in on another backend, e.g. `gpt-6-sol#medium → <opencode model of equal scores>`. A `limit` result then re-dispatches on the stand-in, instead of pausing the run, and pushes one line. *Why:* today a usage limit pauses an autopilot run until the user returns (goal 1). *Where:* the profile schema, `climb`/`dispatch`.
-- **Preflight at `run_start`.** Run each lane's fast check once on the base tree before any worker starts, to catch a wrong command or a missing service in seconds rather than after a 20-minute worker run. *Where:* after the architect, before the first `route`.
-- **Per-repo knowledge.** `<data>/<repo-slug>/knowledge.md` keeps what runs learned: test and build commands and how long they take, flaky tests, slow suites, patterns to copy. The next dossier reads it and only maps what changed since the last run's HEAD. *Why:* in phase 2 the architect spent 50 minutes and read 103 files; a second run on the same repo should not start cold. *Where:* the researcher dossier, the `land` tool.
-- **Run budget.** A per-run cap on time, tokens or dollars (metered backends). At 80%, the orchestrator prefers lower rungs; at 100% it pauses and pushes. *Why:* autopilot on metered OpenRouter needs a ceiling. *Where:* the profile plus `run_start`.
-- **Trim the shipped models.dev snapshot.** Done in 1.0: the 1.4 MB `catalog/models-dev.json` is gone, and the catalog ships only `catalog/models.json` (8 KB), `catalog/scores.json` and `catalog/jev.json`, read by `src/services/catalog-service.ts`.
-- **Race mode (v2).** For lanes a profile marks as critical, dispatch two rungs at once in separate worktrees, and keep the first whose fast check passes. It trades quota for wall-clock time.
-- **Automatic retro (v2).** At the finish, write a short retro (climbs, the slowest steps, failures) and append its improvement ideas to this file.
-- **`catherd bench` (v2).** Replay recorded real tasks under different profiles to measure them on the user's own work; it feeds the bars.
-- **Standalone binaries (later).** `bun build --compile` per platform, published as optional platform packages, so users need no Bun install. It waits until OpenTUI's native core embeds cleanly in a compiled binary.
+- **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
+  "build lanes on `codex:gpt-6-luna#high` climbed 3 of 10". _Why:_ it is the raw material for catalog tuning, and it
+  tells the user whether a bar is too low today. _Where:_ `runs_summary`, `watch`, and the setup skill.
+- **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty
+  (0.4), so 3 of 4 routes fell back to the default. Log each lane's final outcome (climbed or not) beside Jev's answer,
+  then tune the difficulty question's wording, its options or its threshold from that data.
+- **First-turn cost on small lanes.** A native Codex turn starts at about 280k input tokens (mostly cached) whatever
+  the lane's size. A profile rule such as "isolated below difficulty build" could save most of it without touching the
+  user's harness for real work. _Where:_ the profile's `harness.<backend>.isolated`, made conditional.
+- **`status` harness line.** It can say "codex native" while every dispatch in the run is isolated, and print a
+  negative delta ("~-528k"), because it compares against past native runs on tiny repos. Show the current run's mode,
+  and compare only runs on the same repo.
 
-## From the first real runs (2026-09-25)
+## Orchestration
 
-- **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty (0.4), so 3 of 4 routes fell back to the default. Log each lane's final outcome (climbed or not) beside Jev's answer, then tune the difficulty question's wording, its options or its threshold from that data.
-- **First-turn cost on small lanes.** A native Codex turn starts at ~280k input tokens (mostly cached) whatever the lane's size. For one-line lanes, a profile rule "isolated below difficulty build" could save most of it without touching the user's harness for real work.
-- **Live coverage still missing:** an opencode lane, a climb, quota failover and a budget stop have only run in tests, never in a real run.
+- **A per-milestone digest.** One screen per landed milestone: A-lines met, commits, climbs, open findings, time and
+  tokens. The push notification links it. _Why:_ the user asked "where is it" about 8 times in one run; the milestone
+  push answers when, and the digest answers what. _Where:_ `land` writes it into the run folder; `watch` shows it.
+- **Plan in hand: architect as translator.** When the user brings finished plan files, the architect should not
+  redesign. It reads them, splits each task into lanes (owned files, a fast check) and each MR into a milestone with
+  its full check, and stays the escalation target for `design` findings. The researcher dossier is skipped (a
+  code-level plan already carries its file map; in one run the researcher still spent 5 min and 1.1M tokens) and the
+  architect runs at medium effort. _Where:_ a `plan:` A-line recognized in the catherd skill, and a shorter architect
+  brief.
+- **Milestone per branch.** A real multi-MR build wants one branch and one MR per milestone, some in parallel. `land`
+  only commits. _Where:_ an optional `branch` on milestones, and a finish step that opens the MR through the repo's
+  own tooling.
+- **Stacked milestones.** Starting M2 only after M1 merged serializes the run behind review and the gate. M2 could
+  start on a branch stacked on M1 while M1's gate and MR run, and rebase once it merges.
+- **Lint in the fast check.** Both M1 fix rounds in one run were lint findings that only the milestone gate caught. A
+  lane's fast check should run the linter on its own packages (for example `golangci-lint run ./authz/...`).
 
-## Plan in hand (2026-09-26)
+## Later
 
-- **Architect as translator.** When the user brings finished plan files, the architect should not redesign. It reads them, then splits each task into lanes (owned files, a fast check) and each MR into a milestone with its full check. It stays the escalation target for `design` findings. Today the skill has only two paths, full architect or none (polish runs), and "you copy the plan yourself" is listed as a mistake. *Where:* a `plan:` A-line recognized in SKILL.md step 3, and a shorter architect brief.
-- **Milestone per branch.** A real multi-MR build wants one branch and one MR per milestone, some in parallel (a kit prerequisite, then the service beside kit follow-ups). `land` only commits. *Where:* an optional `branch` on milestones, and a finish step that opens the MR through the repo's own tooling.
+- **Race mode.** For lanes a profile marks as critical, dispatch two rungs at once in separate worktrees and keep the
+  first whose fast check passes. It trades quota for wall-clock time.
+- **Automatic retro.** At the finish, write a short retro (climbs, the slowest steps, failures) and suggest
+  improvements.
+- **`catherd bench`.** Replay recorded real tasks under different profiles to measure them on the user's own work.
+- **Standalone binaries.** `bun build --compile` per platform, published as optional platform packages, so users need
+  no Bun install. It waits until OpenTUI's native core embeds cleanly in a compiled binary.
 
-## From the auth-kit run (2026-09-26)
+## Live coverage still missing
 
-- **Parallel dispatch is serial today (bug, top priority).** The orchestrator sent four `dispatch` calls in one message at 09:20; the server started them at 09:20, 09:22, 09:24 and 09:28, each the moment the previous one returned. Claude Code runs MCP tool calls that are not marked read-only one after another, so "launch every lane in one message" buys nothing, and the main thread sits blocked for the sum of the lanes (15 min in M1 instead of ~7). Fix: `dispatch` spawns and returns at once with a handle; a new `wait(run, any: true)` blocks until the next role finishes (and backgrounds after two minutes like any long call). Alternatively a batch `dispatch` with a `roles` array. Do not mark `dispatch` `readOnlyHint`: it would be a lie that also loosens permission prompts.
-- **Plan in hand skips the dossier.** A code-level plan already carries its file map; the researcher still spent 5 min and 1.1M tokens, and the architect 14 min at Opus high to split it. For a `plan:` run: no researcher, and the architect at medium effort with a "translate, do not design" brief.
-- **Lint in the fast check.** Both M1 fix rounds were lint findings (a missing doc comment, `noctx`) that only the milestone gate caught. A lane's fast check should run the linter on its own packages, e.g. `golangci-lint run ./authz/...`, so the gate stops finding what a lane could have.
-- **Stacked milestones.** Starting M2 only after M1 merged serializes the run behind review and the gate. M2 could start on a branch stacked on M1 while M1's gate and MR run, and rebase once it merges.
-- **`status` harness line.** It says "codex native" while every dispatch in the run is isolated, and prints a negative delta ("~-528k"); it compares against past native runs on tiny repos, so the number means nothing yet. Show the current run's mode, and compare only runs on the same repo.
+An opencode lane, a climb, quota failover and a budget stop have run only in tests, never in a real orchestrated run.
