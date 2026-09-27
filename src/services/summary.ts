@@ -76,7 +76,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       totalTokens: agents.reduce((n, a) => n + a.totalTokens, 0),
       costUsd: agents.reduce((n, a) => n + (a.costUsd ?? 0), 0),
     },
-    // a lane or default source is a decision Jev did not make
+    // a jev-kind, lane or default source is a decision Jev did not make whole
     jev: { decisions: jev.length, fallbacks: jev.filter((j) => j.source !== "jev").length },
     harness: [...new Set(records.map((r) => r.backend))].sort().map((backend) => {
       const of = records.filter((r) => r.backend === backend);

@@ -12,7 +12,14 @@ import {
 import { type Difficulty, type Kind, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import type { RouteJev } from "../domain/route.ts";
-import { candidates, defaultLadder, type Pick, type RoutingProfile, select } from "../domain/select.ts";
+import {
+  candidates,
+  defaultDifficulty,
+  defaultLadder,
+  type Pick,
+  type RoutingProfile,
+  select,
+} from "../domain/select.ts";
 import { log } from "../infra/log.ts";
 import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
@@ -71,7 +78,9 @@ async function freshenWithin(rungs: string[], repo: string, ms: number): Promise
 
 /**
  * Spec §5.4: kind and difficulty from Jev (§5.5's rule), else the lane file's `Kind:`/`Difficulty:`,
- * else the role's default rung. A role with one usable rung never asks Jev.
+ * else the role's default rung. A kind Jev is sure of survives a difficulty in the dead band: the
+ * difficulty then comes from the lane, else the role's default difficulty (`jev-kind`). A role with one
+ * usable rung never asks Jev.
  */
 async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   const p = routingProfile(req.profile, req.role, req.spentFraction);
@@ -94,8 +103,18 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   if (judged?.track && judged.difficulty) {
     const kind = judged.kind ?? lane.kind ?? "repo_code";
     out = answer(select(c, p, req.role, kind, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
+  } else if (judged?.kind) {
+    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role, judged.kind);
+    out = answer(
+      select(c, p, req.role, judged.kind, difficulty),
+      "jev-kind",
+      judged.kind,
+      difficulty,
+      asked,
+      jev,
+    );
   } else {
-    const kind = judged?.kind ?? lane.kind;
+    const kind = lane.kind;
     out =
       kind && lane.difficulty
         ? answer(select(c, p, req.role, kind, lane.difficulty), "lane", kind, lane.difficulty, asked, jev)

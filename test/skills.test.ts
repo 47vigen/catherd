@@ -131,6 +131,11 @@ describe("orchestrator skill, run findings", () => {
       expect(md()).toContain(line);
   });
 
+  it("says a sure kind survives an unsure difficulty", () => {
+    expect(md()).toContain("keeps Jev's kind and takes the difficulty from the lane's `Difficulty:` line");
+    expect(md()).toContain('`source: "jev-kind"`');
+  });
+
   it("no longer claims the routes run at once", () => {
     expect(md()).not.toContain("all in one message");
     expect(md()).toContain('`route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane');
