@@ -52,10 +52,11 @@ catherd init
 The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init` works too: `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the
-optional Jev key, writes the default profile and links its Claude agents, lists your backends' models, and ends
-with a readiness report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates
-that profile instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the
-profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
+optional Jev key and the optional Artificial Analysis key, syncs the public model sources, writes the default
+profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
+asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
+piped, it reads one answer per line once stdin closes: the Jev key, the Artificial Analysis key, the profile,
+whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
 Claude Code:
 
 ```sh

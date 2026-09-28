@@ -18,6 +18,9 @@ claude plugin marketplace update catherd && claude plugin update catherd@catherd
 is tested, then saved in `credentials.json`) and syncs the public sources. Without a key, routing uses the keyless
 sources and the scores catherd ships.
 
+- Piped `init` now reads four lines: the Jev key, the Artificial Analysis key, the profile, whether to replace it.
+  A script that pipes 1.1's three answers needs an empty line after the Jev key.
+
 ### Routing reads new bars
 
 The default bars now span several dimensions per kind: `repo_code` lanes gate on DeepSWE, `terminal` lanes on
@@ -43,7 +46,7 @@ thresholds stay. Write `null` for a dimension to remove its threshold.
   1.2, a profile with two errors could not be repaired one `profile set` at a time.
 - Your treat-likes keep working. `catherd catalog treat-like --suggest <rung>` shows the three nearest stand-ins,
   `--clear <rung>` removes one of yours and `--reset` all of them; each first names the profile rungs it leaves on
-  an inferred stand-in.
+  an inferred stand-in or unscored.
 - `profile show` and the dashboard say which dimensions a treat-like lends (`agentic, steer borrowed from X`)
   when the rung has values of its own.
 
