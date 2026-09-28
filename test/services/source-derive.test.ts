@@ -143,7 +143,10 @@ describe("anchors and calibration (spec 1.2 §4.1, §4.2)", () => {
 
 describe("adjacent values (spec 1.2 §4.3)", () => {
   it("carries a family's synced value to its other efforts, from the nearest effort", () => {
-    const d = keyless();
+    // over the hand-typed values alone: the shipped file carries the keyless values spread already
+    const c = shippedContext(NOW);
+    const hand = c.scores.scores.filter((s) => s.source === undefined && s.confidence !== "adjacent");
+    const d = derive(rawAnswers(AT), { ...c, scores: { ...c.scores, scores: hand } });
     expect(find(d, "claude-opus-5-5#max", "agentic", "adjacent")).toEqual([
       expect.objectContaining({
         value: 0.1215,

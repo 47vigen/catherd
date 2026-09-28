@@ -18,12 +18,13 @@ const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
 describe("the dims a rung's bars use (spec 1.1 §11)", () => {
   it("are the dims of every bar the rung clears", () => {
     const c = shipped();
-    // Luna high: repo_code 59.3, honesty 71.3 → clears the repo_code-only copy/build bars
-    expect(barDims(c, LUNA)).toEqual(["repo_code"]);
-    // Sol medium clears every bar, which use repo_code and honesty
-    expect(barDims(c, SOL("medium"))).toEqual(["repo_code", "honesty"]);
-    // Opus high borrows xhigh's terminal score only and clears no bar
-    expect(barDims(c, "claude-code:claude-opus-5-5#high")).toEqual([]);
+    // Luna high (repo_code 66.6 and frontend 1593, carried from max) clears the repo_code, prose and research
+    // copy and build bars and the ui copy bar
+    expect(barDims(c, LUNA)).toEqual(["repo_code", "frontend"]);
+    // Sol medium (repo_code 56.6, terminal 43 carried from max) clears the terminal copy bar only
+    expect(barDims(c, SOL("medium"))).toEqual(["terminal"]);
+    // Opus high carries max's and xhigh's values; with no honesty value it clears no Track B bar
+    expect(barDims(c, "claude-code:claude-opus-5-5#high")).toEqual(["repo_code", "terminal", "frontend"]);
     expect(barDims(c, "codex:not-a-model#high")).toEqual([]);
   });
 });
@@ -33,12 +34,13 @@ describe("downgradeDims", () => {
     const c = shipped();
     expect(downgradeDims(c, SOL("medium"), KIMI)).toEqual([]);
     expect(downgradeDims(c, SOL("xhigh"), KIMI)).toEqual(["repo_code"]);
-    expect(downgradeDims(c, SOL("high"), GO_LUNA)).toEqual(["repo_code", "honesty"]);
-    expect(downgradeDims(c, SOL("medium"), "claude-code:claude-opus-5-5#high")).toEqual([
+    expect(downgradeDims(c, SOL("high"), GO_LUNA)).toEqual(["terminal", "frontend"]);
+    expect(downgradeDims(c, SOL("medium"), "claude-code:claude-opus-5-5#high")).toEqual([]);
+    expect(downgradeDims(c, "claude-code:claude-opus-5-5#high", GO_LUNA)).toEqual([
       "repo_code",
-      "honesty",
+      "terminal",
+      "frontend",
     ]);
-    expect(downgradeDims(c, "claude-code:claude-opus-5-5#high", GO_LUNA)).toEqual([]);
   });
 });
 
@@ -49,18 +51,27 @@ describe("rankStandIns", () => {
       "codex:gpt-6-luna#max", // same quota as Luna high
       "opencode:opencode/gpt-6-luna#high", // Zen: metered
       "claude:claude-opus-5-5#high", // native: dispatch cannot start it
-      "claude-code:claude-opus-5-5#high", // no score on repo_code, the bar dim Luna high uses
-      "claude-code:claude-opus-5-5#max", // repo_code 74.2: fits, but on the Claude plan
-      "opencode:opencode-go/gpt-5.6-luna#max",
+      "claude-code:claude-opus-5-5#max", // repo_code 74.2, frontend 1827: fits, but on the Claude plan
+      "opencode:opencode-go/gpt-5.6-luna#max", // frontend 1520, below Luna high's 1593
       GO_LUNA,
       "opencode:opencode-go/nope#high", // unscored
     ];
     expect(rankStandIns(c, DEFAULT_BILLING, LUNA, pool)).toEqual([
       GO_LUNA,
-      "opencode:opencode-go/gpt-5.6-luna#max",
       "claude-code:claude-opus-5-5#max",
     ]);
     expect(rankStandIns(c, DEFAULT_BILLING, "not a rung", pool)).toEqual([]);
+  });
+
+  it("prefers the effort nearest the rung's own among a model's efforts, which carry one another's values", () => {
+    const c = shipped();
+    const go = (e: string) => `opencode:opencode-go/gpt-6-luna#${e}`;
+    expect(rankStandIns(c, DEFAULT_BILLING, LUNA, [go("none"), go("max"), go("high"), go("low")])).toEqual([
+      go("high"),
+      go("low"), // two steps away, as max is: the cheaper first
+      go("max"),
+      go("none"),
+    ]);
   });
 
   it("takes a Zen stand-in when the profile bills Zen on a subscription", () => {
@@ -103,14 +114,17 @@ describe("catalogRungs", () => {
 });
 
 describe("DEFAULT_FAILOVER (spec 1.1 §11)", () => {
-  it("is, for each shipped worker rung, the best stand-in the shipped catalog offers, and none without one", () => {
+  it("gives each shipped worker rung a stand-in the shipped catalog accepts, never a Claude-billed one", () => {
     const c = shipped();
-    const expected: Record<string, string> = {};
-    for (const rung of new Set(BUILTIN_ROLES.worker.rungs)) {
-      const best = rankStandIns(c, DEFAULT_BILLING, rung, catalogRungs(c))[0];
-      if (best) expected[rung] = best;
+    // the ranker also accepts Opus (Claude-billed, carrying max's values) for Sol high and xhigh: the default
+    // leaves those without one, so a limit on them pauses the lane (spec 1.1 §11)
+    for (const [rung, standIn] of Object.entries(DEFAULT_FAILOVER)) {
+      expect(BUILTIN_ROLES.worker.rungs).toContain(rung);
+      expect(rankStandIns(c, DEFAULT_BILLING, rung, catalogRungs(c))).toContain(standIn);
+      expect(claudeBilled(standIn)).toBe(false);
     }
-    expect(DEFAULT_FAILOVER).toEqual(expected);
     expect(DEFAULT_FAILOVER).toEqual({ [LUNA]: GO_LUNA, [SOL("medium")]: KIMI });
+    for (const rung of Object.keys(DEFAULT_FAILOVER))
+      expect(rankStandIns(c, DEFAULT_BILLING, rung, catalogRungs(c))[0]).toBe(DEFAULT_FAILOVER[rung]);
   });
 });

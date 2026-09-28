@@ -12,6 +12,7 @@ import {
   useProfileDialogs,
 } from "../../../src/entry/tui/views/profile-actions.ts";
 import { ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
+import { writeDiscovery } from "../../../src/adapters/discovery.ts";
 import { saveTreatLike } from "../../../src/services/catalog-service.ts";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
@@ -36,11 +37,20 @@ afterEach(async () => {
   h = null;
 });
 
+/**
+ * An unscored rung: a model OpenCode Go lists that catherd has no family, and no stand-in, for (every shipped
+ * family's rung is scored, its own or carried from another effort, spec 1.2 §4.3).
+ */
+const GLM = "opencode:opencode-go/glm-5.3#high";
+
 async function profiles(
   setup: (fx: ReturnType<typeof fixtureEffects>) => void = () => {},
   effects: ReturnType<typeof fixtureEffects> = fixtureEffects(),
 ) {
   withHome();
+  writeDiscovery("opencode", [
+    { id: "opencode-go/glm-5.3", efforts: ["high"], context: 200000, imageIn: false },
+  ]);
   setup(effects);
   h = await harness(
     <Shell width={100} height={35}>
@@ -79,7 +89,7 @@ describe("the Profiles tab", () => {
     const lines = h!.s.frame().split("\n");
     const start = lines.findIndex((l) => l.includes("claude (native subagent)"));
     const group = lines.slice(start + 1, start + 5);
-    expect(group.at(-1)).toContain("claude-haiku-4-5-20251001");
+    expect(group.some((l) => l.includes("claude-haiku-4-5-20251001"))).toBe(true);
     expect(new Set(group.map((l) => l.search(/\d+ of \d+/))).size).toBe(1);
   });
 
@@ -94,18 +104,18 @@ describe("the Profiles tab", () => {
 
   it("maps an unscored rung with the treat-like picker, stages it, and saves both", async () => {
     const fx = await profiles();
-    await find("worker gpt-6-sol ultra");
+    await find("worker glm-5.3 high");
     await h!.s.press("space");
-    expect(h!.s.frame()).toContain("Treat codex:gpt-6-sol#ultra like…");
+    expect(h!.s.frame()).toContain(`Treat ${GLM} like…`);
     await h!.s.type("gpt-6-sol#xhigh");
     await h!.s.press("return");
     expect(h!.s.frame()).toContain("treated like gpt-6-sol#xhigh · unsaved");
     expect(h!.s.frame()).toContain("2 unsaved");
     await h!.s.press("ctrl+s");
-    expect(h!.s.frame()).toContain("treat codex:gpt-6-sol#ultra like gpt-6-sol#xhigh");
+    expect(h!.s.frame()).toContain(`treat ${GLM} like gpt-6-sol#xhigh`);
     await h!.s.press("return");
     expect(fx.writes).toHaveLength(1);
-    expect(fx.writes[0]).toContain('{"codex:gpt-6-sol#ultra":"gpt-6-sol#xhigh"}');
+    expect(fx.writes[0]).toContain(`{"${GLM}":"gpt-6-sol#xhigh"}`);
   });
 
   it("picks a failover stand-in on another quota, marked inferred when it is", async () => {
@@ -122,16 +132,16 @@ describe("the Profiles tab", () => {
   it("offers a rung made usable by a staged treat-like as a failover stand-in", async () => {
     await profiles();
     // an unscored rung on another quota than luna's (a stand-in never shares the quota it stands in for)
-    await find("worker claude-code sonnet low");
+    await find("worker glm-5.3 high");
     await h!.s.press("space");
-    expect(h!.s.frame()).toContain("Treat claude-code:claude-sonnet-5#low like…");
+    expect(h!.s.frame()).toContain(`Treat ${GLM} like…`);
     await h!.s.type("gpt-6-sol#xhigh");
     await h!.s.press("return", "escape");
     await find("failover luna");
     await h!.s.press("return");
     expect(h!.s.frame()).toContain("Stand-in for codex:gpt-6-luna#high");
-    await h!.s.type("sonnet-5#low");
-    expect(h!.s.frame()).toContain("claude-sonnet-5#low");
+    await h!.s.type("glm-5.3#high");
+    expect(h!.s.frame()).toContain("glm-5.3#high");
     expect(h!.s.frame()).not.toContain("No match");
   });
 
@@ -308,33 +318,29 @@ describe("the Profiles tab", () => {
   });
 
   it("unticks a ticked rung that has become unscored, without the treat-like picker", async () => {
-    const ultra = "codex:gpt-6-sol#ultra";
+    const glm = GLM;
     await profiles((f) => {
       const read = f.readProfile;
       f.readProfile = (n) => {
         const doc = read(n);
         const rungs = resolveProfile(doc, n).roles.worker.rungs;
-        return applyPatch(doc, { roles: { worker: { rungs: [...rungs, ultra] } } });
+        return applyPatch(doc, { roles: { worker: { rungs: [...rungs, glm] } } });
       };
     });
-    await find("worker gpt-6-sol ultra");
+    await find("worker glm-5.3 high");
     await h!.s.press("space");
-    expect(h!.s.frame()).not.toContain("Treat codex:gpt-6-sol#ultra like…");
+    expect(h!.s.frame()).not.toContain(`Treat ${GLM} like…`);
     expect(h!.s.frame()).toContain("1 unsaved");
-    expect(h!.app().getState().drafts.default?.doc.roles?.worker?.rungs).not.toContain(ultra);
+    expect(h!.app().getState().drafts.default?.doc.roles?.worker?.rungs).not.toContain(glm);
   });
 
   it("shows a treat-like saved alone (the profile unchanged) as saved, from the catalog read again", async () => {
-    const ultra = "codex:gpt-6-sol#ultra";
+    const glm = GLM;
     const fx = await profiles((f) => {
-      // the profile already ticks ultra, saved while it was treated like a rung (the fixture's save is
+      // the profile already ticks glm, saved while it was treated like a rung (the fixture's save is
       // synchronous up to its write), and reads back as a new object, as a file read does
       const rungs = resolveProfile(defaultProfileDoc(), "default").roles.worker.rungs;
-      void f.save(
-        "default",
-        { roles: { worker: { rungs: [...rungs, ultra] } } },
-        { [ultra]: "gpt-6-sol#xhigh" },
-      );
+      void f.save("default", { roles: { worker: { rungs: [...rungs, glm] } } }, { [glm]: "gpt-6-sol#xhigh" });
       f.writes.length = 0;
       const read = f.readProfile;
       f.readProfile = (n) => structuredClone(read(n));
@@ -345,7 +351,7 @@ describe("the Profiles tab", () => {
         return r;
       };
     });
-    await find("worker gpt-6-sol ultra");
+    await find("worker glm-5.3 high");
     // enter unticks the unscored rung; enter again maps it, ticking it back: only the treat-like is staged
     await h!.s.press("return", "return");
     await h!.s.type("gpt-6-sol#xhigh");
@@ -358,12 +364,12 @@ describe("the Profiles tab", () => {
     // scored through the saved treat-like, not "unscored" from the catalog read before the save
     expect(h!.s.frame()).not.toContain("unsaved");
     expect(h!.s.frame()).not.toContain("unscored");
-    expect(h!.s.frame()).toMatch(/\[x\] ultra +inferred/);
+    expect(h!.s.frame()).toMatch(/\[x\] high +inferred/);
   });
 
   it("takes back a picked treat-like and the tick it brought in one undo", async () => {
     await profiles();
-    await find("worker gpt-6-sol ultra");
+    await find("worker glm-5.3 high");
     await h!.s.press("space");
     await h!.s.type("gpt-6-sol#xhigh");
     await h!.s.press("return");
@@ -436,11 +442,11 @@ describe("the Profiles tab", () => {
 
   it("writes nothing when the profile changes on disk while a staged treat-like is saved, and asks again", async () => {
     const fx = await profiles();
-    await find("worker gpt-6-sol ultra");
+    await find("worker glm-5.3 high");
     await h!.s.press("space");
     await h!.s.type("gpt-6-sol#xhigh");
     await h!.s.press("return", "ctrl+s");
-    expect(h!.s.frame()).toContain("treat codex:gpt-6-sol#ultra like gpt-6-sol#xhigh");
+    expect(h!.s.frame()).toContain(`treat ${GLM} like gpt-6-sol#xhigh`);
     // another process writes the rungs while the treat-like waits for the catalog lock
     const theirs = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"];
     const save = fx.save;
@@ -464,8 +470,8 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("[ Save ]");
     await h!.s.press("return");
     expect(fx.writes).toHaveLength(1);
-    expect(fx.writes[0]).toContain('{"codex:gpt-6-sol#ultra":"gpt-6-sol#xhigh"}');
-    expect(fx.readProfile("default").roles?.worker?.rungs).toContain("codex:gpt-6-sol#ultra");
+    expect(fx.writes[0]).toContain(`{"${GLM}":"gpt-6-sol#xhigh"}`);
+    expect(fx.readProfile("default").roles?.worker?.rungs).toContain(GLM);
     expect(h!.app().getState().dialogs).toEqual([]);
   });
 

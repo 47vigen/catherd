@@ -121,8 +121,8 @@ describe("validateProfile", () => {
     });
     expect(v.errors).toEqual([]);
     expect(messages(v.warnings)).toEqual([
+      "downgrade: opencode:opencode-go/kimi-k3#max stands in for codex:gpt-6-astra#high, scoring below it on repo_code, terminal, honesty, agentic, frontend",
       "codex:gpt-6-astra#high is on no enabled role's ladder, so this never runs",
-      "downgrade: claude:claude-opus-5-5#high stands in for codex:gpt-6-sol#high, scoring below it on repo_code, honesty",
       "stand-in claude:claude-opus-5-5#high is a native subagent: the orchestrator must start it, dispatch cannot",
     ]);
   });
@@ -149,24 +149,18 @@ describe("validateProfile", () => {
   });
 
   it("warns on a Claude rung that clears no routing bar on a ladder of several, never on a lone one", () => {
-    const worker = [
-      "codex:gpt-6-sol#medium",
-      "claude-code:claude-opus-5-5#high",
-      "claude:claude-opus-5-5#high",
-      "claude-code:claude-opus-5-5#max",
-    ];
+    // Haiku 4.5 has only a WebDev value (frontend 1338, from Epoch): it clears no bar; Opus clears several
+    const HAIKU = "claude-code:claude-haiku-4-5-20251001#default";
+    const worker = ["codex:gpt-6-sol#medium", HAIKU, "claude-code:claude-opus-5-5#max"];
     const v = check({ roles: { worker: { rungs: worker, defaultRung: null } } });
     expect(v.errors).toEqual([]);
-    expect(v.warnings.filter((w) => w.message.includes("clears no routing bar"))).toEqual(
-      ["claude-code:claude-opus-5-5#high", "claude:claude-opus-5-5#high"].map((rung) => ({
+    expect(v.warnings.filter((w) => w.message.includes("clears no routing bar"))).toEqual([
+      {
         path: "roles.worker.rungs",
-        message: `${rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
-      })),
-    );
-    expect(check({ roles: { reviewer: { rungs: ["claude-code:claude-opus-5-5#high"] } } })).toEqual({
-      errors: [],
-      warnings: [],
-    });
+        message: `${HAIKU} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
+      },
+    ]);
+    expect(check({ roles: { reviewer: { rungs: [HAIKU] } } })).toEqual({ errors: [], warnings: [] });
   });
 });
 
@@ -184,7 +178,8 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
       {
         path: `failover.${XHIGH}`,
         message: `downgrade: ${KIMI} stands in for ${XHIGH}, scoring below it on repo_code`,
-        fix: `catherd profile set failover.${XHIGH} null`,
+        // Opus xhigh (repo_code 74.2 carried from max): the only stand-in with no downgrade, on the Claude plan
+        fix: `catherd profile set failover.${XHIGH} claude-code:claude-opus-5-5#xhigh`,
       },
     ]);
   });
@@ -222,7 +217,7 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
     expect(v.errors).toEqual([]);
     expect(v.warnings).toContainEqual({
       path: "roles.worker.rungs",
-      message: `the ladder goes down at ${LUNA}: it scores below ${XHIGH} on repo_code, honesty`,
+      message: `the ladder goes down at ${LUNA}: it scores below ${XHIGH} on terminal, honesty, frontend`,
       fix: "order roles.worker.rungs weakest first",
     });
     // Luna high → Sol medium: lower on repo_code but higher on honesty, so not down (the default ladder)
@@ -231,14 +226,15 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
 });
 
 describe("inferredScores", () => {
-  it("marks both of the default profile's Go stand-ins inferred, and Sol not", () => {
+  it("marks the default profile's Kimi stand-in inferred, and Go Luna and Sol not", () => {
     const c = shipped();
     expect(inferredScores(c, rungInfo(c, "opencode:opencode-go/kimi-k3#max"))).toEqual({
       inferred: true,
       via: "gpt-6-sol#medium",
     });
+    // Go Luna high carries Luna max's published values (adjacent): no longer only catherd's guesses
     expect(inferredScores(c, rungInfo(c, "opencode:opencode-go/gpt-6-luna#high"))).toEqual({
-      inferred: true,
+      inferred: false,
       via: null,
     });
     expect(inferredScores(c, rungInfo(c, "codex:gpt-6-sol#high")).inferred).toBe(false);

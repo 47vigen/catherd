@@ -127,7 +127,13 @@ const BarSchema = z.partialRecord(z.enum(DIMS), z.number());
 type Bars = Record<Kind, Record<Difficulty, Partial<Record<Dim, number>>>>;
 const BarsSchema = z.record(z.enum(KINDS), z.record(z.enum(DIFFICULTIES), BarSchema));
 
-/** `barsWhy` (the reasoning behind the bars) stays in the file as documentation; nothing reads it. */
+/** Spec 1.2 §5.2: per dimension and difficulty, where the default threshold came from. */
+const BarsWhySchema = z.partialRecord(z.enum(DIMS), z.partialRecord(z.enum(DIFFICULTIES), z.string()));
+
+/**
+ * `catalog/scores.json`: the hand-typed and keyless values (spec 1.2 §7), the shipped treat-likes, and the
+ * default bars with the `barsWhy` line of each threshold (spec 1.2 §5.2).
+ */
 export const ScoresFileSchema = z.looseObject({
   schema: z.literal(1),
   version: z.string(),
@@ -135,6 +141,7 @@ export const ScoresFileSchema = z.looseObject({
   scores: z.array(ScoreSchema),
   treatLike: z.record(CanonicalRung, z.object({ like: CanonicalRung, note: z.string() })),
   bars: BarsSchema,
+  barsWhy: BarsWhySchema.default({}),
 });
 export type ScoresFile = z.infer<typeof ScoresFileSchema>;
 
@@ -169,6 +176,8 @@ export interface Catalog {
   scores: Record<string, Partial<Record<Dim, Score>>>;
   treatLike: Record<string, { like: string; source: "shipped" | "user" }>;
   bars: Bars;
+  /** where each default threshold came from (spec 1.2 §5.2), by dimension and difficulty */
+  barsWhy: ScoresFile["barsWhy"];
   /** per backend id, the last `listModels()`; absent when never listed */
   listed: Record<string, { fetchedAt: string; models: Listed[] }>;
   /** `<canonical rung>|<kind or *>` → median seconds, only with ≥ 5 samples (spec §5.2) */
@@ -281,6 +290,7 @@ export function buildCatalog(o: {
     scores,
     treatLike,
     bars,
+    barsWhy: o.scores.barsWhy,
     listed: o.listed ?? {},
     secs: o.secs ?? {},
   };

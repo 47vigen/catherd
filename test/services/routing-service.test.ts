@@ -27,7 +27,10 @@ beforeEach(() => {
 
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
-const TRACK_A = { rung: LADDER[0] as string, ladder: LADDER };
+// spec 1.2 §5: build lanes need DeepSWE 66.6 (the median), which Luna high (carried from max) and Sol xhigh
+// clear; copy needs 60.95, which Sol high clears too; no Sol rung clears a logic or hard bar
+const TRACK_A = { rung: LADDER[0] as string, ladder: [LADDER[0] as string, LADDER[3] as string] };
+const COPY = { rung: LADDER[0] as string, ladder: [LADDER[0], LADDER[2], LADDER[3]] as string[] };
 const TRACK_B = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 
@@ -183,8 +186,8 @@ describe("route with Jev", () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
     const r = req(lane("prose", null));
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    // the default rung, gpt-6-sol#medium, clears repo_code up to hard
-    expect(a).toMatchObject({ ...TRACK_B, source: "jev-kind", kind: "repo_code", difficulty: "hard" });
+    // the default rung, gpt-6-sol#medium, clears no repo_code bar: the default difficulty is build
+    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
     expect(jevRows(r.runDir)[0]?.source).toBe("jev-kind");
   });
 
@@ -248,7 +251,12 @@ describe("route and discovery", () => {
     registerAdapter({ ...codex, listModels: () => (calls++, new Promise(() => {})) });
     const a = await routingService({ discoveryBudgetMs: 5 }).route(req(lane("repo_code", "build")));
     expect(calls).toBe(1);
-    expect(a).toMatchObject({ ...TRACK_B, source: "lane" });
+    // without Luna, only Sol xhigh clears the build bar
+    expect(a).toMatchObject({
+      rung: "codex:gpt-6-sol#xhigh",
+      ladder: ["codex:gpt-6-sol#xhigh"],
+      source: "lane",
+    });
     expect(a.ladder).not.toContain("codex:gpt-6-luna#high");
   });
 });
@@ -305,7 +313,7 @@ describe("route and the profile", () => {
   it("keeps the approved ladder through the default profile the profile service serves", async () => {
     const profile = profileService().forRepo(null);
     const r = routingService();
-    expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(TRACK_A);
+    expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(COPY);
     expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_B);
     expect(await r.route(req(lane("prose", "hard"), { profile }))).toMatchObject(TRACK_B);
   });

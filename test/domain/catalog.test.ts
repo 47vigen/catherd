@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   CONFIDENCE,
   capableFor,
@@ -11,6 +13,7 @@ import {
   type Score,
   scoresOf,
 } from "../../src/domain/catalog.ts";
+import { SourcesFileSchema } from "../../src/domain/sources.ts";
 import { shipped, shippedModels, shippedScores } from "./shipped.ts";
 
 describe("catalog/models.json", () => {
@@ -55,13 +58,20 @@ describe("catalog/models.json", () => {
 });
 
 describe("catalog/scores.json", () => {
-  it("sources every score on its dimension's benchmark, with a url, a date and a confidence", () => {
+  it("sources every hand-typed score on its dimension's benchmark, and every value with a url and a date", () => {
     const f = shippedScores();
+    const sources = new Set(["arena", "vectara", "epoch"]);
     for (const s of f.scores) {
       expect(DIMS).toContain(s.dim);
-      expect(s.benchmark).toBe(f.benchmarks[s.dim].benchmark);
-      expect(s.version).toBe(f.benchmarks[s.dim].version);
       expect(s.url.startsWith("https://")).toBe(true);
+      if (s.source === undefined) {
+        expect(s.benchmark).toBe(f.benchmarks[s.dim].benchmark);
+        expect(s.version).toBe(f.benchmarks[s.dim].version);
+      } else {
+        // spec 1.2 §7: a keyless source's value, dated; never Artificial Analysis
+        expect(sources.has(s.source)).toBe(true);
+        expect(s.version).toBe(s.date);
+      }
     }
   });
 
@@ -72,16 +82,42 @@ describe("catalog/scores.json", () => {
       const [model, effort] = s.rung.split("#");
       const fam = c.families.find((x) => x.id === model);
       expect(fam).toBeDefined();
-      const efforts = Object.values(fam?.on ?? {}).flatMap((b) => b.efforts);
+      // a backend that takes no effort flag runs the model at `default` (Haiku in Claude Code)
+      const efforts = Object.values(fam?.on ?? {}).flatMap((b) =>
+        b.efforts.length ? b.efforts : ["default"],
+      );
       expect(efforts).toContain(effort as string);
     }
     for (const t of Object.values(f.treatLike)) expect(c.scores[t.like]).toBeDefined();
   });
 
-  it("drops the mis-sourced 0.x Opus terminal seeds", () => {
+  it("names every source a shipped value comes from in ATTRIBUTION.md, with its license and attribution line", () => {
+    const text = readFileSync(join(import.meta.dir, "..", "..", "catalog", "ATTRIBUTION.md"), "utf8");
+    const sources = SourcesFileSchema.parse(
+      JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "catalog", "sources.json"), "utf8")),
+    ).sources;
+    const shippedFrom = new Set(shippedScores().scores.flatMap((s) => (s.source ? [s.source] : [])));
+    expect(shippedFrom.size).toBeGreaterThan(0);
+    for (const id of ["arena", "vectara", "epoch", ...shippedFrom]) {
+      const s = sources.find((x) => x.id === id);
+      expect(s?.keyed).toBe(false);
+      expect(text).toContain(`### ${s?.name}`);
+      expect(text).toContain(`- Attribution: ${s?.attribution}`);
+    }
+    expect(shippedFrom.has("artificial-analysis")).toBe(false);
+  });
+
+  it("keeps the vendors' Opus terminal values, and carries them to its other efforts as adjacent", () => {
     const c = shipped();
-    expect(c.scores["claude-opus-5-5#medium"]).toBeUndefined();
-    expect(c.scores["claude-opus-5-5#xhigh"]?.terminal?.value).toBe(66.4);
+    expect(c.scores["claude-opus-5-5#xhigh"]?.terminal).toMatchObject({
+      value: 66.4,
+      confidence: "verified",
+    });
+    expect(c.scores["claude-opus-5-5#medium"]?.terminal).toMatchObject({
+      value: 66.4,
+      confidence: "adjacent",
+      note: "Terminal-Bench has it at xhigh; carried to this effort",
+    });
   });
 });
 
@@ -129,7 +165,7 @@ describe("rungInfo", () => {
 describe("scores, treat-likes and the override", () => {
   it("borrows a treat-like's scores, and lets the user's treat-like and scores win", () => {
     const c = shipped();
-    expect(scoresOf(c, "claude-opus-5-5#high")?.via).toBe("claude-opus-5-5#xhigh");
+    expect(scoresOf(c, "opencode-go/kimi-k3#max")?.via).toBe("gpt-6-sol#medium");
     expect(scoresOf(c, "opencode-go/kimi-k3#default")).toBeNull();
     const o = OverrideSchema.parse({
       treatLike: { "opencode-go/kimi-k3#default": "gpt-6-sol#medium" },
@@ -151,8 +187,9 @@ describe("scores, treat-likes and the override", () => {
     expect(scoresOf(mine, "opencode-go/kimi-k3#default")?.values.repo_code).toBe(56.6);
     expect(mine.treatLike["opencode-go/kimi-k3#default"]?.source).toBe("user");
     expect(mine.scores["gpt-6-luna#high"]?.repo_code?.value).toBe(61);
-    expect(mine.bars.terminal.copy).toEqual({ honesty: 50 });
-    expect(mine.bars.terminal.build).toEqual({ honesty: 90 });
+    // spec 1.2 §5.2: the override sets its threshold, and the default's other thresholds stay
+    expect(mine.bars.terminal.copy).toEqual({ terminal: 40.15, honesty: 50 });
+    expect(mine.bars.terminal.build).toEqual({ terminal: 55.8 });
   });
 
   it("reads a 0.x override file (no schema) without losing its treat-likes", () => {
@@ -219,11 +256,10 @@ describe("confidence and precedence (spec 1.2 §4.3)", () => {
     expect(RANK.verified < RANK.secondary && RANK.secondary < RANK.inferred).toBe(true);
   });
 
-  it("adds agentic, steer and frontend with no shipped bar on them", () => {
+  it("adds agentic, steer and frontend, with no shipped bar on steer", () => {
     expect([...DIMS]).toEqual(["repo_code", "terminal", "honesty", "agentic", "steer", "frontend"]);
     for (const kind of Object.values(shipped().bars))
-      for (const bar of Object.values(kind))
-        for (const d of ["agentic", "steer", "frontend"]) expect(Object.keys(bar)).not.toContain(d);
+      for (const bar of Object.values(kind)) expect(Object.keys(bar)).not.toContain("steer");
   });
 
   it("keeps a better level, else the newer date, and drops a value older than 90 days one level", () => {
@@ -251,7 +287,8 @@ describe("confidence and precedence (spec 1.2 §4.3)", () => {
       score({ rung: "gpt-6-sol#high", dim: "repo_code", value: 70, confidence: "calibrated" }),
       // the shipped 68.8 is verified: a measured value does not
       score({ rung: "gpt-6-sol#max", dim: "repo_code", value: 50 }),
-      score({ rung: "gpt-6-sol#max", dim: "agentic", value: 0.08 }),
+      // the shipped Arena value is measured too, a day older: the newer one wins
+      score({ rung: "gpt-6-sol#max", dim: "agentic", value: 0.08, date: "2026-09-28" }),
     ];
     const c = shipped({ synced, now: NOW });
     expect(c.scores["gpt-6-sol#high"]?.repo_code?.value).toBe(70);
@@ -303,11 +340,14 @@ describe("confidence and precedence (spec 1.2 §4.3)", () => {
   });
 
   it("lends a treat-like's values only on the dimensions a rung has none of its own", () => {
-    const synced = [score({ rung: "claude-opus-5-5#high", dim: "agentic", value: 0.12 })];
-    const s = scoresOf(shipped({ synced, now: NOW }), "claude-opus-5-5#high");
-    expect(s?.values).toEqual({ terminal: 66.4, agentic: 0.12 });
-    expect(s?.via).toBe("claude-opus-5-5#xhigh");
-    expect(s?.borrowed).toEqual(["terminal"]);
+    // Kimi K3 borrows Sol medium's values through the shipped treat-like; a sync scores it on agentic only
+    const synced = [score({ rung: "opencode-go/kimi-k3#max", dim: "agentic", value: 0.12 })];
+    const c = shipped({ synced, now: NOW });
+    const s = scoresOf(c, "opencode-go/kimi-k3#max");
+    const sol = scoresOf(c, "gpt-6-sol#medium");
+    expect(s?.values).toEqual({ ...sol?.values, agentic: 0.12 });
+    expect(s?.via).toBe("gpt-6-sol#medium");
+    expect(s?.borrowed).toEqual(["repo_code", "terminal", "honesty", "steer", "frontend"]);
     expect(scoresOf(shipped(), "gpt-6-sol#max")?.borrowed).toEqual([]);
   });
 });

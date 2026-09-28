@@ -2,6 +2,7 @@ import { billingKeyOf, type Catalog, DIMS, type Dim, rungInfo, scoresOf } from "
 import { type BillingMode, compareCost, type Cost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { type Rung, tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
+import { EFFORT_ORDER } from "./sources.ts";
 
 /**
  * Spec §7.1 and §4.5: a stand-in on the same quota would be out of quota too. The billing key names the
@@ -72,7 +73,9 @@ const costFor = (c: Catalog, billing: Partial<Record<string, BillingMode>>, rung
  * Spec 1.1 §11: the rungs of `pool` that can stand in for `rung`, best first. A stand-in is on another
  * quota, scored, paid from a plan or subscription under `billing` (a metered one spends money nobody chose
  * to), startable by `dispatch` (not a native `claude:` subagent), and no downgrade on the rung's bar dims.
- * Claude-billed stand-ins rank last, then the cheapest first.
+ * Claude-billed stand-ins rank last, then the effort nearest the rung's own (a model's efforts carry one
+ * another's values as `adjacent`, spec 1.2 §4.3, so the cheapest would otherwise be its lowest effort; plan 14
+ * Ruling 4), then the cheapest.
  */
 export function rankStandIns(
   c: Catalog,
@@ -88,12 +91,22 @@ export function rankStandIns(
     if (costFor(c, billing, x).tier === 1) return false;
     return downgradeDims(c, rung, x).length === 0;
   });
+  const gap = (x: string) => effortGap(from.effort, tryParseRung(x)?.effort ?? "");
   return fits.sort(
     (a, b) =>
       Number(claudeBilled(a)) - Number(claudeBilled(b)) ||
+      gap(a) - gap(b) ||
       compareCost(costFor(c, billing, a), costFor(c, billing, b)) ||
       a.localeCompare(b),
   );
+}
+
+/** How many effort steps apart two efforts are; an effort that is no effort word (`default`) is far from all. */
+function effortGap(a: string, b: string): number {
+  const i = (EFFORT_ORDER as readonly string[]).indexOf(a);
+  const j = (EFFORT_ORDER as readonly string[]).indexOf(b);
+  if (a === b) return 0;
+  return i < 0 || j < 0 ? EFFORT_ORDER.length : Math.abs(i - j);
 }
 
 /** How a family's `on` key or a model id's prefix maps to the backend that runs it. */

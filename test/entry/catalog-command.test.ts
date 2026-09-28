@@ -36,7 +36,7 @@ describe("catherd catalog", () => {
     withHome();
     const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol");
     expect(text.code).toBe(0);
-    expect(text.out).toContain("codex:gpt-6-sol  5/6 rungs scored  roles ");
+    expect(text.out).toContain("codex:gpt-6-sol  6/6 rungs scored  roles ");
     const json = JSON.parse(catherd("list", "--role", "artist", "--json").out);
     expect(json.models.every((m: { backend: string }) => m.backend === "codex")).toBe(true);
   });

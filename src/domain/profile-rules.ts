@@ -170,14 +170,15 @@ export function validateProfile(
             path: `${at}.rungs`,
             message: `${x.rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
           });
+    // spec 1.2 §5.2: the logic and hard bars sit at the 60th and 75th percentiles, which a cost-minded ladder
+    // may never reach, and those lanes start at the default rung and climb; only a kind whose every bar the
+    // ladder misses routes blind (plan 14 Ruling 12)
     if (role === "worker" && usable.length > 1) {
-      const missed = KINDS.flatMap((k) =>
-        DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(c, x, k, d))).map((d) => `${k}/${d}`),
-      );
-      if (missed.length)
+      const blind = KINDS.filter((k) => !DIFFICULTIES.some((d) => usable.some((x) => clearsBar(c, x, k, d))));
+      if (blind.length)
         warnings.push({
           path: `${at}.rungs`,
-          message: `no worker rung clears the bar for ${missed.join(", ")}; those lanes start at the default rung`,
+          message: `no worker rung clears any bar for ${blind.join(", ")}; those lanes always start at the default rung`,
         });
     }
   }
