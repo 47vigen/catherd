@@ -54,8 +54,11 @@ export function capNoticeReply(reply: string, cap = REPLY_CAP): string {
   return `${at > 0 ? cut.slice(0, at) : cut}\n…(cut; result(run, name) has the rest)`;
 }
 
-/** The envelope's own tags are neutralised in a body, so a reply can never close the envelope early. */
-const neutral = (s: string) => s.replaceAll("cross-session-message", "cross session message");
+/**
+ * The envelope's own tags are neutralised in a body, in any case (a parser may not care), so a reply can never
+ * close the envelope early.
+ */
+const neutral = (s: string) => s.replace(/(cross)-(session)-(message)/gi, "$1 $2 $3");
 
 function block(n: Notice): string {
   const call = `run: "${n.runId}", name: "${n.name}"`;
