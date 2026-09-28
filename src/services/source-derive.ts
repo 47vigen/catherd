@@ -43,6 +43,12 @@ export interface DeriveContext {
 
 /** Spec 1.2 §3.5: a price that differs by more than this is a sync warning. */
 const PRICE_TOLERANCE = 0.1;
+/**
+ * Plan 13 R18: dimensions whose fits are computed and recorded but give no synced value. Terminal's anchor
+ * (Epoch's Terminal-Bench 2.0) is not the shipped values' unit (Terminal-Bench 4.0), so the shipped terminal
+ * values stay authoritative until plan 14 moves terminal onto one unit.
+ */
+const HELD_DIMS: ReadonlySet<Dim> = new Set(["terminal"]);
 /** Spec 1.2 §3.5: the models.dev provider that serves a backend key its own catalog. */
 const OPENCODE_KEYS = ["opencode", "opencode-go"] as const;
 
@@ -99,7 +105,7 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
   const scores: Score[] = [];
   const fits: FitRow[] = [];
   const push = (dim: Dim, f: FieldRef, k: Keyed, value: number, extra: Partial<Score>) => {
-    if (!k.family) return;
+    if (!k.family || HELD_DIMS.has(dim)) return;
     scores.push({
       rung: `${k.family.id}#${k.effort}`,
       dim,

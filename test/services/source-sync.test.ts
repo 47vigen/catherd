@@ -202,7 +202,7 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
   });
 });
 
-describe("the shipped values after a sync (plan 13 R7)", () => {
+describe("the shipped values after a sync (plan 13 R7, R18)", () => {
   it("are never overwritten by an adjacent value; a rung with no value of its own still gets one", async () => {
     withHome();
     const c = clock();
@@ -223,6 +223,25 @@ describe("the shipped values after a sync (plan 13 R7)", () => {
     // Sol none has no shipped or direct value: it takes Sol max's
     expect(adj("gpt-6-sol#none")).toHaveLength(1);
     expect(loadCatalog({ timings: false }).scores["gpt-6-sol#none"]?.repo_code?.confidence).toBe("adjacent");
+  });
+
+  it("keep terminal: a sync scores no rung on it until plan 14 moves it onto one unit (plan 13 R18)", async () => {
+    withHome();
+    const shipped = buildCatalog({ models: shippedModels(), scores: shippedScores() });
+    const c = clock();
+    await syncSources({
+      transport: c.transport(recordedFetch().impl),
+      now: c.now,
+      aaKey: "aa-key-0123456789",
+    });
+    const synced = readDerived()?.scores ?? [];
+    expect(synced.filter((s) => s.dim === "terminal" && s.source === "epoch")).toEqual([]);
+    expect(synced.filter((s) => s.dim === "terminal")).toEqual([]);
+    // the fit onto Epoch's Terminal-Bench is still computed and recorded
+    expect(readDerived()?.fits.some((f) => f.dim === "terminal")).toBe(true);
+    const after = loadCatalog({ timings: false });
+    for (const rung of Object.keys(shipped.scores).concat(["claude-haiku-4-5#default"]))
+      expect(after.scores[rung]?.terminal).toEqual(shipped.scores[rung]?.terminal);
   });
 });
 

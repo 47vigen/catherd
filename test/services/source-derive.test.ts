@@ -27,20 +27,17 @@ describe("id and effort mapping (spec 1.2 §3.4)", () => {
   });
 
   it("maps a source that names no effort onto the family's default effort, marked assumed", () => {
-    // Epoch's Terminal-Bench names Haiku 4.5 by its dated id and no effort: Haiku's default is `default`
-    expect(find(keyless(), "claude-haiku-4-5#default", "terminal", "measured")).toEqual([
-      {
+    // Epoch's WebDev table names Haiku 4.5 by its dated id and no effort: Haiku's default is `default`
+    expect(find(keyless(), "claude-haiku-4-5#default", "frontend", "calibrated")).toEqual([
+      expect.objectContaining({
         rung: "claude-haiku-4-5#default",
-        dim: "terminal",
-        value: 35.5056,
-        benchmark: "Terminal-Bench (Epoch AI)",
-        version: "2025-10-15",
-        url: "https://www.tbench.ai/leaderboard/terminal-bench/2.0",
-        date: "2025-10-15",
-        confidence: "measured",
+        dim: "frontend",
+        value: 1296.0638,
+        benchmark: "WebDev Arena (Epoch AI)",
+        date: "2026-01-05",
         source: "epoch",
         effortAssumed: true,
-      },
+      }),
     ]);
   });
 });
