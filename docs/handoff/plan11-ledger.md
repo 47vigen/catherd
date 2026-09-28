@@ -43,3 +43,12 @@ Final fix wave done 272522b..b29d5e4 (8 commits, 1362 pass x2). Deviations: grou
 Final fix wave re-review: 14/14 addressed, no new Critical/Important. Minors (deferred): ~/.claude/settings.local.json read at user scope (Claude may not read it) — edge case; **VERDICT: PASS** markdown counts as no verdict (fails safe); doctor claude access row uses cwd not bound repos.
 Plan 11 review complete; replay onto main in progress.
 Replayed onto main: 9707a70..ef53a18 (29 commits, 1372 pass x2). Controller fix d0cc462 (no user-level settings.local.json).
+PR #16 Codex r1 on 3cea949: P1 skip accepts stale commit; P2 gate hash ignores mode; P2 digest misses headless verifier → fixer.
+PR16 Codex r1 fixes 4e243bb 3c205e0 9ad9ac8 4ba7cde pushed; local gate 1 fail = git commit SIGTERM under load (peek.test passes alone 2x); threads replied+resolved; round 2 requested.
+PR16 Codex r2 on 4ba7cde: 4 P2 (committed mode in gate hash; docker probe with network off; digest steps scoped to milestone; milestone name boundary) → fixer.
+PR16 Codex r2 fixes 6bf8a0d 1db0c05 9841899 f4f3da0 pushed (full gate 2 timeouts in notifier.test under load; file passes alone 2x).
+PR16 Codex r3 on f4f3da0: P1 explicit network_access=false; P2 ignored inputs in gate hash → fixer. Ruling: ignored/untracked explicitly named paths hashed by content (dir walk cap 10k files); "." does not cover ignored files (documented) — hashing node_modules would be too slow — cost: a gate relying on an unnamed ignored file can carry stale.
+PR16 Codex r3 fixes df260ca ce127c4 (codex network_access=false explicit; claude allowLocalBinding false; ignored gate paths hashed from disk) gate 1380 pass; pushed.
+PR16 r3 threads replied+resolved; round 4 (last under cap) requested.
+PR16 Codex r4 (cap) on ce127c4: P1 latest verifier verdict wins; P2 symlink gate inputs hash target content → fixer. No round 5; merge on green.
+PR16 Codex r4 fixes 1cd6566 e43482c; gate 1383 pass. Cap reached: no round 5.
