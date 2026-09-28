@@ -134,6 +134,33 @@ const BODIES: Record<Role, (version: string) => string> = {
   researcher: () => researcher,
 };
 
+const STATUS_LINE =
+  "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
+
+/**
+ * Spec 1.1 §6: the reply contract `dispatch` appends to every brief it writes, the tail of the role's
+ * prompt: reply length and the STATUS line. The architect and the verifier keep their own reply shapes.
+ */
+const CONTRACTS: Record<Role, string> = {
+  architect: `Reply briefly: the milestones, each with its lanes as Mx.Ly — one line — owned files, and the full-check command. ${STATUS_LINE}`,
+  verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL. ${STATUS_LINE}`,
+  worker: REPLY,
+  reviewer: REPLY,
+  "ui-reviewer": REPLY,
+  artist: REPLY,
+  writer: REPLY,
+  researcher: `For a single question, reply in at most 15 lines. ${STATUS_LINE}`,
+};
+
+export const replyContract = (role: Role): string => CONTRACTS[role];
+
+/** `brief` with the role's reply contract as its last paragraph, once: a brief that already ends with it is kept. */
+export function withReplyContract(role: Role, brief: string): string {
+  const contract = CONTRACTS[role];
+  const body = brief.trimEnd();
+  return body.endsWith(contract) ? `${body}\n` : `${body}\n\n${contract}\n`;
+}
+
 /** The role's prompt; the worker's names the catherd version whose `lock` it must use. */
 export const rolePrompt = (role: Role, version: string): string => BODIES[role](version);
 

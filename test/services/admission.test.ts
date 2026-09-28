@@ -1,3 +1,4 @@
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +54,9 @@ describe("admission", () => {
       run,
       input({ brief: "--help me, do not read me as a flag" }),
     );
-    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe("--help me, do not read me as a flag");
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
+      `--help me, do not read me as a flag\n\n${replyContract("worker")}\n`,
+    );
     expect(d.admit).toMatchObject({
       name: "worker-M1.L1",
       owns: ["src/a.ts"],

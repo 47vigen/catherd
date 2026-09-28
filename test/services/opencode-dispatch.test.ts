@@ -1,3 +1,4 @@
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +66,10 @@ describe("dispatch on opencode v2 (simulator)", () => {
       changedOwned: ["src/a.ts"],
       cliVersion: "2.0.16",
     });
-    expect(sim.recorded()).toMatchObject({ stdin: "---\nRead lanes/M1.L1.md", pwd: repo });
+    expect(sim.recorded()).toMatchObject({
+      stdin: `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      pwd: repo,
+    });
     expect(sim.recorded().args).toEqual([
       "run",
       "--format",

@@ -6,6 +6,7 @@ import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
+import { withReplyContract } from "../domain/role-prompts.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -245,7 +246,8 @@ export async function admit(
       ...(sessionId ? { sessionId } : {}),
     };
     ensurePrivateDir(dir);
-    writeTextAtomic(p.brief, i.brief);
+    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included
+    writeTextAtomic(p.brief, withReplyContract(i.role, i.brief));
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(
