@@ -66,6 +66,8 @@ in place.
 
 ## 1.1.0 scope, settled (grilled 2026-09-28)
 
+Written up as `docs/specs/2026-09-28-catherd-1.1-design.md`, which governs where the two differ.
+
 1.1.0 = push results to the main thread (section above), the runs page by session (above) and the whole fix bundle
 (below). Model scores from public sources go to 1.2.0. Implemented by the maintainer's own subagents in reviewed
 bundles, not by catherd on itself; the plan goes to `docs/plans/`. Decisions per item:
