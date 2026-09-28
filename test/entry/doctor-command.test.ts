@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mark } from "../../src/entry/cli-kit.ts";
-import { formatCheck } from "../../src/entry/doctor-command.ts";
+import { formatCheck, formatReport } from "../../src/entry/doctor-command.ts";
 import { glyph } from "../../src/entry/tui/theme.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
@@ -98,6 +98,32 @@ describe("an info row (spec 1.1 §13)", () => {
       formatCheck({ id: "access:full", label: "full access", state: "info", word: "default", detail: "x" }),
     ).toEqual(["i default            full access — x"]);
     expect(mark("info", true)).toBe("i");
+  });
+});
+
+describe("formatReport (Ruling R4)", () => {
+  it("says ready when the only rows beside ok are info: info is not a warning", () => {
+    const lines = formatReport({
+      ready: true,
+      version: VERSION,
+      checks: [
+        { id: "bun", label: "Bun", state: "ok", word: "ready", detail: "1.4.2" },
+        {
+          id: "access:full",
+          label: "full access",
+          state: "info",
+          word: "default",
+          detail: "no sandbox for: verifier",
+        },
+      ],
+    });
+    expect(lines).toEqual([
+      "✓ ready              Bun — 1.4.2",
+      "i default            full access — no sandbox for: verifier",
+      "",
+      "✓ ready",
+    ]);
+    expect(lines.join("\n")).not.toContain(mark("warn"));
   });
 });
 

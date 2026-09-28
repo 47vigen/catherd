@@ -327,6 +327,28 @@ describe("doctor", () => {
     });
   });
 
+  it("keeps the probe rows apart from the info rows, before them, and info never counts against ready (R3, R4)", async () => {
+    ready();
+    const r = await run();
+    const ids = r.checks.map((c) => c.id);
+    const at = (id: string) => ids.indexOf(id);
+    expect(at("locks")).toBeLessThan(at("sandbox:codex"));
+    expect(at("sandbox:codex")).toBeLessThan(at("access:codex"));
+    expect(at("access:opencode")).toBeLessThan(at("access:full"));
+    expect(at("access:full")).toBeLessThan(at("access:advisory"));
+    // the per-backend probes are ok/warn/skip, never info; only the shipped defaults' access modes are
+    expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
+      "access:full",
+      "access:advisory",
+    ]);
+    // info is not a warning and not a failure: the report is ready, and doctor --json says "info"
+    expect(r.ready).toBe(true);
+    const json = JSON.parse(JSON.stringify(r)) as DoctorReport;
+    expect(json.ready).toBe(true);
+    expect(json.checks.find((c) => c.id === "access:full")?.state).toBe("info");
+    expect(r.checks.filter((c) => c.state === "warn").map((c) => c.id)).toEqual(["jev"]);
+  });
+
   it("fails when the MCP server does not answer tools/list", async () => {
     ready();
     const r = await run({
