@@ -17,8 +17,10 @@ import {
   type RoleDetail,
   type RoleRow,
   rowOf,
+  rungDetailOf,
   type SessionRow,
   type SessionRun,
+  suggestFor,
 } from "./effects.ts";
 import { withStaged } from "./profile-tree.ts";
 
@@ -401,6 +403,14 @@ export interface FixtureOptions {
   watchable?: boolean;
 }
 
+/** Spec 1.2 §9: the sources as the `r` dialog shows them, one failing. */
+export const FIXTURE_SOURCES: ReturnType<Effects["sources"]> = [
+  { source: "models-dev", name: "models.dev", age: "2 h ago", error: null },
+  { source: "arena", name: "Arena (LMArena)", age: "2 h ago", error: null },
+  { source: "epoch", name: "Epoch AI benchmarks", age: "1 d ago", error: "network error" },
+  { source: "artificial-analysis", name: "Artificial Analysis", age: "never fetched", error: null },
+];
+
 export function fixtureEffects(o: FixtureOptions = {}): Effects & {
   writes: string[];
   /** what a change to a watched run file does: every open watch hears of it */
@@ -584,5 +594,20 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
       writes.push("refresh");
       return [{ backend: "codex", models: 14, fetchedAt: "2026-09-26T12:00:00.000Z" }];
     },
+    async syncSources() {
+      writes.push("sync");
+      return {
+        busy: false,
+        sources: [],
+        newlyScored: [],
+        noLongerNeeded: [],
+        failed: [],
+        warnings: [],
+        unmatched: {},
+      };
+    },
+    sources: () => FIXTURE_SOURCES,
+    suggest: suggestFor,
+    rungDetail: rungDetailOf,
   };
 }

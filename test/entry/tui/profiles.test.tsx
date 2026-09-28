@@ -93,6 +93,43 @@ describe("the Profiles tab", () => {
     expect(new Set(group.map((l) => l.search(/\d+ of \d+/))).size).toBe(1);
   });
 
+  it("syncs the sources and refreshes the catalog with r, then lists each source's age and last error", async () => {
+    const fx = await profiles();
+    await h!.s.press("r");
+    await h!.advance(0);
+    expect(fx.writes).toEqual(["refresh", "sync"]);
+    const f = h!.s.frame();
+    expect(f).toContain("Sources");
+    expect(f).toMatch(/models\.dev +2 h ago/);
+    expect(f).toMatch(/Epoch AI benchmarks +1 d ago · network error/);
+    await h!.s.press("escape");
+    expect(h!.app().getState().dialogs).toEqual([]);
+  });
+
+  it("shows a rung's values with confidence and source, and catherd's runs on it, with i", async () => {
+    await profiles();
+    await find("codex gpt-6-luna high");
+    await h!.s.press("i");
+    const f = h!.s.frame();
+    expect(f).toContain("codex:gpt-6-luna#high");
+    expect(f).toMatch(/repo_code 66\.6 +adjacent · shipped DeepSWE 1\.1/);
+    expect(f).toMatch(/agentic -0\.0075 +inferred from gpt-5\.6-luna#high/);
+    expect(f).toContain("no runs yet");
+  });
+
+  it("opens the treat-like picker with t, the three nearest stand-ins first (spec 1.2 §6.4)", async () => {
+    await profiles();
+    await find("codex gpt-6-sol medium");
+    await h!.s.press("t");
+    const f = h!.s.frame();
+    expect(f).toContain("Treat codex:gpt-6-sol#medium like…");
+    const lines = f.split("\n");
+    const at = lines.findIndex((l) => l.includes("Suggested"));
+    expect(at).toBeGreaterThan(-1);
+    const top = lines.slice(at + 1, at + 4);
+    expect(top.every((l) => /distance \d+\.\d\d · lends/.test(l))).toBe(true);
+  });
+
   it("cycles access with enter, and shows how strongly the backend holds it", async () => {
     const fx = await profiles();
     await find("worker access");
