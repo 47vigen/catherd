@@ -5,6 +5,7 @@ import {
   type Catalog,
   ModelsFileSchema,
   type Override,
+  type Score,
   ScoresFileSchema,
 } from "../../src/domain/catalog.ts";
 
@@ -14,9 +15,15 @@ const read = (name: string): unknown =>
 export const shippedModels = () => ModelsFileSchema.parse(read("models.json"));
 export const shippedScores = () => ScoresFileSchema.parse(read("scores.json"));
 
-/** The shipped catalog, with optional listings, override and timings layered on. */
+/** The shipped catalog, with optional synced values, listings, override and timings layered on. */
 export function shipped(
-  o: { listed?: Catalog["listed"]; override?: Override; secs?: Catalog["secs"] } = {},
+  o: {
+    listed?: Catalog["listed"];
+    override?: Override;
+    secs?: Catalog["secs"];
+    synced?: Score[];
+    now?: number;
+  } = {},
 ): Catalog {
   return buildCatalog({ models: shippedModels(), scores: shippedScores(), ...o });
 }

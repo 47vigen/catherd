@@ -1,5 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { capableFor, DIMS, OverrideSchema, rungInfo, scoresOf } from "../../src/domain/catalog.ts";
+import {
+  CONFIDENCE,
+  capableFor,
+  DIMS,
+  effectiveRank,
+  OverrideSchema,
+  outranks,
+  RANK,
+  rungInfo,
+  type Score,
+  scoresOf,
+} from "../../src/domain/catalog.ts";
 import { shipped, shippedModels, shippedScores } from "./shipped.ts";
 
 describe("catalog/models.json", () => {
@@ -182,5 +193,121 @@ describe("capableFor", () => {
     expect(rungInfo(c, "claude:claude-next-7#default").listed).toBe(true);
     expect(capableFor(c, rungInfo(c, "claude:claude-next-7#default"), "ui-reviewer")).toBe(true);
     expect(capableFor(c, rungInfo(c, "claude-code:claude-next-7#default"), "ui-reviewer")).toBe(true);
+  });
+});
+
+describe("confidence and precedence (spec 1.2 §4.3)", () => {
+  const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+  const score = (o: Partial<Score> & Pick<Score, "rung" | "dim" | "value">): Score => ({
+    benchmark: "b",
+    version: "v",
+    url: "https://example.com/s",
+    date: "2026-09-27",
+    confidence: "measured",
+    ...o,
+  });
+
+  it("orders the six levels best first, keeping the 1.0 names", () => {
+    expect([...CONFIDENCE]).toEqual([
+      "verified",
+      "measured",
+      "calibrated",
+      "adjacent",
+      "secondary",
+      "inferred",
+    ]);
+    expect(RANK.verified < RANK.secondary && RANK.secondary < RANK.inferred).toBe(true);
+  });
+
+  it("adds agentic, steer and frontend with no shipped bar on them", () => {
+    expect([...DIMS]).toEqual(["repo_code", "terminal", "honesty", "agentic", "steer", "frontend"]);
+    for (const kind of Object.values(shipped().bars))
+      for (const bar of Object.values(kind))
+        for (const d of ["agentic", "steer", "frontend"]) expect(Object.keys(bar)).not.toContain(d);
+  });
+
+  it("keeps a better level, else the newer date, and drops a value older than 90 days one level", () => {
+    const old = score({ rung: "r#high", dim: "agentic", value: 1, date: "2026-06-01" });
+    const fresh = score({ rung: "r#high", dim: "agentic", value: 2, date: "2026-09-27" });
+    expect(effectiveRank(old, NOW)).toBe(RANK.calibrated);
+    expect(effectiveRank(fresh, NOW)).toBe(RANK.measured);
+    expect(outranks(fresh, old, NOW)).toBe(true);
+    const newer = score({ rung: "r#high", dim: "agentic", value: 3, date: "2026-09-28" });
+    expect(outranks(newer, fresh, NOW)).toBe(true);
+    expect(outranks(fresh, newer, NOW)).toBe(false);
+    const inferred = score({
+      rung: "r#high",
+      dim: "agentic",
+      value: 4,
+      confidence: "inferred",
+      date: "2025-01-01",
+    });
+    expect(effectiveRank(inferred, NOW)).toBe(RANK.inferred);
+  });
+
+  it("layers synced values over the shipped ones by level, and lets the override win whatever its level", () => {
+    const synced = [
+      // the shipped 65.3 is secondary: a calibrated value beats it
+      score({ rung: "gpt-6-sol#high", dim: "repo_code", value: 70, confidence: "calibrated" }),
+      // the shipped 68.8 is verified: a measured value does not
+      score({ rung: "gpt-6-sol#max", dim: "repo_code", value: 50 }),
+      score({ rung: "gpt-6-sol#max", dim: "agentic", value: 0.08 }),
+    ];
+    const c = shipped({ synced, now: NOW });
+    expect(c.scores["gpt-6-sol#high"]?.repo_code?.value).toBe(70);
+    expect(c.scores["gpt-6-sol#max"]?.repo_code?.value).toBe(68.8);
+    expect(c.scores["gpt-6-sol#max"]?.agentic?.value).toBe(0.08);
+    const override = OverrideSchema.parse({
+      scores: [
+        score({
+          rung: "gpt-6-sol#high",
+          dim: "repo_code",
+          value: 1,
+          confidence: "inferred",
+          date: "2020-01-01",
+        }),
+      ],
+    });
+    expect(shipped({ synced, override, now: NOW }).scores["gpt-6-sol#high"]?.repo_code?.value).toBe(1);
+  });
+
+  it("reads a 1.0 override's three levels, and keeps a synced value's provenance", () => {
+    for (const confidence of ["verified", "secondary", "inferred"] as const)
+      expect(
+        OverrideSchema.safeParse({
+          scores: [score({ rung: "a#high", dim: "repo_code", value: 1, confidence })],
+        }).success,
+      ).toBe(true);
+    const fit = { source: "epoch", field: "frontiercode", a: 100, b: 3, r2: 0.8, n: 6 };
+    const synced = [
+      score({
+        rung: "a#high",
+        dim: "repo_code",
+        value: 1,
+        confidence: "calibrated",
+        source: "epoch",
+        fit,
+        effortAssumed: true,
+      }),
+    ];
+    expect(shipped({ synced, now: NOW }).scores["a#high"]?.repo_code).toMatchObject({
+      source: "epoch",
+      fit,
+      effortAssumed: true,
+    });
+  });
+
+  it("ships one value per rung and dimension, so the date rule never reorders the shipped file", () => {
+    const keys = shippedScores().scores.map((s) => `${s.rung} ${s.dim}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("lends a treat-like's values only on the dimensions a rung has none of its own", () => {
+    const synced = [score({ rung: "claude-opus-5-5#high", dim: "agentic", value: 0.12 })];
+    const s = scoresOf(shipped({ synced, now: NOW }), "claude-opus-5-5#high");
+    expect(s?.values).toEqual({ terminal: 66.4, agentic: 0.12 });
+    expect(s?.via).toBe("claude-opus-5-5#xhigh");
+    expect(s?.borrowed).toEqual(["terminal"]);
+    expect(scoresOf(shipped(), "gpt-6-sol#max")?.borrowed).toEqual([]);
   });
 });

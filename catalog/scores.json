@@ -7,7 +7,10 @@
     "honesty": {
       "benchmark": "OpenAI Broken Search Tool, 100 minus the failure rate",
       "version": "GPT-6 system card appendix 11.6.4.2"
-    }
+    },
+    "agentic": { "benchmark": "Arena agent, net improvement", "version": "lmarena-ai/leaderboard-dataset" },
+    "steer": { "benchmark": "Arena agent steerability", "version": "lmarena-ai/leaderboard-dataset" },
+    "frontend": { "benchmark": "Arena WebDev rating", "version": "lmarena-ai/leaderboard-dataset" }
   },
   "scores": [
     {

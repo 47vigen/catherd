@@ -250,7 +250,9 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
     throw new CatherdError("E_CONFIG_INVALID", `${rung} cannot be treated like itself`, {
       fix: "name a different, scored rung",
     });
-  if (c.scores[from])
+  // a rung a sync scored on some dimensions may still borrow the others; one with every value `to` lends may not
+  const own = c.scores[from] ?? {};
+  if (DIMS.filter((d) => c.scores[to]?.[d]).every((d) => own[d]))
     throw new CatherdError(
       "E_CONFIG_INVALID",
       `${from} has scores of its own; a treat-like would not change it`,
@@ -297,7 +299,8 @@ function rungRows(
         scored[d] = {
           value: r.value,
           benchmark: `${r.benchmark} ${r.version}`,
-          confidence: s?.via ? "inferred" : r.confidence,
+          // a value lent by a treat-like is catherd's guess for this rung, whatever its own confidence
+          confidence: s?.borrowed.includes(d) ? "inferred" : r.confidence,
         };
     }
     const like = c.treatLike[info.canonical] ?? null;

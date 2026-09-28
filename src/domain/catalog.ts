@@ -3,9 +3,30 @@ import { type Rung, parseRung } from "./ids.ts";
 import { DIFFICULTIES, type Difficulty, KINDS, type Kind } from "./lane.ts";
 import type { Role } from "./roles.ts";
 
-/** Spec §5.2: the scored dimensions, each on one named benchmark. */
-export const DIMS = ["repo_code", "terminal", "honesty"] as const;
+/**
+ * Spec §5.2 and 1.2 §5.1: the scored dimensions, each in its anchor's unit. `agentic`, `steer` and `frontend`
+ * (1.2) carry no shipped bar yet.
+ */
+export const DIMS = ["repo_code", "terminal", "honesty", "agentic", "steer", "frontend"] as const;
 export type Dim = (typeof DIMS)[number];
+
+/**
+ * Spec 1.2 §4.3: how a value was obtained, best first. The 1.0 levels (`verified`, `secondary`,
+ * `inferred`) keep their names, so an older override file stays valid.
+ */
+export const CONFIDENCE = [
+  "verified",
+  "measured",
+  "calibrated",
+  "adjacent",
+  "secondary",
+  "inferred",
+] as const;
+export type Confidence = (typeof CONFIDENCE)[number];
+export const RANK = Object.fromEntries(CONFIDENCE.map((c, i) => [c, i])) as Record<Confidence, number>;
+/** Spec 1.2 §4.3: a value older than this many days counts one level lower. */
+export const STALE_DAYS = 90;
+const DAY_MS = 86_400_000;
 
 /**
  * Spec §7.1 `billing` keys: a rung's backend, except that opencode's Go models (`opencode-go/…`) are billed
@@ -72,7 +93,18 @@ export type ModelsFile = z.infer<typeof ModelsFileSchema>;
 /** A canonical rung: `<canonical model id>#<effort>`, the key scores and treat-likes use. */
 export const CanonicalRung = z.string().regex(/^[^:#\s]+#[^#\s]+$/, "a canonical rung is model#effort");
 
-const ScoreSchema = z.object({
+/** Spec 1.2 §4.2: `anchor = a·x + b`, fitted on `n` rungs both sources cover, with its R². */
+export const FitSchema = z.object({
+  source: z.string(),
+  field: z.string(),
+  a: z.number(),
+  b: z.number(),
+  r2: z.number(),
+  n: z.number().int(),
+});
+export type Fit = z.infer<typeof FitSchema>;
+
+export const ScoreSchema = z.object({
   rung: CanonicalRung,
   dim: z.enum(DIMS),
   value: z.number(),
@@ -80,8 +112,14 @@ const ScoreSchema = z.object({
   version: z.string(),
   url: z.url(),
   date: z.iso.date(),
-  confidence: z.enum(["verified", "secondary", "inferred"]),
+  confidence: z.enum(CONFIDENCE),
   note: z.string().optional(),
+  /** spec 1.2 §4.3: the source a synced value came from (absent: the shipped file or the user's override) */
+  source: z.string().optional(),
+  /** a calibrated value: the fit that mapped it onto the anchor */
+  fit: FitSchema.optional(),
+  /** the source named no effort, so the family's default effort was assumed (spec 1.2 §3.4) */
+  effortAssumed: z.boolean().optional(),
 });
 export type Score = z.infer<typeof ScoreSchema>;
 
@@ -130,22 +168,42 @@ export interface Catalog {
   secs: Record<string, number>;
 }
 
-const RANK: Record<Score["confidence"], number> = { verified: 0, secondary: 1, inferred: 2 };
+/** Spec 1.2 §4.3: the level a value counts at: its own, one lower once it is older than STALE_DAYS. */
+export function effectiveRank(s: Score, now: number): number {
+  const stale = now - Date.parse(s.date) > STALE_DAYS * DAY_MS;
+  return Math.min(RANK[s.confidence] + (stale ? 1 : 0), CONFIDENCE.length - 1);
+}
 
+/** Spec 1.2 §4.3: `a` beats `b` at a better level, or at the same level with a newer date. */
+export function outranks(a: Score, b: Score, now: number): boolean {
+  const ra = effectiveRank(a, now);
+  const rb = effectiveRank(b, now);
+  return ra < rb || (ra === rb && a.date > b.date);
+}
+
+/**
+ * The catalog routing reads: the shipped files, the synced values (spec 1.2 §3), each backend's listing and
+ * the user's override, which always wins. Between shipped and synced values the better level wins, then the
+ * newer date (spec 1.2 §4.3); `now` dates the 90-day drop.
+ */
 export function buildCatalog(o: {
   models: ModelsFile;
   scores: ScoresFile;
+  synced?: Score[];
   override?: Override;
   listed?: Catalog["listed"];
   secs?: Catalog["secs"];
+  now?: number;
 }): Catalog {
+  const now = o.now ?? Date.now();
   const scores: Catalog["scores"] = {};
   const put = (s: Score, force: boolean) => {
     const cur = (scores[s.rung] ??= {});
     const had = cur[s.dim];
-    if (force || !had || RANK[s.confidence] < RANK[had.confidence]) cur[s.dim] = s;
+    if (force || !had || outranks(s, had, now)) cur[s.dim] = s;
   };
   for (const s of o.scores.scores) put(s, false);
+  for (const s of o.synced ?? []) put(s, false);
   for (const s of o.override?.scores ?? []) put(s, true);
   const treatLike: Catalog["treatLike"] = {};
   for (const [rung, t] of Object.entries(o.scores.treatLike))
@@ -211,18 +269,35 @@ export function rungInfo(c: Catalog, rung: string): RungInfo {
   };
 }
 
-/** The rung's scores: its own, else those of the rung it is treated like. null when unscored. */
+/**
+ * The rung's scores: per dimension its own value, else that of the rung it is treated like (a sync may score
+ * a rung on some dimensions only). `via` names that rung when it lends any value, `borrowed` the dimensions
+ * it lends. null when unscored.
+ */
 export function scoresOf(
   c: Catalog,
   canonical: string,
-): { values: Partial<Record<Dim, number>>; records: Partial<Record<Dim, Score>>; via: string | null } | null {
-  const own = c.scores[canonical];
-  const via = own ? null : (c.treatLike[canonical]?.like ?? null);
-  const records = own ?? (via ? c.scores[via] : undefined);
-  if (!records || Object.keys(records).length === 0) return null;
+): {
+  values: Partial<Record<Dim, number>>;
+  records: Partial<Record<Dim, Score>>;
+  via: string | null;
+  borrowed: Dim[];
+} | null {
+  const own = c.scores[canonical] ?? {};
+  const like = c.treatLike[canonical]?.like ?? null;
+  const lent = like ? (c.scores[like] ?? {}) : {};
   const values: Partial<Record<Dim, number>> = {};
-  for (const d of DIMS) if (records[d]) values[d] = records[d].value;
-  return { values, records, via };
+  const records: Partial<Record<Dim, Score>> = {};
+  const borrowed: Dim[] = [];
+  for (const d of DIMS) {
+    const r = own[d] ?? lent[d];
+    if (!r) continue;
+    records[d] = r;
+    values[d] = r.value;
+    if (!own[d]) borrowed.push(d);
+  }
+  if (Object.keys(records).length === 0) return null;
+  return { values, records, via: borrowed.length ? like : null, borrowed };
 }
 
 /** Spec §4 roles: what a rung must offer to be placed on a role. */
