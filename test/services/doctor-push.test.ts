@@ -16,6 +16,24 @@ afterEach(async () => {
   pushLimits.waitMs = 5_000;
 });
 
+/** A socket file whose listener was killed: connecting to it is refused, on Linux and macOS alike. */
+async function staleSocket(): Promise<string> {
+  const path = join(mkdtempSync(join(tmpdir(), "cc-socks-")), "10.sock");
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `require("node:net").createServer().listen(${JSON.stringify(path)}, () => console.log("up"))`,
+    ],
+    { stdout: "pipe", stderr: "ignore", env: { PATH: process.env.PATH ?? "" } },
+  );
+  const reader = child.stdout.getReader();
+  await reader.read(); // "up": the socket file exists
+  child.kill("SIGKILL");
+  await child.exited;
+  return path;
+}
+
 /** The session the doctor runs in: its registry file names the fake inbox; its transcript is in a worktree's slug. */
 async function inSession(o: { transcript: boolean }) {
   withHome();
@@ -98,9 +116,8 @@ describe("doctor's push row (spec §3.9)", () => {
     expect(stale.detail).toContain("this session's inbox is not reachable");
     expect(stale.detail).toContain("run catherd doctor from a live Claude Code session");
     expect(stale.detail).not.toContain("Claude Code version");
-    // a path nobody listens on refuses the connection
-    const dead = join(mkdtempSync(join(tmpdir(), "cc-socks-")), "10.sock");
-    writeFileSync(dead, "");
+    // a socket file its listener left behind (killed, so nothing unlinked it) refuses the connection
+    const dead = await staleSocket();
     const refused = await probePush({ CLAUDE_CODE_SESSION_ID: "s", CLAUDE_CODE_MESSAGING_SOCKET: dead });
     expect(pushCheck(refused)).toMatchObject({ state: "skip", word: "no session" });
   });
