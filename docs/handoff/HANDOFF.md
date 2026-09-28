@@ -1,8 +1,21 @@
-# catherd — handoff (2026-09-28, fifth session: 1.1 on autopilot)
+# catherd — handoff (2026-09-28, sixth session: 1.2 on autopilot)
 
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 
+
+## catherd 1.2 (session 6, autopilot)
+
+Binding spec: `docs/specs/2026-09-28-catherd-1.2-design.md` (above 1.1 and 1.0). Two plans, one PR each, in order:
+
+| Plan | File | State |
+| ---- | ---- | ----- |
+| 13 sources and sync (§3, §4, §9, §10, §11) | `docs/plans/2026-09-28-13-sources-sync.md` | PR #22: 14 tasks in 4 parallel waves (pre-validated scratch `plan13-scratch` 31d04e0, executed byte-identical), final review 0 C / 4 I fixed in one wave, Codex round 1: 2 P2 (same as I3) fixed; ledger `plan13-ledger.md`. **Merges on green CI.** |
+| 14 routing and profiles (§5–§8, §9 TUI/route, §7 shipped scores + weekly refresh, 1.2.0 changeset) | `docs/plans/2026-09-28-14-routing-profiles.md` | writer building it on `plan13-scratch`; replay onto main after #22 merges and re-check the "Assumes" list (plan 13's four fix-wave changes) |
+
+After plan 14 merges, the "chore: release catherd" PR is **held** for the owner's acceptance (spec §11); the exact
+commands are posted on it. The AA fixtures are synthetic (no key in the sandbox): the owner re-records them
+(`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md` "1.2 follow-ups".
 
 ## catherd 1.1 (session 5, autopilot)
 
