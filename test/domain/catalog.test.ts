@@ -334,6 +334,13 @@ describe("confidence and precedence (spec 1.2 §4.3)", () => {
     });
   });
 
+  it("names every override value's source as the override, even one copied with a synced source", () => {
+    const override = OverrideSchema.parse({
+      scores: [score({ rung: "gpt-6-sol#high", dim: "repo_code", value: 1, source: "arena" })],
+    });
+    expect(shipped({ override, now: NOW }).scores["gpt-6-sol#high"]?.repo_code?.source).toBe("override");
+  });
+
   it("ships one value per rung and dimension, so the date rule never reorders the shipped file", () => {
     const keys = shippedScores().scores.map((s) => `${s.rung} ${s.dim}`);
     expect(new Set(keys).size).toBe(keys.length);

@@ -300,8 +300,8 @@ export function buildCatalog(o: {
   };
   for (const s of o.scores.scores) put(s, false);
   for (const s of o.synced ?? []) put(s, false);
-  // the user's values say so, for route's provenance (spec 1.2 §5.3)
-  for (const s of o.override?.scores ?? []) put({ ...s, source: s.source ?? "override" }, true);
+  // the user's values say so whatever source they were copied with, for route's provenance (spec 1.2 §5.3)
+  for (const s of o.override?.scores ?? []) put({ ...s, source: "override" }, true);
   const treatLike: Catalog["treatLike"] = {};
   for (const [rung, t] of Object.entries(o.scores.treatLike))
     treatLike[rung] = { like: t.like, source: "shipped" };
