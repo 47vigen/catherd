@@ -375,7 +375,9 @@ describe("doctor", () => {
     expect(check(r, "access:codex")?.detail).toBe(
       "lock-dir write, temp write in codex sandbox · network off by profile",
     );
-    expect(readFileSync(argsTo, "utf8")).not.toContain("network_access");
+    const probed = readFileSync(argsTo, "utf8");
+    expect(probed).toContain("sandbox_workspace_write.network_access=false");
+    expect(probed).not.toContain("sandbox_workspace_write.network_access=true");
     expect(check(r, "access:opencode")?.detail).toContain(
       "network: false is not enforced by opencode's shell",
     );

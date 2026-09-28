@@ -71,7 +71,9 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
  * loopback binds, the Docker socket and `docker` itself (which cannot run inside that sandbox). Outbound
  * domains stay the user's `sandbox.network.allowedDomains`: doctor's `access:claude-code` row says when
  * the registry is not among them. `network: false` drops the network grants and the web tools (and with
- * them Docker: the socket and `docker *` are network grants). With the user's sandbox on, `enabled: true`
+ * them Docker: the socket and `docker *` are network grants) and sets `allowLocalBinding: false`, so the
+ * user's own `true` does not carry over (their allowedDomains and other array grants merge in and stay;
+ * doctor says `network: false` is not enforced by claude-code's shell). With the user's sandbox on, `enabled: true`
  * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off.
  */
 export function claudeAccessArgs(access: Access, network = true, repo?: string): string[] {
@@ -86,7 +88,8 @@ export function claudeAccessArgs(access: Access, network = true, repo?: string):
           network: { allowLocalBinding: true, ...(sock ? { allowUnixSockets: [sock] } : {}) },
           excludedCommands: ["docker *"],
         }
-      : {}),
+      : // a boolean overrides the user's own `allowLocalBinding: true`; their array grants cannot be revoked here
+        { network: { allowLocalBinding: false } }),
   };
   const args = [...base, "--settings", JSON.stringify({ sandbox })];
   if (!network) {

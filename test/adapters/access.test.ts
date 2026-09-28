@@ -95,10 +95,15 @@ describe("worker access grants (spec §5)", () => {
     expect(isolated).toContain(roots);
   });
 
-  it("drops Codex's network grant for network: false, and grants nothing to read-only or full", () => {
+  it("turns Codex's network off explicitly for network: false, and grants nothing to read-only or full", () => {
     withHome();
+    for (const over of [{}, { thread: "019a-thread-1" }, { isolated: true }]) {
+      const off = cValues(codexAdapter.plan(req({ network: false, ...over })).args);
+      // omitting the override would leave the user's config.toml network_access = true in force
+      expect(off).toContain("sandbox_workspace_write.network_access=false");
+      expect(off).not.toContain("sandbox_workspace_write.network_access=true");
+    }
     const off = cValues(codexAdapter.plan(req({ network: false })).args);
-    expect(off.some((v) => v.startsWith("sandbox_workspace_write.network_access"))).toBe(false);
     expect(off.some((v) => v.startsWith("sandbox_workspace_write.writable_roots"))).toBe(true);
     for (const access of ["read-only", "full"] as const)
       expect(
@@ -122,7 +127,8 @@ describe("worker access grants (spec §5)", () => {
     });
     const off = claudeCodeAdapter.plan(req({ rung, network: false })).args;
     expect(JSON.parse(after(off, "--settings"))).toEqual({
-      sandbox: { filesystem: { allowWrite: writableRoots() } },
+      // allowLocalBinding: false outright, so the user's own `true` does not survive the merge
+      sandbox: { filesystem: { allowWrite: writableRoots() }, network: { allowLocalBinding: false } },
     });
     expect(after(off, "--disallowedTools").split(",")).toEqual(
       expect.arrayContaining(["WebFetch", "WebSearch", "Bash(git commit *)"]),
@@ -205,7 +211,8 @@ describe("worker access grants (spec §5)", () => {
       failoverFrom: null,
     });
     const args: string[] = JSON.parse(readFileSync(specPath, "utf8")).args;
-    expect(args.join(" ")).not.toContain("network_access");
+    expect(args).toContain("sandbox_workspace_write.network_access=false");
+    expect(args).not.toContain("sandbox_workspace_write.network_access=true");
     expect(args.join(" ")).toContain("writable_roots");
   });
 });

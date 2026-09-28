@@ -52,15 +52,17 @@ export function userWritableRoots(): string[] {
 
 /**
  * Spec §5: a workspace-write worker also writes the lock and temp dirs, and (unless the role says
- * `network: false`) reaches the network and binds loopback. The same `-c` overrides go to `codex sandbox`
- * in doctor's probes, so doctor tests exactly what a worker gets. `-c …writable_roots=` replaces the
+ * `network: false`) reaches the network and binds loopback. `network_access` is always set, to false for
+ * `network: false`, since leaving it out would keep a `network_access = true` from the user's config.toml.
+ * The same `-c` overrides go to `codex sandbox` in doctor's probes, so doctor tests exactly what a worker gets. `-c …writable_roots=` replaces the
  * user's own roots, so theirs go in too; an isolated run ignores the user's config, so it has none.
  */
 export function codexGrants(access: Access, network = true, isolated = false): string[] {
   if (access !== "workspace-write") return [];
   const roots = [...new Set([...(isolated ? [] : userWritableRoots()), ...writableRoots()])];
   return [
-    ...(network ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
+    "-c",
+    `sandbox_workspace_write.network_access=${network}`,
     "-c",
     `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`,
   ];
