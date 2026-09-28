@@ -9,6 +9,7 @@ import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck } from "./doctor-push.ts";
+import { sourcesCheck } from "./doctor-sources.ts";
 import {
   agentsCheck,
   type Check,
@@ -189,6 +190,9 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       );
     }
   }
+
+  // spec 1.2 §9: the public sources' ages and errors, and the Artificial Analysis key
+  checks.push(guarded("sources", "sources", "catherd catalog sync --force", () => sourcesCheck()));
 
   checks.push(pluginCheck(d.version));
 
