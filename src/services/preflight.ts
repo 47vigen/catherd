@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseLaneHeader } from "../domain/lane.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
+import { assertLaneHeader, LANE_HEADER_FIX, parseLaneHeader } from "../domain/lane.ts";
 import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
@@ -47,6 +48,8 @@ interface LaneCheck {
   check: string | null;
   owns: string[];
   problem: string | null;
+  /** spec 1.1 §6: why its Kind: or Difficulty: line is refused */
+  invalid: string | null;
 }
 
 function laneChecks(run: Run): LaneCheck[] {
@@ -57,16 +60,24 @@ function laneChecks(run: Run): LaneCheck[] {
     .sort()
     .map((f) => {
       const lane = f.slice(0, -".md".length);
+      let invalid: string | null = null;
       try {
-        const h = parseLaneHeader(readFileSync(join(dir, f), "utf8"));
+        const text = readFileSync(join(dir, f), "utf8");
+        try {
+          assertLaneHeader(text, `lanes/${f}`);
+        } catch (e) {
+          invalid = errorMessage(e);
+        }
+        const h = parseLaneHeader(text);
         return {
           lane,
           check: h.fastCheck,
           owns: h.owns,
           problem: h.fastCheck ? null : `lanes/${f} has no Fast check: line`,
+          invalid,
         };
       } catch (e) {
-        return { lane, check: null, owns: [], problem: (e as Error).message };
+        return { lane, check: null, owns: [], problem: (e as Error).message, invalid };
       }
     });
 }
@@ -159,6 +170,9 @@ export async function preflight(
   const run = findRun(i.run);
   const profile = deps.profiles.forRepo(run.meta.repo);
   const lanes = laneChecks(run);
+  // spec 1.1 §6: refuse before running anything, naming every lane whose header the catalog cannot route
+  const invalid = lanes.flatMap((l) => (l.invalid ? [l.invalid] : []));
+  if (invalid.length) throw new CatherdError("E_LANE_INVALID", invalid.join("; "), { fix: LANE_HEADER_FIX });
   const commands = lanes.map((l) => ({ lane: l.lane, check: l.check }));
   if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;

@@ -13,7 +13,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "route",
     {
       description:
-        "The rung for a lane (from Jev, else the lane file's Kind/Difficulty lines, else the profile default) or, without a lane file, a role's default rung, with the ladder above it. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as.",
+        "The rung for a lane (from Jev, else the lane file's Kind/Difficulty lines, else the profile default) or, without a lane file, a role's default rung, with the ladder above it. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as. A lane whose Kind: or Difficulty: the catalog does not know is refused with E_LANE_INVALID.",
       inputSchema: {
         run: z.string(),
         lane_file: z.string().optional(),
@@ -27,7 +27,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "preflight",
     {
       description:
-        "Run each lane's fast check once, on the base tree, behind the heavy-command lock, with a 120 s timeout. Each lane is pass, fails-as-expected, skipped (it checks a file the lane creates) or cannot-start; only cannot-start blocks. When the profile asks for confirmation, the first call returns the commands to show the user; call again with confirmed: true.",
+        "Run each lane's fast check once, on the base tree, behind the heavy-command lock, with a 120 s timeout. Each lane is pass, fails-as-expected, skipped (it checks a file the lane creates) or cannot-start; only cannot-start blocks. When the profile asks for confirmation, the first call returns the commands to show the user; call again with confirmed: true. Refused with E_LANE_INVALID, running nothing, while any lane's Kind: or Difficulty: is not one the catalog knows.",
       inputSchema: { run: z.string(), confirmed: z.boolean().optional() },
     },
     (a) => handle(() => preflight(deps, { run: a.run, confirmed: a.confirmed })),

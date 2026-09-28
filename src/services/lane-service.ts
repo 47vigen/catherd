@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
-import type { Difficulty, Kind } from "../domain/lane.ts";
+import { assertLaneHeader, type Difficulty, type Kind } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import {
   type ClimbReason,
@@ -60,7 +60,10 @@ function readLaneFile(run: Run, path: string): { lane: string; text: string } {
     throw new CatherdError("E_LANE_INVALID", `no lane file ${path}`, {
       fix: "write it with write_run_file first",
     });
-  return { lane, text: readFileSync(file, "utf8") };
+  const text = readFileSync(file, "utf8");
+  // spec 1.1 §6: a lane routes only on values the catalog knows
+  assertLaneHeader(text, `lanes/${lane}.md`);
+  return { lane, text };
 }
 
 /** Spec §5.4 through the routing port; a lane's route is recorded in routes.jsonl. */

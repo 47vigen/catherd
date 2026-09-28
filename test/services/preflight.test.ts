@@ -27,7 +27,10 @@ describe("preflight", () => {
     writeLane(run, "M1.L2", ["src/b.ts"], "echo nope; exit 1");
     writeLane(run, "M1.L3", ["src/new.ts"], "bun test src/new.ts");
     writeLane(run, "M1.L4", ["src/d.ts"], "no-such-command-catherd --flag");
-    writeFileSync(join(run.dir, "lanes", "M1.L5.md"), "# M1.L5 — no check\nOwns: src/e.ts\n");
+    writeFileSync(
+      join(run.dir, "lanes", "M1.L5.md"),
+      "# M1.L5 — no check\nOwns: src/e.ts\nKind: repo_code\nDifficulty: build\n",
+    );
     mkdirSync(join(repo, "src"));
     const r = await preflight(fakeDeps(), { run: run.id });
     expect(outcomes(r)).toEqual([

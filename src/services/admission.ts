@@ -4,7 +4,7 @@ import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
-import { overlaps, parseLaneHeader } from "../domain/lane.ts";
+import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
@@ -57,7 +57,7 @@ function laneOwns(run: Run, lane: string): string[] {
     throw new CatherdError("E_LANE_INVALID", `no lane file lanes/${lane}.md`, {
       fix: "write it with write_run_file first",
     });
-  const owns = parseLaneHeader(readFileSync(file, "utf8")).owns;
+  const owns = assertLaneHeader(readFileSync(file, "utf8"), `lanes/${lane}.md`).owns;
   if (owns.length === 0)
     throw new CatherdError("E_LANE_INVALID", `lanes/${lane}.md has no Owns: line`, {
       fix: "add `Owns: <paths>` below the lane's title",
