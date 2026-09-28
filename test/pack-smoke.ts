@@ -67,6 +67,10 @@ const env = {
   CATHERD_CLAUDE_AGENTS_DIR: join(home, "claude-agents"),
   TYPESAFE_API_KEY: "",
   ANTHROPIC_API_KEY: "",
+  // never the Claude Code session this may run in: doctor's push row would message it
+  CLAUDE_CODE_SESSION_ID: "",
+  CLAUDE_CODE_MESSAGING_SOCKET: "",
+  CLAUDE_CODE_MESSAGING_TOKEN: "",
 };
 const version = run([bin, "--version"], app, env);
 must(

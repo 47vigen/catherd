@@ -2,20 +2,20 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  claudeConfigDir,
   liveSessionFile,
   readSessionEnv,
   readSessionFiles,
   sessionFileFor,
 } from "../../src/infra/claude-session.ts";
 import { scrubSecrets } from "../../src/infra/env.ts";
+import { claudeHome } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
 /** A registry file, as a live Claude Code session writes it. */
 function registry(pid: number, over: Record<string, unknown> = {}): void {
-  const dir = join(claudeConfigDir(), "sessions");
+  const dir = join(claudeHome(), "sessions");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, `${pid}.json`),
@@ -64,8 +64,8 @@ describe("the Claude Code session (spec §3.3)", () => {
     withHome();
     registry(process.pid, { sessionId: "mine" });
     registry(2_147_483_000, { sessionId: "dead" });
-    writeFileSync(join(claudeConfigDir(), "sessions", "5.json"), "{ torn");
-    writeFileSync(join(claudeConfigDir(), "sessions", `${process.pid}.abc.key`), "k");
+    writeFileSync(join(claudeHome(), "sessions", "5.json"), "{ torn");
+    writeFileSync(join(claudeHome(), "sessions", `${process.pid}.abc.key`), "k");
     expect(
       readSessionFiles()
         .map((f) => f.sessionId)
@@ -73,11 +73,6 @@ describe("the Claude Code session (spec §3.3)", () => {
     ).toEqual(["dead", "mine"]);
     expect(liveSessionFile("mine")?.pid).toBe(process.pid);
     expect(liveSessionFile("dead")).toBeNull();
-  });
-
-  it("reads Claude Code's config dir from CLAUDE_CONFIG_DIR", () => {
-    expect(claudeConfigDir({ CLAUDE_CONFIG_DIR: "/x" })).toBe("/x");
-    expect(claudeConfigDir({})).toMatch(/\.claude$/);
   });
 
   it("keeps the messaging socket and token from every process catherd starts (spec §3.2)", () => {
@@ -95,6 +90,6 @@ describe("the Claude Code session (spec §3.3)", () => {
     process.env.CLAUDE_CODE_MESSAGING_SOCKET = "/tmp/cc-socks/real.sock";
     const home = withHome();
     expect(process.env.CLAUDE_CODE_MESSAGING_SOCKET).toBeUndefined();
-    expect(claudeConfigDir()).toBe(join(home, "claude-config"));
+    expect(claudeHome()).toBe(join(home, "claude-config"));
   });
 });

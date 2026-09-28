@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeHome } from "./paths.ts";
 import { isAlive } from "./proc.ts";
 
 /**
@@ -37,10 +37,6 @@ export function readSessionEnv(env: Record<string, string | undefined> = process
   return s.sessionId || s.socketPath ? s : null;
 }
 
-/** Claude Code's config dir: `$CLAUDE_CONFIG_DIR`, else `~/.claude`. */
-export const claudeConfigDir = (env: Record<string, string | undefined> = process.env): string =>
-  env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-
 /** One live session's registry entry, as far as catherd reads it. */
 export interface SessionFile {
   pid: number;
@@ -55,7 +51,7 @@ export interface SessionFile {
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
 /** Every readable registry file (`<config>/sessions/<pid>.json`); a torn or foreign one is skipped. */
-export function readSessionFiles(dir: string = join(claudeConfigDir(), "sessions")): SessionFile[] {
+export function readSessionFiles(dir: string = join(claudeHome(), "sessions")): SessionFile[] {
   if (!existsSync(dir)) return [];
   const out: SessionFile[] = [];
   for (const f of readdirSync(dir)) {

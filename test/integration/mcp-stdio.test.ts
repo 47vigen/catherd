@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { claudeConfigDir } from "../../src/infra/claude-session.ts";
+import { claudeHome } from "../../src/infra/paths.ts";
 import { configDir, runsDir } from "../../src/infra/paths.ts";
 import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
@@ -308,9 +308,9 @@ describe("push over stdio (spec §15)", () => {
       const { repo, sim, env } = setup();
       const inbox = await fakeInbox();
       // the Claude Code session the server runs in: its registry file names the fake inbox
-      mkdirSync(join(claudeConfigDir(), "sessions"), { recursive: true });
+      mkdirSync(join(claudeHome(), "sessions"), { recursive: true });
       writeFileSync(
-        join(claudeConfigDir(), "sessions", "4242.json"),
+        join(claudeHome(), "sessions", "4242.json"),
         JSON.stringify({ pid: 4242, sessionId: "s-it", name: "it session", messagingSocketPath: inbox.path }),
       );
       const c = await connect({

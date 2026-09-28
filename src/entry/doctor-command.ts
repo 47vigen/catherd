@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
 import { type DoctorReport, doctor } from "../services/doctor.ts";
+import { probePush } from "../services/doctor-push.ts";
 import type { Check } from "../services/doctor-checks.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
@@ -37,7 +38,12 @@ export const doctorCommand = defineCommand({
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
-    const r = await doctor({ bunVersion: Bun.version, version: VERSION, handshake: () => mcpHandshake() });
+    const r = await doctor({
+      bunVersion: Bun.version,
+      version: VERSION,
+      handshake: () => mcpHandshake(),
+      push: () => probePush(),
+    });
     if (args.json) printJson(r);
     else for (const l of formatReport(r, args.plain === true)) console.log(l);
     process.exitCode = r.ready ? EXIT.ok : EXIT.notReady;

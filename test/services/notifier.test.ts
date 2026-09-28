@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeConfigDir, type SessionEnv } from "../../src/infra/claude-session.ts";
+import type { SessionEnv } from "../../src/infra/claude-session.ts";
+import { claudeHome } from "../../src/infra/paths.ts";
 import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { adopt, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
@@ -41,7 +42,7 @@ const exit = (code = 0) => ({
 /** A live session (registry file and environment) whose inbox is the fake one. */
 async function sessionWithInbox(id = "s-me", pid = 201): Promise<SessionEnv> {
   inbox = await fakeInbox();
-  const dir = join(claudeConfigDir(), "sessions");
+  const dir = join(claudeHome(), "sessions");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, `${pid}.json`),

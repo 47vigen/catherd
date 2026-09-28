@@ -8,6 +8,7 @@ import type { JevTransport } from "../infra/jev-client.ts";
 import { locksDir } from "../infra/paths.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { backendChecks, usedBackends, workspaceWriteBackends } from "./doctor-backends.ts";
+import { type PushProbe, pushCheck } from "./doctor-push.ts";
 import {
   agentsCheck,
   type Check,
@@ -48,6 +49,8 @@ export interface DoctorDeps {
   version: string;
   /** starts `catherd mcp` over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
+  /** spec §3.9: sends this Claude Code session a test message; without it (the dashboard) there is no `push` row */
+  push?: () => Promise<PushProbe>;
   jev?: JevTransport;
 }
 
@@ -218,6 +221,11 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
           fix: "run catherd mcp to see why it does not start",
         },
   );
+
+  if (d.push)
+    checks.push(
+      pushCheck(await d.push().catch((e: unknown): PushProbe => ({ outcome: "failed", detail: errText(e) }))),
+    );
 
   checks.push(locksCheck());
   for (const id of workspaceWriteBackends(profiles)) {

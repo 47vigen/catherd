@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { claudeConfigDir, type SessionEnv } from "../../src/infra/claude-session.ts";
+import type { SessionEnv } from "../../src/infra/claude-session.ts";
+import { claudeHome } from "../../src/infra/paths.ts";
 import { awaitsCollect } from "../../src/infra/dispatch-dir.ts";
 import { watchersSettled } from "../../src/services/dispatch-service.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
@@ -19,7 +20,7 @@ const OK_LINES = readFileSync(join(FX, "ok-with-reconnect.jsonl"), "utf8").split
 const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
 
 function session(pid: number, id: string): SessionEnv {
-  const dir = join(claudeConfigDir(), "sessions");
+  const dir = join(claudeHome(), "sessions");
   mkdirSync(dir, { recursive: true });
   const socketPath = `/tmp/cc-socks/${pid}.sock`;
   writeFileSync(

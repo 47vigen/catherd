@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { claudeConfigDir, type SessionEnv } from "../../src/infra/claude-session.ts";
+import type { SessionEnv } from "../../src/infra/claude-session.ts";
+import { claudeHome } from "../../src/infra/paths.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { listDispatches } from "../../src/services/dispatches.ts";
@@ -19,7 +20,7 @@ beforeEach(() => resetReadiness());
 
 /** A live session's registry file (pid `pid`), and the environment its MCP server would get. */
 function session(pid: number, id: string, name: string, host: string | null = null): SessionEnv {
-  const dir = join(claudeConfigDir(), "sessions");
+  const dir = join(claudeHome(), "sessions");
   mkdirSync(dir, { recursive: true });
   const socketPath = `/tmp/cc-socks/${pid}.sock`;
   writeFileSync(
