@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
@@ -35,8 +35,9 @@ function run(repo: string, title: string, startedBy: string | null, minutesAgo: 
       ? { sessionId: startedBy, hostSessionId: null, name: `${startedBy} at start` }
       : null,
   });
-  // its files as old as the run: activity is what the test says it is
-  for (const f of [runPaths(r.dir).ledger, runPaths(r.dir).runs, runPaths(r.dir).meta]) utimesSync(f, at, at);
+  // the files runActivity reads as old as the run: activity is what the test says it is
+  const p = runPaths(r.dir);
+  for (const f of [p.stateJson, p.runs, p.state, p.agents]) if (existsSync(f)) utimesSync(f, at, at);
   return r;
 }
 
@@ -62,6 +63,19 @@ describe("runs grouped by session (spec §4)", () => {
       { session: "desktop two", runs: ["Kit clean-up (here)"] },
       { session: "s-a at start", runs: ["Kit clean-up (elsewhere: desktop two)", "Auth MR A"] },
       { session: "earlier runs", runs: ["Before 1.1"] },
+    ]);
+  });
+
+  it("orders sessions and their runs by the runs' latest activity, not by when they were made", () => {
+    withHome();
+    const repo = tempRepo();
+    // made newest-activity first: an order by creation (or by the files' real mtimes) would come out reversed
+    const newer = run(repo, "Newer", "s-a", 5);
+    const other = run(repo, "Other session", "s-c", 10);
+    const older = run(repo, "Older", "s-a", 30);
+    expect(groupRuns([older, other, newer]).map((g) => g.runs.map((x) => x.run.meta.title))).toEqual([
+      ["Newer", "Older"],
+      ["Other session"],
     ]);
   });
 
