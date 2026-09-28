@@ -154,7 +154,14 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
         });
     }
   }
-  scores.push(...adjacent(ctx.models.families, scores, ctx.now));
+  const shipped = new Set<string>();
+  for (const s of ctx.scores.scores)
+    if (s.confidence !== "inferred") {
+      const { id, effort } = splitSourceRung(s.rung);
+      const family = map.family(id);
+      if (family && effort !== null) shipped.add(`${family.id}#${effort}|${s.dim}`);
+    }
+  scores.push(...adjacent(ctx.models.families, scores, shipped, ctx.now));
 
   const { facts, warnings } = factsOf(raw, ctx, map);
   return {
@@ -169,11 +176,12 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
 }
 
 /**
- * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no synced value at, the best synced value
- * at the nearest effort that has one (the weaker on a tie). The shipped values are not spread this way: the
- * shipped file already says which efforts it carries.
+ * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no value at (neither a direct synced one
+ * nor a shipped one above `inferred`, in `shipped` as `<family>#<effort>|<dim>`), the best synced value at the
+ * nearest effort that has one (the weaker on a tie). The shipped values are not spread this way: the shipped
+ * file already says which efforts it carries, and an adjacent value never overrides one it carries.
  */
-function adjacent(families: Family[], direct: Score[], now: number): Score[] {
+function adjacent(families: Family[], direct: Score[], shipped: Set<string>, now: number): Score[] {
   const out: Score[] = [];
   for (const f of families)
     for (const dim of DIMS) {
@@ -186,7 +194,7 @@ function adjacent(families: Family[], direct: Score[], now: number): Score[] {
       }
       if (byEffort.size === 0) continue;
       for (const e of familyEfforts(f)) {
-        if (byEffort.has(e)) continue;
+        if (byEffort.has(e) || shipped.has(`${f.id}#${e}|${dim}`)) continue;
         const near = nearestEffort(e, [...byEffort.keys()]);
         const from = near ? byEffort.get(near) : undefined;
         if (!near || !from) continue;

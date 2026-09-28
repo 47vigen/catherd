@@ -202,6 +202,30 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
   });
 });
 
+describe("the shipped values after a sync (plan 13 R7)", () => {
+  it("are never overwritten by an adjacent value; a rung with no value of its own still gets one", async () => {
+    withHome();
+    const c = clock();
+    await syncSources({
+      transport: c.transport(recordedFetch().impl),
+      now: c.now,
+      aaKey: "aa-key-0123456789",
+    });
+    const synced = readDerived()?.scores ?? [];
+    const adj = (rung: string) =>
+      synced.filter((s) => s.rung === rung && s.dim === "repo_code" && s.confidence === "adjacent");
+    // AA's SciCode fits repo_code at Sol max; Sol low keeps its shipped DeepSWE value
+    expect(adj("gpt-6-sol#low")).toEqual([]);
+    expect(loadCatalog({ timings: false }).scores["gpt-6-sol#low"]?.repo_code).toMatchObject({
+      value: 37.2,
+      confidence: "secondary",
+    });
+    // Sol none has no shipped or direct value: it takes Sol max's
+    expect(adj("gpt-6-sol#none")).toHaveLength(1);
+    expect(loadCatalog({ timings: false }).scores["gpt-6-sol#none"]?.repo_code?.confidence).toBe("adjacent");
+  });
+});
+
 describe("the shipped defaults after a sync (plan 13 R-A)", () => {
   it("leave the default profile valid, with no warning, before and after a sync of the recorded answers", async () => {
     withHome();
