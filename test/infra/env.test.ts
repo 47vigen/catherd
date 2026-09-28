@@ -37,6 +37,15 @@ describe("scrubSecrets", () => {
   });
 });
 
+describe("the Artificial Analysis key (spec 1.2 §9)", () => {
+  it("is catherd's own secret: no process catherd starts gets it", () => {
+    expect(scrubSecrets({ PATH: "/bin", ARTIFICIAL_ANALYSIS_API_KEY: "aa-0123456789" })).toEqual({
+      PATH: "/bin",
+    });
+    expect(workerEnv({ ARTIFICIAL_ANALYSIS_API_KEY: "aa-0123456789" }, {}, "/r")).toEqual({ PWD: "/r" });
+  });
+});
+
 describe("restoreTmpdir (spec 1.1 §12)", () => {
   it("gives the server the TMPDIR the user had before the launcher pointed it at bunx's cache", () => {
     const env: Record<string, string | undefined> = {
