@@ -37,7 +37,8 @@ function machine(): void {
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
-  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
+  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${join(import.meta.dir, "..", "bin")}:${dirname(process.execPath)}:/usr/bin:/bin`;
   Object.assign(
     process.env,
     withScenario({ models: fx("codex/models.json"), sandbox: "allow" }).env,

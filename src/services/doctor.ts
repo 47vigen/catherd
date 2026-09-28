@@ -16,6 +16,7 @@ import {
   fixOf,
   guarded,
   locksCheck,
+  mcpCheck,
   pluginCheck,
 } from "./doctor-checks.ts";
 import { credentialsPath, jevKey, savedJevKey, testJevKey } from "./jev-service.ts";
@@ -41,13 +42,15 @@ export interface Handshake {
   ok: boolean;
   tools: string[];
   error?: string;
+  /** the tail of what the server (or its launcher) wrote to stderr */
+  stderr?: string;
 }
 
 export interface DoctorDeps {
   bunVersion: string;
   /** the package version, which the Claude Code plugin must pin */
   version: string;
-  /** starts `catherd mcp` over stdio and asks it for tools/list */
+  /** starts the MCP server as the plugin does (its launcher) over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
   /** spec §3.9: sends this Claude Code session a test message; without it (the dashboard) there is no `push` row */
   push?: () => Promise<PushProbe>;
@@ -204,24 +207,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const h = await d
     .handshake()
     .catch((e: unknown): Handshake => ({ ok: false, tools: [], error: errText(e) }));
-  checks.push(
-    h.ok && h.tools.includes("status")
-      ? {
-          id: "mcp",
-          label: "MCP server",
-          state: "ok",
-          word: "ready",
-          detail: `answers tools/list with ${h.tools.length} tools`,
-        }
-      : {
-          id: "mcp",
-          label: "MCP server",
-          state: "fail",
-          word: "no answer",
-          detail: h.error ?? "tools/list has no status tool",
-          fix: "run catherd mcp to see why it does not start",
-        },
-  );
+  checks.push(mcpCheck(h, d.version));
 
   if (d.push)
     checks.push(
@@ -304,13 +290,15 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     );
   }
 
-  if (!Bun.which("bunx", { PATH: process.env.PATH ?? "" }))
+  // the plugin's launcher needs bunx only when no global catherd is installed
+  const onPath = (bin: string) => Bun.which(bin, { PATH: process.env.PATH ?? "" });
+  if (!onPath("bunx") && !onPath("catherd"))
     checks.push({
       id: "bunx",
       label: "bunx",
       state: "warn",
       word: "missing",
-      detail: "the plugin starts the MCP server with bunx",
+      detail: "the plugin's MCP launcher runs bunx when no global catherd is installed",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
   let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];

@@ -310,6 +310,45 @@ describe("doctor", () => {
     expect([r.ready, check(r, "mcp")?.detail]).toEqual([false, "no answer within 20 s"]);
   });
 
+  it("says to reinstall when the server cannot load a module (spec 1.1 §12)", async () => {
+    ready();
+    const r = await run({
+      handshake: async () => ({
+        ok: false,
+        tools: [],
+        error: "MCP error -32000: Connection closed",
+        stderr:
+          "error: Cannot find module '@modelcontextprotocol/sdk/server/mcp.js' from '/c/bunx/src/x.ts'\n",
+      }),
+    });
+    expect(check(r, "mcp")).toEqual({
+      id: "mcp",
+      label: "MCP server",
+      state: "fail",
+      word: "broken install",
+      detail: `cannot load @modelcontextprotocol/sdk/server/mcp.js; reinstall: bun add -g catherd-cli@${VERSION}`,
+      fix: `bun add -g catherd-cli@${VERSION}`,
+    });
+  });
+
+  it("says to install catherd when the launcher finds neither it nor bunx", async () => {
+    ready();
+    const r = await run({
+      handshake: async () => ({
+        ok: false,
+        tools: [],
+        error: "MCP error -32000: Connection closed",
+        stderr: "/p/bin/catherd-mcp: 17: exec: bunx: not found\n",
+      }),
+    });
+    expect(check(r, "mcp")).toMatchObject({
+      state: "fail",
+      word: "missing",
+      detail: `no catherd ${VERSION} on PATH and no bunx to fetch it; reinstall: bun add -g catherd-cli@${VERSION}`,
+      fix: `bun add -g catherd-cli@${VERSION}`,
+    });
+  });
+
   it("runs the five access probes in codex sandbox with the grants a worker gets (spec §5, §12)", async () => {
     const argsTo = join(binDir(), "sandbox-args.jsonl");
     machine({ codex: { sandboxArgsTo: argsTo } });

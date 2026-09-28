@@ -17,7 +17,8 @@ function init(args: string[], stdin = "") {
     // no backend CLI, no Jev key and no Anthropic key: nothing reaches the network or the user's own CLIs
     env: {
       ...process.env,
-      PATH: `/nonexistent:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
+      PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
       TYPESAFE_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
