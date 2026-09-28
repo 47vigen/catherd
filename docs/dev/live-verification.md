@@ -305,7 +305,10 @@ version="$(jq -r .version package.json)"   # the version the release PR sets
 bun pm pack                                  # writes catherd-cli-$version.tgz
 bun add -g "$PWD/catherd-cli-$version.tgz"   # absolute: bun resolves ./ from its global folder
 catherd --version                            # prints $version
+catherd init --no-input                      # rewrites the Claude agent files with 1.1's prompts
 ```
+
+Start new Claude Code sessions after `init`: the agent files it rewrote load at session start.
 
 The plugin, from the same checkout through a local marketplace (the published one serves the `v<version>` tag,
 which does not exist yet). The release PR has stamped the plugin's MCP launcher with `$version`, and the global

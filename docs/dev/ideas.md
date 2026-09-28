@@ -37,7 +37,12 @@ Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land he
   warning; `ladderDropDims` has no direct unit test; `rankStandIns` recomputes the bar check per pool member.
 - **Docs.** live-verification §9.2 reads verifier minutes from `agents.jsonl`, so a headless (`claude-code:`)
   verifier prints nothing; the "back to published" block reuses `$version`, empty in a new shell.
-- **Tests.** One full `bun test` run in five failed once on plan 12's head with no name recorded; heavy parallel
+- **Install (plan 12 final review).** `bun add -g` in `init` has no time limit; the spawned init test passes
+  `BUN_INSTALL` through; `init` no longer warns "shadowed" when the global install is current but an older `catherd`
+  comes first on PATH (the launcher then falls back to bunx); an open milestone row lost its description; §9 check 5
+  should say "at least three" worker folders.
+- **Tests.** Three doctor tests run close to the 5 s default under load (plan 11's probes make a doctor run ~2.3 s):
+  give them 30 s like their neighbour. One full `bun test` run in five failed once on plan 12's head with no name recorded; heavy parallel
   load in a shared sandbox times out git- and notifier-based tests at 5 s.
 
 ## Picked up

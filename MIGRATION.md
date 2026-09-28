@@ -60,7 +60,8 @@ Removed `wait`. Added `peek`, `gate_check`, `gate_pass`, `park` and `answer`. Ch
 - `gate_check` and `gate_pass`: the verifier carries over a gate item whose command and inputs have not changed
   (the ledger is `<data>/repos/<repo>/gates.jsonl`). Every `gate_check` is a verifier step (`<run>/verifier.jsonl`):
   `peek` and `status` show its latest step as the verifier goes, a carried item with the commit its pass was
-  recorded on.
+  recorded on. `gate_check` takes an optional `milestone`, so a milestone's digest lists only its own
+  carried items.
 
 The plugin's skills use all of this; update the plugin with catherd, as above.
 

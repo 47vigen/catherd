@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LAUNCHER, mcpHandshake } from "../../src/entry/mcp/handshake.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -15,6 +15,8 @@ describe("doctor's MCP handshake (spec 1.1 §12)", () => {
   });
 
   it("answers tools/list through the launcher, which runs the catherd on PATH at its version", async () => {
+    // the server reconciles every run it can see: give it a catherd home of its own, never the developer's
+    withHome();
     // test/bin/catherd is this checkout: the launcher takes it for the global install
     process.env.PATH = `${BIN}:${join(process.execPath, "..")}:/usr/bin:/bin`;
     process.env.ANTHROPIC_API_KEY = "";
