@@ -3,13 +3,24 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync } from "n
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-/** Points CATHERD_HOME, and the Claude agents dir, at a fresh temp dir for the duration of one test. */
+/**
+ * Points CATHERD_HOME, the Claude agents dir and Claude Code's config dir at a fresh temp dir for the duration of
+ * one test, and takes away the Claude Code session a suite may run in: no test ever messages a real session.
+ */
 export function withHome(): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
   process.env.CATHERD_HOME = home;
   process.env.XDG_CONFIG_HOME = join(home, "xdg-config");
   // saving a profile links agents into ~/.claude/agents; a test must never touch the real one
   process.env.CATHERD_CLAUDE_AGENTS_DIR = join(home, "claude-agents");
+  process.env.CLAUDE_CONFIG_DIR = join(home, "claude-config");
+  for (const k of [
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_HOST_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+  ])
+    delete process.env[k];
   return home;
 }
 

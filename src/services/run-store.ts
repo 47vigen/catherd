@@ -20,6 +20,14 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 
+/** Spec §3.3: the Claude Code session that started a run; absent on 1.0 runs and outside Claude Code. */
+const StartedBySchema = z.object({
+  sessionId: z.string(),
+  hostSessionId: z.string().nullable(),
+  name: z.string().nullable(),
+});
+export type StartedBy = z.infer<typeof StartedBySchema>;
+
 const RunMetaSchema = z.looseObject({
   schema: z.literal(1),
   id: z.string(),
@@ -28,6 +36,7 @@ const RunMetaSchema = z.looseObject({
   aLines: z.array(z.string()),
   createdAt: z.string(),
   catherdVersion: z.string(),
+  startedBy: StartedBySchema.nullable().optional(),
 });
 type RunMeta = z.infer<typeof RunMetaSchema>;
 
@@ -52,6 +61,8 @@ export function runPaths(dir: string) {
     outcomes: join(dir, "outcomes.jsonl"),
     agents: join(dir, "agents.jsonl"),
     harness: join(dir, "harness.jsonl"),
+    /** every session that has owned the run, in order (spec §3.3) */
+    sessions: join(dir, "sessions.jsonl"),
     roles: join(dir, "roles"),
     shots: join(dir, "shots"),
     /** the admission lock's target: `admission.lock` guards dispatch admission */
@@ -71,6 +82,7 @@ export function createRun(o: {
   aLines: string[];
   version: string;
   now?: Date;
+  startedBy?: StartedBy | null;
 }): Run {
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
@@ -111,6 +123,7 @@ export function createRun(o: {
     aLines: o.aLines,
     createdAt: now.toISOString(),
     catherdVersion: o.version,
+    ...(o.startedBy ? { startedBy: o.startedBy } : {}),
   };
   writeJsonAtomic(p.meta, meta);
   return { id, dir, meta };
@@ -271,6 +284,7 @@ const SERVER_OWNED = new Set([
   "agents.jsonl",
   "harness.jsonl",
   "outcomes.jsonl",
+  "sessions.jsonl",
 ]);
 
 const present = (p: string) => {

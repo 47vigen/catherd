@@ -71,6 +71,8 @@ export const RunRecordSchema = z.looseObject({
   images: z.array(z.string()),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
   replyPath: z.string(),
+  /** the Claude Code session that dispatched it, copied from admit.json (spec §3.3); absent before 1.1 */
+  sessionId: z.string().optional(),
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 

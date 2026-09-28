@@ -1,5 +1,13 @@
-/** catherd's own secrets; the user's backend credentials (OPENAI_API_KEY, …) stay, workers need them. */
-const SECRET_ENV = new Set(["TYPESAFE_API_KEY"]);
+/**
+ * catherd's own secrets; the user's backend credentials (OPENAI_API_KEY, …) stay, workers need them. The Claude Code
+ * session's messaging socket and token are the MCP server's alone (spec §3.2: it is the only sender): no process
+ * catherd starts gets them.
+ */
+const SECRET_ENV = new Set([
+  "TYPESAFE_API_KEY",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+]);
 
 /** `base` without catherd's own secrets and without unset keys; for every process catherd starts. */
 export function scrubSecrets(base: Record<string, string | undefined>): Record<string, string> {

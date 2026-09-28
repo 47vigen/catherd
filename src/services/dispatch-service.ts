@@ -32,6 +32,7 @@ import {
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, readRecords, type Run } from "./run-store.ts";
+import { claimRun } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -148,6 +149,7 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
+  await claimRun(deps, run);
   const { d, specPath } = await admit(deps, run, {
     role: i.role,
     name: i.name,
@@ -336,6 +338,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       lane: d.admit.lane,
       failoverFrom: limited.rung,
       failoverOf: d.admit.dispatchId,
+      // the stand-in answers to the session that dispatched the limited role, whoever fails it over
+      sessionId: d.admit.sessionId ?? null,
     });
   } catch (e) {
     if (!isCatherdError(e)) throw e;

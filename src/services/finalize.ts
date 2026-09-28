@@ -215,6 +215,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     images: o.images,
     error: o.error,
     replyPath: relative(run.dir, p.reply),
+    ...(a.sessionId ? { sessionId: a.sessionId } : {}),
   };
 }
 

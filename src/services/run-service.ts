@@ -24,6 +24,7 @@ import {
   readRecords,
   runFile,
 } from "./run-store.ts";
+import { claimRun, currentSession } from "./sessions.ts";
 import { refreshState } from "./state.ts";
 
 export async function startRun(
@@ -41,7 +42,9 @@ export async function startRun(
     aLines: i.aLines,
     version: deps.version,
     now: new Date(deps.now()),
+    startedBy: currentSession(deps),
   });
+  await claimRun(deps, run);
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
   return { run: run.id, dir: run.dir, ...(hints.length ? { hints } : {}) };

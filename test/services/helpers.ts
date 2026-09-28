@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
+import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
@@ -48,7 +49,9 @@ export function testView(over: Partial<ProfileView> = {}): ProfileView {
 }
 
 /** Deps with a fixed profile view (mutate `view` to change it mid-test) and a routing fake. */
-export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): Deps & { view: ProfileView } {
+export function fakeDeps(
+  o: { view?: ProfileView; now?: () => number; session?: SessionEnv | null } = {},
+): Deps & { view: ProfileView } {
   const view = o.view ?? testView();
   const routing: RoutingPort = {
     async route(req) {
@@ -95,7 +98,15 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
       return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
     },
   };
-  return { profiles, routing, version: "0.0.0-test", pollMs: 50, now: o.now ?? Date.now, view };
+  return {
+    profiles,
+    routing,
+    version: "0.0.0-test",
+    pollMs: 50,
+    session: o.session ?? null,
+    now: o.now ?? Date.now,
+    view,
+  };
 }
 
 /** An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file. */

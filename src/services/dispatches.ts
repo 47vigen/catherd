@@ -32,6 +32,8 @@ const AdmitSchema = z.looseObject({
   repo: z.string(),
   /** `git status` fingerprints when admitted, for changedOwned and violations */
   before: z.record(z.string(), z.string()),
+  /** the Claude Code session that dispatched it (spec §3.3); absent on 1.0 dispatches and outside Claude Code */
+  sessionId: z.string().optional(),
 });
 export type Admit = z.infer<typeof AdmitSchema>;
 

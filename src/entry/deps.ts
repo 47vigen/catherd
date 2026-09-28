@@ -1,3 +1,4 @@
+import { readSessionEnv } from "../infra/claude-session.ts";
 import { VERSION } from "../infra/version.ts";
 import type { Deps } from "../services/ports.ts";
 import { profileService } from "../services/profile-service.ts";
@@ -10,6 +11,7 @@ export function defaultDeps(): Deps {
     routing: routingService(),
     version: VERSION,
     pollMs: 250,
+    session: readSessionEnv(process.env),
     now: Date.now,
   };
 }
