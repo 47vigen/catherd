@@ -16,7 +16,7 @@ export function claudeBilled(rung: string): boolean {
 }
 
 /** A rung's scores by dim, its own or borrowed through a treat-like; null when unscored or not a rung. */
-function valuesOf(c: Catalog, rung: string): Partial<Record<Dim, number>> | null {
+export function valuesOf(c: Catalog, rung: string): Partial<Record<Dim, number>> | null {
   try {
     return scoresOf(c, rungInfo(c, rung).canonical)?.values ?? null;
   } catch {
@@ -48,6 +48,19 @@ export function downgradeDims(c: Catalog, rung: string, standIn: string): Dim[] 
   if (!a) return [];
   const b = valuesOf(c, standIn) ?? {};
   return barDims(c, rung).filter((d) => (b[d] ?? Number.NEGATIVE_INFINITY) < (a[d] as number));
+}
+
+/**
+ * Spec 1.1 §11 "the ladder goes down": the dims both rungs are scored on where `upper` (the later rung)
+ * scores below `lower`, when it scores above it on none of them. Empty when it does not go down.
+ */
+export function ladderDropDims(c: Catalog, lower: string, upper: string): Dim[] {
+  const a = valuesOf(c, lower);
+  const b = valuesOf(c, upper);
+  if (!a || !b) return [];
+  const shared = DIMS.filter((d) => a[d] !== undefined && b[d] !== undefined);
+  if (shared.some((d) => (b[d] as number) > (a[d] as number))) return [];
+  return shared.filter((d) => (b[d] as number) < (a[d] as number));
 }
 
 const costFor = (c: Catalog, billing: Partial<Record<string, BillingMode>>, rung: string): Cost => {

@@ -7,7 +7,14 @@ import {
   rungInfo,
   scoresOf,
 } from "./catalog.ts";
-import { quotaOf } from "./failover.ts";
+import {
+  catalogRungs,
+  claudeBilled,
+  downgradeDims,
+  ladderDropDims,
+  quotaOf,
+  rankStandIns,
+} from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
@@ -50,7 +57,8 @@ export function inferredScores(c: Catalog, info: RungInfo): { inferred: boolean;
  * treat-like; a failover stand-in unscored or on the same quota; a rung whose backend catherd cannot run
  * (`backends` lists those it can, `claude` included). Everything else worth knowing is a warning: an access
  * mode other than the role's default, an effort or model the last listing does not offer, a stand-in
- * that never runs. With the stored `doc` `p` came from, a value this catherd does not know is also a
+ * that never runs, and (spec 1.1 §11) a stand-in that downgrades its rung, one that spends Claude quota
+ * while another plan could stand in, and a ladder that goes down. With the stored `doc` `p` came from, a value this catherd does not know is also a
  * warning, one that says how the value is read.
  */
 export function validateProfile(
@@ -127,6 +135,16 @@ export function validateProfile(
       if (!scoresOf(c, info.canonical))
         errors.push({ path: `${at}.rungs`, message: `${rung} is unscored`, fix: TREAT_LIKE_FIX(rung) });
     }
+    rc.rungs.forEach((rung, i) => {
+      const prev = rc.rungs[i - 1];
+      const down = prev === undefined ? [] : ladderDropDims(c, prev, rung);
+      if (down.length)
+        warnings.push({
+          path: `${at}.rungs`,
+          message: `the ladder goes down at ${rung}: it scores below ${prev} on ${down.join(", ")}`,
+          fix: `order ${at}.rungs weakest first`,
+        });
+    });
     if (rc.defaultRung !== undefined && !rc.rungs.includes(rc.defaultRung))
       errors.push({
         path: `${at}.defaultRung`,
@@ -165,6 +183,11 @@ export function validateProfile(
   }
 
   const ladders = new Set(ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs));
+  // the stand-ins catherd could run here, for the fixes below
+  const pool = catalogRungs(c).filter((x) => {
+    const r = tryParseRung(x);
+    return r !== null && backends.includes(r.backend);
+  });
   for (const [from, to] of Object.entries(p.failover)) {
     const at = `failover.${from}`;
     const a = tryParseRung(from);
@@ -188,6 +211,21 @@ export function validateProfile(
         path: at,
         message: `stand-in ${to} draws on the same quota as ${from}, which is out when ${from} hits its limit`,
         fix: "name a stand-in on another backend or plan",
+      });
+    const ranked = rankStandIns(c, p.billing, from, pool);
+    const down = downgradeDims(c, from, to);
+    if (down.length)
+      warnings.push({
+        path: at,
+        message: `downgrade: ${to} stands in for ${from}, scoring below it on ${down.join(", ")}`,
+        fix: `catherd profile set failover.${from} ${ranked[0] ?? "null"}`,
+      });
+    const other = ranked.find((x) => !claudeBilled(x));
+    if (claudeBilled(to) && other)
+      warnings.push({
+        path: at,
+        message: `stand-in ${to} spends Claude quota, while ${other} could stand in on another plan`,
+        fix: `catherd profile set failover.${from} ${other}`,
       });
     if (b.backend === "claude")
       warnings.push({

@@ -122,6 +122,7 @@ describe("validateProfile", () => {
     expect(v.errors).toEqual([]);
     expect(messages(v.warnings)).toEqual([
       "codex:gpt-6-astra#high is on no enabled role's ladder, so this never runs",
+      "downgrade: claude:claude-opus-5-5#high stands in for codex:gpt-6-sol#high, scoring below it on repo_code, honesty",
       "stand-in claude:claude-opus-5-5#high is a native subagent: the orchestrator must start it, dispatch cannot",
     ]);
   });
@@ -156,7 +157,7 @@ describe("validateProfile", () => {
     ];
     const v = check({ roles: { worker: { rungs: worker, defaultRung: null } } });
     expect(v.errors).toEqual([]);
-    expect(v.warnings.filter((w) => w.path.startsWith("roles."))).toEqual(
+    expect(v.warnings.filter((w) => w.message.includes("clears no routing bar"))).toEqual(
       ["claude-code:claude-opus-5-5#high", "claude:claude-opus-5-5#high"].map((rung) => ({
         path: "roles.worker.rungs",
         message: `${rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
@@ -166,6 +167,66 @@ describe("validateProfile", () => {
       errors: [],
       warnings: [],
     });
+  });
+});
+
+describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => {
+  const XHIGH = "codex:gpt-6-sol#xhigh";
+  const LUNA = "codex:gpt-6-luna#high";
+  const KIMI = "opencode:opencode-go/kimi-k3#max";
+  const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+  const OPUS_MAX = "claude-code:claude-opus-5-5#max";
+
+  it("warns, never errs, on a stand-in that scores below its rung on a dim the rung's bars use", () => {
+    const v = check({ failover: { [XHIGH]: KIMI } });
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toEqual([
+      {
+        path: `failover.${XHIGH}`,
+        message: `downgrade: ${KIMI} stands in for ${XHIGH}, scoring below it on repo_code`,
+        fix: `catherd profile set failover.${XHIGH} null`,
+      },
+    ]);
+  });
+
+  it("names the best stand-in in a downgrade's fix when there is one", () => {
+    const v = check({ failover: { [LUNA]: KIMI } });
+    expect(v.warnings).toEqual([
+      {
+        path: `failover.${LUNA}`,
+        message: `downgrade: ${KIMI} stands in for ${LUNA}, scoring below it on repo_code`,
+        fix: `catherd profile set failover.${LUNA} ${GO_LUNA}`,
+      },
+    ]);
+  });
+
+  it("warns when a stand-in spends Claude quota while another backend could stand in", () => {
+    const v = check({ failover: { [LUNA]: OPUS_MAX } });
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toEqual([
+      {
+        path: `failover.${LUNA}`,
+        message: `stand-in ${OPUS_MAX} spends Claude quota, while ${GO_LUNA} could stand in on another plan`,
+        fix: `catherd profile set failover.${LUNA} ${GO_LUNA}`,
+      },
+    ]);
+    // with Go metered, nothing else is paid from a plan: the Claude stand-in is the only one
+    expect(check({ billing: { "opencode-go": "metered" }, failover: { [LUNA]: OPUS_MAX } }).warnings).toEqual(
+      [],
+    );
+  });
+
+  it("warns where a ladder goes down: a rung scoring below the one before it and above it nowhere", () => {
+    const worker = ["codex:gpt-6-sol#medium", XHIGH, LUNA];
+    const v = check({ roles: { worker: { rungs: worker, defaultRung: null } } });
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toContainEqual({
+      path: "roles.worker.rungs",
+      message: `the ladder goes down at ${LUNA}: it scores below ${XHIGH} on repo_code, honesty`,
+      fix: "order roles.worker.rungs weakest first",
+    });
+    // Luna high → Sol medium: lower on repo_code but higher on honesty, so not down (the default ladder)
+    expect(check().warnings).toEqual([]);
   });
 });
 
