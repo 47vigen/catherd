@@ -60,14 +60,15 @@ export function step(items: readonly { selectable: boolean }[], from: number, by
 
 /**
  * A view's selected row: `selected` is what this render draws, `current()` what a key handler must read
- * (a key in the same tick may have moved it already).
+ * (a key in the same tick may have moved it already). `initial`: the row it starts on (a list snaps a key it
+ * does not hold to its first row).
  */
-export function useSelected(): {
+export function useSelected(initial: string | null = null): {
   selected: string | null;
   select(key: string): void;
   current(): string | null;
 } {
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initial);
   const ref = useRef<string | null>(null);
   ref.current = selected;
   return {

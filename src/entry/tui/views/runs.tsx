@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useApp, useBack, useNow } from "../providers/app.tsx";
 import { useData, usePoll } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
@@ -20,9 +20,11 @@ export const WATCHED_EVERY_MS = 5_000;
  * The selected row, where moving the cursor takes back a first ctrl+d (Ruling 3: moving or esc disarms),
  * as the dialog list does.
  */
-function useSelection(): [string | null, (key: string) => void, () => string | null] {
+function useSelection(
+  initial: string | null = null,
+): [string | null, (key: string) => void, () => string | null] {
   const app = useApp();
-  const sel = useSelected();
+  const sel = useSelected(initial);
   const select = (key: string) => {
     if (key !== sel.current() && app.getState().armed) app.dispatch({ type: "disarm" });
     sel.select(key);
@@ -47,13 +49,29 @@ export function sessionParts(s: SessionRow, now: number, plain: boolean): Part[]
 
 const keyOf = (k: string | null) => (k === null ? "earlier" : `s:${k}`);
 const fromKey = (k: string) => (k === "earlier" ? null : k.slice("s:".length));
+const roleKey = (run: string, dispatchId: string) => `role:${run}:${dispatchId}`;
 
-function SessionList(props: { width: number; height: number }) {
+/** What `r` re-reads: the open screen registers its read here (the command lives on the tab). */
+type Refresher = MutableRefObject<(() => void) | null>;
+
+/** Registers `refresh` as the open screen's while it is mounted. */
+function useRefresher(refresher: Refresher, refresh: () => void) {
+  // after every commit, and cleared only while still its own: the screen that replaces this one registers
+  // after this one's cleanup has run
+  useEffect(() => {
+    refresher.current = refresh;
+    return () => {
+      if (refresher.current === refresh) refresher.current = null;
+    };
+  });
+}
+
+function SessionList(props: { width: number; height: number; initial: string | null }) {
   const app = useApp();
   const data = useData();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected, selectedNow] = useSelection();
+  const [selected, setSelected, selectedNow] = useSelection(props.initial);
   const rows = data.sessions.value?.rows ?? [];
   useCommandLayer("row.runs", {
     "runs.open": () => {
@@ -177,16 +195,23 @@ function useLiveRead<T extends { dirs: string[] }>(read: () => T, key: string) {
   return { ...polled, watching };
 }
 
-function SessionView(props: { sessionKey: string | null; width: number; height: number }) {
+function SessionView(props: {
+  sessionKey: string | null;
+  width: number;
+  height: number;
+  initial: string | null;
+  refresher: Refresher;
+}) {
   const app = useApp();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected, selectedNow] = useSelection();
+  const [selected, setSelected, selectedNow] = useSelection(props.initial);
   const polled = useLiveRead(() => app.effects.session(props.sessionKey), String(props.sessionKey));
+  useRefresher(props.refresher, polled.refresh);
   useBack(true, "view", () => app.dispatch({ type: "up" }));
   const d = polled.value;
   const roleAt = (key: string | null) =>
-    d?.runs.flatMap((r) => r.roles).find((x) => key === `role:${x.run}:${x.dispatchId}`) ?? null;
+    d?.runs.flatMap((r) => r.roles).find((x) => key === roleKey(x.run, x.dispatchId)) ?? null;
   useCommandLayer("row.runs", {
     "runs.open": () => {
       const r = roleAt(selectedNow());
@@ -242,7 +267,7 @@ function SessionView(props: { sessionKey: string | null; width: number; height: 
       const secs = x.live ? (now - Date.parse(x.since)) / 1000 : (x.secs ?? 0);
       const armed = isArmed(app.state, "cancel", `${x.run}/${x.name}`, app.clock.now());
       items.push({
-        key: `role:${x.run}:${x.dispatchId}`,
+        key: roleKey(x.run, x.dispatchId),
         selectable: true,
         render: (sel, w) => (
           <Line
@@ -296,7 +321,13 @@ function SessionView(props: { sessionKey: string | null; width: number; height: 
   );
 }
 
-function RoleView(props: { run: string; dispatchId: string; width: number; height: number }) {
+function RoleView(props: {
+  run: string;
+  dispatchId: string;
+  width: number;
+  height: number;
+  refresher: Refresher;
+}) {
   const app = useApp();
   const ui = useUi();
   const [selected, setSelected] = useSelection();
@@ -304,6 +335,7 @@ function RoleView(props: { run: string; dispatchId: string; width: number; heigh
     paused: app.state.paused,
     key: `${props.run}/${props.dispatchId}`,
   });
+  useRefresher(props.refresher, polled.refresh);
   useBack(true, "view", () => app.dispatch({ type: "up" }));
   const d = polled.value;
   if (!d)
@@ -395,16 +427,39 @@ function RoleView(props: { run: string; dispatchId: string; width: number; heigh
 export function RunsView(props: { width: number; height: number }) {
   const app = useApp();
   const data = useData();
+  const refresher: Refresher = useRef(null);
   useCommandLayer("tab.runs", {
-    "runs.refresh": () => data.sessions.refresh(),
+    "runs.refresh": () => (refresher.current ?? data.sessions.refresh)(),
     "runs.pause": () => {
       app.dispatch({ type: "pause" });
       app.toast({ variant: "info", message: app.getState().paused ? "Updates paused" : "Updates resumed" });
     },
   });
   const { role, session } = app.state;
+  // esc lands on the row it came from: the last session opened, and the last role opened in it
+  const back = useRef<{ session: string | null; role: string | null }>({ session: null, role: null });
+  if (session && back.current.session !== keyOf(session.key))
+    back.current = { session: keyOf(session.key), role: null };
+  if (role) back.current.role = roleKey(role.run, role.dispatchId);
   if (role)
-    return <RoleView run={role.run} dispatchId={role.dispatchId} width={props.width} height={props.height} />;
-  if (session) return <SessionView sessionKey={session.key} width={props.width} height={props.height} />;
-  return <SessionList width={props.width} height={props.height} />;
+    return (
+      <RoleView
+        run={role.run}
+        dispatchId={role.dispatchId}
+        width={props.width}
+        height={props.height}
+        refresher={refresher}
+      />
+    );
+  if (session)
+    return (
+      <SessionView
+        sessionKey={session.key}
+        width={props.width}
+        height={props.height}
+        initial={back.current.role}
+        refresher={refresher}
+      />
+    );
+  return <SessionList width={props.width} height={props.height} initial={back.current.session} />;
 }

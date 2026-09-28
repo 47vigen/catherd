@@ -80,7 +80,8 @@ describe("the Runs tab (spec §4)", () => {
     expect(h!.s.frame()).toContain(
       "▸ Auth refactor  /home/me/api · started 1d ago · continued in kit follow-up",
     );
-    await h!.s.press("escape", "j", "return");
+    // esc leaves the cursor on the session it closed: one up is kit follow-up
+    await h!.s.press("escape", "k", "return");
     expect(h!.s.frame()).toContain("▸ Auth refactor  /home/me/api · started 1d ago · continued here");
   });
 
@@ -213,6 +214,54 @@ describe("the Runs tab (spec §4)", () => {
     await h.run(() => h!.app().dispatch({ type: "tab", tab: "status" }));
     await h.advance(5 * RUNS_EVERY_MS);
     expect(reads).toBe(4);
+  });
+
+  it("backs out of a session onto the session it opened, and of a role onto that role", async () => {
+    await runs();
+    await h!.s.press("j", "return", "escape", "return");
+    expect(h!.s.frame()).toContain("kit follow-up  · idle");
+    await h!.s.press("escape", "k", "return", "j", "j", "j", "return");
+    expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
+    await h!.s.press("escape", "return");
+    expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
+    // another session starts on its first row, not on a role the last one had open
+    await h!.s.press("escape", "escape", "j", "j", "return", "escape", "k", "k", "return", "return");
+    expect(h!.s.frame()).toContain("worker-M1.L2");
+    expect(h!.s.frame()).not.toContain("worker-M1.L1 worker");
+  });
+
+  it("reads an opened session once, and again on r; pausing reads nothing", async () => {
+    const fx = fixtureEffects();
+    let reads = 0;
+    const read = fx.session;
+    fx.session = (key) => {
+      reads++;
+      return read(key);
+    };
+    let roleReads = 0;
+    const role = fx.role;
+    fx.role = (run, id) => {
+      roleReads++;
+      return role(run, id);
+    };
+    await runs(fx);
+    await h!.s.press("return");
+    await h!.advance(0);
+    expect(reads).toBe(1);
+    await h!.s.press("r");
+    expect(reads).toBe(2);
+    await h!.s.press("p");
+    expect(reads).toBe(2);
+    await h!.s.press("p", "return");
+    const r0 = roleReads;
+    await h!.s.press("r");
+    expect(roleReads).toBe(r0 + 1);
+    // back on the session, r reads the session again, not the role
+    await h!.s.press("escape");
+    const s0 = reads;
+    await h!.s.press("r");
+    expect(reads).toBe(s0 + 1);
+    expect(roleReads).toBe(r0 + 1);
   });
 
   it("keeps a fixture of every shape the frames need", () => {
