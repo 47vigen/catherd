@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { keybindsFromConfig, openTui } from "../../../src/entry/tui/run.tsx";
+import { keybindsFromConfig, openTui, WallClock } from "../../../src/entry/tui/run.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { SRC } from "../../import-graph.ts";
 
@@ -62,5 +62,13 @@ describe("openTui", () => {
       expect(p.stdout.toString()).toContain("--plain");
       expect(p.stdout.toString()).toContain("--reduced-motion");
     }
+  });
+});
+
+describe("the TUI's clock", () => {
+  it("tells wall-clock time, since the pages subtract written timestamps from it", () => {
+    const now = new WallClock().now();
+    expect(Math.abs(now - Date.now())).toBeLessThan(1_000);
+    expect(now - Date.parse(new Date(Date.now() - 90_000).toISOString())).toBeGreaterThanOrEqual(89_000);
   });
 });

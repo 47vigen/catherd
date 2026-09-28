@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { realTmpdir } from "../../src/adapters/access.ts";
+import { writableRoots } from "../../src/adapters/access.ts";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import { codexAdapter, codexGrants, codexShell } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
@@ -144,9 +144,9 @@ describe("codex plan", () => {
     // no config, or one that does not parse: catherd's roots only
     const empty = mkdtempSync(join(tmpdir(), "codex-home-"));
     process.env.CODEX_HOME = empty;
-    expect(roots(codexGrants("workspace-write"))).toEqual([locksDir(), realTmpdir()]);
+    expect(roots(codexGrants("workspace-write"))).toEqual(writableRoots());
     writeFileSync(join(empty, "config.toml"), "[sandbox_workspace_write\nwritable_roots = [");
-    expect(roots(codexGrants("workspace-write"))).toEqual([locksDir(), realTmpdir()]);
+    expect(roots(codexGrants("workspace-write"))).toEqual(writableRoots());
   });
 
   it("isolated runs ignore user config and use catherd's CODEX_HOME", () => {

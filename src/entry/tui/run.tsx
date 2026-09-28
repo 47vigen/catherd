@@ -10,6 +10,16 @@ import { liveEffects } from "./effects.ts";
 import { fixtureEffects } from "./fixtures.ts";
 import { createAppKeymap } from "./providers/keymap.tsx";
 import { Providers } from "./providers/root.tsx";
+
+/**
+ * OpenTUI's SystemClock counts from process start (performance.now), but the pages compare its time with the
+ * wall-clock timestamps catherd writes (admittedAt, createdAt, lastActivity), so it must be epoch milliseconds.
+ */
+export class WallClock extends SystemClock {
+  override now(): number {
+    return Date.now();
+  }
+}
 import { initialState, type Tab } from "./state.ts";
 import { detectUi, type ThemeMode } from "./theme.ts";
 import { App } from "./views/app.tsx";
@@ -72,7 +82,7 @@ export async function openTui(o: TuiOptions): Promise<number> {
         keybinds={keybinds}
         keymap={createAppKeymap(renderer)}
         effects={effects}
-        clock={new SystemClock()}
+        clock={new WallClock()}
         initial={initialState(o.tab ?? "status")}
         copy={(text) => renderer.copyToClipboardOSC52(text)}
         onExit={(code, kept) => {

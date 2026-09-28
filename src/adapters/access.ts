@@ -38,8 +38,33 @@ function realOr(p: string): string {
 /** The temp dir by its real path (macOS: /var/folders/… is /private/var/folders/…); sandboxes compare real paths. */
 export const realTmpdir = (): string => realOr(tmpdir());
 
-/** The directories a workspace-write worker writes besides the repo: the heavy-lock dir and the temp dir, real paths. */
-export const writableRoots = (): string[] => [realOr(locksDir()), realTmpdir()];
+/**
+ * The toolchain caches a worker's checks write, where they exist: Go's build and module caches, the pnpm store,
+ * Bun's install cache and npm's cache. Without them a sandboxed `go vet` fails or starts cold in every lane.
+ */
+export function toolchainCaches(env = process.env, home = env.HOME || homedir()): string[] {
+  const mac = process.platform === "darwin";
+  const cache = env.XDG_CACHE_HOME || join(home, ".cache");
+  const data = env.XDG_DATA_HOME || join(home, ".local", "share");
+  const gopath = (env.GOPATH || join(home, "go")).split(":")[0] as string;
+  return [
+    env.GOCACHE || (mac ? join(home, "Library", "Caches", "go-build") : join(cache, "go-build")),
+    env.GOMODCACHE || join(gopath, "pkg", "mod"),
+    env.PNPM_STORE_DIR || (mac ? join(home, "Library", "pnpm", "store") : join(data, "pnpm", "store")),
+    env.BUN_INSTALL_CACHE_DIR || join(home, ".bun", "install", "cache"),
+    env.npm_config_cache || join(home, ".npm"),
+  ]
+    .filter((p) => existsSync(p))
+    .map(realOr);
+}
+
+/**
+ * The directories a workspace-write worker writes besides the repo: the heavy-lock dir, the temp dir and the
+ * toolchain caches that exist, real paths.
+ */
+export const writableRoots = (): string[] => [
+  ...new Set([realOr(locksDir()), realTmpdir(), ...toolchainCaches()]),
+];
 
 /** The usual local Docker sockets, in the order they are tried (OrbStack and Docker Desktop link /var/run/docker.sock). */
 export const dockerSocketCandidates = (home = homedir()): string[] => [
