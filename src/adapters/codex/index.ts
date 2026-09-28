@@ -15,6 +15,7 @@ import {
   type SpawnPlan,
 } from "../backend.ts";
 import { type CliResult, runCli } from "../cli.ts";
+import { writableRoots } from "../access.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 
 /** The item types that are a tool call running, as the idle watchdog counts them. */
@@ -29,6 +30,20 @@ const SANDBOX: Record<Access, string> = {
   "workspace-write": "workspace-write",
   full: "danger-full-access",
 };
+
+/**
+ * Spec §5: a workspace-write worker also writes the lock and temp dirs, and (unless the role says
+ * `network: false`) reaches the network and binds loopback. The same `-c` overrides go to `codex sandbox`
+ * in doctor's probes, so doctor tests exactly what a worker gets.
+ */
+export function codexGrants(access: Access, network = true): string[] {
+  if (access !== "workspace-write") return [];
+  return [
+    ...(network ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
+    "-c",
+    `sandbox_workspace_write.writable_roots=${JSON.stringify(writableRoots())}`,
+  ];
+}
 
 /** How long a `codex` query (version, login, models) may take before it counts as failed. */
 export const codexShell = { timeoutMs: 15_000 };
@@ -51,6 +66,7 @@ function plan(r: RunRequest): SpawnPlan {
     "--json",
     "-o",
     r.replyPath,
+    ...codexGrants(r.access, r.network),
   ];
   const sandbox = SANDBOX[r.access];
   const args =

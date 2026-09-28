@@ -2,7 +2,6 @@ import type { ErrorCode } from "../domain/errors.ts";
 import type { ADAPTER_IDS, Rung } from "../domain/ids.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
-
 type AdapterId = (typeof ADAPTER_IDS)[number];
 
 export interface Probe {
@@ -28,6 +27,8 @@ export interface DiscoveredModel {
 export interface RunRequest {
   rung: Rung;
   access: Access;
+  /** spec §5: a workspace-write role's network and loopback grants; false only when the profile says `network: false` */
+  network?: boolean;
   thread: string | null;
   isolated: boolean;
   repo: string;

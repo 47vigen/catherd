@@ -172,6 +172,7 @@ export async function admit(
   const plan = adapter.plan({
     rung,
     access: rc.access,
+    network: rc.network !== false,
     thread: i.thread,
     isolated,
     repo: run.meta.repo,

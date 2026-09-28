@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
-import { codexAdapter, codexShell } from "../../src/adapters/codex/index.ts";
+import { codexAdapter, codexGrants, codexShell } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -79,6 +79,7 @@ describe("codex plan", () => {
       "--json",
       "-o",
       "/d/reply.md",
+      ...codexGrants("workspace-write"),
       "-s",
       "workspace-write",
       "--",

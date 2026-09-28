@@ -14,7 +14,9 @@ export interface ProfileView {
   name: string;
   objective: "cost" | "speed";
   /** `defaultRung`, when set, is where a lane starts without a kind and difficulty (spec §5.4) */
-  roles: Partial<Record<Role, { enabled: boolean; access: Access; rungs: string[]; defaultRung?: string }>>;
+  roles: Partial<
+    Record<Role, { enabled: boolean; access: Access; rungs: string[]; defaultRung?: string; network?: false }>
+  >;
   /** per billing key (spec §7.1); a missing key bills as DEFAULT_BILLING */
   billing: Partial<Record<string, BillingMode>>;
   jev: { use: "auto" | "off" };

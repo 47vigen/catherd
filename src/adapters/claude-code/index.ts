@@ -12,6 +12,7 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
+import { dockerSocket, writableRoots } from "../access.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import {
   CLAUDE_LIMIT,
@@ -60,6 +61,34 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
   full: ["--permission-mode", "bypassPermissions"],
 };
 
+/**
+ * Spec §5 for headless Claude Code. Its Bash runs unsandboxed unless the user turned Claude Code's own
+ * sandbox on (`sandbox.enabled`); then these settings, merged over the user's, add the lock and temp dirs,
+ * loopback binds, the Docker socket and `docker` itself (which cannot run inside that sandbox). Outbound
+ * domains stay the user's `sandbox.network.allowedDomains`: doctor's `access:claude-code` row says when
+ * the registry is not among them. `network: false` drops the network grants and the web tools.
+ */
+export function claudeAccessArgs(access: Access, network = true): string[] {
+  const base = CLAUDE_ACCESS[access];
+  if (access !== "workspace-write") return base;
+  const sock = dockerSocket();
+  const sandbox = {
+    filesystem: { allowWrite: writableRoots() },
+    ...(network
+      ? {
+          network: { allowLocalBinding: true, ...(sock ? { allowUnixSockets: [sock] } : {}) },
+          excludedCommands: ["docker *"],
+        }
+      : {}),
+  };
+  const args = [...base, "--settings", JSON.stringify({ sandbox })];
+  if (!network) {
+    const i = args.indexOf("--disallowedTools") + 1;
+    args[i] = [args[i], "WebFetch", "WebSearch"].join(",");
+  }
+  return args;
+}
+
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
@@ -80,7 +109,7 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.thread === null ? ["--session-id", crypto.randomUUID()] : ["--resume", r.thread]),
       "--permission-prompts",
       "none",
-      ...CLAUDE_ACCESS[r.access],
+      ...claudeAccessArgs(r.access, r.network),
       // --bare would also drop OAuth, so a Claude plan could not log in; --safe-mode keeps auth
       ...(r.isolated ? ["--safe-mode"] : []),
     ],

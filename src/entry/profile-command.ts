@@ -83,7 +83,7 @@ export function formatProfile(
     }
     const ladder = rc.rungs.map((r) => (r === rc.defaultRung ? `${r} (default)` : r)).join(" → ");
     lines.push(
-      `  ${role.padEnd(width)}  ${`${rc.access}, ${o.enforcement[role]}`.padEnd(27)}  ${ladder || "no rungs"}`,
+      `  ${role.padEnd(width)}  ${`${rc.access}${rc.network === false ? " (no network)" : ""}, ${o.enforcement[role]}`.padEnd(27)}  ${ladder || "no rungs"}`,
     );
   }
   // only what catherd can run today: a backend without an adapter has nothing to bill or isolate

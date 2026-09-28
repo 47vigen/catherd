@@ -201,6 +201,7 @@ describe("setup skill", () => {
       "`rungs`",
       "`defaultRung`",
       "`access`",
+      "`roles.<role>.network: false`",
       "`failover`",
       "`budget`",
       "`timeouts.idleMin`",

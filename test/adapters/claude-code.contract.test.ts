@@ -63,6 +63,7 @@ runAdapterContract(
       "--permission-mode",
       "--allowedTools",
       "--disallowedTools",
+      "--settings",
     ],
     thread: "670d1ec2-db2b-471f-a1a5-3cda1416c061",
   },

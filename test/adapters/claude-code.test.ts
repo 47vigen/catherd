@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
-import { CLAUDE_ACCESS, claudeCodeAdapter, claudeShell } from "../../src/adapters/claude-code/index.ts";
+import {
+  CLAUDE_ACCESS,
+  claudeAccessArgs,
+  claudeCodeAdapter,
+  claudeShell,
+} from "../../src/adapters/claude-code/index.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import type { Access } from "../../src/domain/record.ts";
@@ -71,7 +76,7 @@ describe("claude-code plan", () => {
       session,
       "--permission-prompts",
       "none",
-      ...CLAUDE_ACCESS["workspace-write"],
+      ...claudeAccessArgs("workspace-write"),
     ]);
   });
 
