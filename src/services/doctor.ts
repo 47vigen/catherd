@@ -148,7 +148,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
 
   const used = usedBackends(profiles);
-  checks.push(...(await backendChecks(used, profiles)));
+  const installed = new Set<string>();
+  checks.push(...(await backendChecks(used, profiles, installed)));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({
@@ -229,7 +230,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
 
   checks.push(locksCheck());
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
-  checks.push(...(await accessChecks(profiles)));
+  checks.push(...(await accessChecks(profiles, installed)));
 
   const full: string[] = [];
   const advisory: string[] = [];

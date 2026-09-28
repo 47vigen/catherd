@@ -6,6 +6,7 @@ import { join, relative } from "node:path";
 /**
  * Points CATHERD_HOME, the Claude agents dir and Claude Code's config dir at a fresh temp dir for the duration of
  * one test, and takes away the Claude Code session a suite may run in: no test ever messages a real session.
+ * Doctor's access probes aim at a closed local port and a docker that does not exist.
  */
 export function withHome(): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
@@ -14,6 +15,9 @@ export function withHome(): string {
   // saving a profile links agents into ~/.claude/agents; a test must never touch the real one
   process.env.CATHERD_CLAUDE_AGENTS_DIR = join(home, "claude-agents");
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude-config");
+  // doctor's access probes: a closed local port and no docker, so no doctor call reaches the registry or the daemon
+  process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
+  process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   for (const k of [
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_HOST_SESSION_ID",

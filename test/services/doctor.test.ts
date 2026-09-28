@@ -1,5 +1,14 @@
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realTmpdir } from "../../src/adapters/access.ts";
@@ -399,6 +408,54 @@ describe("doctor", () => {
     expect(c?.detail).toContain("lock-dir write (cannot create");
   });
 
+  it("skips the access probes of a backend that is not installed, and runs none of them", async () => {
+    machine({ bins: ["codex", "claude"] });
+    const marker = join(binDir(), "docker-ran");
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(fake, `#!/bin/sh\ntouch ${marker}\n`);
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const r = await run();
+    expect(check(r, "access:opencode")).toMatchObject({
+      state: "skip",
+      word: "not installed",
+      detail: "opencode is not installed: no worker runs on it here",
+    });
+    // codex is installed: its probes still run
+    expect(check(r, "access:codex")?.state).toBe("ok");
+    rmSync(marker, { force: true });
+    machine({ bins: ["claude"] });
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const none = await run();
+    expect(check(none, "access:codex")?.word).toBe("not installed");
+    expect(check(none, "sandbox:codex")).toBeUndefined();
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("names a failed probe by its last stderr line, not stdout's or Bun's version trailer", async () => {
+    machine();
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(
+      fake,
+      "#!/bin/sh\necho 'Client:' \necho ' Context: default'\necho 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock' >&2\nexit 1\n",
+    );
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const c = check(await run(), "access:opencode");
+    expect(c?.detail).toContain(
+      "docker version (Cannot connect to the Docker daemon at unix:///var/run/docker.sock)",
+    );
+    expect(c?.detail).toContain("outbound HTTPS (ConnectionRefused");
+    expect(c?.detail).not.toContain("Bun v");
+  });
+
   it("counts a proxy's 407 or 403 as blocked HTTPS, not reachable", async () => {
     for (const status of [407, 403]) {
       const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("", { status }) });
@@ -520,7 +577,12 @@ describe("doctor", () => {
     ready();
     saveJevKey("tsk-test-key-0123456789");
     chmodSync(credentialsPath(), 0o644);
-    expect(check(await run(), "credentials")).toMatchObject({
+    expect(
+      check(
+        await run({ jev: { fetchImpl: fakeFetch({ status: 200, body: { data: [] } }).impl } }),
+        "credentials",
+      ),
+    ).toMatchObject({
       state: "fail",
       word: "readable by others",
       fix: `chmod 600 ${credentialsPath()}`,

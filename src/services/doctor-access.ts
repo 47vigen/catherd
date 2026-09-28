@@ -41,8 +41,19 @@ const WRITE = 'f="$1/.catherd-doctor-$$" && touch "$f" && rm -f "$f"';
 const BUN_EVAL = '"$1" -e "$2"';
 const BIND = 'Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } }).stop(true)';
 // npm's ping answers 200; any 4xx or 5xx fails, so a proxy's 407 or 403 for a denied host is not a false green
+// a fetch that throws (no route, DNS, refused) prints its error code, not Bun's stack and version trailer
 const FETCH =
-  "const r = await fetch(process.argv[1], { method: 'HEAD' }); if (r.status >= 400) { console.error(`HTTP ${r.status}${r.status === 407 ? ' (proxy authentication required)' : r.status === 403 ? ' (refused: a proxy denying the host?)' : ''}`); process.exit(1) }";
+  "let r; try { r = await fetch(process.argv[1], { method: 'HEAD' }) } catch (e) { console.error([e?.code, e?.message].filter(Boolean).join(': ') || String(e)); process.exit(1) } if (r.status >= 400) { console.error(`HTTP ${r.status}${r.status === 407 ? ' (proxy authentication required)' : r.status === 403 ? ' (refused: a proxy denying the host?)' : ''}`); process.exit(1) }";
+
+/** Why a probe failed: its last non-empty stderr line (Bun's version trailer skipped), else stdout's. */
+export function lastErrorLine(err: string, out: string): string | undefined {
+  const lines = (t: string) =>
+    t
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !/^Bun v\d/.test(l));
+  return lines(err).at(-1) ?? lines(out).at(-1);
+}
 
 const PROBES: ProbeDef[] = [
   { id: "lock", label: "lock-dir write", network: false, script: WRITE, args: () => [locksDir()] },
@@ -102,7 +113,7 @@ export async function runProbes(shell: AccessShell, network: boolean): Promise<P
       continue;
     }
     const r = await shell.run(p.script, p.args());
-    const last = `${r?.err ?? ""}\n${r?.out ?? ""}`.trim().split("\n").at(-1);
+    const last = lastErrorLine(r?.err ?? "", r?.out ?? "");
     const late = last && / timed out after (\d+) ms$/.exec(last);
     const why =
       r === null
@@ -154,12 +165,25 @@ export function workspaceWriteNetwork(profiles: Profile[]): Map<string, boolean>
   return out;
 }
 
-/** The `sandbox:codex` row (which `codex sandbox` form runs) and one `access:<backend>` row per backend. */
-export async function accessChecks(profiles: Profile[]): Promise<Check[]> {
+/**
+ * The `sandbox:codex` row (which `codex sandbox` form runs) and one `access:<backend>` row per backend; a
+ * backend not in `installed` (its CLI is not on PATH) is skipped without running a probe.
+ */
+export async function accessChecks(profiles: Profile[], installed: ReadonlySet<string>): Promise<Check[]> {
   const checks: Check[] = [];
   for (const [id, network] of workspaceWriteNetwork(profiles)) {
     const a = adapterFor(id);
     if (!a?.accessShell) continue;
+    if (!installed.has(id)) {
+      checks.push({
+        id: `access:${id}`,
+        label: `${id} worker access`,
+        state: "skip",
+        word: "not installed",
+        detail: `${id} is not installed: no worker runs on it here`,
+      });
+      continue;
+    }
     const shell = await a.accessShell({ network }).catch((e: unknown) => String(e));
     if (id === "codex")
       checks.push(

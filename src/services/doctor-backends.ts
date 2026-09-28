@@ -80,9 +80,11 @@ export function moveRolesFix(install: string, id: string, to: string, profiles: 
   ].join("\n");
 }
 
+/** One row per backend; `installed`, when given, collects the backends whose CLI is on PATH. */
 export async function backendChecks(
   used: Map<string, "role" | "failover">,
   profiles: Profile[],
+  installed?: Set<string>,
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
@@ -98,6 +100,7 @@ export async function backendChecks(
         { code: "E_IO_UNEXPECTED" as const, message: errText(e), fix: `run ${id} --version to see why` },
       ],
     }));
+    if (probe.installed) installed?.add(id);
     const problem = probe.problems[0];
     const use = used.get(id);
     if (!problem) {

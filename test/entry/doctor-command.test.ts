@@ -38,9 +38,6 @@ function machine(): void {
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${dirname(process.execPath)}:/usr/bin:/bin`;
-  // the access probes never leave the machine: a port nothing listens on, and no docker
-  process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
-  process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   Object.assign(
     process.env,
     withScenario({ models: fx("codex/models.json"), sandbox: "allow" }).env,
