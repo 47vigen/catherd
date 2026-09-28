@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
-import { appendRecord, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, runPaths } from "../../src/services/run-store.ts";
 import type { RunSummary } from "../../src/services/summary.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -26,6 +26,8 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
   title: "app",
   repo: "/r/app",
   createdAt: "2026-09-25T12:00:00.000Z",
+  session: null,
+  continuedIn: null,
   stateTail: ["Next: dispatch M1.L2"],
   live: [
     { name: "worker-M1.L1", rung: "codex:gpt-6-sol#medium", state: "running", secs: 42, dispatchId: "01J" },
@@ -138,6 +140,43 @@ describe("catherd runs", () => {
     expect(r.out).toContain("! skipped run broken:");
     expect(JSON.parse(catherd(["runs", "list", "--repo", tempRepo(), "--json"]).out).runs).toEqual([]);
     expect(JSON.parse(catherd(["runs", "list", "--repo", run.meta.repo, "--json"]).out).runs).toHaveLength(1);
+  });
+
+  it("groups the runs by the session that drove them, as status does, and --json gains the session", () => {
+    const { run: old } = freshRun("before 1.1");
+    const moved = createRun({
+      repo: old.meta.repo,
+      title: "kit clean-up",
+      aLines: ["A1"],
+      version: "0",
+      startedBy: { sessionId: "s-a", hostSessionId: "desktop-1", name: "auth build" },
+    });
+    writeFileSync(
+      runPaths(moved.dir).sessions,
+      `{"kind":"sessions","schema":1}\n${JSON.stringify({ sessionId: "s-b", hostSessionId: null, name: "follow-up", at: new Date().toISOString() })}\n`,
+    );
+    const text = catherd(["runs", "list"]).out;
+    expect(text).toContain("session · idle  follow-up\n");
+    expect(text).toContain(
+      `  ${moved.id}  idle  0 role run(s)  kit clean-up  ${moved.meta.repo}  (continued here)\n`,
+    );
+    expect(text).toContain("session · idle  auth build\n");
+    expect(text).toContain("(continued in follow-up)\n");
+    expect(text.trimEnd().split("\n").at(-1)).toContain("before 1.1");
+    expect(text).toContain("earlier runs\n");
+    const rows = JSON.parse(catherd(["runs", "list", "--json"]).out).runs as {
+      id: string;
+      session: unknown;
+      continuedIn: string | null;
+    }[];
+    expect(rows.find((r) => r.id === moved.id)).toMatchObject({
+      session: { sessionId: "s-a", hostSessionId: "desktop-1", name: "auth build", live: false },
+      continuedIn: "follow-up",
+    });
+    expect(rows.find((r) => r.id === old.id)?.session).toBeNull();
+    const status = catherd(["status", moved.id]).out;
+    expect(status.startsWith("session · idle  auth build\n")).toBe(true);
+    expect(status).toContain(`run ${moved.id}  kit clean-up  (continued in follow-up)\n`);
   });
 
   it("refuses --repo outside a git repository with exit 2", () => {

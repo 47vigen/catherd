@@ -64,21 +64,21 @@ In Claude Code:
 
 In a terminal:
 
-| Command                                                                                   | What it does                                                                             |
-| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `catherd`                                                                                 | The dashboard: Status, Profiles and Runs (below)                                         |
-| `catherd init [--no-input] [--profile <p>]`                                               | First-run setup                                                                          |
-| `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                 |
-| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                  |
-| `catherd profile use --repo --clear`                                                      | Unbinds the repo you are in; it runs on the active profile again                         |
-| `catherd profile set <path> <value> [--profile <p>]`                                      | One field, e.g. `roles.verifier.access read-only`, `budget.usd 20`                       |
-| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                         | Where runs stand                                                                         |
-| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>` | Past runs; `--debug` adds exit.json and the stderr and event tails, `--name` one role's  |
-| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                   |
-| `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                  |
-| `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty) |
-| `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                         |
-| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)       |
+| Command                                                                                   | What it does                                                                                        |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `catherd`                                                                                 | The dashboard: Status, Profiles and Runs (below)                                                    |
+| `catherd init [--no-input] [--profile <p>]`                                               | First-run setup                                                                                     |
+| `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                            |
+| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                             |
+| `catherd profile use --repo --clear`                                                      | Unbinds the repo you are in; it runs on the active profile again                                    |
+| `catherd profile set <path> <value> [--profile <p>]`                                      | One field, e.g. `roles.verifier.access read-only`, `budget.usd 20`                                  |
+| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                         | Where runs stand, grouped by the Claude Code session that drove them                                |
+| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>` | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's |
+| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                              |
+| `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                             |
+| `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
+| `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                                    |
+| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                  |
 
 A profile command without a profile name (`show`, `set`, `diff`, `validate`), like the MCP profile tools, acts
 on the profile the repo you are in runs on: the one bound to it, else the active one. Run them as

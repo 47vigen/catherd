@@ -6,6 +6,7 @@ import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { type DispatchState, liveDispatches } from "./dispatches.ts";
+import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
 import {
   findRun,
@@ -22,6 +23,10 @@ export interface RunSummary {
   title: string;
   repo: string;
   createdAt: string;
+  /** spec §4: the Claude Code session that started it (null before 1.1), named live while it runs */
+  session: RunSession | null;
+  /** the session that continued it, when another did */
+  continuedIn: string | null;
   stateTail: string[];
   live: { name: string; rung: string; state: DispatchState; secs: number; dispatchId: string }[];
   totals: { runs: number; ok: number; notOk: string[]; tokens: Tokens; costUsd: number; wallMinutes: number };
@@ -55,6 +60,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     title: run.meta.title,
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,
+    ...sessionFacts(run),
     stateTail: nonBlankLines(runPaths(run.dir).state).slice(-3),
     live: live.map((d) => ({
       name: d.admit.name,

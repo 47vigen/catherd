@@ -70,6 +70,8 @@ export const FIXTURE_REPORT: DoctorReport = {
 const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): RunSummary => ({
   repo: "/home/me/app",
   createdAt: "2026-09-26T11:48:00.000Z",
+  session: null,
+  continuedIn: null,
   stateTail: [],
   live: [],
   totals: {

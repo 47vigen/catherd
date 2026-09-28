@@ -7,13 +7,23 @@ import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
 import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
-import { findRun, listRuns, readRecords } from "../services/run-store.ts";
+import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
+import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
 import { JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
 
 const json = JSON_ARG;
 const n = (x: number) => x.toLocaleString("en-US");
+
+/** A session's heading in `runs list` and `status` (spec §4): `● live  <name>` or `· idle  <name>`. */
+export function sessionHeading(s: RunSession | null): string {
+  return s ? `session ${s.live ? "● live" : "· idle"}  ${s.name}` : "earlier runs";
+}
+
+/** How a run moved between sessions, after its line: `(continued here)`, `(continued in <name>)`. */
+const movedNote = (g: SessionGroup["runs"][number]): string =>
+  g.continued === "here" ? "  (continued here)" : g.continuedIn ? `  (continued in ${g.continuedIn})` : "";
 
 /** One run at a glance: what is live, what finished, spend against the budget, landed milestones. */
 export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
@@ -48,7 +58,27 @@ function printStatus(runId: string | undefined, asJson: boolean): void {
   const r = redact(status(defaultDeps(), runId));
   if (asJson) return printJson(r);
   if (r.runs.length === 0) console.log("no runs yet");
-  for (const s of r.runs) for (const l of formatRun(s)) console.log(l);
+  // grouped by session, as the runs page is (spec §4); a run shows once, under the session that started it
+  const byId = new Map(r.runs.map((s) => [s.id, s]));
+  const runs = r.runs.flatMap((s) => {
+    try {
+      return [findRun(s.id)];
+    } catch {
+      return [];
+    }
+  });
+  for (const g of groupRuns(runs)) {
+    const own = g.runs.filter((x) => x.continued !== "here");
+    if (own.length === 0) continue;
+    console.log(sessionHeading(g.session));
+    for (const x of own) {
+      const s = byId.get(x.run.id);
+      if (!s) continue;
+      const [head, ...rest] = formatRun(s);
+      console.log(`${head}${movedNote(x)}`);
+      for (const l of rest) console.log(l);
+    }
+  }
   for (const w of r.warnings) console.log(`${mark("warn")} ${w}`);
 }
 
@@ -124,25 +154,33 @@ const list = defineCommand({
         fix: "pass a path inside the repo, or leave out --repo",
       });
     const { runs, corrupt } = listRuns();
-    const rows = runs
-      .filter((r) => !args.repo || r.meta.repo === top)
-      .map((r) => {
-        const s = summarizeRun(defaultDeps(), r);
-        return {
-          id: r.id,
-          title: r.meta.title,
-          repo: r.meta.repo,
-          createdAt: r.meta.createdAt,
-          live: s.live.length,
-          roleRuns: s.totals.runs,
-        };
-      });
-    if (args.json) return printJson({ runs: rows, corrupt });
-    if (rows.length === 0) console.log("no runs yet");
-    for (const r of rows)
-      console.log(
-        `${r.id}  ${r.live ? `${r.live} live` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}`,
-      );
+    const shown = runs.filter((r) => !args.repo || r.meta.repo === top);
+    const deps = defaultDeps();
+    const row = (r: Run) => {
+      const s = summarizeRun(deps, r);
+      return {
+        id: r.id,
+        title: r.meta.title,
+        repo: r.meta.repo,
+        createdAt: r.meta.createdAt,
+        live: s.live.length,
+        roleRuns: s.totals.runs,
+        session: s.session,
+        continuedIn: s.continuedIn,
+      };
+    };
+    const groups = groupRuns(shown);
+    if (args.json) return printJson({ runs: shown.map(row), corrupt });
+    if (shown.length === 0) console.log("no runs yet");
+    for (const g of groups) {
+      console.log(sessionHeading(g.session));
+      for (const x of g.runs) {
+        const r = row(x.run);
+        console.log(
+          `  ${r.id}  ${r.live ? `${r.live} live` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
+        );
+      }
+    }
     for (const c of corrupt) console.log(`${mark("warn")} skipped run ${c.id}: ${c.reason}`);
   },
 });
