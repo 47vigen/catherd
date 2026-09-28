@@ -4,11 +4,14 @@ import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { configDir } from "../infra/paths.ts";
 import { VERSION } from "../infra/version.ts";
 import { doctor } from "../services/doctor.ts";
+import { testAaKey } from "../infra/sources/artificial-analysis.ts";
+import { aaKey, saveAaKey } from "../services/credentials.ts";
 import { jevKey, saveJevKey, testJevKey } from "../services/jev-service.ts";
+import { type SyncReport, syncSources } from "../services/source-sync.ts";
 import { reinstallCommand } from "../services/doctor-checks.ts";
 import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../services/global-install.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
-import { formatRefreshed } from "./catalog-command.ts";
+import { formatRefreshed, syncLines } from "./catalog-command.ts";
 import { mark as markOf } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
@@ -62,6 +65,71 @@ export async function jevStep(
     const message = errorMessage(e).split("\n").join(" ");
     console.log(`${mark("warn")} Jev: could not save the key: ${message}`);
     if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
+  }
+}
+
+/**
+ * Spec 1.2 §9: the Artificial Analysis key step, after Jev's. ARTIFICIAL_ANALYSIS_API_KEY wins, else the saved
+ * key, else a prompt (Enter skips). A typed key is tested with one request: a 200 saves it, a 401 does not,
+ * and a key that cannot be checked (no network) is not saved either. It never stops `init`.
+ */
+export async function aaStep(
+  ask: Prompter | null,
+  d: {
+    testAaKey?: (key: string) => Promise<{ result: "ok" | "refused" | "unchecked"; error?: string }>;
+    saveAaKey?: (key: string) => void;
+  } = {},
+  plain = false,
+): Promise<void> {
+  const mark = (state: State) => markOf(state, plain);
+  if (process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()) {
+    ask?.skip?.();
+    return console.log(`${mark("ok")} Artificial Analysis: using ARTIFICIAL_ANALYSIS_API_KEY`);
+  }
+  if (aaKey()) {
+    ask?.skip?.();
+    return console.log(`${mark("ok")} Artificial Analysis: using the saved key`);
+  }
+  const key = ask ? await ask.secret("Artificial Analysis API key (optional; Enter skips): ") : "";
+  if (!key)
+    return console.log(
+      "- Artificial Analysis: no key; scores come from the keyless sources (add one later with catherd init)",
+    );
+  const t = await (d.testAaKey ?? testAaKey)(key).catch((e: unknown) => ({
+    result: "unchecked" as const,
+    error: errorMessage(e),
+  }));
+  if (t.result === "refused")
+    return console.log(`${mark("warn")} Artificial Analysis: the key was refused (401), so it was not saved`);
+  if (t.result === "unchecked")
+    return console.log(
+      `${mark("warn")} Artificial Analysis: the key could not be checked (${t.error ?? "no answer"}), so it was not saved; run catherd init again to retry`,
+    );
+  try {
+    (d.saveAaKey ?? saveAaKey)(key);
+    console.log(`${mark("ok")} Artificial Analysis: the key answers; saved with mode 600`);
+  } catch (e) {
+    console.log(
+      `${mark("warn")} Artificial Analysis: could not save the key: ${errorMessage(e).split("\n").join(" ")}`,
+    );
+    if (isCatherdError(e) && e.fix) console.log(`    fix: ${e.fix}`);
+  }
+}
+
+/**
+ * Spec 1.2 §9: `init` syncs the public sources in the foreground, after the keys. It never stops `init`;
+ * CATHERD_NO_SYNC=1 skips it.
+ */
+export async function syncStep(o: { plain?: boolean; sync?: () => Promise<SyncReport> } = {}): Promise<void> {
+  const plain = o.plain === true;
+  if (process.env.CATHERD_NO_SYNC === "1")
+    return console.log("- sources: not synced (CATHERD_NO_SYNC=1); catherd catalog sync fetches them");
+  console.log("syncing the public model sources…");
+  try {
+    for (const l of syncLines(await (o.sync ?? (() => syncSources()))(), plain)) console.log(l);
+  } catch (e) {
+    console.log(`${markOf("warn", plain)} sources: ${errorMessage(e).split("\n").join(" ")}`);
+    console.log("    fix: catherd catalog sync");
   }
 }
 
@@ -124,7 +192,7 @@ export const initCommand = defineCommand({
   meta: {
     name: "init",
     description:
-      "First run: the global catherd command, the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
+      "First run: the global catherd command, the Jev key, the Artificial Analysis key, a sync of the public model sources, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the Artificial Analysis key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
@@ -148,6 +216,8 @@ export const initCommand = defineCommand({
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
       await globalStep(VERSION, { skip: (args as { global?: boolean }).global === false, plain });
       await jevStep(ask, {}, plain);
+      await aaStep(ask, {}, plain);
+      await syncStep({ plain });
       if (args.profile !== undefined) ask?.skip?.();
       const name = assertProfileName(
         args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
