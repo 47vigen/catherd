@@ -44,7 +44,9 @@ describe("plugin", () => {
     const launcher = readFileSync(LAUNCHER, "utf8");
     expect(launcher.startsWith("#!/bin/sh\n")).toBe(true);
     expect(stampedIn(launcher)).toBe(version);
-    expect(statSync(LAUNCHER).mode & 0o111).not.toBe(0);
+    // .mcp.json and doctor run it through `sh`, so it needs no exec bit, and it must not have one: the release
+    // workflow's changesets/action commits the stamped file through the GitHub API, which refuses executables
+    expect(statSync(LAUNCHER).mode & 0o111).toBe(0);
   });
 
   it("the stamp script writes a new version into every pinned file", () => {

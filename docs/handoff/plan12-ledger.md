@@ -23,3 +23,5 @@ Fix round 1 re-review: 11/11 addressed; new Important I1: §9 `bun add -g ./cath
 Plan 12 replayed onto main 7035612 (clean), + 0556b69 (CLAUDE.md fast process, ideas.md 1.1 follow-ups); gate 1439 pass.
 PR17 Codex round (only): P1 bunx transient shim makes init skip the global install → fix wave with re-review I1 ($PWD tgz path).
 Fix wave: 1bad09c→cherry-picked (global bin detection), d0d892d ($PWD tgz, version re-read); final review Importants: I1 same as above, I2 init --no-input in §9, I3 handshake test withHome — controller commit b415c3b. Minors to ideas.md. No re-review (fix wave touched <=3 files per item).
+
+Ruling (post-merge, 2026-09-28): the MCP launcher is committed 644, not 755 (overrides plan 12 Ruling 10) — changesets/action commits the stamped launcher through the GitHub API, which refuses executable files, so the release PR could not open; .mcp.json and doctor already run it through sh — cost if wrong: none known; a user running the file directly gets permission denied.
