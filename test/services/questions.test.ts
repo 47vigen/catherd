@@ -55,6 +55,24 @@ describe("park and answer (spec 1.1 §8)", () => {
     expect(withParked("parked: M4 waits on the owner; x", [])).toBe("x");
   });
 
+  it("refuses a milestone that is not an id, writing nothing", async () => {
+    const { run } = freshRun();
+    for (const milestone of ["../state", "M1/a"]) {
+      for (const p of [
+        park(fakeDeps(), { run: run.id, milestone, question: "q" }),
+        answer(fakeDeps(), { run: run.id, milestone, answer: "a" }),
+      ])
+        expect(
+          await p.then(
+            () => null,
+            (e: unknown) => (isCatherdError(e) ? e.code : e),
+          ),
+        ).toBe("E_ADMIT_ID");
+    }
+    expect(openQuestions(run)).toEqual([]);
+    expect(readNotes(run).parked ?? []).toEqual([]);
+  });
+
   it("refuses to answer a milestone with no open question", async () => {
     const { run } = freshRun();
     try {

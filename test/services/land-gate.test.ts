@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
@@ -54,6 +54,19 @@ describe("the land gate (spec 1.1 §6)", () => {
       "land M1: missing a reviewer record (a dispatch named reviewer-M1, status ok) and a verifier verdict (record_agent_run with role verifier and a name holding M1, status ok), since its lanes started",
     );
     expect(e.fix).toContain('record_agent_run(name: "verifier-M1")');
+  });
+
+  it("refuses a milestone that is not an id before writing anything (the digest is named after it)", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["README.md"]);
+    const ledger = readFileSync(join(run.dir, "ledger.md"), "utf8");
+    for (const milestone of ["../state", "M1/a", "../../x"]) {
+      const e = await refusal(land(fakeDeps(), landing(run.id, c, { milestone, skip: "no-code" })));
+      expect(e.code).toBe("E_ADMIT_ID");
+      expect(e.fix).toBeTruthy();
+    }
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).toBe(ledger);
+    expect(existsSync(join(dirname(run.dir), "x.md"))).toBe(false);
   });
 
   it("lands once both exist, and names only what is still missing", async () => {

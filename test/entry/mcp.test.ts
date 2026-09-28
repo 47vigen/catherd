@@ -88,6 +88,16 @@ describe("MCP server", () => {
         evidence: "e",
         next: "n",
       }),
+      // a milestone becomes the digest's file name: an id, never a path
+      await call(c, "land", {
+        run: run.id,
+        milestone: "../state",
+        what: "w",
+        commit: "abcdef1",
+        evidence: "e",
+        next: "n",
+        skip: "no-code",
+      }),
     ];
     for (const r of rejected) {
       expect(r.isError).toBe(true);

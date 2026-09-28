@@ -276,6 +276,8 @@ export async function land(
   },
 ): Promise<{ ledger: string; minutes: number; digest: string; hints?: string[] }> {
   const run = findRun(i.run);
+  // the digest is named after the milestone: an id, checked before anything is written
+  assertId("milestone", i.milestone);
   // commitExists throws E_IO_UNEXPECTED on a timeout, which reaches the caller as is
   if (!/^[0-9a-f]{7,40}$/.test(i.commit) || !(await commitExists(run.meta.repo, i.commit)))
     throw new CatherdError("E_RUN_COMMIT", `no commit ${i.commit} in ${run.meta.repo}`, {
