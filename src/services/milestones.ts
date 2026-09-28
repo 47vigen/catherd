@@ -91,27 +91,46 @@ export function replyPasses(run: Run, r: RunRecord): boolean {
   return first !== undefined && VERDICT_PASS.test(first);
 }
 
+/** The milestone's passing verifier: a native Claude subagent, or a headless dispatch whose reply passed. */
+export interface MilestoneVerifier {
+  name: string;
+  at: string;
+  headless: boolean;
+}
+
 /**
- * A verifier verdict for the milestone since its lanes started: a record_agent_run row with role verifier
+ * The milestone's latest passing verifier since its lanes started: a record_agent_run row with role verifier
  * whose name names the milestone, status ok (the skill records a FAIL as failed); or a headless verifier's
  * dispatch record of the same shape whose reply opens VERDICT: PASS (status ok means only the CLI exited).
  */
-export function verifierPassed(run: Run, m: string, start = milestoneStart(run, m)): boolean {
-  const native = readAgentRuns(run).some(
-    (a) => a.role === "verifier" && a.status === "ok" && namesMilestone(a.name, m) && since(a.at, start),
-  );
-  return (
-    native ||
-    readRecords(run).records.some(
-      (r) =>
-        r.role === "verifier" &&
-        r.status === "ok" &&
-        namesMilestone(r.name, m) &&
-        since(r.endedAt, start) &&
-        replyPasses(run, r),
-    )
-  );
+export function milestoneVerifier(
+  run: Run,
+  m: string,
+  start = milestoneStart(run, m),
+): MilestoneVerifier | null {
+  const found: MilestoneVerifier[] = [
+    ...readAgentRuns(run)
+      .filter(
+        (a) => a.role === "verifier" && a.status === "ok" && namesMilestone(a.name, m) && since(a.at, start),
+      )
+      .map((a) => ({ name: a.name, at: a.at, headless: false })),
+    ...readRecords(run)
+      .records.filter(
+        (r) =>
+          r.role === "verifier" &&
+          r.status === "ok" &&
+          namesMilestone(r.name, m) &&
+          since(r.endedAt, start) &&
+          replyPasses(run, r),
+      )
+      .map((r) => ({ name: r.name, at: r.endedAt, headless: true })),
+  ];
+  return found.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1) ?? null;
 }
+
+/** A verifier verdict for the milestone since its lanes started (see milestoneVerifier). */
+export const verifierPassed = (run: Run, m: string, start = milestoneStart(run, m)): boolean =>
+  milestoneVerifier(run, m, start) !== null;
 
 /** The commits of the landed milestones, oldest first, from the ledger. */
 export function landedCommits(run: Run): string[] {

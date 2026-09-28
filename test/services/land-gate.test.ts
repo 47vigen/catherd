@@ -162,6 +162,10 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(e.message).toContain("a verifier verdict");
     await verifier("\nVERDICT: PASS\nA1 PASS bun test\nSTATUS: complete — all pass\n");
     expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+    // the digest names the verdict the gate took, not "none" for want of a record_agent_run row
+    expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
+      "Verifier: PASS (verifier-M1, headless)",
+    );
   });
 
   it("takes a native reviewer (record_agent_run, role reviewer, reviewer-<M>, ok) since the milestone started", async () => {
