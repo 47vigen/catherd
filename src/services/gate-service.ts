@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readlinkSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
@@ -68,9 +68,50 @@ async function dirtyEntry(file: string): Promise<string> {
   return `${s.mode & 0o111 ? "exec" : "file"} ${sha(await Bun.file(file).bytes())}`;
 }
 
+/** Whether git ignores `p` (a tracked file never is). */
+async function ignored(repo: string, p: string): Promise<boolean> {
+  return (await git(repo, ["check-ignore", "-q", "--", p.replace(/\/$/, "")])).kind === "ok";
+}
+
+/** The most files a gate path's on-disk walk hashes. */
+export const GATE_WALK_MAX = 10_000;
+
+/**
+ * The files under `p` on disk (itself when it is not a directory), repo-relative and sorted; a symlink is
+ * an entry, not followed. More than GATE_WALK_MAX is refused, not hashed in part.
+ */
+function walk(repo: string, p: string): string[] {
+  const out: string[] = [];
+  const visit = (rel: string): void => {
+    let s: Stats;
+    try {
+      s = lstatSync(join(repo, rel));
+    } catch {
+      return;
+    }
+    if (!s.isDirectory()) {
+      out.push(rel);
+      if (out.length > GATE_WALK_MAX)
+        throw new CatherdError(
+          "E_INPUT_INVALID",
+          `gate path ${p} holds more than ${GATE_WALK_MAX} files to hash`,
+          {
+            fix: "name narrower paths: the files or directories under it that the gate item reads",
+          },
+        );
+      return;
+    }
+    for (const name of readdirSync(join(repo, rel))) visit(`${rel}/${name}`);
+  };
+  visit(p.replace(/\/$/, ""));
+  return out.sort();
+}
+
 /**
  * The content hash of `paths`: each one's tree entry at HEAD (mode, type and object id), plus the content of every
  * uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of what it ran.
+ * A path git ignores, or one not at HEAD, is also hashed file by file from disk; ignored files under `.` or
+ * under a tracked directory are not, so an ignored input is covered only when it is named.
  */
 async function contentHash(repo: string, paths: string[]): Promise<string> {
   const h = new Bun.CryptoHasher("sha256");
@@ -94,6 +135,10 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
         },
       );
     h.update(`${p}=${at || "missing"}\n`);
+    // git status leaves ignored files out, so an ignored path (.env, a build output) or one not at HEAD is
+    // hashed by what is on disk; "." keeps to HEAD and the not-ignored status
+    if (p !== "." && (!at || (await ignored(repo, p))))
+      for (const f of walk(repo, p)) h.update(`disk ${f}=${await dirtyEntry(join(repo, f))}\n`);
   }
   const dirty = Object.keys(await statusSnapshot(repo))
     .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)

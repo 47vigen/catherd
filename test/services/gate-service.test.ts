@@ -158,6 +158,55 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(await gateCheck(fakeDeps(), item(run.id, { paths: ["lib/"] }))).toEqual({ carried: false });
   });
 
+  it("hashes an ignored path named explicitly by its content on disk: a changed .env is not carried", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", ".env\ngen/\n");
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    write(repo, ".env", "A=1");
+    write(repo, "gen/out/x.js", "x");
+    write(repo, "gen/y.js", "y");
+    const deps = fakeDeps();
+    const env = item(run.id, { paths: [".env", "gen/"] });
+    await gatePass(deps, { ...env, evidence: "ok" });
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    write(repo, ".env", "A=2");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    write(repo, ".env", "A=1");
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    // a file deep in an ignored directory, its exec bit, and a new file there
+    write(repo, "gen/out/x.js", "z");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    write(repo, "gen/out/x.js", "x");
+    chmodSync(join(repo, "gen/y.js"), 0o755);
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    chmodSync(join(repo, "gen/y.js"), 0o644);
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    write(repo, "gen/new.js", "n");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    rmSync(join(repo, "gen/new.js"));
+    // "." still hashes HEAD and the not-ignored status: an ignored file is covered only when named
+    const whole = item(run.id, { paths: ["."] });
+    await gatePass(deps, { ...whole, evidence: "ok" });
+    write(repo, ".env", "A=3");
+    expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
+  });
+
+  it("refuses an ignored directory with more files than it walks, naming narrower paths", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "big/\n");
+    commit(repo);
+    for (let i = 0; i < 10_001; i++) write(repo, `big/d${i % 10}/f${i}`, "");
+    try {
+      await gateCheck(fakeDeps(), item(run.id, { paths: ["big/"] }));
+      expect.unreachable();
+    } catch (e) {
+      expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+      expect(isCatherdError(e) && e.message).toContain("big");
+      expect(isCatherdError(e) && e.fix).toContain("narrower");
+    }
+  });
+
   it("records each check as the verifier's step, which status shows", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");

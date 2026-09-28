@@ -19,7 +19,7 @@ export function registerProtocolTools(server: McpServer, deps: Deps): void {
     "gate_check",
     {
       description:
-        "The verifier, before running a gate item: { carried: true, passedAt, commit } when this repo already has a pass of the same command on the same content of paths (repo-relative; . for the whole repo), so it reports the item as carried over from that commit instead of running it; else { carried: false }, and it runs the item. Either way the call is recorded as the verifier's current step, which status and peek show. Pass milestone (the M the verifier checks) so the milestone's digest lists only its own carried items.",
+        "The verifier, before running a gate item: { carried: true, passedAt, commit } when this repo already has a pass of the same command on the same content of paths (repo-relative; . for the whole repo: HEAD plus uncommitted not-ignored changes; a git-ignored input such as .env or a build output is hashed only when named as a path), so it reports the item as carried over from that commit instead of running it; else { carried: false }, and it runs the item. Either way the call is recorded as the verifier's current step, which status and peek show. Pass milestone (the M the verifier checks) so the milestone's digest lists only its own carried items.",
       inputSchema: { ...gate, milestone: z.string().regex(ID_PATTERN).optional() },
     },
     (a) => handle(() => gateCheck(deps, a)),
