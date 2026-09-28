@@ -42,14 +42,19 @@ Removed `wait`. Added `peek`, `gate_check`, `gate_pass`, `park` and `answer`. Ch
   allowed values), routes a lane that was never routed, and appends the role's reply contract (the `STATUS:` line)
   to every brief. Briefs no longer need to carry it.
 - `land` refuses a milestone without a reviewer record and a verifier verdict since its lanes started
-  (`E_LAND_GATE`); `skip: "docs-only"` and `skip: "no-code"` cover milestones that change no code.
+  (`E_LAND_GATE`); `skip: "docs-only"` and `skip: "no-code"` cover milestones that change no code. It also writes
+  the milestone's digest, `<run>/digests/<milestone>.md` (the A-lines, the commit, the lanes with their rungs and
+  climbs, the reviewer's findings, the verifier's verdict with its carried items, minutes and tokens), and returns
+  its path as `digest`; the milestone notice links it.
 - `climb` refuses a plan or ownership problem (`E_CLIMB_DESIGN`): that goes to the architect, not up the ladder.
 - `result` consumes the record (see above); `run_start` returns the run's next protocol step and the milestone
   checklist, and `state.md` ends with `Protocol next: <step>`.
 - `park(run, milestone, question)` and `answer(run, milestone, answer)`: one owner question no longer stops the
   run; the other milestones go on.
 - `gate_check` and `gate_pass`: the verifier carries over a gate item whose command and inputs have not changed
-  (the ledger is `<data>/repos/<repo>/gates.jsonl`).
+  (the ledger is `<data>/repos/<repo>/gates.jsonl`). Every `gate_check` is a verifier step (`<run>/verifier.jsonl`):
+  `peek` and `status` show its latest step as the verifier goes, a carried item with the commit its pass was
+  recorded on.
 
 The plugin's skills use all of this; update the plugin with catherd, as above.
 
@@ -65,6 +70,14 @@ catherd profile set roles.worker.network false
 
 `catherd doctor` runs five probes for each backend a `workspace-write` role uses (lock dir, temp dir, loopback,
 HTTPS, Docker) and names the fix for each that fails.
+
+### Processes catherd starts no longer see the Claude Code session
+
+Workers, the supervisor, `doctor`'s MCP server, `init`'s install and a command run under `catherd lock -- <cmd>`
+no longer get `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_HOST_SESSION_ID`, `CLAUDE_CODE_MESSAGING_SOCKET` or
+`CLAUDE_CODE_MESSAGING_TOKEN` (nor `TYPESAFE_API_KEY`, as in 1.0). catherd keeps them to itself so only the
+session's own MCP server owns its runs and messages it. A script run under `catherd lock` that read the session id
+must now take it as an argument.
 
 ### Failover and validation
 
