@@ -271,6 +271,43 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     expect(existsSync(dispatchPaths(d.dir).notified)).toBe(false);
   });
 
+  it("drops what it queued for a run another session claimed inside the window; the new owner hears it", async () => {
+    const { run, deps, n } = await owned({ coalesceMs: 200 });
+    const live = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    const theirs = await fakeInbox();
+    try {
+      const dir = join(claudeHome(), "sessions");
+      writeFileSync(
+        join(dir, "203.json"),
+        JSON.stringify({ pid: 203, sessionId: "s-next", name: "next", messagingSocketPath: theirs.path }),
+      );
+      const next = fakeDeps({
+        session: { sessionId: "s-next", hostSessionId: null, socketPath: theirs.path, token: "next-token" },
+      });
+      const m = startNotifier(next, { coalesceMs: 20 });
+      notifiers.push(m);
+      const d = await finished(run, "worker-M1.L1");
+      await settle(deps, run, d, await recordOf(run, d));
+      n.onStall({ run, d: live, quietMs: 7 * 60_000 });
+      // the run moves inside the old owner's window: the claim settles the unannounced record again for s-next
+      await peek(next, { run: run.id });
+      await n.idle();
+      await m.idle();
+      expect(existsSync(dispatchPaths(live.dir).stallNotified)).toBe(false);
+      const [f] = await theirs.received(1);
+      expect(inbox?.frames).toEqual([]);
+      expect(f?.auth).toEqual({ type: "auth", token: "next-token" });
+      expect(f?.message.content).toContain(`name: "worker-M1.L1"`);
+      expect(JSON.parse(readFileSync(dispatchPaths(d.dir).notified, "utf8"))).toMatchObject({
+        msgId: f?.msg_id,
+      });
+    } finally {
+      // the stalled role ends, so the watcher the claim started settles
+      store.writeJsonAtomic(dispatchPaths(live.dir).exit, { schema: 1, ...exit() });
+      await theirs.close();
+    }
+  });
+
   it("announces a role cancelled from the dashboard or the CLI at later, but not one the MCP cancel returned", async () => {
     const { run, deps, n } = await owned();
     process.env.PATH = simPath();

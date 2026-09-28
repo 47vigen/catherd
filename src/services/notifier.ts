@@ -109,6 +109,8 @@ export function stalledNotice(run: Run, d: Dispatch, quietMs: number, now: numbe
 }
 
 interface Queued {
+  /** the run it is about: its owner may change before the message goes */
+  run: Run;
   notice: Notice;
   /** the mark a message that went out leaves */
   mark: string;
@@ -149,8 +151,8 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
   };
 
   async function deliver(batch: Queued[]): Promise<void> {
-    // read (or announced) meanwhile: nothing to say
-    const due = batch.filter((q) => q.due());
+    // read (or announced) meanwhile, or the run moved to another session (whose server tells it): nothing to say
+    const due = batch.filter((q) => q.due() && owned(q.run));
     if (due.length === 0 || !deps.session) return;
     const notices = due.map((q) => q.notice);
     const r = await send(
@@ -174,6 +176,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
   const enqueue = (run: Run, d: Dispatch, record: RunRecord): void => {
     if (queue.has(record.dispatchId) || notified(d.dir) || !awaitsCollect(d.dir) || !owned(run)) return;
     queue.set(record.dispatchId, {
+      run,
       notice: finishedNotice(run, d, record),
       mark: dispatchPaths(d.dir).notified,
       due: () => awaitsCollect(d.dir) && !notified(d.dir),
@@ -187,6 +190,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
       const key = `${s.d.admit.dispatchId} stall`;
       if (queue.has(key) || existsSync(p.stallNotified) || existsSync(p.exit) || !owned(s.run)) return;
       queue.set(key, {
+        run: s.run,
         notice: stalledNotice(s.run, s.d, s.quietMs, deps.now()),
         mark: p.stallNotified,
         // it finished meanwhile: its record is the news now
