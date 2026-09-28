@@ -251,14 +251,15 @@ export function agentName(profile: string, role: Role, rung: string): string {
 }
 
 // Patches: what profile_set and `catherd profile set` accept. Strict at every level, so a misspelt key is
-// refused with E_INPUT_INVALID instead of dropped (plan-2 review m9). `null` removes a map entry.
+// refused with E_INPUT_INVALID instead of dropped (plan-2 review m9). `null` removes a map entry or a nullable
+// field (a role's `network` among them: absent means granted).
 const RolePatchSchema = z
   .strictObject({
     enabled: z.boolean(),
     access: z.enum(ACCESS),
     rungs: z.array(RungSchema),
     defaultRung: RungSchema.nullable(),
-    network: z.boolean(),
+    network: z.boolean().nullable(),
   })
   .partial();
 

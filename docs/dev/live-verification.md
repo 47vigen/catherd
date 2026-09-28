@@ -281,7 +281,7 @@ cover:
   is closed. `doctor`'s `access:<backend>` row for the worker's backend says `network off by profile` (no loopback
   or HTTPS probe) only once every `workspace-write` role on that backend has `network false` (writer and artist
   too); on opencode or claude-code it also says `network: false is not enforced` by that shell. Put it back with
-  `bun src/cli.ts profile set roles.worker.network true --profile live-kit`.
+  `bun src/cli.ts profile set roles.worker.network null --profile live-kit` (null removes the field).
 
 ## 9. The 1.1 acceptance (the release PR waits for it)
 
