@@ -6,10 +6,15 @@ import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { adopt, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
+import { adopt, cancel, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import * as store from "../../src/infra/store.ts";
-import { type Dispatch, listDispatches, readFailover } from "../../src/services/dispatches.ts";
+import {
+  type Dispatch,
+  listDispatches,
+  liveDispatches,
+  readFailover,
+} from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
 import { peek } from "../../src/services/peek.ts";
@@ -20,7 +25,7 @@ import { claimRun } from "../../src/services/sessions.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { type FakeInbox, fakeInbox } from "../sim/peer-inbox.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { deadProcess, fakeDeps, fakeDispatch, freshRun, testView, writeLane } from "./helpers.ts";
+import { deadProcess, fakeDeps, fakeDispatch, freshRun, testView, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
@@ -264,6 +269,42 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     await n.idle();
     expect(inbox?.frames).toEqual([]);
     expect(existsSync(dispatchPaths(d.dir).notified)).toBe(false);
+  });
+
+  it("announces a role cancelled from the dashboard or the CLI at later, but not one the MCP cancel returned", async () => {
+    const { run, deps, n } = await owned();
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({ hangMs: 30_000 }).env);
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    const go = (lane: string) =>
+      dispatch(deps, {
+        run: run.id,
+        role: "worker",
+        name: `worker-${lane}`,
+        brief: "b",
+        rung: "codex:gpt-6-sol#medium",
+        lane,
+      });
+    const running = (name: string) =>
+      waitFor(() => liveDispatches(run).find((d) => d.admit.name === name && d.state === "running"));
+    // the TUI's ctrl+d and `catherd runs cancel`: nobody holds the record, so the owner is told
+    await go("M1.L1");
+    const a = await running("worker-M1.L1");
+    await cancel(deps, run.id, "worker-M1.L1");
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.priority).toBe("later");
+    expect(f?.message.content).toContain("· worker-M1.L1 worker · codex:gpt-6-sol#medium · cancelled ·");
+    expect(awaitsCollect(a.dir)).toBe(true);
+    await n.idle();
+    // the MCP tool: its caller holds the record, so there is nothing to announce
+    await go("M1.L2");
+    const b = await running("worker-M1.L2");
+    await cancel(deps, run.id, "worker-M1.L2", { read: true });
+    await watchersSettled();
+    await n.idle();
+    expect(inbox?.frames).toHaveLength(1);
+    expect(awaitsCollect(b.dir)).toBe(false);
   });
 
   it("announces a blocked or refused reply at next", async () => {

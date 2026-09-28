@@ -47,6 +47,6 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
         "Stop a live dispatch (interrupt, then SIGTERM, then SIGKILL) and return its record, marked cancelled and read, and hints.",
       inputSchema: { run: z.string(), name: z.string().regex(ID_PATTERN) },
     },
-    (a) => handle(() => cancel(deps, a.run, a.name)),
+    (a) => handle(() => cancel(deps, a.run, a.name, { read: true })),
   );
 }

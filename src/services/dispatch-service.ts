@@ -487,10 +487,17 @@ async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
 }
 
 /**
- * Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. The record it
- * returns is read: `peek` no longer lists it as unread.
+ * Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. With `read` (the MCP
+ * `cancel` tool, whose caller holds the record it returns) the record is marked read, so `peek` no longer lists
+ * it. Without it (the dashboard, `catherd runs cancel`) the record stays unread and catherd announces it to the
+ * run's owner at `later` (spec §3.6).
  */
-export async function cancel(deps: Deps, runId: string, name: string): Promise<DispatchResult> {
+export async function cancel(
+  deps: Deps,
+  runId: string,
+  name: string,
+  o: { read?: boolean } = {},
+): Promise<DispatchResult> {
   const run = findRun(runId);
   assertId("role name", name);
   const live = liveDispatches(run, deps.now()).find((d) => d.admit.name === name);
@@ -502,10 +509,13 @@ export async function cancel(deps: Deps, runId: string, name: string): Promise<D
   await stopOrphan(deps, live);
   await waitForFinish(live, { pollMs: deps.pollMs, now: deps.now });
   const record = await finalizeDispatch(run, live);
-  const mine = await tryCollect(live.dir);
-  // cancel returns at once, so its lease ends at once
-  if (mine) endCollect(live.dir);
-  const also = mine ? [] : [`${name}: result had already read this record`];
+  let also: string[] = [];
+  if (o.read) {
+    const mine = await tryCollect(live.dir);
+    // cancel returns at once, so its lease ends at once
+    if (mine) endCollect(live.dir);
+    else also = [`${name}: result had already read this record`];
+  }
   const { hints } = await refreshState(run);
   return { record, hints: [...recordHints(run, live, record), ...also, ...hints] };
 }

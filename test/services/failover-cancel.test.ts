@@ -398,18 +398,18 @@ describe("cancel", () => {
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(async () => false);
     try {
-      const { hints } = await cancel(deps, run.id, "worker-M1.L1");
+      const { hints } = await cancel(deps, run.id, "worker-M1.L1", { read: true });
       expect(hints).toContain("worker-M1.L1: result had already read this record");
     } finally {
       spy.mockRestore();
     }
   });
 
-  it("stops a live dispatch, records it once as cancelled, and marks the record read", async () => {
+  it("stops a live dispatch, records it once as cancelled, and marks the record read (the MCP tool)", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
-    const { record } = await cancel(deps, run.id, "worker-M1.L1");
+    const { record } = await cancel(deps, run.id, "worker-M1.L1", { read: true });
     expect(record.status).toBe("cancelled");
     expect(awaitsCollect(live.dir)).toBe(false);
     await watchersSettled();
