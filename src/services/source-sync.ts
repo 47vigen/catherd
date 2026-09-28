@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { buildCatalog, type Catalog, DIMS } from "../domain/catalog.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import {
@@ -13,8 +12,6 @@ import { log } from "../infra/log.ts";
 import { type AaAnswer, fetchArtificialAnalysis } from "../infra/sources/artificial-analysis.ts";
 import { fetchArena } from "../infra/sources/arena.ts";
 import {
-  cachePath,
-  derivedPath,
   readCached,
   readDerived,
   readSyncState,
@@ -152,7 +149,8 @@ export async function syncSources(o: SyncOptions = {}): Promise<SyncReport> {
     const fetchedAt = (id: SourceId) => state.sources[id]?.fetchedAt ?? null;
     const fresh = (id: SourceId) => {
       const at = fetchedAt(id);
-      return !o.force && at !== null && existsSync(cachePath(id)) && now() - Date.parse(at) < TTL_MS;
+      // a cache file that no longer reads (corrupt, or an older schema) is fetched again
+      return !o.force && at !== null && now() - Date.parse(at) < TTL_MS && readCached(id) !== null;
     };
     const resting = (id: SourceId) => {
       const s = state.sources[id];
@@ -226,7 +224,7 @@ export async function syncSources(o: SyncOptions = {}): Promise<SyncReport> {
 
     const changed = [...outcomes.values()].some((x) => x.state === "fetched");
     const raw = cachedAnswers();
-    if ((changed || !existsSync(derivedPath())) && Object.keys(raw).length > 0)
+    if ((changed || readDerived() === null) && Object.keys(raw).length > 0)
       writeDerived(
         derive(raw, {
           models: shippedModels(),

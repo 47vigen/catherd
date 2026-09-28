@@ -100,6 +100,33 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
     expect(due.urls).toHaveLength(15);
   });
 
+  it("fetches again a source whose cache file is corrupt, even within the TTL", async () => {
+    withHome();
+    const c = clock();
+    await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
+    writeFileSync(cachePath("vectara"), "{ not json");
+    c.advance(60_000);
+    const again = recordedFetch();
+    const r = await syncSources({ transport: c.transport(again.impl), now: c.now, aaKey: null });
+    expect(again.urls).toEqual([VECTARA_URL]);
+    expect(r.sources.find((s) => s.source === "vectara")?.state).toBe("fetched");
+    expect(readCached("vectara")).not.toBeNull();
+  });
+
+  it("rebuilds a corrupt derived.json when every source is fresh", async () => {
+    withHome();
+    const c = clock();
+    await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
+    writeFileSync(derivedPath(), "{ not json");
+    expect(readDerived()).toBeNull();
+    c.advance(60_000);
+    const again = recordedFetch();
+    const r = await syncSources({ transport: c.transport(again.impl), now: c.now, aaKey: null });
+    expect(again.urls).toEqual([]);
+    expect(r.sources.filter((s) => s.state === "fresh").map((s) => s.source)).toEqual(KEYLESS);
+    expect(readDerived()?.scores.length).toBeGreaterThan(0);
+  });
+
   it("keeps a failed source's last good answer, records the error and goes on", async () => {
     withHome();
     const c = clock();
