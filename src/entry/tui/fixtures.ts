@@ -330,6 +330,24 @@ const FIXTURE_ROLE: Omit<RoleDetail, "run" | "runTitle" | "dispatchId" | "name" 
     record: null,
   };
 
+/** The digest `land` writes for M0 of the jobs screen (spec 1.1 §10): what a landed milestone's screen shows. */
+export const FIXTURE_DIGEST = [
+  "# M0 — scaffold the jobs screen",
+  "",
+  "Commit 3f2a9c1 · 9 min · landed 2026-09-26T11:57:00.000Z",
+  "A-lines: A1 the jobs screen lists every job with its state",
+  "",
+  "Lanes:",
+  "- M0.L1 · codex:gpt-6-luna#high",
+  "- M0.L2 · codex:gpt-6-luna#medium → codex:gpt-6-sol#medium · climbs: fast check red twice",
+  "",
+  "Reviewer: reviewer-M0 · 1 finding(s): 0 BLOCKER, 0 BUG, 1 NIT",
+  "Verifier: PASS (verifier-M0)",
+  "Evidence: bun test test/jobs",
+  "Tokens: 1204k in (960k cached) · 58k out · Claude subagents 31k (reported)",
+  "",
+].join("\n");
+
 /** The record a finished fixture role would have: what the role screen shows under RECORD. */
 function fixtureRecord(r: SessionRun, x: RoleRow): RunRecord {
   const start = Date.parse(x.since);
@@ -451,6 +469,15 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
           };
         }
       throw new Error(`no dispatch ${dispatchId} in run ${run}`);
+    },
+    milestone(run, name) {
+      for (const x of sessions)
+        for (const r of x.runs) {
+          const m = r.id === run ? r.milestones.find((y) => y.name === name) : undefined;
+          if (!m) continue;
+          return { run, runTitle: r.title, ...m, digest: m.landed ? FIXTURE_DIGEST : null };
+        }
+      throw new Error(`no milestone "${name}" in run ${run}`);
     },
     watch(dirs, onChange) {
       if (o.watchable === false) return null;

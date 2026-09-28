@@ -74,6 +74,15 @@ export const STORIES: Story[] = [
       { action: { type: "role", run: "20260926-114800-jobs-screen", dispatchId: "d1" } },
     ],
   },
+  {
+    name: "milestone",
+    title: "Runs: a milestone opened on its digest",
+    steps: [
+      { command: "tab.runs" },
+      { action: { type: "session", key: "s-jobs" } },
+      { action: { type: "milestone", run: "20260926-114800-jobs-screen", name: "M0" } },
+    ],
+  },
 ];
 
 /** One step, as a key or the reducer would take it. */

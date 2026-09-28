@@ -56,6 +56,8 @@ describe("--help matches the CLI (audit S5, S6, N3)", () => {
     const text = help("init");
     expect(text).toContain("--no-input ask nothing: keep what exists, else write the defaults");
     expect(text).not.toMatch(/(^|[^-])--input/);
+    expect(text).toContain("--no-global do not install the global catherd command");
+    expect(text).not.toMatch(/(^|[^-])--global/);
     expect(text).not.toContain("Default: true");
   });
 

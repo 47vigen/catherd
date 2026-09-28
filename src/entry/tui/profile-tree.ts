@@ -350,7 +350,8 @@ export function buildRows(i: TreeInput): Row[] {
     let mark = "";
     if (to) {
       try {
-        mark = inferredScores(i.catalog, rungInfo(i.catalog, to)).inferred ? " (inferred)" : "";
+        const via = inferredScores(i.catalog, rungInfo(i.catalog, to)).via;
+        mark = via ? ` (scores borrowed from ${via})` : "";
       } catch {
         mark = "";
       }

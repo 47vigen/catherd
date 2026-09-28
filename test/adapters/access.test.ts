@@ -192,6 +192,10 @@ describe("worker access grants (spec §5)", () => {
     expect(p.roles.writer.network).toBeUndefined();
     const back = resolveProfile(applyPatch(doc, patchAt("roles.worker.network", "true")), "default");
     expect(back.roles.worker.network).toBeUndefined();
+    // null clears the field, as it does every other nullable profile field
+    const cleared = applyPatch(doc, patchAt("roles.worker.network", "null"));
+    expect(cleared.roles?.worker && "network" in cleared.roles.worker).toBe(false);
+    expect(resolveProfile(cleared, "default").roles.worker.network).toBeUndefined();
   });
 
   it("admission plans a network: false role without the network grant", async () => {

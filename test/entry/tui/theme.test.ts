@@ -19,6 +19,7 @@ import {
   truncateEnd,
   width,
   wrap,
+  wrapHanging,
 } from "../../../src/entry/tui/text.ts";
 
 const printable = /^[\x20-\x7e]*$/;
@@ -115,6 +116,17 @@ describe("text", () => {
     expect(lines.join(" ")).toBe(cmd);
     expect(wrap("a".repeat(25), 10)).toEqual(["a".repeat(10), "a".repeat(10), "a".repeat(5)]);
     expect(wrap("", 10)).toEqual([""]);
+  });
+
+  it("wraps a bullet with a hanging indent, so its continuation does not read as a new line", () => {
+    expect(wrapHanging("- M0.L2 codex climbs: fast check red twice", 20)).toEqual([
+      "- M0.L2 codex",
+      "  climbs: fast check",
+      "  red twice",
+    ]);
+    expect(wrapHanging("  1. one two three four", 12)).toEqual(["  1. one two", "     three", "     four"]);
+    expect(wrapHanging("plain words that wrap", 11)).toEqual(["plain words", "that wrap"]);
+    for (const l of wrapHanging("- " + "x".repeat(30), 10)) expect(width(l)).toBeLessThanOrEqual(10);
   });
 
   it("pads a line to its width", () => {

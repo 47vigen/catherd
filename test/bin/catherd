@@ -1,0 +1,4 @@
+#!/bin/sh
+# Tests put this folder on PATH so the plugin's MCP launcher (plugin/bin/catherd-mcp) finds "a global
+# catherd" at its stamped version, this checkout, and never falls back to bunx and the network.
+exec bun "$(dirname "$0")/../../src/cli.ts" "$@"

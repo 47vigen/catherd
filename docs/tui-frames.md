@@ -341,17 +341,17 @@ space turns the role on or off; enter opens its access, default rung and models
 ────────────────────────────────────────────────────────────────────────────────
  auth build  · idle · 2 runs · 0 live roles · updated just now
  ▸ Auth refactor  /home/me/api · started 1d ago · continued in kit follow-up
-   ✓ M1 tokens  ✓ M2 sessions  ✓ M3 cleanup
+   ✓ M1  tokens
+   ✓ M2  sessions
+   ✓ M3  cleanup
    ✓ reviewer-M3     gpt-6-sol#high     ok       03:08
    ✓ worker-M3.L1    gpt-6-luna#high    ok       06:42
    ✗ worker-M2.L1    gpt-6-sol#medium   limit    01:35
  ▸ Auth plan 4  /home/me/api · started 2d ago
-   ✓ M1 schema  ✓ M2 handlers
+   ✓ M1  schema
+   ✓ M2  handlers
    ✓ reviewer-M2     gpt-6-sol#high     ok       02:20
    ✓ worker-M2.L1    gpt-6-sol#medium   ok       10:10
-
-
-
 
 
 
@@ -371,12 +371,12 @@ space turns the role on or off; enter opens its access, default rung and models
 ────────────────────────────────────────────────────────────────────────────────
  jobs screen  ● live · 1 run · 3 live roles · updated just now
  ▸ Jobs screen  /home/me/app · started 12m ago · budget 52%
-   ✓ M0 scaffold the jobs screen  ◌ M1
+   ✓ M0  scaffold the jobs screen
+   ◌ M1  not landed
    ● worker-M1.L2    gpt-6-sol#medium   running  04:12  $ bun test test/jobs --…
    ● worker-M1.L3    gpt-6-luna#high    running  03:00  edit src/jobs/list.tsx
    ◌ reviewer-M1     gpt-6-sol#high     starting 00:04
    ✓ worker-M1.L1    gpt-6-luna#high    ok       05:12
-
 
 
 
@@ -415,6 +415,36 @@ space turns the role on or off; enter opens its access, default rung and models
    thread 01a0d0d4-d0a6-71a1-983c-82a9169200b4
 
 
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ r refresh  p pause  ctrl+p commands  ? help
+
+```
+
+## Runs: a milestone opened on its digest
+
+```
+ catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ M0 scaffold the jobs screen · landed · Jobs screen
+ DIGEST
+   # M0 — scaffold the jobs screen
+
+   Commit 3f2a9c1 · 9 min · landed 2026-09-26T11:57:00.000Z
+   A-lines: A1 the jobs screen lists every job with its state
+
+   Lanes:
+   - M0.L1 · codex:gpt-6-luna#high
+   - M0.L2 · codex:gpt-6-luna#medium → codex:gpt-6-sol#medium · climbs: fast
+     check red twice
+
+   Reviewer: reviewer-M0 · 1 finding(s): 0 BLOCKER, 0 BUG, 1 NIT
+   Verifier: PASS (verifier-M0)
+   Evidence: bun test test/jobs
+   Tokens: 1204k in (960k cached) · 58k out · Claude subagents 31k (reported)
 
 
 

@@ -112,8 +112,8 @@ describe("doctor", () => {
       "sandbox:codex": "ok ready",
       "access:codex": "ok ready",
       "access:opencode": "ok ready",
-      "access:full": "warn warning",
-      "access:advisory": "warn warning",
+      "access:full": "info default",
+      "access:advisory": "info default",
     });
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
@@ -302,12 +302,98 @@ describe("doctor", () => {
     });
   });
 
+  it("shows the shipped defaults' access as info, and warns only on what a profile changed (spec 1.1 §13)", async () => {
+    ready();
+    patchProfile("default", {
+      roles: {
+        reviewer: { access: "full" },
+        worker: { rungs: ["codex:gpt-6-sol#medium", "opencode:opencode-go/gpt-6-luna#high"] },
+      },
+    });
+    const r = await run();
+    expect(check(r, "access:full")).toEqual({
+      id: "access:full",
+      label: "full access",
+      state: "warn",
+      word: "warning",
+      detail: "no sandbox for: reviewer (default); as shipped: verifier (default), ui-reviewer (default)",
+    });
+    expect(check(r, "access:advisory")).toMatchObject({
+      state: "warn",
+      word: "warning",
+      detail: expect.stringMatching(
+        /^the backend asks but cannot force: worker on opencode \(default\); as shipped: /,
+      ),
+    });
+  });
+
+  it("keeps the probe rows apart from the info rows, before them, and info never counts against ready (R3, R4)", async () => {
+    ready();
+    const r = await run();
+    const ids = r.checks.map((c) => c.id);
+    const at = (id: string) => ids.indexOf(id);
+    expect(at("locks")).toBeLessThan(at("sandbox:codex"));
+    expect(at("sandbox:codex")).toBeLessThan(at("access:codex"));
+    expect(at("access:opencode")).toBeLessThan(at("access:full"));
+    expect(at("access:full")).toBeLessThan(at("access:advisory"));
+    // the per-backend probes are ok/warn/skip, never info; only the shipped defaults' access modes are
+    expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
+      "access:full",
+      "access:advisory",
+    ]);
+    // info is not a warning and not a failure: the report is ready, and doctor --json says "info"
+    expect(r.ready).toBe(true);
+    const json = JSON.parse(JSON.stringify(r)) as DoctorReport;
+    expect(json.ready).toBe(true);
+    expect(json.checks.find((c) => c.id === "access:full")?.state).toBe("info");
+    expect(r.checks.filter((c) => c.state === "warn").map((c) => c.id)).toEqual(["jev"]);
+  });
+
   it("fails when the MCP server does not answer tools/list", async () => {
     ready();
     const r = await run({
       handshake: async () => ({ ok: false, tools: [], error: "no answer within 20 s" }),
     });
     expect([r.ready, check(r, "mcp")?.detail]).toEqual([false, "no answer within 20 s"]);
+  });
+
+  it("says to reinstall when the server cannot load a module (spec 1.1 §12)", async () => {
+    ready();
+    const r = await run({
+      handshake: async () => ({
+        ok: false,
+        tools: [],
+        error: "MCP error -32000: Connection closed",
+        stderr:
+          "error: Cannot find module '@modelcontextprotocol/sdk/server/mcp.js' from '/c/bunx/src/x.ts'\n",
+      }),
+    });
+    expect(check(r, "mcp")).toEqual({
+      id: "mcp",
+      label: "MCP server",
+      state: "fail",
+      word: "broken install",
+      detail: `cannot load @modelcontextprotocol/sdk/server/mcp.js; reinstall: bun add -g catherd-cli@${VERSION}`,
+      fix: `bun add -g catherd-cli@${VERSION}`,
+    });
+  });
+
+  it("says to install catherd when the launcher finds neither it nor bunx", async () => {
+    ready();
+    const r = await run({
+      handshake: async () => ({
+        ok: false,
+        tools: [],
+        error: "MCP error -32000: Connection closed",
+        stderr: "/p/bin/catherd-mcp: 17: exec: bunx: not found\n",
+      }),
+    });
+    expect(check(r, "mcp")).toMatchObject({
+      state: "fail",
+      word: "missing",
+      detail: `no catherd ${VERSION} on PATH and no bunx to fetch it; reinstall: bun add -g catherd-cli@${VERSION}`,
+      fix: `bun add -g catherd-cli@${VERSION}`,
+    });
   });
 
   it("runs the five access probes in codex sandbox with the grants a worker gets (spec §5, §12)", async () => {

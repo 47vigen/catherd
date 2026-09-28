@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { TextAttributes } from "@opentui/core";
 import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
 import { initialState } from "../../../src/entry/tui/state.ts";
 import { FIXTURE_SESSIONS, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
@@ -13,6 +14,18 @@ afterEach(async () => {
   await h?.s.close();
   h = null;
 });
+
+/** The line drawn selected: reverse video from its first column (a toast's reverse video starts further right). */
+function selectedLine(x: Harness): string {
+  const row = x.s.captureSpans().lines.find((l) => (l.spans[0]?.attributes ?? 0) & TextAttributes.INVERSE);
+  return row?.spans.map((sp) => sp.text).join("") ?? "";
+}
+
+/** Moves the cursor down until the selected line holds `text`, so a row added above breaks no test. */
+async function select(x: Harness, text: string) {
+  for (let i = 0; i < 30 && !selectedLine(x).includes(text); i++) await x.s.press("j");
+  expect(selectedLine(x)).toContain(text);
+}
 
 async function runs(effects = fixtureEffects()) {
   withHome();
@@ -61,7 +74,9 @@ describe("the Runs tab (spec §4)", () => {
     let f = h!.s.frame();
     expect(f).toContain("jobs screen  ● live · 1 run · 3 live roles");
     expect(f).toContain("▸ Jobs screen  /home/me/app · started 12m ago · budget 52%");
-    expect(f).toContain("✓ M0 scaffold the jobs screen  ◌ M1");
+    expect(f).toContain("   ✓ M0  scaffold the jobs screen");
+    expect(f).toContain("   ◌ M1  not landed");
+    expect(f.indexOf("M1  not landed")).toBeLessThan(f.indexOf("worker-M1.L2"));
     expect(f).toContain("● worker-M1.L2    gpt-6-sol#medium   running  04:12  $ bun test test/jobs --bail");
     expect(f).toContain("◌ reviewer-M1     gpt-6-sol#high     starting 00:04");
     expect(f).toContain("✓ worker-M1.L1    gpt-6-luna#high    ok       05:12");
@@ -87,7 +102,9 @@ describe("the Runs tab (spec §4)", () => {
 
   it("opens a role: its brief, reply and record; esc goes back to its session, then to the list", async () => {
     await runs();
-    await h!.s.press("return", "j", "j", "j", "return");
+    await h!.s.press("return");
+    await select(h!, "worker-M1.L1");
+    await h!.s.press("return");
     const f = h!.s.frame();
     expect(f).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
     expect(f).toContain("BRIEF");
@@ -163,7 +180,12 @@ describe("the Runs tab (spec §4)", () => {
 
   it("cancels a live role only on a second ctrl+d within 5 s", async () => {
     const fx = await runs();
-    await h!.s.press("return", "ctrl+d");
+    await h!.s.press("return");
+    // a milestone row has nothing to cancel
+    await h!.s.press("ctrl+d", "ctrl+d");
+    expect(h!.s.frame()).not.toContain("press ctrl+d again to cancel");
+    await select(h!, "worker-M1.L2");
+    await h!.s.press("ctrl+d");
     expect(h!.s.frame()).toContain("press ctrl+d again to cancel");
     await h!.advance(5_001);
     await h!.s.press("ctrl+d");
@@ -174,7 +196,9 @@ describe("the Runs tab (spec §4)", () => {
 
   it("takes back a first ctrl+d when the cursor moves, and never cancels a finished role", async () => {
     const fx = await runs();
-    await h!.s.press("return", "ctrl+d");
+    await h!.s.press("return");
+    await select(h!, "worker-M1.L2");
+    await h!.s.press("ctrl+d");
     expect(h!.s.frame()).toContain("press ctrl+d again to cancel");
     await h!.s.press("j");
     expect(h!.s.frame()).not.toContain("press ctrl+d again to cancel");
@@ -220,13 +244,15 @@ describe("the Runs tab (spec §4)", () => {
     await runs();
     await h!.s.press("j", "return", "escape", "return");
     expect(h!.s.frame()).toContain("kit follow-up  · idle");
-    await h!.s.press("escape", "k", "return", "j", "j", "j", "return");
+    await h!.s.press("escape", "k", "return");
+    await select(h!, "worker-M1.L1");
+    await h!.s.press("return");
     expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
     await h!.s.press("escape", "return");
     expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
-    // another session starts on its first row, not on a role the last one had open
+    // another session starts on its first row (its first milestone), not on a role the last one had open
     await h!.s.press("escape", "escape", "j", "j", "return", "escape", "k", "k", "return", "return");
-    expect(h!.s.frame()).toContain("worker-M1.L2");
+    expect(h!.s.frame()).toContain("M0 scaffold the jobs screen · landed · Jobs screen");
     expect(h!.s.frame()).not.toContain("worker-M1.L1 worker");
   });
 
@@ -252,7 +278,20 @@ describe("the Runs tab (spec §4)", () => {
     expect(reads).toBe(2);
     await h!.s.press("p");
     expect(reads).toBe(2);
+    let milestoneReads = 0;
+    const milestone = fx.milestone;
+    fx.milestone = (run, name) => {
+      milestoneReads++;
+      return milestone(run, name);
+    };
+    // the session opens on its first milestone: r there reads the milestone
     await h!.s.press("p", "return");
+    const m0 = milestoneReads;
+    await h!.s.press("r");
+    expect(milestoneReads).toBe(m0 + 1);
+    await h!.s.press("escape");
+    await select(h!, "worker-M1.L2");
+    await h!.s.press("return");
     const r0 = roleReads;
     await h!.s.press("r");
     expect(roleReads).toBe(r0 + 1);
@@ -262,6 +301,35 @@ describe("the Runs tab (spec §4)", () => {
     await h!.s.press("r");
     expect(reads).toBe(s0 + 1);
     expect(roleReads).toBe(r0 + 1);
+  });
+
+  it("opens a milestone on its digest; esc goes back to its row, then to the list", async () => {
+    await runs();
+    await h!.s.press("return", "j", "k");
+    expect(selectedLine(h!)).toContain("✓ M0  scaffold the jobs screen");
+    await h!.s.press("return");
+    const f = h!.s.frame();
+    expect(f).toContain("M0 scaffold the jobs screen · landed · Jobs screen");
+    expect(f).toContain("DIGEST");
+    expect(f).toContain("# M0 — scaffold the jobs screen");
+    expect(f).toContain("Verifier: PASS (verifier-M0)");
+    await h!.s.press("escape");
+    expect(h!.s.frame()).toContain("jobs screen  ● live");
+    expect(selectedLine(h!)).toContain("✓ M0  scaffold the jobs screen");
+    await h!.s.press("escape");
+    expect(h!.s.frame()).toContain("SESSIONS");
+  });
+
+  it("says no digest yet for a milestone that has not landed", async () => {
+    await runs();
+    await h!.s.press("return");
+    await select(h!, "M1  not landed");
+    await h!.s.press("return");
+    const f = h!.s.frame();
+    expect(f).toContain("M1 not landed · Jobs screen");
+    expect(f).toContain("no digest yet: the milestone has not landed");
+    await h!.s.press("escape");
+    expect(selectedLine(h!)).toContain("M1  not landed");
   });
 
   it("keeps a fixture of every shape the frames need", () => {

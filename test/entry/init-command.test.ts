@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
-import { jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
+import { globalStep, jevStep, PLUGIN_STEPS, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
+import { VERSION } from "../../src/infra/version.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
@@ -17,7 +18,10 @@ function init(args: string[], stdin = "") {
     // no backend CLI, no Jev key and no Anthropic key: nothing reaches the network or the user's own CLIs
     env: {
       ...process.env,
-      PATH: `/nonexistent:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
+      PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
+      BUN_INSTALL_BIN: join(import.meta.dir, "..", "bin"),
       TYPESAFE_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
@@ -28,6 +32,97 @@ function init(args: string[], stdin = "") {
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
+describe("globalStep (spec 1.1 §12)", () => {
+  const lines = async (f: () => Promise<void>) => {
+    const out: string[] = [];
+    const log = console.log;
+    console.log = (l: string) => out.push(l);
+    try {
+      await f();
+    } finally {
+      console.log = log;
+    }
+    return out;
+  };
+  /** `after`: what the catherd on PATH reports once the install ran (default: the installed version) */
+  const deps = (onPath: string | null, ok = true, after?: string | null) => {
+    let now = onPath;
+    return {
+      globalVersion: async () => now,
+      pathVersion: async () => now,
+      install: async (v: string) => {
+        if (ok) now = after === undefined ? v : after;
+        return { ok, output: ok ? "" : "error: 503 from the registry\n" };
+      },
+    };
+  };
+
+  it("says installing catherd… first, then that it is installed", async () => {
+    expect(await lines(() => globalStep("1.1.0", { skip: false, deps: deps("1.0.0") }))).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "✓ catherd 1.1.0 installed globally; the plugin starts it without bunx",
+    ]);
+  });
+
+  it("says nothing about installing when this version is already global", async () => {
+    expect(await lines(() => globalStep("1.1.0", { skip: false, deps: deps("1.1.0") }))).toEqual([
+      "✓ catherd 1.1.0 is installed globally",
+    ]);
+  });
+
+  it("goes on after a failed install, with the command to retry", async () => {
+    expect(
+      await lines(() => globalStep("1.1.0", { skip: false, deps: deps(null, false), plain: true })),
+    ).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! could not install catherd globally: error: 503 from the registry",
+      "    fix: bun add -g catherd-cli@1.1.0",
+    ]);
+  });
+
+  it("says what to fix when the catherd first on PATH is still another one after the install", async () => {
+    expect(
+      await lines(() =>
+        globalStep("1.1.0", { skip: false, deps: deps("1.0.0", true, "1.0.0"), plain: true }),
+      ),
+    ).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! catherd 1.1.0 installed globally, but the catherd first on PATH is 1.0.0, so the plugin starts it with bunx",
+      "    fix: put bun's global bin folder (bun pm bin -g) first on PATH, then run catherd init again",
+    ]);
+    expect(
+      await lines(() => globalStep("1.1.0", { skip: false, deps: deps(null, true, null), plain: true })),
+    ).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! catherd 1.1.0 installed globally, but no catherd is on PATH, so the plugin starts it with bunx",
+      "    fix: put bun's global bin folder (bun pm bin -g) first on PATH, then run catherd init again",
+    ]);
+  });
+
+  it("goes on when the install itself throws", async () => {
+    const d = {
+      ...deps(null),
+      install: async () => {
+        throw new Error("spawn bun ENOENT");
+      },
+    };
+    expect(await lines(() => globalStep("1.1.0", { skip: false, deps: d, plain: true }))).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! could not install catherd globally: spawn bun ENOENT",
+      "    fix: bun add -g catherd-cli@1.1.0",
+    ]);
+  });
+
+  it("skips the install with --no-global", async () => {
+    let asked = false;
+    const d = { ...deps(null), globalVersion: async () => ((asked = true), null) };
+    expect(await lines(() => globalStep("1.1.0", { skip: true, deps: d }))).toEqual([
+      "- catherd: not installed globally (--no-global); the plugin starts it with bunx",
+    ]);
+    expect(asked).toBe(false);
+  });
+});
+
 describe("catherd init", () => {
   it("--no-input writes and activates the default profile, reports readiness, and ends with the plugin steps", () => {
     const home = withHome();
@@ -35,6 +130,14 @@ describe("catherd init", () => {
     const r = init(["--no-input"]);
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("(=^.^=)");
+    // test/bin/catherd prints this version: the global install is already there
+    expect(r.out).toContain(`✓ catherd ${VERSION} is installed globally\n`);
+    // the shim is the only guard between the suite and the registry: no `bun add -g` ran (Ruling R8)
+    expect(r.out).not.toContain("installing catherd…");
+    expect(r.out).not.toContain("bun add -g");
+    expect(init(["--no-input", "--no-global"]).out).toContain(
+      "- catherd: not installed globally (--no-global); the plugin starts it with bunx\n",
+    );
     expect(r.out).toContain("✓ profile default written from the defaults, and active\n");
     expect(r.out).toMatch(/✓ ready {14}MCP server — answers tools\/list with \d+ tools\n/);
     expect(r.out).toContain("✗ missing            Claude Code plugin — not installed in Claude Code\n");

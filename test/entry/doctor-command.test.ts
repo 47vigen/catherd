@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mark } from "../../src/entry/cli-kit.ts";
-import { formatCheck } from "../../src/entry/doctor-command.ts";
+import { formatCheck, formatReport } from "../../src/entry/doctor-command.ts";
 import { glyph } from "../../src/entry/tui/theme.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
@@ -37,7 +37,8 @@ function machine(): void {
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
-  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
+  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${join(import.meta.dir, "..", "bin")}:${dirname(process.execPath)}:/usr/bin:/bin`;
   Object.assign(
     process.env,
     withScenario({ models: fx("codex/models.json"), sandbox: "allow" }).env,
@@ -91,9 +92,44 @@ describe("formatCheck", () => {
   });
 });
 
+describe("an info row (spec 1.1 §13)", () => {
+  it("draws i, in both glyph sets", () => {
+    expect(
+      formatCheck({ id: "access:full", label: "full access", state: "info", word: "default", detail: "x" }),
+    ).toEqual(["i default            full access — x"]);
+    expect(mark("info", true)).toBe("i");
+  });
+});
+
+describe("formatReport (Ruling R4)", () => {
+  it("says ready when the only rows beside ok are info: info is not a warning", () => {
+    const lines = formatReport({
+      ready: true,
+      version: VERSION,
+      checks: [
+        { id: "bun", label: "Bun", state: "ok", word: "ready", detail: "1.4.2" },
+        {
+          id: "access:full",
+          label: "full access",
+          state: "info",
+          word: "default",
+          detail: "no sandbox for: verifier",
+        },
+      ],
+    });
+    expect(lines).toEqual([
+      "✓ ready              Bun — 1.4.2",
+      "i default            full access — no sandbox for: verifier",
+      "",
+      "✓ ready",
+    ]);
+    expect(lines.join("\n")).not.toContain(mark("warn"));
+  });
+});
+
 describe("mark", () => {
   it("draws the theme's glyphs, ASCII under --plain (audit N2)", () => {
-    for (const state of ["ok", "warn", "fail", "skip"] as const)
+    for (const state of ["ok", "warn", "fail", "skip", "info"] as const)
       for (const plain of [false, true]) expect(mark(state, plain)).toBe(glyph(state, plain));
   });
 });

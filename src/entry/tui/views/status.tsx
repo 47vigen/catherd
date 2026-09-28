@@ -127,7 +127,8 @@ export function StatusView(props: { width: number; height: number }) {
         parts={[
           { text: `   ${profiles.here}`, bold: true },
           {
-            text: `  ${hereWord(profiles)} · ${plural(profiles.names.length, "profile")}`,
+            // "…" until the first read: never "0 profiles" on the first frame (spec 1.1 §13)
+            text: `  ${hereWord(profiles)} · ${data.profiles.value ? plural(profiles.names.length, "profile") : "…"}`,
             tone: "muted",
           },
         ]}

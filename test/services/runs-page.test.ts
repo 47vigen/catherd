@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { appendLedger, appendRecord, createRun, runPaths } from "../../src/services/run-store.ts";
-import { roleDetail, sessionDetail, sessionRows } from "../../src/services/runs-page.ts";
+import { milestoneDetail, roleDetail, sessionDetail, sessionRows } from "../../src/services/runs-page.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, makeRecord, writeLane } from "./helpers.ts";
 
@@ -162,6 +162,44 @@ describe("the runs page (spec §4)", () => {
       record: { dispatchId: done.admit.dispatchId, status: "ok" },
     });
     expect(() => roleDetail(fakeDeps(), jobs.id, "nope")).toThrow(/no dispatch nope/);
+  });
+
+  it("opens a milestone on its digest (spec 1.1 §10), and on no digest before land writes one", async () => {
+    const { jobs } = await twoRuns();
+    expect(milestoneDetail(jobs.id, "M0")).toEqual({
+      run: jobs.id,
+      runTitle: "Jobs screen",
+      name: "M0",
+      landed: true,
+      what: "scaffold the jobs screen",
+      digest: null,
+    });
+    mkdirSync(join(jobs.dir, "digests"), { recursive: true });
+    writeFileSync(join(jobs.dir, "digests", "M0.md"), "# M0 — scaffold the jobs screen\n");
+    expect(milestoneDetail(jobs.id, "M0").digest).toBe("# M0 — scaffold the jobs screen\n");
+    expect(milestoneDetail(jobs.id, "M1")).toMatchObject({ landed: false, what: "", digest: null });
+    // no path from outside the run folder, and no milestone the run does not have
+    expect(() => milestoneDetail(jobs.id, "../x")).toThrow(/no milestone "\.\.\/x"/);
+    expect(() => milestoneDetail(jobs.id, "M9")).toThrow(/no milestone "M9"/);
+  });
+
+  it("opens a milestone whose id is not M<n>: land takes any id and writes its digest under it", async () => {
+    const { jobs } = await twoRuns();
+    appendLedger(jobs, "auth | sign-in flow | 4b1c2d3 | 12 | bun test");
+    mkdirSync(join(jobs.dir, "digests"), { recursive: true });
+    writeFileSync(join(jobs.dir, "digests", "auth.md"), "# auth — sign-in flow\n");
+    expect(milestoneDetail(jobs.id, "auth")).toMatchObject({
+      name: "auth",
+      landed: true,
+      what: "sign-in flow",
+      digest: "# auth — sign-in flow\n",
+    });
+    // an empty digest file reads as no digest, as the view shows it
+    writeFileSync(join(jobs.dir, "digests", "auth.md"), "");
+    expect(milestoneDetail(jobs.id, "auth").digest).toBeNull();
+    // an id land would refuse is refused here too
+    expect(() => milestoneDetail(jobs.id, "..")).toThrow(/no milestone "\.\."/);
+    expect(() => milestoneDetail(jobs.id, "a..b")).toThrow(/no milestone "a\.\.b"/);
   });
 
   it("puts 1.0 runs under earlier runs, last", async () => {

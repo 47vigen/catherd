@@ -5,7 +5,7 @@ import { useCommandLayer } from "../providers/keymap.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import { isArmed } from "../state.ts";
-import { ago, clock, plural, shortRung, wrap } from "../text.ts";
+import { ago, clock, plural, shortRung, wrap, wrapHanging } from "../text.ts";
 import { glyph, mascot, type Token } from "../theme.ts";
 import type { RoleRow, SessionRow, SessionRun } from "../effects.ts";
 import { Line, type Part } from "../widgets/line.tsx";
@@ -50,6 +50,7 @@ export function sessionParts(s: SessionRow, now: number, plain: boolean): Part[]
 const keyOf = (k: string | null) => (k === null ? "earlier" : `s:${k}`);
 const fromKey = (k: string) => (k === "earlier" ? null : k.slice("s:".length));
 const roleKey = (run: string, dispatchId: string) => `role:${run}:${dispatchId}`;
+const milestoneKey = (run: string, name: string) => `ms:${run}:${name}`;
 
 /** What `r` re-reads: the open screen registers its read here (the command lives on the tab). */
 type Refresher = MutableRefObject<(() => void) | null>;
@@ -212,9 +213,16 @@ function SessionView(props: {
   const d = polled.value;
   const roleAt = (key: string | null) =>
     d?.runs.flatMap((r) => r.roles).find((x) => key === roleKey(x.run, x.dispatchId)) ?? null;
+  const milestoneAt = (key: string | null) =>
+    d?.runs
+      .flatMap((r) => r.milestones.map((m) => ({ run: r.id, name: m.name })))
+      .find((x) => key === milestoneKey(x.run, x.name)) ?? null;
   useCommandLayer("row.runs", {
     "runs.open": () => {
-      const r = roleAt(selectedNow());
+      const k = selectedNow();
+      const m = milestoneAt(k);
+      if (m) return app.dispatch({ type: "milestone", run: m.run, name: m.name });
+      const r = roleAt(k);
       if (r) app.dispatch({ type: "role", run: r.run, dispatchId: r.dispatchId });
     },
     "runs.cancel": () => {
@@ -251,17 +259,27 @@ function SessionView(props: {
     items.push({ key, selectable: false, render: (_sel, w) => <Line width={w} parts={parts} /> });
   for (const r of d.runs) {
     text(`run:${r.id}`, runHeading(r, now, ui.plain));
-    if (r.milestones.length)
-      text(`ms:${r.id}`, [
-        { text: "   " },
-        ...r.milestones.flatMap((m, i): Part[] => [
-          ...(i ? [{ text: "  " }] : []),
-          m.landed
-            ? { text: `${glyph("ok", ui.plain)} ${m.name}`, tone: "success" }
-            : { text: `${glyph("waiting", ui.plain)} ${m.name}`, tone: "muted" },
-          ...(m.what ? [{ text: ` ${m.what}`, tone: "muted" as Token }] : []),
-        ]),
-      ]);
+    // spec 1.1 §10: each milestone is a row; enter opens it on its digest
+    for (const m of r.milestones)
+      items.push({
+        key: milestoneKey(r.id, m.name),
+        selectable: true,
+        render: (sel, w) => (
+          <Line
+            width={w}
+            selected={sel}
+            parts={[
+              { text: "   " },
+              m.landed
+                ? { text: `${glyph("ok", ui.plain)} ${m.name}`, tone: "success" }
+                : { text: `${glyph("waiting", ui.plain)} ${m.name}`, tone: "muted" },
+              m.landed
+                ? { text: m.what ? `  ${m.what}` : "", tone: "muted" }
+                : { text: "  not landed", tone: "muted" },
+            ]}
+          />
+        ),
+      });
     if (r.roles.length === 0) text(`none:${r.id}`, [{ text: "   no role has run yet", tone: "muted" }]);
     for (const x of r.roles) {
       const secs = x.live ? (now - Date.parse(x.since)) / 1000 : (x.secs ?? 0);
@@ -420,9 +438,88 @@ function RoleView(props: {
   );
 }
 
+/** Spec 1.1 §10: a milestone's screen, the digest `land` wrote for it. */
+function MilestoneView(props: {
+  run: string;
+  name: string;
+  width: number;
+  height: number;
+  refresher: Refresher;
+}) {
+  const app = useApp();
+  const ui = useUi();
+  const [selected, setSelected] = useSelection();
+  const polled = usePoll(() => app.effects.milestone(props.run, props.name), RUN_EVERY_MS, {
+    paused: app.state.paused,
+    key: `${props.run}/${props.name}`,
+  });
+  useRefresher(props.refresher, polled.refresh);
+  useBack(true, "view", () => app.dispatch({ type: "up" }));
+  const d = polled.value;
+  if (!d)
+    return (
+      <Line
+        width={props.width}
+        parts={[
+          {
+            text: polled.error ? ` ${polled.error}` : " reading the milestone…",
+            tone: polled.error ? "error" : "muted",
+          },
+        ]}
+      />
+    );
+  const items: ListItem[] = [];
+  const room = Math.max(10, props.width - 4);
+  let n = 0;
+  const line = (parts: Part[]) =>
+    items.push({
+      key: `l${n++}`,
+      selectable: true,
+      render: (sel, w) => <Line width={w} selected={sel} parts={parts} />,
+    });
+  line([{ text: " DIGEST", bold: true }]);
+  const body = d.digest?.trimEnd() ?? "";
+  if (!body)
+    line([
+      {
+        text: `   no digest yet${d.landed ? "" : ": the milestone has not landed"}`,
+        tone: "muted",
+      },
+    ]);
+  else for (const l of body.split("\n")) for (const w of wrapHanging(l, room)) line([{ text: `   ${w}` }]);
+  return (
+    <box flexDirection="column" width={props.width} height={props.height}>
+      <Line
+        width={props.width}
+        parts={[
+          { text: ` ${d.name}`, bold: true },
+          {
+            text: ` ${d.what ? `${d.what} · ` : ""}${d.landed ? "landed" : "not landed"} · ${d.runTitle}`,
+            tone: "muted",
+          },
+          {
+            text: polled.error ? ` · ${glyph("fail", ui.plain)} could not read it: ${polled.error}` : "",
+            tone: "error",
+          },
+        ]}
+      />
+      <List
+        items={items}
+        selected={selected}
+        onSelect={setSelected}
+        width={props.width}
+        height={props.height - 1}
+        filter={null}
+        empty=""
+      />
+    </box>
+  );
+}
+
 /**
  * Spec §4 (tab 3): the sessions, newest activity first; enter opens a session (its runs, milestones and roles,
- * live ones first), enter on a role opens it (brief, reply, record); esc goes back one level; p pauses.
+ * live ones first), enter on a milestone opens its digest (spec 1.1 §10), enter on a role opens it (brief,
+ * reply, record); esc goes back one level; p pauses.
  */
 export function RunsView(props: { width: number; height: number }) {
   const app = useApp();
@@ -435,12 +532,23 @@ export function RunsView(props: { width: number; height: number }) {
       app.toast({ variant: "info", message: app.getState().paused ? "Updates paused" : "Updates resumed" });
     },
   });
-  const { role, session } = app.state;
-  // esc lands on the row it came from: the last session opened, and the last role opened in it
-  const back = useRef<{ session: string | null; role: string | null }>({ session: null, role: null });
+  const { milestone, role, session } = app.state;
+  // esc lands on the row it came from: the last session opened, and the last milestone or role opened in it
+  const back = useRef<{ session: string | null; row: string | null }>({ session: null, row: null });
   if (session && back.current.session !== keyOf(session.key))
-    back.current = { session: keyOf(session.key), role: null };
-  if (role) back.current.role = roleKey(role.run, role.dispatchId);
+    back.current = { session: keyOf(session.key), row: null };
+  if (milestone) back.current.row = milestoneKey(milestone.run, milestone.name);
+  if (role) back.current.row = roleKey(role.run, role.dispatchId);
+  if (milestone)
+    return (
+      <MilestoneView
+        run={milestone.run}
+        name={milestone.name}
+        width={props.width}
+        height={props.height}
+        refresher={refresher}
+      />
+    );
   if (role)
     return (
       <RoleView
@@ -457,7 +565,7 @@ export function RunsView(props: { width: number; height: number }) {
         sessionKey={session.key}
         width={props.width}
         height={props.height}
-        initial={back.current.role}
+        initial={back.current.row}
         refresher={refresher}
       />
     );

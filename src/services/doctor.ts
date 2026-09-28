@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
-import type { Profile } from "../domain/profile.ts";
-import { ROLES } from "../domain/roles.ts";
+import { BUILTIN_ROLES, type Profile } from "../domain/profile.ts";
+import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
 import { linkedProfiles } from "./agent-links.ts";
@@ -16,6 +16,7 @@ import {
   fixOf,
   guarded,
   locksCheck,
+  mcpCheck,
   pluginCheck,
 } from "./doctor-checks.ts";
 import { credentialsPath, jevKey, savedJevKey, testJevKey } from "./jev-service.ts";
@@ -41,13 +42,15 @@ export interface Handshake {
   ok: boolean;
   tools: string[];
   error?: string;
+  /** the tail of what the server (or its launcher) wrote to stderr */
+  stderr?: string;
 }
 
 export interface DoctorDeps {
   bunVersion: string;
   /** the package version, which the Claude Code plugin must pin */
   version: string;
-  /** starts `catherd mcp` over stdio and asks it for tools/list */
+  /** starts the MCP server as the plugin does (its launcher) over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
   /** spec §3.9: sends this Claude Code session a test message; without it (the dashboard) there is no `push` row */
   push?: () => Promise<PushProbe>;
@@ -204,24 +207,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const h = await d
     .handshake()
     .catch((e: unknown): Handshake => ({ ok: false, tools: [], error: errText(e) }));
-  checks.push(
-    h.ok && h.tools.includes("status")
-      ? {
-          id: "mcp",
-          label: "MCP server",
-          state: "ok",
-          word: "ready",
-          detail: `answers tools/list with ${h.tools.length} tools`,
-        }
-      : {
-          id: "mcp",
-          label: "MCP server",
-          state: "fail",
-          word: "no answer",
-          detail: h.error ?? "tools/list has no status tool",
-          fix: "run catherd mcp to see why it does not start",
-        },
-  );
+  checks.push(mcpCheck(h, d.version));
 
   if (d.push)
     checks.push(
@@ -232,38 +218,48 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
   checks.push(...(await accessChecks(profiles, installed)));
 
-  const full: string[] = [];
-  const advisory: string[] = [];
+  // spec 1.1 §13: what the shipped defaults do is info; a warning only for what a profile changed
+  const full = { changed: [] as string[], shipped: [] as string[] };
+  const advisory = { changed: [] as string[], shipped: [] as string[] };
+  const backendOf = (r: string) => r.slice(0, r.indexOf(":"));
   for (const p of profiles)
     for (const role of ROLES) {
       const rc = p.roles[role];
       if (!rc.enabled) continue;
-      if (rc.access === "full") full.push(`${role} (${p.name})`);
+      const asShipped = rc.access === DEFAULT_ACCESS[role];
+      if (rc.access === "full") (asShipped ? full.shipped : full.changed).push(`${role} (${p.name})`);
       const soft = [
-        ...new Set(
-          rc.rungs
-            .filter((r) => enforcementOf(r, rc.access) === "advisory")
-            .map((r) => r.slice(0, r.indexOf(":"))),
-        ),
+        ...new Set(rc.rungs.filter((r) => enforcementOf(r, rc.access) === "advisory").map(backendOf)),
       ];
-      if (soft.length) advisory.push(`${role} on ${soft.join(", ")} (${p.name})`);
+      const shippedOn = new Set(BUILTIN_ROLES[role].rungs.map(backendOf));
+      const ours = soft.filter((b) => asShipped && shippedOn.has(b));
+      const theirs = soft.filter((b) => !ours.includes(b));
+      if (ours.length) advisory.shipped.push(`${role} on ${ours.join(", ")} (${p.name})`);
+      if (theirs.length) advisory.changed.push(`${role} on ${theirs.join(", ")} (${p.name})`);
     }
-  if (full.length)
-    checks.push({
-      id: "access:full",
-      label: "full access",
-      state: "warn",
-      word: "warning",
-      detail: `no sandbox for: ${full.join(", ")}`,
-    });
-  if (advisory.length)
-    checks.push({
-      id: "access:advisory",
-      label: "advisory access",
-      state: "warn",
-      word: "warning",
-      detail: `the backend asks but cannot force: ${advisory.join(", ")}`,
-    });
+  const accessRow = (
+    id: string,
+    label: string,
+    rows: { changed: string[]; shipped: string[] },
+    what: string,
+  ): Check | null => {
+    if (!rows.changed.length && !rows.shipped.length) return null;
+    const shipped = rows.shipped.join(", ");
+    return rows.changed.length
+      ? {
+          id,
+          label,
+          state: "warn",
+          word: "warning",
+          detail: `${what}: ${rows.changed.join(", ")}${shipped ? `; as shipped: ${shipped}` : ""}`,
+        }
+      : { id, label, state: "info", word: "default", detail: `${what}: ${shipped}` };
+  };
+  for (const row of [
+    accessRow("access:full", "full access", full, "no sandbox for"),
+    accessRow("access:advisory", "advisory access", advisory, "the backend asks but cannot force"),
+  ])
+    if (row) checks.push(row);
   for (const id of used.keys()) {
     const note = adapterFor(id)?.isolationNote;
     if (note)
@@ -304,13 +300,15 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     );
   }
 
-  if (!Bun.which("bunx", { PATH: process.env.PATH ?? "" }))
+  // the plugin's launcher needs bunx only when no global catherd is installed
+  const onPath = (bin: string) => Bun.which(bin, { PATH: process.env.PATH ?? "" });
+  if (!onPath("bunx") && !onPath("catherd"))
     checks.push({
       id: "bunx",
       label: "bunx",
       state: "warn",
       word: "missing",
-      detail: "the plugin starts the MCP server with bunx",
+      detail: "the plugin's MCP launcher runs bunx when no global catherd is installed",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
   let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];

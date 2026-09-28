@@ -127,10 +127,13 @@ describe("the Profiles tree (spec §9.1)", () => {
     });
   });
 
-  it("marks both default stand-ins inferred, as plan 5 Ruling 2 says (spec §7.2)", () => {
+  it("says whose scores a stand-in borrows, only when it has none of its own (spec 1.1 §11)", () => {
     const rows = buildRows(input());
-    expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("→ kimi-k3#max (inferred)");
-    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe("→ gpt-6-luna#high (inferred)");
+    expect(row(rows, "failover:codex:gpt-6-sol#medium").value).toBe(
+      "→ kimi-k3#max (scores borrowed from gpt-6-sol#medium)",
+    );
+    expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("none");
+    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe("→ gpt-6-luna#high");
   });
 
   it("puts a validation issue on the row it is about", () => {
@@ -217,10 +220,15 @@ describe("edits", () => {
     withHome();
     const c = loadCatalog({ timings: false });
     const models = catalogQuery({ scoredOnly: false, limit: 1000 }, p.billing).models;
-    const standIns = failoverOptions(p, models, c, "codex:gpt-6-sol#high");
+    const standIns = failoverOptions(p, models, c, "codex:gpt-6-sol#medium");
     expect(standIns[0]).toEqual({ value: "", title: "none", current: false });
     expect(standIns.some((o) => o.value.startsWith("codex:"))).toBe(false);
     expect(standIns.some((o) => o.value === "claude-code:claude-opus-5-5#xhigh")).toBe(true);
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe(
+      "scores borrowed from claude-opus-5-5#xhigh",
+    );
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe("");
+    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe("");
     const likes = treatLikeOptions(c);
     expect(likes.map((o) => o.value)).toContain("gpt-6-sol#medium");
     expect(likes.map((o) => o.value)).not.toContain("claude-opus-5-5#high");

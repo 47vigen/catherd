@@ -59,7 +59,8 @@ async function start(args: string) {
     `CATHERD_CLAUDE_AGENTS_DIR=${join(home, "agents")}`,
     `CLAUDE_CONFIG_DIR=${join(home, "claude")}`,
     // no backend CLI on PATH: doctor answers fast, and nothing real is touched
-    `PATH=${dirname(process.execPath)}:/usr/bin:/bin`,
+    // test/bin: the MCP launcher's "global catherd" is this checkout, so the handshake never runs bunx
+    `PATH=${join(import.meta.dir, "..", "..", "bin")}:${dirname(process.execPath)}:/usr/bin:/bin`,
     "TERM=xterm-256color",
     "LANG=C.UTF-8",
     "LC_ALL=C.UTF-8",

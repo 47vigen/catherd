@@ -12,12 +12,13 @@ Binding spec: `docs/specs/2026-09-28-catherd-1.1-design.md` (above the 1.0 spec)
 | ---- | ---- | ----- |
 | 10 push results, `peek`, sessions and the runs page (§3, §4, §14) | `docs/plans/2026-09-28-10-push-sessions.md` | **merged** (PR #15; 5 task-review batches + 1 fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan10-ledger.md`) |
 | 11 worker access, the enforced protocol, verifier gate ledger, park/answer, climb, re-entry, skill (§5–§10) | `docs/plans/2026-09-28-11-access-protocol.md` | **merged** (PR #16: executed on plan 10's head, replayed onto main; 6 task-review batches + fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan11-ledger.md`) |
-| 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13) | `docs/plans/2026-09-28-12-failover-install-release.md` | written, pre-validated on main (1214 pass) |
+| 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13) | `docs/plans/2026-09-28-12-failover-install-release.md` | **merged** (PR #17: conflict read + parallel waves, one final review + one fix wave, one Codex round, per the owner's faster process; ledger `plan12-ledger.md`). The 1.1.0 release PR is **held for the owner's acceptance** (`docs/dev/live-verification.md` §9) |
 
 The §3.9 spike was done statically against the Claude Code 2.1.283 binary (delivery works on Linux and macOS for
 an MCP-server child with no settings; never declare `from-mode`). The owner confirms live delivery with
 `bun scripts/spike-push.ts` (plan 10 Task 1) and in the §15 acceptance, for which the release PR is held.
-Plans 11 and 12 were pre-validated on `main`; each lists "Assumes from earlier plans" to re-check at preflight.
+Plans 11 and 12 were pre-validated on `main` and replayed onto each merged predecessor. The review minors are in
+`docs/dev/ideas.md` under "1.1 follow-ups". The plan process is now the faster default in CLAUDE.md.
 
 ## Where things stand (1.0)
 

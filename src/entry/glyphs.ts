@@ -7,6 +7,7 @@ const GLYPHS = {
   warn: ["!", "!"],
   fail: ["✗", "x"],
   skip: ["-", "-"],
+  info: ["i", "i"],
   live: ["●", "*"],
   waiting: ["◌", "."],
   on: ["[x]", "[x]"],
@@ -30,4 +31,4 @@ export const GLYPH_NAMES = Object.keys(GLYPHS) as Glyph[];
 export const glyph = (g: Glyph, plain: boolean): string => GLYPHS[g][plain ? 1 : 0];
 
 /** The words state always travels with (spec §9.3: green/amber/red only for state, always with a word). */
-export type State = "ok" | "warn" | "fail" | "skip";
+export type State = "ok" | "warn" | "fail" | "skip" | "info";

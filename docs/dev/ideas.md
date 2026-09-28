@@ -9,6 +9,42 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 1.1 follow-ups (minors from the 1.1 reviews, 2026-09-28)
+
+Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land here, not in code. Each is small.
+
+- **Push and sessions (plan 10).** `watch()` in dispatch-service settles and fails over a limit without checking
+  that this session still owns the run (failover-once keeps it to one stand-in, but the old owner can start it).
+  Codex activity is computed twice per line; a file change with no paths shows `edit `; Claude tool activity shows
+  only the tool name (opencode shows its first argument).
+- **Runs page (TUI).** A ref is written during render in `runs.tsx`; the role screen keeps polling a finished role;
+  a recent run opened from the Status tab lands on the session's first role, not that run; a session opens on its
+  first milestone row and live roles can sit below the fold; `milestoneAt` rebuilds its list on every key; a
+  milestone whose id is not `M<n>` gets a row only once it has landed. The `watchDirs` real-fs test can pass on a
+  late probe event; doctor's `failed` push row is tested only with a hand-made outcome.
+- **Protocol and gate (plan 11).** `laneDone` reads the records file once per lane; `peek.ts` shadows `r` and reads
+  the notes twice. A verifier that writes `**VERDICT: PASS**` in markdown counts as no verdict (fails safe): say so in
+  the `E_LAND_GATE` fix. The first milestone's commit range is its landed commit only (store the start HEAD in
+  meta.json). `dispatch` routes (asks Jev, writes a route row) before admission can refuse, and two concurrent
+  dispatches of one lane both route it. The ownership regex for climbs also catches environment errors that say
+  "owned by". `gate_pass` names HEAD for a pass on an uncommitted tree; a staged rename out of a gate's paths is not
+  seen; `./` is refused where `.` is meant.
+- **Access and doctor.** Doctor's claude-code access row reads the sandbox setting of the directory doctor runs in,
+  not each bound repo. `profile show` pads the "(no network)" row wrong; nothing warns about `network: false` on a
+  read-only or full role. Live check: whether `bunx catherd-cli@latest init` sees bunx's own `.bin` on PATH and
+  reports the global install as present.
+- **Failover and validation (plan 12).** An unscored stand-in gets both its "unscored" error and a "downgrade"
+  warning; `ladderDropDims` has no direct unit test; `rankStandIns` recomputes the bar check per pool member.
+- **Docs.** live-verification §9.2 reads verifier minutes from `agents.jsonl`, so a headless (`claude-code:`)
+  verifier prints nothing; the "back to published" block reuses `$version`, empty in a new shell.
+- **Install (plan 12 final review).** `bun add -g` in `init` has no time limit; the spawned init test passes
+  `BUN_INSTALL` through; `init` no longer warns "shadowed" when the global install is current but an older `catherd`
+  comes first on PATH (the launcher then falls back to bunx); an open milestone row lost its description; §9 check 5
+  should say "at least three" worker folders.
+- **Tests.** Three doctor tests run close to the 5 s default under load (plan 11's probes make a doctor run ~2.3 s):
+  give them 30 s like their neighbour. One full `bun test` run in five failed once on plan 12's head with no name recorded; heavy parallel
+  load in a shared sandbox times out git- and notifier-based tests at 5 s.
+
 ## Picked up
 
 - **Push results to the main thread, drop `wait`**, and **the runs page by main-thread session** (both designed

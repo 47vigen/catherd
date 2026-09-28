@@ -4,11 +4,13 @@ import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { claudeHome, locksDir } from "../infra/paths.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 import { agentLinkState } from "./agent-links.ts";
+import type { Handshake } from "./doctor.ts";
 import { activeName } from "./profile-store.ts";
 
 // The rows of `catherd doctor` and the checks that stand alone; doctor.ts assembles the report.
 
-type CheckState = "ok" | "warn" | "fail" | "skip";
+/** `info`: worth knowing, nothing to fix (spec 1.1 §13: the shipped defaults' access) */
+type CheckState = "ok" | "warn" | "fail" | "skip" | "info";
 
 /** One row of `catherd doctor` (spec §10.3): its state, one word, the detail and the full fix. */
 export interface Check {
@@ -64,6 +66,49 @@ export function pluginCheck(version: string): Check {
       fix: PLUGIN_UPDATE,
     };
   return { ...base, state: "ok", word: "ready", detail: installed };
+}
+
+/** What makes the plugin's launcher run this catherd without a resolve: a global install at this version. */
+export const reinstallCommand = (version: string): string => `bun add -g catherd-cli@${version}`;
+
+const MISSING_MODULE = /Cannot find (?:module|package) ['"]?([^'"\s]+)/;
+const NO_BUNX = /bunx: (?:command )?not found/;
+
+/**
+ * Spec 1.1 §12: the `mcp` row. The handshake starts the server the way the plugin does; a module it cannot
+ * load (a half-cleaned bunx cache, a broken global install) and a launcher that finds neither catherd nor
+ * bunx both say "reinstall: <command>".
+ */
+export function mcpCheck(h: Handshake, version: string): Check {
+  const base = { id: "mcp", label: "MCP server" };
+  if (h.ok && h.tools.includes("status"))
+    return { ...base, state: "ok", word: "ready", detail: `answers tools/list with ${h.tools.length} tools` };
+  const said = `${h.error ?? ""}\n${h.stderr ?? ""}`;
+  const reinstall = reinstallCommand(version);
+  const missing = MISSING_MODULE.exec(said)?.[1];
+  if (missing)
+    return {
+      ...base,
+      state: "fail",
+      word: "broken install",
+      detail: `cannot load ${missing}; reinstall: ${reinstall}`,
+      fix: reinstall,
+    };
+  if (NO_BUNX.test(said))
+    return {
+      ...base,
+      state: "fail",
+      word: "missing",
+      detail: `no catherd ${version} on PATH and no bunx to fetch it; reinstall: ${reinstall}`,
+      fix: reinstall,
+    };
+  return {
+    ...base,
+    state: "fail",
+    word: "no answer",
+    detail: h.error ?? "tools/list has no status tool",
+    fix: "run catherd mcp to see why it does not start",
+  };
 }
 
 export function locksCheck(): Check {

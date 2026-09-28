@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { checkEnv, scrubSecrets, workerEnv } from "../../src/infra/env.ts";
+import { checkEnv, restoreTmpdir, scrubSecrets, workerEnv } from "../../src/infra/env.ts";
 
 describe("workerEnv", () => {
   it("drops catherd's own secrets, keeps the user's backend credentials, and sets PWD", () => {
@@ -34,6 +34,29 @@ describe("scrubSecrets", () => {
       PATH: "/bin",
       OPENAI_API_KEY: "mine",
     });
+  });
+});
+
+describe("restoreTmpdir (spec 1.1 §12)", () => {
+  it("gives the server the TMPDIR the user had before the launcher pointed it at bunx's cache", () => {
+    const env: Record<string, string | undefined> = {
+      TMPDIR: "/c/catherd/bunx",
+      CATHERD_USER_TMPDIR: "/mine",
+    };
+    restoreTmpdir(env);
+    expect(env).toEqual({ TMPDIR: "/mine" });
+  });
+
+  it("unsets TMPDIR when the user had none", () => {
+    const env: Record<string, string | undefined> = { TMPDIR: "/c/catherd/bunx", CATHERD_USER_TMPDIR: "" };
+    restoreTmpdir(env);
+    expect(env).toEqual({});
+  });
+
+  it("leaves TMPDIR alone when the launcher did not set it", () => {
+    const env: Record<string, string | undefined> = { TMPDIR: "/mine" };
+    restoreTmpdir(env);
+    expect(env).toEqual({ TMPDIR: "/mine" });
   });
 });
 
