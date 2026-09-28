@@ -5,6 +5,7 @@ import { PROFILE_NAME, ProfilePatchSchema } from "../../domain/profile.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { gitToplevel } from "../../infra/git.ts";
 import type { Deps } from "../../services/ports.ts";
+import { syncSources } from "../../services/source-sync.ts";
 import { handle } from "./result.ts";
 
 const PROFILE = z.string().regex(PROFILE_NAME).optional();
@@ -46,6 +47,27 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
           { role: a.role, backend: a.backend, text: a.text, scoredOnly: a.scored_only, limit: a.limit, repo },
           deps.profiles.forRepo(repo ?? null).billing,
         );
+      }),
+  );
+
+  server.registerTool(
+    "catalog_sync",
+    {
+      description:
+        "Fetch the public model facts and scores now (models.dev, OpenRouter, LiteLLM, Arena, Vectara, Epoch AI, and Artificial Analysis with the user's key): each source at most every 12 hours unless `force`. Returns the rungs newly scored, the user's treat-likes no longer needed (their rung now has values of its own), the sources that failed (each keeps its last good answer) and each source's state. route and catalog_query read the result at once.",
+      inputSchema: { force: z.boolean().default(false) },
+    },
+    (a) =>
+      handle(async () => {
+        const r = await (deps.sync ?? ((o) => syncSources(o)))({ force: a.force });
+        return {
+          newlyScored: r.newlyScored,
+          standInsNoLongerNeeded: r.noLongerNeeded,
+          failed: r.failed,
+          sources: r.sources,
+          warnings: r.warnings,
+          ...(r.busy ? { busy: "another sync was running; call catalog_sync again" } : {}),
+        };
       }),
   );
 

@@ -8,6 +8,7 @@ import type { Role } from "../domain/roles.ts";
 import type { Change, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
+import type { SyncReport } from "./source-sync.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
 export interface ProfileView {
@@ -132,4 +133,6 @@ export interface Deps {
   /** the Claude Code session this process serves (spec §3.3), from its environment; null outside one */
   session: SessionEnv | null;
   now: () => number;
+  /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
+  sync?: (o: { force: boolean }) => Promise<SyncReport>;
 }

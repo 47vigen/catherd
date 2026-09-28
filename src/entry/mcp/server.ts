@@ -1,11 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { errorMessage } from "../../domain/errors.ts";
 import { log } from "../../infra/log.ts";
 import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
+import { backgroundSync } from "../../services/source-sync.ts";
 import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
@@ -60,9 +62,13 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
 
 /**
  * Spec §4.7: connect first, so the client never waits on a scan; then reconcile every run. Spec §3.4: the notifier
- * starts before reconcile, so what reconcile settles is announced, and scans for the rest once it is done.
+ * starts before reconcile, so what reconcile settles is announced, and scans for the rest once it is done. Spec
+ * 1.2 §3.2: the source sync starts once connected and is never awaited, so neither the handshake nor a tool call
+ * waits on the network. Tests pass their own transport and sync.
  */
-export async function startMcpServer(): Promise<void> {
+export async function startMcpServer(
+  o: { transport?: Transport; sync?: () => Promise<unknown> } = {},
+): Promise<void> {
   const deps = defaultDeps();
   // which of the session's variables this server got (never their values): the live check of spec §3.9
   log("info", "session", {
@@ -72,7 +78,11 @@ export async function startMcpServer(): Promise<void> {
     token: Boolean(deps.session?.token),
   });
   const notifier = startNotifier(deps);
-  await buildServer(deps).connect(new StdioServerTransport());
+  await buildServer(deps).connect(o.transport ?? new StdioServerTransport());
+  const sync = o.sync ?? (() => backgroundSync());
+  void Promise.resolve()
+    .then(sync)
+    .catch((e: unknown) => log("debug", "sources", { error: errorMessage(e) }));
   try {
     const r = await reconcileAll(deps);
     const shown = r.warnings.length;

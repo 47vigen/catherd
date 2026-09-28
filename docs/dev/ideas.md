@@ -9,6 +9,30 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
+
+Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
+(`ee661e4..5209310`):
+
+- **doctor's handshake starts a boot sync** (`src/entry/mcp/handshake.ts`): each `doctor` with a stale cache spends
+  fetches (AA included) in a server it kills a moment later, and records nothing. Set `CATHERD_NO_SYNC=1` in
+  `handshakeEnv`.
+- **Piped `init` reads a new line order** (Jev, AA, profile, replace): an old script piping `KEY\nwork\ny` now sends
+  `work` as the AA key. Say so in the 1.2 changeset and MIGRATION (plan 14).
+- **Fetchers store an answer of the wrong shape as a success** (AA `pages: []`, an Arena answer without `rows`),
+  replacing the last good one. Throw when a parser yields no rows or page 1 is empty.
+- **`writeDerived` does not validate what it writes**, while `readDerived` does: one score with a bad date makes the
+  whole file unreadable. `ScoreSchema.safeParse` each score in `derive` and drop the invalid ones.
+- **`catalog_sync` right after boot** waits up to 120 s for the boot sync's lock and may throw `E_IO_LOCK` when
+  sources hang. Return `busy` from the tool instead of waiting.
+- **`testAaKey` retries 429 and 5xx** through `sourceGet` (up to 3 requests); the spec says one. Pass `retries: 0`.
+- **doctor's "requests left today" can be stale:** a failed AA attempt with no header keeps the old
+  `rateLimitRemaining` under a new `lastAttemptAt`. Keep the header's own timestamp.
+- **`derive` keeps the highest value per key** whatever the field's direction; fine for today's dims, wrong for
+  `cost_per_task` or time to first token once they are facts. Carry a direction per field.
+- **`saveCredential` writes without a file lock**; two concurrent `init`s could lose a key (the Jev key's old
+  pattern). Take the profiles lock or a credentials lock.
+
 ## 1.1 follow-ups (minors from the 1.1 reviews, 2026-09-28)
 
 Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land here, not in code. Each is small.

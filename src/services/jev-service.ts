@@ -1,7 +1,5 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
-import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import type { CatherdError } from "../domain/errors.ts";
 import type { RouteSource } from "../domain/route.ts";
 import {
   canonicalJson,
@@ -17,45 +15,28 @@ import {
 import { assetPath } from "../infra/assets.ts";
 import { type JevTransport, jevRequest } from "../infra/jev-client.ts";
 import { addSecret, log } from "../infra/log.ts";
-import { configDir } from "../infra/paths.ts";
-import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned, writeJsonAtomic } from "../infra/store.ts";
+import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned } from "../infra/store.ts";
+import { aaKey, credentialsPath, saveCredential, savedCredential } from "./credentials.ts";
+
+export { credentialsPath };
 
 let file: JevFile | null = null;
 /** catalog/jev.json: the question sets and their rules (spec §5.5). */
 export const jevQuestions = (): JevFile =>
   (file ??= readVersioned(assetPath("catalog/jev.json"), JevFileSchema, 1));
 
-export const credentialsPath = (): string => join(configDir(), "credentials.json");
-const CredentialsSchema = z.looseObject({
-  schema: z.literal(1).default(1),
-  typesafeApiKey: z.string().optional(),
-});
-
-/** Registers the saved Jev key with the redactor, for a process that reads logs without ever calling Jev. */
+/**
+ * Registers the saved keys (Jev's and Artificial Analysis's) with the redactor, for a process that reads
+ * logs without ever using them.
+ */
 export function registerSavedSecrets(): void {
   addSecret(jevKey());
+  addSecret(aaKey());
 }
-
-/** How to repair a credentials file catherd cannot read: `init` alone refuses to overwrite it. */
-const credentialsFix = (): string =>
-  `delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`;
-const readCredentials = () =>
-  readVersioned(credentialsPath(), CredentialsSchema, 1, { fix: credentialsFix() });
 
 /** The key saved in credentials.json, or why that file cannot be read (unparsable, newer schema). */
-export function savedJevKey(): { key: string | null; problem: CatherdError | null } {
-  if (!existsSync(credentialsPath())) return { key: null, problem: null };
-  try {
-    return { key: readCredentials().typesafeApiKey?.trim() || null, problem: null };
-  } catch (e) {
-    return {
-      key: null,
-      problem: isCatherdError(e)
-        ? e
-        : new CatherdError("E_CONFIG_INVALID", String(e), { fix: credentialsFix() }),
-    };
-  }
-}
+export const savedJevKey = (): { key: string | null; problem: CatherdError | null } =>
+  savedCredential("typesafeApiKey");
 
 /**
  * Spec §5.5: `TYPESAFE_API_KEY`, else `<config>/credentials.json`; null when neither has one. Jev is
@@ -70,16 +51,8 @@ export function jevKey(): string | null {
   return key;
 }
 
-/**
- * Keeps any other credential, and the file at mode 600 (spec §10.4). A missing file starts empty; an
- * unreadable or newer-schema one is refused (it throws) rather than overwritten.
- */
-export function saveJevKey(key: string): void {
-  const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
-    ? readCredentials()
-    : { schema: 1 };
-  writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, typesafeApiKey: key.trim() }, { mode: 0o600 });
-}
+/** Saves the Jev key in credentials.json, keeping every other credential (`saveCredential`). */
+export const saveJevKey = (key: string): void => saveCredential("typesafeApiKey", key);
 
 /** A key works when Jev lists its models: no inference, and no dependence on a question set. */
 export async function testJevKey(key: string, o: JevTransport = {}): Promise<boolean> {

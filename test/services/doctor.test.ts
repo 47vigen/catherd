@@ -105,6 +105,7 @@ describe("doctor", () => {
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
       jev: "warn no key",
+      sources: "info not synced",
       plugin: "ok ready",
       agents: "ok ready",
       mcp: "ok ready",
@@ -336,8 +337,10 @@ describe("doctor", () => {
     expect(at("sandbox:codex")).toBeLessThan(at("access:codex"));
     expect(at("access:opencode")).toBeLessThan(at("access:full"));
     expect(at("access:full")).toBeLessThan(at("access:advisory"));
-    // the per-backend probes are ok/warn/skip, never info; only the shipped defaults' access modes are
+    // the per-backend probes are ok/warn/skip, never info; only the shipped defaults' access modes are,
+    // and the sources before a first sync (spec 1.2 §9)
     expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
+      "sources",
       "access:full",
       "access:advisory",
     ]);

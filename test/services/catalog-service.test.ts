@@ -120,6 +120,31 @@ describe("loadCatalog", () => {
     );
   });
 
+  it("takes a treat-like for a rung scored on only some of the dimensions it would borrow", async () => {
+    withHome();
+    mkdirSync(dirname(overridePath()), { recursive: true });
+    const agentic = {
+      rung: "claude-sonnet-5#high",
+      dim: "agentic",
+      value: 0.05,
+      benchmark: "Arena agent, net improvement",
+      version: "2026-09-27",
+      url: "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset",
+      date: "2026-09-27",
+      confidence: "measured",
+    };
+    writeFileSync(overridePath(), JSON.stringify({ schema: 1, scores: [agentic] }));
+    expect(await saveTreatLike("claude-sonnet-5#high", "gpt-6-sol#high")).toEqual({
+      rung: "claude-sonnet-5#high",
+      like: "gpt-6-sol#high",
+    });
+    const row = q({ backend: "claude-code", text: "sonnet" }).models[0]?.rungs.find(
+      (r) => r.rung === "claude-code:claude-sonnet-5#high",
+    );
+    expect(row?.scores.agentic?.confidence).toBe("measured");
+    expect(row?.scores.repo_code?.confidence).toBe("inferred");
+  });
+
   it("turns a corrupt override into E_CONFIG_INVALID with a fix", () => {
     withHome();
     mkdirSync(dirname(overridePath()), { recursive: true });

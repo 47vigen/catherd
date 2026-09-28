@@ -35,6 +35,8 @@ of work, climbing a ladder only when a cheaper rung falls short.
     (the npm package `opencode-ai` is v1 and is not supported)
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
+- Optional: a free [Artificial Analysis](https://artificialanalysis.ai) API key for more scores, in
+  `ARTIFICIAL_ANALYSIS_API_KEY` or saved by `catherd init`; its numbers are read for you alone and never shipped
 
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
@@ -87,6 +89,7 @@ In a terminal:
 | `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                         | Where runs stand, grouped by the Claude Code session that drove them                                |
 | `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>` | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's |
 | `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                              |
+| `catherd catalog sync [--force] [--unmatched]`                                            | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched     |
 | `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                             |
 | `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
 | `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                                    |
@@ -99,21 +102,30 @@ on the profile the repo you are in runs on: the one bound to it, else the active
 `~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
 and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too. `NO_COLOR` drops colour, never glyphs.
 
+Model facts and scores also come from public sources: models.dev, OpenRouter, LiteLLM, Arena (LMArena), Vectara's
+hallucination leaderboard and Epoch AI, plus Artificial Analysis when you give `catherd init` a free key. The MCP
+server syncs them in the background when a Claude Code session starts (each source at most every 12 hours, never
+delaying the session), `init` syncs them, and `catherd catalog sync` (or the `catalog_sync` tool) does it on demand.
+Each answer is kept in `~/.local/share/catherd/sources/`; a source that fails keeps its last good answer, and with no
+network and no sync at all catherd routes on the scores it ships.
+
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
 
 ### Environment variables
 
-| Variable                    | What it does                                                                                          |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY`          | The Jev key, instead of the one `catherd init` saves                                                  |
-| `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG             |
-| `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                |
-| `CATHERD_LOCK_SLOTS`        | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)           |
-| `CATHERD_REDUCED_MOTION`    | Any value: the dashboard's `--reduced-motion`                                                         |
-| `CATHERD_NO_KITTY`          | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks            |
-| `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`) |
-| `NO_COLOR`                  | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                         |
+| Variable                      | What it does                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `TYPESAFE_API_KEY`            | The Jev key, instead of the one `catherd init` saves                                                        |
+| `ARTIFICIAL_ANALYSIS_API_KEY` | An Artificial Analysis key for `catalog sync`, instead of the one `catherd init` saves                      |
+| `CATHERD_NO_SYNC`             | `1`: no automatic sync of the public sources (at MCP server start and in `init`); `catalog sync` still runs |
+| `CATHERD_HOME`                | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                   |
+| `CATHERD_LOG`                 | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                      |
+| `CATHERD_LOCK_SLOTS`          | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                 |
+| `CATHERD_REDUCED_MOTION`      | Any value: the dashboard's `--reduced-motion`                                                               |
+| `CATHERD_NO_KITTY`            | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks                  |
+| `CATHERD_CLAUDE_AGENTS_DIR`   | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`)       |
+| `NO_COLOR`                    | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                               |
 
 For development only: `CATHERD_STORY=1` opens the dashboard's storybook, and `CATHERD_LIVE=1` enables the live
 tests (CONTRIBUTING.md has the rest).

@@ -3,7 +3,9 @@ import { mkdtempSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
+import { syncLines } from "../../src/entry/catalog-command.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
+import type { SyncReport } from "../../src/services/source-sync.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -115,5 +117,45 @@ describe("catherd catalog", () => {
     const text = catherd("refresh").out;
     expect(text).toContain("! codex: codex is not on PATH\n    fix: npm i -g @openai/codex\n");
     expect(text).not.toContain("previous listing");
+  });
+});
+
+describe("catherd catalog sync (spec 1.2 §9)", () => {
+  it("takes --force, --unmatched and --json", () => {
+    withHome();
+    const r = catherd("sync", "--help");
+    expect(r.code).toBe(0);
+    for (const flag of ["--force", "--unmatched", "--json"]) expect(r.out).toContain(flag);
+  });
+
+  it("prints a line per source, then the rungs newly scored, the stand-ins no longer needed and the warnings", () => {
+    const report: SyncReport = {
+      busy: false,
+      sources: [
+        { source: "models-dev", state: "fetched", fetchedAt: "2026-09-28T10:00:00.000Z" },
+        { source: "arena", state: "fresh", fetchedAt: "2026-09-28T04:00:00.000Z" },
+        { source: "vectara", state: "failed", fetchedAt: "2026-09-27T10:00:00.000Z", error: "http 503" },
+        { source: "epoch", state: "failed", fetchedAt: null, error: "network error" },
+        { source: "artificial-analysis", state: "skipped", fetchedAt: null, detail: "no key: catherd init" },
+      ],
+      newlyScored: ["claude-opus-5-5#high"],
+      noLongerNeeded: [{ rung: "gpt-6-sol#high", like: "yardstick#high" }],
+      failed: [],
+      warnings: ["gpt-6-sol: input price $2/M on models.dev, $2.5/M on OpenRouter (more than 10 % apart)"],
+      unmatched: {},
+    };
+    expect(syncLines(report, true)).toEqual([
+      "+ models-dev: fetched",
+      "- arena: fresh (fetched 2026-09-28T04:00:00.000Z)",
+      "! vectara: http 503; keeps the answer fetched 2026-09-27T10:00:00.000Z",
+      "! epoch: network error; no earlier answer",
+      "- artificial-analysis: no key: catherd init",
+      "newly scored: claude-opus-5-5#high",
+      "stand-in no longer needed: gpt-6-sol#high has values of its own for what yardstick#high lent it",
+      "! gpt-6-sol: input price $2/M on models.dev, $2.5/M on OpenRouter (more than 10 % apart)",
+    ]);
+    expect(syncLines({ ...report, busy: true })).toEqual([
+      "- sources: another sync is running; its results apply when it ends",
+    ]);
   });
 });

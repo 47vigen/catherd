@@ -31,6 +31,7 @@ import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
+import { readDerived } from "../infra/sources/cache.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
@@ -41,14 +42,14 @@ const MIN_SAMPLES = 5;
 
 let models: ModelsFile | null = null;
 let scores: ScoresFile | null = null;
-const shippedModels = (): ModelsFile =>
+export const shippedModels = (): ModelsFile =>
   (models ??= readVersioned(assetPath("catalog/models.json"), ModelsFileSchema, 1));
-const shippedScores = (): ScoresFile =>
+export const shippedScores = (): ScoresFile =>
   (scores ??= readVersioned(assetPath("catalog/scores.json"), ScoresFileSchema, 1));
 
 export const overridePath = (): string => join(configDir(), "catalog.override.json");
 
-function readOverride(): Override {
+export function readOverride(): Override {
   const file = overridePath();
   return existsSync(file) ? readVersioned(file, OverrideSchema, 1) : OverrideSchema.parse({});
 }
@@ -119,9 +120,13 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
  * override and, unless `timings: false`, own timings.
  */
 export function loadCatalog(o: { timings?: boolean; repo?: string } = {}): Catalog {
+  // spec 1.2 §3.2: whatever the last sync derived; without one (first run, offline), the shipped values alone
+  const synced = readDerived();
   const base = buildCatalog({
     models: shippedModels(),
     scores: shippedScores(),
+    synced: synced?.scores,
+    facts: synced?.facts,
     override: readOverride(),
     listed: listedModels(o.repo),
   });
@@ -250,7 +255,9 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
     throw new CatherdError("E_CONFIG_INVALID", `${rung} cannot be treated like itself`, {
       fix: "name a different, scored rung",
     });
-  if (c.scores[from])
+  // a rung a sync scored on some dimensions may still borrow the others; one with every value `to` lends may not
+  const own = c.scores[from] ?? {};
+  if (DIMS.filter((d) => c.scores[to]?.[d]).every((d) => own[d]))
     throw new CatherdError(
       "E_CONFIG_INVALID",
       `${from} has scores of its own; a treat-like would not change it`,
@@ -297,7 +304,8 @@ function rungRows(
         scored[d] = {
           value: r.value,
           benchmark: `${r.benchmark} ${r.version}`,
-          confidence: s?.via ? "inferred" : r.confidence,
+          // a value lent by a treat-like is catherd's guess for this rung, whatever its own confidence
+          confidence: s?.borrowed.includes(d) ? "inferred" : r.confidence,
         };
     }
     const like = c.treatLike[info.canonical] ?? null;
