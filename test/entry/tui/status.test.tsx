@@ -27,6 +27,23 @@ async function status(effects = fixtureEffects()) {
 }
 
 describe("the Status tab (spec §9.1)", () => {
+  it("shows … for the profile count until a profiles read succeeds, never 0 profiles (spec 1.1 §13)", async () => {
+    const effects = fixtureEffects();
+    const read = effects.profiles;
+    let broken = true;
+    effects.profiles = () => {
+      if (broken) throw new CatherdError("E_CONFIG_INVALID", "config.json is not valid JSON");
+      return read();
+    };
+    await status(effects);
+    expect(h!.s.frame()).toContain("active · …");
+    expect(h!.s.frame()).not.toContain("0 profiles");
+    broken = false;
+    await h!.advance(RUNS_EVERY_MS);
+    expect(h!.s.frame()).not.toContain("active · …");
+    expect(h!.s.frame()).toContain("active · 1 profile");
+  });
+
   it("shows each check as glyph, word and detail, with its whole fix command wrapped under it", async () => {
     await status();
     const f = h!.s.frame();

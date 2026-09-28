@@ -92,9 +92,18 @@ describe("formatCheck", () => {
   });
 });
 
+describe("an info row (spec 1.1 §13)", () => {
+  it("draws i, in both glyph sets", () => {
+    expect(
+      formatCheck({ id: "access:full", label: "full access", state: "info", word: "default", detail: "x" }),
+    ).toEqual(["i default            full access — x"]);
+    expect(mark("info", true)).toBe("i");
+  });
+});
+
 describe("mark", () => {
   it("draws the theme's glyphs, ASCII under --plain (audit N2)", () => {
-    for (const state of ["ok", "warn", "fail", "skip"] as const)
+    for (const state of ["ok", "warn", "fail", "skip", "info"] as const)
       for (const plain of [false, true]) expect(mark(state, plain)).toBe(glyph(state, plain));
   });
 });

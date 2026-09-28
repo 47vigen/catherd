@@ -109,6 +109,7 @@ export const STATE_TOKEN: Record<State, Token> = {
   warn: "warning",
   fail: "error",
   skip: "muted",
+  info: "info",
 };
 
 export type Mood = "good" | "working" | "waiting" | "failed";

@@ -9,7 +9,8 @@ import { activeName } from "./profile-store.ts";
 
 // The rows of `catherd doctor` and the checks that stand alone; doctor.ts assembles the report.
 
-type CheckState = "ok" | "warn" | "fail" | "skip";
+/** `info`: worth knowing, nothing to fix (spec 1.1 §13: the shipped defaults' access) */
+type CheckState = "ok" | "warn" | "fail" | "skip" | "info";
 
 /** One row of `catherd doctor` (spec §10.3): its state, one word, the detail and the full fix. */
 export interface Check {

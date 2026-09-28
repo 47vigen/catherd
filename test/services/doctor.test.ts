@@ -112,8 +112,8 @@ describe("doctor", () => {
       "sandbox:codex": "ok ready",
       "access:codex": "ok ready",
       "access:opencode": "ok ready",
-      "access:full": "warn warning",
-      "access:advisory": "warn warning",
+      "access:full": "info default",
+      "access:advisory": "info default",
     });
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
@@ -299,6 +299,31 @@ describe("doctor", () => {
       state: "fail",
       word: "missing",
       fix: "catherd profile use default",
+    });
+  });
+
+  it("shows the shipped defaults' access as info, and warns only on what a profile changed (spec 1.1 §13)", async () => {
+    ready();
+    patchProfile("default", {
+      roles: {
+        reviewer: { access: "full" },
+        worker: { rungs: ["codex:gpt-6-sol#medium", "opencode:opencode-go/gpt-6-luna#high"] },
+      },
+    });
+    const r = await run();
+    expect(check(r, "access:full")).toEqual({
+      id: "access:full",
+      label: "full access",
+      state: "warn",
+      word: "warning",
+      detail: "no sandbox for: reviewer (default); as shipped: verifier (default), ui-reviewer (default)",
+    });
+    expect(check(r, "access:advisory")).toMatchObject({
+      state: "warn",
+      word: "warning",
+      detail: expect.stringMatching(
+        /^the backend asks but cannot force: worker on opencode \(default\); as shipped: /,
+      ),
     });
   });
 
