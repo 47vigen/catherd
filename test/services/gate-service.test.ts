@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { formatRun } from "../../src/entry/runs-command.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
@@ -54,6 +54,30 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/a.ts", "b");
     commit(repo);
     expect(await gateCheck(deps, both(run.id))).toEqual({ carried: false });
+  });
+
+  it("hashes a dirty file's mode and type, not only its bytes: a lost exec bit or a symlink is not carried", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/run.sh", "a");
+    write(repo, "src/b.txt", "b");
+    chmodSync(join(repo, "src/run.sh"), 0o755);
+    commit(repo);
+    const deps = fakeDeps();
+    // both dirty, then passed on that tree
+    write(repo, "src/run.sh", "echo hi");
+    write(repo, "src/b.txt", "shared");
+    write(repo, "src/target.txt", "shared");
+    await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    expect(await gateCheck(deps, item(run.id))).toMatchObject({ carried: true });
+    // the same bytes without the exec bit
+    chmodSync(join(repo, "src/run.sh"), 0o644);
+    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
+    chmodSync(join(repo, "src/run.sh"), 0o755);
+    expect(await gateCheck(deps, item(run.id))).toMatchObject({ carried: true });
+    // the same bytes behind a symlink
+    rmSync(join(repo, "src/b.txt"));
+    symlinkSync("target.txt", join(repo, "src/b.txt"));
+    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
   });
 
   it("hashes uncommitted changes under its paths, so a verifier on an uncommitted tree gets its own hash", async () => {

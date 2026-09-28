@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
@@ -50,6 +50,23 @@ function cleanPaths(paths: string[]): string[] {
 }
 
 /**
+ * One dirty path as git would store it: its type and exec bit as well as its bytes (a symlink by its
+ * target, not the file it points at), so a lost exec bit or a file turned symlink is new content.
+ */
+async function dirtyEntry(file: string): Promise<string> {
+  let s: Stats;
+  try {
+    s = lstatSync(file);
+  } catch {
+    return "gone";
+  }
+  const sha = (b: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(b).digest("hex");
+  if (s.isSymbolicLink()) return `link ${sha(readlinkSync(file))}`;
+  if (!s.isFile()) return s.isDirectory() ? "dir" : "other";
+  return `${s.mode & 0o111 ? "exec" : "file"} ${sha(await Bun.file(file).bytes())}`;
+}
+
+/**
  * The content hash of `paths`: each one's git tree (or blob) hash at HEAD, plus the content of every
  * uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of what it ran.
  */
@@ -71,13 +88,7 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
   const dirty = Object.keys(await statusSnapshot(repo))
     .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)
     .sort();
-  for (const f of dirty) {
-    const file = Bun.file(join(repo, f));
-    const body = (await file.exists())
-      ? new Bun.CryptoHasher("sha256").update(await file.bytes()).digest("hex")
-      : "gone";
-    h.update(`dirty ${f}=${body}\n`);
-  }
+  for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f))}\n`);
   return h.digest("hex");
 }
 
