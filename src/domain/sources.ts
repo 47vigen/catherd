@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Family } from "./catalog.ts";
+import { DIMS, type Family, FamilyFactsSchema, ScoreSchema } from "./catalog.ts";
 
 /** Spec 1.2 §3.1: the sources `catherd catalog sync` reads, one cache file each in `<data>/sources/`. */
 export const SOURCE_IDS = [
@@ -97,6 +97,36 @@ export function familyEfforts(f: Family): string[] {
   for (const on of Object.values(f.on)) for (const e of on?.efforts ?? []) all.add(e);
   return [...all].filter((e) => order(e) >= 0).sort((a, b) => order(a) - order(b));
 }
+
+/** Spec 1.2 §4.2: one source's fit onto a dimension's anchor, used or not, and why not. */
+export const FitRowSchema = z.object({
+  dim: z.enum(DIMS),
+  source: z.string(),
+  field: z.string(),
+  n: z.number().int(),
+  a: z.number().nullable(),
+  b: z.number().nullable(),
+  r2: z.number().nullable(),
+  used: z.boolean(),
+  why: z.string().optional(),
+});
+export type FitRow = z.infer<typeof FitRowSchema>;
+
+/**
+ * `<data>/sources/derived.json`: what a sync made of the cached answers. `scores` are the synced values the
+ * catalog layers over the shipped ones (`measured`, `calibrated`, `adjacent`), `facts` each family's facts,
+ * `unmatched` each source's ids no family matched (never guessed), `warnings` the cross-checks that failed.
+ */
+export const DerivedSchema = z.looseObject({
+  schema: z.literal(1),
+  builtAt: z.iso.datetime(),
+  scores: z.array(ScoreSchema),
+  facts: z.record(z.string(), FamilyFactsSchema),
+  fits: z.array(FitRowSchema),
+  unmatched: z.record(z.string(), z.array(z.string())),
+  warnings: z.array(z.string()),
+});
+export type Derived = z.infer<typeof DerivedSchema>;
 
 /** The effort of `have` nearest `target` (the weaker one on a tie); null when `have` holds no effort word. */
 export function nearestEffort(target: string, have: string[]): string | null {

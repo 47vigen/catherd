@@ -168,6 +168,48 @@ export interface Catalog {
   secs: Record<string, number>;
 }
 
+/**
+ * Spec 1.2 §3.5: what a sync learned about a family. `price`, `capabilities` and the opencode backends'
+ * `efforts` and `context` come from models.dev; `speed` holds facts that never carry a bar (spec 1.2 §4.1),
+ * as `<source>.<field>` → value.
+ */
+export const FamilyFactsSchema = z.object({
+  price: z.object({ input: z.number(), cached: z.number(), output: z.number() }).optional(),
+  capabilities: z.object({ toolUse: z.boolean(), imageIn: z.boolean(), reasoning: z.boolean() }).optional(),
+  on: z
+    .partialRecord(
+      z.enum(MODEL_KEYS),
+      z.object({ efforts: z.array(z.string()).optional(), context: z.number().int().positive().optional() }),
+    )
+    .default({}),
+  releaseDate: z.string().optional(),
+  speed: z.record(z.string(), z.number()).default({}),
+});
+export type FamilyFacts = z.infer<typeof FamilyFactsSchema>;
+
+/**
+ * Spec 1.2 §3.5: the families with a sync's facts laid over them. The shipped file stays the floor: a fact
+ * the sync lacks keeps the shipped one, and a backend keeps every effort it ships with.
+ */
+export function applyFacts(families: Family[], facts: Record<string, FamilyFacts>): Family[] {
+  return families.map((f) => {
+    const x = facts[f.id];
+    if (!x) return f;
+    const on = { ...f.on };
+    for (const key of MODEL_KEYS) {
+      const cur = on[key];
+      const got = x.on[key];
+      if (!cur || !got) continue;
+      on[key] = {
+        ...cur,
+        efforts: [...cur.efforts, ...(got.efforts ?? []).filter((e) => !cur.efforts.includes(e))],
+        context: got.context ?? cur.context,
+      };
+    }
+    return { ...f, price: x.price ?? f.price, capabilities: x.capabilities ?? f.capabilities, on };
+  });
+}
+
 /** Spec 1.2 §4.3: the level a value counts at: its own, one lower once it is older than STALE_DAYS. */
 export function effectiveRank(s: Score, now: number): number {
   const stale = now - Date.parse(s.date) > STALE_DAYS * DAY_MS;
@@ -190,6 +232,7 @@ export function buildCatalog(o: {
   models: ModelsFile;
   scores: ScoresFile;
   synced?: Score[];
+  facts?: Record<string, FamilyFacts>;
   override?: Override;
   listed?: Catalog["listed"];
   secs?: Catalog["secs"];
@@ -217,7 +260,7 @@ export function buildCatalog(o: {
       if (bar) bars[kind][d] = bar;
     }
   return {
-    families: o.models.families,
+    families: o.facts ? applyFacts(o.models.families, o.facts) : o.models.families,
     backends: o.models.backends,
     scores,
     treatLike,
