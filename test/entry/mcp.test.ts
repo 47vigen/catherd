@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
-import { progressTo } from "../../src/entry/mcp/dispatch-tools.ts";
 import { gitToplevel } from "../../src/infra/git.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { readAgentRuns } from "../../src/services/run-store.ts";
@@ -13,14 +12,13 @@ import { fakeDeps, fakeGit, freshRun, writeLane } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
-/** Spec §4.8, exactly. */
+/** Spec §4.8 and the 1.1 spec §14 (plan 10: `wait` removed), exactly. */
 const TOOLS = [
   "run_start",
   "route",
   "preflight",
   "dispatch",
   "cancel",
-  "wait",
   "climb",
   "ask",
   "land",
@@ -198,17 +196,5 @@ describe("MCP server", () => {
     const set = await call(c, "set_next", { run: run.id, next: "paused: lunch" });
     expect(set.isError).toBe(false);
     expect(set.data).toEqual({ state: null, hints: [expect.stringMatching(/^state\.md not refreshed: /)] });
-  });
-});
-
-describe("progress notifications", () => {
-  it("never throw, whether the client rejects or the transport is closed", () => {
-    const rejecting = progressTo("t", () => Promise.reject(new Error("client gone")));
-    const throwing = progressTo(1, () => {
-      throw new Error("closed");
-    });
-    expect(() => rejecting?.("w · 30s")).not.toThrow();
-    expect(() => throwing?.("w · 30s")).not.toThrow();
-    expect(progressTo(undefined, () => Promise.resolve())).toBeUndefined();
   });
 });

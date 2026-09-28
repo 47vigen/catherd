@@ -68,7 +68,8 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
   server.registerTool(
     "result",
     {
-      description: "A role's latest dispatch: its state, its record once finished, and its capped reply.",
+      description:
+        "A role's latest dispatch: its state, its record once finished, its capped reply, and hints (climb, violation, failed, limit and failover lines). Reading a finished record marks it read: catherd's messages announce records, and this is how you read one.",
       inputSchema: { run: z.string(), name: z.string().regex(ID_PATTERN) },
     },
     (a) => handle(() => result(deps, a)),

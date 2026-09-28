@@ -3,11 +3,11 @@ import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
+import { settle, unsettledLimits } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, type Run } from "./run-store.ts";
-import { refreshState } from "./state.ts";
 
 /**
  * Builds before the spec.json fix (plan-2 review I1) wrote every env value of the MCP server into
@@ -39,19 +39,19 @@ export interface ReconcileReport {
 }
 
 /**
- * Waits for a live dispatch this process did not start, then finalizes it. A state.md refresh that
- * fails rejects, after the record is written, with a message that says so.
+ * Waits for a live dispatch this process did not start, then finalizes and settles it (plan 10). A state.md
+ * refresh that fails rejects, after the record is written, with a message that says so.
  */
 async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
-  await waitForFinish(d, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
-  await finalizeDispatch(run, d);
-  const { hints } = await refreshState(run);
-  if (hints[0]) throw new Error(hints[0]);
+  await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
+  const s = await settle(deps, run, d, await finalizeDispatch(run, d));
+  if (s.stateHints[0]) throw new Error(s.stateHints[0]);
 }
 
 /**
- * Spec §4.7: on server start, finalize each finished dispatch that has no record, and watch each live
- * one until it finishes. A run that cannot be read is skipped with a warning; it never stops the server.
+ * Spec §4.7: on server start, finalize and settle each finished dispatch that has no record, settle each
+ * unread usage limit that was never failed over (its server died between the two), and watch each live one
+ * until it finishes. A run that cannot be read is skipped with a warning; it never stops the server.
  */
 export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
   const { runs, corrupt } = listRuns();
@@ -81,14 +81,28 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
         watchers.push(watchAndFinalize(deps, run, d).catch((e: unknown) => warn(run, e)));
         continue;
       }
+      let s: Awaited<ReturnType<typeof settle>>;
       try {
-        await finalizeDispatch(run, d);
+        s = await settle(deps, run, d, await finalizeDispatch(run, d));
       } catch (e) {
         warn(run, e);
         continue;
       }
       report.finalized.push(d.admit.dispatchId);
-      for (const h of (await refreshState(run)).hints) warn(run, h);
+      for (const h of s.stateHints) warn(run, h);
+    }
+    let limits: ReturnType<typeof unsettledLimits> = [];
+    try {
+      limits = unsettledLimits(run);
+    } catch (e) {
+      warn(run, e);
+    }
+    for (const { d, record } of limits) {
+      try {
+        for (const h of (await settle(deps, run, d, record)).stateHints) warn(run, h);
+      } catch (e) {
+        warn(run, e);
+      }
     }
   }
   log("info", "reconcile", {

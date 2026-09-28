@@ -124,9 +124,7 @@ export interface Deps {
   profiles: ProfilePort;
   routing: RoutingPort;
   version: string;
-  /** how often the supervisor and the dispatch wait poll, in ms */
+  /** how often the supervisor and the dispatch watchers poll, in ms */
   pollMs: number;
-  /** how often a running dispatch reports progress, in ms (spec §4.4: 30 s) */
-  tickMs: number;
   now: () => number;
 }

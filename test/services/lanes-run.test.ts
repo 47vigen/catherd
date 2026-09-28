@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
-import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { ask, climb, land, route } from "../../src/services/lane-service.ts";
 import {
   readKnowledge,
@@ -306,21 +307,68 @@ describe("run files, result and agent runs", () => {
     expect(lastLine(runPaths(run.dir).state)).toBe("Next: paused: user asked");
   });
 
-  it("returns a live role's state, then its record and capped reply", async () => {
+  it("returns a live role's state, then its record, capped reply and hints", async () => {
     const { run } = freshRun();
     const deps = fakeDeps();
-    const d = await fakeDispatch(run, {}, { proc: "self" });
-    expect(result(deps, { run: run.id, name: "worker-M1.L1" })).toMatchObject({
+    const d = await fakeDispatch(run, {}, { proc: "self", collect: true });
+    expect(await result(deps, { run: run.id, name: "worker-M1.L1" })).toMatchObject({
       state: "running",
       record: null,
+      hints: [],
     });
+    // a live role's record is not there yet: nothing is marked read
+    expect(awaitsCollect(d.dir)).toBe(true);
     writeFileSync(dispatchPaths(d.dir).reply, `${"line\n".repeat(300)}STATUS: complete — ok`);
-    await appendRecord(run, makeRecord({ dispatchId: d.admit.dispatchId }));
-    const r = result(deps, { run: run.id, name: "worker-M1.L1" });
+    await appendRecord(run, makeRecord({ dispatchId: d.admit.dispatchId, violations: ["src/x.ts"] }));
+    const r = await result(deps, { run: run.id, name: "worker-M1.L1" });
     expect(r.state).toBe("finished");
     expect(r.record?.dispatchId).toBe(d.admit.dispatchId);
     expect(r.reply).toContain(`[capped: the full reply is ${r.replyPath}]`);
+    expect(r.hints).toContain("violation: src/x.ts");
     expect(await codeOf(() => result(deps, { run: run.id, name: "nobody" }))).toBe("E_RUN_NOT_FOUND");
+  });
+
+  it("marks a finished record read, once, and reads it again unchanged (spec §3.7)", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const d = await fakeDispatch(run, {}, { proc: "dead", exit, collect: true });
+    await appendRecord(run, makeRecord({ dispatchId: d.admit.dispatchId }));
+    expect(awaitsCollect(d.dir)).toBe(true);
+    const first = await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(awaitsCollect(d.dir)).toBe(false);
+    expect(existsSync(dispatchPaths(d.dir).lease)).toBe(false);
+    const again = await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(again.record).toEqual(first.record);
+    expect(again.hints).toEqual(first.hints);
+  });
+
+  it("marks an earlier unread record of the name read with the latest, its hints first", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    const exit = { code: 1, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const limited = await fakeDispatch(run, {}, { proc: "dead", exit, collect: true });
+    await appendRecord(run, makeRecord({ dispatchId: limited.admit.dispatchId, status: "limit" }));
+    writeJsonAtomic(dispatchPaths(limited.dir).failover, {
+      schema: 1,
+      at: new Date().toISOString(),
+      standIn: null,
+      hints: ["limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high"],
+      pause: null,
+    });
+    const stand = await fakeDispatch(
+      run,
+      { rung: "codex:gpt-6-sol#high", failoverFrom: "codex:gpt-6-sol#medium" },
+      { proc: "dead", exit: { ...exit, code: 0 }, collect: true },
+    );
+    await appendRecord(run, makeRecord({ dispatchId: stand.admit.dispatchId, violations: ["src/y.ts"] }));
+    const r = await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(r.record?.dispatchId).toBe(stand.admit.dispatchId);
+    expect(r.hints).toEqual([
+      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
+      "violation: src/y.ts",
+    ]);
+    expect([limited, stand].map((x) => awaitsCollect(x.dir))).toEqual([false, false]);
   });
 
   it("records a native subagent run, and only for a claude rung", async () => {

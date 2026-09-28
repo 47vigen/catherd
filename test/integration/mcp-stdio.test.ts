@@ -39,7 +39,6 @@ function serverEnv(home: string, scenarioFile: string): Record<string, string> {
     XDG_CONFIG_HOME: join(home, "xdg-config"),
     PATH: simPath(),
     CATHERD_SIM_SCENARIO: scenarioFile,
-    CATHERD_TICK_MS: "200",
     // a root container runs this suite too: preflight runs its checks there only on a disposable machine
     IS_SANDBOX: "1",
   };
@@ -111,30 +110,14 @@ async function until<T>(f: () => Promise<T | null | undefined | false>, ms = 20_
   }
 }
 
-/** A `wait` call whose progress notifications reach `onTick`; its parsed result. */
-async function waitWithProgress(
-  c: Client,
-  args: Record<string, unknown>,
-  onTick: (message: string) => void,
-  // oxlint-disable-next-line typescript/no-explicit-any
-): Promise<any> {
-  const r = await c.callTool({ name: "wait", arguments: args }, undefined, {
-    timeout: 60_000,
-    resetTimeoutOnProgress: true,
-    onprogress: (p) => onTick(p.message ?? ""),
-  });
-  if (r.isError) throw new Error(JSON.stringify(r.content));
-  return JSON.parse((r.content as { text: string }[])[0]?.text ?? "null");
-}
-
 /** runs.jsonl's whole rows; a torn tail line is skipped, as catherd's own reader does. */
-function recordsOf(dir: string): { dispatchId: string; status: string }[] {
+function recordsOf(dir: string): { dispatchId: string; status: string; name: string }[] {
   return readFileSync(join(dir, "runs.jsonl"), "utf8")
     .split("\n")
     .slice(1)
     .flatMap((l) => {
       try {
-        return [JSON.parse(l) as { dispatchId: string; status: string }];
+        return [JSON.parse(l) as { dispatchId: string; status: string; name: string }];
       } catch {
         return [];
       }
@@ -172,12 +155,6 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect((await call(c, "status")).data.version).toBe(PKG.version);
       const started = await call(c, "run_start", { repo, title: "Add a", a_lines: ["A1 a exists"] });
       const { run, dir } = started.data as { run: string; dir: string };
-      expect((await call(c, "wait", { run })).data).toEqual({
-        records: [],
-        started: [],
-        running: [],
-        hints: ["nothing to wait for: every dispatch of this run has been collected; dispatch a role first"],
-      });
       await call(c, "write_run_file", {
         run,
         path: "lanes/M1.L1.md",
@@ -201,7 +178,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       ]);
       expect(pre.data.blocked).toBe(false);
 
-      // dispatch at Luna, which returns at launch; wait, with progress, collects the refusal; climb.
+      // dispatch at Luna, which returns at launch; the server records the refusal; result reads it; climb.
       const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
       sim.rewrite({
         eventsFile: join(FX, "two-turns.jsonl"),
@@ -219,15 +196,11 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(launched.data.dispatched).toMatchObject({ name: "worker-M1.L1", rung: "codex:gpt-6-luna#high" });
       expect(Date.parse(launched.data.dispatched.admittedAt)).toBeGreaterThan(0);
       expect((await call(c, "status", { run })).data.runs[0].live).toHaveLength(1);
-      const ticks: string[] = [];
-      const waiting = waitWithProgress(c, { run }, (m) => ticks.push(m));
-      await until(async () => ticks.length > 0);
       writeFileSync(release, "");
-      const refused = await waiting;
-      expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
-      expect(refused.records[0].record).toMatchObject({ status: "ok", replyStatus: "refused" });
-      expect(refused.records[0].hints).toContain("climb: refused");
-      expect(refused.running).toEqual([]);
+      await until(async () => recordsOf(dir).length === 1);
+      const refused = (await call(c, "result", { run, name: "worker-M1.L1" })).data;
+      expect(refused.record).toMatchObject({ status: "ok", replyStatus: "refused" });
+      expect(refused.hints).toContain("climb: refused");
       const climbed = await call(c, "climb", { run, lane: "M1.L1", reason: "refused" });
       expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#medium", top: false });
 
@@ -245,24 +218,19 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       });
       const failed = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-sol#medium" });
       expect(failed.data.dispatched.rung).toBe("codex:gpt-6-sol#medium");
-      // wait records the limit and launches the stand-in without awaiting it; the next wait collects it
-      const limited = (await call(c, "wait", { run })).data;
-      expect(limited.records[0].record).toMatchObject({ status: "limit", rung: "codex:gpt-6-sol#medium" });
-      expect(limited.records[0].hints[0]).toBe(
-        "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
-      );
-      expect(limited.started).toEqual([
-        expect.objectContaining({ name: "worker-M1.L1", rung: "codex:gpt-6-sol#high" }),
-      ]);
-      expect(limited.running).toEqual(["worker-M1.L1"]);
-      const stood = (await call(c, "wait", { run })).data;
-      expect(stood.records[0].record).toMatchObject({
+      // the server records the limit and launches the stand-in at once; result reads both, the limit's hint first
+      await until(async () => recordsOf(dir).length === 3);
+      expect(recordsOf(dir).map((r) => r.status)).toEqual(["ok", "limit", "ok"]);
+      const stood = (await call(c, "result", { run, name: "worker-M1.L1" })).data;
+      expect(stood.record).toMatchObject({
         status: "ok",
         rung: "codex:gpt-6-sol#high",
         failoverFrom: "codex:gpt-6-sol#medium",
         changedOwned: ["src/a.ts"],
       });
-      expect(stood.running).toEqual([]);
+      expect(stood.hints[0]).toBe(
+        "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
+      );
 
       // land: five columns with minutes, and what it learned goes to the repo's knowledge.
       const sha = commitAll(repo);
@@ -296,7 +264,6 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       // cancel: a hanging role is stopped and recorded once as cancelled.
       sim.rewrite({ hangMs: 60_000 });
       expect((await call(c, "dispatch", second)).isError).toBe(false);
-      const hanging = call(c, "wait", { run, names: ["worker-M1.L2"] });
       await until(async () =>
         (await call(c, "status", { run })).data.runs[0].live.some(
           (l: { state: string }) => l.state === "running",
@@ -304,13 +271,9 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       );
       const cancelled = await call(c, "cancel", { run, name: "worker-M1.L2" });
       expect(cancelled.data.record.status).toBe("cancelled");
-      // cancel collects the record: the wait in flight may return it too, and no later wait does
-      const id = cancelled.data.record.dispatchId;
-      const inFlight = (await hanging).data.records as { record: { dispatchId: string } }[];
-      expect(inFlight.every((r) => r.record.dispatchId === id)).toBe(true);
-      expect((await call(c, "wait", { run })).data.records).toEqual([]);
+      expect(recordsOf(dir).filter((r) => r.dispatchId === cancelled.data.record.dispatchId)).toHaveLength(1);
 
-      // restart mid-run: the server dies while a role runs; the next server's wait collects its one record.
+      // restart mid-run: the server dies while a role runs; the next server records it, once.
       sim.rewrite({
         delayMs: 2_000,
         eventsFile: join(FX, "two-turns.jsonl"),
@@ -323,11 +286,8 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       // the dead server recorded nothing: the record below is the next server's
       expect(recordsOf(dir)).toHaveLength(recordedBefore);
       c = await connect(env);
-      const collected = (await call(c, "wait", { run })).data;
-      expect(collected.records.map((r: { record: { name: string } }) => r.record.name)).toEqual([
-        "worker-M1.L2",
-      ]);
-      const done = collected.records[0].record;
+      await until(async () => recordsOf(dir).length === recordedBefore + 1);
+      const done = (await call(c, "result", { run, name: "worker-M1.L2" })).data.record;
       expect(done.status).toBe("ok");
       expect(done.changedOwned).toEqual(["src/b.ts"]);
       const ids = recordsOf(dir).map((r) => r.dispatchId);
@@ -345,7 +305,7 @@ describe("concurrency and corruption, over stdio", () => {
     async () => {
       const { repo, sim, env } = setup();
       const c = await connect(env);
-      const { run } = (await call(c, "run_start", { repo, title: "p", a_lines: ["A1"] })).data;
+      const { run, dir } = (await call(c, "run_start", { repo, title: "p", a_lines: ["A1"] })).data;
       await call(c, "write_run_file", {
         run,
         path: "lanes/M1.L1.md",
@@ -368,8 +328,8 @@ describe("concurrency and corruption, over stdio", () => {
         call(c, "dispatch", { ...base, name: "writer", role: "writer" }),
       ]);
       expect(names.map((r) => r.error?.code ?? "ok").sort()).toEqual(["E_ADMIT_DUPLICATE", "ok"]);
-      const all = (await call(c, "wait", { run, all: true })).data;
-      expect(all.records.map((r: { record: { status: string } }) => r.record.status)).toEqual(["ok", "ok"]);
+      await until(async () => recordsOf(dir).length === 2);
+      expect(recordsOf(dir).map((r) => r.status)).toEqual(["ok", "ok"]);
       await c.close();
     },
     { timeout: 60_000 },
@@ -428,7 +388,8 @@ describe("concurrency and corruption, over stdio", () => {
         rung: "codex:gpt-6-luna#high",
       });
       expect(r.data.dispatched.name).toBe("writer");
-      expect((await call(c2, "wait", { run })).data.records[0].record.status).toBe("ok");
+      await until(async () => recordsOf(dir).length === 1);
+      expect((await call(c2, "result", { run, name: "writer" })).data.record.status).toBe("ok");
       expect(recordsOf(dir).map((x) => x.status)).toEqual(["ok"]);
       await c2.close();
     },

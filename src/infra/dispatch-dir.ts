@@ -31,11 +31,13 @@ export function dispatchPaths(dir: string) {
     cancel: join(dir, "cancel"),
     /** held by the one supervisor of this dispatch for its lifetime (filelock, dead holders reclaimed) */
     supervisorLock: join(dir, "supervisor.lock"),
-    /** exists from launch until a `wait` hands the dispatch's record to the orchestrator */
+    /** exists from admission until the orchestrator reads the record (`result`, `cancel`): "not yet read" */
     collect: join(dir, "collect"),
-    /** while a `wait` hands the record back: names that wait's process, so a crash leaves it reclaimable */
+    /** while a reader takes the record: names that reader's process, so a crash leaves it reclaimable */
     lease: join(dir, "collect.lease"),
     supervisorLog: join(dir, "supervisor.log"),
+    /** what failover did for this limited dispatch, written once under `failover.lock` (plan 10) */
+    failover: join(dir, "failover.json"),
   };
 }
 
@@ -81,7 +83,7 @@ export function readClaimant(dir: string): { pid: number; startTime: string | nu
   }
 }
 
-/** Marks a dispatch as one a `wait` is to hand back; written before its launch. */
+/** Marks a dispatch's record as not yet read; written before its launch. */
 export function markForCollect(dir: string): void {
   writeFileSync(dispatchPaths(dir).collect, "", { mode: PRIVATE_FILE });
 }
@@ -130,8 +132,8 @@ function leaseDead(file: string): boolean {
 }
 
 /**
- * Whether a `wait` still has this dispatch's record to hand back: it has the mark, or a lease whose
- * collector died before handing the record back.
+ * Whether this dispatch's record is still unread: it has the mark, or a lease whose reader died before the
+ * record went out.
  */
 export function awaitsCollect(dir: string): boolean {
   const p = dispatchPaths(dir);
@@ -188,7 +190,7 @@ async function reviveDeadLease(dir: string): Promise<void> {
 
 /**
  * Collects the dispatch as a lease naming this process: true for the one caller that got it, so each
- * record reaches one `wait` only. The common path takes no lock: the lease is created exclusively, and
+ * record is read (marked read) once. The common path takes no lock: the lease is created exclusively, and
  * the record is this caller's only if the mark still exists then; the mark goes only once the lease
  * exists. A dead collector's lease is first turned back into the mark (`reviveDeadLease`), then
  * collected the same way; a live collector's is never taken. The caller ends the lease with `endCollect`

@@ -10,7 +10,6 @@ export function defaultDeps(): Deps {
     routing: routingService(),
     version: VERSION,
     pollMs: 250,
-    tickMs: Number(process.env.CATHERD_TICK_MS) || 30_000,
     now: Date.now,
   };
 }

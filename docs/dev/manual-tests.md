@@ -7,13 +7,14 @@ backgrounding, subagent loading or plugin discovery (see §14, Risks, of the
 [1.0 design](../specs/2026-09-25-catherd-1.0-design.md)). The checks that need real backend accounts (live tests, fixture capture, the
 Codex sandbox, the Jev key prompt) are in [`live-verification.md`](live-verification.md).
 
-Do these in order: S1 and S2 gate `wait` and the Claude agent files that the plugin
-check (the last section) then exercises end to end. S1 and S2 were written for 0.x and
-still hold for 1.0: they test Claude Code, not catherd.
+Do these in order: S1 and S2 test Claude Code itself (a long MCP call, the Claude agent
+files), and the plugin check (the last section) then exercises catherd end to end. S1 no
+longer gates catherd: since 1.1 no catherd tool blocks (`wait` is gone; results arrive as
+catherd messages), and it stays here for anyone who adds a long-running tool.
 
 ## S1 — a 40-minute MCP call survives from the main thread
 
-**What this checks:** a long MCP call (in 1.0, `wait`; in 0.x it was `dispatch`) must
+**What this checks:** a long MCP call (in 1.0, `wait`; in 0.x it was `dispatch`; since 1.1, none) must
 background itself after about two minutes and let the orchestrator keep working, then
 wake it with the result when the role finishes — without the stdio connection timing
 out. `dispatch` itself returns at launch in 1.0, so it no longer needs to background.
@@ -110,12 +111,12 @@ out. `dispatch` itself returns at launch in 1.0, so it no longer needs to backgr
 
 8. Optional control, only if step 6 passed with a token present: in another new
    session, ask for `sleep` with `minutes 35` and `progress false`. If that call dies
-   near 30 minutes, the progress notifications are what keep a long `wait` alive.
+   near 30 minutes, the progress notifications are what keep a long MCP call alive.
 
 **Verdict:** S1 **passes** only if all three hold — the call backgrounded within about
 2.5 minutes; it survived the full 40 minutes; the model woke by itself with the
 result. A missing progress token is fine if the call still survived. Otherwise S1
-**fails**: a long `wait` would not survive either, so file an issue.
+**fails**: a long MCP call does not survive; record it before adding any tool that blocks.
 
 Clean up: `claude mcp remove catherd-s1 --scope user`, then `rm -r spikes`. The server
 source stays here, so you can re-create it when re-running this check on a new Claude
@@ -271,10 +272,10 @@ real tools — the thing the unit and contract tests cannot show.
       flag to the hello script that upper-cases its output`. Look for: A-lines,
       `run_start`, lane files written through `write_run_file` (no permission prompt
       for the run folder, since it is outside the repo), `route`, a worker `dispatch`
-      that returns in about a second, then a `wait`, the verifier running as the
-      generated agent, a `land`, and a final report with the harness line. If S1
-      passed, the `wait` backgrounds after two minutes only if the role actually runs
-      that long — a quicker finish is fine.
+      that returns in about a second, the session ending its turn, a
+      `<cross-session-message from-name="catherd">` announcing the worker's record, a
+      `result` call, the verifier running as the generated agent, a `land`, and a final
+      report with the harness line.
    7. Run the five checks of [live verification §6](live-verification.md#6-one-orchestrated-run) in
       the same repository: two lanes whose records overlap in time, an opencode worker, a forced
       climb, quota failover through a fake `codex` on the PATH, and a tiny token budget ending in

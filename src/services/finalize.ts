@@ -252,7 +252,7 @@ function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
  * appendRecord's per-dispatch dedupe keeps that to one record either way (audit C2). A claimer that throws
  * releases its claim.
  *
- * In this process, a second finalizer (a `wait` beside the dispatch's watcher) joins the first one's
+ * In this process, a second finalizer (`cancel` beside the dispatch's watcher) joins the first one's
  * promise. Across processes it waits for the claimant's record, and takes over only once the claim is
  * stale (claimant dead, or past its settle window): never while a live claimant may still be settling.
  */
@@ -321,7 +321,7 @@ async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
   return saved;
 }
 
-/** The last event of a running dispatch worth showing in a progress line, if any. */
+/** The last event of a running dispatch worth showing (peek, the runs page), if any. */
 export function lastEvent(d: Dispatch): string | null {
   const a = adapterFor(d.admit.backend);
   const line = nonBlankLines(dispatchPaths(d.dir).events).at(-1);
@@ -333,27 +333,7 @@ export function lastEvent(d: Dispatch): string | null {
   }
 }
 
-/** Waits until the dispatch finishes, calling `onTick` every `tickMs`; a throwing onTick never ends the wait. */
-export async function waitForFinish(
-  d: Dispatch,
-  o: {
-    pollMs: number;
-    tickMs: number;
-    now: () => number;
-    onTick?: (secs: number, lastEvent: string | null) => void;
-  },
-): Promise<void> {
-  const started = Date.now();
-  let ticked = started;
-  while (dispatchState(d, o.now()) !== "finished") {
-    await Bun.sleep(o.pollMs);
-    if (o.onTick && Date.now() - ticked >= o.tickMs) {
-      ticked = Date.now();
-      try {
-        o.onTick(Math.round((ticked - started) / 1000), lastEvent(d));
-      } catch {
-        // a progress report must never stop the wait
-      }
-    }
-  }
+/** Waits until the dispatch finishes, polling every `pollMs`. */
+export async function waitForFinish(d: Dispatch, o: { pollMs: number; now: () => number }): Promise<void> {
+  while (dispatchState(d, o.now()) !== "finished") await Bun.sleep(o.pollMs);
 }

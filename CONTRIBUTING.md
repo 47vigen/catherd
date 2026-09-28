@@ -96,8 +96,8 @@ The checks that need a human in Claude Code (plugin loading, long MCP calls) are
 [`docs/dev/manual-tests.md`](docs/dev/manual-tests.md).
 
 Development-only environment variables: `CATHERD_LIVE` (live tests), `CATHERD_STORY` (the storybook),
-`CATHERD_TICK_MS` (how often a waiting `dispatch` reports progress), `CATHERD_WRITE_FRAMES` (what
-`bun run tui-frames` sets), and the simulators' `CATHERD_SIM_*`. The user-facing ones are in the README.
+`CATHERD_WRITE_FRAMES` (what `bun run tui-frames` sets), and the simulators' `CATHERD_SIM_*`. The user-facing ones
+are in the README.
 
 ## Where things live
 

@@ -103,9 +103,8 @@ Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (bot
 | `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`) |
 | `NO_COLOR`                  | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                         |
 
-For development only: `CATHERD_STORY=1` opens the dashboard's storybook, `CATHERD_TICK_MS` sets how often a blocked
-`wait` reports progress (default 30000), and `CATHERD_LIVE=1` enables the live tests
-(CONTRIBUTING.md has the rest).
+For development only: `CATHERD_STORY=1` opens the dashboard's storybook, and `CATHERD_LIVE=1` enables the live
+tests (CONTRIBUTING.md has the rest).
 
 ### The dashboard
 

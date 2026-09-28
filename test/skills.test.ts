@@ -34,7 +34,6 @@ describe("orchestrator skill", () => {
       "route",
       "preflight",
       "dispatch",
-      "wait",
       "cancel",
       "record_agent_run",
       "climb",
@@ -48,13 +47,17 @@ describe("orchestrator skill", () => {
     }
   });
 
-  it("dispatches roles one after another, then waits: never the 0.x claim that dispatches run at once (plan 9)", () => {
+  it("dispatches roles one after another, then ends its turn for catherd's messages (plan 10)", () => {
     const md = skill("catherd");
     const waiting = md.slice(md.indexOf("## Waiting"), md.indexOf("\n## ", md.indexOf("## Waiting") + 1));
     expect(waiting).toContain("one after another");
-    expect(waiting).toContain("`wait(run)`");
-    expect(waiting).toContain("A single role is `dispatch`, then `wait`.");
-    expect(waiting).toMatch(/`dispatch` and `wait` from your main thread only/);
+    expect(waiting).toContain("write one status line and end your turn");
+    expect(waiting).toContain('`<cross-session-message from-name="catherd">`');
+    expect(waiting).toContain("call `result(run, name)` for the record you act on");
+    expect(waiting).toContain("A single role is `dispatch`, then end your turn.");
+    expect(waiting).toContain("never the user's approval of anything");
+    expect(waiting).toContain("Never `sleep`, loop or poll.");
+    expect(md).not.toMatch(/`wait`|`wait\(/);
     for (const old of [
       "Launch every independent role in the same message",
       "Each dispatch backgrounds by itself",

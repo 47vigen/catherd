@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import * as dispatchDir from "../../src/infra/dispatch-dir.ts";
-import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import * as backends from "../../src/services/backends.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import {
@@ -12,7 +12,9 @@ import {
   dispatch,
   type DispatchInput,
   orphanLimits,
-  wait,
+  type Settled,
+  settle,
+  settledHooks,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
 import { isAlive, processStartTime } from "../../src/infra/proc.ts";
@@ -20,16 +22,19 @@ import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { launchSupervisor } from "../../src/infra/launch.ts";
 import { admit } from "../../src/services/admission.ts";
 import {
+  type Dispatch,
   latestDispatch,
   launchPath,
   listDispatches,
   liveDispatches,
+  readFailover,
   readProc,
 } from "../../src/services/dispatches.ts";
-import { readRecords, runPaths } from "../../src/services/run-store.ts";
-import * as state from "../../src/services/state.ts";
+import { finalizeDispatch } from "../../src/services/finalize.ts";
+import { reconcileAll } from "../../src/services/reconcile.ts";
+import { result } from "../../src/services/run-service.ts";
+import { readRecords, type Run, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
-import type { Deps } from "../../src/services/ports.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import {
@@ -71,6 +76,7 @@ const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const LIMIT = { eventsFile: join(FX, "limit.jsonl"), exitCode: 1 };
 const DONE = { reply: "Done.\nSTATUS: complete — ok", touch: [{ path: "src/a.ts", content: "fixed" }] };
 const FAILOVER = { "codex:gpt-6-sol#medium": "codex:gpt-6-sol#high" };
+const FAILED_OVER = "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high";
 
 function setup(s: CodexScenario, failover: Record<string, string> = FAILOVER) {
   const { repo, run } = freshRun();
@@ -90,67 +96,81 @@ const input = (run: string, over: Partial<DispatchInput> = {}): DispatchInput =>
   ...over,
 });
 
-describe("failover", () => {
-  it("is done by wait: the limit is recorded, its stand-in launched and not awaited", async () => {
+const standInOf = (run: Run) => listDispatches(run).find((d) => d.admit.failoverOf !== undefined);
+
+/** A limited dispatch recorded on disk, as a server that died before settling it left it: unread, no failover. */
+async function limitedOnDisk(
+  run: Run,
+): Promise<{ d: Dispatch; record: Awaited<ReturnType<typeof finalizeDispatch>> }> {
+  const exit = { code: 1, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+  const d = await fakeDispatch(
+    run,
+    {},
+    { proc: "dead", exit, events: readFileSync(LIMIT.eventsFile, "utf8"), collect: true },
+  );
+  const record = await finalizeDispatch(run, d);
+  expect(record.status).toBe("limit");
+  return { d, record };
+}
+
+describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
+  it("launches the stand-in as the limit is settled, writes what it did once, and hands it to the hooks", async () => {
     const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
     const { run, deps } = setup({
       byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
     });
-    await dispatch(deps, input(run.id));
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record.status)).toEqual(["limit"]);
-    expect(w.records[0]?.hints).toEqual([
-      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
-    ]);
-    const stand = latestDispatch(run, "worker-M1.L1");
-    expect(w.started).toEqual([
-      {
-        name: "worker-M1.L1",
-        role: "worker",
-        rung: "codex:gpt-6-sol#high",
-        dispatchId: stand?.admit.dispatchId as string,
-        admittedAt: stand?.admit.admittedAt as string,
-      },
-    ]);
-    expect(w.running).toEqual(["worker-M1.L1"]);
-    expect(readRecords(run).records.map((r) => r.status)).toEqual(["limit"]);
-    expect(readNotes(run).next).not.toMatch(/^paused/);
-    writeFileSync(release, "");
-    const next = await wait(deps, { run: run.id });
-    expect(next.records[0]?.record).toMatchObject({
+    const seen: Settled[] = [];
+    const hook = (s: Settled) => {
+      seen.push(s);
+    };
+    settledHooks.add(hook);
+    try {
+      const limited = (await dispatch(deps, input(run.id))).dispatched;
+      const stand = await waitFor(() => standInOf(run));
+      await waitFor(() => seen.length === 1);
+      expect(stand.admit).toMatchObject({ rung: "codex:gpt-6-sol#high", failoverOf: limited.dispatchId });
+      expect(seen[0]?.record.status).toBe("limit");
+      expect(seen[0]?.hints).toEqual([FAILED_OVER]);
+      expect(seen[0]?.started).toMatchObject({ name: "worker-M1.L1", dispatchId: stand.admit.dispatchId });
+      const dir = listDispatches(run).find((d) => d.admit.dispatchId === limited.dispatchId)?.dir as string;
+      expect(readFailover(dir)).toMatchObject({
+        standIn: { dispatchId: stand.admit.dispatchId, rung: "codex:gpt-6-sol#high" },
+        hints: [FAILED_OVER],
+        pause: null,
+      });
+      expect(readNotes(run).next).not.toMatch(/^paused/);
+      writeFileSync(release, "");
+      await watchersSettled();
+    } finally {
+      settledHooks.delete(hook);
+    }
+    const r = await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(r.record).toMatchObject({
       status: "ok",
       rung: "codex:gpt-6-sol#high",
       failoverFrom: "codex:gpt-6-sol#medium",
     });
-    expect(next.running).toEqual([]);
+    expect(r.hints).toEqual([FAILED_OVER]);
   });
 
-  it("is never done by the watcher that finalizes a role at exit, only by wait, once (I-2)", async () => {
-    const { run, deps } = setup(LIMIT, FAILOVER);
-    await dispatch(deps, input(run.id));
-    await waitFor(() => readRecords(run).records.length === 1);
-    await watchersSettled();
-    expect(listDispatches(run)).toHaveLength(1);
-    expect(readNotes(run).next).not.toMatch(/^paused/);
-    const w = await wait(deps, { run: run.id });
-    expect(w.started.map((s) => s.rung)).toEqual(["codex:gpt-6-sol#high"]);
-  });
-
-  it("still returns the limited record, paused, when the failover throws an unexpected error (I-3)", async () => {
-    const { run, deps } = setup(LIMIT);
+  it("still settles the limited record, paused, when the failover throws an unexpected error (I-3)", async () => {
+    const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+    const { run, deps } = setup({ ...LIMIT, holdUntil: release });
+    // admitted first (admission reads the stand-ins too); the failover, after the limit, throws
     await dispatch(deps, input(run.id));
     const spy = spyOn(backends, "standInFor").mockImplementation(() => {
       throw new Error("profile vanished");
     });
     try {
-      const w = await wait(deps, { run: run.id });
-      expect(w.records.map((r) => r.record.status)).toEqual(["limit"]);
-      expect(w.records[0]?.hints.at(-1)).toBe("failover: profile vanished");
+      writeFileSync(release, "");
+      await watchersSettled();
     } finally {
       spy.mockRestore();
     }
+    const r = await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(r.record?.status).toBe("limit");
+    expect(r.hints.at(-1)).toBe("failover: profile vanished");
     expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
-    expect((await wait(deps, { run: run.id })).records).toEqual([]);
   });
 
   it("reruns a fresh round's own brief on the stand-in, and records both runs", async () => {
@@ -163,9 +183,7 @@ describe("failover", () => {
       attempt: 2,
       changedOwned: ["src/a.ts"],
     });
-    expect(hints[0]).toBe(
-      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
-    );
+    expect(hints[0]).toBe(FAILED_OVER);
     expect(readRecords(run).records.map((r) => r.status)).toEqual(["limit", "ok"]);
     const stand = latestDispatch(run, "worker-M1.L1");
     expect(stand?.admit.thread).toBeNull();
@@ -182,10 +200,7 @@ describe("failover", () => {
     const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("ok");
     expect(readRecords(run).records[0]?.violations).toEqual(["src/other.ts"]);
-    expect(hints).toEqual([
-      "limit: codex:gpt-6-sol#medium hit a usage limit; failed over to codex:gpt-6-sol#high",
-      "violation: src/other.ts",
-    ]);
+    expect(hints).toEqual([FAILED_OVER, "violation: src/other.ts"]);
   });
 
   it("hands a fix round's stand-in the lane file and the fix brief by path, both of which exist", async () => {
@@ -227,13 +242,11 @@ describe("failover", () => {
 
   it("keeps the paused note in state.json when git breaks before state.md can be refreshed", async () => {
     const { run, deps } = setup(LIMIT, {});
-    // git breaks once the worker has ended (its exit.json exists), not after a guessed delay: waiting for
-    // the ~1 s "running" window instead missed it whenever this process stalled >1.1 s, and then hung
+    // git breaks once the worker has ended (its exit.json exists), not after a guessed delay
     const roles = runPaths(run.dir).roles;
     fakeGit(`for e in '${roles}'/*/*/exit.json; do [ -f "$e" ] && exit 128; done\nexec "$REAL_GIT" "$@"`);
-    const { record, hints } = await runRole(deps, input(run.id));
+    const { record } = await runRole(deps, input(run.id));
     expect(record).toMatchObject({ status: "limit", gitUnavailable: true });
-    expect(hints.at(-1)).toMatch(/^state\.md not refreshed: /);
     expect(readNotes(run).next).toBe("paused: codex usage limit; resume when the user says so");
   });
 
@@ -248,18 +261,7 @@ describe("failover", () => {
   });
 });
 
-/** A cancelled record reaches at most the wait already in flight, never a later one (M-1). */
-async function collectedOnce(
-  run: { id: string },
-  deps: Deps,
-  pending: ReturnType<typeof wait>,
-  id: string,
-): Promise<void> {
-  expect((await pending).records.every((r) => r.record.dispatchId === id)).toBe(true);
-  expect((await wait(deps, { run: run.id })).records).toEqual([]);
-}
-
-describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
+describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)", () => {
   // every held stand-in is released after its test, pass or fail, so no watcher outlives it
   const releases: string[] = [];
   const held = () => {
@@ -271,47 +273,27 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
     for (const f of releases.splice(0)) writeFileSync(f, "");
   });
 
-  it("reuses the stand-in when a collected limit is put back and collected again: no second launch", async () => {
+  it("reuses the stand-in when a limit is settled a second time: no second launch", async () => {
     const release = held();
     const { run, deps } = setup({
       byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
     });
-    await dispatch(deps, input(run.id));
-    await waitFor(() => readRecords(run).records.length === 1);
-    // the watcher has refreshed state.md: only wait's own refresh, after its failover, aborts
-    await watchersSettled();
-    const ac = new AbortController();
-    const real = state.refreshState;
-    // aborted during wait's final refresh, after the failover: the collection is put back
-    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
-      ac.abort();
-      return real(r, c);
-    });
-    let first;
-    try {
-      first = await wait(deps, { run: run.id }, undefined, ac.signal);
-    } finally {
-      spy.mockRestore();
-    }
-    expect(first.records).toEqual([]);
+    const limited = (await dispatch(deps, input(run.id))).dispatched;
+    const stand = await waitFor(() => standInOf(run));
+    const d = listDispatches(run).find((x) => x.admit.dispatchId === limited.dispatchId) as Dispatch;
+    await waitFor(() => readFailover(d.dir));
+    const record = readRecords(run).records.find((r) => r.dispatchId === limited.dispatchId);
+    const again = await settle(deps, run, d, record as NonNullable<typeof record>);
+    expect(again.started?.dispatchId).toBe(stand.admit.dispatchId);
+    expect(again.hints).toEqual([FAILED_OVER]);
     expect(listDispatches(run)).toHaveLength(2);
-    const again = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(again.records.map((r) => r.record.status)).toEqual(["limit"]);
-    const stand = latestDispatch(run, "worker-M1.L1")?.admit.dispatchId as string;
-    expect(again.started.map((s) => s.dispatchId)).toEqual([stand]);
-    expect(listDispatches(run)).toHaveLength(2);
-    writeFileSync(release, "");
-    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
   });
 
   it("starts a stand-in admitted before a crash but never launched, instead of reporting it started (M-5)", async () => {
     const release = held();
-    const { run, deps } = setup({
-      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
-    });
-    const d = (await dispatch(deps, input(run.id))).dispatched;
-    await waitFor(() => readRecords(run).records.length === 1);
-    // the collector that crashed had admitted the stand-in (admit.json, spec.json) and died before its launch
+    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const { d, record } = await limitedOnDisk(run);
+    // the settle that crashed had admitted the stand-in (admit.json, spec.json, the mark) and died before its launch
     const stand = await admit(deps, run, {
       role: "worker",
       name: "worker-M1.L1",
@@ -320,55 +302,23 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
       thread: null,
       lane: "M1.L1",
       failoverFrom: "codex:gpt-6-sol#medium",
-      failoverOf: d.dispatchId,
+      failoverOf: d.admit.dispatchId,
     });
-    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
-    await waitFor(() => existsSync(launchPath(stand.d.dir)), 4_000);
-    writeFileSync(release, "");
-    const next = await wait(deps, { run: run.id });
-    expect(next.records.map((r) => r.record)).toEqual([
-      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
-    ]);
-  });
-
-  it("launches a stand-in whose collector died after marking it but before launching it (codex P2)", async () => {
-    const release = held();
-    const { run, deps } = setup({
-      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
-    });
-    const d = (await dispatch(deps, input(run.id))).dispatched;
-    await waitFor(() => readRecords(run).records.length === 1);
-    const stand = await admit(deps, run, {
-      role: "worker",
-      name: "worker-M1.L1",
-      brief: "Read lanes/M1.L1.md",
-      rung: "codex:gpt-6-sol#high",
-      thread: null,
-      lane: "M1.L1",
-      failoverFrom: "codex:gpt-6-sol#medium",
-      failoverOf: d.dispatchId,
-    });
-    // start() wrote the mark, and the process died before launcher.launch
-    dispatchDir.markForCollect(stand.d.dir);
-    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(w.records.map((r) => r.record.dispatchId)).toEqual([d.dispatchId]);
-    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
+    const s = await settle(deps, run, d, record);
+    expect(s.started?.dispatchId).toBe(stand.d.admit.dispatchId);
     expect(existsSync(launchPath(stand.d.dir))).toBe(true);
     writeFileSync(release, "");
-    const next = await wait(deps, { run: run.id });
-    expect(next.records.map((r) => r.record)).toEqual([
-      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
+    await watchersSettled();
+    expect(readRecords(run).records.map((r) => [r.dispatchId, r.status])).toEqual([
+      [d.admit.dispatchId, "limit"],
+      [stand.d.admit.dispatchId, "ok"],
     ]);
   });
 
-  it("reuses a stand-in whose collector died between spawning its supervisor and writing launch.json", async () => {
+  it("reuses a stand-in whose settle died between spawning its supervisor and writing launch.json", async () => {
     const release = held();
-    const { run, deps } = setup({
-      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
-    });
-    const d = (await dispatch(deps, input(run.id))).dispatched;
-    await waitFor(() => readRecords(run).records.length === 1);
+    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const { d, record } = await limitedOnDisk(run);
     const stand = await admit(deps, run, {
       role: "worker",
       name: "worker-M1.L1",
@@ -377,92 +327,79 @@ describe("failover's stand-in, tied to its limited dispatch (N-3)", () => {
       thread: null,
       lane: "M1.L1",
       failoverFrom: "codex:gpt-6-sol#medium",
-      failoverOf: d.dispatchId,
+      failoverOf: d.admit.dispatchId,
     });
-    // the collector spawned the supervisor and died before launch.json: the supervisor holds the dispatch
+    // the settle spawned the supervisor and died before launch.json: the supervisor holds the dispatch
     launchSupervisor(stand.specPath);
     await waitFor(() => existsSync(dispatchPaths(stand.d.dir).supervisorLock));
-    const w = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(w.started.map((s) => s.dispatchId)).toEqual([stand.d.admit.dispatchId]);
+    const s = await settle(deps, run, d, record);
+    expect(s.started?.dispatchId).toBe(stand.d.admit.dispatchId);
     // reused, not launched again: recovery never wrote a launch.json of its own
     expect(existsSync(launchPath(stand.d.dir))).toBe(false);
-    writeFileSync(release, "");
-    const next = await wait(deps, { run: run.id });
-    expect(next.records.map((r) => r.record)).toEqual([
-      expect.objectContaining({ status: "ok", dispatchId: stand.d.admit.dispatchId }),
-    ]);
   });
 
-  it("re-collects a limit whose collector died after launching the stand-in: no second launch (lease)", async () => {
+  it("is settled by the next server's reconcile when its own server died before settling it, once", async () => {
     const release = held();
-    const { run, deps } = setup({
-      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
-    });
-    const d = (await dispatch(deps, input(run.id))).dispatched;
-    const first = await wait(deps, { run: run.id });
-    expect(first.started).toHaveLength(1);
-    // as if that server died before its result went out: its lease on the limited record is left behind
-    const limited = listDispatches(run).find((x) => x.admit.dispatchId === d.dispatchId) as { dir: string };
-    writeFileSync(
-      dispatchPaths(limited.dir).lease,
-      JSON.stringify({ pid: await deadProcess(), startTime: "gone" }),
-    );
-    const again = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(again.records.map((r) => r.record.dispatchId)).toEqual([d.dispatchId]);
-    expect(again.started.map((s) => s.dispatchId)).toEqual(first.started.map((s) => s.dispatchId));
+    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const { d } = await limitedOnDisk(run);
+    // reconcile settles before it returns; its `done` would wait for the held stand-in too
+    await reconcileAll(deps);
+    const first = readFailover(d.dir);
+    expect(first?.standIn?.rung).toBe("codex:gpt-6-sol#high");
+    const again = await reconcileAll(deps);
+    expect(readFailover(d.dir)).toEqual(first);
     expect(listDispatches(run)).toHaveLength(2);
+    // the second reconcile watches the stand-in it found running: let it finish inside this test
+    writeFileSync(release, "");
+    await again.done;
+  });
+
+  it("leaves a read limit alone at the next start: failover is for what the orchestrator has not read", async () => {
+    const { run, deps } = setup(DONE);
+    const { d } = await limitedOnDisk(run);
+    await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(awaitsCollect(d.dir)).toBe(false);
+    await reconcileAll(deps);
+    expect(readFailover(d.dir)).toBeNull();
+    expect(listDispatches(run)).toHaveLength(1);
   });
 
   it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {
     const release = held();
-    const { run, deps } = setup({
-      byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": { ...DONE, holdUntil: release } },
-    });
-    await dispatch(deps, input(run.id));
-    await waitFor(() => readRecords(run).records.length === 1);
-    // the first limit is recorded, not collected: the same name may run again, and hits the limit too
-    await dispatch(deps, input(run.id));
-    await waitFor(() => readRecords(run).records.length === 2);
-    const w = await wait(deps, { run: run.id, all: true });
-    expect(w.records.map((r) => r.record.status)).toEqual(["limit", "limit"]);
-    expect(w.started).toHaveLength(1);
-    expect(w.records[1]?.hints.at(-1)).toMatch(/^failover: codex:gpt-6-sol#high refused: E_ADMIT_DUPLICATE/);
-    writeFileSync(release, "");
-    await wait(deps, { run: run.id });
+    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const a = await limitedOnDisk(run);
+    const b = await limitedOnDisk(run);
+    const first = await settle(deps, run, a.d, a.record);
+    expect(first.started).not.toBeNull();
+    // b is not a's: its own stand-in is refused while a's stand-in, of the same name, runs
+    const second = await settle(deps, run, b.d, b.record);
+    expect(second.started).toBeNull();
+    expect(second.hints.at(-1)).toMatch(/^failover: codex:gpt-6-sol#high refused: E_ADMIT_DUPLICATE/);
   });
 });
 
 describe("cancel", () => {
-  it("says so when a wait in flight collected the record it returns (N-2)", async () => {
+  it("says so when result already read the record it returns (N-2)", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(async () => false);
     try {
       const { hints } = await cancel(deps, run.id, "worker-M1.L1");
-      expect(hints).toContain("worker-M1.L1: a wait in flight also returned this record");
+      expect(hints).toContain("worker-M1.L1: result had already read this record");
     } finally {
       spy.mockRestore();
     }
   });
 
-  it("collects the record it returns, so the next wait does not return it again (M-1)", async () => {
+  it("stops a live dispatch, records it once as cancelled, and marks the record read", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
-    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
+    const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const { record } = await cancel(deps, run.id, "worker-M1.L1");
     expect(record.status).toBe("cancelled");
-    expect(await wait(deps, { run: run.id })).toMatchObject({ records: [], running: [] });
-  });
-
-  it("stops a live dispatch, records it once as cancelled, and no later wait returns it again", async () => {
-    const { run, deps } = setup({ hangMs: 30_000 });
-    await dispatch(deps, input(run.id));
-    const pending = wait(deps, { run: run.id });
-    await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
-    const { record } = await cancel(deps, run.id, "worker-M1.L1");
-    expect(record.status).toBe("cancelled");
-    await collectedOnce(run, deps, pending, record.dispatchId);
+    expect(awaitsCollect(live.dir)).toBe(false);
+    await watchersSettled();
     expect(readRecords(run).records).toHaveLength(1);
     expect(liveDispatches(run)).toEqual([]);
   });
@@ -470,24 +407,20 @@ describe("cancel", () => {
   it("still records a cancel when git breaks mid-run, and says what it could not see", async () => {
     const { run, deps } = setup({ hangMs: 30_000 });
     await dispatch(deps, input(run.id));
-    const pending = wait(deps, { run: run.id });
     await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     fakeGit("exit 128");
     const { record, hints } = await cancel(deps, run.id, "worker-M1.L1");
     expect(record).toMatchObject({ status: "cancelled", changedOwned: [], gitUnavailable: true });
-    // the wait in flight may have collected it first: cancel then says so too
-    const own = hints.filter((h) => !h.endsWith("a wait in flight also returned this record"));
-    expect(own).toHaveLength(2);
-    expect(own[0]).toBe("git-unavailable: changed files unknown");
-    expect(own[1]).toMatch(/^state\.md not refreshed: git status failed in /);
-    await collectedOnce(run, deps, pending, record.dispatchId);
+    expect(hints).toHaveLength(2);
+    expect(hints[0]).toBe("git-unavailable: changed files unknown");
+    expect(hints[1]).toMatch(/^state\.md not refreshed: git status failed in /);
+    await watchersSettled();
     expect(readRecords(run).records).toHaveLength(1);
   });
 
-  it("stops a worker whose supervisor died, records it as cancelled, and the wait in flight returns", async () => {
+  it("stops a worker whose supervisor died, and records it as cancelled", async () => {
     const { run, deps } = setup({ hangMs: 60_000 });
     await dispatch(deps, input(run.id));
-    const pending = wait(deps, { run: run.id });
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
@@ -499,22 +432,22 @@ describe("cancel", () => {
     expect(record.status).toBe("cancelled");
     expect(isAlive(proc.pid, proc.startTime)).toBe(false);
     expect(readExit(live.dir)).toMatchObject({ reason: "cancelled", signal: "SIGTERM" });
-    await collectedOnce(run, deps, pending, record.dispatchId);
+    await watchersSettled();
     expect(readRecords(run).records).toHaveLength(1);
   }, 30_000);
 
-  it("finalizes a waiting dispatch as lost once its supervisor died and then its worker ended", async () => {
+  it("records a dispatch as lost once its supervisor died and then its worker ended", async () => {
     // the worker ends only when the test says so: after its supervisor is gone, never before
     const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
     const { run, deps } = setup({ holdUntil: release });
     await dispatch(deps, input(run.id));
-    const pending = wait(deps, { run: run.id });
     const live = await waitFor(() => liveDispatches(run).find((d) => d.state === "running"));
     const proc = await waitFor(() => readProc(live.dir));
     process.kill(proc.supervisorPid, "SIGKILL");
     await waitFor(() => !isAlive(proc.supervisorPid, proc.supervisorStartTime));
     writeFileSync(release, "");
-    const record = (await pending).records[0]?.record;
+    await watchersSettled();
+    const record = (await result(deps, { run: run.id, name: "worker-M1.L1" })).record;
     expect(record).toMatchObject({ status: "failed", exitCode: null, error: { message: "lost, exit null" } });
     expect(readExit(live.dir)).toBeNull();
     expect(readRecords(run).records).toHaveLength(1);

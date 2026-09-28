@@ -179,7 +179,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
           fix:
             same.state === "finished"
               ? `its record could not be written; see ${same.dir}, and retry`
-              : `wait for it, or cancel(run, "${i.name}")`,
+              : `its record is announced when it finishes; or cancel(run, "${i.name}")`,
         },
       );
     for (const d of pending) {
@@ -244,7 +244,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
       { mode: 0o600 },
     );
     // the collect mark before admit.json: no admitted dispatch ever exists without it, so a process that
-    // dies before launching it still leaves a record (lost, once its start grace passes) for a `wait`
+    // dies before launching it still leaves a record (lost, once its start grace passes), unread
     markForCollect(dir);
     writeJsonAtomic(admitPath(dir), admitted);
     setLatest(run, i.name, id);
