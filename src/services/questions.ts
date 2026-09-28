@@ -4,7 +4,7 @@ import { assertId } from "../domain/ids.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
-import { type Notes, refreshState } from "./state.ts";
+import { type Notes, readNotes, refreshState } from "./state.ts";
 
 // Spec 1.1 §8: an owner question parks its milestone instead of stopping the run.
 
@@ -79,16 +79,20 @@ export async function answer(
 ): Promise<{ milestone: string; parked: string[]; hints?: string[] }> {
   const run = findRun(i.run);
   assertId("milestone", i.milestone);
-  if (!openQuestions(run).some((q) => q.milestone === i.milestone))
+  const open = openQuestions(run).some((q) => q.milestone === i.milestone);
+  // answered already, but the state save that unparks it failed: this call only unparks
+  const stillParked = !open && (readNotes(run).parked ?? []).includes(i.milestone);
+  if (!open && !stillParked)
     throw new CatherdError("E_INPUT_INVALID", `${i.milestone} has no open question`, {
       fix: "status(run) lists the open questions; park(run, milestone, question) opens one",
     });
-  append(run, {
-    at: new Date(deps.now()).toISOString(),
-    milestone: i.milestone,
-    kind: "answer",
-    text: i.answer,
-  });
+  if (open)
+    append(run, {
+      at: new Date(deps.now()).toISOString(),
+      milestone: i.milestone,
+      kind: "answer",
+      text: i.answer,
+    });
   let parked: string[] = [];
   const { hints } = await refreshState(run, (n: Notes) => {
     parked = (n.parked ?? []).filter((m) => m !== i.milestone);

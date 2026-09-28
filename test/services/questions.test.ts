@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { appendJsonl } from "../../src/infra/store.ts";
 import { formatRun } from "../../src/entry/runs-command.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { withParked } from "../../src/domain/state.ts";
@@ -71,6 +73,30 @@ describe("park and answer (spec 1.1 §8)", () => {
     }
     expect(openQuestions(run)).toEqual([]);
     expect(readNotes(run).parked ?? []).toEqual([]);
+  });
+
+  it("unparks on a second answer when the first recorded the answer but could not save state.json", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    await park(deps, { run: run.id, milestone: "M2", question: "Keep the v1 API?" });
+    // the answer row reached questions.jsonl, but the state save that unparks M2 did not happen
+    appendJsonl(join(run.dir, "questions.jsonl"), {
+      at: new Date().toISOString(),
+      milestone: "M2",
+      kind: "answer",
+      text: "yes",
+    });
+    expect(openQuestions(run)).toEqual([]);
+    expect(readNotes(run).parked).toEqual(["M2"]);
+    const r = await answer(deps, { run: run.id, milestone: "M2", answer: "yes" });
+    expect(r.parked).toEqual([]);
+    expect(readNotes(run).parked).toEqual([]);
+    expect(nextLine(runPaths(run.dir).state)).not.toContain("parked");
+    // the answer is not recorded twice
+    const answers = readFileSync(join(run.dir, "questions.jsonl"), "utf8")
+      .split("\n")
+      .filter((l) => l.includes('"kind":"answer"'));
+    expect(answers).toHaveLength(1);
   });
 
   it("refuses to answer a milestone with no open question", async () => {
