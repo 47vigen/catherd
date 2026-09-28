@@ -67,15 +67,23 @@ async function dirtyEntry(file: string): Promise<string> {
 }
 
 /**
- * The content hash of `paths`: each one's git tree (or blob) hash at HEAD, plus the content of every
+ * The content hash of `paths`: each one's tree entry at HEAD (mode, type and object id), plus the content of every
  * uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of what it ran.
  */
 async function contentHash(repo: string, paths: string[]): Promise<string> {
   const h = new Bun.CryptoHasher("sha256");
   for (const p of paths) {
-    const r = await git(repo, ["rev-parse", `HEAD:${p === "." ? "" : p.replace(/\/$/, "")}`]);
+    // the tree entry, mode and type with the object id (`100755 blob <sha>`), so a committed chmod -x is new
+    // content; a directory's tree id already covers its children's modes
+    const entry = await git(
+      repo,
+      p === "."
+        ? ["rev-parse", "HEAD^{tree}"]
+        : ["ls-tree", "--full-tree", "HEAD", "--", p.replace(/\/$/, "")],
+    );
+    const at = entry.kind === "ok" ? entry.out.trim() : "";
     // a mistyped path (or a glob) would hash as a constant and carry a pass forever
-    if (r.kind !== "ok" && !existsSync(join(repo, p)))
+    if (!at && !existsSync(join(repo, p)))
       throw new CatherdError(
         "E_INPUT_INVALID",
         `gate path ${p} exists neither at HEAD nor in the working tree`,
@@ -83,7 +91,7 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
           fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs)",
         },
       );
-    h.update(`${p}=${r.kind === "ok" ? r.out.trim() : "missing"}\n`);
+    h.update(`${p}=${at || "missing"}\n`);
   }
   const dirty = Object.keys(await statusSnapshot(repo))
     .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)

@@ -80,6 +80,21 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
   });
 
+  it("hashes a gate file's committed mode: a committed chmod -x of a script is not carried", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "run.sh", "echo hi");
+    chmodSync(join(repo, "run.sh"), 0o755);
+    commit(repo);
+    const deps = fakeDeps();
+    const script = item(run.id, { paths: ["run.sh"] });
+    await gatePass(deps, { ...script, evidence: "ok" });
+    expect(await gateCheck(deps, script)).toMatchObject({ carried: true });
+    // the same blob, committed without the exec bit: the tree is clean again
+    chmodSync(join(repo, "run.sh"), 0o644);
+    commit(repo);
+    expect(await gateCheck(deps, script)).toEqual({ carried: false });
+  });
+
   it("hashes uncommitted changes under its paths, so a verifier on an uncommitted tree gets its own hash", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");
