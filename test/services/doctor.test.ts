@@ -577,12 +577,7 @@ describe("doctor", () => {
     ready();
     saveJevKey("tsk-test-key-0123456789");
     chmodSync(credentialsPath(), 0o644);
-    expect(
-      check(
-        await run({ jev: { fetchImpl: fakeFetch({ status: 200, body: { data: [] } }).impl } }),
-        "credentials",
-      ),
-    ).toMatchObject({
+    expect(check(await run(), "credentials")).toMatchObject({
       state: "fail",
       word: "readable by others",
       fix: `chmod 600 ${credentialsPath()}`,
