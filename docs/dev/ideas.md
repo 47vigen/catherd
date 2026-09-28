@@ -9,6 +9,25 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## Fix bundle: everything open, by priority
+
+One line per open problem found in real use; the entry with the evidence is in the section named after it.
+
+1. **Workers cannot run their checks:** the sandbox denies Docker, loopback ports, the network and the lock dir (Top priority; 1.0.0 fresh install; headless test).
+2. **The protocol is optional:** `route`, the reviewer and the verifier get skipped, before and after compaction; replies carry no STATUS because `dispatch` does not add the reply contract (Top priority; headless test).
+3. **Plugin install fails without GitHub SSH:** `git-subdir` shorthand URL (1.0.0 fresh install).
+4. **The plugin's MCP server dies on a half-cleaned bunx cache** (1.0.0 platform run).
+5. **The verifier is the bottleneck:** serial gate items, reruns of unchanged checks, an image built twice, no progress in `status` (1.0.0 platform run).
+6. **One owner question stops everything** (Top priority).
+7. **`doctor`'s sandbox probe is dead on Codex 0.157** (1.0.0 fresh install).
+8. **Routing:** easy lanes start at the default rung, not the cheapest that clears them; climbs used for plan or ownership problems (headless test; Orchestration).
+9. **Profiles:** failover downgrades high rungs or lands on the Claude quota with an odd label; ladders that go down validate clean (1.0.0 fresh install; headless test).
+10. **Cost:** a first Codex turn is 280k to 580k input tokens even on an easy lane, native or isolated (headless test; Routing and cost).
+11. **Noise and polish:** warnings on the shipped defaults, a silent 30 s first `bunx`, the TUI's "0 profiles" first frame (1.0.0 fresh install).
+
+Already fixed in 1.0 and confirmed live: serial dispatch (`dispatch` + `wait`, lanes overlap), the plan-in-hand path,
+lint in the fast check, the `status` harness line, Jev keeping a sure kind.
+
 ## Top priority
 
 - **Workers cannot run their own checks.** In the auth build 60 of 171 worker replies were `partial`/`blocked`
@@ -98,6 +117,16 @@ route, reviewer and verifier, every lane was routed, both roles ran, replies car
   since that pass is small; (3) the verifier builds each image once per commit and the boot check and the acceptance
   suite share it; (4) `status` shows the verifier's current step and elapsed time, so a long gate is visible instead
   of looking stuck. Repo side (platform): the Docker `pnpm install` should hit the package mirror and a warm store.
+- **Final numbers for MR A.** The run took 100 min (13:18 to 14:58) before the user paused it with MR !54 open and
+  green: workers and reviewer about 9 min, three verifier passes about 85 min (the last, the full gate with the
+  acceptance suite, 14:01 to 14:57). M1 (dev registry), in its own run beside it, took 50 min end to end.
+- **The plugin's MCP server dies on a half-cleaned bunx cache (second time).** `plugin/.mcp.json` runs `bunx
+  catherd-cli@1.0.0 mcp`, which lives in `$TMPDIR/bunx-502-catherd-cli@1.0.0/`. A day later the plugin failed in
+  every new session: `Cannot find module './v4/classic/external.js'` from `zod/index.js`: part of the tree was gone
+  (macOS cleans `$TMPDIR` by age), and bunx reused the broken folder instead of reinstalling. 0.2.1 hit the same
+  with `fast-deep-equal`. Claude Code then caches the failure for 15 min. Fix: run the MCP server from a stable place
+  (the global `catherd` binary when present, else `bun x` with a cache under `~/.cache/catherd`), and have
+  `doctor` import the tree once and say "reinstall" when a module is missing. Workaround: delete the bunx folder.
 
 ## Scores and catalog from public sources (2026-09-27)
 
