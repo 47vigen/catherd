@@ -110,8 +110,8 @@ async function takeLock(background: boolean): Promise<(() => void) | null> {
   }
 }
 
-/** Every cached answer, as `derive` reads them. */
-function cachedAnswers(): RawAnswers {
+/** Every cached answer, as `derive` reads them (and `scripts/catalog-refresh.ts` rebuilds the shipped file). */
+export function cachedAnswers(): RawAnswers {
   const raw: RawAnswers = {};
   for (const id of SOURCE_IDS) {
     const c = readCached(id);

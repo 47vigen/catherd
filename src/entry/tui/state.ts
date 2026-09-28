@@ -54,6 +54,10 @@ export type Purpose =
   | { type: "start"; role: Role }
   | { type: "treatLike"; rung: string; role: Role | null }
   | { type: "failover"; rung: string }
+  /** spec 1.2 §9: each source's age and last error, after `r` synced them */
+  | { type: "sources" }
+  /** spec 1.2 §9: a rung's values with confidence and source, and its runs */
+  | { type: "rung"; rung: string }
   | { type: "stories" };
 
 export interface SelectOption {

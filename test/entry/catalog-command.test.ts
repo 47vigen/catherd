@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
-import { syncLines } from "../../src/entry/catalog-command.ts";
-import { overridePath } from "../../src/services/catalog-service.ts";
+import { formatModel, syncLines } from "../../src/entry/catalog-command.ts";
+import { type CatalogModel, overridePath } from "../../src/services/catalog-service.ts";
 import type { SyncReport } from "../../src/services/source-sync.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
@@ -31,12 +31,78 @@ function catherdIn(cwd: string | undefined, path: string, ...args: string[]) {
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
+describe("formatModel (spec 1.2 §4.1, §8)", () => {
+  it("adds the price and speed facts, each rung's values with their source, and its run evidence", () => {
+    withHome();
+    const m: CatalogModel = {
+      id: "gpt-6-sol",
+      name: "GPT-6 Sol",
+      backend: "codex",
+      model: "gpt-6-sol",
+      billing: "codex",
+      efforts: ["medium", "high"],
+      context: 272000,
+      capabilities: null,
+      roles: ["worker" as const],
+      listed: null,
+      notes: {},
+      price: { input: 2, cached: 0.2, output: 10 },
+      speed: { "openrouter.throughput_last_30m": 81.234 },
+      rungs: [
+        {
+          rung: "codex:gpt-6-sol#medium",
+          enabled: true,
+          scores: {
+            repo_code: {
+              value: 65.3,
+              benchmark: "DeepSWE 1.1",
+              confidence: "verified",
+              source: "shipped",
+              date: "2026-09-22",
+            },
+            terminal: {
+              value: 0.123456,
+              benchmark: "Terminal-Bench 2",
+              confidence: "inferred",
+              source: "epoch",
+              date: "2026-09-20",
+              from: "gpt-6-sol#high",
+            },
+          },
+          treatLike: null,
+          cost: {} as never,
+          evidence: null,
+        },
+        {
+          rung: "codex:gpt-6-sol#high",
+          enabled: false,
+          scores: {},
+          treatLike: null,
+          cost: {} as never,
+          evidence: "12 lanes, 2 climbed, 1 partial",
+        },
+      ],
+    };
+    expect(formatModel(m).split("\n")).toEqual([
+      "codex:gpt-6-sol  1/2 rungs scored  roles worker",
+      "  $2/$10 per M tokens in/out · openrouter.throughput_last_30m 81.23",
+      "  #medium  repo_code 65.3 (verified, shipped) · terminal 0.1235 (inferred from gpt-6-sol#high, epoch)",
+      "  #high  unscored",
+      "    runs: 12 lanes, 2 climbed, 1 partial",
+    ]);
+  });
+});
+
 describe("catherd catalog", () => {
   it("lists models with their scored rungs, as text or JSON", () => {
     withHome();
     const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol");
     expect(text.code).toBe(0);
-    expect(text.out).toContain("codex:gpt-6-sol  5/6 rungs scored  roles ");
+    expect(text.out).toContain("codex:gpt-6-sol  6/6 rungs scored  roles ");
+    // spec 1.2 §4.1: cost and speed are facts, shown beside the scores
+    expect(text.out).toContain("\n  $2/$10 per M tokens in/out\n");
+    // spec 1.2 §5.3: each value with its confidence and source
+    expect(text.out).toMatch(/\n {2}#high {2}repo_code [\d.]+ \(\w+, \w+\)/);
     const json = JSON.parse(catherd("list", "--role", "artist", "--json").out);
     expect(json.models.every((m: { backend: string }) => m.backend === "codex")).toBe(true);
   });
@@ -65,6 +131,18 @@ describe("catherd catalog", () => {
     expect(bad.err).toStartWith("error E_CONFIG_INVALID: a/c#high has no scores of its own to lend\nfix: ");
   });
 
+  it("saves a treat-like with --json as JSON, shaped like --clear's rung and like", () => {
+    withHome();
+    const r = catherd(
+      "treat-like",
+      "opencode:opencode-go/kimi-k3#default",
+      "codex:gpt-6-sol#medium",
+      "--json",
+    );
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out)).toEqual({ rung: "opencode-go/kimi-k3#default", like: "gpt-6-sol#medium" });
+  });
+
   it("refuses a malformed rung with exit 2 and leaves the override file unchanged", () => {
     withHome();
     expect(catherd("treat-like", "a/b#high", "gpt-6-sol#high").code).toBe(0);
@@ -74,6 +152,108 @@ describe("catherd catalog", () => {
     expect(bad.err).toStartWith('error E_INPUT_INVALID: "foo" is not a rung\nfix: ');
     expect(readFileSync(overridePath(), "utf8")).toBe(before);
     expect(catherd("list", "--backend", "codex").code).toBe(0);
+  });
+
+  it("suggests the three nearest stand-ins, and clears and resets the user's mappings (spec 1.2 §6.4)", () => {
+    withHome();
+    const s = catherd("treat-like", "--suggest", "codex:gpt-5.6-terra#high");
+    expect(s.code).toBe(0);
+    const lines = s.out.trimEnd().split("\n");
+    expect(lines[0]).toBe(
+      "gpt-5.6-terra#high has no repo_code, terminal, honesty value of its own; the nearest stand-ins:",
+    );
+    expect(
+      lines.slice(1, 4).every((l) => /^ {2}[123]\. \S+#\S+ {2}distance \d+\.\d\d {2}lends \S/.test(l)),
+    ).toBe(true);
+    expect(lines[4]).toBe("map one: catherd catalog treat-like codex:gpt-5.6-terra#high <rung>");
+    expect(
+      JSON.parse(catherd("treat-like", "--suggest", "codex:gpt-5.6-terra#high", "--json").out).suggestions,
+    ).toHaveLength(3);
+
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const cleared = catherd("treat-like", "--clear", "codex:gpt-5.6-terra#high");
+    expect([cleared.code, cleared.out]).toEqual([
+      0,
+      "✓ gpt-5.6-terra#high is no longer treated like gpt-6-sol#high\n",
+    ]);
+    const again = catherd("treat-like", "--clear", "codex:gpt-5.6-terra#high");
+    expect([again.code, again.err.split("\n")[0]]).toEqual([
+      2,
+      "error E_INPUT_INVALID: gpt-5.6-terra#high has no treat-like of yours to clear",
+    ]);
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const reset = catherd("treat-like", "--reset");
+    expect([reset.code, reset.out]).toEqual([
+      0,
+      "✓ removed 1 treat-like: gpt-5.6-terra#high → gpt-6-sol#high\n",
+    ]);
+    expect(catherd("treat-like", "--reset").out).toBe("no treat-like of yours to remove\n");
+  });
+
+  it("names the profile rungs a cleared mapping leaves on an inferred stand-in", () => {
+    withHome();
+    const worker = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "codex:gpt-5.6-terra#high"];
+    const set = Bun.spawnSync(
+      [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
+      {
+        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(set.exitCode).toBe(0);
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const r = catherd("treat-like", "--clear", "gpt-5.6-terra#high");
+    expect(r.out).toBe(
+      [
+        "! default: codex:gpt-5.6-terra#high is left on an inferred stand-in for repo_code, terminal, honesty",
+        "✓ gpt-5.6-terra#high is no longer treated like gpt-6-sol#high",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("names the profile rungs a cleared mapping leaves with no value at all, in text and JSON", () => {
+    withHome();
+    const worker = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "opencode:acme/foo-9#high"];
+    const set = Bun.spawnSync(
+      [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
+      {
+        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(set.exitCode).toBe(0);
+    expect(catherd("treat-like", "opencode:acme/foo-9#high", "gpt-6-sol#high").code).toBe(0);
+    const r = catherd("treat-like", "--clear", "acme/foo-9#high");
+    expect(r.out).toBe(
+      [
+        "! default: opencode:acme/foo-9#high is left unscored: routing skips it",
+        "✓ acme/foo-9#high is no longer treated like gpt-6-sol#high",
+        "",
+      ].join("\n"),
+    );
+    expect(catherd("treat-like", "opencode:acme/foo-9#high", "gpt-6-sol#high").code).toBe(0);
+    expect(JSON.parse(catherd("treat-like", "--reset", "--json").out).left).toEqual([
+      { profile: "default", rung: "opencode:acme/foo-9#high", dims: [], unscored: true },
+    ]);
+  });
+
+  it("refuses treat-like with neither a pair nor one of its flags, or with two of them, with exit 2", () => {
+    withHome();
+    for (const args of [
+      [],
+      ["codex:gpt-6-sol#high"],
+      ["--reset", "--clear", "a#high"],
+      ["a#high", "b#high", "--reset"],
+    ]) {
+      const r = catherd("treat-like", ...args);
+      expect([r.code, r.err.split("\n")[0]]).toEqual([
+        2,
+        "error E_INPUT_INVALID: treat-like takes <rung> <like>, or one of --suggest, --clear, --reset",
+      ]);
+    }
   });
 
   it("refuses a treat-like for a rung that is already scored, with exit 1", () => {

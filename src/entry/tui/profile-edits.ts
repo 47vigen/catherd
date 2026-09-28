@@ -1,3 +1,4 @@
+import type { Suggestion } from "../../services/standins.ts";
 import { type Catalog, rungInfo, scoresOf } from "../../domain/catalog.ts";
 import { parseRung, tryParseRung } from "../../domain/ids.ts";
 import { NOTIFY, type Profile, type ProfilePatch } from "../../domain/profile.ts";
@@ -113,26 +114,33 @@ export function failoverOptions(
       if (!(r.enabled || usable(r.rung)) || r.rung.startsWith("claude:")) continue;
       const q = quotaOf(parseRung(r.rung));
       if (q === quota) continue;
-      const via = inferredScores(c, rungInfo(c, r.rung)).via;
+      const note = inferredScores(c, rungInfo(c, r.rung)).note;
       out.push({
         value: r.rung,
         title: shortRung(r.rung),
         group: m.billing,
-        detail: via ? `scores borrowed from ${via}` : "",
+        detail: note ?? "",
         current: r.rung === cur,
       });
     }
   return out;
 }
 
-/** The treat-like picker: every rung with scores of its own, by model. */
-export function treatLikeOptions(c: Catalog): SelectOption[] {
+/**
+ * The treat-like picker: every rung with scores of its own, by model; spec 1.2 §6.4: the suggested stand-ins
+ * (`suggestions`, nearest first) say their distance and what they would lend.
+ */
+export function treatLikeOptions(c: Catalog, suggestions: Suggestion[] = []): SelectOption[] {
   return Object.keys(c.scores)
     .filter((canonical) => scoresOf(c, canonical)?.via === null)
     .sort()
-    .map((canonical) => ({
-      value: canonical,
-      title: canonical,
-      group: canonical.slice(0, canonical.lastIndexOf("#")),
-    }));
+    .map((canonical) => {
+      const s = suggestions.find((x) => x.like === canonical);
+      return {
+        value: canonical,
+        title: canonical,
+        group: canonical.slice(0, canonical.lastIndexOf("#")),
+        ...(s ? { detail: `distance ${s.distance.toFixed(2)} · lends ${s.lends.join(", ")}` } : {}),
+      };
+    });
 }

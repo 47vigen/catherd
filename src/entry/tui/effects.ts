@@ -2,7 +2,7 @@ import { realpathSync, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
-import type { Catalog } from "../../domain/catalog.ts";
+import { type Catalog, rungInfo } from "../../domain/catalog.ts";
 import { HARNESS_KEYS, type Profile, type ProfileDoc, type ProfilePatch } from "../../domain/profile.ts";
 import { type Validation, validateProfile } from "../../domain/profile-rules.ts";
 import type { Access } from "../../domain/record.ts";
@@ -17,6 +17,11 @@ import {
 } from "../../services/catalog-service.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type DoctorReport, doctor } from "../../services/doctor.ts";
+import { ageText } from "../../services/doctor-sources.ts";
+import { valuesUsed, type ValueUsed } from "../../services/provenance.ts";
+import { evidenceLine, evidenceOf, runEvidence } from "../../services/run-evidence.ts";
+import { type SyncReport, sourcesStatus, syncSources } from "../../services/source-sync.ts";
+import { type Suggestion, suggestStandIns } from "../../services/standins.ts";
 import type { Synced } from "../../services/agent-links.ts";
 import {
   activate,
@@ -139,6 +144,46 @@ export interface Effects {
   create(name: string, from?: string): Saved;
   remove(name: string): Synced;
   refreshCatalog(): Promise<Refreshed[]>;
+  /** spec 1.2 §9 (`r`): syncs the public sources (each at most every 12 hours) */
+  syncSources(): Promise<SyncReport>;
+  /** spec 1.2 §9: each source's name, age and last error, as the `r` dialog shows them */
+  sources(): { source: string; name: string; age: string; error: string | null }[];
+  /** spec 1.2 §6.3: the three nearest stand-ins for a rung, for the treat-like picker */
+  suggest(c: Catalog, rung: string): Suggestion[];
+  /** spec 1.2 §5.3, §8: a rung's values with confidence and source, and catherd's own runs on it */
+  rungDetail(c: Catalog, rung: string): { values: ValueUsed[]; evidence: string | null };
+}
+
+/** Spec 1.2 §9: each source's age and last error, from the sync's state. */
+export function sourceRows(now = Date.now()): ReturnType<Effects["sources"]> {
+  return sourcesStatus().sources.map((s) => ({
+    source: s.source,
+    name: s.name,
+    age: s.fetchedAt ? `${ageText(now - Date.parse(s.fetchedAt))} ago` : "never fetched",
+    error: s.error,
+  }));
+}
+
+/** Spec 1.2 §5.3, §8: what the rung detail shows; an unparseable rung has nothing to show. */
+export function rungDetailOf(c: Catalog, rung: string): ReturnType<Effects["rungDetail"]> {
+  try {
+    const canonical = rungInfo(c, rung).canonical;
+    return {
+      values: valuesUsed(c, canonical),
+      evidence: evidenceLine(evidenceOf(runEvidence(c), canonical)),
+    };
+  } catch {
+    return { values: [], evidence: null };
+  }
+}
+
+/** Spec 1.2 §6.3: a rung's nearest stand-ins; none for a rung that does not parse. */
+export function suggestFor(c: Catalog, rung: string): Suggestion[] {
+  try {
+    return suggestStandIns(c, rungInfo(c, rung).canonical);
+  } catch {
+    return [];
+  }
 }
 
 /** The word for `here`: the bound repo's profile, or the global active one. */
@@ -308,5 +353,9 @@ export function liveEffects(repo: string | null = null): Effects {
     create: createProfile,
     remove: deleteProfile,
     refreshCatalog: () => refreshDiscovery(),
+    syncSources: () => syncSources(),
+    sources: () => sourceRows(),
+    suggest: suggestFor,
+    rungDetail: rungDetailOf,
   };
 }

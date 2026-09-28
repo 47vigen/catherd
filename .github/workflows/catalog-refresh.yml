@@ -1,0 +1,56 @@
+name: Catalog refresh
+
+# Spec 1.2 §7: weekly, rebuild the shipped scores and default bars from the keyless public sources (never
+# Artificial Analysis) and open or update the "chore(catalog): refresh scores" PR with a patch changeset.
+# Merging it releases a patch through the Release workflow.
+on:
+  schedule:
+    # Mondays 06:17 UTC
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # a push by GITHUB_TOKEN triggers no workflow: the PR gets CI only through RELEASE_TOKEN, as the
+          # release PR does
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Rebuild the shipped scores and bars from the keyless sources
+        id: refresh
+        run: |
+          bun scripts/catalog-refresh.ts --body "$RUNNER_TEMP/body.md" --changeset .changeset/catalog-refresh.md
+          if git diff --quiet -- catalog/scores.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open or update the refresh PR
+        if: steps.refresh.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C catalog-refresh
+          git add catalog/scores.json .changeset/catalog-refresh.md
+          git commit -m "chore(catalog): refresh scores"
+          git push --force origin catalog-refresh
+          if [ "$(gh pr view catalog-refresh --json state -q .state 2>/dev/null)" = "OPEN" ]; then
+            gh pr edit catalog-refresh --title "chore(catalog): refresh scores" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --head catalog-refresh --base main --title "chore(catalog): refresh scores" \
+              --body-file "$RUNNER_TEMP/body.md"
+          fi

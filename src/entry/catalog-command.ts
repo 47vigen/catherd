@@ -11,6 +11,7 @@ import {
 } from "../services/catalog-service.ts";
 import { readDerived } from "../infra/sources/cache.ts";
 import { type SyncReport, syncSources } from "../services/source-sync.ts";
+import { clearTreatLike, type LeftOnStandIn, resetTreatLikes, suggestFor } from "../services/treat-likes.ts";
 import { exitCodeOf, JSON_ARG, mark, printError } from "./cli-kit.ts";
 
 /**
@@ -78,10 +79,32 @@ export function formatRefreshed(r: Refreshed, plain = false): string {
   ].join("\n");
 }
 
+/**
+ * One model: its rungs scored and roles, then (spec 1.2 §4.1, §5.3, §8) its price and speed facts, and each
+ * rung's values with their confidence and source, and the runs catherd has made on it.
+ */
 export function formatModel(m: CatalogModel): string {
   const scored = m.rungs.filter((r) => r.enabled).length;
   const listed = m.listed === false ? "  not offered by this account" : "";
-  return `${m.backend}:${m.model}  ${scored}/${m.rungs.length} rungs scored  roles ${m.roles.join(",") || "none"}${listed}`;
+  const lines = [
+    `${m.backend}:${m.model}  ${scored}/${m.rungs.length} rungs scored  roles ${m.roles.join(",") || "none"}${listed}`,
+  ];
+  const facts = [
+    ...(m.price ? [`$${m.price.input}/$${m.price.output} per M tokens in/out`] : []),
+    ...Object.entries(m.speed).map(([k, v]) => `${k} ${Number(v.toPrecision(4))}`),
+  ];
+  if (facts.length) lines.push(`  ${facts.join(" · ")}`);
+  for (const r of m.rungs) {
+    // spec 1.2 §5.3: each value with its confidence and source, as `route` reports it; a guess names its rung
+    const values = Object.entries(r.scores).map(
+      ([dim, v]) =>
+        `${dim} ${Number(v.value.toPrecision(4))} (${v.from ? `inferred from ${v.from}` : v.confidence}, ${v.source})`,
+    );
+    if (values.length === 0 && !r.evidence) continue;
+    lines.push(`  #${r.rung.slice(r.rung.lastIndexOf("#") + 1)}  ${values.join(" · ") || "unscored"}`);
+    if (r.evidence) lines.push(`    runs: ${r.evidence}`);
+  }
+  return lines.join("\n");
 }
 
 /** The repository the command runs in, for per-repository listings; none outside one (global). */
@@ -137,27 +160,101 @@ const list = defineCommand({
   },
 });
 
+/** Spec 1.2 §6.4: the profile rungs a removal leaves on an inferred stand-in or unscored, one line each. */
+export function leftLines(left: LeftOnStandIn[], plain = false): string[] {
+  return left.map(
+    (l) =>
+      `${mark("warn", plain)} ${l.profile}: ${l.rung} is left ${l.unscored ? "unscored: routing skips it" : `on an inferred stand-in for ${l.dims.join(", ")}`}`,
+  );
+}
+
+/** Spec 1.2 §6.4 `--suggest`: the three nearest stand-ins, each with its distance and the features it rests on. */
+export function suggestLines(r: ReturnType<typeof suggestFor>, rung: string): string[] {
+  const head = r.lacking.length
+    ? `${r.canonical} has no ${r.lacking.join(", ")} value of its own; the nearest stand-ins:`
+    : `${r.canonical} has every value the bars use; the nearest scored rungs:`;
+  if (r.suggestions.length === 0)
+    return [
+      `${r.canonical}: no scored rung shares 3 features with it; map it by hand: catherd catalog treat-like ${rung} <rung>`,
+    ];
+  return [
+    head,
+    ...r.suggestions.map(
+      (s, i) =>
+        `  ${i + 1}. ${s.like}  distance ${s.distance.toFixed(2)}  lends ${s.lends.join(", ")}  on ${s.features.join(", ")}`,
+    ),
+    `map one: catherd catalog treat-like ${rung} <rung>`,
+  ];
+}
+
 const treatLike = defineCommand({
-  meta: { name: "treat-like", description: "Score an unscored rung as a scored one" },
+  meta: {
+    name: "treat-like",
+    description:
+      "Score an unscored rung as a scored one; --suggest ranks stand-ins, --clear and --reset remove your mappings",
+  },
   args: {
     rung: {
       type: "positional",
-      required: true,
+      required: false,
       description: "the unscored rung, backend:model#effort or model#effort",
     },
-    like: { type: "positional", required: true, description: "the scored rung whose scores it borrows" },
+    like: { type: "positional", required: false, description: "the scored rung whose scores it borrows" },
+    suggest: { type: "string", description: "list the 3 nearest stand-ins for this rung" },
+    clear: { type: "string", description: "remove your treat-like for this rung" },
+    reset: { type: "boolean", description: "remove every treat-like of yours" },
+    ...JSON_ARG,
   },
   async run({ args }) {
     try {
-      const r = await saveTreatLike(args.rung, args.like);
-      console.log(`✓ ${r.rung} is treated like ${r.like}`);
+      const modes = [
+        args.suggest !== undefined,
+        args.clear !== undefined,
+        args.reset === true,
+        args.rung !== undefined,
+      ];
+      if (modes.filter(Boolean).length !== 1 || (args.rung !== undefined && args.like === undefined))
+        throw new CatherdError(
+          "E_INPUT_INVALID",
+          "treat-like takes <rung> <like>, or one of --suggest, --clear, --reset",
+          {
+            fix: "catherd catalog treat-like <rung> <like> | --suggest <rung> | --clear <rung> | --reset",
+          },
+        );
+      if (args.suggest !== undefined) {
+        const r = suggestFor(args.suggest);
+        if (args.json) console.log(JSON.stringify(r, null, 2));
+        else for (const l of suggestLines(r, args.suggest)) console.log(l);
+        return;
+      }
+      if (args.clear !== undefined) {
+        const r = await clearTreatLike(args.clear);
+        if (args.json) return console.log(JSON.stringify(r, null, 2));
+        for (const l of leftLines(r.left)) console.log(l);
+        console.log(`${mark("ok")} ${r.rung} is no longer treated like ${r.like}`);
+        return;
+      }
+      if (args.reset) {
+        const r = await resetTreatLikes();
+        if (args.json) return console.log(JSON.stringify(r, null, 2));
+        for (const l of leftLines(r.left)) console.log(l);
+        console.log(
+          r.removed.length
+            ? `${mark("ok")} removed ${r.removed.length} treat-like${r.removed.length === 1 ? "" : "s"}: ${r.removed.map(([a, b]) => `${a} → ${b}`).join(", ")}`
+            : "no treat-like of yours to remove",
+        );
+        return;
+      }
+      const r = await saveTreatLike(args.rung as string, args.like as string);
+      if (args.json) return console.log(JSON.stringify(r, null, 2));
+      console.log(`${mark("ok")} ${r.rung} is treated like ${r.like}`);
     } catch (e) {
       fail(e);
     }
   },
 });
 
-/** Spec §8 and 1.2 §9: `catherd catalog refresh|list|sync|treat-like <rung> <like>`. */
+/** Spec §8 and 1.2 §9: `catherd catalog refresh|list|sync|treat-like <rung> <like> | --suggest|--clear|--reset`. */
 export const catalogCommand = defineCommand({
   meta: { name: "catalog", description: "The model catalog" },
   subCommands: { refresh, list, sync, "treat-like": treatLike },

@@ -164,7 +164,7 @@ describe("the live effects", () => {
   it("saves the staged treat-likes and the patch through the services", async () => {
     withHome();
     const fx = liveEffects();
-    const rung = "opencode:opencode-go/gpt-6-luna#xhigh";
+    const rung = "opencode:opencode/claude-haiku-4-5#high";
     const r = await fx.save(
       "default",
       { roles: { writer: { rungs: [rung] } } },
@@ -174,7 +174,7 @@ describe("the live effects", () => {
     expect(fx.readProfile("default").roles?.writer?.rungs).toEqual([rung]);
     expect(fx.profiles()).toEqual({ names: ["default"], active: "default", here: "default", repo: null });
     const { catalog } = fx.catalog({});
-    expect(catalog.treatLike["gpt-6-luna#xhigh"]).toEqual({
+    expect(catalog.treatLike["claude-haiku-4-5#high"]).toEqual({
       like: "gpt-6-luna#high",
       source: "user",
     });
@@ -199,7 +199,7 @@ describe("the live effects", () => {
     const shown = fx.readProfile("default");
     // another process, while the save's treat-like waits for the catalog lock
     patchProfile("default", { budget: { minutes: 30 } });
-    const rung = "opencode:opencode-go/gpt-6-luna#xhigh";
+    const rung = "opencode:opencode/claude-haiku-4-5#high";
     const r = await fx.save(
       "default",
       { roles: { writer: { rungs: [rung] } } },

@@ -29,7 +29,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
+        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Each score has its confidence, source and date (`from` names the rung a lent value belongs to); each model its price and speed facts, each rung catherd's own run evidence. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
       inputSchema: {
         repo: z.string().min(1).optional(),
         role: z.enum(ROLES).optional(),
@@ -95,7 +95,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "profile_set",
     {
       description:
-        "Apply a patch to a profile (without a name: the profile this repo runs on, as in profile_get; a new name starts from the default profile): objective, jev.use, billing, roles (enabled, access, network, rungs, defaultRung), harness isolation per backend, failover, budget, timeouts, preflight.confirm, lock.heavy and notify. Lists replace, maps merge, and null removes a key. An unknown key is refused. It validates first and writes nothing when invalid; otherwise it saves, rewrites the agent files and relinks them. Returns the errors and warnings, the diff, and newSessionNeededFor: the agents that apply from the next Claude Code session.",
+        "Apply a patch to a profile (without a name: the profile this repo runs on, as in profile_get; a new name starts from the default profile): objective, jev.use, billing, roles (enabled, access, network, rungs, defaultRung), harness isolation per backend, failover, budget, timeouts, preflight.confirm, lock.heavy and notify. Lists replace, maps merge, and null removes a key. An unknown key is refused. It validates first and writes nothing when invalid, unless the patch repairs an invalid profile: it fixes at least one of its errors and adds none, and then it saves with `errors` listing those still open. A save rewrites the agent files and relinks them. Returns saved, the errors and warnings, the diff, and newSessionNeededFor: the agents that apply from the next Claude Code session.",
       inputSchema: { name: PROFILE, repo: REPO, patch: ProfilePatchSchema },
     },
     (a) => handle(async () => deps.profiles.set(a.name, a.patch, await toplevel(a.repo))),

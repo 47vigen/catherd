@@ -24,6 +24,8 @@ import { log } from "../infra/log.ts";
 import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
+import { provenanceOf } from "./provenance.ts";
+import { runEvidence } from "./run-evidence.ts";
 
 function routingProfile(v: ProfileView, role: Role, spentFraction: number): RoutingProfile {
   const rc = v.roles[role];
@@ -87,8 +89,10 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
   const c = loadCatalog({ repo: req.repo });
   const fallback = () => defaultLadder(c, p, req.role);
-  if (req.laneText === null || candidates(c, p, req.role).length <= 1)
-    return answer(fallback(), "default", null, null, null, null);
+  if (req.laneText === null || candidates(c, p, req.role).length <= 1) {
+    const out = answer(fallback(), "default", null, null, null, null);
+    return { ...out, provenance: provenanceOf(c, out.rung, null, null, p.billing, runEvidence(c)) };
+  }
   const lane = parseLaneHeader(req.laneText);
   let asked: Asked | null = null;
   let judged: ReturnType<typeof judgeRoute> | null = null;
@@ -120,6 +124,7 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
         ? answer(select(c, p, req.role, kind, lane.difficulty), "lane", kind, lane.difficulty, asked, jev)
         : answer(fallback(), "default", null, null, asked, jev);
   }
+  out.provenance = provenanceOf(c, out.rung, out.kind, out.difficulty, p.billing, runEvidence(c));
   if (asked) {
     logJev(req.runDir, {
       ...asked.meta,

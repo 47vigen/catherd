@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Profile, resolveProfile } from "../../../domain/profile.ts";
+import type { Role } from "../../../domain/roles.ts";
 import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import { hereWord } from "../effects.ts";
 import { useApp, useDialogHandler } from "../providers/app.tsx";
@@ -215,17 +216,7 @@ export function ProfilesView(props: { width: number; height: number }) {
           empty: "no scored rung on another quota",
         },
       });
-    else if (a.type === "rung" && !a.scored)
-      app.dispatch({
-        type: "open",
-        dialog: {
-          kind: "select",
-          purpose: { type: "treatLike", rung: a.rung, role: a.role },
-          title: `Treat ${a.rung} like…`,
-          options: treatLikeOptions(catalog),
-          empty: "no scored rung",
-        },
-      });
+    else if (a.type === "rung" && !a.scored) openTreatLike(a.rung, a.role);
     else if (a.type === "number") {
       const v = numberValue(profile, a.path);
       app.dispatch({
@@ -240,6 +231,49 @@ export function ProfilesView(props: { width: number; height: number }) {
         },
       });
     }
+  };
+  /** spec 1.2 §6.4: the treat-like picker, its three nearest stand-ins first */
+  const openTreatLike = (rung: string, role: Role | null) => {
+    if (!catalog) return;
+    const suggestions = app.effects.suggest(catalog, rung);
+    app.dispatch({
+      type: "open",
+      dialog: {
+        kind: "select",
+        purpose: { type: "treatLike", rung, role },
+        title: `Treat ${rung} like…`,
+        options: treatLikeOptions(catalog, suggestions),
+        suggested: suggestions.map((s) => s.like),
+        empty: "no scored rung",
+      },
+    });
+  };
+  /** spec 1.2 §9: the rung's values with confidence and source, and catherd's runs on it */
+  const openDetail = (rung: string) => {
+    if (!catalog) return;
+    const d = app.effects.rungDetail(catalog, rung);
+    app.dispatch({
+      type: "open",
+      dialog: {
+        kind: "select",
+        purpose: { type: "rung", rung },
+        title: rung,
+        options: [
+          ...d.values.map((v) => ({
+            value: v.dim,
+            title: `${v.dim} ${v.value}`,
+            group: "values",
+            detail: `${v.inferred ? `inferred from ${v.from}` : v.confidence} · ${v.source} ${v.benchmark} · ${v.date}`,
+          })),
+          {
+            value: "runs",
+            title: d.evidence ?? "no runs yet",
+            group: "catherd's runs (never used to route)",
+          },
+        ],
+        empty: "no values",
+      },
+    });
   };
   const primary = (r: Row | null) => {
     const p = current();
@@ -267,10 +301,31 @@ export function ProfilesView(props: { width: number; height: number }) {
     "catalog.refresh": () => {
       // after a failed read, r reads it again (and only that)
       if (failure) return failure.retry();
-      void app.effects.refreshCatalog().then(
-        () => {
+      // spec 1.2 §9: r lists every backend's models and syncs the public sources, then shows each source's
+      // age and last error
+      void Promise.all([app.effects.refreshCatalog(), app.effects.syncSources()]).then(
+        ([, sync]) => {
           loaded.refresh();
-          app.toast({ variant: "success", message: "Catalog refreshed" });
+          app.toast({
+            variant: sync.failed.length ? "warning" : "success",
+            message: sync.busy
+              ? "Catalog refreshed; another sync is running"
+              : `Catalog refreshed${sync.newlyScored.length ? `; ${sync.newlyScored.length} rungs newly scored` : ""}`,
+          });
+          app.dispatch({
+            type: "open",
+            dialog: {
+              kind: "select",
+              purpose: { type: "sources" },
+              title: "Sources",
+              options: app.effects.sources().map((s) => ({
+                value: s.source,
+                title: s.name,
+                detail: s.error ? `${s.age} · ${s.error}` : s.age,
+              })),
+              empty: "no sources",
+            },
+          });
         },
         (e: unknown) => app.toast(errorToast(e)),
       );
@@ -279,6 +334,16 @@ export function ProfilesView(props: { width: number; height: number }) {
     "edit.redo": () => app.dispatch({ type: "redo" }),
   });
   useCommandLayer("row.profiles", {
+    "tree.detail": () => {
+      const a = rowNow()?.action;
+      if (a?.type === "rung") openDetail(a.rung);
+      else app.toast({ variant: "info", message: "Pick a rung (an effort row) to see its values" });
+    },
+    "tree.treatLike": () => {
+      const a = rowNow()?.action;
+      if (a?.type === "rung") openTreatLike(a.rung, a.role);
+      else app.toast({ variant: "info", message: "Pick a rung (an effort row) to map it" });
+    },
     "tree.toggle": () => toggle(rowNow()),
     "tree.open": () => primary(rowNow()),
     "tree.expand": () => {
@@ -313,6 +378,8 @@ export function ProfilesView(props: { width: number; height: number }) {
         : null;
     app.dispatch({ type: "treatLike", rung: p.rung, like: value, ...(tick ? { patch: tick } : {}) });
   });
+  useDialogHandler("sources", () => app.dispatch({ type: "close" }));
+  useDialogHandler("rung", () => app.dispatch({ type: "close" }));
   useDialogHandler("number", (p, value) => {
     if (p.type !== "number") return;
     const r = parseNumber(p.path, value);

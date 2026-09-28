@@ -23,6 +23,8 @@ const SHIPPED = [
   "catalog/models.json",
   "catalog/scores.json",
   "catalog/jev.json",
+  "catalog/sources.json",
+  "catalog/ATTRIBUTION.md",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
   "plugin/bin/catherd-mcp",

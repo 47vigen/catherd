@@ -37,6 +37,8 @@ const GLM: CatalogModel = {
   roles: ["worker", "reviewer"],
   listed: true,
   notes: {},
+  price: null,
+  speed: {},
   rungs: [
     {
       rung: "opencode:opencode-go/glm-6#default",
@@ -44,6 +46,7 @@ const GLM: CatalogModel = {
       scores: {},
       treatLike: null,
       cost: { kind: "metered", value: 0 } as never,
+      evidence: null,
     },
   ],
 };
@@ -108,9 +111,11 @@ describe("the Profiles tree (spec §9.1)", () => {
       ["max", false],
       ["ultra", false],
     ]);
+    // ultra carries max's published values (adjacent, spec 1.2 §4.3): scored, not dimmed
     expect(row(rows, "rung:worker:codex:gpt-6-sol#ultra")).toMatchObject({
-      value: "unscored · enter: treat like",
-      dim: true,
+      value: "",
+      dim: false,
+      action: { scored: true },
     });
   });
 
@@ -133,7 +138,9 @@ describe("the Profiles tree (spec §9.1)", () => {
       "→ kimi-k3#max (scores borrowed from gpt-6-sol#medium)",
     );
     expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("none");
-    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe("→ gpt-6-luna#high");
+    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe(
+      "→ gpt-6-luna#high (agentic, steer borrowed from gpt-5.6-luna#high)",
+    );
   });
 
   it("puts a validation issue on the row it is about", () => {
@@ -224,13 +231,15 @@ describe("edits", () => {
     expect(standIns[0]).toEqual({ value: "", title: "none", current: false });
     expect(standIns.some((o) => o.value.startsWith("codex:"))).toBe(false);
     expect(standIns.some((o) => o.value === "claude-code:claude-opus-5-5#xhigh")).toBe(true);
-    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe(
-      "scores borrowed from claude-opus-5-5#xhigh",
-    );
+    // Opus high has values of its own now (carried from xhigh and max): nothing borrowed
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe("");
     expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe("");
-    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe("");
+    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe(
+      "agentic, steer borrowed from gpt-5.6-luna#high",
+    );
     const likes = treatLikeOptions(c);
     expect(likes.map((o) => o.value)).toContain("gpt-6-sol#medium");
-    expect(likes.map((o) => o.value)).not.toContain("claude-opus-5-5#high");
+    // a rung that borrows through a treat-like lends nothing of its own
+    expect(likes.map((o) => o.value)).not.toContain("opencode-go/kimi-k3#max");
   });
 });

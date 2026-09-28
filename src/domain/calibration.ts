@@ -15,7 +15,8 @@ export interface FieldRef {
 
 /**
  * Spec 1.2 §4.1: each dimension's anchor, the unit its bars are in, and the sources calibrated onto it.
- * `shipped` is the value `catalog/scores.json` carries (every anchor is keyless, spec 1.2 §4.1).
+ * `shipped` is the hand-typed value `catalog/scores.json` carries, published for that rung (every anchor is
+ * keyless, spec 1.2 §4.1).
  */
 export const DIM_SOURCES: Record<Dim, { anchor: FieldRef | "shipped"; others: FieldRef[] }> = {
   repo_code: {
@@ -35,9 +36,12 @@ export const DIM_SOURCES: Record<Dim, { anchor: FieldRef | "shipped"; others: Fi
       { source: "epoch", field: "frontiercode", benchmark: "FrontierCode (Epoch AI)" },
     ],
   },
+  // plan 14 Ruling C-2: the vendors' Terminal-Bench 4.0 values, not Epoch's Terminal-Bench 2.0, which shares
+  // no rung with them; Epoch is fitted onto them once it covers five of their rungs
   terminal: {
-    anchor: { source: "epoch", field: "terminalbench", benchmark: "Terminal-Bench (Epoch AI)" },
+    anchor: "shipped",
     others: [
+      { source: "epoch", field: "terminalbench", benchmark: "Terminal-Bench (Epoch AI)" },
       {
         source: "artificial-analysis",
         field: "terminalbench_v2_1",

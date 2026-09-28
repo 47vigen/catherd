@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { activeName, getProfile, profilesDir } from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
@@ -29,8 +30,10 @@ describe("catherd profile show", () => {
       "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
     );
     expect(lines.find((l) => l.startsWith("  architect"))).toContain("read-only, advisory");
-    // Go's Luna has scores of its own (inferred ones): no label; Kimi K3 has none, so it borrows Sol medium's
-    expect(r.out).toContain("  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high\n");
+    // Go's Luna has scores of its own and borrows only agentic and steer; Kimi K3 has none, so it borrows Sol's
+    expect(r.out).toContain(
+      "  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high (agentic, steer borrowed from gpt-5.6-luna#high)\n",
+    );
     expect(r.out).toContain(
       "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (scores borrowed from gpt-6-sol#medium)\n",
     );
@@ -57,6 +60,7 @@ describe("catherd profile show", () => {
       to: "opencode:opencode-go/kimi-k3#max",
       inferred: true,
       via: "gpt-6-sol#medium",
+      note: "scores borrowed from gpt-6-sol#medium",
     });
   });
 });
@@ -86,6 +90,28 @@ describe("catherd profile set", () => {
       "error E_CONFIG_INVALID: the profile was not saved: roles.worker.enabled: the worker cannot be disabled\nfix: catherd profile set roles.worker.enabled true\n",
     ]);
     expect(existsSync(join(profilesDir(), "default.json"))).toBe(false);
+  });
+
+  it("saves a repair of an invalid profile, and lists the errors still open (spec 1.2 §6.2)", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    const broken = {
+      ...doc,
+      roles: { ...doc.roles, worker: { ...doc.roles?.worker, enabled: false } },
+      failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" },
+    };
+    writeFileSync(join(profilesDir(), "default.json"), JSON.stringify(broken));
+    const r = catherd(["set", "roles.worker.enabled", "true"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toStartWith(
+      [
+        "✓ roles.worker.enabled: false → true",
+        "! saved; 1 error is still open:",
+        "✗ failover.codex:gpt-6-sol#high: stand-in codex:gpt-6-luna#high draws on the same quota as codex:gpt-6-sol#high, which is out when codex:gpt-6-sol#high hits its limit",
+      ].join("\n"),
+    );
+    expect(getProfile("default").roles.worker.enabled).toBe(true);
   });
 
   it("refuses an unknown path with exit 2", () => {
@@ -161,7 +187,7 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect([r.code, r.out]).toEqual([1, ""]);
     const [line, fix, rest] = r.err.split("\n");
     expect(line).toStartWith("error E_CONFIG_INVALID: the profile was not saved: roles.reviewer.rungs: ");
-    expect(line).toContain("codex:gpt-6-sol#turbo is unscored");
+    expect(line).toContain('gpt-6-sol has no effort "turbo" on codex');
     expect(fix).toStartWith("fix: ");
     expect(rest).toBe("");
     expect(existsSync(join(profilesDir(), "x.json"))).toBe(false);
@@ -242,7 +268,11 @@ describe("catherd profile validate", () => {
     writeFileSync(join(profilesDir(), "bad.json"), JSON.stringify(doc));
     const r = catherd(["validate", "bad"]);
     expect(r.code).toBe(1);
-    expect(r.out).toContain("✗ roles.reviewer.rungs: codex:gpt-6-sol#turbo is unscored\n");
+    expect(r.out).toContain('✗ roles.reviewer.rungs: gpt-6-sol has no effort "turbo" on codex');
+    // spec 1.2 §6.1: unscored is a warning, never an error
+    expect(r.out).toContain(
+      "! roles.reviewer.rungs: codex:gpt-6-sol#turbo is unscored and no rung is near enough to stand in for it: routing skips it\n",
+    );
     expect(r.out).toContain(
       "! roles.verifier.access: verifier runs read-only; catherd's default for it is full\n",
     );

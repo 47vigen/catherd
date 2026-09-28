@@ -12,6 +12,7 @@ import {
   tryLockSync,
 } from "../../src/infra/sources/cache.ts";
 import { AA_MODELS_URL } from "../../src/infra/sources/artificial-analysis.ts";
+import { arenaUrl } from "../../src/infra/sources/arena.ts";
 import { MODELS_DEV_URL } from "../../src/infra/sources/models-dev.ts";
 import { VECTARA_URL } from "../../src/infra/sources/vectara.ts";
 import {
@@ -43,6 +44,24 @@ function clock(start = T0) {
     }),
   };
 }
+/** The recorded answers, with an Arena agent row for GPT-6 Luna (High), which the recording lacks. */
+function withLunaAgent(): typeof fetch {
+  const base = recordedFetch().impl;
+  return (async (input: RequestInfo | URL) => {
+    const res = await base(input);
+    if (String(input) !== arenaUrl("agent")) return res;
+    const body = (await res.json()) as { rows: { row: Record<string, unknown> }[] };
+    const row = {
+      ...body.rows[0]?.row,
+      model_name: "GPT 6 Luna (High)",
+      organization: "openai",
+      score: 0.03,
+    };
+    body.rows.push({ row });
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+}
+
 const KEYLESS: SourceId[] = [
   "models-dev",
   "openrouter-models",
@@ -72,14 +91,17 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
     expect(r.unmatched.vectara).toEqual(["antgroup/finix_s1_32b", "google/gemini-2.5-pro", "openai/gpt-5.5"]);
   });
 
-  it("reports the rungs newly scored, and routing reads them at once", async () => {
+  it("reports no rung newly scored when the shipped file carries the sources, and routes on a new value at once", async () => {
     withHome();
     const c = clock();
-    const r = await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
-    // Opus 5.5 high had only a shipped treat-like; Arena scores it on its own
-    expect(r.newlyScored).toContain("claude-opus-5-5#high");
-    expect(r.newlyScored).not.toContain("gpt-6-sol#max");
-    expect(loadCatalog({ timings: false }).scores["claude-opus-5-5#high"]?.agentic?.value).toBe(0.1215);
+    // GPT-6 Luna has no Arena agent row in the recorded answers: this one gives Luna high its first agentic value
+    const r = await syncSources({ transport: c.transport(withLunaAgent()), now: c.now, aaKey: null });
+    expect(r.newlyScored).toEqual([]);
+    expect(loadCatalog({ timings: false }).scores["gpt-6-luna#high"]?.agentic).toMatchObject({
+      value: 0.03,
+      confidence: "measured",
+      source: "arena",
+    });
   });
 
   it("fetches a source only when its answer is older than 12 hours, unless forced", async () => {
@@ -183,7 +205,7 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
 
   it("says when the user's stand-in is no longer needed, and never removes it", async () => {
     withHome();
-    // Sol high borrows agentic from a rung only the user scored: Arena's Sol max values cover it after a sync
+    // Luna high borrows agentic from a rung only the user scored; an Arena row for it covers that after a sync
     mkdirSync(dirname(overridePath()), { recursive: true });
     writeFileSync(
       overridePath(),
@@ -203,11 +225,11 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
         ],
       }),
     );
-    await saveTreatLike("gpt-6-sol#high", "yardstick#high");
+    await saveTreatLike("gpt-6-luna#high", "yardstick#high");
     const c = clock();
-    const r = await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
-    expect(r.noLongerNeeded).toEqual([{ rung: "gpt-6-sol#high", like: "yardstick#high" }]);
-    expect(loadCatalog({ timings: false }).treatLike["gpt-6-sol#high"]).toEqual({
+    const r = await syncSources({ transport: c.transport(withLunaAgent()), now: c.now, aaKey: null });
+    expect(r.noLongerNeeded).toEqual([{ rung: "gpt-6-luna#high", like: "yardstick#high" }]);
+    expect(loadCatalog({ timings: false }).treatLike["gpt-6-luna#high"]).toEqual({
       like: "yardstick#high",
       source: "user",
     });
@@ -247,12 +269,16 @@ describe("the shipped values after a sync (plan 13 R7, R18)", () => {
       value: 37.2,
       confidence: "secondary",
     });
-    // Sol none has no shipped or direct value: it takes Sol max's
-    expect(adj("gpt-6-sol#none")).toHaveLength(1);
-    expect(loadCatalog({ timings: false }).scores["gpt-6-sol#none"]?.repo_code?.confidence).toBe("adjacent");
+    // Sol none carries Sol low's DeepSWE value in the shipped file (plan 14): a sync spreads nothing over it
+    expect(adj("gpt-6-sol#none")).toEqual([]);
+    expect(loadCatalog({ timings: false }).scores["gpt-6-sol#none"]?.repo_code).toMatchObject({
+      value: 37.2,
+      confidence: "adjacent",
+      note: "DeepSWE has it at low; carried to this effort",
+    });
   });
 
-  it("keep terminal: a sync scores no rung on it until plan 14 moves it onto one unit (plan 13 R18)", async () => {
+  it("keep terminal: Epoch's Terminal-Bench 2.0 shares no rung with the shipped 4.0 anchor (plan 14 C-2)", async () => {
     withHome();
     const shipped = buildCatalog({ models: shippedModels(), scores: shippedScores() });
     const c = clock();

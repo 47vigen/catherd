@@ -6,7 +6,7 @@ import {
   type ProfileDoc,
   resolveProfile,
 } from "../../domain/profile.ts";
-import { validateProfile } from "../../domain/profile-rules.ts";
+import { repairs, validateProfile } from "../../domain/profile-rules.ts";
 import { catalogQuery, loadCatalog } from "../../services/catalog-service.ts";
 import type { RunRecord } from "../../domain/record.ts";
 import type { DoctorReport } from "../../services/doctor.ts";
@@ -17,8 +17,10 @@ import {
   type RoleDetail,
   type RoleRow,
   rowOf,
+  rungDetailOf,
   type SessionRow,
   type SessionRun,
+  suggestFor,
 } from "./effects.ts";
 import { withStaged } from "./profile-tree.ts";
 
@@ -401,6 +403,14 @@ export interface FixtureOptions {
   watchable?: boolean;
 }
 
+/** Spec 1.2 §9: the sources as the `r` dialog shows them, one failing. */
+export const FIXTURE_SOURCES: ReturnType<Effects["sources"]> = [
+  { source: "models-dev", name: "models.dev", age: "2 h ago", error: null },
+  { source: "arena", name: "Arena (LMArena)", age: "2 h ago", error: null },
+  { source: "epoch", name: "Epoch AI benchmarks", age: "1 d ago", error: "network error" },
+  { source: "artificial-analysis", name: "Artificial Analysis", age: "never fetched", error: null },
+];
+
 export function fixtureEffects(o: FixtureOptions = {}): Effects & {
   writes: string[];
   /** what a change to a watched run file does: every open watch hears of it */
@@ -425,9 +435,12 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     staged: Record<string, string> = {},
   ) => {
     const p = resolveProfile(after, name);
-    const v = validateProfile(p, withStaged(loadCatalog({ timings: false }), staged), BACKENDS);
+    const c = withStaged(loadCatalog({ timings: false }), staged);
+    const v = validateProfile(p, c, BACKENDS);
+    // spec 1.2 §6.2, as the ProfileService rules: a save that repairs part of an invalid profile goes through
+    const was = docs.has(name) ? validateProfile(resolveProfile(before, name), c, BACKENDS) : null;
     return {
-      saved: v.errors.length === 0,
+      saved: repairs(was, v),
       ...v,
       diff: diffProfiles(resolveProfile(before, name), p),
       linked: [],
@@ -581,5 +594,20 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
       writes.push("refresh");
       return [{ backend: "codex", models: 14, fetchedAt: "2026-09-26T12:00:00.000Z" }];
     },
+    async syncSources() {
+      writes.push("sync");
+      return {
+        busy: false,
+        sources: [],
+        newlyScored: [],
+        noLongerNeeded: [],
+        failed: [],
+        warnings: [],
+        unmatched: {},
+      };
+    },
+    sources: () => FIXTURE_SOURCES,
+    suggest: suggestFor,
+    rungDetail: rungDetailOf,
   };
 }

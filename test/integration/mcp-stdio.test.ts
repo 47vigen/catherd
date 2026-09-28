@@ -206,7 +206,8 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(refused.record).toMatchObject({ status: "ok", replyStatus: "refused" });
       expect(refused.hints).toContain("climb: refused");
       const climbed = await call(c, "climb", { run, lane: "M1.L1", reason: "refused" });
-      expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#medium", top: false });
+      // the build ladder is Luna high, then Sol xhigh (spec 1.2 §5.2: the median DeepSWE bar, 66.6)
+      expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#xhigh", top: false });
 
       // failover: Sol medium hits a usage limit; its stand-in Sol high finishes the lane.
       writeProfile({ failover: { "codex:gpt-6-sol#medium": "codex:gpt-6-sol#high" } });
@@ -336,7 +337,8 @@ describe("push over stdio (spec §15)", () => {
         sim.rewrite({
           byRung: {
             "gpt-6-luna#high": { reply: "A done.\nSTATUS: complete — a", holdUntil: a },
-            "gpt-6-sol#medium": { reply: "B done.\nSTATUS: complete — b", holdUntil: b },
+            // Sol xhigh: on the build ladder (Luna high, Sol xhigh) the lanes are routed on
+            "gpt-6-sol#xhigh": { reply: "B done.\nSTATUS: complete — b", holdUntil: b },
           },
         });
         const base = { run, role: "worker", brief: "b" };
@@ -350,7 +352,7 @@ describe("push over stdio (spec §15)", () => {
           ...base,
           name: "worker-M1.L2",
           lane: "M1.L2",
-          rung: "codex:gpt-6-sol#medium",
+          rung: "codex:gpt-6-sol#xhigh",
         });
         writeFileSync(a as string, "");
         // the client keeps working while the first notice is on its way

@@ -314,7 +314,15 @@ export function useProfileDialogs(): void {
     } catch (e) {
       fail(app, e);
     }
-    app.toast({ variant: "success", message: `Saved profile ${p.name}` });
+    // spec 1.2 §6.2: a save that repaired part of an invalid profile says what is still open
+    app.toast(
+      r.errors.length
+        ? {
+            variant: "warning",
+            message: `Saved profile ${p.name}; ${r.errors.length} ${r.errors.length === 1 ? "error" : "errors"} still open`,
+          }
+        : { variant: "success", message: `Saved profile ${p.name}` },
+    );
     sessionsNeeded(app, r.newSessionNeededFor);
     if (value === "activate") activateNow(app, data, p.name, shown);
   });

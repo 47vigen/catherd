@@ -9,7 +9,7 @@ import {
   patchBetween,
   resolveProfile,
 } from "../../../domain/profile.ts";
-import type { Validation } from "../../../domain/profile-rules.ts";
+import { repairs, type Validation } from "../../../domain/profile-rules.ts";
 import type { Effects } from "../effects.ts";
 import { useApp } from "../providers/app.tsx";
 import { useData, useLoad } from "../providers/data.tsx";
@@ -36,6 +36,8 @@ export interface SavePreview {
   changes: Change[];
   treatLikes: [string, string][];
   validation: Validation;
+  /** spec 1.2 §6.2: the save leaves errors but removes one of the stored profile's and adds none */
+  repair: boolean;
   agentsAdded: string[];
   agentsRemoved: string[];
 }
@@ -54,10 +56,13 @@ function previewSave(
   const { catalog } = fx.catalog(after.billing);
   const a = new Set(fx.agents(before));
   const b = new Set(fx.agents(after));
+  const staged = withStaged(catalog, d.treatLikes);
+  const validation = fx.validate(after, staged);
   return {
     changes: diffProfiles(before, after),
     treatLikes: Object.entries(d.treatLikes),
-    validation: fx.validate(after, withStaged(catalog, d.treatLikes)),
+    validation,
+    repair: validation.errors.length > 0 && repairs(fx.validate(before, staged), validation),
     agentsAdded: [...b].filter((x) => !a.has(x)),
     agentsRemoved: [...a].filter((x) => !b.has(x)),
   };
@@ -200,7 +205,8 @@ export function SaveDialog(props: { dialog: Save }) {
     setChanged(true);
     return { same: false, now: doc };
   };
-  const blocked = error !== null || (preview?.validation.errors.length ?? 0) > 0;
+  // spec 1.2 §6.2: a save that repairs part of an invalid profile is offered; any other error leaves Cancel
+  const blocked = error !== null || ((preview?.validation.errors.length ?? 0) > 0 && !preview?.repair);
   // spec §9.2's order: Save / Save & make active / Cancel; errors leave only Cancel
   const labels = blocked ? ["Cancel"] : ["Save", "Save & make active", "Cancel"];
   const [focused, setFocusedState] = useState(0);
@@ -272,7 +278,9 @@ export function SaveDialog(props: { dialog: Save }) {
         ],
       },
       {
-        head: [[]],
+        head: preview.repair
+          ? [[], ...text("This save fixes an error and adds none; these stay open:", "warning")]
+          : [[]],
         hold: "error",
         more: (n) => `… and ${n} more ${n === 1 ? "error" : "errors"}`,
         items: preview.validation.errors.map((e) =>

@@ -52,10 +52,11 @@ catherd init
 The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init` works too: `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the
-optional Jev key, writes the default profile and links its Claude agents, lists your backends' models, and ends
-with a readiness report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates
-that profile instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the
-profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
+optional Jev key and the optional Artificial Analysis key, syncs the public model sources, writes the default
+profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
+asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
+piped, it reads one answer per line once stdin closes: the Jev key, the Artificial Analysis key, the profile,
+whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
 Claude Code:
 
 ```sh
@@ -91,6 +92,7 @@ In a terminal:
 | `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                              |
 | `catherd catalog sync [--force] [--unmatched]`                                            | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched     |
 | `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                             |
+| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                    | The three nearest stand-ins for a rung; removes one or every mapping of yours                       |
 | `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
 | `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                                    |
 | `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                  |
@@ -107,7 +109,19 @@ hallucination leaderboard and Epoch AI, plus Artificial Analysis when you give `
 server syncs them in the background when a Claude Code session starts (each source at most every 12 hours, never
 delaying the session), `init` syncs them, and `catherd catalog sync` (or the `catalog_sync` tool) does it on demand.
 Each answer is kept in `~/.local/share/catherd/sources/`; a source that fails keeps its last good answer, and with no
-network and no sync at all catherd routes on the scores it ships.
+network and no sync at all catherd routes on the scores it ships. Those are the keyless sources' values, refreshed
+weekly (`catalog/ATTRIBUTION.md` credits each source); Artificial Analysis values are read with your key only and
+never shipped.
+
+A lane's kind and difficulty pick a bar: a threshold on each dimension it spans (`repo_code`, `terminal`,
+`honesty`, `agentic`, `frontend`; `steer` is shown but has no default bar), and the lane starts on the cheapest
+rung that clears them all. A rung with no value on a dimension takes its nearest stand-in's as `inferred`, and
+`profile validate` and `doctor` list it as a "stand-in to confirm": confirm or replace it with `catherd catalog
+treat-like --suggest <rung>`, then `treat-like <rung> <like>`. `route` says, for the rung it picks, each threshold,
+the value used, its confidence and source, and catherd's own runs on it ("12 lanes, 2 climbed, 1 partial"), which
+it shows but never routes on. A bar of your own goes in `~/.config/catherd/catalog.override.json`, per dimension
+(`"bars": { "ui": { "hard": { "frontend": 1700, "honesty": null } } }`: a number sets a threshold, `null` removes
+the default's).
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).

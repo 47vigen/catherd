@@ -87,6 +87,7 @@ describe("the source cache (spec 1.2 §3.3)", () => {
       ],
       unmatched: { arena: ["Kimi K3"] },
       warnings: [],
+      features: {},
     };
     writeDerived(d);
     expect(readDerived()).toEqual(d);

@@ -33,6 +33,39 @@ Owner rule: review Minors and non-correctness bot P2s land here, not in code. Fr
 - **`saveCredential` writes without a file lock**; two concurrent `init`s could lose a key (the Jev key's old
   pattern). Take the profiles lock or a credentials lock.
 
+From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
+
+- **A threshold's `why` in `route` always shows the default's `barsWhy`**, even when the user's override replaced
+  it (`provenance.ts`): `min: 70` beside "the median … 66.6". Say "your override" when `c.bars` differs.
+- **A failover stand-in scored only by an inferred stand-in has no mark** in `profile show` and the tree
+  (`note` is set only for a treat-like). Add "`<dims>` inferred from X".
+- **`route` reads every run on the machine for evidence, unguarded** (`routing-service.ts`): an unreadable run file
+  fails routing, though evidence is display-only. Wrap it; `evidence: null` on error.
+- **The TUI save preview checks the repair rule against a profile with no stored file**, which the service refuses:
+  the dialog offers Save and the save comes back invalid. Preview `repair: false` when the profile does not exist.
+- **An unscored `defaultRung` falls back silently** to the cheapest candidate (`select.ts` `defaultLadder`); say so
+  in the warning.
+- **`speedLadder`'s main dimension for `ui` is `repo_code`**, while `ui` now gates on `frontend`.
+- **Ruling 7 says `steer` is never inferred**, but a user's steer bar makes it inferred (`standins.ts` `barDimsIn`).
+  Align the ruling or the code.
+- **`catalog/ATTRIBUTION.md` says models.dev data is never shipped**, but `models.json` now ships its release dates.
+  Move models.dev to the shipped section with its MIT line.
+- **`catalog-refresh.yml` keeps the token in `.git/config` while `bun install` runs scripts** (as `release.yml`
+  does). `persist-credentials: false`; push with the token only in the PR step.
+- **`valueWords` in `provenance.ts` is exported and unused.**
+- **`adjacent` values overstate lower efforts** (Luna none carries Luna max's DeepSWE). A per-effort discount, or
+  spreading only upward, once sources score low efforts (plan 14 Ruling 3).
+- **The logic and hard bars sit above every Sol rung** on the default ladder (Sol agentic 0.0818 vs 0.08606): the
+  owner's call, percentiles as specced or a ladder with a stronger top rung.
+- **Haiku 4.5's terminal value returns** when Epoch's Terminal-Bench covers five anchor rungs (plan 14 C-2).
+- **The Artificial Analysis fixtures are synthetic** (plan 13 R-C); re-record them with a key.
+- **`catalog list` says "inferred from X" for a user treat-like's values too**, the same as a stand-in's guess;
+  tell a user's mapping apart ("like X").
+- **`treat-like --clear` does not name a rung that keeps some values but loses a bar dimension** to no stand-in
+  (neither unscored nor inferred). Spec §6.4 arguably covers the partial gap.
+- **The text `catalog list` format changed in 1.2** (values line, then `runs:`); any script scraping it should use
+  `--json`.
+
 ## 1.1 follow-ups (minors from the 1.1 reviews, 2026-09-28)
 
 Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land here, not in code. Each is small.
