@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
@@ -30,16 +32,37 @@ const SANDBOX: Record<Access, string> = {
 };
 
 /**
+ * The `writable_roots` the user's Codex config lists under its top-level `[sandbox_workspace_write]`
+ * (`$CODEX_HOME/config.toml`). A `-c` override replaces that array, so catherd passes the union. A
+ * `--profile`'s or a managed requirements file's roots are not read. Unreadable or absent: none.
+ */
+export function userWritableRoots(): string[] {
+  const file = join(userCodexHome(), "config.toml");
+  if (!existsSync(file)) return [];
+  try {
+    const roots = (Bun.TOML.parse(readFileSync(file, "utf8")) as Record<string, unknown>)
+      .sandbox_workspace_write as { writable_roots?: unknown } | undefined;
+    const list = roots?.writable_roots;
+    return Array.isArray(list) ? list.filter((r): r is string => typeof r === "string" && r !== "") : [];
+  } catch {
+    // a config Codex cannot parse either: Codex reports it on the run itself
+    return [];
+  }
+}
+
+/**
  * Spec §5: a workspace-write worker also writes the lock and temp dirs, and (unless the role says
  * `network: false`) reaches the network and binds loopback. The same `-c` overrides go to `codex sandbox`
- * in doctor's probes, so doctor tests exactly what a worker gets.
+ * in doctor's probes, so doctor tests exactly what a worker gets. `-c …writable_roots=` replaces the
+ * user's own roots, so theirs go in too; an isolated run ignores the user's config, so it has none.
  */
-export function codexGrants(access: Access, network = true): string[] {
+export function codexGrants(access: Access, network = true, isolated = false): string[] {
   if (access !== "workspace-write") return [];
+  const roots = [...new Set([...(isolated ? [] : userWritableRoots()), ...writableRoots()])];
   return [
     ...(network ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
     "-c",
-    `sandbox_workspace_write.writable_roots=${JSON.stringify(writableRoots())}`,
+    `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`,
   ];
 }
 
@@ -64,7 +87,7 @@ function plan(r: RunRequest): SpawnPlan {
     "--json",
     "-o",
     r.replyPath,
-    ...codexGrants(r.access, r.network),
+    ...codexGrants(r.access, r.network, r.isolated),
   ];
   const sandbox = SANDBOX[r.access];
   const args =

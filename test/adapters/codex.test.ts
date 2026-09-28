@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { realTmpdir } from "../../src/adapters/access.ts";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import { codexAdapter, codexGrants, codexShell } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import { locksDir } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 
@@ -121,6 +123,30 @@ describe("codex plan", () => {
     } catch (e) {
       expect(isCatherdError(e) && e.code).toBe("E_ADMIT_THREAD");
     }
+  });
+
+  it("keeps the user's own writable_roots: -c replaces the array, so the grant is the union", () => {
+    withHome();
+    process.env.CODEX_HOME = join(FX, "user-home");
+    const roots = (args: string[]) =>
+      JSON.parse(
+        args.find((a) => a.startsWith("sandbox_workspace_write.writable_roots="))?.split("=")[1] ?? "null",
+      );
+    for (const thread of [null, "019a-thread-1"]) {
+      const r = roots(codexAdapter.plan(req({ thread })).args);
+      expect(r.slice(0, 2)).toEqual(["/opt/pip-cache", "/home/me/.m2"]);
+      expect(r).toContain(locksDir());
+      expect(r).not.toContain("/not/read");
+    }
+    // the probes use the same grants; an isolated run ignores the user's config, so only catherd's go in
+    expect(roots(codexGrants("workspace-write"))).toContain("/opt/pip-cache");
+    expect(roots(codexAdapter.plan(req({ isolated: true })).args)).not.toContain("/opt/pip-cache");
+    // no config, or one that does not parse: catherd's roots only
+    const empty = mkdtempSync(join(tmpdir(), "codex-home-"));
+    process.env.CODEX_HOME = empty;
+    expect(roots(codexGrants("workspace-write"))).toEqual([locksDir(), realTmpdir()]);
+    writeFileSync(join(empty, "config.toml"), "[sandbox_workspace_write\nwritable_roots = [");
+    expect(roots(codexGrants("workspace-write"))).toEqual([locksDir(), realTmpdir()]);
   });
 
   it("isolated runs ignore user config and use catherd's CODEX_HOME", () => {

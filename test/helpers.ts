@@ -18,6 +18,8 @@ export function withHome(): string {
   // doctor's access probes: a closed local port and no docker, so no doctor call reaches the registry or the daemon
   process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
   process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
+  // the Codex home whose config.toml a worker's writable_roots are read from: never the developer's own
+  process.env.CODEX_HOME = join(home, "codex");
   for (const k of [
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_HOST_SESSION_ID",

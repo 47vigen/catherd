@@ -135,7 +135,7 @@ export async function runProbes(shell: AccessShell, network: boolean): Promise<P
 function fixFor(backend: string, id: ProbeId): string {
   if (backend === "codex") {
     const override =
-      "catherd passes this grant to Codex itself: check that no [sandbox_workspace_write] in ~/.codex/config.toml, a --profile or a managed requirements.toml overrides it";
+      "catherd passes this grant to Codex itself (with your top-level [sandbox_workspace_write] writable_roots added): check that no --profile or managed requirements.toml overrides it";
     if (id === "docker")
       return "the Codex sandbox cannot reach the Docker socket here: run the Docker checks in the verifier (full access), or give the role full access";
     return override;
