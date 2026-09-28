@@ -32,6 +32,7 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
     `run ${s.id}  ${s.title}`,
     `  repo ${s.repo} · started ${s.createdAt} · ${Math.round((now - Date.parse(s.createdAt)) / 60_000)} min`,
   ];
+  for (const q of s.questions) lines.push(`  ${mark("warn")} parked ${q.milestone}: ${q.question}`);
   for (const l of s.live) lines.push(`  live ${l.name}  ${l.rung}  ${l.state} ${l.secs}s`);
   lines.push(
     `  done ${t.runs} role run(s), ${t.ok} ok${t.notOk.length ? `; not ok: ${t.notOk.join(", ")}` : ""}`,

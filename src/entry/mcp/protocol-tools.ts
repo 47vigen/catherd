@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ID_PATTERN } from "../../domain/ids.ts";
 import { gateCheck, gatePass } from "../../services/gate-service.ts";
+import { answer, park } from "../../services/questions.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
 
@@ -31,5 +33,25 @@ export function registerProtocolTools(server: McpServer, deps: Deps): void {
       inputSchema: { ...gate, evidence: z.string().min(1) },
     },
     (a) => handle(() => gatePass(deps, a)),
+  );
+
+  server.registerTool(
+    "park",
+    {
+      description:
+        "An owner question only the user can answer: parks the milestone (land refuses it until answered) and puts it in front of state.md's next step, instead of stopping the run. Returns the parked milestones and hints: push the full question to the user with PushNotification, and go on with the milestones and runs that do not depend on it.",
+      inputSchema: { run: z.string(), milestone: z.string().regex(ID_PATTERN), question: z.string().min(1) },
+    },
+    (a) => handle(() => park(deps, a)),
+  );
+
+  server.registerTool(
+    "answer",
+    {
+      description:
+        "The owner answered a parked milestone's question in this session: records the answer and unparks the milestone. status, peek and run_start list the questions still open.",
+      inputSchema: { run: z.string(), milestone: z.string().regex(ID_PATTERN), answer: z.string().min(1) },
+    },
+    (a) => handle(() => answer(deps, a)),
   );
 }

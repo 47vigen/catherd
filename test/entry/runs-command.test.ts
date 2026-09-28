@@ -49,6 +49,7 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
   budget: { fraction: 0.5, minutes: { spent: 30, cap: 60 } },
   milestones: ["M1 | the parser | abc123 | 12 | bun test"],
   verifier: null,
+  questions: [],
   warnings: ["runs.jsonl: skipped 1 unreadable row(s)"],
   ...over,
 });

@@ -284,6 +284,7 @@ const SERVER_OWNED = new Set([
   "agents.jsonl",
   "harness.jsonl",
   "verifier.jsonl",
+  "questions.jsonl",
   "outcomes.jsonl",
   "sessions.jsonl",
 ]);

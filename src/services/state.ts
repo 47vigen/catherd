@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { z } from "zod";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import { overlaps } from "../domain/lane.ts";
-import { renderState } from "../domain/state.ts";
+import { renderState, withParked } from "../domain/state.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitHead, statusSnapshot } from "../infra/git.ts";
@@ -16,9 +16,14 @@ const NotesSchema = z.looseObject({
   next: z.string(),
   lastCheck: z.string().nullable(),
   lastLandedAt: z.string().nullable(),
+  /** spec 1.1 §8: the milestones waiting on the owner */
+  parked: z.array(z.string()).optional(),
 });
 export type Notes = z.infer<typeof NotesSchema>;
 export type NotesPatch = Partial<Omit<Notes, "schema">>;
+
+/** Every writer's next step keeps the parked milestones in front of it (spec 1.1 §8). */
+const parkedNext = (n: Notes): Notes => ({ ...n, next: withParked(n.next, n.parked ?? []) });
 
 const FRESH: Notes = { schema: 1, next: "plan the milestones", lastCheck: null, lastLandedAt: null };
 
@@ -42,7 +47,7 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
     // git first: a failed snapshot throws before either file is written, so they never disagree
     const [head, snap] = await Promise.all([gitHead(run.meta.repo), statusSnapshot(run.meta.repo)]);
     const notes = readNotes(run);
-    const next: Notes = { ...notes, ...(typeof change === "function" ? change(notes) : change) };
+    const next = parkedNext({ ...notes, ...(typeof change === "function" ? change(notes) : change) });
     writeJsonAtomic(p.stateJson, next);
     const live = liveDispatches(run);
     const text = renderState({
@@ -92,7 +97,7 @@ export async function refreshState(
       try {
         await withFileLock(stateJson, () => {
           const notes = readNotes(run);
-          writeJsonAtomic(stateJson, { ...notes, ...apply(notes) });
+          writeJsonAtomic(stateJson, parkedNext({ ...notes, ...apply(notes) }));
         });
       } catch (e2) {
         // the lock outwaited (a slow git under another refresh): still never fail the call

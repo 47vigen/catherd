@@ -97,6 +97,7 @@ const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): Run
   budget: null,
   milestones: [],
   verifier: null,
+  questions: [],
   warnings: [],
   ...o,
 });

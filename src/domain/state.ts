@@ -1,3 +1,15 @@
+const PARKED = /^parked: [^;]*; /;
+
+/**
+ * Spec 1.1 §8: `next` with the parked milestones in front of it, once ("parked: M2 waits on the owner;
+ * <next>"), whoever wrote the step: a milestone stays parked in state.md until it is answered.
+ */
+export function withParked(next: string, parked: string[]): string {
+  const base = next.replace(PARKED, "");
+  if (parked.length === 0) return base;
+  return `parked: ${parked.join(", ")} ${parked.length > 1 ? "wait" : "waits"} on the owner; ${base}`;
+}
+
 export interface StateView {
   title: string;
   head: string;

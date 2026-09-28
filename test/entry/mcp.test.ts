@@ -37,6 +37,8 @@ const TOOLS = [
   "profile_set",
   "gate_check",
   "gate_pass",
+  "park",
+  "answer",
 ];
 
 describe("MCP server", () => {

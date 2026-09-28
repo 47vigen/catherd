@@ -35,6 +35,7 @@ import {
   runFile,
   runPaths,
 } from "./run-store.ts";
+import { openQuestions } from "./questions.ts";
 import { type Notes, type NotesPatch, refreshState } from "./state.ts";
 import { appendPrivate } from "../infra/store.ts";
 
@@ -179,6 +180,16 @@ export type LandSkip = (typeof LAND_SKIPS)[number];
  * started, or with a `skip` the commit range bears out. Throws E_LAND_GATE naming what is missing.
  */
 async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefined): Promise<void> {
+  // spec 1.1 §8: a parked milestone waits on the owner, whatever else it has
+  const question = openQuestions(run).find((q) => q.milestone === m);
+  if (question)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: it is parked, waiting on the owner: ${question.question}`,
+      {
+        fix: `when the owner answers, call answer(run, "${m}", <their answer>), finish ${m}, then land it`,
+      },
+    );
   if (skip) {
     const files = await milestoneFiles(run, commit);
     const against =
