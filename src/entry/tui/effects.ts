@@ -1,4 +1,4 @@
-import { type FSWatcher, statSync, watch } from "node:fs";
+import { realpathSync, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
@@ -202,24 +202,51 @@ export function rowOf(s: RunSummary): RunRow {
 /** How long a burst of file events is gathered into one redraw. */
 const WATCH_SETTLE_MS = 100;
 
-/** `fs.watch` on each run folder, recursive; null when any of them cannot be watched. */
-export function watchDirs(dirs: string[], onChange: () => void): (() => void) | null {
-  const watchers: FSWatcher[] = [];
-  let timer: ReturnType<typeof setTimeout> | null = null;
+/** What `watchDirs` watches and times with; tests pass fakes. */
+export interface WatchPorts {
+  watch(dir: string, fire: () => void): { on(event: "error", f: () => void): unknown; close(): void };
+  setTimeout(f: () => void, ms: number): unknown;
+  clearTimeout(h: unknown): void;
+  /** the folder's real path: macOS reports FSEvents under it (/var is /private/var) */
+  realpath(dir: string): string;
+}
+
+const LIVE_WATCH: WatchPorts = {
+  watch: (dir, fire) => watch(dir, { recursive: true }, fire),
+  setTimeout: (f, ms) => setTimeout(f, ms),
+  clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+  realpath: (dir) => realpathSync(dir),
+};
+
+/**
+ * `fs.watch` on each run folder's real path, recursive; null when any of them cannot be watched. After the
+ * returned stop, `onChange` is never called, even for an event already queued.
+ */
+export function watchDirs(
+  dirs: string[],
+  onChange: () => void,
+  ports: Partial<WatchPorts> = {},
+): (() => void) | null {
+  const io = { ...LIVE_WATCH, ...ports };
+  const watchers: { close(): void }[] = [];
+  let timer: unknown = null;
+  let stopped = false;
   const fire = () => {
-    if (timer !== null) return;
-    timer = setTimeout(() => {
+    if (stopped || timer !== null) return;
+    timer = io.setTimeout(() => {
       timer = null;
-      onChange();
+      if (!stopped) onChange();
     }, WATCH_SETTLE_MS);
   };
   const stop = () => {
-    if (timer !== null) clearTimeout(timer);
+    stopped = true;
+    if (timer !== null) io.clearTimeout(timer);
+    timer = null;
     for (const w of watchers) w.close();
   };
   try {
     for (const d of dirs) {
-      const w = watch(d, { recursive: true }, fire);
+      const w = io.watch(io.realpath(d), fire);
       // a watcher that breaks later (the folder removed) just stops; the screen's slow poll still reads
       w.on("error", () => w.close());
       watchers.push(w);

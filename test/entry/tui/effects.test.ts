@@ -93,17 +93,68 @@ describe("the live effects", () => {
   it("watches run folders for any change below them, and gathers a burst into one call", async () => {
     const { run } = freshRun();
     let calls = 0;
+    // the path the watch is given may pass through a symlink (macOS: /var is /private/var)
     const stop = watchDirs([run.dir], () => calls++);
     expect(stop).not.toBeNull();
     try {
-      writeFileSync(join(run.dir, "state.md"), "x");
-      mkdirSync(join(run.dir, "roles", "w", "1"), { recursive: true });
-      writeFileSync(join(run.dir, "roles", "w", "1", "events.jsonl"), "{}\n");
-      await waitFor(() => calls > 0, 5_000);
+      // the watch may start after watchDirs returns (FSEvents): touch a probe until it reports, once per wait
+      const probe = join(run.dir, "probe");
+      const end = Date.now() + 20_000;
+      for (let i = 0; calls === 0; i++) {
+        if (Date.now() > end) throw new Error("the watch never reported a change");
+        writeFileSync(probe, String(i));
+        await waitFor(() => calls > 0, 500).catch(() => null);
+      }
+      calls = 0;
+      // only changes below the run folder, in a folder made after the watch started
+      const nested = join(run.dir, "roles", "w", "2");
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(join(nested, "events.jsonl"), "{}\n");
+      writeFileSync(join(nested, "events.jsonl"), "{}\n{}\n");
+      await waitFor(() => calls > 0, 10_000);
       expect(calls).toBe(1);
     } finally {
       stop?.();
     }
+  }, 30_000);
+
+  it("never calls after stop, even for an event already queued", () => {
+    let listener: (() => void) | null = null;
+    const timers: (() => void)[] = [];
+    let calls = 0;
+    const stop = watchDirs(["/runs/a"], () => calls++, {
+      watch: (_dir, fire) => {
+        listener = fire;
+        return { on: () => {}, close: () => {} };
+      },
+      setTimeout: (f) => {
+        timers.push(f);
+        return timers.length;
+      },
+      clearTimeout: () => {},
+      realpath: (d) => d,
+    });
+    expect(stop).not.toBeNull();
+    listener!();
+    listener!();
+    expect(timers.length).toBe(1);
+    stop?.();
+    listener!();
+    for (const t of timers) t();
+    expect(calls).toBe(0);
+    expect(timers.length).toBe(1);
+  });
+
+  it("watches the real path of a folder reached through a symlink", () => {
+    const seen: string[] = [];
+    watchDirs(["/tmp/link"], () => {}, {
+      watch: (dir) => {
+        seen.push(dir);
+        return { on: () => {}, close: () => {} };
+      },
+      realpath: (d) => (d === "/tmp/link" ? "/private/tmp/real" : d),
+    });
+    expect(seen).toEqual(["/private/tmp/real"]);
   });
 
   it("cannot watch a folder that is not there: the screen polls instead", () => {
