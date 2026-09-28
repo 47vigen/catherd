@@ -16,12 +16,14 @@ export interface Polled<T> {
 
 /**
  * Reads `read` now and every `everyMs` while not paused, off the render path (spec §9.4: runs data is
- * polled off the render path): a read runs in a timer callback, never while React renders.
+ * polled off the render path): a read runs in a timer callback, never while React renders. It reads at once
+ * when it mounts, when `key` changes, on `refresh`, when it resumes and when it is turned back on; a new
+ * cadence or a pause only reschedules. `off`: no read at all (the data is not shown).
  */
 export function usePoll<T>(
   read: () => T,
   everyMs: number,
-  o: { paused?: boolean; key?: string } = {},
+  o: { paused?: boolean; key?: string; off?: boolean } = {},
 ): Polled<T> {
   const { clock } = useApp();
   const [state, setState] = useState<{
@@ -33,7 +35,24 @@ export function usePoll<T>(
   const readRef = useRef(read);
   readRef.current = read;
   const [nonce, setNonce] = useState(0);
+  // what the last effect run read for: a read at once is due only when this moves on
+  const last = useRef<{ clock: unknown; key: string | undefined; nonce: number; paused: boolean } | null>(
+    null,
+  );
+  const paused = o.paused ?? false;
   useEffect(() => {
+    if (o.off) {
+      last.current = null;
+      return;
+    }
+    const was = last.current;
+    last.current = { clock, key: o.key, nonce, paused };
+    const now =
+      was === null ||
+      was.clock !== clock ||
+      was.key !== o.key ||
+      was.nonce !== nonce ||
+      (was.paused && !paused);
     const run = () => {
       try {
         setState({ value: readRef.current(), error: null, fix: null, at: clock.now() });
@@ -46,13 +65,13 @@ export function usePoll<T>(
         }));
       }
     };
-    const first = clock.setTimeout(run, 0);
-    const every = o.paused ? null : clock.setInterval(run, everyMs);
+    const first = now ? clock.setTimeout(run, 0) : null;
+    const every = paused ? null : clock.setInterval(run, everyMs);
     return () => {
-      clock.clearTimeout(first);
+      if (first !== null) clock.clearTimeout(first);
       if (every !== null) clock.clearInterval(every);
     };
-  }, [clock, everyMs, o.paused, o.key, nonce]);
+  }, [clock, everyMs, paused, o.key, o.off, nonce]);
   return { ...state, refresh: () => setNonce((n) => n + 1) };
 }
 
@@ -71,7 +90,7 @@ export interface Data {
   checkError: string | null;
   recheck(): void;
   runs: Polled<{ rows: RunRow[]; warnings: string[] }>;
-  /** spec §4: the Runs tab's sessions, read on the runs' cadence */
+  /** spec §4: the Runs tab's sessions, read on the runs' cadence while their list is shown */
   sessions: Polled<{ rows: SessionRow[]; warnings: string[] }>;
   /** the profile names and the active one; read on the runs' cadence and after every profile write */
   profiles: Polled<ReturnType<Effects["profiles"]>>;
@@ -117,7 +136,11 @@ export function DataProvider(props: { children: ReactNode }) {
     };
   }, [app.effects, app.clock, nonce]);
   const runs = usePoll(() => app.effects.runs(), RUNS_EVERY_MS, { paused: app.state.paused });
-  const sessions = usePoll(() => app.effects.sessions(), RUNS_EVERY_MS, { paused: app.state.paused });
+  // spec §9.4: reading the sessions scans every run, so only while their list is on screen
+  const sessions = usePoll(() => app.effects.sessions(), RUNS_EVERY_MS, {
+    paused: app.state.paused,
+    off: app.state.tab !== "runs" || app.state.session !== null,
+  });
   // cheap (a directory listing and two small reads), and another terminal may change them at any time
   const profiles = usePoll(() => app.effects.profiles(), RUNS_EVERY_MS);
   const value = useMemo(

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
+import { initialState } from "../../../src/entry/tui/state.ts";
 import { FIXTURE_SESSIONS, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { RUN_EVERY_MS, RunsView, WATCHED_EVERY_MS } from "../../../src/entry/tui/views/runs.tsx";
 import { snapshotEnv, withHome } from "../../helpers.ts";
@@ -19,7 +20,7 @@ async function runs(effects = fixtureEffects()) {
     <Shell width={100} height={19}>
       <RunsView width={100} height={19} />
     </Shell>,
-    { effects, width: 100, height: 19 },
+    { effects, width: 100, height: 19, state: initialState("runs") },
   );
   await h.advance(0);
   return effects;
@@ -178,6 +179,40 @@ describe("the Runs tab (spec §4)", () => {
     expect(h!.s.frame()).not.toContain("press ctrl+d again to cancel");
     await h!.s.press("j", "j", "ctrl+d", "ctrl+d");
     expect(fx.writes).toEqual([]);
+  });
+
+  it("reads the sessions only while their list is shown (spec §9.4: no scan of every run on other tabs)", async () => {
+    withHome();
+    const fx = fixtureEffects();
+    let reads = 0;
+    const read = fx.sessions;
+    fx.sessions = () => {
+      reads++;
+      return read();
+    };
+    h = await harness(
+      <Shell width={100} height={19}>
+        {null}
+      </Shell>,
+      { effects: fx, width: 100, height: 19 },
+    );
+    await h.advance(5 * RUNS_EVERY_MS);
+    expect(reads).toBe(0);
+    await h.run(() => h!.app().dispatch({ type: "tab", tab: "runs" }));
+    await h.advance(0);
+    expect(reads).toBe(1);
+    await h.advance(2 * RUNS_EVERY_MS);
+    expect(reads).toBe(3);
+    // a session open hides the list: no read until esc shows it again, and then one at once
+    await h.run(() => h!.app().dispatch({ type: "session", key: "s-jobs" }));
+    await h.advance(5 * RUNS_EVERY_MS);
+    expect(reads).toBe(3);
+    await h.run(() => h!.app().dispatch({ type: "up" }));
+    await h.advance(0);
+    expect(reads).toBe(4);
+    await h.run(() => h!.app().dispatch({ type: "tab", tab: "status" }));
+    await h.advance(5 * RUNS_EVERY_MS);
+    expect(reads).toBe(4);
   });
 
   it("keeps a fixture of every shape the frames need", () => {
