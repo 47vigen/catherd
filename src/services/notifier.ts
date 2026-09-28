@@ -132,7 +132,12 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
     timer = null;
     const batch = [...queue.values()];
     queue.clear();
-    flight = flight.then(() => deliver(batch));
+    // a delivery that throws (the notified.json write, say) is logged and never stops the ones after it
+    flight = flight
+      .then(() => deliver(batch))
+      .catch((e: unknown) =>
+        log("warn", "notify", { error: errorMessage(e), dispatches: batch.map((q) => q.notice.dispatchId) }),
+      );
   };
 
   const schedule = (): void => {

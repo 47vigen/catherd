@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { adopt, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
+import * as store from "../../src/infra/store.ts";
 import { type Dispatch, listDispatches, readFailover } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
@@ -227,6 +228,31 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     n.onStall({ run, d: done, quietMs: 60_000 });
     await n.idle();
     expect(inbox?.frames).toHaveLength(1);
+  });
+
+  it("keeps going when writing a message down fails: a later notice still goes out", async () => {
+    const { run, deps, n } = await owned();
+    const real = store.writeJsonAtomic;
+    const spy = spyOn(store, "writeJsonAtomic").mockImplementation((file, value, o) => {
+      if (file.endsWith("notified.json")) {
+        spy.mockImplementation(real);
+        throw new Error("ENOSPC: no space left on device");
+      }
+      real(file, value, o);
+    });
+    try {
+      const a = await finished(run, "worker-M1.L1");
+      await settle(deps, run, a, await recordOf(run, a));
+      await n.idle();
+      const b = await finished(run, "worker-M1.L2");
+      await settle(deps, run, b, await recordOf(run, b));
+      await n.idle();
+      const frames = await (inbox as FakeInbox).received(2);
+      expect(frames[1]?.message.content).toContain(`name: "worker-M1.L2"`);
+      expect(existsSync(dispatchPaths(b.dir).notified)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("drops a notice whose record was read before the message went out", async () => {
