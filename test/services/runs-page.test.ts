@@ -183,6 +183,25 @@ describe("the runs page (spec §4)", () => {
     expect(() => milestoneDetail(jobs.id, "M9")).toThrow(/no milestone "M9"/);
   });
 
+  it("opens a milestone whose id is not M<n>: land takes any id and writes its digest under it", async () => {
+    const { jobs } = await twoRuns();
+    appendLedger(jobs, "auth | sign-in flow | 4b1c2d3 | 12 | bun test");
+    mkdirSync(join(jobs.dir, "digests"), { recursive: true });
+    writeFileSync(join(jobs.dir, "digests", "auth.md"), "# auth — sign-in flow\n");
+    expect(milestoneDetail(jobs.id, "auth")).toMatchObject({
+      name: "auth",
+      landed: true,
+      what: "sign-in flow",
+      digest: "# auth — sign-in flow\n",
+    });
+    // an empty digest file reads as no digest, as the view shows it
+    writeFileSync(join(jobs.dir, "digests", "auth.md"), "");
+    expect(milestoneDetail(jobs.id, "auth").digest).toBeNull();
+    // an id land would refuse is refused here too
+    expect(() => milestoneDetail(jobs.id, "..")).toThrow(/no milestone "\.\."/);
+    expect(() => milestoneDetail(jobs.id, "a..b")).toThrow(/no milestone "a\.\.b"/);
+  });
+
   it("puts 1.0 runs under earlier runs, last", async () => {
     await twoRuns();
     const repo = tempRepo();
