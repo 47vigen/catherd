@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { formatModel, syncLines } from "../../src/entry/catalog-command.ts";
-import { overridePath } from "../../src/services/catalog-service.ts";
+import { type CatalogModel, overridePath } from "../../src/services/catalog-service.ts";
 import type { SyncReport } from "../../src/services/source-sync.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
@@ -32,9 +32,9 @@ function catherdIn(cwd: string | undefined, path: string, ...args: string[]) {
 }
 
 describe("formatModel (spec 1.2 §4.1, §8)", () => {
-  it("adds the price and speed facts, and each rung catherd has run with its evidence", () => {
+  it("adds the price and speed facts, each rung's values with their source, and its run evidence", () => {
     withHome();
-    const m = {
+    const m: CatalogModel = {
       id: "gpt-6-sol",
       name: "GPT-6 Sol",
       backend: "codex",
@@ -52,14 +52,30 @@ describe("formatModel (spec 1.2 §4.1, §8)", () => {
         {
           rung: "codex:gpt-6-sol#medium",
           enabled: true,
-          scores: {},
+          scores: {
+            repo_code: {
+              value: 65.3,
+              benchmark: "DeepSWE 1.1",
+              confidence: "verified",
+              source: "shipped",
+              date: "2026-09-22",
+            },
+            terminal: {
+              value: 0.123456,
+              benchmark: "Terminal-Bench 2",
+              confidence: "inferred",
+              source: "epoch",
+              date: "2026-09-20",
+              from: "gpt-6-sol#high",
+            },
+          },
           treatLike: null,
           cost: {} as never,
           evidence: null,
         },
         {
           rung: "codex:gpt-6-sol#high",
-          enabled: true,
+          enabled: false,
           scores: {},
           treatLike: null,
           cost: {} as never,
@@ -68,9 +84,11 @@ describe("formatModel (spec 1.2 §4.1, §8)", () => {
       ],
     };
     expect(formatModel(m).split("\n")).toEqual([
-      "codex:gpt-6-sol  2/2 rungs scored  roles worker",
+      "codex:gpt-6-sol  1/2 rungs scored  roles worker",
       "  $2/$10 per M tokens in/out · openrouter.throughput_last_30m 81.23",
-      "  #high  12 lanes, 2 climbed, 1 partial",
+      "  #medium  repo_code 65.3 (verified, shipped) · terminal 0.1235 (inferred from gpt-6-sol#high, epoch)",
+      "  #high  unscored",
+      "    runs: 12 lanes, 2 climbed, 1 partial",
     ]);
   });
 });
@@ -83,6 +101,8 @@ describe("catherd catalog", () => {
     expect(text.out).toContain("codex:gpt-6-sol  6/6 rungs scored  roles ");
     // spec 1.2 §4.1: cost and speed are facts, shown beside the scores
     expect(text.out).toContain("\n  $2/$10 per M tokens in/out\n");
+    // spec 1.2 §5.3: each value with its confidence and source
+    expect(text.out).toMatch(/\n {2}#high {2}repo_code [\d.]+ \(\w+, \w+\)/);
     const json = JSON.parse(catherd("list", "--role", "artist", "--json").out);
     expect(json.models.every((m: { backend: string }) => m.backend === "codex")).toBe(true);
   });

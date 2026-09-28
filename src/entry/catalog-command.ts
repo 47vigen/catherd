@@ -80,8 +80,8 @@ export function formatRefreshed(r: Refreshed, plain = false): string {
 }
 
 /**
- * One model: its rungs scored and roles, then (spec 1.2 §4.1, §8) its price and speed facts, and each rung
- * catherd has run, with its evidence.
+ * One model: its rungs scored and roles, then (spec 1.2 §4.1, §5.3, §8) its price and speed facts, and each
+ * rung's values with their confidence and source, and the runs catherd has made on it.
  */
 export function formatModel(m: CatalogModel): string {
   const scored = m.rungs.filter((r) => r.enabled).length;
@@ -94,8 +94,16 @@ export function formatModel(m: CatalogModel): string {
     ...Object.entries(m.speed).map(([k, v]) => `${k} ${Number(v.toPrecision(4))}`),
   ];
   if (facts.length) lines.push(`  ${facts.join(" · ")}`);
-  for (const r of m.rungs)
-    if (r.evidence) lines.push(`  #${r.rung.slice(r.rung.lastIndexOf("#") + 1)}  ${r.evidence}`);
+  for (const r of m.rungs) {
+    // spec 1.2 §5.3: each value with its confidence and source, as `route` reports it; a guess names its rung
+    const values = Object.entries(r.scores).map(
+      ([dim, v]) =>
+        `${dim} ${Number(v.value.toPrecision(4))} (${v.from ? `inferred from ${v.from}` : v.confidence}, ${v.source})`,
+    );
+    if (values.length === 0 && !r.evidence) continue;
+    lines.push(`  #${r.rung.slice(r.rung.lastIndexOf("#") + 1)}  ${values.join(" · ") || "unscored"}`);
+    if (r.evidence) lines.push(`    runs: ${r.evidence}`);
+  }
   return lines.join("\n");
 }
 
