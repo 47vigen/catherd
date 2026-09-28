@@ -25,6 +25,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
+import { tail } from "./run-debug.ts";
 import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 const text = (file: string): string => {
@@ -322,16 +323,33 @@ async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
   return saved;
 }
 
-/** The last event of a running dispatch worth showing (peek, the runs page), if any. */
-export function lastEvent(d: Dispatch): string | null {
+/** How much of a role's last event `peek` and the runs page show (spec §3.7). */
+export const LAST_EVENT_CHARS = 160;
+
+const oneLine = (s: string): string => {
+  const line = s.split("\n").find((l) => l.trim()) ?? "";
+  return line.length > LAST_EVENT_CHARS ? `${line.slice(0, LAST_EVENT_CHARS - 1)}…` : line;
+};
+
+/**
+ * Spec §3.7: what a live role is doing, from the end of its events.jsonl: the last line its adapter reads as an
+ * activity (a command, a file edit, a message line), else the last event's name; null before any event.
+ */
+export function lastActivity(d: Dispatch): string | null {
   const a = adapterFor(d.admit.backend);
-  const line = nonBlankLines(dispatchPaths(d.dir).events).at(-1);
-  if (!a || !line) return null;
-  try {
-    return a.parse(line).lastEvent ?? null;
-  } catch {
-    return null;
+  if (!a) return null;
+  let name: string | null = null;
+  for (const line of tail(dispatchPaths(d.dir).events, 200).toReversed()) {
+    let delta;
+    try {
+      delta = a.parse(line);
+    } catch {
+      continue;
+    }
+    if (delta.activity) return oneLine(delta.activity);
+    name ??= delta.lastEvent ?? null;
   }
+  return name;
 }
 
 /** Waits until the dispatch finishes, polling every `pollMs`; `onPoll` runs at each poll, and never ends the wait. */

@@ -1,19 +1,14 @@
-import { adapterFor } from "../adapters/registry.ts";
-import "../adapters/all.ts";
 import { assertId } from "../domain/ids.ts";
 import { noticeHeader } from "../domain/notice.ts";
-import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
+import { awaitsCollect } from "../infra/dispatch-dir.ts";
 import { adopt } from "./dispatch-service.ts";
 import { type Dispatch, type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
+import { lastActivity } from "./finalize.ts";
 import { finishedNotice } from "./notifier.ts";
 import type { Deps } from "./ports.ts";
-import { tail } from "./run-debug.ts";
 import { findRun, listRuns, readAgentRuns, readRecords, type Run } from "./run-store.ts";
 import { claimRun, currentSession, runOwner } from "./sessions.ts";
 import { readNotes } from "./state.ts";
-
-/** How much of a role's last event `peek` shows (spec §3.7). */
-export const LAST_EVENT_CHARS = 160;
 
 export interface PeekRole {
   name: string;
@@ -38,33 +33,6 @@ export interface PeekRun {
   native: { name: string; role: string; rung: string; status: string; at: string } | null;
   /** the run's next step (state.md's last line) */
   next: string;
-}
-
-const oneLine = (s: string): string => {
-  const line = s.split("\n").find((l) => l.trim()) ?? "";
-  return line.length > LAST_EVENT_CHARS ? `${line.slice(0, LAST_EVENT_CHARS - 1)}…` : line;
-};
-
-/**
- * Spec §3.7: what a live role is doing, from the end of its events.jsonl: the last line an adapter reads as an
- * activity (a command, a file edit, a message line), else the last event's name.
- */
-export function lastActivity(d: Dispatch): string | null {
-  const a = adapterFor(d.admit.backend);
-  if (!a) return null;
-  const lines = tail(dispatchPaths(d.dir).events, 200);
-  let name: string | null = null;
-  for (const line of lines.toReversed()) {
-    let delta;
-    try {
-      delta = a.parse(line);
-    } catch {
-      continue;
-    }
-    if (delta.activity) return oneLine(delta.activity);
-    name ??= delta.lastEvent ?? null;
-  }
-  return name;
 }
 
 function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
