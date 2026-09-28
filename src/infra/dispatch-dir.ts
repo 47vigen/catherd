@@ -40,6 +40,10 @@ export function dispatchPaths(dir: string) {
     failover: join(dir, "failover.json"),
     /** the message that announced this dispatch's record to its session, once sent (plan 10) */
     notified: join(dir, "notified.json"),
+    /** written once by the supervisor when the worker went quiet for half its idle timeout, not busy (spec §3.6) */
+    stall: join(dir, "stall.json"),
+    /** the message that announced the stall, once sent */
+    stallNotified: join(dir, "stall-notified.json"),
   };
 }
 

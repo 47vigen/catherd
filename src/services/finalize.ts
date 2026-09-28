@@ -334,7 +334,17 @@ export function lastEvent(d: Dispatch): string | null {
   }
 }
 
-/** Waits until the dispatch finishes, polling every `pollMs`. */
-export async function waitForFinish(d: Dispatch, o: { pollMs: number; now: () => number }): Promise<void> {
-  while (dispatchState(d, o.now()) !== "finished") await Bun.sleep(o.pollMs);
+/** Waits until the dispatch finishes, polling every `pollMs`; `onPoll` runs at each poll, and never ends the wait. */
+export async function waitForFinish(
+  d: Dispatch,
+  o: { pollMs: number; now: () => number; onPoll?: () => void },
+): Promise<void> {
+  while (dispatchState(d, o.now()) !== "finished") {
+    await Bun.sleep(o.pollMs);
+    try {
+      o.onPoll?.();
+    } catch {
+      // a report on the way must never stop the wait
+    }
+  }
 }

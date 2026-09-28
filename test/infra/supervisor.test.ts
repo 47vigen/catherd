@@ -95,6 +95,46 @@ describe("supervise", () => {
   });
 });
 
+describe("supervise reports a stall (spec §3.6)", () => {
+  it("writes stall.json once the worker is quiet for half its idle timeout and not busy", async () => {
+    const s = spec(`echo '{"type":"a"}'; sleep 30`, { idleMs: 400 });
+    const exit = await supervise(s, { isBusy: async () => false });
+    expect(exit?.reason).toBe("idle-timeout");
+    const stall = JSON.parse(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8"));
+    expect(stall).toMatchObject({ schema: 1, at: expect.any(String) });
+    expect(stall.quietMs).toBeGreaterThanOrEqual(200);
+  });
+
+  it("writes it once per dispatch, however many quiet stretches follow", async () => {
+    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again
+    const s = spec(`sleep 0.4; echo '{"type":"a"}'; sleep 0.4; echo '{"type":"b"}'`, { idleMs: 600 });
+    let first: string | null = null;
+    const exit = await supervise(s, {
+      isBusy: async () => false,
+      onLine: () => {
+        first ??= readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8");
+        return {};
+      },
+    });
+    expect(exit?.reason).toBe("exited");
+    expect(first).not.toBeNull();
+    expect(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8")).toBe(first as unknown as string);
+  });
+
+  it("reports no stall while the worker is busy, or has a tool call open", async () => {
+    const busy = spec("sleep 30", { idleMs: 200, wallMs: 600 });
+    expect((await supervise(busy, { isBusy: async () => true }))?.reason).toBe("wall-timeout");
+    expect(existsSync(dispatchPaths(busy.dispatchDir).stall)).toBe(false);
+    const open = spec(`echo '{"open":"t1"}'; sleep 30`, { idleMs: 200, wallMs: 600 });
+    const exit = await supervise(open, {
+      onLine: (l) => (l.includes("open") ? { item: { id: "t1", open: true } } : {}),
+      isBusy: async () => false,
+    });
+    expect(exit?.reason).toBe("wall-timeout");
+    expect(existsSync(dispatchPaths(open.dispatchDir).stall)).toBe(false);
+  });
+});
+
 describe("supervise always leaves exit.json and no live worker", () => {
   it("records a binary that cannot be spawned as lost, with the error in stderr", async () => {
     const s = { ...spec(""), cmd: "catherd-no-such-binary-4f2a", args: [] };

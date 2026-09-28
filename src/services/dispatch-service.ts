@@ -87,6 +87,39 @@ export interface Settled {
  */
 export const settledHooks = new Set<(s: Settled) => void | Promise<void>>();
 
+/** A live dispatch whose supervisor reported a stall (spec §3.6: quiet for half its idle timeout, not busy). */
+export interface Stalled {
+  run: Run;
+  d: Dispatch;
+  /** how long it had been quiet when the supervisor noticed */
+  quietMs: number;
+}
+
+/** Called once per watcher when its dispatch's stall.json appears (the notifier is one). */
+export const stallHooks = new Set<(s: Stalled) => void>();
+
+/** A watcher's poll: the first time the dispatch's stall.json is there, every stall hook hears of it. */
+export function stallPoll(run: Run, d: Dispatch): () => void {
+  let seen = false;
+  return () => {
+    if (seen || !existsSync(dispatchPaths(d.dir).stall)) return;
+    seen = true;
+    let quietMs = 0;
+    try {
+      quietMs = Number(JSON.parse(readFileSync(dispatchPaths(d.dir).stall, "utf8")).quietMs) || 0;
+    } catch {
+      // being written: the stall is reported without its length
+    }
+    for (const hook of stallHooks) {
+      try {
+        hook({ run, d, quietMs });
+      } catch (e) {
+        log("warn", "stall", { run: run.id, name: d.admit.name, error: errorMessage(e) });
+      }
+    }
+  };
+}
+
 const dispatchedOf = (d: Dispatch): Dispatched => ({
   name: d.admit.name,
   role: d.admit.role,
@@ -135,7 +168,7 @@ export async function watchersSettled(): Promise<void> {
 export function watch(deps: Deps, run: Run, d: Dispatch): void {
   watching.add(d.admit.dispatchId);
   const w = (async () => {
-    await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
+    await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
     const s = await settle(deps, run, d, await finalizeDispatch(run, d));
     if (s.stateHints[0]) log("warn", "dispatch", { run: run.id, name: d.admit.name, hint: s.stateHints[0] });
   })()

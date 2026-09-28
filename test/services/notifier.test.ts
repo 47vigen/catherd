@@ -207,6 +207,25 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     expect(f?.message.content).toContain(`name: "${d.admit.name}"`);
   });
 
+  it("announces a stalled role once, at next, and not once the role has finished", async () => {
+    const { run, n } = await owned();
+    const live = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    n.onStall({ run, d: live, quietMs: 7 * 60_000 });
+    n.onStall({ run, d: live, quietMs: 7 * 60_000 });
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.priority).toBe("next");
+    expect(f?.message.content).toContain(
+      "· worker-M1.L1 worker · codex:gpt-6-sol#medium · stalled: no output for 7 min · running ",
+    );
+    expect(f?.message.content).toContain(`Peek: peek(run: "${run.id}", name: "worker-M1.L1")`);
+    expect(existsSync(dispatchPaths(live.dir).stallNotified)).toBe(true);
+    n.onStall({ run, d: live, quietMs: 7 * 60_000 });
+    const done = await finished(run, "worker-M1.L2");
+    n.onStall({ run, d: done, quietMs: 60_000 });
+    await n.idle();
+    expect(inbox?.frames).toHaveLength(1);
+  });
+
   it("drops a notice whose record was read before the message went out", async () => {
     const { run, deps, n } = await owned({ coalesceMs: 200 });
     const d = await finished(run, "worker-M1.L1");

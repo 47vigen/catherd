@@ -12,6 +12,8 @@ import {
   launcher,
   type Settled,
   settledHooks,
+  type Stalled,
+  stallHooks,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
 import { admit } from "../../src/services/admission.ts";
@@ -274,6 +276,27 @@ describe("dispatch returns at launch; its watcher settles it; result reads it (p
     }
     expect(seen).toEqual(["worker-M1.L1 ok"]);
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Running:\n- none");
+  });
+
+  it("tells the stall hooks, once, when the supervisor reports a stall", async () => {
+    const release = holdFile();
+    const { run, deps } = setup({ ...OK, holdUntil: release });
+    const seen: string[] = [];
+    const hook = (s: Stalled) => {
+      seen.push(`${s.d.admit.name} ${s.quietMs}`);
+    };
+    stallHooks.add(hook);
+    try {
+      await dispatch(deps, input(run.id));
+      const d = listDispatches(run)[0] as { dir: string };
+      writeFileSync(dispatchPaths(d.dir).stall, JSON.stringify({ schema: 1, at: "x", quietMs: 450_000 }));
+      await waitFor(() => seen.length > 0);
+      writeFileSync(release, "");
+      await watchersSettled();
+    } finally {
+      stallHooks.delete(hook);
+    }
+    expect(seen).toEqual(["worker-M1.L1 450000"]);
   });
 
   it("keeps the mark when the launch throws: dispatch says so, and the lost record is settled and read (M-4)", async () => {

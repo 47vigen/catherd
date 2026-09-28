@@ -189,13 +189,19 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     const started = Date.now();
     let lastActivity = started;
     let finalAt: number | null = null;
+    // spec §3.6: a quiet stretch of half the idle timeout, not busy, is a stall, reported once per dispatch
+    let stalled = false;
+    let stallChecked = false;
     const open = new Set<string>();
     const stream = { offset: 0, rest: "", decoder: new TextDecoder("utf-8") };
 
     while (!done && reason === null) {
       await Bun.sleep(spec.pollMs);
       const lines = readNew(p.events, stream);
-      if (lines.length) lastActivity = Date.now();
+      if (lines.length) {
+        lastActivity = Date.now();
+        stallChecked = false;
+      }
       for (const line of lines) {
         let d: LineInfo | undefined;
         try {
@@ -224,6 +230,18 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         if (done || child.exitCode !== null || child.signalCode !== null) break;
         if (busy) lastActivity = Date.now();
         else reason = "idle-timeout";
+      } else if (!stalled && !stallChecked && now - lastActivity >= spec.idleMs / 2) {
+        // asked once per quiet stretch: a busy worker is not asked again until it next writes an event
+        stallChecked = true;
+        const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
+        if (!busy && !done) {
+          stalled = true;
+          writeJsonAtomic(p.stall, {
+            schema: 1,
+            at: new Date().toISOString(),
+            quietMs: Date.now() - lastActivity,
+          });
+        }
       }
     }
   } catch (e) {

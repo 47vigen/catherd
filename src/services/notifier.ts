@@ -7,7 +7,7 @@ import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { type SendResult, sendToInbox } from "../infra/peer-inbox.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { type Settled, settledHooks } from "./dispatch-service.ts";
+import { type Settled, settledHooks, type Stalled, stallHooks } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, readFailover } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
@@ -35,6 +35,8 @@ export interface NotifierOptions {
 export interface Notifier {
   /** the settled hook: queues the dispatch's notice when this session should hear of it */
   onSettled(s: Settled): void;
+  /** the stall hook: queues a stalled role's notice, once per dispatch */
+  onStall(s: Stalled): void;
   /** spec §3.4 "a scan on start": every unread, un-notified record of a run this session owns */
   scan(): Promise<void>;
   /** resolves once nothing is queued and no message is on its way */
@@ -86,9 +88,32 @@ export function finishedNotice(run: Run, d: Dispatch, r: RunRecord): Notice {
   };
 }
 
+/** Spec §3.6: a live role that went quiet, once, at `next`. */
+export function stalledNotice(run: Run, d: Dispatch, quietMs: number, now: number): Notice {
+  return {
+    kind: "stalled",
+    runId: run.id,
+    runTitle: run.meta.title,
+    dispatchId: d.admit.dispatchId,
+    name: d.admit.name,
+    role: d.admit.role,
+    lane: d.admit.lane,
+    rung: d.admit.rung,
+    status: `stalled: no output for ${Math.max(1, Math.round(quietMs / 60_000))} min`,
+    replyStatus: null,
+    secs: Math.max(0, Math.round((now - Date.parse(d.admit.admittedAt)) / 1000)),
+    changedOwned: 0,
+    reply: "",
+    priority: "next",
+  };
+}
+
 interface Queued {
   notice: Notice;
-  dir: string;
+  /** the mark a message that went out leaves */
+  mark: string;
+  /** whether it is still news when the message goes */
+  due: () => boolean;
 }
 
 /** Starts the notifier for this process's session and hooks it to every settled dispatch. */
@@ -123,7 +148,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
 
   async function deliver(batch: Queued[]): Promise<void> {
     // read (or announced) meanwhile: nothing to say
-    const due = batch.filter((q) => awaitsCollect(q.dir) && !notified(q.dir));
+    const due = batch.filter((q) => q.due());
     if (due.length === 0 || !deps.session) return;
     const notices = due.map((q) => q.notice);
     const r = await send(
@@ -140,14 +165,35 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
       return;
     }
     const at = new Date(deps.now()).toISOString();
-    for (const q of due) writeJsonAtomic(dispatchPaths(q.dir).notified, { schema: 1, msgId: r.msgId, at });
+    for (const q of due) writeJsonAtomic(q.mark, { schema: 1, msgId: r.msgId, at });
     log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId) });
   }
 
   const enqueue = (run: Run, d: Dispatch, record: RunRecord): void => {
     if (queue.has(record.dispatchId) || notified(d.dir) || !awaitsCollect(d.dir) || !owned(run)) return;
-    queue.set(record.dispatchId, { notice: finishedNotice(run, d, record), dir: d.dir });
+    queue.set(record.dispatchId, {
+      notice: finishedNotice(run, d, record),
+      mark: dispatchPaths(d.dir).notified,
+      due: () => awaitsCollect(d.dir) && !notified(d.dir),
+    });
     schedule();
+  };
+
+  const onStall = (s: Stalled): void => {
+    try {
+      const p = dispatchPaths(s.d.dir);
+      const key = `${s.d.admit.dispatchId} stall`;
+      if (queue.has(key) || existsSync(p.stallNotified) || existsSync(p.exit) || !owned(s.run)) return;
+      queue.set(key, {
+        notice: stalledNotice(s.run, s.d, s.quietMs, deps.now()),
+        mark: p.stallNotified,
+        // it finished meanwhile: its record is the news now
+        due: () => !existsSync(p.stallNotified) && !existsSync(p.exit),
+      });
+      schedule();
+    } catch (e) {
+      log("warn", "notify", { run: s.run.id, name: s.d.admit.name, error: errorMessage(e) });
+    }
   };
 
   const onSettled = (s: Settled): void => {
@@ -160,6 +206,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
 
   const n: Notifier = {
     onSettled,
+    onStall,
     async scan() {
       if (!currentSession(deps)) return;
       for (const run of listRuns().runs) {
@@ -186,11 +233,13 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
     },
     stop() {
       settledHooks.delete(onSettled);
+      stallHooks.delete(onStall);
       if (timer !== null) clearTimeout(timer);
       timer = null;
       queue.clear();
     },
   };
   settledHooks.add(onSettled);
+  stallHooks.add(onStall);
   return n;
 }

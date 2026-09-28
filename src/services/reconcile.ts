@@ -3,7 +3,7 @@ import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { settle, unsettledLimits, watching } from "./dispatch-service.ts";
+import { settle, stallPoll, unsettledLimits, watching } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
@@ -45,7 +45,7 @@ export interface ReconcileReport {
 async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
   watching.add(d.admit.dispatchId);
   try {
-    await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
+    await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
     const s = await settle(deps, run, d, await finalizeDispatch(run, d));
     if (s.stateHints[0]) throw new Error(s.stateHints[0]);
   } finally {
