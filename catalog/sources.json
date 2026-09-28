@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "version": "2026-09-28",
+  "sources": [
+    {
+      "id": "models-dev",
+      "name": "models.dev",
+      "url": "https://models.dev/api.json",
+      "license": "MIT",
+      "attribution": "Model facts from models.dev (MIT License), https://models.dev",
+      "keyed": false
+    },
+    {
+      "id": "openrouter-models",
+      "name": "OpenRouter models",
+      "url": "https://openrouter.ai/api/v1/models",
+      "license": "public API",
+      "attribution": "Model listings from the OpenRouter API, https://openrouter.ai",
+      "keyed": false
+    },
+    {
+      "id": "openrouter-endpoints",
+      "name": "OpenRouter endpoints",
+      "url": "https://openrouter.ai/api/v1/models",
+      "license": "public API",
+      "attribution": "Endpoint latency and throughput from the OpenRouter API, https://openrouter.ai",
+      "keyed": false
+    },
+    {
+      "id": "litellm",
+      "name": "LiteLLM",
+      "url": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+      "license": "MIT",
+      "attribution": "Prices from LiteLLM's model_prices_and_context_window.json (MIT License), https://github.com/BerriAI/litellm",
+      "keyed": false
+    },
+    {
+      "id": "arena",
+      "name": "Arena (LMArena)",
+      "url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset",
+      "license": "CC-BY-4.0",
+      "attribution": "Leaderboard data by LMArena, CC BY 4.0, https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset",
+      "keyed": false
+    },
+    {
+      "id": "vectara",
+      "name": "Vectara hallucination leaderboard",
+      "url": "https://github.com/vectara/hallucination-leaderboard",
+      "license": "Apache-2.0",
+      "attribution": "Hallucination Leaderboard by Vectara (Apache License 2.0), https://github.com/vectara/hallucination-leaderboard",
+      "keyed": false
+    },
+    {
+      "id": "epoch",
+      "name": "Epoch AI benchmarks",
+      "url": "https://epoch.ai/data/benchmark_data.zip",
+      "license": "CC-BY-4.0; external tables keep their own license",
+      "attribution": "Epoch AI, 'Capabilities & benchmarking'. Published online at epoch.ai. Retrieved from 'https://epoch.ai/benchmarks' (CC BY 4.0)",
+      "keyed": false
+    },
+    {
+      "id": "artificial-analysis",
+      "name": "Artificial Analysis",
+      "url": "https://artificialanalysis.ai/api/v2/data/llms/models",
+      "license": "free key, internal use, attribution; read with the user's own key and never shipped",
+      "attribution": "Data from Artificial Analysis, https://artificialanalysis.ai",
+      "keyed": true
+    }
+  ],
+  "aliases": {
+    "claude-4-5-haiku": "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+  },
+  "defaultEffort": {
+    "gpt-6-astra": "medium",
+    "gpt-6-sol": "medium",
+    "gpt-6-luna": "medium",
+    "gpt-5.6-sol": "medium",
+    "gpt-5.6-terra": "medium",
+    "gpt-5.6-luna": "medium",
+    "claude-fable-5-1": "high",
+    "claude-opus-5-5": "high",
+    "claude-sonnet-5": "high",
+    "claude-haiku-4-5": "default"
+  }
+}
