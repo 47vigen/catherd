@@ -215,6 +215,8 @@ route, reviewer and verifier, every lane was routed, both roles ran, replies car
 
 ## Scores and catalog from public sources (2026-09-27)
 
+_Picked up:_ designed in `docs/specs/2026-09-28-catherd-1.2-design.md` (1.2.0). The spec is binding where it differs from this section.
+
 _What:_ `catherd catalog sync` pulls every independent, machine-readable source of model facts and scores, merges them
 into the catalog routing already reads, and asks the user to pick a stand-in only for the rungs no source covers.
 _Why:_ `catalog/models.json` and `scores.json` are written by hand today. A release like 2026-09-22 (Opus 5.5, GPT-6
