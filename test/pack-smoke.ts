@@ -25,6 +25,7 @@ const SHIPPED = [
   "catalog/jev.json",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
+  "plugin/bin/catherd-mcp",
 ];
 
 function run(cmd: string[], cwd: string, env: Record<string, string> = {}) {
@@ -61,7 +62,10 @@ must(added.code === 0, "bun add <tarball>", added.err);
 // 3. it runs in a fresh home, with no backend login and no Jev key needed
 const bin = join(app, "node_modules", ".bin", "catherd");
 const home = join(work, "home");
+// the installed bin on PATH, as after `bun add -g`: doctor's `mcp` row starts the server through the
+// plugin's launcher, which runs this catherd because it prints the launcher's version
 const env = {
+  PATH: `${join(app, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
   CATHERD_HOME: home,
   CLAUDE_CONFIG_DIR: join(home, "claude"),
   CATHERD_CLAUDE_AGENTS_DIR: join(home, "claude-agents"),

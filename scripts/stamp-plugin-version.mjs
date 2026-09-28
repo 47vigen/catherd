@@ -7,9 +7,10 @@ const read = (p) => readFileSync(path(p), "utf8");
 
 const { version } = JSON.parse(read("package.json"));
 
+// the MCP launcher starts this version (a global catherd at it, else bunx catherd-cli@<it>)
 writeFileSync(
-  path("plugin/.mcp.json"),
-  read("plugin/.mcp.json").replace(/catherd-cli@[^"]+/, `catherd-cli@${version}`),
+  path("plugin/bin/catherd-mcp"),
+  read("plugin/bin/catherd-mcp").replace(/^VERSION="[^"]*"$/m, `VERSION="${version}"`),
 );
 writeFileSync(
   path("plugin/skills/catherd/SKILL.md"),

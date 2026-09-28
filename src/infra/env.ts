@@ -19,6 +19,19 @@ export function scrubSecrets(base: Record<string, string | undefined>): Record<s
   return env;
 }
 
+/**
+ * Spec 1.1 §12: the plugin's launcher runs `bunx` with TMPDIR in catherd's cache, so macOS never half-cleans
+ * the package, and passes the user's own TMPDIR in CATHERD_USER_TMPDIR (empty when unset). The server and
+ * every worker it starts get the user's TMPDIR back.
+ */
+export function restoreTmpdir(env: Record<string, string | undefined>): void {
+  const mine = env.CATHERD_USER_TMPDIR;
+  if (mine === undefined) return;
+  if (mine) env.TMPDIR = mine;
+  else delete env.TMPDIR;
+  delete env.CATHERD_USER_TMPDIR;
+}
+
 export function workerEnv(
   base: Record<string, string | undefined>,
   overrides: Record<string, string>,

@@ -1,0 +1,17 @@
+#!/bin/sh
+# catherd's MCP launcher (spec 1.1 §12): the plugin's .mcp.json runs it. The release stamps VERSION
+# (scripts/stamp-plugin-version.mjs), so the plugin always starts the server it was released with.
+VERSION="1.0.0"
+
+# a global catherd at this version (catherd init installs one): start it, no resolve at all
+if command -v catherd >/dev/null 2>&1 && [ "$(catherd --version 2>/dev/null)" = "$VERSION" ]; then
+  exec catherd mcp
+fi
+
+# else bunx, with its cache out of $TMPDIR: macOS cleans old files there and leaves bunx a broken package.
+# The server gets the user's own TMPDIR back from CATHERD_USER_TMPDIR (empty when it was unset).
+CATHERD_USER_TMPDIR="${TMPDIR:-}"
+TMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/catherd/bunx"
+mkdir -p "$TMPDIR"
+export CATHERD_USER_TMPDIR TMPDIR
+exec bunx "catherd-cli@$VERSION" mcp

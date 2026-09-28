@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "catherd": {
-      "command": "bunx",
-      "args": ["catherd-cli@1.0.0", "mcp"]
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/catherd-mcp"]
     }
   }
 }
