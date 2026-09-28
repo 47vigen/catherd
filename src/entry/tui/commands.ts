@@ -314,7 +314,7 @@ export const COMMANDS = [
   },
   {
     id: "runs.open",
-    title: "Open the run",
+    title: "Open the session or role",
     group: "Runs",
     scope: "row.runs",
     keys: ["return"],

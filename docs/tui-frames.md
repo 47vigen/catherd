@@ -273,16 +273,46 @@ space turns the role on or off; enter opens its access, default rung and models
 
 ```
 
-## Runs: the list
+## Runs: no runs yet
 
 ```
  catherd 1.0.0  profile default (active)                                  =x.x=
  1 Status   2 Profiles   3 Runs
 ────────────────────────────────────────────────────────────────────────────────
- RUNS  updated just now
- ● live  Jobs screen  /home/me/app  2 live · 3 role runs · 1 landed · 52% budge…
- · idle  Auth refactor  /home/me/api  9 role runs · 3 landed  1d ago
 
+
+    /\_/\  .
+   (=-.-=)/
+    (")(")
+   No runs yet. Start one in Claude Code: /catherd <what to build>
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter open  r refresh  p pause  ctrl+p commands  ? help
+
+```
+
+## Runs: the sessions
+
+```
+ catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ SESSIONS  updated just now
+ ● live  jobs screen  1 run · 3 live roles · 1 landed  20s ago
+ · idle  kit follow-up  1 run · 0 live roles · 3 landed  1d ago
+ · idle  auth build  2 runs · 0 live roles · 5 landed  1d ago
 
 
 
@@ -303,32 +333,92 @@ space turns the role on or off; enter opens its access, default rung and models
 
 ```
 
-## Runs: one live run
+## Runs: one session with two runs, one continued elsewhere
 
 ```
  catherd 1.0.0  profile default (active)                                  =x.x=
  1 Status   2 Profiles   3 Runs
 ────────────────────────────────────────────────────────────────────────────────
- Jobs screen  /home/me/app · started 12m ago · updated just now
- budget [████████████████░░░░░░░░░░░░░░] 52% · 31/60 min
- 3 role runs, 3 ok · 812k in · 41k out · $0.00
- LIVE
-   ● worker-M1.L2    gpt-6-sol#medium    04:12   running
-   ◌ reviewer-M1     gpt-6-sol#high      00:04   starting
- CLIMBS
-   M1.L2    gpt-6-luna#high → gpt-6-sol#medium  refused
- ROUTES
-   M1.L1    worker    lane    repo_code/copy  gpt-6-luna#high
-   M1.L2    worker    lane    repo_code/build  gpt-6-luna#high
- LANDED
-   ✓ M0 | scaffold the jobs screen | 3f2a9c1 | 9 | bun test test/jobs
- STATE
-   M1 in review
-   Next: fix round for M1.L2
+ auth build  · idle · 2 runs · 0 live roles · updated just now
+ ▸ Auth refactor  /home/me/api · started 1d ago · continued in kit follow-up
+   ✓ M1 tokens  ✓ M2 sessions  ✓ M3 cleanup
+   ✓ reviewer-M3     gpt-6-sol#high     ok       03:08
+   ✓ worker-M3.L1    gpt-6-luna#high    ok       06:42
+   ✗ worker-M2.L1    gpt-6-sol#medium   limit    01:35
+ ▸ Auth plan 4  /home/me/api · started 2d ago
+   ✓ M1 schema  ✓ M2 handlers
+   ✓ reviewer-M2     gpt-6-sol#high     ok       02:20
+   ✓ worker-M2.L1    gpt-6-sol#medium   ok       10:10
+
+
+
+
+
+
 
 
 
 ────────────────────────────────────────────────────────────────────────────────
- ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+ enter open  ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+
+```
+
+## Runs: a live session with three live roles
+
+```
+ catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ jobs screen  ● live · 1 run · 3 live roles · updated just now
+ ▸ Jobs screen  /home/me/app · started 12m ago · budget 52%
+   ✓ M0 scaffold the jobs screen  ◌ M1
+   ● worker-M1.L2    gpt-6-sol#medium   running  04:12  $ bun test test/jobs --…
+   ● worker-M1.L3    gpt-6-luna#high    running  03:00  edit src/jobs/list.tsx
+   ◌ reviewer-M1     gpt-6-sol#high     starting 00:04
+   ✓ worker-M1.L1    gpt-6-luna#high    ok       05:12
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ enter open  ctrl+d cancel  r refresh  p pause  ctrl+p commands  ? help
+
+```
+
+## Runs: a role opened
+
+```
+ catherd 1.0.0  profile default (active)                                  =x.x=
+ 1 Status   2 Profiles   3 Runs
+────────────────────────────────────────────────────────────────────────────────
+ worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen
+ BRIEF
+   Read /home/me/.local/share/catherd/runs/jobs-screen/lanes/M1.L1.md
+   Fast check: bun test test/jobs/list
+ REPLY
+   Done: the list renders every job with its state.
+   src/jobs/list.tsx:12 — the list
+   src/jobs/list.test.tsx:4 — its test
+   STATUS: complete — list in place, fast check green
+ RECORD
+   ok · STATUS complete — list in place, fast check green
+   05:12 · 812k in (640k cached) · 41k out
+   changed src/jobs/list.tsx, src/jobs/list.test.tsx
+   thread 01a0d0d4-d0a6-71a1-983c-82a9169200b4
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ r refresh  p pause  ctrl+p commands  ? help
 
 ```

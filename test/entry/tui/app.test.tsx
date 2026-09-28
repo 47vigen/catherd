@@ -33,7 +33,7 @@ describe("tabs and leaving (spec §9.2)", () => {
     await h!.s.press("2");
     expect(tabLine()).toContain("PROFILE default");
     await h!.s.press("ctrl+x", "3");
-    expect(tabLine()).toContain("RUNS");
+    expect(tabLine()).toContain("SESSIONS");
     await h!.s.press("[", "[");
     expect(tabLine()).toContain("SETUP");
   });
@@ -41,9 +41,9 @@ describe("tabs and leaving (spec §9.2)", () => {
   it("backs out with esc and never quits with it", async () => {
     await app();
     await h!.s.press("3", "return");
-    expect(tabLine()).toContain("Jobs screen");
+    expect(tabLine()).toContain("jobs screen  ● live");
     await h!.s.press("escape");
-    expect(tabLine()).toContain("RUNS");
+    expect(tabLine()).toContain("SESSIONS");
     await h!.s.press("escape", "escape");
     expect(h!.exits).toEqual([]);
   });
@@ -191,7 +191,7 @@ describe("the command palette (spec §9.2)", () => {
     expect(h!.s.frame()).toContain("catherd profile new <name>");
     await h!.s.type("go to runs");
     await h!.s.press("return");
-    expect(tabLine()).toContain("RUNS");
+    expect(tabLine()).toContain("SESSIONS");
   });
 });
 
@@ -360,7 +360,7 @@ describe("an error from a key's read", () => {
     expect(h!.app().getState().dialogs).toEqual([]);
     expect(h!.exits).toEqual([]);
     await h!.s.press("3");
-    expect(tabLine()).toContain("RUNS");
+    expect(tabLine()).toContain("SESSIONS");
   });
 });
 

@@ -120,8 +120,10 @@ export interface AppState {
   drafts: Record<string, Draft>;
   /** the open dialogs; only the top one is drawn and takes keys */
   dialogs: Dialog[];
-  /** the run the Runs tab has open; null shows the list */
-  run: string | null;
+  /** spec §4: the session the Runs tab has open (`key` null: "earlier runs"); null shows the sessions */
+  session: { key: string | null } | null;
+  /** the role the open session shows, by its dispatch */
+  role: { run: string; dispatchId: string } | null;
   paused: boolean;
   armed: Armed | null;
 }
@@ -145,7 +147,12 @@ export type Action =
   | { type: "saving"; name: string; on: boolean }
   | { type: "input"; value: string }
   | { type: "invalid"; error: string | null }
-  | { type: "run"; id: string | null }
+  /** opens a session of the Runs tab (`key` null: "earlier runs") */
+  | { type: "session"; key: string | null }
+  /** opens one role of the open session */
+  | { type: "role"; run: string; dispatchId: string }
+  /** the Runs tab goes back one level: a role to its session, a session to the list */
+  | { type: "up" }
   | { type: "pause" }
   | { type: "arm"; what: Armed["what"]; target: string; at: number }
   | { type: "disarm" };
@@ -155,7 +162,8 @@ export const initialState = (tab: Tab = "status"): AppState => ({
   profile: null,
   drafts: {},
   dialogs: [],
-  run: null,
+  session: null,
+  role: null,
   paused: false,
   armed: null,
 });
@@ -324,8 +332,12 @@ export function reduce(s: AppState, a: Action): AppState {
       else if (top.kind === "save" && a.type === "invalid") next = { ...top, error: a.error };
       return next === top ? s : { ...s, dialogs: [...s.dialogs.slice(0, -1), next] };
     }
-    case "run":
-      return { ...s, run: a.id, armed: null };
+    case "session":
+      return { ...s, session: { key: a.key }, role: null, armed: null };
+    case "role":
+      return { ...s, role: { run: a.run, dispatchId: a.dispatchId }, armed: null };
+    case "up":
+      return s.role ? { ...s, role: null, armed: null } : { ...s, session: null, armed: null };
     case "pause":
       return { ...s, paused: !s.paused };
     case "arm":

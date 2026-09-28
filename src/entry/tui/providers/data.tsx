@@ -1,7 +1,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
 import type { DoctorReport } from "../../../services/doctor.ts";
-import type { Effects, RunRow } from "../effects.ts";
+import type { Effects, RunRow, SessionRow } from "../effects.ts";
 import { useApp } from "./app.tsx";
 
 export interface Polled<T> {
@@ -71,6 +71,8 @@ export interface Data {
   checkError: string | null;
   recheck(): void;
   runs: Polled<{ rows: RunRow[]; warnings: string[] }>;
+  /** spec §4: the Runs tab's sessions, read on the runs' cadence */
+  sessions: Polled<{ rows: SessionRow[]; warnings: string[] }>;
   /** the profile names and the active one; read on the runs' cadence and after every profile write */
   profiles: Polled<ReturnType<Effects["profiles"]>>;
 }
@@ -115,6 +117,7 @@ export function DataProvider(props: { children: ReactNode }) {
     };
   }, [app.effects, app.clock, nonce]);
   const runs = usePoll(() => app.effects.runs(), RUNS_EVERY_MS, { paused: app.state.paused });
+  const sessions = usePoll(() => app.effects.sessions(), RUNS_EVERY_MS, { paused: app.state.paused });
   // cheap (a directory listing and two small reads), and another terminal may change them at any time
   const profiles = usePoll(() => app.effects.profiles(), RUNS_EVERY_MS);
   const value = useMemo(
@@ -125,9 +128,10 @@ export function DataProvider(props: { children: ReactNode }) {
       checkError,
       recheck: () => setNonce((n) => n + 1),
       runs,
+      sessions,
       profiles,
     }),
-    [report, checking, checkedAt, checkError, runs, profiles],
+    [report, checking, checkedAt, checkError, runs, sessions, profiles],
   );
   return <DataContext.Provider value={value}>{props.children}</DataContext.Provider>;
 }

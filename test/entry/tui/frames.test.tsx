@@ -24,7 +24,12 @@ async function frame(
   plain: boolean,
 ): Promise<string> {
   withHome();
-  const h = await harness(<App />, { effects: fixtureEffects(), ui: plain ? PLAIN : UI, width, height });
+  const h = await harness(<App />, {
+    effects: fixtureEffects(story.fixtures),
+    ui: plain ? PLAIN : UI,
+    width,
+    height,
+  });
   for (const step of story.steps) await h.run(() => applyStep(step, h.app(), h.keymap()));
   await h.advance(0);
   await h.advance(0);

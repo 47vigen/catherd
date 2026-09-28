@@ -94,7 +94,7 @@ describe("the Status tab (spec §9.1)", () => {
     await h!.s.press("shift+g", "k", "k", "return");
     expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "default" });
     await h!.s.press("shift+g", "return");
-    expect(h!.app().getState()).toMatchObject({ tab: "runs", run: "20260925-090000-auth-refactor" });
+    expect(h!.app().getState()).toMatchObject({ tab: "runs", session: { key: "s-auth" } });
   });
 
   it("shows and opens the profile this repo runs on", async () => {

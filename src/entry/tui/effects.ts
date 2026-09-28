@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { type FSWatcher, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
@@ -6,7 +6,6 @@ import type { Catalog } from "../../domain/catalog.ts";
 import { HARNESS_KEYS, type Profile, type ProfileDoc, type ProfilePatch } from "../../domain/profile.ts";
 import { type Validation, validateProfile } from "../../domain/profile-rules.ts";
 import type { Access } from "../../domain/record.ts";
-import type { RouteSource } from "../../domain/route.ts";
 import { VERSION } from "../../infra/version.ts";
 import {
   type CatalogModel,
@@ -37,13 +36,29 @@ import {
   readProjects,
   runnableBackends,
 } from "../../services/profile-store.ts";
-import { findRun, listRuns, readRoutes, type Run, runPaths } from "../../services/run-store.ts";
+import { listRuns, type Run, runPaths } from "../../services/run-store.ts";
+import {
+  type RoleDetail,
+  roleDetail,
+  type SessionDetail,
+  sessionDetail,
+  type SessionRow,
+  sessionRows,
+} from "../../services/runs-page.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
 import { defaultDeps } from "../deps.ts";
 import { mcpHandshake } from "../mcp/handshake.ts";
 
 /** A save refused because the profile changed on disk since its preview read it carries this path. */
 export { CHANGED_ON_DISK } from "../../services/profile-service.ts";
+export type {
+  Milestone,
+  RoleDetail,
+  RoleRow,
+  SessionDetail,
+  SessionRow,
+  SessionRun,
+} from "../../services/runs-page.ts";
 
 /** One line of the run list. */
 export interface RunRow {
@@ -56,31 +71,8 @@ export interface RunRow {
   landed: number;
   /** the budget's spent fraction, null without a cap */
   budget: number | null;
-}
-
-interface Climb {
-  lane: string;
-  from: string;
-  to: string;
-  reason: string;
-  /** the environment's fault (a limit, a missing service), not the rung's */
-  env: boolean;
-}
-
-interface Decision {
-  lane: string;
-  role: string;
-  source: RouteSource;
-  kind: string | null;
-  difficulty: string | null;
-  rung: string;
-}
-
-/** Spec §9.1's run view: live lanes, climbs, Jev decisions, budget, landed milestones. */
-export interface RunDetail {
-  summary: RunSummary;
-  climbs: Climb[];
-  decisions: Decision[];
+  /** the session that started it (the Runs tab opens it); null for a run from before 1.1 */
+  session: string | null;
 }
 
 /**
@@ -91,7 +83,17 @@ export interface Effects {
   version: string;
   doctor(): Promise<DoctorReport>;
   runs(): { rows: RunRow[]; warnings: string[] };
-  run(id: string): RunDetail;
+  /** spec §4: the Runs tab's top level, the sessions */
+  sessions(): { rows: SessionRow[]; warnings: string[] };
+  /** a session's screen; `key` null is "earlier runs" */
+  session(key: string | null): SessionDetail;
+  /** a role's screen */
+  role(run: string, dispatchId: string): RoleDetail;
+  /**
+   * calls `onChange` when a file under one of `dirs` changes (spec §4: the open screen redraws when a run file
+   * changes); null when they cannot be watched here, and the screen polls every second instead
+   */
+  watch(dirs: string[], onChange: () => void): (() => void) | null;
   /** stops a live role; resolves to the line the toast shows */
   cancel(run: string, name: string): Promise<string>;
   profiles(): {
@@ -193,33 +195,40 @@ export function rowOf(s: RunSummary): RunRow {
     roleRuns: s.totals.runs,
     landed: s.milestones.length,
     budget: s.budget?.fraction ?? null,
+    session: s.session?.sessionId ?? null,
   };
 }
 
-/** The climbs and route decisions in a run's routes.jsonl. */
-function routesOf(run: Run): { climbs: Climb[]; decisions: Decision[] } {
-  const rows = readRoutes(run);
-  return {
-    climbs: rows
-      .filter((r) => r.source === "climb" && r.from !== null)
-      .map((r) => ({
-        lane: r.lane,
-        from: r.from as string,
-        to: r.rung,
-        reason: r.reason ?? "",
-        env: r.env === true,
-      })),
-    decisions: rows
-      .filter((r) => r.source === "route")
-      .map((r) => ({
-        lane: r.lane,
-        role: r.role,
-        source: r.decidedBy,
-        kind: r.kind,
-        difficulty: r.difficulty,
-        rung: r.rung,
-      })),
+/** How long a burst of file events is gathered into one redraw. */
+const WATCH_SETTLE_MS = 100;
+
+/** `fs.watch` on each run folder, recursive; null when any of them cannot be watched. */
+export function watchDirs(dirs: string[], onChange: () => void): (() => void) | null {
+  const watchers: FSWatcher[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const fire = () => {
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      onChange();
+    }, WATCH_SETTLE_MS);
   };
+  const stop = () => {
+    if (timer !== null) clearTimeout(timer);
+    for (const w of watchers) w.close();
+  };
+  try {
+    for (const d of dirs) {
+      const w = watch(d, { recursive: true }, fire);
+      // a watcher that breaks later (the folder removed) just stops; the screen's slow poll still reads
+      w.on("error", () => w.close());
+      watchers.push(w);
+    }
+  } catch {
+    stop();
+    return null;
+  }
+  return stop;
 }
 
 /**
@@ -238,10 +247,10 @@ export function liveEffects(repo: string | null = null): Effects {
       const { runs, corrupt } = listRuns();
       return { rows: rows(runs), warnings: corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`) };
     },
-    run(id) {
-      const run = findRun(id);
-      return { summary: summarizeRun(deps, run), ...routesOf(run) };
-    },
+    sessions: () => sessionRows(deps),
+    session: (key) => sessionDetail(deps, key),
+    role: (run, dispatchId) => roleDetail(deps, run, dispatchId),
+    watch: watchDirs,
     async cancel(run, name) {
       const r = await cancel(deps, run, name);
       return `${r.record.name} ${r.record.status}`;

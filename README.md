@@ -110,8 +110,10 @@ tests (CONTRIBUTING.md has the rest).
 
 `catherd` opens three tabs: **1 Status** (every check with its fix; `y` copies the fix, `r` checks again),
 **2 Profiles** (one tree per profile: roles with their access, default rung, models and efforts, then routing,
-harness, budget, failover, timeouts and notify) and **3 Runs** (live roles, climbs, routes, the budget, landed
-milestones; `p` pauses). `catherd watch` opens it on Runs.
+harness, budget, failover, timeouts and notify) and **3 Runs** (the Claude Code sessions that drove your runs, newest
+first; a session opens on its runs, their milestones and every role with its rung, status, time and last event, live
+ones first; a role opens on its brief, reply and record; the open screen redraws as run files change; `esc` goes back,
+`p` pauses). `catherd watch` opens it on Runs.
 
 - `ctrl+p` lists every command with its key and CLI twin; `?` lists the keys that work where you are.
 - `ctrl+x` is the leader: `ctrl+x 1`–`3` tabs, `ctrl+x n` new profile, `ctrl+x l` profiles, `ctrl+x u` and
