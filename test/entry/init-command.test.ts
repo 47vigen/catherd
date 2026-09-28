@@ -20,6 +20,8 @@ function init(args: string[], stdin = "") {
       ...process.env,
       // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
       PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
+      BUN_INSTALL_BIN: join(import.meta.dir, "..", "bin"),
       TYPESAFE_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
@@ -46,7 +48,8 @@ describe("globalStep (spec 1.1 §12)", () => {
   const deps = (onPath: string | null, ok = true, after?: string | null) => {
     let now = onPath;
     return {
-      installedVersion: async () => now,
+      globalVersion: async () => now,
+      pathVersion: async () => now,
       install: async (v: string) => {
         if (ok) now = after === undefined ? v : after;
         return { ok, output: ok ? "" : "error: 503 from the registry\n" };
@@ -112,7 +115,7 @@ describe("globalStep (spec 1.1 §12)", () => {
 
   it("skips the install with --no-global", async () => {
     let asked = false;
-    const d = { ...deps(null), installedVersion: async () => ((asked = true), null) };
+    const d = { ...deps(null), globalVersion: async () => ((asked = true), null) };
     expect(await lines(() => globalStep("1.1.0", { skip: true, deps: d }))).toEqual([
       "- catherd: not installed globally (--no-global); the plugin starts it with bunx",
     ]);
