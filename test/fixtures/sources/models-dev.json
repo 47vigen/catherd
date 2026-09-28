@@ -1,0 +1,36 @@
+{
+"openai":{
+"id":"openai",
+"env":["OPENAI_API_KEY"],
+"npm":"@ai-sdk/openai",
+"name":"OpenAI",
+"doc":"https://platform.openai.com/docs/models",
+"models":{"gpt-6-sol":{"id":"gpt-6-sol","name":"GPT-6 Sol","family":"gpt-sol","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-04-20","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1050000,"input":922000,"output":128000},"cost":{"input":2,"output":10,"cache_read":0.2,"cache_write":2.5},"canonical_model_id":"openai/gpt-6-sol"},"gpt-6-luna":{"id":"gpt-6-luna","name":"GPT-6 Luna","family":"gpt-luna","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-05-18","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1050000,"input":922000,"output":128000},"cost":{"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125},"canonical_model_id":"openai/gpt-6-luna"},"gpt-5.6-sol":{"id":"gpt-5.6-sol","name":"GPT-5.6 Sol","family":"gpt-sol","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-02-16","release_date":"2026-07-09","last_updated":"2026-07-09","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1050000,"input":922000,"output":128000},"cost":{"input":4,"output":20,"cache_read":0.4,"cache_write":5},"canonical_model_id":"openai/gpt-5.6-sol"}}
+},
+"anthropic":{
+"id":"anthropic",
+"env":["ANTHROPIC_API_KEY"],
+"npm":"@ai-sdk/anthropic",
+"name":"Anthropic",
+"doc":"https://docs.anthropic.com/en/docs/about-claude/models",
+"models":{"claude-opus-5-5":{"id":"claude-opus-5-5","name":"Claude Opus 5.5","family":"claude-opus","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-06","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1000000,"output":128000},"cost":{"input":4,"output":20,"cache_read":0.2,"cache_write":5},"canonical_model_id":"anthropic/claude-opus-5-5"},"claude-haiku-4-5":{"id":"claude-haiku-4-5","name":"Claude Haiku 4.5 (latest)","family":"claude-haiku","attachment":true,"reasoning":true,"reasoning_options":[{"type":"budget_tokens","min":1024}],"tool_call":true,"structured_output":true,"temperature":true,"knowledge":"2025-02-28","release_date":"2025-10-15","last_updated":"2025-10-15","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":200000,"output":64000},"cost":{"input":1,"output":5,"cache_read":0.1,"cache_write":1.25},"canonical_model_id":"anthropic/claude-haiku-4-5"}}
+},
+"opencode":{
+"id":"opencode",
+"env":["OPENCODE_API_KEY"],
+"npm":"@ai-sdk/openai-compatible",
+"api":"https://opencode.ai/zen/v1",
+"name":"OpenCode Zen",
+"doc":"https://opencode.ai/docs/zen",
+"models":{"gpt-6-sol":{"id":"gpt-6-sol","name":"GPT-6 Sol","family":"gpt-sol","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-04-20","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1050000,"input":922000,"output":128000},"provider":{"npm":"@ai-sdk/openai"},"cost":{"input":2,"output":10,"cache_read":0.2,"cache_write":2.5},"canonical_model_id":"openai/gpt-6-sol"},"claude-opus-5-5":{"id":"claude-opus-5-5","name":"Claude Opus 5.5","family":"claude-opus","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh","max"]}],"tool_call":true,"temperature":false,"knowledge":"2026-06","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1000000,"output":128000},"provider":{"npm":"@ai-sdk/anthropic"},"cost":{"input":4,"output":20,"cache_read":0.2,"cache_write":5},"canonical_model_id":"anthropic/claude-opus-5-5"}}
+},
+"opencode-go":{
+"id":"opencode-go",
+"env":["OPENCODE_API_KEY"],
+"npm":"@ai-sdk/openai-compatible",
+"api":"https://opencode.ai/zen/go/v1",
+"name":"OpenCode Go",
+"doc":"https://opencode.ai/docs/go",
+"models":{"gpt-6-luna":{"id":"gpt-6-luna","name":"GPT-6 Luna","family":"gpt-luna","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh","max"]}],"tool_call":true,"structured_output":true,"temperature":false,"knowledge":"2026-05-18","release_date":"2026-09-22","last_updated":"2026-09-22","modalities":{"input":["text","image","pdf"],"output":["text"]},"open_weights":false,"limit":{"context":1050000,"input":922000,"output":128000},"provider":{"npm":"@ai-sdk/openai"},"cost":{"input":0.1,"output":0.5,"cache_read":0.01,"cache_write":0.125},"canonical_model_id":"openai/gpt-6-luna"},"kimi-k3":{"id":"kimi-k3","name":"Kimi K3","family":"kimi-k3","attachment":true,"reasoning":true,"reasoning_options":[{"type":"effort","values":["max"]}],"tool_call":true,"interleaved":{"field":"reasoning_content"},"structured_output":true,"temperature":false,"release_date":"2026-07-16","last_updated":"2026-07-16","modalities":{"input":["text","image","video"],"output":["text"]},"open_weights":true,"limit":{"context":1048576,"output":131072},"cost":{"input":3,"output":15,"cache_read":0.3},"canonical_model_id":"moonshotai/kimi-k3"}}
+}
+}
