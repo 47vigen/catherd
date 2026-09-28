@@ -31,7 +31,7 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
     "peek",
     {
       description:
-        "A look at the runs, without waiting: with run, that run (and this session becomes its owner); without, every run this session owns, else the newest. Per run: each live role with its rung, seconds since it started and its last event (the last command, file edit or message line); every finished record not yet read, as the first line of catherd's message; the latest native Claude run; the run's next step. name narrows it to one role. It never marks a record read: result(run, name) does. Call it when the user asks how it is going, when a decision needs the other roles' state, or once after run_start on a resumed run; never in a loop.",
+        "A look at the runs, without waiting: with run, that run (and this session becomes its owner); without, every run this session owns, else the newest. Per run, first the open owner questions (answer them before anything else); then each live role with its rung, seconds since it started and its last event (the last command, file edit or message line); every finished record not yet read, as the first line of catherd's message; the latest native Claude run; the run's next step; protocol, the milestone loop's next step and its six-line checklist; and verifier, the verifier's latest gate step. name narrows it to one role. It never marks a record read: result(run, name) does. Call it when the user asks how it is going, when a decision needs the other roles' state, or once after run_start on a resumed run; never in a loop.",
       inputSchema: {
         run: z.string().optional(),
         name: z.string().regex(ID_PATTERN).optional(),

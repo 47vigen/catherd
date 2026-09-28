@@ -6,6 +6,7 @@ import { type Dispatch, type DispatchState, listDispatches, liveDispatches } fro
 import { lastActivity } from "./finalize.ts";
 import { finishedNotice } from "./notifier.ts";
 import type { Deps } from "./ports.ts";
+import { type Reentry, reentry } from "./reentry.ts";
 import { findRun, listRuns, readAgentRuns, readRecords, type Run } from "./run-store.ts";
 import { currentSession, runOwner } from "./sessions.ts";
 import { readNotes } from "./state.ts";
@@ -21,7 +22,8 @@ export interface PeekRole {
   lastEvent: string | null;
 }
 
-export interface PeekRun {
+/** Spec 1.1 §8/§10: the open owner questions come first, then the run, its protocol step and the verifier's step. */
+export interface PeekRun extends Reentry {
   run: string;
   title: string;
   /** the session that owns the run now, null when none has */
@@ -41,7 +43,9 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
   const agents = readAgentRuns(run).filter((a) => name === undefined || a.name === name);
   const native = agents.at(-1);
+  const r = reentry(run, now);
   return {
+    questions: r.questions,
     run: run.id,
     title: run.meta.title,
     owner: runOwner(run)?.sessionId ?? null,
@@ -67,6 +71,8 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
       ? { name: native.name, role: native.role, rung: native.rung, status: native.status, at: native.at }
       : null,
     next: readNotes(run).next,
+    protocol: r.protocol,
+    verifier: r.verifier,
   };
 }
 
