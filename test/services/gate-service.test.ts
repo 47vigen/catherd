@@ -94,7 +94,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "lib/new.ts", "n");
     for (const p of [
       gateCheck(fakeDeps(), item(run.id, { paths: ["src/", "scr/"] })),
-      gatePass(fakeDeps(), item(run.id, { paths: ["scr/"], evidence: "e" })),
+      gatePass(fakeDeps(), { ...item(run.id, { paths: ["scr/"] }), evidence: "e" }),
     ]) {
       const e = await p.then(
         () => null,
