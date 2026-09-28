@@ -182,5 +182,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect((await call(c, "gate_check", item(run.id))).data).toEqual({ carried: false });
     expect((await call(c, "gate_pass", { ...item(run.id), evidence: "ok" })).data.recorded).toBe(true);
     expect((await call(c, "gate_check", item(run.id))).data.carried).toBe(true);
+    // the optional milestone lands on the verifier's step
+    expect((await call(c, "gate_check", item(run.id, { milestone: "M1" }))).data.carried).toBe(true);
+    expect(latestVerifierStep(run)).toMatchObject({ item: "unit tests", carried: true, milestone: "M1" });
   });
 });

@@ -30,6 +30,8 @@ export interface VerifierStep {
   carried: boolean;
   /** a carried item: the commit its pass was recorded on */
   commit?: string;
+  /** the milestone the verifier checks, when gate_check named it: the digest lists only that milestone's items */
+  milestone?: string;
 }
 
 /** `<data>/repos/<repo key>/gates.jsonl`, beside the repo's knowledge.md. */
@@ -125,7 +127,7 @@ export function latestVerifierStep(run: Run): VerifierStep | null {
  */
 export async function gateCheck(
   deps: Deps,
-  i: { run: string; item: string; command: string; paths: string[] },
+  i: { run: string; item: string; command: string; paths: string[]; milestone?: string },
 ): Promise<{ carried: true; passedAt: string; commit: string } | { carried: false }> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
@@ -136,6 +138,7 @@ export async function gateCheck(
     item: i.item,
     carried: pass !== undefined,
     ...(pass ? { commit: pass.commit } : {}),
+    ...(i.milestone ? { milestone: i.milestone } : {}),
   });
   return pass ? { carried: true, passedAt: pass.at, commit: pass.commit } : { carried: false };
 }

@@ -233,4 +233,32 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       "Tokens: 2k in (0 cached) · 100 out · Claude subagents 0 (reported)",
     );
   });
+
+  it("lists only the milestone's own carried items when the verifier names milestones in gate_check", async () => {
+    withHome();
+    const repo = tempRepo();
+    const deps = fakeDeps();
+    const r = findRun((await startRun(deps, { repo, title: "t", aLines: ["A1 x"] })).run);
+    writeLane(r, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await passGate(r, "M1");
+    const gate = (item: string, command: string) => ({ run: r.id, item, command, paths: ["."] });
+    await gatePass(deps, { ...gate("lint", "bun run lint"), evidence: "ok" });
+    await gatePass(deps, { ...gate("unit tests", "bun test"), evidence: "ok" });
+    // M1 is parked; M2's verifier carries its item; then M1 lands
+    await gateCheck(deps, { ...gate("lint", "bun run lint"), milestone: "M1" });
+    await gateCheck(deps, { ...gate("unit tests", "bun test"), milestone: "M2" });
+    const landed = await land(deps, {
+      run: r.id,
+      milestone: "M1",
+      what: "x (A1)",
+      commit: head(repo),
+      evidence: "A1 PASS",
+      next: "M2",
+    });
+    const verifier = readFileSync(join(r.dir, landed.digest), "utf8")
+      .split("\n")
+      .find((l) => l.startsWith("Verifier: "));
+    expect(verifier).toMatch(/^Verifier: PASS \(verifier-M1\) · carried: lint from [0-9a-f]+$/);
+  });
 });

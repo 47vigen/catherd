@@ -167,8 +167,17 @@ export function writeDigest(
   // the verdict the gate counted, native or headless; else the latest native verdict, a FAIL shown as such
   const passed = milestoneVerifier(run, m, start);
   const failed = agents.findLast((a) => a.role === "verifier" && namesMilestone(a.name, m));
-  const steps = readJsonl<VerifierStep>(join(run.dir, "verifier.jsonl")).rows.filter(
-    (s) => s.carried && (start === null || Date.parse(s.at) >= Date.parse(start)),
+  // the milestone's carried items: once any step names its milestone (gate_check's milestone), only the steps
+  // naming this one; before that, every step since the milestone's lanes started
+  const allSteps = readJsonl<VerifierStep>(join(run.dir, "verifier.jsonl")).rows.filter(
+    (s) => typeof s?.item === "string",
+  );
+  const byMilestone = allSteps.some((s) => typeof s.milestone === "string");
+  const steps = allSteps.filter(
+    (s) =>
+      s.carried &&
+      (start === null || Date.parse(s.at) >= Date.parse(start)) &&
+      (!byMilestone || s.milestone === m),
   );
   const mineRecords = records.filter((r) => inM(r.lane) || namesMilestone(r.name, m));
   const tokens = mineRecords.reduce(
