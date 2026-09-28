@@ -80,28 +80,40 @@ export const reviewerPassed = (run: Run, m: string, start = milestoneStart(run, 
 /** The verifier's contract puts `VERDICT: PASS` or `VERDICT: FAIL` on the reply's first line (role-prompts.ts). */
 const VERDICT_PASS = /^VERDICT: PASS\b/;
 
-/** A headless verifier's reply opens with VERDICT: PASS: its first non-blank line; no reply is no verdict. */
-export function replyPasses(run: Run, r: RunRecord): boolean {
+/** A headless verifier's reply: its first non-blank line, trimmed; null when there is no reply to read. */
+export function replyVerdict(run: Run, r: RunRecord): string | null {
   const file = join(run.dir, r.replyPath);
-  if (!r.replyPath || !existsSync(file)) return false;
-  const first = readFileSync(file, "utf8")
-    .split("\n")
-    .map((l) => l.trim())
-    .find(Boolean);
-  return first !== undefined && VERDICT_PASS.test(first);
+  if (!r.replyPath || !existsSync(file)) return null;
+  return (
+    readFileSync(file, "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean) ?? null
+  );
 }
 
-/** The milestone's passing verifier: a native Claude subagent, or a headless dispatch whose reply passed. */
+/** A headless verifier's reply opens with VERDICT: PASS: its first non-blank line; no reply is no verdict. */
+export function replyPasses(run: Run, r: RunRecord): boolean {
+  const first = replyVerdict(run, r);
+  return first !== null && VERDICT_PASS.test(first);
+}
+
+/** The milestone's latest verifier attempt: a native Claude subagent or a headless dispatch, passed or not. */
 export interface MilestoneVerifier {
   name: string;
   at: string;
   headless: boolean;
+  passed: boolean;
+  /** what the attempt said: a native row's status, or a headless reply's first non-blank line ("no reply") */
+  verdict: string;
 }
 
 /**
- * The milestone's latest passing verifier since its lanes started: a record_agent_run row with role verifier
- * whose name names the milestone, status ok (the skill records a FAIL as failed); or a headless verifier's
- * dispatch record of the same shape whose reply opens VERDICT: PASS (status ok means only the CLI exited).
+ * The milestone's latest verifier attempt since its lanes started, whatever it said: a record_agent_run row
+ * with role verifier whose name names the milestone (the skill records a FAIL as failed), passing when its
+ * status is ok; or a headless verifier's dispatch record of the same shape, passing when it exited ok and its
+ * reply opens VERDICT: PASS (status ok means only the CLI exited). A later FAIL undoes an earlier PASS. Null
+ * when there is none.
  */
 export function milestoneVerifier(
   run: Run,
@@ -110,27 +122,36 @@ export function milestoneVerifier(
 ): MilestoneVerifier | null {
   const found: MilestoneVerifier[] = [
     ...readAgentRuns(run)
-      .filter(
-        (a) => a.role === "verifier" && a.status === "ok" && namesMilestone(a.name, m) && since(a.at, start),
-      )
-      .map((a) => ({ name: a.name, at: a.at, headless: false })),
+      .filter((a) => a.role === "verifier" && namesMilestone(a.name, m) && since(a.at, start))
+      .map((a) => ({
+        name: a.name,
+        at: a.at,
+        headless: false,
+        passed: a.status === "ok",
+        verdict: a.status,
+      })),
     ...readRecords(run)
-      .records.filter(
-        (r) =>
-          r.role === "verifier" &&
-          r.status === "ok" &&
-          namesMilestone(r.name, m) &&
-          since(r.endedAt, start) &&
-          replyPasses(run, r),
-      )
-      .map((r) => ({ name: r.name, at: r.endedAt, headless: true })),
+      .records.filter((r) => r.role === "verifier" && namesMilestone(r.name, m) && since(r.endedAt, start))
+      .map((r) => {
+        const first = replyVerdict(run, r);
+        const passed = r.status === "ok" && first !== null && VERDICT_PASS.test(first);
+        const said = first === null ? "no reply" : first.length > 80 ? `${first.slice(0, 80)}…` : first;
+        return {
+          name: r.name,
+          at: r.endedAt,
+          headless: true,
+          passed,
+          verdict: r.status === "ok" ? said : `${r.status}, ${said}`,
+        };
+      }),
   ];
+  // a stable sort: attempts at the same instant keep their file order, the later row winning
   return found.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1) ?? null;
 }
 
-/** A verifier verdict for the milestone since its lanes started (see milestoneVerifier). */
+/** The milestone's latest verifier attempt since its lanes started passed (see milestoneVerifier). */
 export const verifierPassed = (run: Run, m: string, start = milestoneStart(run, m)): boolean =>
-  milestoneVerifier(run, m, start) !== null;
+  milestoneVerifier(run, m, start)?.passed === true;
 
 /** The commits of the landed milestones, oldest first, from the ledger. */
 export function landedCommits(run: Run): string[] {

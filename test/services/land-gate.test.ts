@@ -168,6 +168,78 @@ describe("the land gate (spec 1.1 §6)", () => {
     );
   });
 
+  it("gates on the latest native verifier attempt: a FAIL after a PASS refuses, a PASS after it lands", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const t0 = Date.now();
+    await passGate(run, "M1", new Date(t0).toISOString());
+    const verdict = (at: number, status: "ok" | "failed") =>
+      appendAgentRun(run, {
+        at: new Date(at).toISOString(),
+        name: "verifier-M1",
+        role: "verifier",
+        rung: "claude:claude-opus-5-5#low",
+        agent: null,
+        totalTokens: 0,
+        costUsd: null,
+        secs: null,
+        status,
+        lane: null,
+      });
+    verdict(t0 + 1000, "failed");
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toContain("a verifier verdict");
+    expect(e.message).toContain("the latest, verifier-M1, is failed");
+    expect(e.message).not.toContain("reviewer record");
+    verdict(t0 + 2000, "ok");
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+    expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain("Verifier: PASS (verifier-M1)");
+  });
+
+  it("gates on the latest headless verifier attempt, whatever its reply: FAIL after PASS refuses", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const t0 = Date.now();
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "reviewer-M1",
+        role: "reviewer",
+        endedAt: new Date(t0).toISOString(),
+      }),
+    );
+    const verifier = async (reply: string, at: number) => {
+      const dispatchId = newDispatchId();
+      const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
+      mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
+      writeFileSync(join(run.dir, replyPath), reply);
+      await appendRecord(
+        run,
+        makeRecord({
+          runId: run.id,
+          dispatchId,
+          name: "verifier-M1",
+          role: "verifier",
+          replyPath,
+          endedAt: new Date(at).toISOString(),
+        }),
+      );
+    };
+    await verifier("VERDICT: PASS\nA1 PASS bun test\n", t0 + 1000);
+    await verifier("VERDICT: FAIL\nA1 FAIL bun test: 1 fail\n", t0 + 2000);
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toContain("the latest, verifier-M1 (headless), is VERDICT: FAIL");
+    await verifier("VERDICT: PASS\nA1 PASS bun test\n", t0 + 3000);
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+    expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
+      "Verifier: PASS (verifier-M1, headless)",
+    );
+  });
+
   it("takes a native reviewer (record_agent_run, role reviewer, reviewer-<M>, ok) since the milestone started", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

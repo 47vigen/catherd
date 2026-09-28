@@ -164,9 +164,8 @@ export function writeDigest(
   // the reviewer the gate counted: since the milestone's lanes started, a dispatch or a native subagent
   const reviewer = milestoneReviewer(run, m, start);
   const agents = readAgentRuns(run);
-  // the verdict the gate counted, native or headless; else the latest native verdict, a FAIL shown as such
-  const passed = milestoneVerifier(run, m, start);
-  const failed = agents.findLast((a) => a.role === "verifier" && namesMilestone(a.name, m));
+  // the verdict the gate counted: the latest attempt, native or headless, a FAIL shown as such
+  const verdict = milestoneVerifier(run, m, start);
   // the milestone's carried items: once any step names its milestone (gate_check's milestone), only the steps
   // naming this one; before that, every step since the milestone's lanes started
   const allSteps = readJsonl<VerifierStep>(join(run.dir, "verifier.jsonl")).rows.filter(
@@ -201,7 +200,7 @@ export function writeDigest(
     ...(lanes.length ? lanes : ["- none routed"]),
     "",
     `Reviewer: ${reviewer ? `${reviewer.name} · ${reviewer.record ? findingCounts(run, reviewer.record) : "a Claude subagent (findings in its reply)"}` : "none"}`,
-    `Verifier: ${passed ? `PASS (${passed.name}${passed.headless ? ", headless" : ""})` : failed ? `${failed.status === "ok" ? "PASS" : failed.status} (${failed.name})` : "none"}${steps.length ? ` · carried: ${steps.map((s) => `${s.item}${s.commit ? ` from ${s.commit}` : ""}`).join(", ")}` : ""}`,
+    `Verifier: ${verdict ? `${verdict.passed ? "PASS" : `FAIL: ${verdict.verdict}`} (${verdict.name}${verdict.headless ? ", headless" : ""})` : "none"}${steps.length ? ` · carried: ${steps.map((s) => `${s.item}${s.commit ? ` from ${s.commit}` : ""}`).join(", ")}` : ""}`,
     `Evidence: ${i.evidence}`,
     `Tokens: ${k(tokens.input)} in (${k(tokens.cached)} cached) · ${k(tokens.output)} out · Claude subagents ${k(reported)} (reported)`,
     "",

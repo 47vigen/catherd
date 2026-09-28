@@ -24,7 +24,7 @@ import {
   milestoneFiles,
   milestoneStart,
   reviewerPassed,
-  verifierPassed,
+  milestoneVerifier,
 } from "./milestones.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
@@ -265,16 +265,18 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     );
   }
   const start = milestoneStart(run, m);
+  // the latest verifier attempt, passed or not: a FAIL after a PASS undoes it
+  const verdict = milestoneVerifier(run, m, start);
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []
       : [
           `a reviewer record (a dispatch named reviewer-${m}, or record_agent_run with role reviewer and that name, status ok)`,
         ]),
-    ...(verifierPassed(run, m, start)
+    ...(verdict?.passed
       ? []
       : [
-          `a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok; a headless verifier's reply opening VERDICT: PASS)`,
+          `a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok; a headless verifier's reply opening VERDICT: PASS)${verdict ? `: the latest, ${verdict.name}${verdict.headless ? " (headless)" : ""}, is ${verdict.verdict}` : ""}`,
         ]),
   ];
   if (missing.length)
