@@ -33,7 +33,7 @@ import {
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, readRecords, type Run } from "./run-store.ts";
-import { claimRun } from "./sessions.ts";
+import { claimRun, ownsRun } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -193,15 +193,16 @@ export function adopt(deps: Deps, run: Run): void {
 }
 
 /**
- * Spec §3.3 with the plan 10 fix-round ruling: `dispatch` and `peek` on a run make this session its owner. When
- * the owner changes, this session takes over what the run's earlier owner left: it watches the live roles
- * (`adopt`), records and settles each role that finished with no record, settles each unread usage limit
- * that was never failed over, and settles again each unread record no message announced (the earlier owner's
- * server settled it but never told its session). Each settle runs the hooks, so the notifier tells the new
- * owner. A settle that fails is logged and never fails the call.
+ * Spec §3.3 with the plan 10 fix-round ruling: `dispatch` and `peek` on a run make this session its owner. The
+ * owner, new or not, then takes care of what is left on the run: it watches the live roles no watcher here is
+ * on (`adopt`), records and settles each role that finished with no record (the earlier owner's server died, or
+ * a watcher here failed to finalize it), settles each unread usage limit that was never failed over, and
+ * settles again each unread record no message announced (the earlier owner's server settled it but never told
+ * its session). Each settle runs the hooks, so the notifier tells the owner. Nothing left, nothing done. A
+ * settle that fails is logged and never fails the call.
  */
 export async function claim(deps: Deps, run: Run): Promise<void> {
-  if (!(await claimRun(deps, run))) return;
+  if (!(await claimRun(deps, run)) && !ownsRun(deps, run)) return;
   adopt(deps, run);
   const warn = (d: Dispatch, e: unknown) =>
     log("warn", "claim", { run: run.id, name: d.admit.name, error: errorMessage(e) });
@@ -215,6 +216,8 @@ export async function claim(deps: Deps, run: Run): Promise<void> {
   }
   const limits = unsettledLimits(run);
   for (const { d, record } of limits) {
+    // a watcher here settles it (a peek never waits on its failover lock)
+    if (watching.has(d.admit.dispatchId)) continue;
     try {
       await settle(deps, run, d, record);
     } catch (e) {

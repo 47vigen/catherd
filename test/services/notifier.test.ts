@@ -6,7 +6,14 @@ import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { adopt, cancel, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
+import {
+  adopt,
+  cancel,
+  dispatch,
+  settle,
+  watch,
+  watchersSettled,
+} from "../../src/services/dispatch-service.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import * as store from "../../src/infra/store.ts";
 import {
@@ -15,6 +22,7 @@ import {
   liveDispatches,
   readFailover,
 } from "../../src/services/dispatches.ts";
+import * as finalize from "../../src/services/finalize.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
 import { peek } from "../../src/services/peek.ts";
@@ -547,6 +555,36 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect(f?.message.content).toContain(`name: "${left.admit.name}"`);
     writeFileSync(release, "");
     await watchersSettled();
+  });
+
+  it("records, settles and announces, on a peek by its owner, a role whose watcher failed to finalize it", async () => {
+    const { run, deps, n } = await owned();
+    const d = await fakeDispatch(
+      run,
+      {},
+      { proc: "dead", exit: exit(), reply: "Done.\nSTATUS: complete — ok", collect: true },
+    );
+    const spy = spyOn(finalize, "finalizeDispatch").mockImplementationOnce(() => {
+      throw new Error("EIO: i/o error");
+    });
+    try {
+      watch(deps, run, d);
+      await watchersSettled();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readRecords(run).records).toEqual([]);
+    // the same session peeks: nothing about the owner changes, the finished role is still taken care of
+    await peek(deps, { run: run.id });
+    expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([d.admit.dispatchId]);
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain(`name: "${d.admit.name}"`);
+    await n.idle();
+    expect(existsSync(dispatchPaths(d.dir).notified)).toBe(true);
+    // a second peek finds nothing left: no second message
+    await peek(deps, { run: run.id });
+    await n.idle();
+    expect(inbox?.frames).toHaveLength(1);
   });
 
   it("records, settles and announces a role that finished unrecorded when a dispatch takes the run over", async () => {
