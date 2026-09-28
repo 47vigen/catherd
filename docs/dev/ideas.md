@@ -368,6 +368,16 @@ typing a number.
   reset a mapping is to edit `catalog.override.json` by hand. Add `--rm <rung>` and `--reset`. Before removing a mapping,
   warn which profile rungs it would leave unscored.
 
+- **The runs tab shows 00:00 for running roles.** In the M3 platform run (2026-09-28), two workers had been running for
+  3 minutes and their event logs were growing, yet the TUI showed `running 00:00` for both. The owner took this to mean
+  the run was stuck. Elapsed time should count from `proc.json` `startedAt`. Also show the last event's age, so that
+  "alive" and "stuck" look different.
+- **Workspace-write codex cannot reach the Go build cache.** In the same run, the M3.L1 worker's `go vet ./...` failed
+  with "operation not permitted": the Go build cache (`~/Library/Caches/go-build`) is outside `writable_roots`. The
+  worker got past it by pointing `GOCACHE` at `/private/tmp`, which forces a cold cache on every lane. Fix: add the
+  toolchain caches that are present (`go env GOCACHE`/`GOMODCACHE`, the pnpm store, `~/.bun/install/cache`) to
+  `writable_roots`, and add a `doctor` probe for them.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
