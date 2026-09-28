@@ -75,30 +75,35 @@ With `superpowers:writing-plans`, through a plan-writer subagent. The writer pre
 task in a scratch copy, and the plan is committed before it is executed. A plan writer may run while the previous
 plan is still in review, since it touches only docs.
 
-### Executing a plan (subagent-driven, adapted to save tokens and time)
+### Executing a plan (subagent-driven, fast by default)
 
-- **One PR per plan**, from the branch restarted on `main`. Open it as a draft when the first batch lands and
-  subscribe to its activity; schedule an hourly check-in while it is open and delete it after the merge.
+The real gate is the owner's live acceptance run, for which the release is held; reviews catch what tests cannot,
+once, at the end. (Owner decision, 2026-09-28: in plan 11 implementation took ~70 min and per-batch reviews ~5 h,
+for mostly edge-case findings.)
+
+- **One PR per plan**, from the branch restarted on `main`. Open it **ready** (not draft) once the plan's code is on
+  the branch, and subscribe to its activity; schedule an hourly check-in while it is open and delete it after the
+  merge.
 - **Ledger** at `.superpowers/sdd/<plan>/progress.md`; its first line names the plan. Record every decision as
   `Ruling: <what> — <why> — <cost if wrong>`. After a context compaction, trust the ledger and `git log`, and never
   re-dispatch completed tasks. Copy the ledger to `docs/handoff/planN-ledger.md` before the plan merges, and update
   `HANDOFF.md`.
-- **Pre-flight scan** before the first dispatch, by a read-only agent: conflicts between tasks, against the spec and
-  against the code as it is. Rule on each and hand the rulings to the workers in a notes file.
-- **Bundle and parallelise** by the plan's wave table. One agent per batch of 1–3 sequential tasks, each in its own
-  worktree (`isolation: "worktree"`); worktrees start at `main`, so each agent first runs `git reset --hard <current
-branch sha>`. A worktree agent's final message is its report: save it, cherry-pick its commits onto the branch and
-  run the full gate on the combined head. Keep a worker's worktree until its review passes. Start the next wave while
-  the last is in review when the files are disjoint. Worker scratch files stay inside the worker's worktree.
-- **Reviews:** one task review per batch (the `review-package` diff and `reviewer-contract.md`); fix rounds resume the
-  implementer with the findings and a new reset SHA, then a scoped re-review (`re-reviewer-contract.md`). Fix
-  one-line findings yourself, with a test. Then one final whole-branch review (superpowers'
-  `requesting-code-review/code-reviewer.md`, with a "Declined to judge" list), one fix wave and its re-review.
-- **Bot rounds:** mark the PR ready; the Codex bot reviews it. Fix every finding with a test that fails first, or
-  reply why not; reply on each thread naming the fixing commit and resolve it; re-trigger with `@codex review` right
-  after each push. At most 4 rounds per PR unless the owner lifts the cap. Merge when CI is green.
+- **Conflict read** before the first dispatch, by the controller itself (about 5 minutes, no separate agent): tasks
+  against each other, the spec and the code as it is. Rule on each and hand the rulings to the workers.
+- **Waves in parallel.** Dispatch every batch of a wave at once, each in its own worktree
+  (`isolation: "worktree"`); worktrees start at `main`, so each agent first runs `git reset --hard <current branch
+sha>`. A worktree agent's final message is its report: cherry-pick its commits onto the branch and run the full
+  gate **once** on the combined head after each wave (for a known load flake, rerun only that file). Worker scratch
+  files stay inside the worker's worktree.
+- **One review, at the end.** No per-batch task reviews. One whole-branch review on `opus-medium` (superpowers'
+  `requesting-code-review/code-reviewer.md`, with a "Declined to judge" list). Fix only Critical and Important
+  findings, in one fix wave; re-review it only when the fix touched more than about 3 files. Every Minor goes to
+  `docs/dev/ideas.md` (under the release's follow-ups), not into code.
+- **One bot round.** The Codex bot reviews the ready PR. Fix P1s and correctness or security P2s with a test that
+  fails first; reply on every other P2 "tracked in ideas.md" (and add it there) and resolve it; reply on each fixed
+  thread naming the commit and resolve it. More rounds only when the owner raises the cap. Merge on green CI.
 - **Worker models:** Opus 5.5, always set explicitly: `opus-low` for transcription-grade tasks where the plan holds
-  the code, `opus-medium` for integration or judgment work and for reviews (agents in `~/.claude/agents/`; until a
+  the code, `opus-medium` only for judgment or integration work and for the final review (agents in `~/.claude/agents/`; until a
   reload loads them, use general-purpose agents with `model: "opus"`).
 - **Release:** a plan's last task adds its changeset. After that PR merges, merge the "chore: release catherd" PR
   unless the owner asked to hold it for live verification (`docs/dev/live-verification.md`); in that case give the
