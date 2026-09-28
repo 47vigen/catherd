@@ -4,6 +4,7 @@ import { errorMessage } from "../domain/errors.ts";
 import { envelope, formatNotices, type Notice, type NoticePriority, priorityOf } from "../domain/notice.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
+import { tryLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { type SendResult, sendToInbox } from "../infra/peer-inbox.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
@@ -17,8 +18,9 @@ import { currentSession, ownsRun } from "./sessions.ts";
  * Spec §3.4: runs only inside the MCP server, the session's child and so its only sender (§3.2). For every run this
  * session owns, a dispatch that is settled with its record still unread is announced to the session's peer inbox;
  * notices that arrive within the window of each other go as one message; a message that went out is written down
- * (`notified.json`), so a restart never sends it twice. Disk stays the truth: a notice that cannot be sent is
- * dropped, and the record waits, unread, for `result` or `peek`.
+ * (`notified.json`), so a restart never sends it twice, and claimed while it goes, so two servers of one session never
+ * both send it. Disk stays the truth: a notice that cannot be sent is dropped (its claim freed), and the record
+ * waits, unread, for `result` or `peek`.
  */
 
 export interface NotifierOptions {
@@ -151,26 +153,42 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
   };
 
   async function deliver(batch: Queued[]): Promise<void> {
-    // read (or announced) meanwhile, or the run moved to another session (whose server tells it): nothing to say
-    const due = batch.filter((q) => q.due() && owned(q.run));
-    if (due.length === 0 || !deps.session) return;
-    const notices = due.map((q) => q.notice);
-    const r = await send(
-      { socketPath: deps.session.socketPath, token: deps.session.token },
-      envelope(formatNotices(notices)),
-      priorityOf(notices),
-    ).catch((e: unknown): SendResult => ({ outcome: "error", reason: errorMessage(e) }));
-    if (r.outcome !== "sent") {
-      log("warn", "notify", {
-        outcome: r.outcome,
-        reason: r.reason,
-        dispatches: notices.map((n) => n.dispatchId),
-      });
-      return;
+    if (!deps.session) return;
+    // Each notice is claimed before it goes (an exclusive lock on its mark, freed if its holder dies): two servers
+    // of one session, a replacement starting while the old one still watches, never both send it. Whether it is
+    // still news is asked under the claim: the other may have announced it just before letting go.
+    const claims: (() => void)[] = [];
+    const due: Queued[] = [];
+    try {
+      for (const q of batch) {
+        // read (or announced) meanwhile, or the run moved to another session (whose server tells it)
+        if (!q.due() || !owned(q.run)) continue;
+        const release = tryLock(q.mark);
+        if (!release) continue; // another server is announcing it
+        claims.push(release);
+        if (q.due()) due.push(q);
+      }
+      if (due.length === 0) return;
+      const notices = due.map((q) => q.notice);
+      const r = await send(
+        { socketPath: deps.session.socketPath, token: deps.session.token },
+        envelope(formatNotices(notices)),
+        priorityOf(notices),
+      ).catch((e: unknown): SendResult => ({ outcome: "error", reason: errorMessage(e) }));
+      if (r.outcome !== "sent") {
+        log("warn", "notify", {
+          outcome: r.outcome,
+          reason: r.reason,
+          dispatches: notices.map((n) => n.dispatchId),
+        });
+        return;
+      }
+      const at = new Date(deps.now()).toISOString();
+      for (const q of due) writeJsonAtomic(q.mark, { schema: 1, msgId: r.msgId, at });
+      log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId) });
+    } finally {
+      for (const release of claims) release();
     }
-    const at = new Date(deps.now()).toISOString();
-    for (const q of due) writeJsonAtomic(q.mark, { schema: 1, msgId: r.msgId, at });
-    log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId) });
   }
 
   const enqueue = (run: Run, d: Dispatch, record: RunRecord): void => {

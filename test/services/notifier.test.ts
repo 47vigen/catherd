@@ -30,6 +30,7 @@ import { reconcileAll } from "../../src/services/reconcile.ts";
 import { result } from "../../src/services/run-service.ts";
 import { createRun, readRecords, type Run } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
+import { sendToInbox } from "../../src/infra/peer-inbox.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { type FakeInbox, fakeInbox } from "../sim/peer-inbox.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -155,6 +156,49 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     await again.idle();
     await (inbox as FakeInbox).received(1);
     expect(inbox?.frames).toHaveLength(1);
+  });
+
+  it("sends one message when two servers of the session announce the same record at once (codex r2)", async () => {
+    // a replacement server starting while the old one still watches: both see the record due
+    const { run, deps, n } = await owned();
+    let calls = 0;
+    const counted: typeof sendToInbox = (t, c, p) => {
+      calls++;
+      return sendToInbox(t, c, p);
+    };
+    n.stop();
+    const a = startNotifier(deps, { coalesceMs: 20, send: counted });
+    const b = startNotifier(deps, { coalesceMs: 20, send: counted });
+    notifiers.push(a, b);
+    const d = await finished(run, "worker-M1.L1");
+    await settle(deps, run, d, await recordOf(run, d));
+    await Promise.all([a.idle(), b.idle()]);
+    await (inbox as FakeInbox).received(1);
+    expect(calls).toBe(1);
+    expect(inbox?.frames).toHaveLength(1);
+    expect(existsSync(dispatchPaths(d.dir).notified)).toBe(true);
+    expect(existsSync(`${dispatchPaths(d.dir).notified}.lock`)).toBe(false);
+  });
+
+  it("frees its claim when the message cannot go, so a later pass sends it", async () => {
+    const { run, deps, n } = await owned();
+    n.stop();
+    let fail = true;
+    const flaky: typeof sendToInbox = (t, c, p) =>
+      fail ? Promise.resolve({ outcome: "error", reason: "socket gone" }) : sendToInbox(t, c, p);
+    const again = startNotifier(deps, { coalesceMs: 20, send: flaky });
+    notifiers.push(again);
+    const d = await finished(run, "worker-M1.L1");
+    await settle(deps, run, d, await recordOf(run, d));
+    await again.idle();
+    expect(existsSync(dispatchPaths(d.dir).notified)).toBe(false);
+    expect(existsSync(`${dispatchPaths(d.dir).notified}.lock`)).toBe(false);
+    fail = false;
+    await again.scan();
+    await again.idle();
+    await (inbox as FakeInbox).received(1);
+    expect(inbox?.frames).toHaveLength(1);
+    expect(existsSync(dispatchPaths(d.dir).notified)).toBe(true);
   });
 
   it("announces, on start, every unread record of an owned run that no message announced", async () => {
