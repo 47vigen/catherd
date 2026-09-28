@@ -48,13 +48,15 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
   it("removes the user's mapping, naming first the profile rungs it leaves on an inferred stand-in", async () => {
     await terraOnTheLadder();
     expect(leftOnStandIns(["gpt-5.6-terra#high"])).toEqual([
-      { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"] },
+      { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
     ]);
     const r = await clearTreatLike(TERRA);
     expect(r).toEqual({
       rung: "gpt-5.6-terra#high",
       like: "gpt-6-sol#high",
-      left: [{ profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"] }],
+      left: [
+        { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
+      ],
     });
     expect(JSON.parse(readFileSync(overridePath(), "utf8")).treatLike).toEqual({});
     expect(loadCatalog({ timings: false }).treatLike["gpt-5.6-terra#high"]).toBeUndefined();
@@ -94,7 +96,9 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
       ["gpt-5.6-terra#high", "gpt-6-sol#high"],
       ["opencode-go/glm-5.3#high", "gpt-6-sol#medium"],
     ]);
-    expect(r.left).toEqual([{ profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"] }]);
+    expect(r.left).toEqual([
+      { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
+    ]);
     const after = JSON.parse(readFileSync(overridePath(), "utf8"));
     expect([after.treatLike, after.scores]).toEqual([{}, [mine]]);
     expect(loadCatalog({ timings: false }).treatLike["opencode-go/kimi-k3#max"]?.source).toBe("shipped");
@@ -115,6 +119,19 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it("names a rung the removal leaves with no value at all: routing skips it (spec 1.2 §6.4)", async () => {
+    withHome();
+    // a model no family knows: its only feature is its effort, too few for a stand-in
+    const foo = "opencode:acme/foo-9#high";
+    patchProfile("default", { roles: { worker: { rungs: [...DEFAULT_WORKER, foo] } } });
+    await saveTreatLike(foo, "gpt-6-sol#high");
+    const left = [{ profile: "default", rung: foo, dims: [], unscored: true }];
+    expect(leftOnStandIns(["acme/foo-9#high"])).toEqual(left);
+    expect((await clearTreatLike(foo)).left).toEqual(left);
+    await saveTreatLike(foo, "gpt-6-sol#high");
+    expect((await resetTreatLikes()).left).toEqual(left);
   });
 
   it("says there is nothing to remove", async () => {

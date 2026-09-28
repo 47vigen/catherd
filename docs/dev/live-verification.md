@@ -433,7 +433,7 @@ catherd catalog treat-like --reset
 catherd profile validate; echo "exit $?"
 ```
 
-Look for: `--reset` names, before its `removed` line, each profile rung left on an inferred stand-in (none is
+Look for: `--reset` names, before its `removed` line, each profile rung left on an inferred stand-in or unscored (none is
 fine when you had no treat-likes); `validate` prints no `✗` line, exits 0, and lists each such rung as `stand-in
 to confirm: …`. Put yours back with `cp /tmp/override.before.json ~/.config/catherd/catalog.override.json`.
 

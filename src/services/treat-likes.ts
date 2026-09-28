@@ -6,17 +6,20 @@ import { canonicalRung, loadCatalog, readOverride, removeTreatLikes } from "./ca
 import { getProfile, listProfiles } from "./profile-store.ts";
 import { type Suggestion, suggestStandIns } from "./standins.ts";
 
-/** A profile's rung that would lean on an inferred stand-in (spec 1.2 §6.4). */
+/** A profile's rung that would lean on an inferred stand-in, or be left with no value at all (spec 1.2 §6.4). */
 export interface LeftOnStandIn {
   profile: string;
   rung: string;
-  /** the dimensions an inferred stand-in would fill */
+  /** the dimensions an inferred stand-in would fill; empty when the rung is left unscored */
   dims: Dim[];
+  /** no value of its own and no stand-in near enough: routing skips it */
+  unscored: boolean;
 }
 
 /**
  * Spec 1.2 §6.4: the rungs of every profile (enabled roles' rungs and failover stand-ins) that would lean on an
- * inferred stand-in once the user's treat-likes for `removed` (canonical rungs, or all of them) are gone.
+ * inferred stand-in, or be left with no value at all, once the user's treat-likes for `removed` (canonical
+ * rungs, or all of them) are gone. Never removed silently.
  */
 export function leftOnStandIns(removed: string[] | "all"): LeftOnStandIn[] {
   const cur = readOverride();
@@ -36,8 +39,9 @@ export function leftOnStandIns(removed: string[] | "all"): LeftOnStandIn[] {
       if (!tryParseRung(rung)) continue;
       const canonical = rungInfo(c, rung).canonical;
       if (!gone.includes(canonical)) continue;
-      const dims = scoresOf(c, canonical)?.inferred ?? [];
-      if (dims.length) out.push({ profile, rung, dims });
+      const s = scoresOf(c, canonical);
+      if (!s) out.push({ profile, rung, dims: [], unscored: true });
+      else if (s.inferred.length) out.push({ profile, rung, dims: s.inferred, unscored: false });
     }
   }
   return out;

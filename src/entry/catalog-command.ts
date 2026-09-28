@@ -152,11 +152,11 @@ const list = defineCommand({
   },
 });
 
-/** Spec 1.2 §6.4: the profile rungs a removal leaves on an inferred stand-in, one line each. */
+/** Spec 1.2 §6.4: the profile rungs a removal leaves on an inferred stand-in or unscored, one line each. */
 export function leftLines(left: LeftOnStandIn[], plain = false): string[] {
   return left.map(
     (l) =>
-      `${mark("warn", plain)} ${l.profile}: ${l.rung} is left on an inferred stand-in for ${l.dims.join(", ")}`,
+      `${mark("warn", plain)} ${l.profile}: ${l.rung} is left ${l.unscored ? "unscored: routing skips it" : `on an inferred stand-in for ${l.dims.join(", ")}`}`,
   );
 }
 

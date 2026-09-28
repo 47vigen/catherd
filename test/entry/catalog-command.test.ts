@@ -181,6 +181,33 @@ describe("catherd catalog", () => {
     );
   });
 
+  it("names the profile rungs a cleared mapping leaves with no value at all, in text and JSON", () => {
+    withHome();
+    const worker = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "opencode:acme/foo-9#high"];
+    const set = Bun.spawnSync(
+      [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
+      {
+        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(set.exitCode).toBe(0);
+    expect(catherd("treat-like", "opencode:acme/foo-9#high", "gpt-6-sol#high").code).toBe(0);
+    const r = catherd("treat-like", "--clear", "acme/foo-9#high");
+    expect(r.out).toBe(
+      [
+        "! default: opencode:acme/foo-9#high is left unscored: routing skips it",
+        "✓ acme/foo-9#high is no longer treated like gpt-6-sol#high",
+        "",
+      ].join("\n"),
+    );
+    expect(catherd("treat-like", "opencode:acme/foo-9#high", "gpt-6-sol#high").code).toBe(0);
+    expect(JSON.parse(catherd("treat-like", "--reset", "--json").out).left).toEqual([
+      { profile: "default", rung: "opencode:acme/foo-9#high", dims: [], unscored: true },
+    ]);
+  });
+
   it("refuses treat-like with neither a pair nor one of its flags, or with two of them, with exit 2", () => {
     withHome();
     for (const args of [
