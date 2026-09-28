@@ -234,10 +234,14 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
           stallChecked = false;
         } else reason = "idle-timeout";
       } else if (!stalled && !stallChecked && now - lastActivity >= spec.idleMs / 2) {
-        // asked once per quiet stretch: a busy worker is not asked again until it next writes an event
+        // asked once per quiet stretch: a busy answer starts a new quiet stretch, with its own half-way check,
+        // so a worker busy here and idle later is reported stalled before the idle check ends it
         stallChecked = true;
         const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
-        if (!busy && !done) {
+        if (busy) {
+          lastActivity = Date.now();
+          stallChecked = false;
+        } else if (!done) {
           stalled = true;
           // advisory: a write that fails is logged and never ends a healthy worker
           try {

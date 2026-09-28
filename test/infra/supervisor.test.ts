@@ -152,6 +152,23 @@ describe("supervise reports a stall (spec §3.6)", () => {
     expect(existsSync(dispatchPaths(s.dispatchDir).stall)).toBe(true);
   });
 
+  it("reports a stall before idle-timeout when the half-way check found the worker busy (codex r2)", async () => {
+    // busy at the half-way check, then quiet and not busy: that busy answer starts a new quiet stretch, whose
+    // own half-way check reports the stall before the idle check ends the worker
+    const answers = [true];
+    const s = spec("sleep 30", { idleMs: 300 });
+    let stallAtEnd = null as boolean | null;
+    const exit = await supervise(s, {
+      isBusy: async () => answers.shift() ?? false,
+      interrupt: async () => {
+        stallAtEnd = existsSync(dispatchPaths(s.dispatchDir).stall);
+      },
+    });
+    expect(exit?.reason).toBe("idle-timeout");
+    expect(stallAtEnd).toBe(true);
+    expect(existsSync(dispatchPaths(s.dispatchDir).stall)).toBe(true);
+  });
+
   it("reports no stall while the worker is busy, or has a tool call open", async () => {
     const busy = spec("sleep 30", { idleMs: 200, wallMs: 600 });
     expect((await supervise(busy, { isBusy: async () => true }))?.reason).toBe("wall-timeout");
