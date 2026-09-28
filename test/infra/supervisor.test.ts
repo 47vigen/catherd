@@ -133,7 +133,7 @@ describe("supervise reports a stall (spec §3.6)", () => {
       real(file, value, o);
     });
     try {
-      const s = spec(`echo '{"type":"a"}'; sleep 0.5; echo '{"type":"b"}'`, { idleMs: 800 });
+      const s = spec(`echo '{"type":"a"}'; sleep 2; echo '{"type":"b"}'`, { idleMs: 2400 });
       const exit = await supervise(s, { isBusy: async () => false });
       expect(exit).toMatchObject({ code: 0, reason: "exited" });
       expect(readFileSync(dispatchPaths(s.dispatchDir).events, "utf8")).toContain('"b"');
