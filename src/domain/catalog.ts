@@ -138,12 +138,19 @@ export const ScoresFileSchema = z.looseObject({
 });
 export type ScoresFile = z.infer<typeof ScoresFileSchema>;
 
-/** `<config>/catalog.override.json` (spec §3.5): the user's treat-likes, scores and bars. */
+/** An override's bar: per dimension a threshold, or `null` to remove the default's (spec 1.2 §5.2). */
+const OverrideBarSchema = z.partialRecord(z.enum(DIMS), z.number().nullable());
+
+/**
+ * `<config>/catalog.override.json` (spec §3.5): the user's treat-likes, scores and bars. Its bars override
+ * the default bars per dimension (spec 1.2 §5.2): a number sets that threshold, `null` removes it, and a
+ * dimension it does not name keeps the default's.
+ */
 export const OverrideSchema = z.looseObject({
   schema: z.literal(1).default(1),
   treatLike: z.record(CanonicalRung, CanonicalRung).default({}),
   scores: z.array(ScoreSchema).default([]),
-  bars: z.partialRecord(z.enum(KINDS), z.partialRecord(z.enum(DIFFICULTIES), BarSchema)).default({}),
+  bars: z.partialRecord(z.enum(KINDS), z.partialRecord(z.enum(DIFFICULTIES), OverrideBarSchema)).default({}),
 });
 export type Override = z.infer<typeof OverrideSchema>;
 
@@ -264,10 +271,10 @@ export function buildCatalog(o: {
     treatLike[rung] = { like, source: "user" };
   const bars = structuredClone(o.scores.bars) as Bars;
   for (const kind of KINDS)
-    for (const d of DIFFICULTIES) {
-      const bar = o.override?.bars[kind]?.[d];
-      if (bar) bars[kind][d] = bar;
-    }
+    for (const d of DIFFICULTIES)
+      for (const [dim, min] of Object.entries(o.override?.bars[kind]?.[d] ?? {}) as [Dim, number | null][])
+        if (min === null) delete bars[kind][d][dim];
+        else bars[kind][d][dim] = min;
   return {
     families: o.facts ? applyFacts(o.models.families, o.facts) : o.models.families,
     backends: o.models.backends,
