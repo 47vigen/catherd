@@ -310,6 +310,9 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   return { dispatched: dispatchedOf(d), hints };
 }
 
+/** How long a settle waits for another process's failover of the same dispatch (a test seam). */
+export const failoverLock = { timeoutMs: 120_000 };
+
 /** A failover's outcome before it is written down. */
 interface Outcome {
   hints: string[];
@@ -323,15 +326,38 @@ interface Outcome {
  * written to failover.json so a second settle or a restarted server reuses it), state.md is refreshed with the
  * pause a limit calls for (a refresh that fails comes back in `stateHints`), and every settled hook runs. Never
  * throws for a hook.
+ *
+ * Codex r4 ruling: a settle that times out waiting for the failover lock (another live process holds it) is
+ * not a failed failover. It writes nothing and runs no hook: the holder's settle writes failover.json, refreshes
+ * state.md and announces the outcome. It returns the hints and pause failover.json holds by then, else none.
  */
 export async function settle(deps: Deps, run: Run, d: Dispatch, record: RunRecord): Promise<Settled> {
   let o: Outcome = { hints: recordHints(run, d, record), started: null, pause: null };
   if (record.status === "limit") {
+    let entered = false;
     try {
-      o = await withFileLock(dispatchPaths(d.dir).failover, () => failoverOnce(deps, run, d, record), {
-        timeoutMs: 120_000,
-      });
+      o = await withFileLock(
+        dispatchPaths(d.dir).failover,
+        () => {
+          entered = true;
+          return failoverOnce(deps, run, d, record);
+        },
+        { timeoutMs: failoverLock.timeoutMs },
+      );
     } catch (e) {
+      if (!entered && isCatherdError(e) && e.code === "E_IO_LOCK") {
+        log("info", "settle", { run: run.id, name: d.admit.name, failover: "left to the lock's holder" });
+        const done = readFailover(d.dir);
+        return {
+          run,
+          d,
+          record,
+          hints: done?.hints ?? [...o.hints, "failover: another catherd process is failing it over"],
+          started: null,
+          pause: done?.pause ?? null,
+          stateHints: [],
+        };
+      }
       o = {
         hints: [...o.hints, `failover: ${errorMessage(e)}`],
         started: null,

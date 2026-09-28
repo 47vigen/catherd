@@ -11,6 +11,7 @@ import {
   cancel,
   dispatch,
   type DispatchInput,
+  failoverLock,
   orphanLimits,
   type Settled,
   settle,
@@ -375,6 +376,44 @@ describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)
     await reconcileAll(deps);
     expect(readFailover(d.dir)).toBeNull();
     expect(listDispatches(run)).toHaveLength(1);
+  });
+
+  it("leaves a limit to the process holding its failover lock: no pause, no hooks on a timeout (codex r4)", async () => {
+    const release = held();
+    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const { d, record } = await limitedOnDisk(run);
+    const seen: Settled[] = [];
+    const hook = (s: Settled) => {
+      seen.push(s);
+    };
+    settledHooks.add(hook);
+    const holder = Bun.spawn(["sleep", "60"], { stdio: ["ignore", "ignore", "ignore"], env: process.env });
+    orphans.push(holder);
+    const lock = `${dispatchPaths(d.dir).failover}.lock`;
+    const was = failoverLock.timeoutMs;
+    failoverLock.timeoutMs = 100;
+    try {
+      // another server is failing it over and holds the lock past this settle's wait
+      writeFileSync(lock, JSON.stringify({ pid: holder.pid, startTime: processStartTime(holder.pid) }));
+      const waited = await settle(deps, run, d, record);
+      expect(waited.pause).toBeNull();
+      expect(waited.started).toBeNull();
+      expect(seen).toEqual([]);
+      expect(readNotes(run).next).not.toMatch(/^paused/);
+      expect(readFailover(d.dir)).toBeNull();
+      // the holder's settle is the one that fails it over and is announced
+      holder.kill("SIGKILL");
+      await holder.exited;
+      const s = await settle(deps, run, d, record);
+      expect(s.started?.rung).toBe("codex:gpt-6-sol#high");
+      expect(seen.map((x) => [x.started?.dispatchId ?? null, x.pause])).toEqual([
+        [s.started?.dispatchId ?? null, null],
+      ]);
+      expect(readNotes(run).next).not.toMatch(/^paused/);
+    } finally {
+      failoverLock.timeoutMs = was;
+      settledHooks.delete(hook);
+    }
   });
 
   it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {
