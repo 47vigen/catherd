@@ -124,8 +124,12 @@ describe("supervise reports a stall (spec §3.6)", () => {
 
   it("keeps supervising a healthy worker when the advisory stall.json write fails", async () => {
     const real = store.writeJsonAtomic;
+    let tried = false;
     const spy = spyOn(store, "writeJsonAtomic").mockImplementation((file, value, o) => {
-      if (file.endsWith("stall.json")) throw new Error("ENOSPC: no space left on device");
+      if (file.endsWith("stall.json")) {
+        tried = true;
+        throw new Error("ENOSPC: no space left on device");
+      }
       real(file, value, o);
     });
     try {
@@ -133,6 +137,7 @@ describe("supervise reports a stall (spec §3.6)", () => {
       const exit = await supervise(s, { isBusy: async () => false });
       expect(exit).toMatchObject({ code: 0, reason: "exited" });
       expect(readFileSync(dispatchPaths(s.dispatchDir).events, "utf8")).toContain('"b"');
+      expect(tried).toBe(true);
     } finally {
       spy.mockRestore();
     }
