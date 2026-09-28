@@ -5,10 +5,16 @@
 
 ## From 1.0 to 1.1
 
-1.1 reads 1.0's profiles, runs and settings as they are; nothing is moved or converted. Three steps:
+1.1 reads 1.0's profiles, runs and settings as they are; nothing is moved or converted. Upgrade with 1.1's own
+`init`: a `catherd init` from a 1.0 install runs 1.0, which installs nothing, and 1.0's documented install
+(`bunx catherd-cli init`) left no `catherd` command at all.
 
 ```sh
-catherd init            # installs the global catherd 1.1 (bun add -g catherd-cli@1.1.0) and checks everything
+# either: install 1.1 globally, then run its init (its checks)
+bun add -g catherd-cli@latest && catherd init
+# or: run 1.1's init through bunx; it installs the global command at its own version
+bunx catherd-cli@latest init
+# then, either way: the plugin
 claude plugin marketplace update catherd && claude plugin update catherd@catherd
 ```
 
@@ -45,7 +51,7 @@ Removed `wait`. Added `peek`, `gate_check`, `gate_pass`, `park` and `answer`. Ch
   (`E_LAND_GATE`); `skip: "docs-only"` and `skip: "no-code"` cover milestones that change no code. It also writes
   the milestone's digest, `<run>/digests/<milestone>.md` (the A-lines, the commit, the lanes with their rungs and
   climbs, the reviewer's findings, the verifier's verdict with its carried items, minutes and tokens), and returns
-  its path as `digest`; the milestone notice links it.
+  its path as `digest`; the orchestrator's milestone message links it.
 - `climb` refuses a plan or ownership problem (`E_CLIMB_DESIGN`): that goes to the architect, not up the ladder.
 - `result` consumes the record (see above); `run_start` returns the run's next protocol step and the milestone
   checklist, and `state.md` ends with `Protocol next: <step>`.

@@ -227,8 +227,9 @@ runs show <run id> --json` holds the records; write down what you saw.
    PATH="/tmp/fake-codex:$PATH" claude
    ```
 
-   Keep the default failover map (Luna high and Sol medium to OpenCode Go; Sol high and xhigh have no default stand-in), or without Go point the Codex rung
-   `route` picks for the lane at a stand-in you have, for example: `profile set failover.codex:gpt-6-luna#high claude-code:claude-sonnet-5#high`.
+   Keep the default failover map (Luna high and Sol medium to OpenCode Go; Sol high and xhigh have no default
+   stand-in), or without Go point the Codex rung `route` picks for the lane at a stand-in you have, for example:
+   `profile set failover.codex:gpt-6-luna#high claude-code:claude-sonnet-5#high`.
    Run a one-lane task. Look for: a record with status `limit` on the Codex rung, and a second record on the
    stand-in rung whose `failoverFrom` names the Codex rung; the lane finishes on the stand-in. Afterwards
    `rm -rf /tmp/fake-codex` and start Claude Code again from a normal shell.
@@ -252,9 +253,12 @@ bun src/cli.ts doctor
 ```
 
 Look for: from the terminal, the `push` row `- no session` with "run catherd doctor from a Claude Code session
-to test push". From the session, `✓ ready` on `push`, and the message `catherd doctor: push test, no action
-needed` showing up in the session once its turn ends. `! held` means a `crossSessionInbound` setting (or, on
-Linux, a permission-mode mismatch) holds the message: apply the row's fix and run it again. `✗ failed` means this
+to test push". From the session, `✓ ready` on `push`, and the message `catherd doctor: push test <id>, no action
+needed` (`<id>` is 8 characters, new on every run) showing up in the session once its turn ends. `! held` means
+a `crossSessionInbound` setting (or, on Linux, a permission-mode mismatch) holds the message: apply the row's fix
+and run it again. `! not confirmed` means the message was sent but catherd found no transcript of this session to
+confirm it arrived: check by eye that the test message showed up in the session; if it did, push works (catherd
+looks for the transcript under `$CLAUDE_CONFIG_DIR/projects/`, by default `~/.claude/projects/`). `✗ failed` means this
 Claude Code changed the protocol: record the Claude Code version (`claude --version`); `peek` still works.
 
 Then a run: in the session, ask `/catherd` for two changes to files that share nothing, and once it has
@@ -279,15 +283,55 @@ cover:
   `bun src/cli.ts profile set roles.worker.network false --profile live-kit`, then a one-lane `/catherd` run whose
   brief asks the worker to `curl -fsSI https://registry.npmjs.org/`. Look for: the worker's reply saying the network
   is closed. `doctor`'s `access:<backend>` row for the worker's backend says `network off by profile` (no loopback
-  or HTTPS probe) only once every `workspace-write` role on that backend has `network false` (writer and artist
-  too); on opencode or claude-code it also says `network: false is not enforced` by that shell. Put it back with
+  or HTTPS probe) only once every `workspace-write` role on that backend has `network false` in every linked
+  profile, the active one and each bound to a repo (writer and artist too, and `default`'s roles while `default`
+  is active or bound); on opencode or claude-code it also says `network: false is not enforced` by that shell. Put it back with
   `bun src/cli.ts profile set roles.worker.network null --profile live-kit` (null removes the field).
 
 ## 9. The 1.1 acceptance (the release PR waits for it)
 
-Spec 1.1 §15. Both runs use the published release candidate: `bun add -g catherd-cli@<version>` from the release
-PR, and the plugin updated to it (`claude plugin marketplace update catherd && claude plugin update
-catherd@catherd`).
+Spec 1.1 §15. Nothing is published while "chore: release catherd" is held: npm gets the version, and GitHub the
+`v<version>` tag the plugin marketplace points at, only when that PR merges. So both runs use the release
+candidate built from the release PR's branch (`changeset-release/main`, the changesets action's branch for
+`main`), with no prerelease published.
+
+The CLI, installed globally from that branch:
+
+```sh
+git clone https://github.com/47vigen/catherd.git ~/catherd-rc && cd ~/catherd-rc
+git fetch origin changeset-release/main && git checkout --detach FETCH_HEAD
+bun install --frozen-lockfile
+version="$(jq -r .version package.json)"   # the version the release PR sets
+bun pm pack                                  # writes catherd-cli-$version.tgz
+bun add -g "./catherd-cli-$version.tgz"
+catherd --version                            # prints $version
+```
+
+The plugin, from the same checkout through a local marketplace (the published one serves the `v<version>` tag,
+which does not exist yet). The release PR has stamped the plugin's MCP launcher with `$version`, and the global
+`catherd` above reports it, so the launcher starts that `catherd` and never runs bunx:
+
+```sh
+claude plugin uninstall catherd@catherd; claude plugin marketplace remove catherd
+bun -e '
+const fs = require("fs");
+const m = ".claude-plugin/marketplace.json";
+const k = JSON.parse(fs.readFileSync(m, "utf8"));
+k.plugins[0].source = "./plugin"; // the checkout, not the release tag
+fs.writeFileSync(m, JSON.stringify(k, null, 2) + "\n");
+'
+claude plugin marketplace add "$PWD"
+claude plugin install catherd@catherd
+```
+
+Once both runs have passed and the release PR has merged, go back to the published package and marketplace:
+
+```sh
+cd ~/catherd-rc && git checkout .claude-plugin/marketplace.json
+claude plugin uninstall catherd@catherd && claude plugin marketplace remove catherd
+bun add -g "catherd-cli@$version"
+claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
+```
 
 **1. A headless run on a scratch Bun repository.**
 
@@ -309,15 +353,19 @@ Look for, one at a time:
    other tool calls sit between the three `dispatch` calls and the first notice.
 2. `peek` answered during the run: `grep -o '"name":"mcp__[a-z_]*catherd__peek"' run.jsonl | head -1` prints a
    line, before the last worker's record.
-3. Every lane was routed with valid headers: `wc -l < "$run/routes.jsonl"` is at least 4, and
+3. Every lane was routed with valid headers:
+   `jq -r 'select(.source == "route") | .lane' "$run/routes.jsonl" | sort -u | wc -l` (the routed lanes; the
+   header row and climb rows do not count) is at least 4, and
    `grep -hE '^(Kind|Difficulty):' "$run"/lanes/*.md | sort | uniq -c` shows only the catalog's values.
 4. A reviewer and a verifier ran before each `land`:
    `catherd runs show "$(basename "$run")" --json | jq -r '.records[] | "\(.startedAt) \(.name) \(.status)"'`
    lists a `reviewer-M1…` and a `reviewer-M2…` record with status `ok`, and
-   `jq -r '"\(.role) \(.name) \(.status)"' "$run/agents.jsonl"` a verifier row naming each milestone.
+   `jq -r 'select(.role) | "\(.role) \(.name) \(.status)"' "$run/agents.jsonl"` a verifier row naming each
+   milestone.
 5. A worker ran `bun install` and its tests itself:
-   `grep -l 'bun test' "$run"/roles/*/events.jsonl` names the three workers, and no `bun test` appears in the
-   orchestrator's own tool calls in `run.jsonl`.
+   `grep -l 'bun test' "$run"/roles/*/*/events.jsonl` names three dispatch folders
+   (`roles/<name>/<dispatch>/events.jsonl`: the folder above each is a worker's name), and no `bun test` appears
+   in the orchestrator's own tool calls in `run.jsonl`.
 6. Replies carry STATUS: `catherd runs show "$(basename "$run")" --json | jq -r '.records[].replyStatus'` prints
    no `null`.
 
@@ -331,12 +379,13 @@ glab mr merge 54 --yes && git checkout main && git pull
 
 Then open a fresh Claude Code Desktop session on that checkout and send `/catherd auth plan 5, MR B (kit
 clean-up)`. Keep using the session while it runs (ask it questions; answer a parked question when one comes).
-When it has landed, compare with MR A (100 min in all, the verifier about 85 of them):
+Right after it has landed, compare with MR A (100 min in all, the verifier about 85 of them); read the numbers
+then, since `totals.wallMinutes` counts from the run's start to the moment you ask:
 
 ```sh
 run="$(catherd runs list --json | jq -r '.runs[0].id')"
 catherd status "$run" --json | jq '.runs[0] | {wallMinutes: .totals.wallMinutes, notOk: .totals.notOk, milestones}'
-jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.durationMs // 0) / 60000 | floor) min"' \
+jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.secs // 0) / 60 | floor) min"' \
   "$(ls -dt ~/.local/share/catherd/repos/*/runs/"$run"/ | head -1)agents.jsonl"
 ```
 

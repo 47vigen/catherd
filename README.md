@@ -49,10 +49,12 @@ catherd init
 
 The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init` works too: `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
-it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the optional Jev key,
-writes the default profile and links its Claude agents, lists your backends' models, and ends with a readiness
-report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile
-instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to Claude Code:
+it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the
+optional Jev key, writes the default profile and links its Claude agents, lists your backends' models, and ends
+with a readiness report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates
+that profile instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the
+profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
+Claude Code:
 
 ```sh
 claude plugin marketplace add 47vigen/catherd
@@ -145,7 +147,8 @@ opens on its brief, reply and record; the open screen redraws as run files chang
 
 ## Upgrading
 
-From 1.0: run `catherd init` (it installs catherd 1.1 globally), update the plugin
+From 1.0: install 1.1 and run its `init` (`bun add -g catherd-cli@latest && catherd init`, or
+`bunx catherd-cli@latest init`; 1.0's own `catherd init` does not upgrade), update the plugin
 (`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude Code
 session. `wait` is gone: results arrive as messages, `peek` shows a run, `result` reads a record. A profile saved
 by 1.0 keeps its failover map; `catherd profile validate` says what to change. The details are in
