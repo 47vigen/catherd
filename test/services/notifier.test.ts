@@ -15,6 +15,7 @@ import {
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
+import * as filelock from "../../src/infra/filelock.ts";
 import * as store from "../../src/infra/store.ts";
 import {
   type Dispatch,
@@ -398,6 +399,54 @@ describe("the notifier (spec §3.4–§3.6)", () => {
         msgId: f?.msg_id,
       });
     } finally {
+      await theirs.close();
+    }
+  });
+
+  it("retries a notice another server holds the claim on, after the window, so the new owner still hears it", async () => {
+    const { run, deps, n } = await owned();
+    const theirs = await fakeInbox();
+    // every claim attempt refused on a mark
+    const refused: string[] = [];
+    const real = filelock.tryLock;
+    const spy = spyOn(filelock, "tryLock").mockImplementation((target) => {
+      const r = real(target);
+      if (!r) refused.push(target);
+      return r;
+    });
+    try {
+      writeFileSync(
+        join(claudeHome(), "sessions", "205.json"),
+        JSON.stringify({ pid: 205, sessionId: "s-next", name: "next", messagingSocketPath: theirs.path }),
+      );
+      const next = fakeDeps({
+        session: { sessionId: "s-next", hostSessionId: null, socketPath: theirs.path, token: "next-token" },
+      });
+      const m = startNotifier(next, { coalesceMs: 20 });
+      notifiers.push(m);
+      n.stop();
+      // a slow send: the run moves to s-next, whose notifier flushes while this claim is still held
+      const slow: typeof sendToInbox = async (t, c, p) => {
+        await peek(next, { run: run.id });
+        await waitFor(() => refused.length > 0);
+        return sendToInbox(t, c, p);
+      };
+      const old = startNotifier(deps, { coalesceMs: 20, send: slow });
+      notifiers.push(old);
+      const d = await finished(run, "worker-M1.L1");
+      await settle(deps, run, d, await recordOf(run, d));
+      await old.idle();
+      // no scan: the new owner's retry sends it once the old claim is freed
+      const [f] = await theirs.received(1, 2_000);
+      await m.idle();
+      expect(theirs.frames).toHaveLength(1);
+      expect(f?.auth).toEqual({ type: "auth", token: "next-token" });
+      expect(f?.message.content).toContain(`name: "worker-M1.L1"`);
+      expect(JSON.parse(readFileSync(dispatchPaths(d.dir).notified, "utf8"))).toMatchObject({
+        msgId: f?.msg_id,
+      });
+    } finally {
+      spy.mockRestore();
       await theirs.close();
     }
   });

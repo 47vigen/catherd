@@ -21,8 +21,9 @@ import { currentSession, ownsRun } from "./sessions.ts";
  * (`notified.json`), so a restart never sends it twice, and claimed while it goes, so two servers of one session never
  * both send it. Ownership is asked again under the claim and once more after the message went: a run another session
  * claimed meanwhile is left unmarked, so its new owner announces it too (a copy to the session that gave the run up is
- * acceptable, a notice lost to the owner is not). Disk stays the truth: a notice that cannot be sent is dropped (its
- * claim freed), and the record waits, unread, for `result` or `peek`.
+ * acceptable, a notice lost to the owner is not); a notice whose claim another server holds is tried again after the
+ * window until it is sent, read, marked or no longer this session's. Disk stays the truth: a notice that cannot be
+ * sent is dropped (its claim freed), and the record waits, unread, for `result` or `peek`.
  */
 
 export interface NotifierOptions {
@@ -113,6 +114,8 @@ export function stalledNotice(run: Run, d: Dispatch, quietMs: number, now: numbe
 }
 
 interface Queued {
+  /** its key in the queue */
+  key: string;
   /** the run it is about: its owner may change before the message goes */
   run: Run;
   notice: Notice;
@@ -130,6 +133,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let firstAt = 0;
   let flight: Promise<void> = Promise.resolve();
+  let stopped = false;
 
   /** This session's id, when there is one and it owns the run. */
   const owned = (run: Run): boolean => ownsRun(deps, run);
@@ -161,12 +165,18 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
     // still news is asked under the claim: the other may have announced it just before letting go.
     const claims: (() => void)[] = [];
     const due: Queued[] = [];
+    const busy: Queued[] = [];
     try {
       for (const q of batch) {
         // read (or announced) meanwhile, or the run moved to another session (whose server tells it)
         if (!q.due() || !owned(q.run)) continue;
         const release = tryLock(q.mark);
-        if (!release) continue; // another server is announcing it
+        // another server is announcing it: asked again after the window, since that server may leave it unmarked
+        // (the run moved to this session while its message was on its way)
+        if (!release) {
+          busy.push(q);
+          continue;
+        }
         claims.push(release);
         // asked again under the claim: the run may have moved, or the notice gone out, while it was taken
         if (q.due() && owned(q.run)) due.push(q);
@@ -194,12 +204,21 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
       log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId), unmarked });
     } finally {
       for (const release of claims) release();
+      requeue(busy);
     }
+  }
+
+  /** Queues again the notices another server held the claim on; the next pass drops those no longer due or owned. */
+  function requeue(busy: Queued[]): void {
+    if (stopped || busy.length === 0) return;
+    for (const q of busy) if (!queue.has(q.key)) queue.set(q.key, q);
+    schedule();
   }
 
   const enqueue = (run: Run, d: Dispatch, record: RunRecord): void => {
     if (queue.has(record.dispatchId) || notified(d.dir) || !awaitsCollect(d.dir) || !owned(run)) return;
     queue.set(record.dispatchId, {
+      key: record.dispatchId,
       run,
       notice: finishedNotice(run, d, record),
       mark: dispatchPaths(d.dir).notified,
@@ -214,6 +233,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
       const key = `${s.d.admit.dispatchId} stall`;
       if (queue.has(key) || existsSync(p.stallNotified) || existsSync(p.exit) || !owned(s.run)) return;
       queue.set(key, {
+        key,
         run: s.run,
         notice: stalledNotice(s.run, s.d, s.quietMs, deps.now()),
         mark: p.stallNotified,
@@ -262,6 +282,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
       }
     },
     stop() {
+      stopped = true;
       settledHooks.delete(onSettled);
       stallHooks.delete(onStall);
       if (timer !== null) clearTimeout(timer);
