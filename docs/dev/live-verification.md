@@ -2,7 +2,8 @@
 
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
-access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9). Run it on your own machine before a
+access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
+§11, section 10). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -396,3 +397,72 @@ jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.secs // 0) / 60 | 
 Write down: the total minutes, the verifier's minutes and how many gate items it carried over (`carried over
 from <commit>` in its verdict), how many worker replies were `partial` or `blocked`, how many test commands the
 main thread ran itself (MR A: 156), and whether any notice was missing or doubled.
+
+## 10. The 1.2 acceptance (the release PR waits for it)
+
+Spec 1.2 §11. Install the release candidate from `changeset-release/main` and the plugin from the same checkout
+exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run these four in order. Keep your real
+config: the commands below save and restore what they change.
+
+**1. A fresh `init`, with and without an Artificial Analysis key; `doctor` shows every source fresh.**
+
+```sh
+export CATHERD_HOME="$(mktemp -d)"             # a fresh install, apart from your own
+ARTIFICIAL_ANALYSIS_API_KEY= catherd init --no-input --no-global
+catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | "\(.state) \(.word): \(.detail)"'
+```
+
+Look for `ok fresh:` and every keyless source (`models-dev`, `openrouter-models`, `openrouter-endpoints`,
+`litellm`, `arena`, `vectara`, `epoch`) under an hour old, and `no Artificial Analysis key`. Then with your key:
+
+```sh
+export CATHERD_HOME="$(mktemp -d)"
+ARTIFICIAL_ANALYSIS_API_KEY=<your key> catherd init --no-input --no-global
+catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | .detail'
+ls -l "$CATHERD_HOME/config/credentials.json"   # -rw------- ; the key was tested before it was saved
+unset CATHERD_HOME
+```
+
+Look for `artificial-analysis` among the fresh sources and `Artificial Analysis key set, <n> requests left today`.
+
+**2. Clearing every treat-like of yours leaves the profile valid, with warnings.**
+
+```sh
+cp ~/.config/catherd/catalog.override.json /tmp/override.before.json 2>/dev/null
+catherd catalog treat-like --reset
+catherd profile validate; echo "exit $?"
+```
+
+Look for: `--reset` names, before its `removed` line, each profile rung left on an inferred stand-in (none is
+fine when you had no treat-likes); `validate` prints no `✗` line, exits 0, and lists each such rung as `stand-in
+to confirm: …`. Put yours back with `cp /tmp/override.before.json ~/.config/catherd/catalog.override.json`.
+
+**3. A `terminal` lane and a `ui` lane pick by the terminal and frontend bars, and say each value's source.**
+
+In a scratch repository, start a run and route two lanes through the MCP tools from a Claude Code session:
+
+```sh
+scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
+claude -p --output-format json \
+  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route for each and print both answers' rung and provenance.thresholds as JSON. Do not dispatch." \
+  | jq -r .result
+```
+
+Look for: the terminal lane's thresholds list only `terminal` (its value's `source` `shipped`, Terminal-Bench
+4.0), the ui lane's `repo_code` and `frontend` (`frontend`'s source `arena`), each with `min`, `used.value`,
+`used.confidence` and `clears`; and the two lanes on different rungs (on the default profile: Sol medium and Sol
+xhigh).
+
+**4. The first weekly refresh PR opens with a readable change list.**
+
+```sh
+gh workflow run catalog-refresh.yml --repo 47vigen/catherd
+sleep 60; gh run list --workflow catalog-refresh.yml --repo 47vigen/catherd --limit 1
+gh pr view catalog-refresh --repo 47vigen/catherd
+```
+
+Look for: the run succeeds; when anything changed, one PR titled `chore(catalog): refresh scores` with a patch
+changeset, whose body lists the rungs newly scored, the values moved by more than 5 % and every bar that moved
+(each as a table), and no Artificial Analysis value; when nothing changed, the run's log ends with `no change`
+and no PR opens.
+

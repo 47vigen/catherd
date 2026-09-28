@@ -1,7 +1,68 @@
 # Upgrading catherd
 
+- [From 1.1 to 1.2](#from-11-to-12)
 - [From 1.0 to 1.1](#from-10-to-11)
 - [From 0.x to 1.0](#from-0x-to-10)
+
+## From 1.1 to 1.2
+
+1.2 reads 1.1's profiles, runs, credentials and catalog override as they are. Upgrade the same way as to 1.1, then
+start a new Claude Code session:
+
+```sh
+bun add -g catherd-cli@latest && catherd init
+claude plugin marketplace update catherd && claude plugin update catherd@catherd
+```
+
+`init` asks for an optional [Artificial Analysis](https://artificialanalysis.ai) key after Jev's (Enter skips; it
+is tested, then saved in `credentials.json`) and syncs the public sources. Without a key, routing uses the keyless
+sources and the scores catherd ships.
+
+### Routing reads new bars
+
+The default bars now span several dimensions per kind: `repo_code` lanes gate on DeepSWE, `terminal` lanes on
+Terminal-Bench, `ui` lanes on WebDev and DeepSWE, and logic and hard lanes also on honesty and Arena's agentic
+score. Their thresholds are the 25th, 50th, 60th and 75th percentiles of the rungs measured or better (each
+threshold's reason is in `catalog/scores.json`'s `barsWhy`). On the default worker ladder (Luna high, Sol medium,
+high, xhigh) this means:
+
+- copy and build lanes start on Luna high (its DeepSWE value carried from Luna max), `terminal` lanes on Sol
+  medium, and `ui` build lanes on Sol xhigh;
+- no Sol rung reaches a logic or hard bar (Sol's agentic score is just below the 60th percentile), so those lanes
+  start at the default rung, Sol medium, as they did in 1.1.
+
+A `bars` entry in `catalog.override.json` now changes only the dimensions it names; the default's other
+thresholds stay. Write `null` for a dimension to remove its threshold.
+
+### Unscored rungs never make a profile invalid
+
+- "`<rung>` is unscored" and "stand-in `<rung>` is unscored" are warnings now. A rung that lacks a value on a
+  dimension the bars use takes its nearest stand-in's, marked `inferred`, and `profile validate` and `doctor` list
+  it as a "stand-in to confirm".
+- A save that fixes one of a profile's errors and adds none goes through, and lists the errors still open. Before
+  1.2, a profile with two errors could not be repaired one `profile set` at a time.
+- Your treat-likes keep working. `catherd catalog treat-like --suggest <rung>` shows the three nearest stand-ins,
+  `--clear <rung>` removes one of yours and `--reset` all of them; each first names the profile rungs it leaves on
+  an inferred stand-in.
+- `profile show` and the dashboard say which dimensions a treat-like lends (`agentic, steer borrowed from X`)
+  when the rung has values of its own.
+
+### Scores
+
+`catalog/scores.json` carries the keyless sources' values (Arena, Epoch AI) beside the hand-typed ones, each value
+spread to its model's other efforts as `adjacent` where no effort has its own. The shipped treat-likes for Opus
+5.5 low, medium and high are gone (those efforts carry xhigh's and max's values now); GPT-6 Luna borrows agentic
+and steer from GPT-5.6 Luna at the same effort until Arena scores it.
+
+### Where to look
+
+- `route` returns `provenance`: each threshold, the value used, its confidence, source and date, the rung's speed
+  and cost facts and its run evidence. `catalog_query` and `catherd catalog list` show values' sources and each
+  rung's run evidence.
+- In the dashboard's Profiles tab, `r` syncs the sources (and lists the backends' models) and shows each source's
+  age and last error, `i` shows a rung's values and runs, and `t` opens the treat-like picker with the three
+  nearest stand-ins first.
+- MCP: 26 tools (`catalog_sync` added).
 
 ## From 1.0 to 1.1
 
