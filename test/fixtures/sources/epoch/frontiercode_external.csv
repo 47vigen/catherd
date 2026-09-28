@@ -1,0 +1,15 @@
+Model version,Main score,Harness,Reasoning effort,Release date,Organization,Country,Training compute (FLOP),Training compute notes,Name,Aggregation,Source,Notes
+claude-opus-5_max,0.5338,claude-code,medium,2026-07-24,Anthropic,United States of America,,,Claude Opus 5,Mean@5,https://cognition.com/frontiercode,
+gpt-6-astra_max,0.5326,codex,max,2026-09-03,OpenAI,United States of America,1.0001e+27,"per OpenAI and affiliates (e.g. Nvidia), 6 Astra was trained on at least 100,000 GB200s in Abilene, Texas (so 100,000 in ""Hardware quantity"" is a lower bound/underestimate).
+
+This suggests around 1e27 FLOP (corresponding to ~100k GB200s over 90 days at 25% FP8 MFU). See more detailed estimate in this notebook, yielding a CI of ~[5e26, 2e27] FLOP.
+https://colab.research.google.com/drive/1DRlugIQs-_zoV66AJT1gQg6I1-NX7NqN ",GPT-6 Astra,Mean@5,https://cognition.com/frontiercode,
+claude-fable-5-1_medium,0.5091,claude-code,medium,2026-09-01,Anthropic,United States of America,,,Claude Fable 5.1,Mean@5,https://cognition.com/frontiercode,
+gpt-5.6-sol_unknown,0.47490000000000004,codex,max,2026-07-09,OpenAI,United States of America,,,GPT-5.6 Sol,Mean@5,https://cognition.com/frontiercode,
+kimi-k3_unknown,0.44170000000000004,mini-swe-agent,none,2026-07-16,Moonshot,China,2.0001e+25,"Based on peer models such as Kimi K2.6 and DeepSeek V4 Pro, plausibly was trained on roughly 30T tokens (likely between 15T and 60T). Using the heuristic that C = 6ND, 30T pretraining tokens would imply ~1.9e25 FLOP. This is a somewhat uncertain estimate (more uncertain than estimates based on disclosed active params and token counts, but comparable to estimates based on disclosed GPU-hours).
+
+K3 was likely pretrained on over 1e25 FLOP. Speculatively, K3's relatively large size compared to other Chinese models may have reduced the training token budget vs smaller models.",Kimi K3,Mean@5,https://cognition.com/frontiercode,
+claude-sonnet-5_unknown,0.42730000000000007,claude-code,xhigh,2026-06-30,Anthropic,United States of America,,,Claude Sonnet 5,Mean@5,https://cognition.com/frontiercode,
+gpt-5.6-terra_unknown,0.4131,codex,max,2026-07-09,OpenAI,United States of America,,,GPT-5.6 Terra,Mean@5,https://cognition.com/frontiercode,
+glm-5.3_max,0.40140000000000003,chisel,max,2026-08-14,Z.ai (Zhipu AI),China,,,GLM 5.3,Mean@5,https://cognition.com/frontiercode,
+gpt-5.6-luna_unknown,0.3981,codex,max,2026-07-09,OpenAI,United States of America,,,GPT-5.6 Luna,Mean@5,https://cognition.com/frontiercode,

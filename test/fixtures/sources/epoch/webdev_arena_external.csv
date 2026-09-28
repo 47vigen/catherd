@@ -1,0 +1,17 @@
+Model version,Arena Score,Release date,Organization,Country,Training compute (FLOP),Training compute notes,Score 95% CI,Votes,Last updated,Source,Source link (site from table),Notes,95% CI High,95% CI Low,id
+gpt-6-astra_max,1800.28,2026-09-03,OpenAI,United States of America,1.0001e+27,"per OpenAI and affiliates (e.g. Nvidia), 6 Astra was trained on at least 100,000 GB200s in Abilene, Texas (so 100,000 in ""Hardware quantity"" is a lower bound/underestimate).
+
+This suggests around 1e27 FLOP (corresponding to ~100k GB200s over 90 days at 25% FP8 MFU). See more detailed estimate in this notebook, yielding a CI of ~[5e26, 2e27] FLOP.
+https://colab.research.google.com/drive/1DRlugIQs-_zoV66AJT1gQg6I1-NX7NqN ",,2281,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1816.76,1783.81,rec5pxBoPZ09DjlAl
+claude-fable-5-1_max,1758.05,2026-09-01,Anthropic,United States of America,,,,3036,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1771.65,1744.44,recW7c6YS46DN6aYk
+claude-opus-5_max,1686.99,2026-07-24,Anthropic,United States of America,,,,12087,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1694.48,1679.51,recNUvyfQc6Bik8Uv
+kimi-k3_max,1674.26,2026-07-16,Moonshot,China,2.0001e+25,"Based on peer models such as Kimi K2.6 and DeepSeek V4 Pro, plausibly was trained on roughly 30T tokens (likely between 15T and 60T). Using the heuristic that C = 6ND, 30T pretraining tokens would imply ~1.9e25 FLOP. This is a somewhat uncertain estimate (more uncertain than estimates based on disclosed active params and token counts, but comparable to estimates based on disclosed GPU-hours).
+
+K3 was likely pretrained on over 1e25 FLOP. Speculatively, K3's relatively large size compared to other Chinese models may have reduced the training token budget vs smaller models.",,4547,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1685.47,1663.05,recDg44iIUtAe2RhI
+claude-opus-5_high,1660.45,2026-07-24,Anthropic,United States of America,,,,12566,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1667.4,1653.5,recbSCzHPr3UAWM3V
+gpt-5.6-sol_xhigh,1617.32,2026-07-09,OpenAI,United States of America,,,,11916,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1624.28,1610.36,recG5CUO9e2GOfiiz
+glm-5.3_max,1614.45,2026-08-14,Z.ai (Zhipu AI),China,,,,3725,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1625.29,1603.61,recGUmCEUF1DKCZhV
+claude-sonnet-5_high,1536.72,2026-06-30,Anthropic,United States of America,,,,9296,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1543.87,1529.57,recP9GzaDk8uq0RYS
+gpt-5.6-terra_xhigh,1521.25,2026-07-09,OpenAI,United States of America,,,,7694,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1529.0,1513.49,recOxZA3Y5CtVv4tH
+gpt-5.6-luna_xhigh,1518.87,2026-07-09,OpenAI,United States of America,,,,7828,,https://arena.ai/leaderboard,https://web.lmarena.ai/leaderboard,,1526.48,1511.27,recOBEMJmw7esCPWt
+claude-haiku-4-5-20251001,1286.0,2025-10-15,Anthropic,United States of America,,,=+9/-9,8276,2026-01-05,WebDev Arena Leaderboard,https://web.lmarena.ai/leaderboard,,,,rec4L4znR9E7Yeb7E
