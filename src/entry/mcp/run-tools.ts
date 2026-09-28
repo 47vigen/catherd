@@ -89,7 +89,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "record_agent_run",
     {
       description:
-        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane's kind in the catalog timings.",
+        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane's kind in the catalog timings. status says how the subagent's work ended: for a verifier it is the verdict, so pass status: \"failed\" when its verdict is FAIL; only a PASS is recorded ok.",
       inputSchema: {
         run: z.string(),
         name: z.string().regex(ID_PATTERN),

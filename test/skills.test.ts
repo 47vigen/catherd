@@ -95,6 +95,9 @@ describe("orchestrator skill", () => {
     expect(md).toContain("in the **foreground**: it owns the gate");
     expect(md).toContain("`gate_check` first and skips an item that passed on the same content");
     expect(md).toContain('`record_agent_run(run, "verifier-<M>", "verifier", rung, …)`');
+    // a FAIL recorded ok would open the land gate
+    expect(md).toContain('with `status: "failed"` when its verdict is FAIL: only a PASS is recorded `ok`');
+    expect(md).toContain("a `reviewer-<M>` dispatch record, or a `record_agent_run` row with role reviewer");
     expect(md).toContain("The verifier is the gate owner, run in the **foreground**");
   });
 

@@ -19,6 +19,7 @@ import { budgetOf } from "./budget.ts";
 import {
   isDocPath,
   isSourcePath,
+  landedMilestones,
   milestoneFiles,
   milestoneStart,
   reviewerPassed,
@@ -229,6 +230,15 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     );
   if (skip) {
     const files = await milestoneFiles(run, commit);
+    // an empty range lands nothing: the milestone's work is most likely not committed yet
+    if (files.length === 0) {
+      const last = landedMilestones(run).at(-1);
+      throw new CatherdError(
+        "E_LAND_GATE",
+        `land ${m}: skip "${skip}" refused: ${last ? `the commit range changed nothing since ${last} landed` : `${commit} changed nothing`}`,
+        { fix: `commit the milestone first, then land ${m} with that commit` },
+      );
+    }
     const against =
       skip === "docs-only" ? files.filter((f) => !isDocPath(f)) : files.filter((f) => isSourcePath(f));
     if (against.length === 0) return;
@@ -243,17 +253,21 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []
-      : [`a reviewer record (a dispatch named reviewer-${m}, status ok)`]),
+      : [
+          `a reviewer record (a dispatch named reviewer-${m}, or record_agent_run with role reviewer and that name, status ok)`,
+        ]),
     ...(verifierPassed(run, m, start)
       ? []
-      : [`a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok)`]),
+      : [
+          `a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok; a headless verifier's reply opening VERDICT: PASS)`,
+        ]),
   ];
   if (missing.length)
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: missing ${missing.join(" and ")}, since its lanes started`,
       {
-        fix: `dispatch reviewer-${m} and run the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}"), then land again; a docs-only milestone passes skip: "docs-only"`,
+        fix: `run reviewer-${m} (a dispatch, or a Claude subagent recorded with record_agent_run(name: "reviewer-${m}")) and the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}") (a FAIL with status "failed"), then land again; a docs-only milestone passes skip: "docs-only"`,
       },
     );
 }

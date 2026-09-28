@@ -7,6 +7,7 @@ import { newDispatchId } from "../../src/domain/ids.ts";
 import { land, route } from "../../src/services/lane-service.ts";
 import {
   isDocPath,
+  isSourcePath,
   namesMilestone,
   reviewerPassed,
   reviewsMilestone,
@@ -56,7 +57,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     const e = await refusal(land(fakeDeps(), landing(run.id, commitFiles(repo, ["src/a.ts"]))));
     expect(e.code).toBe("E_LAND_GATE");
     expect(e.message).toBe(
-      "land M1: missing a reviewer record (a dispatch named reviewer-M1, status ok) and a verifier verdict (record_agent_run with role verifier and a name holding M1, status ok), since its lanes started",
+      "land M1: missing a reviewer record (a dispatch named reviewer-M1, or record_agent_run with role reviewer and that name, status ok) and a verifier verdict (record_agent_run with role verifier and a name holding M1, status ok; a headless verifier's reply opening VERDICT: PASS), since its lanes started",
     );
     expect(e.fix).toContain('record_agent_run(name: "verifier-M1")');
   });
@@ -121,7 +122,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect((await land(deps, landing(run.id, c))).ledger).toStartWith("M1 |");
   });
 
-  it("takes a headless verifier's dispatch record as the verdict", async () => {
+  it("takes a headless verifier's dispatch record as the verdict only when its reply opens VERDICT: PASS", async () => {
     const { repo, run } = freshRun();
     const c = commitFiles(repo, ["src/a.ts"]);
     await appendRecord(
@@ -134,17 +135,93 @@ describe("the land gate (spec 1.1 §6)", () => {
         endedAt: new Date().toISOString(),
       }),
     );
-    await appendRecord(
-      run,
-      makeRecord({
-        runId: run.id,
-        dispatchId: newDispatchId(),
-        name: "verifier-M1",
-        role: "verifier",
-        endedAt: new Date().toISOString(),
-      }),
-    );
+    const verifier = async (reply: string | null) => {
+      const dispatchId = newDispatchId();
+      const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
+      if (reply !== null) {
+        mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
+        writeFileSync(join(run.dir, replyPath), reply);
+      }
+      await appendRecord(
+        run,
+        makeRecord({
+          runId: run.id,
+          dispatchId,
+          name: "verifier-M1",
+          role: "verifier",
+          replyPath,
+          endedAt: new Date().toISOString(),
+        }),
+      );
+    };
+    // the CLI exited cleanly, but the verdict is FAIL, or there is no reply to read: no verdict
+    await verifier("VERDICT: FAIL\nA1 FAIL bun test: 1 fail\nSTATUS: complete — checked\n");
+    await verifier(null);
+    await verifier("All good, I think.\nVERDICT: PASS\n");
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.message).toContain("a verifier verdict");
+    await verifier("\nVERDICT: PASS\nA1 PASS bun test\nSTATUS: complete — all pass\n");
     expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+  });
+
+  it("takes a native reviewer (record_agent_run, role reviewer, reviewer-<M>, ok) since the milestone started", async () => {
+    const { repo, run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const t0 = Date.now();
+    const deps = fakeDeps({ now: () => t0 });
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const reviewer = (name: string, at: number, status: "ok" | "failed" = "ok", role = "reviewer") =>
+      appendAgentRun(run, {
+        at: new Date(at).toISOString(),
+        name,
+        role,
+        rung: "claude:claude-opus-5-5#medium",
+        agent: null,
+        totalTokens: 5,
+        costUsd: null,
+        secs: null,
+        status,
+        lane: null,
+      });
+    appendAgentRun(run, {
+      at: new Date(t0 + 500).toISOString(),
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 5,
+      costUsd: null,
+      secs: null,
+      status: "ok",
+      lane: null,
+    });
+    reviewer("reviewer-M1", t0 - 60_000);
+    reviewer("reviewer-M1", t0 + 1000, "failed");
+    reviewer("reviewer-M10", t0 + 1000);
+    reviewer("reviewer-M1", t0 + 1000, "ok", "worker");
+    expect(reviewerPassed(run, "M1")).toBe(false);
+    expect((await refusal(land(deps, landing(run.id, c)))).message).toContain("a reviewer record");
+    reviewer("reviewer-M1-fix", t0 + 2000);
+    expect(reviewerPassed(run, "M1")).toBe(true);
+    expect((await land(deps, landing(run.id, c))).ledger).toStartWith("M1 |");
+    expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
+      "Reviewer: reviewer-M1-fix · a Claude subagent (findings in its reply)",
+    );
+  });
+
+  it("refuses a skip over an empty commit range: nothing to land", async () => {
+    const { repo, run } = freshRun();
+    const first = commitFiles(repo, ["docs/a.md"]);
+    await land(fakeDeps(), landing(run.id, first, { skip: "docs-only" }));
+    for (const skip of ["docs-only", "no-code"]) {
+      const e = await refusal(land(fakeDeps(), landing(run.id, first, { milestone: "M2", skip })));
+      expect(e.code).toBe("E_LAND_GATE");
+      expect(e.message).toBe(
+        `land M2: skip "${skip}" refused: the commit range changed nothing since M1 landed`,
+      );
+      expect(e.fix).toContain("commit the milestone first");
+    }
   });
 
   it("matches the milestone as a word in the verifier's name", () => {
@@ -181,6 +258,20 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(reviewerPassed(run, "M1", null)).toBe(false);
   });
 
+  it("counts only the repo's own docs/ folder as docs: a nested docs/ folder holds code", () => {
+    expect(["docs/a.ts", "docs/guide/x.json", "app/docs/intro.md"].map(isDocPath)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(["app/docs/page.tsx", "src/docs/handler.ts", "website/docs/x.json"].map(isDocPath)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(["app/docs/page.tsx", "src/docs/handler.ts"].map(isSourcePath)).toEqual([true, true]);
+  });
+
   it("counts prose .txt files as docs, but not dependency or build manifests", () => {
     expect(["notes.txt", "docs/a.json", "README.md", "LICENSE.txt"].map(isDocPath)).toEqual([
       true,
@@ -203,11 +294,11 @@ describe("the land gate (spec 1.1 §6)", () => {
     const { repo, run } = freshRun();
     const docs = commitFiles(repo, ["docs/guide.md", "README.md"]);
     expect((await land(fakeDeps(), landing(run.id, docs, { skip: "docs-only" }))).ledger).toStartWith("M1 |");
-    const mixed = commitFiles(repo, ["docs/b.md", "src/a.ts", "package.json"]);
+    const mixed = commitFiles(repo, ["docs/b.md", "src/a.ts", "package.json", "app/docs/page.tsx"]);
     const e = await refusal(land(fakeDeps(), landing(run.id, mixed, { milestone: "M2", skip: "docs-only" })));
     expect(e.code).toBe("E_LAND_GATE");
     expect(e.message).toBe(
-      'land M2: skip "docs-only" refused: files outside the docs changed: package.json, src/a.ts',
+      'land M2: skip "docs-only" refused: files outside the docs changed: app/docs/page.tsx, package.json, src/a.ts',
     );
   });
 

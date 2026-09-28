@@ -42,10 +42,15 @@ const TOOLS = [
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the 1.0 tools", async () => {
+  it("lists exactly the 1.1 tools", async () => {
     freshRun();
     const c = await mcpClient();
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
+    const described = (name: string) =>
+      c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");
+    // status is the verdict for a verifier: a FAIL recorded ok would open the land gate
+    expect(await described("record_agent_run")).toContain('pass status: "failed" when its verdict is FAIL');
+    expect(await described("land")).toContain("or a Claude subagent recorded with record_agent_run");
   });
 
   it("reports its version in status", async () => {

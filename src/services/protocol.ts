@@ -7,10 +7,10 @@ import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import type { VerifierStep } from "./gate-service.ts";
 import {
   landedMilestones,
+  milestoneReviewer,
   milestoneStart,
   namesMilestone,
   reviewerPassed,
-  reviewsMilestone,
   verifierPassed,
 } from "./milestones.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -151,7 +151,8 @@ export function writeDigest(
     return `- ${lane} · ${first}${last !== first ? ` → ${last}` : ""}${climbs.length ? ` · climbs: ${climbs.map((c) => c.reason ?? "").join("; ")}` : ""}`;
   });
   const records = readRecords(run).records;
-  const reviewer = records.findLast((r) => reviewsMilestone(r.name, m) && r.status === "ok");
+  // the reviewer the gate counted: since the milestone's lanes started, a dispatch or a native subagent
+  const reviewer = milestoneReviewer(run, m, start);
   const agents = readAgentRuns(run);
   const verifier = agents.findLast((a) => a.role === "verifier" && namesMilestone(a.name, m));
   const steps = readJsonl<VerifierStep>(join(run.dir, "verifier.jsonl")).rows.filter(
@@ -178,7 +179,7 @@ export function writeDigest(
     "Lanes:",
     ...(lanes.length ? lanes : ["- none routed"]),
     "",
-    `Reviewer: ${reviewer ? `${reviewer.name} · ${findingCounts(run, reviewer)}` : "none"}`,
+    `Reviewer: ${reviewer ? `${reviewer.name} · ${reviewer.record ? findingCounts(run, reviewer.record) : "a Claude subagent (findings in its reply)"}` : "none"}`,
     `Verifier: ${verifier ? `${verifier.status === "ok" ? "PASS" : verifier.status} (${verifier.name})` : "none"}${steps.length ? ` · carried: ${steps.map((s) => `${s.item}${s.commit ? ` from ${s.commit}` : ""}`).join(", ")}` : ""}`,
     `Evidence: ${i.evidence}`,
     `Tokens: ${k(tokens.input)} in (${k(tokens.cached)} cached) · ${k(tokens.output)} out · Claude subagents ${k(reported)} (reported)`,
