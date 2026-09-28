@@ -112,7 +112,35 @@ describe("orchestrator skill", () => {
     expect(md).toContain("`park(run, milestone, question)` parks that milestone");
     expect(md).toContain("`answer(run, milestone, answer)`");
     expect(md).toContain("`Protocol next:`");
-    expect(md).toContain("Call `peek(run)` once: it lists the open owner questions first");
+    expect(md).toContain(
+      "Before dispatching anything, call `peek(run)` once: it lists the open owner questions first",
+    );
+    expect(md).toContain("`status(run)` shows it");
+  });
+
+  it("keeps plan 10's peek, result, single-role and duplicate-name details (spec 1.1 §3.7)", () => {
+    const md = skill("catherd");
+    const row = (tool: string) => md.split("\n").find((l) => l.startsWith(`| \`${tool}(`)) ?? "";
+    expect(row("peek")).toContain("each live role with its rung, time and last event");
+    expect(row("peek")).toContain("the next step");
+    expect(row("peek")).toContain("It marks nothing read");
+    expect(row("result")).toContain("its `hints`");
+    expect(row("result")).toContain("reading a finished record marks it read");
+    expect(md).toContain("A single role is `dispatch`, then end your turn.");
+    expect(md).toContain(
+      "`E_ADMIT_DUPLICATE`: that role name is already running. It reports through a catherd message when it finishes; `peek(run, name)` shows it now, and `cancel` stops it.",
+    );
+    // never tell the orchestrator to wait on a role: it ends its turn and catherd's message wakes it
+    expect(md).not.toMatch(/\bwait for (it|them|the role)\b/i);
+  });
+
+  it("tells peek's caller the open questions are the owner's to answer, and the run goes on (spec 1.1 §8)", async () => {
+    const tools = (await (await mcpClient()).listTools()).tools;
+    const d = tools.find((t) => t.name === "peek")?.description ?? "";
+    expect(d).not.toContain("answer them before anything else");
+    expect(d).toContain("the owner's questions: push them to the owner");
+    expect(d).toContain("relay the owner's answer with answer(run, milestone, answer)");
+    expect(d).toContain("go on with the work that does not depend on them");
   });
 
   it("writes every rung as backend:model#effort, and pins this package's version", () => {

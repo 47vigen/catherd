@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { gateCheck } from "../../src/services/gate-service.ts";
+import { peek } from "../../src/services/peek.ts";
 import { PROTOCOL_CHECKLIST } from "../../src/services/protocol.ts";
 import { park } from "../../src/services/questions.ts";
 import { reentry } from "../../src/services/reentry.ts";
@@ -32,6 +33,20 @@ describe("re-entry (spec 1.1 §8, §10)", () => {
     expect(Object.keys(p)[0]).toBe("questions");
     expect(p.questions[0].milestone).toBe("M1");
     expect(p.protocol.checklist).toHaveLength(6);
+    expect(p.verifier).toBeNull();
+  });
+
+  it("peek without run gives the newest run the same re-entry fields, questions first", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await park(deps, { run: run.id, milestone: "M1", question: "Which DB?" });
+    const { runs } = await peek(deps, {});
+    expect(runs).toHaveLength(1);
+    const p = runs[0] as (typeof runs)[number];
+    expect(Object.keys(p)[0]).toBe("questions");
+    expect(p.questions.map((q) => q.milestone)).toEqual(["M1"]);
+    expect(p.protocol).toEqual({ next: "M1 parked: wait for the owner", checklist: PROTOCOL_CHECKLIST });
     expect(p.verifier).toBeNull();
   });
 });
