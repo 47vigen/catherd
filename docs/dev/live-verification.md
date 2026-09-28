@@ -82,32 +82,33 @@ If a stream's shape changed (a new event type, a renamed field, a token count in
 curated fixture beside it (`test/fixtures/adapters/<backend>/*.jsonl`) no longer shows what the CLI does:
 file it against that backend's adapter with both files attached.
 
-## 4. The Codex sandbox and the heavy-lock directory
+## 4. Worker access: the Codex sandbox and the five probes
 
-`catherd doctor` checks that a Codex worker in its `workspace-write` sandbox can write catherd's heavy-lock
-directory, so `catherd lock` works inside it (spec §10.3). The check has only run against the simulator.
-First see that your Codex has the command, then run the two probes doctor runs (use `linux` in place of
-`macos` on Linux):
+A `workspace-write` worker must be able to run its own checks (spec 1.1 §5): write catherd's lock directory and the
+temp directory, bind a loopback port, reach the network over HTTPS, and talk to Docker. `catherd doctor` runs these
+five probes per backend a workspace-write role uses, in that backend's worker shell with the grants a worker gets,
+and reports them in the `access:<backend>` rows; the `sandbox:codex` row says which `codex sandbox` form ran. The
+probes have only run against the simulators. Run by hand what doctor runs for Codex (the lock directory is
+`$CATHERD_HOME/data/locks` with `CATHERD_HOME` set, `$XDG_DATA_HOME/catherd/locks` with `XDG_DATA_HOME` set):
 
-```sh
+```bash
 codex sandbox --help
+L=~/.local/share/catherd/locks; T=$(cd "${TMPDIR:-/tmp}" && pwd -P); mkdir -p "$L"
+G=(-c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -c "sandbox_workspace_write.writable_roots=[\"$L\",\"$T\"]")
 cd "$(mktemp -d)"
-codex sandbox macos --full-auto -- sh -c true; echo "control: $?"
-mkdir -p ~/.local/share/catherd/locks
-codex sandbox macos --full-auto -- sh -c 'touch "$1" && rm -f "$1"' _ ~/.local/share/catherd/locks/.probe; echo "lock dir: $?"
+codex sandbox "${G[@]}" -- sh -c true; echo "control: $?"
+codex sandbox "${G[@]}" -- sh -c 'touch "$1/.p" && rm -f "$1/.p"' _ "$L"; echo "lock dir: $?"
+codex sandbox "${G[@]}" -- sh -c 'touch "$1/.p" && rm -f "$1/.p"' _ "$T"; echo "temp: $?"
+codex sandbox "${G[@]}" -- bun -e 'Bun.listen({hostname:"127.0.0.1",port:0,socket:{data(){}}}).stop(true)'; echo "loopback: $?"
+codex sandbox "${G[@]}" -- curl -sI https://registry.npmjs.org/-/ping >/dev/null; echo "https: $?"
+codex sandbox "${G[@]}" -- docker version >/dev/null; echo "docker: $?"
 cd -
 bun src/cli.ts doctor
 ```
 
-(With `CATHERD_HOME` set, the lock directory is `$CATHERD_HOME/data/locks`; with `XDG_DATA_HOME` set, it is
-`$XDG_DATA_HOME/catherd/locks`.)
-
-Look for: `codex sandbox --help` listing `macos` and `linux` (or `seatbelt` and `landlock`: then say so, the
-command changed); `control: 0`. Then either `lock dir: 0` and doctor's `sandbox:codex` row `✓ ready`, or
-`lock dir: 1` with `Operation not permitted` and doctor's row `! not writable` with a fix naming
-`writable_roots` in `~/.codex/config.toml`. Apply that fix, run the probe again, and look for
-`lock dir: 0`. Record which of the two you saw: if Codex refuses the lock directory by default, a later
-release should add it to `writable_roots` for workspace-write runs itself (plan 5's follow-up).
+Look for: `control: 0` (if not, try the old form, `codex sandbox macos --full-auto "${G[@]:2}" -- …`, and say
+which one runs), then `0` on every probe, and doctor's `sandbox:codex` and `access:codex` rows `✓ ready`. Record
+each probe that is not `0` with its error line and doctor's row, `! blocked` with a fix per probe.
 
 ## 5. The Jev key prompt on a real terminal
 

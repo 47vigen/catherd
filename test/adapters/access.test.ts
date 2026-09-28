@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { dockerSocket, realTmpdir, writableRoots } from "../../src/adapters/access.ts";
 import type { RunRequest } from "../../src/adapters/backend.ts";
@@ -88,6 +89,21 @@ describe("worker access grants (spec §5)", () => {
       expect.arrayContaining(["WebFetch", "WebSearch", "Bash(git commit *)"]),
     );
     expect(claudeCodeAdapter.plan(req({ rung, access: "read-only" })).args).not.toContain("--settings");
+  });
+
+  it("probes headless Claude Code's shell unsandboxed, and says what to check when its sandbox is on", async () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const off = await claudeCodeAdapter.accessShell?.({ network: true });
+    if (typeof off !== "object") throw new Error("expected a shell");
+    expect(off.how).toBe("an unsandboxed shell (Claude Code's sandbox is off)");
+    expect((await off.run('printf %s "$1"', ["hi"]))?.out).toBe("hi");
+    off.close();
+    mkdirSync(join(home, "claude"), { recursive: true });
+    writeFileSync(join(home, "claude", "settings.json"), JSON.stringify({ sandbox: { enabled: true } }));
+    expect(await claudeCodeAdapter.accessShell?.({ network: true })).toContain(
+      "sandbox.network.allowedDomains",
+    );
   });
 
   it("reads and patches roles.<role>.network", () => {

@@ -2,6 +2,7 @@ import type { ErrorCode } from "../domain/errors.ts";
 import type { ADAPTER_IDS, Rung } from "../domain/ids.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
+import type { CliResult } from "./cli.ts";
 type AdapterId = (typeof ADAPTER_IDS)[number];
 
 export interface Probe {
@@ -15,6 +16,14 @@ export interface Probe {
   /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
   billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
+}
+
+/** A worker's shell for doctor's probes: `run` is `sh -c <script> _ <args…>`; `close` removes its scratch dir. */
+export interface AccessShell {
+  /** how it runs, for the doctor rows: "codex sandbox", "an unsandboxed shell" */
+  how: string;
+  run(script: string, args: string[]): Promise<CliResult | null>;
+  close(): void;
 }
 
 export interface DiscoveredModel {
@@ -126,10 +135,10 @@ export interface BackendAdapter {
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
   failoverFor?(rung: Rung, repo?: string): Rung | null;
   /**
-   * Spec §10.3: whether a workspace-write worker of this backend can write `dir` (the heavy-lock dir, so
-   * `catherd lock` works inside it); null when it cannot be tested on this machine.
+   * Spec §5 and §12: a shell that runs a command the way this backend's workspace-write worker runs one,
+   * with the grants the worker gets, for doctor's access probes; a string says why it cannot be tested here.
    */
-  canWrite?(dir: string): Promise<{ ok: boolean; fix?: string } | null>;
+  accessShell?(o: { network: boolean }): Promise<AccessShell | string>;
   /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
   isolationNote?: string;
   graceAfterFinalMs: number | null;

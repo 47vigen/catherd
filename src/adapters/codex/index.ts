@@ -1,9 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
+  type AccessShell,
   type BackendAdapter,
   compareVersions,
   type DiscoveredModel,
@@ -15,7 +13,7 @@ import {
   type SpawnPlan,
 } from "../backend.ts";
 import { type CliResult, runCli } from "../cli.ts";
-import { writableRoots } from "../access.ts";
+import { scratchShell, writableRoots } from "../access.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 
 /** The item types that are a tool call running, as the idle watchdog counts them. */
@@ -185,29 +183,30 @@ async function listModels(): Promise<DiscoveredModel[]> {
 }
 
 /**
- * Spec §10.3: runs a write into `dir` under `codex sandbox <os> --full-auto`, the workspace-write sandbox,
- * from a scratch folder. null when this machine has no Codex sandbox to test with (the control fails).
+ * Spec §12: `codex sandbox [-c …] -- <cmd>` in the workspace-write sandbox with the grants a worker gets
+ * (codexGrants), else the old `codex sandbox <os> --full-auto` form. Each form is tried with `true` first;
+ * a string says why neither runs here.
  */
-async function canWrite(dir: string): Promise<{ ok: boolean; fix?: string } | null> {
+async function accessShell(o: { network: boolean }): Promise<AccessShell | string> {
+  const grants = codexGrants("workspace-write", o.network);
   const os = process.platform === "darwin" ? "macos" : process.platform === "linux" ? "linux" : null;
-  if (!os) return null;
-  const cwd = mkdtempSync(join(tmpdir(), "catherd-sandbox-"));
-  try {
-    const run = (...script: string[]) => sh(["sandbox", os, "--full-auto", "--", "sh", "-c", ...script], cwd);
-    if (!(await run("true"))?.ok) return null;
-    const probe = join(dir, `.doctor-${process.pid}`);
-    // the path goes in as $1, never into the script text
-    const r = await run('touch "$1" && rm -f "$1"', "_", probe);
-    if (!r) return null;
-    return r.ok
-      ? { ok: true }
-      : {
-          ok: false,
-          fix: `add "${dir}" to writable_roots under [sandbox_workspace_write] in ~/.codex/config.toml`,
-        };
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
+  const forms: [string, string[]][] = [
+    ["codex sandbox", ["codex", "sandbox", "-c", "sandbox_mode=workspace-write", ...grants, "--"]],
+    ...(os
+      ? [
+          [
+            `codex sandbox ${os} --full-auto (the old form)`,
+            ["codex", "sandbox", os, "--full-auto", ...grants, "--"],
+          ],
+        ]
+      : []),
+  ] as [string, string[]][];
+  for (const [how, prefix] of forms) {
+    const shell = scratchShell(how, prefix);
+    if ((await shell.run("true", []))?.ok) return shell;
+    shell.close();
   }
+  return "no codex sandbox to test with on this machine (codex sandbox did not run `true`)";
 }
 
 /** Spec §3.7: a command Codex runs, the files it changes, or its message. */
@@ -254,5 +253,5 @@ export const codexAdapter: BackendAdapter = {
   errors: { limit: CODEX_LIMIT, tooOld: CODEX_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   graceAfterFinalMs: null,
-  canWrite,
+  accessShell,
 };

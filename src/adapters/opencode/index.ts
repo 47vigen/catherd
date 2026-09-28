@@ -17,6 +17,7 @@ import {
   type SpawnPlan,
   type Spent,
 } from "../backend.ts";
+import { scratchShell } from "../access.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import { configDir } from "../../infra/paths.ts";
 import { discovered, readDiscovery } from "../discovery.ts";
@@ -327,4 +328,6 @@ export const opencodeAdapter: BackendAdapter = {
   isBusy: (thread, _cwd, sinceMs) => isBusy(thread, sinceMs),
   failoverFor,
   graceAfterFinalMs: null,
+  // research 2026-09-25 §2.6: opencode has no OS sandbox; its shell runs with the user's own authority
+  accessShell: async () => scratchShell("an unsandboxed shell (opencode has no sandbox)", []),
 };

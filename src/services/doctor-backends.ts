@@ -26,24 +26,6 @@ export function usedBackends(profiles: Profile[]): Map<string, "role" | "failove
   return used;
 }
 
-/**
- * Spec §10.3: the backends that run an enabled workspace-write role, or stand in for one of its rungs,
- * whose sandbox must let such a worker take the heavy lock.
- */
-export function workspaceWriteBackends(profiles: Profile[]): Set<string> {
-  const out = new Set<string>();
-  for (const p of profiles)
-    for (const role of ROLES) {
-      const rc = p.roles[role];
-      if (!rc.enabled || rc.access !== "workspace-write") continue;
-      for (const r of [...rc.rungs, ...rc.rungs.flatMap((x) => p.failover[x] ?? [])]) {
-        const b = backendOf(r);
-        if (b) out.add(b);
-      }
-    }
-  return out;
-}
-
 const PROBLEM_WORD: Record<string, string> = {
   E_BACKEND_MISSING: "missing",
   E_BACKEND_TOO_OLD: "too old",

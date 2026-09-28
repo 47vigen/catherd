@@ -1,7 +1,28 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { locksDir } from "../infra/paths.ts";
+import type { AccessShell } from "./backend.ts";
+import { runCli } from "./cli.ts";
+
+/** How long one access probe may run: an HTTPS fetch through a slow proxy included. */
+export const probeShell = { timeoutMs: 20_000 };
+
+/**
+ * A probe shell from a fresh scratch dir: `prefix` is the argv before `sh -c <script> _ <args…>` (empty for
+ * a backend whose worker shell runs unsandboxed).
+ */
+export function scratchShell(how: string, prefix: string[]): AccessShell {
+  const cwd = mkdtempSync(join(realTmpdir(), "catherd-probe-"));
+  const [bin, ...rest] = prefix.length ? prefix : ["sh"];
+  const sh = prefix.length ? ["sh"] : [];
+  return {
+    how,
+    run: (script, args) =>
+      runCli(bin as string, [...rest, ...sh, "-c", script, "_", ...args], { ...probeShell, cwd }),
+    close: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
 
 // Spec §5: what a workspace-write worker may reach besides the repo, as each backend's own flags grant it.
 

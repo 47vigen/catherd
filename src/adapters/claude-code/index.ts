@@ -2,6 +2,7 @@ import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
+  type AccessShell,
   type BackendAdapter,
   compareVersions,
   type EventDelta,
@@ -12,7 +13,10 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
-import { dockerSocket, writableRoots } from "../access.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { claudeHome } from "../../infra/paths.ts";
+import { dockerSocket, scratchShell, writableRoots } from "../access.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import {
   CLAUDE_LIMIT,
@@ -87,6 +91,27 @@ export function claudeAccessArgs(access: Access, network = true): string[] {
     args[i] = [args[i], "WebFetch", "WebSearch"].join(",");
   }
   return args;
+}
+
+/** Whether the user turned Claude Code's Bash sandbox on in their own settings (`sandbox.enabled`). */
+export function claudeSandboxOn(): boolean {
+  try {
+    const s = JSON.parse(readFileSync(join(claudeHome(), "settings.json"), "utf8"));
+    return s?.sandbox?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spec §5: with Claude Code's own sandbox off (its default) a headless worker's Bash is an unsandboxed
+ * shell, which doctor probes as is. With it on, only a model turn runs inside it, so doctor says what to
+ * check instead of spending one.
+ */
+async function accessShell(): Promise<AccessShell | string> {
+  if (claudeSandboxOn())
+    return "Claude Code's own sandbox is on (sandbox.enabled): catherd passes the lock, temp, loopback and Docker grants in --settings; outbound HTTPS reaches only sandbox.network.allowedDomains, so add registry.npmjs.org and the hosts your checks need there";
+  return scratchShell("an unsandboxed shell (Claude Code's sandbox is off)", []);
 }
 
 function plan(r: RunRequest): SpawnPlan {
@@ -266,6 +291,7 @@ export const claudeCodeAdapter: BackendAdapter = {
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: CLAUDE_LIMIT, tooOld: CLAUDE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
+  accessShell,
   // the `result` event is the last thing claude prints; a CLI still running 30 s later is stuck
   graceAfterFinalMs: 30_000,
 };
