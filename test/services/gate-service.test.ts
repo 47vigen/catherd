@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { formatRun } from "../../src/entry/runs-command.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { gateCheck, gatePass, gatesFile, latestVerifierStep } from "../../src/services/gate-service.ts";
+import { createRun } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
@@ -65,6 +66,9 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect((await gateCheck(deps, item(run.id))).carried).toBe(true);
     write(repo, "src/a.ts", "dirtier");
     expect((await gateCheck(deps, item(run.id))).carried).toBe(false);
+    // a pass on "." carries until a new, untracked file appears under it
+    await gatePass(deps, { ...item(run.id, { paths: ["."] }), evidence: "ok" });
+    expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(true);
     write(repo, "src/new.ts", "n");
     expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(false);
   });
@@ -75,6 +79,9 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     commit(repo);
     await gatePass(fakeDeps(), { ...item(run.id), evidence: "ok" });
     expect(await Bun.file(gatesFile(repo)).text()).toContain('"evidence":"ok"');
+    const other = createRun({ repo, title: "second", aLines: ["A1 it works"], version: "0.0.0-test" });
+    expect(other.id).not.toBe(run.id);
+    expect(await gateCheck(fakeDeps(), item(other.id))).toMatchObject({ carried: true });
   });
 
   it("refuses a path that leaves the repo", async () => {
