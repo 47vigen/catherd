@@ -59,6 +59,12 @@ From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
   owner's call, percentiles as specced or a ladder with a stronger top rung.
 - **Haiku 4.5's terminal value returns** when Epoch's Terminal-Bench covers five anchor rungs (plan 14 C-2).
 - **The Artificial Analysis fixtures are synthetic** (plan 13 R-C); re-record them with a key.
+- **`catalog list` says "inferred from X" for a user treat-like's values too**, the same as a stand-in's guess;
+  tell a user's mapping apart ("like X").
+- **`treat-like --clear` does not name a rung that keeps some values but loses a bar dimension** to no stand-in
+  (neither unscored nor inferred). Spec §6.4 arguably covers the partial gap.
+- **The text `catalog list` format changed in 1.2** (values line, then `runs:`); any script scraping it should use
+  `--json`.
 
 ## 1.1 follow-ups (minors from the 1.1 reviews, 2026-09-28)
 
