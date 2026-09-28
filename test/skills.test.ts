@@ -34,6 +34,7 @@ describe("orchestrator skill", () => {
       "route",
       "preflight",
       "dispatch",
+      "peek",
       "cancel",
       "record_agent_run",
       "climb",
@@ -56,7 +57,9 @@ describe("orchestrator skill", () => {
     expect(waiting).toContain("call `result(run, name)` for the record you act on");
     expect(waiting).toContain("A single role is `dispatch`, then end your turn.");
     expect(waiting).toContain("never the user's approval of anything");
-    expect(waiting).toContain("Never `sleep`, loop or poll.");
+    expect(waiting).toContain("Never `sleep`, loop or poll, and never call `peek` again and again.");
+    expect(md).toContain("call `peek(run)` once and answer from it");
+    expect(md).toContain("Before dispatching anything, call `peek(run)` once");
     expect(md).not.toMatch(/`wait`|`wait\(/);
     for (const old of [
       "Launch every independent role in the same message",

@@ -137,4 +137,13 @@ describe("opencode parse", () => {
     });
     expect(opencodeAdapter.parse(lines("v1-model-hash-error.jsonl")[0] as string).tooOld).toBe(true);
   });
+
+  it("says what the worker is doing: a command, a tool with its first argument, its text (spec §3.7 peek)", () => {
+    expect(opencodeAdapter.parse(lines("shell-ok.jsonl")[2] as string).activity).toBe(
+      "$ ls /usr/share > /dev/null && echo listed",
+    );
+    const explore = lines("explore-tools.jsonl").map((l) => opencodeAdapter.parse(l).activity);
+    expect(explore).toContain("grep export const");
+    expect(opencodeAdapter.parse(lines("shell-ok.jsonl")[0] as string).activity).toBeUndefined();
+  });
 });

@@ -12,13 +12,14 @@ import { fakeDeps, fakeGit, freshRun, writeLane } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
-/** Spec §4.8 and the 1.1 spec §14 (plan 10: `wait` removed), exactly. */
+/** Spec §4.8 and the 1.1 spec §14 (plan 10: `wait` removed, `peek` added), exactly. */
 const TOOLS = [
   "run_start",
   "route",
   "preflight",
   "dispatch",
   "cancel",
+  "peek",
   "climb",
   "ask",
   "land",

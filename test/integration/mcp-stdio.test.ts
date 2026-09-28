@@ -13,10 +13,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { claudeConfigDir } from "../../src/infra/claude-session.ts";
 import { configDir, runsDir } from "../../src/infra/paths.ts";
 import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call } from "../mcp-helpers.ts";
+import { fakeInbox } from "../sim/peer-inbox.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 
 afterEach(snapshotEnv());
@@ -296,6 +298,84 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       await c.close();
     },
     { timeout: 120_000 },
+  );
+});
+
+describe("push over stdio (spec §15)", () => {
+  it(
+    "announces two workers on the session's inbox while the client makes other calls; then peek and result",
+    async () => {
+      const { repo, sim, env } = setup();
+      const inbox = await fakeInbox();
+      // the Claude Code session the server runs in: its registry file names the fake inbox
+      mkdirSync(join(claudeConfigDir(), "sessions"), { recursive: true });
+      writeFileSync(
+        join(claudeConfigDir(), "sessions", "4242.json"),
+        JSON.stringify({ pid: 4242, sessionId: "s-it", name: "it session", messagingSocketPath: inbox.path }),
+      );
+      const c = await connect({
+        ...env,
+        CLAUDE_CODE_SESSION_ID: "s-it",
+        CLAUDE_CODE_MESSAGING_SOCKET: inbox.path,
+        CLAUDE_CODE_MESSAGING_TOKEN: "child-token",
+      });
+      try {
+        const { run } = (await call(c, "run_start", { repo, title: "Push it", a_lines: ["A1"] })).data;
+        for (const [id, owns] of [
+          ["M1.L1", "src/a.ts"],
+          ["M1.L2", "src/b.ts"],
+        ] as const)
+          await call(c, "write_run_file", { run, path: `lanes/${id}.md`, content: lane(id, owns, "true") });
+        const [a, b] = [0, 1].map(() => join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release"));
+        sim.rewrite({
+          byRung: {
+            "gpt-6-luna#high": { reply: "A done.\nSTATUS: complete — a", holdUntil: a },
+            "gpt-6-sol#medium": { reply: "B done.\nSTATUS: complete — b", holdUntil: b },
+          },
+        });
+        const base = { run, role: "worker", brief: "b" };
+        await call(c, "dispatch", {
+          ...base,
+          name: "worker-M1.L1",
+          lane: "M1.L1",
+          rung: "codex:gpt-6-luna#high",
+        });
+        await call(c, "dispatch", {
+          ...base,
+          name: "worker-M1.L2",
+          lane: "M1.L2",
+          rung: "codex:gpt-6-sol#medium",
+        });
+        writeFileSync(a as string, "");
+        // the client keeps working while the first notice is on its way
+        const first = inbox.received(1, 20_000);
+        const live = await until(async () => {
+          const p = (await call(c, "peek", { run })).data.runs[0];
+          return p.unread.length === 1 && p.live.length === 1 ? p : null;
+        });
+        expect(live.live[0].name).toBe("worker-M1.L2");
+        expect(live.unread[0].header).toMatch(/^catherd · Push it · worker-M1\.L1 worker · /);
+        const [f1] = await first;
+        expect(f1?.auth).toEqual({ type: "auth", token: "child-token" });
+        expect(f1?.priority).toBe("later");
+        expect(f1?.message.content).toContain('Record: result(run: "' + run + '", name: "worker-M1.L1")');
+        writeFileSync(b as string, "");
+        expect((await call(c, "status", { run })).isError).toBe(false);
+        const frames = await inbox.received(2, 20_000);
+        expect(frames[1]?.message.content).toContain("worker-M1.L2 worker");
+        // announced, not read: peek lists both until result reads them
+        expect((await call(c, "peek", { run })).data.runs[0].unread).toHaveLength(2);
+        const r1 = (await call(c, "result", { run, name: "worker-M1.L1" })).data;
+        expect(r1.record).toMatchObject({ status: "ok", replyStatus: "complete" });
+        await call(c, "result", { run, name: "worker-M1.L2" });
+        expect((await call(c, "peek", { run })).data.runs[0].unread).toEqual([]);
+        expect(inbox.frames).toHaveLength(2);
+      } finally {
+        await c.close();
+        await inbox.close();
+      }
+    },
+    { timeout: 90_000 },
   );
 });
 

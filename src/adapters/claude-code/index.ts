@@ -147,10 +147,29 @@ function finalize(run: FinishedRun): Outcome {
   };
 }
 
+const EDIT_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+/** Spec §3.7: the main thread's last tool call (a command, a file edit, another tool) or its text. */
+function claudeActivity(e: Record<string, any>): string | undefined {
+  if (e.type !== "assistant" || e.parent_tool_use_id) return undefined;
+  const c = (e.message?.content ?? []).at(-1);
+  if (c?.type === "tool_use") {
+    const input = c.input ?? {};
+    if (typeof input.command === "string") return `$ ${input.command}`;
+    if (typeof input.file_path === "string")
+      return `${EDIT_TOOLS.has(c.name) ? "edit" : String(c.name)} ${input.file_path}`;
+    return String(c.name ?? "tool");
+  }
+  if (c?.type === "text" && typeof c.text === "string") return c.text;
+  return undefined;
+}
+
 function parse(line: string): EventDelta {
   const e = parseClaudeLine(line);
   if (!e) return {};
   const d: EventDelta = { lastEvent: eventName(e) };
+  const activity = claudeActivity(e);
+  if (activity) d.activity = activity;
   if (typeof e.session_id === "string" && e.session_id) d.thread = e.session_id;
   if (e.type === "system" && e.subtype === "api_retry") d.retrying = true;
   if (e.type === "rate_limit_event" && e.rate_limit_info?.status === "rejected") d.limit = true;

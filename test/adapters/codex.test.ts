@@ -51,6 +51,17 @@ describe("codex parse", () => {
     expect(codexAdapter.parse(plan).item).toBeUndefined();
     expect(codexAdapter.parse('{"type":"turn.started"}').item).toBeUndefined();
   });
+
+  it("says what the worker is doing: a command, a file edit, a message (spec §3.7 peek)", () => {
+    const all = lines("ok-with-reconnect.jsonl").map((l) => codexAdapter.parse(l).activity);
+    expect(all.filter(Boolean)).toEqual([
+      "$ /bin/zsh -lc 'cat CLAUDE.md'",
+      "$ /bin/zsh -lc 'cat CLAUDE.md'",
+      "edit /repo/src/a.ts",
+      "Done.\nSTATUS: complete — lane finished, fast check green",
+    ]);
+    expect(codexAdapter.parse('{"type":"turn.started"}').activity).toBeUndefined();
+  });
 });
 
 describe("codex plan", () => {

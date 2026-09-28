@@ -258,7 +258,7 @@ real tools — the thing the unit and contract tests cannot show.
    2. Ask: "List the catherd MCP tools you have." Look for: all twenty-one tool names
       (`run_start, write_run_file, read_run_file, status, result, set_next,
       record_agent_run, read_knowledge, runs_summary, route, climb, ask, land,
-      preflight, dispatch, wait, cancel, catalog_query, profile_get, profile_validate,
+      preflight, dispatch, peek, cancel, catalog_query, profile_get, profile_validate,
       profile_set`).
    3. Ask: "Call the catherd status tool." Look for: its `version` equal to your
       checkout's `package.json` version, and `runs` empty on a fresh machine (or the

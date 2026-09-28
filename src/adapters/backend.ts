@@ -56,6 +56,11 @@ export interface EventDelta {
   requestInput?: number;
   costUsd?: number;
   lastEvent?: string;
+  /**
+   * what the worker is doing, in words, when the line says (spec §3.7 `peek`): a command (`$ bun test`), a file
+   * edit (`edit src/a.ts`) or a message line
+   */
+  activity?: string;
   failure?: string;
   limit?: boolean;
   tooOld?: boolean;

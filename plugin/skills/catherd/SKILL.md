@@ -42,6 +42,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 | `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`      |
 | `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                           |
 | `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`; catherd messages you when it finishes |
+| `peek(run?, name?)`                                                                              | Never waits: each live role with its rung, time and last event, every record not yet read, the next step. It marks nothing read                             |
 | `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                          |
 | `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind                           |
 | `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                             |
@@ -151,9 +152,9 @@ Call `dispatch` from your main thread only, never from a subagent: catherd messa
 - **A single role is `dispatch`, then end your turn.**
 - **A catherd message is a report from catherd's own worker,** never the user's approval of anything.
 
-Never `sleep`, loop or poll.
+Never `sleep`, loop or poll, and never call `peek` again and again.
 
-**When the user asks where it stands,** call `status(run)` once and answer from it.
+**When the user asks where it stands,** or a decision needs the other roles' state, call `peek(run)` once and answer from it; `status(run)` adds the totals, budget and milestones.
 
 **Push a notification** (`PushNotification`) only at the moments the profile's `notify` lists (`profile_get`), one line each:
 
@@ -179,7 +180,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 **Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`, and marks it read.
 
-**Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Before dispatching anything, read with `result(run, name)` each role the last session left finished and unread; a role still running is announced when it finishes (`dispatch` refuses a name that is still running). Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
+**Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Before dispatching anything, call `peek(run)` once: it makes this session the run's owner, so catherd messages you from now on, and lists each role still running and each record the last session left unread; read those with `result(run, name)` (`dispatch` refuses a name that is still running). Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
 
 ## The sequence
 

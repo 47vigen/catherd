@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { cancel, dispatch } from "../../services/dispatch-service.ts";
+import { peek } from "../../services/peek.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
 
@@ -24,6 +25,19 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
       },
     },
     (a) => handle(() => dispatch(deps, a)),
+  );
+
+  server.registerTool(
+    "peek",
+    {
+      description:
+        "A look at the runs, without waiting: with run, that run (and this session becomes its owner); without, every run this session owns, else the newest. Per run: each live role with its rung, seconds since it started and its last event (the last command, file edit or message line); every finished record not yet read, as the first line of catherd's message; the latest native Claude run; the run's next step. name narrows it to one role. It never marks a record read: result(run, name) does. Call it when the user asks how it is going, when a decision needs the other roles' state, or once after run_start on a resumed run; never in a loop.",
+      inputSchema: {
+        run: z.string().optional(),
+        name: z.string().regex(ID_PATTERN).optional(),
+      },
+    },
+    (a) => handle(() => peek(deps, a)),
   );
 
   server.registerTool(

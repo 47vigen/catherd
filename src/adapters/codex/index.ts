@@ -194,6 +194,20 @@ async function canWrite(dir: string): Promise<{ ok: boolean; fix?: string } | nu
   }
 }
 
+/** Spec §3.7: a command Codex runs, the files it changes, or its message. */
+function codexActivity(e: Record<string, any>): string | undefined {
+  const it = e.item;
+  if (!it || (e.type !== "item.started" && e.type !== "item.completed")) return undefined;
+  if (it.type === "command_execution" && typeof it.command === "string") return `$ ${it.command}`;
+  if (it.type === "file_change" && Array.isArray(it.changes))
+    return `edit ${it.changes
+      .map((c: { path?: unknown }) => c.path)
+      .filter((p: unknown) => typeof p === "string")
+      .join(", ")}`;
+  if (it.type === "agent_message" && typeof it.text === "string") return it.text;
+  return undefined;
+}
+
 export const codexAdapter: BackendAdapter = {
   id: "codex",
   minVersion: CODEX_MIN_VERSION,
@@ -213,6 +227,7 @@ export const codexAdapter: BackendAdapter = {
       ...(id !== null && open !== null ? { item: { id, open } } : {}),
       ...(e.type === "turn.completed" ? { tokens: f.tokens } : {}),
       lastEvent: f.lastEvent ?? undefined,
+      ...(codexActivity(e) ? { activity: codexActivity(e) } : {}),
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),
       ...(f.limit ? { limit: true } : {}),
       ...(f.tooOld ? { tooOld: true } : {}),
