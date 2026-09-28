@@ -89,6 +89,9 @@ describe("catherd init", () => {
     expect(r.out).not.toContain("(=^.^=)");
     // test/bin/catherd prints this version: the global install is already there
     expect(r.out).toContain(`✓ catherd ${VERSION} is installed globally\n`);
+    // the shim is the only guard between the suite and the registry: no `bun add -g` ran (Ruling R8)
+    expect(r.out).not.toContain("installing catherd…");
+    expect(r.out).not.toContain("bun add -g");
     expect(init(["--no-input", "--no-global"]).out).toContain(
       "- catherd: not installed globally (--no-global); the plugin starts it with bunx\n",
     );
