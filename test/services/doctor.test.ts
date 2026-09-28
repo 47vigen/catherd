@@ -2,7 +2,9 @@ import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { realTmpdir } from "../../src/adapters/access.ts";
 import { locksDir } from "../../src/infra/paths.ts";
+import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
 import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
@@ -382,6 +384,52 @@ describe("doctor", () => {
     expect(c).toMatchObject({ state: "warn", word: "blocked" });
     expect(c?.detail).toContain("docker version (Cannot connect to the Docker daemon)");
     expect(c?.fix).toBe(`docker version: start Docker: ${fake} version fails`);
+  });
+
+  it("still reports when the lock dir cannot be created: the lock probe row fails with the error", async () => {
+    machine();
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    mkdirSync(dirname(locksDir()), { recursive: true });
+    writeFileSync(locksDir(), "not a dir");
+    const r = await run();
+    expect(check(r, "locks")).toMatchObject({ state: "fail", word: "not writable" });
+    const c = check(r, "access:opencode");
+    expect(c).toMatchObject({ state: "warn", word: "blocked" });
+    expect(c?.detail).toContain("lock-dir write (cannot create");
+  });
+
+  it("counts a proxy's 407 or 403 as blocked HTTPS, not reachable", async () => {
+    for (const status of [407, 403]) {
+      const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("", { status }) });
+      try {
+        machine();
+        process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${proxy.port}/-/ping`;
+        installPlugin(VERSION);
+        patchProfile("default", {});
+        const c = check(await run(), "access:opencode");
+        expect(c).toMatchObject({ state: "warn", word: "blocked" });
+        expect(c?.detail).toContain(`outbound HTTPS (HTTP ${status}`);
+      } finally {
+        proxy.stop(true);
+      }
+    }
+  });
+
+  it("says a probe past its time limit timed out, and a shell that did not start did not start", async () => {
+    const shell = {
+      how: "a fake shell",
+      close: () => {},
+      run: async (_s: string, args: string[]) =>
+        args.includes(locksDir())
+          ? { ok: false, out: "", err: "sh -c x _ y timed out after 20000 ms" }
+          : args.includes(realTmpdir())
+            ? null
+            : { ok: true, out: "", err: "" },
+    };
+    const r = await runProbes(shell, false);
+    expect(r.find((p) => p.id === "lock")?.why).toBe("timed out after 20 s");
+    expect(r.find((p) => p.id === "temp")?.why).toBe("the probe shell did not start");
   });
 
   it("tests a Jev key, and skips Jev when the profile turns it off", async () => {

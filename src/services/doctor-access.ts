@@ -40,8 +40,9 @@ interface ProbeDef {
 const WRITE = 'f="$1/.catherd-doctor-$$" && touch "$f" && rm -f "$f"';
 const BUN_EVAL = '"$1" -e "$2"';
 const BIND = 'Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } }).stop(true)';
+// npm's ping answers 200; any 4xx or 5xx fails, so a proxy's 407 or 403 for a denied host is not a false green
 const FETCH =
-  "const r = await fetch(process.argv[1], { method: 'HEAD' }); if (r.status >= 500) process.exit(1)";
+  "const r = await fetch(process.argv[1], { method: 'HEAD' }); if (r.status >= 400) { console.error(`HTTP ${r.status}${r.status === 407 ? ' (proxy authentication required)' : r.status === 403 ? ' (refused: a proxy denying the host?)' : ''}`); process.exit(1) }";
 
 const PROBES: ProbeDef[] = [
   { id: "lock", label: "lock-dir write", network: false, script: WRITE, args: () => [locksDir()] },
@@ -80,9 +81,18 @@ export interface ProbeResult {
 
 /** Runs the five probes in `shell`; docker only when it is installed, the network two only when granted. */
 export async function runProbes(shell: AccessShell, network: boolean): Promise<ProbeResult[]> {
-  ensurePrivateDir(locksDir());
   const out: ProbeResult[] = [];
+  let noLocks: string | null = null;
+  try {
+    ensurePrivateDir(locksDir());
+  } catch (e) {
+    noLocks = `cannot create ${locksDir()}: ${e instanceof Error ? e.message : String(e)}`;
+  }
   for (const p of PROBES) {
+    if (p.id === "lock" && noLocks) {
+      out.push({ id: p.id, label: p.label, state: "failed", why: noLocks });
+      continue;
+    }
     if (p.network && !network) {
       out.push({ id: p.id, label: p.label, state: "off" });
       continue;
@@ -92,7 +102,14 @@ export async function runProbes(shell: AccessShell, network: boolean): Promise<P
       continue;
     }
     const r = await shell.run(p.script, p.args());
-    const why = `${r?.err ?? ""}\n${r?.out ?? ""}`.trim().split("\n").at(-1);
+    const last = `${r?.err ?? ""}\n${r?.out ?? ""}`.trim().split("\n").at(-1);
+    const late = last && / timed out after (\d+) ms$/.exec(last);
+    const why =
+      r === null
+        ? "the probe shell did not start"
+        : late
+          ? `timed out after ${Number(late[1]) / 1000} s`
+          : last;
     out.push({
       id: p.id,
       label: p.label,
