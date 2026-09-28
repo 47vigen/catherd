@@ -150,7 +150,7 @@ describe("renderState", () => {
     expect(text.trimEnd().split("\n").at(-1)).toBe("Next: plan the milestones");
   });
 
-  it("names dirty owners and running roles, and waits for them first", () => {
+  it("names dirty owners and running roles, and says their results arrive as messages", () => {
     const text = renderState({
       ...base,
       dirty: [
@@ -172,6 +172,8 @@ describe("renderState", () => {
     expect(text).toContain("- src/a.ts (worker-M1.L1)\n- b.md\n");
     expect(text).toContain("- worker-M1.L1 · codex:a#high · thread new · since 10:00 · roles/w/1/brief.md");
     expect(text).toContain("Last check: bun test 12/12");
-    expect(text.trimEnd().split("\n").at(-1)).toBe("Next: wait for worker-M1.L1; then review M1");
+    expect(text.trimEnd().split("\n").at(-1)).toBe(
+      "Next: running worker-M1.L1 (results arrive as catherd messages; peek to check); then review M1",
+    );
   });
 });

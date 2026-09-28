@@ -27,7 +27,8 @@ export function renderState(s: StateView): string {
     "",
     `Last check: ${s.lastCheck ?? "none"}`,
     "",
-    `Next: ${waiting.length ? `wait for ${waiting.join(", ")}; then ${s.next}` : s.next}`,
+    // 1.1: no tool waits; each running role's record arrives as a catherd message
+    `Next: ${waiting.length ? `running ${waiting.join(", ")} (results arrive as catherd messages; peek to check); then ${s.next}` : s.next}`,
     "",
   ].join("\n");
 }

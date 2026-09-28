@@ -111,7 +111,9 @@ describe("state.md", () => {
       `- worker-M1.L1 · codex:gpt-6-sol#medium · thread new · since ${d.admit.admittedAt.slice(11, 16)} · roles/worker-M1.L1/${d.admit.dispatchId}/brief.md`,
     );
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(text);
-    expect(text.trimEnd().split("\n").at(-1)).toBe("Next: wait for worker-M1.L1; then review M1");
+    expect(text.trimEnd().split("\n").at(-1)).toBe(
+      "Next: running worker-M1.L1 (results arrive as catherd messages; peek to check); then review M1",
+    );
   });
 
   it("shows HEAD none in a repo with no commit yet", async () => {
