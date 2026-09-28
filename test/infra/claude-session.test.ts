@@ -7,7 +7,7 @@ import {
   readSessionFiles,
   sessionFileFor,
 } from "../../src/infra/claude-session.ts";
-import { scrubSecrets } from "../../src/infra/env.ts";
+import { scrubSecrets, workerEnv } from "../../src/infra/env.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
@@ -75,15 +75,28 @@ describe("the Claude Code session (spec §3.3)", () => {
     expect(liveSessionFile("dead")).toBeNull();
   });
 
-  it("keeps the messaging socket and token from every process catherd starts (spec §3.2)", () => {
+  it("keeps the session's identity, socket and token from every process catherd starts (spec §3.2)", () => {
+    // a child with the session id would take itself for that session: the doctor's MCP server would claim its runs
     expect(
       scrubSecrets({
         CLAUDE_CODE_SESSION_ID: "s",
+        CLAUDE_CODE_HOST_SESSION_ID: "h",
         CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc-socks/1.sock",
         CLAUDE_CODE_MESSAGING_TOKEN: "t",
         PATH: "/bin",
       }),
-    ).toEqual({ CLAUDE_CODE_SESSION_ID: "s", PATH: "/bin" });
+    ).toEqual({ PATH: "/bin" });
+  });
+
+  it("starts every worker and supervisor with no session identity", () => {
+    const session = {
+      CLAUDE_CODE_SESSION_ID: "s",
+      CLAUDE_CODE_HOST_SESSION_ID: "h",
+      CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc-socks/1.sock",
+      CLAUDE_CODE_MESSAGING_TOKEN: "t",
+      PATH: "/bin",
+    };
+    expect(workerEnv(session, {}, "/repo")).toEqual({ PATH: "/bin", PWD: "/repo" });
   });
 
   it("gives every test a Claude config dir of its own and no session", () => {
