@@ -27,6 +27,8 @@ export interface VerifierStep {
   at: string;
   item: string;
   carried: boolean;
+  /** a carried item: the commit its pass was recorded on */
+  commit?: string;
 }
 
 /** `<data>/repos/<repo key>/gates.jsonl`, beside the repo's knowledge.md. */
@@ -100,7 +102,12 @@ export async function gateCheck(
   const paths = cleanPaths(i.paths);
   const hash = await contentHash(run.meta.repo, paths);
   const pass = readPasses(run.meta.repo).findLast((p) => p.command === i.command && p.hash === hash);
-  recordStep(run, { at: new Date(deps.now()).toISOString(), item: i.item, carried: pass !== undefined });
+  recordStep(run, {
+    at: new Date(deps.now()).toISOString(),
+    item: i.item,
+    carried: pass !== undefined,
+    ...(pass ? { commit: pass.commit } : {}),
+  });
   return pass ? { carried: true, passedAt: pass.at, commit: pass.commit } : { carried: false };
 }
 

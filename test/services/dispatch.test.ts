@@ -131,7 +131,7 @@ describe("dispatch", () => {
     expect(readFileSync(join(run.dir, record.replyPath), "utf8")).toContain("STATUS: complete");
     const state = readFileSync(runPaths(run.dir).state, "utf8");
     expect(state).toContain("Running:\n- none");
-    expect(state.trimEnd().split("\n").at(-1)).toBe("Next: review M1");
+    expect(state.trimEnd().split("\n").at(-2)).toBe("Next: review M1");
     // codex reports usage per exec, not per request: no first-turn figure to log
     expect(existsSync(runPaths(run.dir).harness)).toBe(false);
   });
@@ -159,7 +159,7 @@ describe("dispatch", () => {
     const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints).toEqual(["limit: codex hit a usage limit on codex:gpt-6-luna#high"]);
-    const last = readFileSync(runPaths(run.dir).state, "utf8").trimEnd().split("\n").at(-1);
+    const last = readFileSync(runPaths(run.dir).state, "utf8").trimEnd().split("\n").at(-2);
     expect(last).toBe("Next: paused: codex usage limit; resume when the user says so");
   });
 

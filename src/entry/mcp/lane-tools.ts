@@ -67,7 +67,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "land",
     {
       description:
-        "Record a landed milestone after you commit it: its five-column ledger row (with the minutes it took) and state.md's last check and next step, with any hints. learned, when given, goes to this repo's knowledge.md. Refused with E_LAND_GATE unless, since the milestone's lanes started, a reviewer dispatch named reviewer-<milestone> ended ok and a verifier verdict naming the milestone was recorded ok (record_agent_run, role verifier). skip: docs-only lands a milestone whose commit range changed only docs; skip: no-code one that changed no source file (put the evidence, e.g. a green pipeline, in evidence).",
+        "Record a landed milestone after you commit it: its five-column ledger row (with the minutes it took) and state.md's last check and next step, with any hints. learned, when given, goes to this repo's knowledge.md. Returns digest: the milestone's digest (R/digests/<milestone>.md: A-lines, commit, lanes with rungs and climbs, reviewer findings, the verifier's verdict with carried items, minutes and tokens), for the milestone push to link. Refused with E_LAND_GATE unless, since the milestone's lanes started, a reviewer dispatch named reviewer-<milestone> ended ok and a verifier verdict naming the milestone was recorded ok (record_agent_run, role verifier). skip: docs-only lands a milestone whose commit range changed only docs; skip: no-code one that changed no source file (put the evidence, e.g. a green pipeline, in evidence).",
       inputSchema: {
         run: z.string(),
         milestone: z.string().min(1),

@@ -16,7 +16,10 @@ import { fakeDeps, freshRun, passGate } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
-const lastLine = (file: string) => readFileSync(file, "utf8").trim().split("\n").at(-1);
+const nextLine = (file: string) =>
+  readFileSync(file, "utf8")
+    .split("\n")
+    .find((l) => l.startsWith("Next: "));
 const head = (repo: string) =>
   execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
 
@@ -32,7 +35,7 @@ describe("park and answer (spec 1.1 §8)", () => {
     );
     expect(r.hints[1]).toStartWith("continue with the milestones and runs that do not depend on M2");
     expect(readNotes(run).parked).toEqual(["M2"]);
-    expect(lastLine(runPaths(run.dir).state)).toBe("Next: parked: M2 waits on the owner; dispatch M3.L1");
+    expect(nextLine(runPaths(run.dir).state)).toBe("Next: parked: M2 waits on the owner; dispatch M3.L1");
     expect(openQuestions(run)).toEqual([
       expect.objectContaining({ milestone: "M2", question: "Keep the v1 API?" }),
     ]);

@@ -17,9 +17,11 @@ export interface StateView {
   running: { name: string; rung: string; thread: string | null; since: string; brief: string }[];
   lastCheck: string | null;
   next: string;
+  /** spec 1.1 §10: the protocol's next step, derived from the run's files; always the last line */
+  protocol: string;
 }
 
-/** state.md: enough for a fresh session to resume from alone; the next step is always the last line. */
+/** state.md: enough for a fresh session to resume from alone; the protocol's next step is always the last line. */
 export function renderState(s: StateView): string {
   const waiting = s.running.map((r) => r.name);
   return [
@@ -41,6 +43,7 @@ export function renderState(s: StateView): string {
     "",
     // 1.1: no tool waits; each running role's record arrives as a catherd message
     `Next: ${waiting.length ? `running ${waiting.join(", ")} (results arrive as catherd messages; peek to check); then ${s.next}` : s.next}`,
+    `Protocol next: ${s.protocol}`,
     "",
   ].join("\n");
 }

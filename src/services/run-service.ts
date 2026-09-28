@@ -24,13 +24,19 @@ import {
   readRecords,
   runFile,
 } from "./run-store.ts";
+import { protocolView } from "./protocol.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { refreshState } from "./state.ts";
 
 export async function startRun(
   deps: Deps,
   i: { repo: string; title: string; aLines: string[] },
-): Promise<{ run: string; dir: string; hints?: string[] }> {
+): Promise<{
+  run: string;
+  dir: string;
+  protocol: { next: string; checklist: string[] };
+  hints?: string[];
+}> {
   const top = await gitToplevel(i.repo);
   if (!top)
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
@@ -47,7 +53,8 @@ export async function startRun(
   await claimRun(deps, run);
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
-  return { run: run.id, dir: run.dir, ...(hints.length ? { hints } : {}) };
+  // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
+  return { run: run.id, dir: run.dir, protocol: protocolView(run, []), ...(hints.length ? { hints } : {}) };
 }
 
 export function writeRunFile(i: { run: string; path: string; content: string }): {

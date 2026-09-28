@@ -140,14 +140,18 @@ describe("renderState", () => {
     running: [],
     lastCheck: null,
     next: "plan the milestones",
+    protocol: "plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)",
   };
 
-  it("renders an idle run with the next step on the last line", () => {
+  it("renders an idle run with the next step, then the protocol's next step on the last line", () => {
     const text = renderState(base);
     expect(text.startsWith("# Add login\n\nHEAD abc1234\n")).toBe(true);
     expect(text).toContain("Dirty:\n- none");
     expect(text).toContain("Running:\n- none");
-    expect(text.trimEnd().split("\n").at(-1)).toBe("Next: plan the milestones");
+    expect(text.trimEnd().split("\n").at(-2)).toBe("Next: plan the milestones");
+    expect(text.trimEnd().split("\n").at(-1)).toBe(
+      "Protocol next: plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)",
+    );
   });
 
   it("names dirty owners and running roles, and says their results arrive as messages", () => {
@@ -172,7 +176,7 @@ describe("renderState", () => {
     expect(text).toContain("- src/a.ts (worker-M1.L1)\n- b.md\n");
     expect(text).toContain("- worker-M1.L1 · codex:a#high · thread new · since 10:00 · roles/w/1/brief.md");
     expect(text).toContain("Last check: bun test 12/12");
-    expect(text.trimEnd().split("\n").at(-1)).toBe(
+    expect(text.trimEnd().split("\n").at(-2)).toBe(
       "Next: running worker-M1.L1 (results arrive as catherd messages; peek to check); then review M1",
     );
   });

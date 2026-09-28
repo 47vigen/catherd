@@ -36,6 +36,7 @@ import {
   runFile,
   runPaths,
 } from "./run-store.ts";
+import { writeDigest } from "./protocol.ts";
 import { openQuestions } from "./questions.ts";
 import { type Notes, type NotesPatch, refreshState } from "./state.ts";
 import { appendPrivate } from "../infra/store.ts";
@@ -273,7 +274,7 @@ export async function land(
     learned?: string;
     skip?: LandSkip;
   },
-): Promise<{ ledger: string; minutes: number; hints?: string[] }> {
+): Promise<{ ledger: string; minutes: number; digest: string; hints?: string[] }> {
   const run = findRun(i.run);
   // commitExists throws E_IO_UNEXPECTED on a timeout, which reaches the caller as is
   if (!/^[0-9a-f]{7,40}$/.test(i.commit) || !(await commitExists(run.meta.repo, i.commit)))
@@ -320,7 +321,16 @@ export async function land(
       `- ${now.toISOString().slice(0, 10)} ${run.meta.title} ${i.milestone}: ${cell(i.learned)}\n`,
     );
   }
-  return { ledger: row, minutes, ...withHints(hints) };
+  // spec 1.1 §10: the milestone's digest, which the milestone push links
+  const digest = writeDigest(run, {
+    milestone: i.milestone,
+    what: i.what,
+    commit: i.commit,
+    evidence: i.evidence,
+    minutes,
+    at: now.toISOString(),
+  });
+  return { ledger: row, minutes, digest, ...withHints(hints) };
 }
 
 /** Jev's `finding` or `same-defect` answer, through the routing port. */

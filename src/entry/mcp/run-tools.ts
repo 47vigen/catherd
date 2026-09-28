@@ -22,7 +22,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "run_start",
     {
       description:
-        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id and the folder, and hints when state.md could not be written yet.",
+        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id, the folder, protocol (the next step of the milestone loop and its six-line checklist), and hints when state.md could not be written yet.",
       inputSchema: {
         repo: z.string().min(1),
         title: z.string().min(1),
