@@ -168,13 +168,16 @@ export async function climb(
 }> {
   const run = findRun(i.run);
   assertId("lane", i.lane);
+  const unrouted = () =>
+    new CatherdError("E_LANE_INVALID", `lane ${i.lane} was never routed`, {
+      fix: `route(run, "lanes/${i.lane}.md") first`,
+    });
+  // an unrouted lane is refused before Jev is asked about its evidence (no call, no jev.jsonl row)
+  if (!currentRoute(readRoutes(run), i.lane)) throw unrouted();
   await refuseDesign(deps, run, i);
   const { cur, next } = await withFileLock(runPaths(run.dir).routes, () => {
     const cur = currentRoute(readRoutes(run), i.lane);
-    if (!cur)
-      throw new CatherdError("E_LANE_INVALID", `lane ${i.lane} was never routed`, {
-        fix: `route(run, "lanes/${i.lane}.md") first`,
-      });
+    if (!cur) throw unrouted();
     const next = nextRung(cur.ladder, cur.rung);
     appendRoute(run, {
       ...cur,

@@ -75,6 +75,16 @@ describe("climb only for capability (spec 1.1 §9)", () => {
     expect(asked).toEqual([]);
   });
 
+  it("refuses a climb of an unrouted lane before asking Jev anything", async () => {
+    const { run, deps, asked } = await routed();
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    const e = await code(
+      climb(deps, { run: run.id, lane: "M1.L2", reason: "blocker", evidence: "the plan says a map" }),
+    );
+    expect(e).toStartWith("E_LANE_INVALID: ");
+    expect(asked).toEqual([]);
+  });
+
   it("never refuses a climb the environment caused", async () => {
     const { run, deps, asked } = await routed();
     const r = await climb(deps, {
