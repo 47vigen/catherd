@@ -99,11 +99,12 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/a.ts", "a");
     commit(repo);
     write(repo, "lib/new.ts", "n");
-    for (const p of [
-      gateCheck(fakeDeps(), item(run.id, { paths: ["src/", "scr/"] })),
-      gatePass(fakeDeps(), { ...item(run.id, { paths: ["scr/"] }), evidence: "e" }),
+    // thunks: each call is awaited as it is made, so none rejects unhandled while another is awaited
+    for (const call of [
+      () => gateCheck(fakeDeps(), item(run.id, { paths: ["src/", "scr/"] })),
+      () => gatePass(fakeDeps(), { ...item(run.id, { paths: ["scr/"] }), evidence: "e" }),
     ]) {
-      const e = await p.then(
+      const e = await (call() as Promise<unknown>).then(
         () => null,
         (x: unknown) => x,
       );
