@@ -37,7 +37,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "climb",
     {
       description:
-        "Move a routed lane one rung up its ladder and record why. Returns the next rung, or top: true, and any hints. Dispatch the lane again at that rung on a fresh thread. Pass env: true when the environment caused it (a missing service, a broken tool, a usage limit), not the rung.",
+        "Move a routed lane one rung up its ladder and record why. Returns the next rung, or top: true, and any hints. Dispatch the lane again at that rung on a fresh thread. Pass env: true when the environment caused it (a missing service, a broken tool, a usage limit), not the rung. Refused with E_CLIMB_DESIGN when the evidence is a design question (Jev's finding answer is design, or a blocked climb's evidence is about lane ownership): send it to the architect instead.",
       inputSchema: {
         run: z.string(),
         lane: z.string().regex(ID_PATTERN),

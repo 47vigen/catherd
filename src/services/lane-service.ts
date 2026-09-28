@@ -14,6 +14,7 @@ import {
 } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
+import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
 import {
   isDocPath,
@@ -117,6 +118,40 @@ export async function route(
   };
 }
 
+/** Evidence that the lane's own ownership is the problem: a design question, never a capability one. */
+const OWNERSHIP = /outside (the )?lane('s)? ownership|owned by/i;
+
+const CLIMB_DESIGN_FIX = "send it to the architect (ask/architect delta), not up the ladder";
+
+/**
+ * Spec 1.1 §9: a climb is for capability. Evidence that points at the plan (a contradiction, a file the
+ * lane does not own, a cross-lane interface) goes to the architect: ownership evidence on a `blocked`
+ * climb is refused outright; with Jev on, its `finding` answer `design` refuses any climb with evidence.
+ * A climb the environment caused (`env`) is never a design question.
+ */
+async function refuseDesign(
+  deps: Deps,
+  run: Run,
+  i: { lane: string; reason: ClimbReason; evidence?: string; env?: boolean },
+): Promise<void> {
+  if (!i.evidence || i.env) return;
+  if (i.reason === "blocked" && OWNERSHIP.test(i.evidence))
+    throw new CatherdError(
+      "E_CLIMB_DESIGN",
+      `climb ${i.lane}: the evidence is about lane ownership, which a higher rung cannot fix`,
+      { fix: CLIMB_DESIGN_FIX },
+    );
+  const use = deps.profiles.forRepo(run.meta.repo).jev.use;
+  if (use === "off") return;
+  const file = laneFile(run, i.lane);
+  if (!existsSync(file)) return;
+  const v = await deps.routing.finding(run.dir, readFileSync(file, "utf8"), i.evidence, use);
+  if (v.value === "design")
+    throw new CatherdError("E_CLIMB_DESIGN", `climb ${i.lane}: Jev calls the evidence a design finding`, {
+      fix: CLIMB_DESIGN_FIX,
+    });
+}
+
 /** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
 export async function climb(
   deps: Deps,
@@ -131,6 +166,7 @@ export async function climb(
 }> {
   const run = findRun(i.run);
   assertId("lane", i.lane);
+  await refuseDesign(deps, run, i);
   const { cur, next } = await withFileLock(runPaths(run.dir).routes, () => {
     const cur = currentRoute(readRoutes(run), i.lane);
     if (!cur)
