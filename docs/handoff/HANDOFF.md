@@ -10,7 +10,7 @@ Binding spec: `docs/specs/2026-09-28-catherd-1.1-design.md` (above the 1.0 spec)
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 10 push results, `peek`, sessions and the runs page (§3, §4, §14) | `docs/plans/2026-09-28-10-push-sessions.md` | written, pre-validated (1257 pass); executing |
+| 10 push results, `peek`, sessions and the runs page (§3, §4, §14) | `docs/plans/2026-09-28-10-push-sessions.md` | **merged** (PR #15; 5 task-review batches + 1 fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan10-ledger.md`) |
 | 11 worker access, the enforced protocol, verifier gate ledger, park/answer, climb, re-entry, skill (§5–§10) | `docs/plans/2026-09-28-11-access-protocol.md` | written, pre-validated on main (1239 pass) |
 | 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13) | `docs/plans/2026-09-28-12-failover-install-release.md` | written, pre-validated on main (1214 pass) |
 
