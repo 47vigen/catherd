@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { lockHeld } from "../../src/infra/filelock.ts";
@@ -85,6 +85,29 @@ describe("session identity and run ownership (spec §3.3)", () => {
       schema: 1,
       owner: { sessionId: "s-b" },
     });
+  });
+
+  it("repairs a trail a crash left without the owner's row, once, when the owner calls again", async () => {
+    const { run } = freshRun();
+    const a = fakeDeps({ session: session(107, "s-a", "first") });
+    const b = fakeDeps({ session: session(108, "s-b", "second") });
+    expect(await claimRun(a, run)).toBe(true);
+    // the crash: state.json names s-b, the trail never got its row
+    const notes = JSON.parse(readFileSync(runPaths(run.dir).stateJson, "utf8"));
+    writeFileSync(
+      runPaths(run.dir).stateJson,
+      JSON.stringify({ ...notes, owner: { sessionId: "s-b", since: new Date().toISOString() } }),
+    );
+    expect(readSessionRows(run).map((r) => r.sessionId)).toEqual(["s-a"]);
+    expect(await claimRun(b, run)).toBe(false);
+    expect(readSessionRows(run).map((r) => r.sessionId)).toEqual(["s-a", "s-b"]);
+    expect(await claimRun(b, run)).toBe(false);
+    expect(readSessionRows(run).map((r) => r.sessionId)).toEqual(["s-a", "s-b"]);
+    // a trail lost whole comes back with its owner's row
+    rmSync(runPaths(run.dir).sessions);
+    expect(await claimRun(b, run)).toBe(false);
+    expect(await claimRun(b, run)).toBe(false);
+    expect(readSessionRows(run).map((r) => r.sessionId)).toEqual(["s-b"]);
   });
 
   it("appends the trail row under the state.json lock, so its last row is always the owner", async () => {

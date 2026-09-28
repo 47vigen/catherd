@@ -67,13 +67,26 @@ export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   if (!me) return false;
   const p = runPaths(run.dir);
   const at = new Date(deps.now()).toISOString();
+  const row = (since: string): void => {
+    ensureJsonlHeader(p.sessions, "sessions");
+    appendJsonl(p.sessions, {
+      sessionId: me.sessionId,
+      hostSessionId: me.hostSessionId,
+      name: me.name,
+      at: since,
+    });
+  };
   // the trail row goes in under the same lock: the trail's last row is the owner (session-view reads it so)
   return withFileLock(p.stateJson, () => {
     const notes = readNotes(run);
-    if (runOwner(run)?.sessionId === me.sessionId) return false;
+    const owner = runOwner(run);
+    if (owner?.sessionId === me.sessionId) {
+      // a crash between the state.json write and the append left the trail without its owner: repaired here
+      if (readSessionRows(run).at(-1)?.sessionId !== me.sessionId) row(owner.since);
+      return false;
+    }
     writeJsonAtomic(p.stateJson, { ...notes, owner: { sessionId: me.sessionId, since: at } });
-    ensureJsonlHeader(p.sessions, "sessions");
-    appendJsonl(p.sessions, { sessionId: me.sessionId, hostSessionId: me.hostSessionId, name: me.name, at });
+    row(at);
     return true;
   });
 }
