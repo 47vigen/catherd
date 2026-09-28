@@ -373,12 +373,35 @@ describe("doctor", () => {
     });
     const r = await run();
     expect(check(r, "access:codex")?.detail).toBe(
-      "lock-dir write, temp write in codex sandbox · network off by profile · no docker",
+      "lock-dir write, temp write in codex sandbox · network off by profile",
     );
     expect(readFileSync(argsTo, "utf8")).not.toContain("network_access");
     expect(check(r, "access:opencode")?.detail).toContain(
       "network: false is not enforced by opencode's shell",
     );
+  });
+
+  it("runs no docker probe for a backend whose workspace-write roles all have network off", async () => {
+    machine();
+    const marker = join(binDir(), "docker-ran");
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(
+      fake,
+      `#!/bin/sh\ntouch ${marker}\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n`,
+    );
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {
+      roles: { worker: { network: false }, writer: { network: false }, artist: { network: false } },
+    });
+    const c = check(await run(), "access:codex");
+    expect(c).toMatchObject({
+      state: "ok",
+      word: "ready",
+      detail: "lock-dir write, temp write in codex sandbox · network off by profile",
+    });
+    expect(existsSync(marker)).toBe(false);
   });
 
   it("warns when docker is installed but does not answer", async () => {

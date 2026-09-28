@@ -30,7 +30,7 @@ export const probeTargets = {
 interface ProbeDef {
   id: ProbeId;
   label: string;
-  /** off when the role's network is off */
+  /** off when the role's network is off (Docker access goes with the network) */
   network: boolean;
   script: string;
   args: () => string[];
@@ -75,7 +75,7 @@ const PROBES: ProbeDef[] = [
   {
     id: "docker",
     label: "docker version",
-    network: false,
+    network: true,
     script: '"$1" version',
     args: () => [probeTargets.docker],
   },
@@ -90,7 +90,7 @@ export interface ProbeResult {
   why?: string;
 }
 
-/** Runs the five probes in `shell`; docker only when it is installed, the network two only when granted. */
+/** Runs the five probes in `shell`; the network three (docker among them) only when granted, docker only when installed. */
 export async function runProbes(shell: AccessShell, network: boolean): Promise<ProbeResult[]> {
   const out: ProbeResult[] = [];
   let noLocks: string | null = null;
