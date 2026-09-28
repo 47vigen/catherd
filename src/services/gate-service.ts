@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
@@ -56,6 +57,15 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
   const h = new Bun.CryptoHasher("sha256");
   for (const p of paths) {
     const r = await git(repo, ["rev-parse", `HEAD:${p === "." ? "" : p.replace(/\/$/, "")}`]);
+    // a mistyped path (or a glob) would hash as a constant and carry a pass forever
+    if (r.kind !== "ok" && !existsSync(join(repo, p)))
+      throw new CatherdError(
+        "E_INPUT_INVALID",
+        `gate path ${p} exists neither at HEAD nor in the working tree`,
+        {
+          fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs)",
+        },
+      );
     h.update(`${p}=${r.kind === "ok" ? r.out.trim() : "missing"}\n`);
   }
   const dirty = Object.keys(await statusSnapshot(repo))

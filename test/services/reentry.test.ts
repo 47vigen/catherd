@@ -17,7 +17,7 @@ describe("re-entry (spec 1.1 §8, §10)", () => {
     writeLane(run, "M1.L1", ["src/a.ts"]);
     writeLane(run, "M2.L1", ["src/b.ts"]);
     await park(deps, { run: run.id, milestone: "M1", question: "Which DB?" });
-    await gateCheck(deps, { run: run.id, item: "lint", command: "bun run lint", paths: ["src/"] });
+    await gateCheck(deps, { run: run.id, item: "lint", command: "bun run lint", paths: ["."] });
     const r = reentry(run);
     expect(r.questions.map((q) => [q.milestone, q.question])).toEqual([["M1", "Which DB?"]]);
     expect(r.protocol).toEqual({ next: "route and preflight M2's lanes", checklist: PROTOCOL_CHECKLIST });

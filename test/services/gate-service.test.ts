@@ -27,7 +27,7 @@ const item = (run: string, over: Record<string, unknown> = {}) => ({
   run,
   item: "unit tests",
   command: "bun test",
-  paths: ["src/", "package.json"],
+  paths: ["src/"],
   ...over,
 });
 
@@ -38,18 +38,21 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "package.json", "{}");
     const c1 = commit(repo);
     const deps = fakeDeps();
-    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
-    const passed = await gatePass(deps, { ...item(run.id), evidence: "12 pass" });
+    // a file path beside a directory path
+    const both = (id: string, over: Record<string, unknown> = {}) =>
+      item(id, { paths: ["src/", "package.json"], ...over });
+    expect(await gateCheck(deps, both(run.id))).toEqual({ carried: false });
+    const passed = await gatePass(deps, { ...both(run.id), evidence: "12 pass" });
     expect(passed.commit).toBe(c1);
     // an unrelated file changes: still carried, from the commit it passed on
     write(repo, "docs/x.md", "x");
     commit(repo);
-    expect(await gateCheck(deps, item(run.id))).toMatchObject({ carried: true, commit: c1 });
-    expect(await gateCheck(deps, item(run.id, { command: "bun test --bail" }))).toEqual({ carried: false });
+    expect(await gateCheck(deps, both(run.id))).toMatchObject({ carried: true, commit: c1 });
+    expect(await gateCheck(deps, both(run.id, { command: "bun test --bail" }))).toEqual({ carried: false });
     // a file under its paths changes: run it again
     write(repo, "src/a.ts", "b");
     commit(repo);
-    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
+    expect(await gateCheck(deps, both(run.id))).toEqual({ carried: false });
   });
 
   it("hashes uncommitted changes under its paths, so a verifier on an uncommitted tree gets its own hash", async () => {
@@ -82,6 +85,30 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     } catch (e) {
       expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
     }
+  });
+
+  it("refuses a path that exists neither at HEAD nor in the working tree, recording nothing", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    write(repo, "lib/new.ts", "n");
+    for (const p of [
+      gateCheck(fakeDeps(), item(run.id, { paths: ["src/", "scr/"] })),
+      gatePass(fakeDeps(), item(run.id, { paths: ["scr/"], evidence: "e" })),
+    ]) {
+      const e = await p.then(
+        () => null,
+        (x: unknown) => x,
+      );
+      expect(isCatherdError(e) && [e.code, e.message]).toEqual([
+        "E_INPUT_INVALID",
+        "gate path scr/ exists neither at HEAD nor in the working tree",
+      ]);
+      expect(isCatherdError(e) && e.fix).toContain("check the spelling");
+    }
+    expect(latestVerifierStep(run)).toBeNull();
+    // a path only in the working tree (not committed yet) is fine
+    expect(await gateCheck(fakeDeps(), item(run.id, { paths: ["lib/"] }))).toEqual({ carried: false });
   });
 
   it("records each check as the verifier's step, which status shows", async () => {
