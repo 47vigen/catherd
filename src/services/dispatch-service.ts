@@ -195,9 +195,10 @@ export function adopt(deps: Deps, run: Run): void {
 /**
  * Spec §3.3 with the plan 10 fix-round ruling: `dispatch` and `peek` on a run make this session its owner. When
  * the owner changes, this session takes over what the run's earlier owner left: it watches the live roles
- * (`adopt`), records and settles each role that finished with no record, and settles each unread usage limit
- * that was never failed over. Each settle runs the hooks, so the notifier tells the new owner. A settle that
- * fails is logged and never fails the call.
+ * (`adopt`), records and settles each role that finished with no record, settles each unread usage limit
+ * that was never failed over, and settles again each unread record no message announced (the earlier owner's
+ * server settled it but never told its session). Each settle runs the hooks, so the notifier tells the new
+ * owner. A settle that fails is logged and never fails the call.
  */
 export async function claim(deps: Deps, run: Run): Promise<void> {
   if (!(await claimRun(deps, run))) return;
@@ -212,13 +213,34 @@ export async function claim(deps: Deps, run: Run): Promise<void> {
       warn(d, e);
     }
   }
-  for (const { d, record } of unsettledLimits(run)) {
+  const limits = unsettledLimits(run);
+  for (const { d, record } of limits) {
     try {
       await settle(deps, run, d, record);
     } catch (e) {
       warn(d, e);
     }
   }
+  const done = new Set(limits.map((l) => l.d.admit.dispatchId));
+  for (const { d, record } of unannounced(run)) {
+    if (done.has(d.admit.dispatchId) || watching.has(d.admit.dispatchId)) continue;
+    try {
+      await settle(deps, run, d, record);
+    } catch (e) {
+      warn(d, e);
+    }
+  }
+}
+
+/** The recorded dispatches of a run still unread that no message announced (no notified.json). */
+function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
+  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
+  return listDispatches(run).flatMap((d) => {
+    const record = records.get(d.admit.dispatchId);
+    return record && awaitsCollect(d.dir) && !existsSync(dispatchPaths(d.dir).notified)
+      ? [{ d, record }]
+      : [];
+  });
 }
 
 /**
@@ -228,15 +250,23 @@ export async function claim(deps: Deps, run: Run): Promise<void> {
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
   await claim(deps, run);
-  const { d, specPath } = await admit(deps, run, {
-    role: i.role,
-    name: i.name,
-    brief: i.brief,
-    rung: i.rung,
-    thread: i.thread ?? null,
-    lane: i.lane ?? null,
-    failoverFrom: null,
-  });
+  const { d, specPath } = await admit(
+    deps,
+    run,
+    {
+      role: i.role,
+      name: i.name,
+      brief: i.brief,
+      rung: i.rung,
+      thread: i.thread ?? null,
+      lane: i.lane ?? null,
+      failoverFrom: null,
+    },
+    // a finished role no watcher here covers, recorded by admit: settled as a watcher would, so its owner hears
+    async (f, record) => {
+      if (!watching.has(f.admit.dispatchId)) await settle(deps, run, f, record);
+    },
+  );
   try {
     start(d, specPath);
   } finally {

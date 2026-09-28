@@ -2,14 +2,16 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { overlaps, parseLaneHeader } from "../domain/lane.ts";
+import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
+import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { ensurePrivateDir, PRIVATE_FILE, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { readyAdapter, standInFor } from "./backends.ts";
@@ -63,18 +65,29 @@ function laneOwns(run: Run, lane: string): string[] {
   return owns;
 }
 
+/** What a caller of `admit` does with each record `admit` itself writes (dispatch settles it). */
+export type OnRecorded = (d: Dispatch, record: RunRecord) => Promise<unknown>;
+
 /**
  * Records each finished dispatch of the run that has none yet, as reconcile does, so one whose waiter died
- * never blocks its name or lane. Before the admission lock: a finalize may wait on another's claim. One that
- * throws is skipped and stays pending, so the refusal still names it.
+ * never blocks its name or lane, and hands each record to `onRecorded` (the caller settles it, so its owner is
+ * told). Before the admission lock: a finalize may wait on another's claim. One that throws is skipped and
+ * stays pending, so the refusal still names it; an `onRecorded` that throws never fails the admit.
  */
-async function finalizeFinished(run: Run, now: number): Promise<void> {
+async function finalizeFinished(run: Run, now: number, onRecorded?: OnRecorded): Promise<void> {
   for (const d of pendingDispatches(run, now)) {
     if (d.state !== "finished") continue;
+    let record: RunRecord;
     try {
-      await finalizeDispatch(run, d);
+      record = await finalizeDispatch(run, d);
     } catch {
       // stays pending: admission refuses its name and lane, and names it
+      continue;
+    }
+    try {
+      await onRecorded?.(d, record);
+    } catch (e) {
+      log("warn", "admit", { run: run.id, name: d.admit.name, error: errorMessage(e) });
     }
   }
 }
@@ -112,7 +125,12 @@ async function prepared(adapter: BackendAdapter, req: Parameters<NonNullable<Bac
  * Spec §4.4 step 1. The checks that read shared state and the write that makes the dispatch live
  * happen under the run's admission lock, so parallel dispatches always see each other (audit C1).
  */
-export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: Dispatch; specPath: string }> {
+export async function admit(
+  deps: Deps,
+  run: Run,
+  i: AdmitInput,
+  onRecorded?: OnRecorded,
+): Promise<{ d: Dispatch; specPath: string }> {
   assertId("role name", i.name);
   if (i.lane !== null) assertId("lane", i.lane);
   const rung = parseRung(i.rung);
@@ -162,7 +180,7 @@ export async function admit(deps: Deps, run: Run, i: AdmitInput): Promise<{ d: D
     dispatchDir: dir,
   });
 
-  await finalizeFinished(run, deps.now());
+  await finalizeFinished(run, deps.now(), onRecorded);
   const sessionId = i.sessionId !== undefined ? i.sessionId : (currentSession(deps)?.sessionId ?? null);
   return withFileLock(runPaths(run.dir).admission, async () => {
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the

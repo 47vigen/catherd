@@ -457,6 +457,61 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     await watchersSettled();
   });
 
+  it("announces, when a dispatch takes the run over, a record the earlier owner settled but never announced", async () => {
+    const release = scenario();
+    const { run } = freshRun("Auth plan 5 MR B");
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    await claimRun(other("s-before"), run);
+    // recorded and settled by the earlier owner's server, which never got to tell its session
+    const left = await finished(run, "worker-M1.L1");
+    const deps = fakeDeps({ session: await sessionWithInbox("s-now", 204) });
+    const n = startNotifier(deps, { coalesceMs: 20 });
+    notifiers.push(n);
+    await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L2",
+      brief: "b",
+      rung: "codex:gpt-6-sol#high",
+      lane: "M1.L2",
+    });
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain(`name: "${left.admit.name}"`);
+    await n.idle();
+    expect(existsSync(dispatchPaths(left.dir).notified)).toBe(true);
+    writeFileSync(release, "");
+    await watchersSettled();
+  });
+
+  it("settles and announces a role that finished unrecorded, unwatched, when this session dispatches again", async () => {
+    const release = scenario();
+    const { run } = freshRun("Auth plan 5 MR B");
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    const deps = fakeDeps({ session: await sessionWithInbox("s-now", 205) });
+    await claimRun(deps, run);
+    // this session already owns the run; the role's watcher is gone (its finalize threw, say)
+    const left = await fakeDispatch(
+      run,
+      { sessionId: "s-now" },
+      { proc: "dead", exit: exit(), reply: "Done.\nSTATUS: complete — ok", collect: true },
+    );
+    const n = startNotifier(deps, { coalesceMs: 20 });
+    notifiers.push(n);
+    await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L2",
+      brief: "b",
+      rung: "codex:gpt-6-sol#high",
+      lane: "M1.L2",
+    });
+    expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([left.admit.dispatchId]);
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain(`name: "${left.admit.name}"`);
+    writeFileSync(release, "");
+    await watchersSettled();
+  });
+
   it("records, settles and announces a role that finished unrecorded when a dispatch takes the run over", async () => {
     const release = scenario();
     const { run } = freshRun("Auth plan 5 MR B");
