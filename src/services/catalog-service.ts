@@ -35,6 +35,8 @@ import { readDerived } from "../infra/sources/cache.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
+import { valuesUsed } from "./provenance.ts";
+import { type EvidenceTable, evidenceLine, evidenceOf, runEvidence } from "./run-evidence.ts";
 import { withStandIns } from "./standins.ts";
 
 const DAY_MS = 24 * 3_600_000;
@@ -322,22 +324,34 @@ function rungRows(
   model: string,
   efforts: string[],
   billing: Partial<Record<string, BillingMode>>,
+  evidence: EvidenceTable,
 ) {
   return (efforts.length ? efforts : ["default"]).map((effort) => {
     const rung = `${backend}:${model}#${effort}`;
     const info = rungInfo(c, rung);
     const s = scoresOf(c, info.canonical);
-    const scored: Record<string, { value: number; benchmark: string; confidence: string }> = {};
-    for (const d of DIMS) {
-      const r = s?.records[d];
-      if (r)
-        scored[d] = {
-          value: r.value,
-          benchmark: `${r.benchmark} ${r.version}`,
-          // a value lent by a treat-like is catherd's guess for this rung, whatever its own confidence
-          confidence: s?.borrowed.includes(d) ? "inferred" : r.confidence,
-        };
-    }
+    const scored: Record<
+      string,
+      {
+        value: number;
+        benchmark: string;
+        confidence: string;
+        source: string;
+        date: string;
+        /** spec 1.2 §5.3: the rung a borrowed or inferred value belongs to */
+        from?: string;
+      }
+    > = {};
+    for (const v of valuesUsed(c, info.canonical))
+      scored[v.dim] = {
+        value: v.value,
+        benchmark: v.benchmark,
+        // a value lent by a treat-like or a stand-in is catherd's guess for this rung, whatever its own confidence
+        confidence: v.inferred ? "inferred" : v.confidence,
+        source: v.source,
+        date: v.date,
+        ...(v.from ? { from: v.from } : {}),
+      };
     const like = c.treatLike[info.canonical] ?? null;
     return {
       rung,
@@ -346,6 +360,8 @@ function rungRows(
       scores: scored,
       treatLike: s?.via ? like : null,
       cost: costOf(info.family, effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
+      /** spec 1.2 §8: catherd's own runs on it, over every kind; never used for routing */
+      evidence: evidenceLine(evidenceOf(evidence, info.canonical)),
     };
   });
 }
@@ -362,6 +378,9 @@ export interface CatalogModel {
   roles: Role[];
   listed: boolean | null;
   notes: Record<string, string>;
+  /** spec 1.2 §4.1: the family's API price, dollars per million tokens, and its speed facts */
+  price: Family["price"] | null;
+  speed: Record<string, number>;
   rungs: ReturnType<typeof rungRows>;
 }
 
@@ -374,6 +393,7 @@ export function catalogQuery(
   billing: Partial<Record<string, BillingMode>> = {},
 ): { total: number; models: CatalogModel[] } {
   const c = loadCatalog({ timings: false, repo: f.repo });
+  const evidence = runEvidence(c);
   const rows: CatalogModel[] = [];
   const known = new Set<string>();
   const entry = (backend: string, model: string, fam: Family | null): CatalogModel => {
@@ -390,7 +410,9 @@ export function catalogQuery(
       roles: ROLES.filter((r) => capableFor(c, probe, r)),
       listed: probe.listed,
       notes: fam?.notes ?? {},
-      rungs: rungRows(c, backend, model, probe.efforts, billing),
+      price: fam?.price ?? null,
+      speed: fam?.speed ?? {},
+      rungs: rungRows(c, backend, model, probe.efforts, billing, evidence),
     };
   };
   for (const fam of c.families)

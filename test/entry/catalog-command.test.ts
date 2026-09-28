@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
-import { syncLines } from "../../src/entry/catalog-command.ts";
+import { formatModel, syncLines } from "../../src/entry/catalog-command.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
 import type { SyncReport } from "../../src/services/source-sync.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
@@ -31,12 +31,58 @@ function catherdIn(cwd: string | undefined, path: string, ...args: string[]) {
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
+describe("formatModel (spec 1.2 §4.1, §8)", () => {
+  it("adds the price and speed facts, and each rung catherd has run with its evidence", () => {
+    withHome();
+    const m = {
+      id: "gpt-6-sol",
+      name: "GPT-6 Sol",
+      backend: "codex",
+      model: "gpt-6-sol",
+      billing: "codex",
+      efforts: ["medium", "high"],
+      context: 272000,
+      capabilities: null,
+      roles: ["worker" as const],
+      listed: null,
+      notes: {},
+      price: { input: 2, cached: 0.2, output: 10 },
+      speed: { "openrouter.throughput_last_30m": 81.234 },
+      rungs: [
+        {
+          rung: "codex:gpt-6-sol#medium",
+          enabled: true,
+          scores: {},
+          treatLike: null,
+          cost: {} as never,
+          evidence: null,
+        },
+        {
+          rung: "codex:gpt-6-sol#high",
+          enabled: true,
+          scores: {},
+          treatLike: null,
+          cost: {} as never,
+          evidence: "12 lanes, 2 climbed, 1 partial",
+        },
+      ],
+    };
+    expect(formatModel(m).split("\n")).toEqual([
+      "codex:gpt-6-sol  2/2 rungs scored  roles worker",
+      "  $2/$10 per M tokens in/out · openrouter.throughput_last_30m 81.23",
+      "  #high  12 lanes, 2 climbed, 1 partial",
+    ]);
+  });
+});
+
 describe("catherd catalog", () => {
   it("lists models with their scored rungs, as text or JSON", () => {
     withHome();
     const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol");
     expect(text.code).toBe(0);
     expect(text.out).toContain("codex:gpt-6-sol  6/6 rungs scored  roles ");
+    // spec 1.2 §4.1: cost and speed are facts, shown beside the scores
+    expect(text.out).toContain("\n  $2/$10 per M tokens in/out\n");
     const json = JSON.parse(catherd("list", "--role", "artist", "--json").out);
     expect(json.models.every((m: { backend: string }) => m.backend === "codex")).toBe(true);
   });

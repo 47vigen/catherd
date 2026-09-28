@@ -529,7 +529,9 @@ describe("catalogQuery", () => {
     const high = sol?.rungs.find((r) => r.rung === "codex:gpt-6-sol#high");
     expect(high).toMatchObject({
       enabled: true,
-      scores: { repo_code: { value: 65.3, benchmark: "DeepSWE 1.1", confidence: "secondary" } },
+      scores: {
+        repo_code: { value: 65.3, benchmark: "DeepSWE 1.1", confidence: "secondary", source: "shipped" },
+      },
       cost: { tier: 0, mode: "chatgpt-plan" },
     });
     // ultra carries max's published values (spec 1.2 §4.3 adjacent)
@@ -547,6 +549,37 @@ describe("catalogQuery", () => {
       "opencode-go/gpt-5.6-luna",
       "opencode-go/gpt-6-luna",
     ]);
+  });
+
+  it("shows each value's confidence, source and date, marks a lent one, and each rung's run evidence (spec 1.2 §5.3, §8)", async () => {
+    const { run } = freshRun();
+    appendRoute(run, {
+      at: "2026-09-28T10:00:00.000Z",
+      lane: "M1.L1",
+      role: "worker",
+      rung: "codex:gpt-6-luna#high",
+      ladder: ["codex:gpt-6-luna#high"],
+      source: "route",
+      decidedBy: "lane",
+      from: null,
+      reason: null,
+      kind: "repo_code",
+      difficulty: "build",
+    });
+    const luna = q({ backend: "codex", text: "gpt-6-luna" }).models[0];
+    expect(luna?.price).toEqual({ input: 0.1, cached: 0.01, output: 0.5 });
+    const high = luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#high");
+    expect(high?.scores.repo_code).toEqual({
+      value: 66.6,
+      benchmark: "DeepSWE 1.1",
+      confidence: "adjacent",
+      source: "shipped",
+      date: "2026-09-22",
+    });
+    expect(high?.scores.frontend).toMatchObject({ source: "arena", confidence: "adjacent" });
+    expect(high?.scores.agentic).toMatchObject({ confidence: "inferred", from: "gpt-5.6-luna#high" });
+    expect(high?.evidence).toBe("1 lane");
+    expect(luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#max")?.evidence).toBeNull();
   });
 
   it("lists a discovered model catherd cannot score, disabled until the user maps it", async () => {

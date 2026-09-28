@@ -1,3 +1,4 @@
+import type { Provenance } from "./provenance.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
 import type { BillingMode } from "../domain/cost.ts";
@@ -87,6 +88,8 @@ export interface RouteAnswer {
   /** the Jev question set asked, and its summed probabilities, for outcomes.jsonl (spec §5.6) */
   questionSet: string | null;
   jev: RouteJev | null;
+  /** spec 1.2 §5.3, §8: the chosen rung's thresholds, values, sources, facts and run evidence */
+  provenance?: Provenance;
 }
 
 export type { Verdict };

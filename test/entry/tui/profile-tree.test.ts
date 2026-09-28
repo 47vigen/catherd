@@ -37,6 +37,8 @@ const GLM: CatalogModel = {
   roles: ["worker", "reviewer"],
   listed: true,
   notes: {},
+  price: null,
+  speed: {},
   rungs: [
     {
       rung: "opencode:opencode-go/glm-6#default",
@@ -44,6 +46,7 @@ const GLM: CatalogModel = {
       scores: {},
       treatLike: null,
       cost: { kind: "metered", value: 0 } as never,
+      evidence: null,
     },
   ],
 };

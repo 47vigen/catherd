@@ -86,6 +86,7 @@ describe("route without Jev", () => {
       difficulty: "build",
       questionSet: null,
       jev: null,
+      provenance: expect.objectContaining({ rung: TRACK_A.rung }),
     });
     expect(jevRows(r.runDir)).toEqual([
       expect.objectContaining({
@@ -130,6 +131,56 @@ describe("route without Jev", () => {
     expect(await routingService({ key: "k", fetchImpl: f.impl }).route(r)).toMatchObject({ source: "lane" });
     expect(f.sent).toHaveLength(0);
     expect(jevRows(r.runDir)).toEqual([]);
+  });
+});
+
+describe("route's provenance (spec 1.2 §5.3)", () => {
+  it("reports each threshold of the lane's bar, the value used, its confidence and source, and the why", async () => {
+    const a = await routingService().route(req(lane("repo_code", "build")));
+    expect(a.provenance?.thresholds).toEqual([
+      {
+        dim: "repo_code",
+        min: 66.6,
+        clears: true,
+        used: expect.objectContaining({
+          value: 66.6,
+          confidence: "adjacent",
+          source: "shipped",
+          benchmark: "DeepSWE 1.1",
+          inferred: false,
+          from: null,
+        }),
+        why: expect.stringMatching(/^the median of /),
+      },
+    ]);
+    // Luna's agentic value is lent by the shipped treat-like: marked, with the rung it belongs to
+    expect(a.provenance?.values.find((v) => v.dim === "agentic")).toMatchObject({
+      inferred: true,
+      from: "gpt-5.6-luna#high",
+    });
+    expect(a.provenance?.cost).toEqual(expect.objectContaining({ mode: "chatgpt-plan" }));
+    expect(a.provenance?.evidence).toEqual({ kind: null, all: null });
+  });
+
+  it("picks a terminal lane by the terminal bar, and a ui lane by the frontend bar, saying whose values", async () => {
+    const t = await routingService().route(req(lane("terminal", "copy")));
+    expect(t.rung).toBe("codex:gpt-6-sol#medium");
+    expect(
+      t.provenance?.thresholds.map((x) => [x.dim, x.min, x.used?.value, x.used?.source, x.clears]),
+    ).toEqual([["terminal", 40.15, 43, "shipped", true]]);
+    const u = await routingService().route(req(lane("ui", "build")));
+    expect(u.rung).toBe("codex:gpt-6-sol#xhigh");
+    expect(u.provenance?.thresholds.map((x) => [x.dim, x.min, x.used?.source, x.clears])).toEqual([
+      ["repo_code", 66.6, "shipped", true],
+      ["frontend", 1617, "arena", true],
+    ]);
+  });
+
+  it("shows the default rung's values with no thresholds when the route reads no bar", async () => {
+    const a = await routingService().route(req(null));
+    expect(a.source).toBe("default");
+    expect(a.provenance?.thresholds).toEqual([]);
+    expect(a.provenance?.values.length).toBeGreaterThan(0);
   });
 });
 

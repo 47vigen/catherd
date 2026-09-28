@@ -13,7 +13,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "route",
     {
       description:
-        "The rung for a lane (from Jev, else the lane file's Kind/Difficulty lines, else the profile default) or, without a lane file, a role's default rung, with the ladder above it. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as. A lane whose Kind: or Difficulty: the catalog does not know is refused with E_LANE_INVALID.",
+        "The rung for a lane (from Jev, else the lane file's Kind/Difficulty lines, else the profile default) or, without a lane file, a role's default rung, with the ladder above it. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as. `provenance` says why: each threshold of the lane's bar with the value used against it, that value's confidence, source and date (`inferred: true` when a treat-like or a stand-in lent it), the rung's speed and cost facts, and catherd's own run evidence for it (shown, never used to route). A lane whose Kind: or Difficulty: the catalog does not know is refused with E_LANE_INVALID.",
       inputSchema: {
         run: z.string(),
         lane_file: z.string().optional(),

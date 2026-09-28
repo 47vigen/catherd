@@ -75,6 +75,8 @@ const FamilySchema = z.looseObject({
   notes: z.record(z.string(), z.string()).default({}),
   /** the day the vendor released it (models.dev), a stand-in feature (spec 1.2 §6.3) */
   releaseDate: z.iso.date().optional(),
+  /** a sync's speed facts (spec 1.2 §4.1), `<source>.<field>` → value; they never carry a bar */
+  speed: z.record(z.string(), z.number()).optional(),
 });
 export type Family = z.infer<typeof FamilySchema>;
 
@@ -255,6 +257,7 @@ export function applyFacts(families: Family[], facts: Record<string, FamilyFacts
       capabilities,
       on,
       ...(x.releaseDate || f.releaseDate ? { releaseDate: x.releaseDate ?? f.releaseDate } : {}),
+      ...(Object.keys(x.speed).length ? { speed: x.speed } : {}),
     };
   });
 }
@@ -297,7 +300,8 @@ export function buildCatalog(o: {
   };
   for (const s of o.scores.scores) put(s, false);
   for (const s of o.synced ?? []) put(s, false);
-  for (const s of o.override?.scores ?? []) put(s, true);
+  // the user's values say so, for route's provenance (spec 1.2 §5.3)
+  for (const s of o.override?.scores ?? []) put({ ...s, source: s.source ?? "override" }, true);
   const treatLike: Catalog["treatLike"] = {};
   for (const [rung, t] of Object.entries(o.scores.treatLike))
     treatLike[rung] = { like: t.like, source: "shipped" };

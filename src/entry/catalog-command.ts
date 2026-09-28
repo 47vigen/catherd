@@ -79,10 +79,24 @@ export function formatRefreshed(r: Refreshed, plain = false): string {
   ].join("\n");
 }
 
+/**
+ * One model: its rungs scored and roles, then (spec 1.2 §4.1, §8) its price and speed facts, and each rung
+ * catherd has run, with its evidence.
+ */
 export function formatModel(m: CatalogModel): string {
   const scored = m.rungs.filter((r) => r.enabled).length;
   const listed = m.listed === false ? "  not offered by this account" : "";
-  return `${m.backend}:${m.model}  ${scored}/${m.rungs.length} rungs scored  roles ${m.roles.join(",") || "none"}${listed}`;
+  const lines = [
+    `${m.backend}:${m.model}  ${scored}/${m.rungs.length} rungs scored  roles ${m.roles.join(",") || "none"}${listed}`,
+  ];
+  const facts = [
+    ...(m.price ? [`$${m.price.input}/$${m.price.output} per M tokens in/out`] : []),
+    ...Object.entries(m.speed).map(([k, v]) => `${k} ${Number(v.toPrecision(4))}`),
+  ];
+  if (facts.length) lines.push(`  ${facts.join(" · ")}`);
+  for (const r of m.rungs)
+    if (r.evidence) lines.push(`  #${r.rung.slice(r.rung.lastIndexOf("#") + 1)}  ${r.evidence}`);
+  return lines.join("\n");
 }
 
 /** The repository the command runs in, for per-repository listings; none outside one (global). */

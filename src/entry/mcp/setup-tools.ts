@@ -29,7 +29,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
+        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Each score has its confidence, source and date (`from` names the rung a lent value belongs to); each model its price and speed facts, each rung catherd's own run evidence. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
       inputSchema: {
         repo: z.string().min(1).optional(),
         role: z.enum(ROLES).optional(),
