@@ -439,7 +439,7 @@ space turns the role on or off; enter opens its access, default rung and models
    Lanes:
    - M0.L1 · codex:gpt-6-luna#high
    - M0.L2 · codex:gpt-6-luna#medium → codex:gpt-6-sol#medium · climbs: fast
-   check red twice
+     check red twice
 
    Reviewer: reviewer-M0 · 1 finding(s): 0 BLOCKER, 0 BUG, 1 NIT
    Verifier: PASS (verifier-M0)

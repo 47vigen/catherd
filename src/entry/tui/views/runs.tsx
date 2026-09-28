@@ -5,7 +5,7 @@ import { useCommandLayer } from "../providers/keymap.tsx";
 import { errorToast } from "../providers/toast.tsx";
 import { useUi } from "../providers/theme.tsx";
 import { isArmed } from "../state.ts";
-import { ago, clock, plural, shortRung, wrap } from "../text.ts";
+import { ago, clock, plural, shortRung, wrap, wrapHanging } from "../text.ts";
 import { glyph, mascot, type Token } from "../theme.ts";
 import type { RoleRow, SessionRow, SessionRun } from "../effects.ts";
 import { Line, type Part } from "../widgets/line.tsx";
@@ -486,7 +486,7 @@ function MilestoneView(props: {
         tone: "muted",
       },
     ]);
-  else for (const l of body.split("\n")) for (const w of wrap(l, room)) line([{ text: `   ${w}` }]);
+  else for (const l of body.split("\n")) for (const w of wrapHanging(l, room)) line([{ text: `   ${w}` }]);
   return (
     <box flexDirection="column" width={props.width} height={props.height}>
       <Line

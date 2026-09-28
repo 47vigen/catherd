@@ -57,6 +57,18 @@ export function wrap(s: string, max: number): string[] {
   return lines;
 }
 
+/**
+ * `wrap` with a hanging indent: a line's leading spaces and list marker (`- `, `* `, `1. `) are kept on its first
+ * line, and its continuation lines are indented to match, so a wrapped bullet does not read as a new line.
+ */
+export function wrapHanging(s: string, max: number): string[] {
+  const lead = /^\s*(?:[-*+] |\d+[.)] )?/.exec(s)?.[0] ?? "";
+  const hang = width(lead);
+  if (!lead || max - hang < 1) return wrap(s, max);
+  const pad = " ".repeat(hang);
+  return wrap(s.slice(lead.length), max - hang).map((l, i) => (i === 0 ? lead : pad) + l);
+}
+
 /** `04:12`, or `1:02:03` past an hour. */
 export function clock(secs: number): string {
   const s = Math.max(0, Math.floor(secs));
