@@ -268,41 +268,20 @@ or by `peek`), never twice.
 
 ## 8. Worker access (1.1)
 
-A `workspace-write` worker may reach the network, bind a loopback port, write the lock dir and the temp dir, and
-use a local Docker socket (spec 1.1 §5). `doctor` probes each backend a `workspace-write` role uses:
+The probes by hand are §4: run it there, not here (one procedure, with the flags a worker gets). What §4 does not
+cover:
 
-```sh
-bun src/cli.ts doctor
-```
-
-Look for: an `access:<backend>` row per such backend (`access:codex`, and `access:opencode` or
-`access:claude-code` when a role uses them), `✓ ready` or a list of the probes that failed with each fix; and
-the `sandbox:codex` row `✓ ready`. Docker is probed only when `docker` is installed: with OrbStack or Docker
-Desktop running, the Docker probe must pass too.
-
-Then the same five by hand in Codex's sandbox, with the flags a worker gets (use the old form,
-`codex sandbox macos --full-auto -c … -- <cmd>`, if `codex sandbox --help` lists `macos` and `linux`):
-
-```sh
-locks="$HOME/.local/share/catherd/locks"; mkdir -p "$locks"
-tmp="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
-roots="sandbox_workspace_write.writable_roots=[\"$locks\",\"$tmp\"]"
-net="sandbox_workspace_write.network_access=true"
-cd "$(mktemp -d)"
-codex sandbox -c "$net" -c "$roots" -- sh -c "touch '$locks/.p' && rm '$locks/.p'"; echo "lock dir: $?"
-codex sandbox -c "$net" -c "$roots" -- sh -c "touch '$tmp/.p' && rm '$tmp/.p'"; echo "temp: $?"
-codex sandbox -c "$net" -c "$roots" -- python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0))'; echo "loopback: $?"
-codex sandbox -c "$net" -c "$roots" -- curl -fsSI https://registry.npmjs.org/; echo "https: $?"
-codex sandbox -c "$net" -c "$roots" -- docker version; echo "docker: $?"
-cd -
-```
-
-Look for: `0` after every line (the Docker line only with Docker running). Record any that is not, with
-`codex --version`. Last, with §6's `live-kit` profile (before its clean-up):
-`profile set roles.worker.network false --profile live-kit`, then a one-lane `/catherd` run whose brief asks the
-worker to `curl -fsSI https://registry.npmjs.org/`. Look for: the worker's reply saying the network is closed,
-and `doctor` probing no network or loopback for that role. Put it back with
-`profile set roles.worker.network null --profile live-kit`.
+- **The other backends' rows.** With a `workspace-write` role on opencode or claude-code, `bun src/cli.ts doctor`
+  shows an `access:opencode` or `access:claude-code` row. Look for: `✓ ready`, or the probes that failed, each
+  with its fix. Docker is probed only when `docker` is installed; with OrbStack or Docker Desktop running it must
+  pass.
+- **A role kept off the network.** With §6's `live-kit` profile (before its clean-up):
+  `bun src/cli.ts profile set roles.worker.network false --profile live-kit`, then a one-lane `/catherd` run whose
+  brief asks the worker to `curl -fsSI https://registry.npmjs.org/`. Look for: the worker's reply saying the network
+  is closed. `doctor`'s `access:<backend>` row for the worker's backend says `network off by profile` (no loopback
+  or HTTPS probe) only once every `workspace-write` role on that backend has `network false` (writer and artist
+  too); on opencode or claude-code it also says `network: false is not enforced` by that shell. Put it back with
+  `bun src/cli.ts profile set roles.worker.network true --profile live-kit`.
 
 ## 9. The 1.1 acceptance (the release PR waits for it)
 
