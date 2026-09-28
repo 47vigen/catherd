@@ -6,6 +6,7 @@ import {
   dockerSocket,
   dockerSocketCandidates,
   realTmpdir,
+  toolchainCaches,
   writableRoots,
 } from "../../src/adapters/access.ts";
 import type { RunRequest } from "../../src/adapters/backend.ts";
@@ -38,10 +39,34 @@ const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1] as 
 const cValues = (args: string[]) => args.flatMap((a, i) => (args[i - 1] === "-c" ? [a] : []));
 
 describe("worker access grants (spec §5)", () => {
-  it("names the lock dir and the real temp dir as the extra writable roots", () => {
+  it("names the lock dir, the real temp dir and the toolchain caches as the extra writable roots", () => {
     withHome();
     expect(realTmpdir()).toBe(realpathSync(tmpdir()));
-    expect(writableRoots()).toEqual([locksDir(), realpathSync(tmpdir())]);
+    expect(writableRoots()).toEqual([...new Set([locksDir(), realpathSync(tmpdir()), ...toolchainCaches()])]);
+  });
+
+  it("grants the toolchain caches that exist, by their real paths, and skips the missing ones", () => {
+    const home = withHome();
+    const gocache = join(home, "gocache");
+    const bun = join(home, ".bun", "install", "cache");
+    mkdirSync(gocache, { recursive: true });
+    mkdirSync(bun, { recursive: true });
+    const none = () => [];
+    const roots = toolchainCaches({ GOCACHE: gocache, GOMODCACHE: join(home, "missing") }, home, none);
+    expect(roots).toEqual([realpathSync(gocache), realpathSync(bun)]);
+    // `go env -w` and pnpm's store-dir live outside the env: what the tools report is granted too
+    const gowritten = join(home, "go-env-w");
+    const store = join(home, "store", "v10");
+    mkdirSync(gowritten, { recursive: true });
+    mkdirSync(store, { recursive: true });
+    const tools = (bin: string) => (bin === "go" ? [gowritten, join(home, "no-mod")] : [store]);
+    expect(toolchainCaches({}, home, tools)).toEqual([
+      realpathSync(gowritten),
+      realpathSync(store),
+      realpathSync(bun),
+    ]);
+    process.env.GOCACHE = gocache;
+    expect(writableRoots()).toContain(realpathSync(gocache));
   });
 
   it("finds the Docker socket DOCKER_HOST names", () => {
