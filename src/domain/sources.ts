@@ -125,6 +125,8 @@ export const DerivedSchema = z.looseObject({
   fits: z.array(FitRowSchema),
   unmatched: z.record(z.string(), z.array(z.string())),
   warnings: z.array(z.string()),
+  /** canonical rung → the Artificial Analysis stand-in features (spec 1.2 §6.3); a file before plan 14 has none */
+  features: z.record(z.string(), z.record(z.string(), z.number())).default({}),
 });
 export type Derived = z.infer<typeof DerivedSchema>;
 

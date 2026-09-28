@@ -174,7 +174,29 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
     fits,
     unmatched: Object.fromEntries(Object.entries(unmatched).map(([s, ids]) => [s, [...ids].sort()])),
     warnings,
+    features: aaFeatures(table),
   };
+}
+
+/** Spec 1.2 §6.3: the Artificial Analysis numbers a stand-in is ranked on, as AA names them. */
+export const AA_FEATURES = [
+  "artificial_analysis_intelligence_index",
+  "hle",
+  "scicode",
+  "lcr",
+  "cost_per_task",
+  "median_output_tokens_per_second",
+] as const;
+
+/** Each catalog rung's AA stand-in features, from the rows `derive` keyed (never shipped: AA is keyed). */
+function aaFeatures(table: Map<string, Map<string, Keyed>>): Derived["features"] {
+  const out: Derived["features"] = {};
+  for (const field of AA_FEATURES)
+    for (const k of table.get(`artificial-analysis.${field}`)?.values() ?? []) {
+      if (!k.family) continue;
+      (out[`${k.family.id}#${k.effort}`] ??= {})[field] = k.row.value;
+    }
+  return out;
 }
 
 /**

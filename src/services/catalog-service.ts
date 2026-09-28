@@ -35,6 +35,7 @@ import { readDerived } from "../infra/sources/cache.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
+import { withStandIns } from "./standins.ts";
 
 const DAY_MS = 24 * 3_600_000;
 /** Spec §5.2: `secs_per_task` counts once a rung has this many of the user's own runs. */
@@ -122,14 +123,18 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
 export function loadCatalog(o: { timings?: boolean; repo?: string } = {}): Catalog {
   // spec 1.2 §3.2: whatever the last sync derived; without one (first run, offline), the shipped values alone
   const synced = readDerived();
-  const base = buildCatalog({
-    models: shippedModels(),
-    scores: shippedScores(),
-    synced: synced?.scores,
-    facts: synced?.facts,
-    override: readOverride(),
-    listed: listedModels(o.repo),
-  });
+  // spec 1.2 §6.1: every value a rung lacks on a dimension the bars use comes from its nearest stand-in
+  const base = withStandIns(
+    buildCatalog({
+      models: shippedModels(),
+      scores: shippedScores(),
+      synced: synced?.scores,
+      facts: synced?.facts,
+      features: synced?.features,
+      override: readOverride(),
+      listed: listedModels(o.repo),
+    }),
+  );
   return o.timings === false ? base : { ...base, secs: measuredSecs(base) };
 }
 

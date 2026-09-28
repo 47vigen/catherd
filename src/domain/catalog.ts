@@ -73,6 +73,8 @@ const FamilySchema = z.looseObject({
   meteredOnPlan: z.boolean().default(false),
   on: z.partialRecord(z.enum(MODEL_KEYS), BackendModelSchema),
   notes: z.record(z.string(), z.string()).default({}),
+  /** the day the vendor released it (models.dev), a stand-in feature (spec 1.2 §6.3) */
+  releaseDate: z.iso.date().optional(),
 });
 export type Family = z.infer<typeof FamilySchema>;
 
@@ -161,6 +163,15 @@ export const OverrideSchema = z.looseObject({
 });
 export type Override = z.infer<typeof OverrideSchema>;
 
+/** Spec 1.2 §6.1: the rung whose value a rung without one uses on a dimension, as `inferred`. */
+export interface InferredStandIn {
+  like: string;
+  /** spec 1.2 §6.3's distance between the two */
+  distance: number;
+  /** the features that distance rests on */
+  features: string[];
+}
+
 interface Listed {
   id: string;
   efforts: string[];
@@ -182,6 +193,13 @@ export interface Catalog {
   listed: Record<string, { fetchedAt: string; models: Listed[] }>;
   /** `<canonical rung>|<kind or *>` → median seconds, only with ≥ 5 samples (spec §5.2) */
   secs: Record<string, number>;
+  /** canonical rung → the Artificial Analysis stand-in features a sync read for it (spec 1.2 §6.3) */
+  features: Record<string, Record<string, number>>;
+  /**
+   * canonical rung → per dimension it has no value for (of its own or through a treat-like), the stand-in
+   * whose value it uses as `inferred` (spec 1.2 §6.1); filled by the stand-in ranking (services/standins.ts)
+   */
+  inferred: Record<string, Partial<Record<Dim, InferredStandIn>>>;
 }
 
 /**
@@ -231,7 +249,13 @@ export function applyFacts(families: Family[], facts: Record<string, FamilyFacts
           reasoning: f.capabilities.reasoning || got.reasoning,
         }
       : f.capabilities;
-    return { ...f, price: x.price ?? f.price, capabilities, on };
+    return {
+      ...f,
+      price: x.price ?? f.price,
+      capabilities,
+      on,
+      ...(x.releaseDate || f.releaseDate ? { releaseDate: x.releaseDate ?? f.releaseDate } : {}),
+    };
   });
 }
 
@@ -261,6 +285,7 @@ export function buildCatalog(o: {
   override?: Override;
   listed?: Catalog["listed"];
   secs?: Catalog["secs"];
+  features?: Catalog["features"];
   now?: number;
 }): Catalog {
   const now = o.now ?? Date.now();
@@ -293,6 +318,8 @@ export function buildCatalog(o: {
     barsWhy: o.scores.barsWhy,
     listed: o.listed ?? {},
     secs: o.secs ?? {},
+    features: o.features ?? {},
+    inferred: {},
   };
 }
 
@@ -340,8 +367,9 @@ export function rungInfo(c: Catalog, rung: string): RungInfo {
 
 /**
  * The rung's scores: per dimension its own value, else that of the rung it is treated like (a sync may score
- * a rung on some dimensions only). `via` names that rung when it lends any value, `borrowed` the dimensions
- * it lends. null when unscored.
+ * a rung on some dimensions only), else its inferred stand-in's (spec 1.2 §6.1). `via` names the treat-like
+ * when it lends any value and `borrowed` the dimensions it lends; `inferred` the dimensions an inferred
+ * stand-in fills and `standIns` whose values they are. null when it has no value at all.
  */
 export function scoresOf(
   c: Catalog,
@@ -351,22 +379,33 @@ export function scoresOf(
   records: Partial<Record<Dim, Score>>;
   via: string | null;
   borrowed: Dim[];
+  inferred: Dim[];
+  standIns: Partial<Record<Dim, string>>;
 } | null {
   const own = c.scores[canonical] ?? {};
   const like = c.treatLike[canonical]?.like ?? null;
   const lent = like ? (c.scores[like] ?? {}) : {};
+  const guessed = c.inferred[canonical] ?? {};
   const values: Partial<Record<Dim, number>> = {};
   const records: Partial<Record<Dim, Score>> = {};
   const borrowed: Dim[] = [];
+  const inferred: Dim[] = [];
+  const standIns: Partial<Record<Dim, string>> = {};
   for (const d of DIMS) {
-    const r = own[d] ?? lent[d];
+    const stand = guessed[d];
+    const r = own[d] ?? lent[d] ?? (stand ? c.scores[stand.like]?.[d] : undefined);
     if (!r) continue;
     records[d] = r;
     values[d] = r.value;
-    if (!own[d]) borrowed.push(d);
+    if (own[d]) continue;
+    if (lent[d]) borrowed.push(d);
+    else if (stand) {
+      inferred.push(d);
+      standIns[d] = stand.like;
+    }
   }
   if (Object.keys(records).length === 0) return null;
-  return { values, records, via: borrowed.length ? like : null, borrowed };
+  return { values, records, via: borrowed.length ? like : null, borrowed, inferred, standIns };
 }
 
 /** Spec §4 roles: what a rung must offer to be placed on a role. */

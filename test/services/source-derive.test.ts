@@ -131,6 +131,14 @@ describe("anchors and calibration (spec 1.2 §4.1, §4.2)", () => {
     );
   });
 
+  it("keeps Artificial Analysis's stand-in features per rung, and none without its answer (spec 1.2 §6.3)", () => {
+    expect(keyless().features).toEqual({});
+    const d = derive(rawAnswers(AT, { aa: true }), shippedContext(NOW));
+    expect(Object.keys(d.features["gpt-6-sol#max"] ?? {}).sort()).toEqual(
+      ["artificial_analysis_intelligence_index", "hle", "lcr", "scicode"].sort(),
+    );
+  });
+
   it("calibrates Artificial Analysis onto the shipped anchor, never using it as one (synthetic fixture)", () => {
     const d = derive(rawAnswers(AT, { aa: true }), shippedContext(NOW));
     expect(d.fits.find((f) => f.field === "scicode")).toMatchObject({ dim: "repo_code", n: 5, used: true });

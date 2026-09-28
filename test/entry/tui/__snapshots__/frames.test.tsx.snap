@@ -369,9 +369,9 @@ exports[`frames profiles 120x40 1`] = `
        ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1  0 of 5
+       ▸ opencode/claude-haiku-4-5  0 of 2
        ▸ opencode/claude-opus-5-5   0 of 5
        ▸ opencode/claude-sonnet-5   0 of 5
-       ▸ opencode/gpt-5.6-luna      0 of 6
   ↓ 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -413,9 +413,9 @@ exports[`frames profiles 120x40 plain 1`] = `
        > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1  0 of 5
+       > opencode/claude-haiku-4-5  0 of 2
        > opencode/claude-opus-5-5   0 of 5
        > opencode/claude-sonnet-5   0 of 5
-       > opencode/gpt-5.6-luna      0 of 6
   v 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -581,9 +581,9 @@ exports[`frames profiles-dirty 120x40 1`] = `
        ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1  0 of 5
+       ▸ opencode/claude-haiku-4-5  0 of 2
        ▸ opencode/claude-opus-5-5   0 of 5
        ▸ opencode/claude-sonnet-5   0 of 5
-       ▸ opencode/gpt-5.6-luna      0 of 6
   ↓ 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
@@ -625,9 +625,9 @@ exports[`frames profiles-dirty 120x40 plain 1`] = `
        > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1  0 of 5
+       > opencode/claude-haiku-4-5  0 of 2
        > opencode/claude-opus-5-5   0 of 5
        > opencode/claude-sonnet-5   0 of 5
-       > opencode/gpt-5.6-luna      0 of 6
   v 34 more
 space turns the role on or off; enter opens its access, default rung and models
 
