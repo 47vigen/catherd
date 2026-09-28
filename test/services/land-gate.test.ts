@@ -5,7 +5,12 @@ import { dirname, join } from "node:path";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import { land, route } from "../../src/services/lane-service.ts";
-import { namesMilestone } from "../../src/services/milestones.ts";
+import {
+  isDocPath,
+  namesMilestone,
+  reviewerPassed,
+  reviewsMilestone,
+} from "../../src/services/milestones.ts";
 import { appendAgentRun, appendRecord } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
@@ -147,6 +152,51 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(namesMilestone("M1-verifier", "M1")).toBe(true);
     expect(namesMilestone("verifier-M10", "M1")).toBe(false);
     expect(namesMilestone("verifierM1", "M1")).toBe(false);
+  });
+
+  it("takes reviewer-<M> followed by the end, '-', '.' or '_' as M's reviewer, never reviewer-M10 for M1", async () => {
+    expect(
+      ["reviewer-M1", "reviewer-M1-fix", "reviewer-M1.2", "reviewer-M1_b"].map((n) =>
+        reviewsMilestone(n, "M1"),
+      ),
+    ).toEqual([true, true, true, true]);
+    expect(["reviewer-M10", "reviewer-M1x", "reviewer-M2"].map((n) => reviewsMilestone(n, "M1"))).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "reviewer-M10",
+        role: "reviewer",
+        lane: null,
+        endedAt: new Date().toISOString(),
+      }),
+    );
+    expect(reviewerPassed(run, "M1", null)).toBe(false);
+  });
+
+  it("counts prose .txt files as docs, but not dependency or build manifests", () => {
+    expect(["notes.txt", "docs/a.json", "README.md", "LICENSE.txt"].map(isDocPath)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(
+      [
+        "requirements.txt",
+        "requirements-dev.txt",
+        "py/constraints.txt",
+        "CMakeLists.txt",
+        "src/x/CMakeLists.txt",
+      ].map(isDocPath),
+    ).toEqual([false, false, false, false, false]);
   });
 
   it("lands a docs-only milestone with skip, and refuses the skip when code changed", async () => {

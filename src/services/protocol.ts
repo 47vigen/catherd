@@ -10,6 +10,7 @@ import {
   milestoneStart,
   namesMilestone,
   reviewerPassed,
+  reviewsMilestone,
   verifierPassed,
 } from "./milestones.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -150,7 +151,7 @@ export function writeDigest(
     return `- ${lane} · ${first}${last !== first ? ` → ${last}` : ""}${climbs.length ? ` · climbs: ${climbs.map((c) => c.reason ?? "").join("; ")}` : ""}`;
   });
   const records = readRecords(run).records;
-  const reviewer = records.findLast((r) => r.name.startsWith(`reviewer-${m}`) && r.status === "ok");
+  const reviewer = records.findLast((r) => reviewsMilestone(r.name, m) && r.status === "ok");
   const agents = readAgentRuns(run);
   const verifier = agents.findLast((a) => a.role === "verifier" && namesMilestone(a.name, m));
   const steps = readJsonl<VerifierStep>(join(run.dir, "verifier.jsonl")).rows.filter(

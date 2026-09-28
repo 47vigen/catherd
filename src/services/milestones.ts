@@ -11,6 +11,14 @@ import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./ru
 export const namesMilestone = (name: string, m: string): boolean =>
   new RegExp(`(^|[^A-Za-z0-9])${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^0-9])`).test(name);
 
+/** `name` is milestone `m`'s reviewer: reviewer-<m> then the end, '-', '.' or '_' (reviewer-M10 is not M1's). */
+export const reviewsMilestone = (name: string, m: string): boolean => {
+  const head = `reviewer-${m}`;
+  return (
+    name.startsWith(head) && (name.length === head.length || "-._".includes(name[head.length] as string))
+  );
+};
+
 const inMilestone = (lane: string | null | undefined, m: string): boolean =>
   typeof lane === "string" && lane.startsWith(`${m}.`);
 
@@ -35,7 +43,7 @@ const since = (at: string, start: string | null) => start === null || Date.parse
 /** A reviewer record for the milestone since its lanes started: a dispatch named reviewer-<m>…, status ok. */
 export function reviewerPassed(run: Run, m: string, start = milestoneStart(run, m)): boolean {
   return readRecords(run).records.some(
-    (r) => r.name.startsWith(`reviewer-${m}`) && r.status === "ok" && since(r.endedAt, start),
+    (r) => reviewsMilestone(r.name, m) && r.status === "ok" && since(r.endedAt, start),
   );
 }
 
@@ -90,8 +98,10 @@ export async function milestoneFiles(run: Run, commit: string): Promise<string[]
 }
 
 const DOC = /(^|\/)docs\/|\.(md|mdx|markdown|txt|rst|adoc)$/i;
+/** .txt files that configure a build or pin dependencies: not docs */
+const TXT_MANIFEST = /(^|\/)(requirements[^/]*|constraints[^/]*|CMakeLists)\.txt$/i;
 const SOURCE =
   /\.(ts|tsx|js|jsx|mjs|cjs|go|py|rs|java|kt|kts|swift|rb|php|c|h|cc|cpp|hpp|cs|m|scala|sh|bash|zsh|sql|vue|svelte|css|scss|sass|less|html|dart|ex|exs|erl|zig|lua)$/i;
 
-export const isDocPath = (p: string): boolean => DOC.test(p);
+export const isDocPath = (p: string): boolean => DOC.test(p) && !TXT_MANIFEST.test(p);
 export const isSourcePath = (p: string): boolean => SOURCE.test(p) && !isDocPath(p);
