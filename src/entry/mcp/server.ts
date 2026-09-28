@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { errorMessage } from "../../domain/errors.ts";
 import { log } from "../../infra/log.ts";
+import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
 import { defaultDeps } from "../deps.ts";
@@ -55,9 +56,20 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
   return server;
 }
 
-/** Spec §4.7: connect first, so the client never waits on a scan; then reconcile every run. */
+/**
+ * Spec §4.7: connect first, so the client never waits on a scan; then reconcile every run. Spec §3.4: the notifier
+ * starts before reconcile, so what reconcile settles is announced, and scans for the rest once it is done.
+ */
 export async function startMcpServer(): Promise<void> {
   const deps = defaultDeps();
+  // which of the session's variables this server got (never their values): the live check of spec §3.9
+  log("info", "session", {
+    sessionId: Boolean(deps.session?.sessionId),
+    hostSessionId: Boolean(deps.session?.hostSessionId),
+    socket: Boolean(deps.session?.socketPath),
+    token: Boolean(deps.session?.token),
+  });
+  const notifier = startNotifier(deps);
   await buildServer(deps).connect(new StdioServerTransport());
   try {
     const r = await reconcileAll(deps);
@@ -69,4 +81,6 @@ export async function startMcpServer(): Promise<void> {
   } catch (e) {
     console.error(`catherd: reconcile failed: ${errorMessage(e)}`);
   }
+  // whatever finished unread while no server ran, or finished under another server (spec §3.4)
+  void notifier.scan();
 }

@@ -38,6 +38,8 @@ export function dispatchPaths(dir: string) {
     supervisorLog: join(dir, "supervisor.log"),
     /** what failover did for this limited dispatch, written once under `failover.lock` (plan 10) */
     failover: join(dir, "failover.json"),
+    /** the message that announced this dispatch's record to its session, once sent (plan 10) */
+    notified: join(dir, "notified.json"),
   };
 }
 

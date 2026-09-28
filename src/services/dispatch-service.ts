@@ -120,6 +120,8 @@ function start(d: Dispatch, specPath: string): void {
 
 /** The watchers this process started, each until its dispatch is settled. */
 const watchers = new Set<Promise<void>>();
+/** The dispatches some watcher of this process is on (this module's, or reconcile's): watched once each. */
+export const watching = new Set<string>();
 
 /** Settles once every watcher has: tests await it so none outlives its test. */
 export async function watchersSettled(): Promise<void> {
@@ -131,6 +133,7 @@ export async function watchersSettled(): Promise<void> {
  * after-snapshot holds only its own writes and the live list and the spend stay true. Its errors are logged.
  */
 export function watch(deps: Deps, run: Run, d: Dispatch): void {
+  watching.add(d.admit.dispatchId);
   const w = (async () => {
     await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
     const s = await settle(deps, run, d, await finalizeDispatch(run, d));
@@ -139,8 +142,20 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
     .catch((e: unknown) =>
       log("warn", "dispatch", { run: run.id, name: d.admit.name, error: errorMessage(e) }),
     )
-    .finally(() => watchers.delete(w));
+    .finally(() => {
+      watchers.delete(w);
+      watching.delete(d.admit.dispatchId);
+    });
   watchers.add(w);
+}
+
+/**
+ * Spec §3.3: a run this session has just taken over may have roles another session's server launched. This
+ * process watches each live one it is not already watching, so it settles them and its notifier announces them
+ * to their new owner (a second settle of a dispatch is harmless: finalize and failover run once).
+ */
+export function adopt(deps: Deps, run: Run): void {
+  for (const d of liveDispatches(run, deps.now())) if (!watching.has(d.admit.dispatchId)) watch(deps, run, d);
 }
 
 /**
@@ -149,7 +164,7 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
-  await claimRun(deps, run);
+  if (await claimRun(deps, run)) adopt(deps, run);
   const { d, specPath } = await admit(deps, run, {
     role: i.role,
     name: i.name,
