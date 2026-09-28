@@ -118,9 +118,10 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
 
 /**
  * The shipped catalog with every listing (in `repo` for a backend listed per repository), the user's
- * override and, unless `timings: false`, own timings.
+ * override (or `override` in its place: what a change to it would make) and, unless `timings: false`, own
+ * timings.
  */
-export function loadCatalog(o: { timings?: boolean; repo?: string } = {}): Catalog {
+export function loadCatalog(o: { timings?: boolean; repo?: string; override?: Override } = {}): Catalog {
   // spec 1.2 §3.2: whatever the last sync derived; without one (first run, offline), the shipped values alone
   const synced = readDerived();
   // spec 1.2 §6.1: every value a rung lacks on a dimension the bars use comes from its nearest stand-in
@@ -131,7 +132,7 @@ export function loadCatalog(o: { timings?: boolean; repo?: string } = {}): Catal
       synced: synced?.scores,
       facts: synced?.facts,
       features: synced?.features,
-      override: readOverride(),
+      override: o.override ?? readOverride(),
       listed: listedModels(o.repo),
     }),
   );
@@ -286,6 +287,30 @@ export async function saveTreatLike(rung: string, like: string): Promise<{ rung:
     writeJsonAtomic(overridePath(), next);
   });
   return { rung: from, like: to };
+}
+
+/** A rung given as `backend:model#effort` or `model#effort`, as the canonical rung the override keys it by. */
+export const canonicalRung = (rung: string): string => canonicalOf(loadCatalog({ timings: false }), rung);
+
+/**
+ * Spec 1.2 §6.4 `treat-like --clear|--reset`: removes the user's treat-likes for `rungs` (canonical), or every
+ * one with `"all"`, from catalog.override.json; the shipped ones are not the user's to remove. Returns the
+ * mappings removed. Leaves the override's other fields as they are.
+ */
+export async function removeTreatLikes(rungs: string[] | "all"): Promise<[string, string][]> {
+  if (!existsSync(overridePath())) return [];
+  let removed: [string, string][] = [];
+  await withFileLock(overridePath(), () => {
+    const cur = readOverride();
+    const gone = Object.entries(cur.treatLike).filter(([r]) => rungs === "all" || rungs.includes(r));
+    removed = gone;
+    if (gone.length === 0) return;
+    const treatLike = Object.fromEntries(
+      Object.entries(cur.treatLike).filter(([r]) => !gone.some(([g]) => g === r)),
+    );
+    writeJsonAtomic(overridePath(), { ...cur, schema: 1, treatLike });
+  });
+  return removed;
 }
 
 /** The backend a billing or harness key bills or isolates: `opencode-go` is a provider of the opencode backend. */

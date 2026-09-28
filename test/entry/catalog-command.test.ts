@@ -76,6 +76,81 @@ describe("catherd catalog", () => {
     expect(catherd("list", "--backend", "codex").code).toBe(0);
   });
 
+  it("suggests the three nearest stand-ins, and clears and resets the user's mappings (spec 1.2 §6.4)", () => {
+    withHome();
+    const s = catherd("treat-like", "--suggest", "codex:gpt-5.6-terra#high");
+    expect(s.code).toBe(0);
+    const lines = s.out.trimEnd().split("\n");
+    expect(lines[0]).toBe(
+      "gpt-5.6-terra#high has no repo_code, terminal, honesty value of its own; the nearest stand-ins:",
+    );
+    expect(
+      lines.slice(1, 4).every((l) => /^ {2}[123]\. \S+#\S+ {2}distance \d+\.\d\d {2}lends \S/.test(l)),
+    ).toBe(true);
+    expect(lines[4]).toBe("map one: catherd catalog treat-like codex:gpt-5.6-terra#high <rung>");
+    expect(
+      JSON.parse(catherd("treat-like", "--suggest", "codex:gpt-5.6-terra#high", "--json").out).suggestions,
+    ).toHaveLength(3);
+
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const cleared = catherd("treat-like", "--clear", "codex:gpt-5.6-terra#high");
+    expect([cleared.code, cleared.out]).toEqual([
+      0,
+      "✓ gpt-5.6-terra#high is no longer treated like gpt-6-sol#high\n",
+    ]);
+    const again = catherd("treat-like", "--clear", "codex:gpt-5.6-terra#high");
+    expect([again.code, again.err.split("\n")[0]]).toEqual([
+      2,
+      "error E_INPUT_INVALID: gpt-5.6-terra#high has no treat-like of yours to clear",
+    ]);
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const reset = catherd("treat-like", "--reset");
+    expect([reset.code, reset.out]).toEqual([
+      0,
+      "✓ removed 1 treat-like: gpt-5.6-terra#high → gpt-6-sol#high\n",
+    ]);
+    expect(catherd("treat-like", "--reset").out).toBe("no treat-like of yours to remove\n");
+  });
+
+  it("names the profile rungs a cleared mapping leaves on an inferred stand-in", () => {
+    withHome();
+    const worker = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "codex:gpt-5.6-terra#high"];
+    const set = Bun.spawnSync(
+      [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
+      {
+        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(set.exitCode).toBe(0);
+    expect(catherd("treat-like", "codex:gpt-5.6-terra#high", "gpt-6-sol#high").code).toBe(0);
+    const r = catherd("treat-like", "--clear", "gpt-5.6-terra#high");
+    expect(r.out).toBe(
+      [
+        "! default: codex:gpt-5.6-terra#high is left on an inferred stand-in for repo_code, terminal, honesty",
+        "✓ gpt-5.6-terra#high is no longer treated like gpt-6-sol#high",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("refuses treat-like with neither a pair nor one of its flags, or with two of them, with exit 2", () => {
+    withHome();
+    for (const args of [
+      [],
+      ["codex:gpt-6-sol#high"],
+      ["--reset", "--clear", "a#high"],
+      ["a#high", "b#high", "--reset"],
+    ]) {
+      const r = catherd("treat-like", ...args);
+      expect([r.code, r.err.split("\n")[0]]).toEqual([
+        2,
+        "error E_INPUT_INVALID: treat-like takes <rung> <like>, or one of --suggest, --clear, --reset",
+      ]);
+    }
+  });
+
   it("refuses a treat-like for a rung that is already scored, with exit 1", () => {
     withHome();
     const r = catherd("treat-like", "codex:gpt-6-sol#high", "gpt-6-sol#xhigh");
