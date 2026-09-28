@@ -56,6 +56,15 @@ function claimStale(dir: string): boolean {
   return claimAgeMs(dir) > settleLimits.timeoutMs + gitLimits.timeoutMs + settleLimits.claimMarginMs;
 }
 
+/**
+ * Whether another live process holds this dispatch's finalizer claim (not yet stale): that process writes its
+ * record and settles it, so a recovery pass (`claim`) leaves it alone rather than wait on it.
+ */
+export function finalizingElsewhere(dir: string): boolean {
+  const who = readClaimant(dir);
+  return who !== null && who.pid !== process.pid && !claimStale(dir);
+}
+
 /** The owned paths of the run's other dispatches whose lifetime overlapped [start, end]. */
 function othersOwns(run: Run, self: Dispatch, start: number, end: number): string[] {
   const ended = new Map(readRecords(run).records.map((r) => [r.dispatchId, Date.parse(r.endedAt)]));

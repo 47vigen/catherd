@@ -624,7 +624,8 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect(inbox?.frames).toEqual([]);
     // this session takes the run over: its limit fails over now, once, and this session hears of it
     await peek(deps, { run: run.id });
-    expect(readFailover(d.dir)?.standIn?.rung).toBe("codex:gpt-6-sol#high");
+    // a peek never waits: the claim settles the limit after it returns
+    expect((await waitFor(() => readFailover(d.dir)))?.standIn?.rung).toBe("codex:gpt-6-sol#high");
     const [f] = await (inbox as FakeInbox).received(1);
     expect(f?.message.content).toContain(
       "· limit on codex:gpt-6-sol#medium; failed over to codex:gpt-6-sol#high ·",
@@ -692,6 +693,33 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     await watchersSettled();
   });
 
+  it("answers a peek at once while another live process holds a limit's failover lock (codex r4)", async () => {
+    scenario();
+    const { run } = freshRun("Auth plan 5 MR B");
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const d = await limitedOnDisk(run);
+    // another server is failing this limit over: it holds the lock (a settle would wait up to 120 s on it)
+    const holder = Bun.spawn(["sleep", "60"], { stdio: ["ignore", "ignore", "ignore"], env: process.env });
+    try {
+      writeFileSync(
+        `${dispatchPaths(d.dir).failover}.lock`,
+        JSON.stringify({ pid: holder.pid, startTime: processStartTime(holder.pid) }),
+      );
+      const deps = fakeDeps({ session: await sessionWithInbox(), view: testView({ failover: FAILOVER }) });
+      const deadline = Bun.sleep(3_000).then(() => "still waiting" as const);
+      const out = await Promise.race([peek(deps, { run: run.id }), deadline]);
+      if (out === "still waiting") throw new Error("peek waited on the failover lock");
+      expect(out.runs[0]?.owner).toBe("s-me");
+      expect(out.runs[0]?.unread.map((u) => u.dispatchId)).toEqual([d.admit.dispatchId]);
+      // the lock's holder settles it: this process started no stand-in and paused nothing
+      await watchersSettled();
+      expect(readFailover(d.dir)).toBeNull();
+      expect(listDispatches(run)).toHaveLength(1);
+    } finally {
+      holder.kill("SIGKILL");
+    }
+  });
+
   it("records, settles and announces, on a peek by its owner, a role whose watcher failed to finalize it", async () => {
     const { run, deps, n } = await owned();
     const d = await fakeDispatch(
@@ -711,6 +739,8 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect(readRecords(run).records).toEqual([]);
     // the same session peeks: nothing about the owner changes, the finished role is still taken care of
     await peek(deps, { run: run.id });
+    // a peek never waits: its claim records and settles the role after it returns
+    await watchersSettled();
     expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([d.admit.dispatchId]);
     const [f] = await (inbox as FakeInbox).received(1);
     expect(f?.message.content).toContain(`name: "${d.admit.name}"`);
@@ -718,6 +748,7 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect(existsSync(dispatchPaths(d.dir).notified)).toBe(true);
     // a second peek finds nothing left: no second message
     await peek(deps, { run: run.id });
+    await watchersSettled();
     await n.idle();
     expect(inbox?.frames).toHaveLength(1);
   });

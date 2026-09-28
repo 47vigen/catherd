@@ -12,7 +12,7 @@ import {
   supervisorAlive,
   tryCollect,
 } from "../infra/dispatch-dir.ts";
-import { withFileLock } from "../infra/filelock.ts";
+import { lockHeld, withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
@@ -30,7 +30,7 @@ import {
   readProc,
   recordHints,
 } from "./dispatches.ts";
-import { finalizeDispatch, waitForFinish } from "./finalize.ts";
+import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, readRecords, type Run } from "./run-store.ts";
 import { claimRun, ownsRun } from "./sessions.ts";
@@ -200,14 +200,42 @@ export function adopt(deps: Deps, run: Run): void {
  * settles again each unread record no message announced (the earlier owner's server settled it but never told
  * its session). Each settle runs the hooks, so the notifier tells the owner. Nothing left, nothing done. A
  * settle that fails is logged and never fails the call.
+ *
+ * Codex r4 ruling: the recovery never waits on another live process. A role whose finalizer claim, or a limit
+ * whose failover lock, another live process holds is left to that process (it writes the record, fails over
+ * and runs its own hooks). With `background` (peek, spec §3.7 "never waits") the recovery runs after the call
+ * returns, its errors logged; `dispatch` awaits it, bounded by those skips. One recovery per run at a time.
  */
-export async function claim(deps: Deps, run: Run): Promise<void> {
+export async function claim(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
   if (!(await claimRun(deps, run)) && !ownsRun(deps, run)) return;
   adopt(deps, run);
+  let r = recovering.get(run.id);
+  if (!r) {
+    const p: Promise<void> = recover(deps, run)
+      .catch((e: unknown) => log("warn", "claim", { run: run.id, error: errorMessage(e) }))
+      .finally(() => {
+        recovering.delete(run.id);
+        watchers.delete(p);
+      });
+    recovering.set(run.id, p);
+    watchers.add(p);
+    r = p;
+  }
+  if (!o.background) await r;
+}
+
+/** The recovery pass `claim` has in flight, by run id. */
+const recovering = new Map<string, Promise<void>>();
+
+/** A limit's failover lock another live process holds: its settle fails it over and announces it. */
+const failingOverElsewhere = (d: Dispatch): boolean => lockHeld(dispatchPaths(d.dir).failover);
+
+async function recover(deps: Deps, run: Run): Promise<void> {
   const warn = (d: Dispatch, e: unknown) =>
     log("warn", "claim", { run: run.id, name: d.admit.name, error: errorMessage(e) });
   for (const d of pendingDispatches(run, deps.now())) {
     if (d.state !== "finished" || watching.has(d.admit.dispatchId)) continue;
+    if (finalizingElsewhere(d.dir)) continue;
     try {
       await settle(deps, run, d, await finalizeDispatch(run, d));
     } catch (e) {
@@ -217,7 +245,7 @@ export async function claim(deps: Deps, run: Run): Promise<void> {
   const limits = unsettledLimits(run);
   for (const { d, record } of limits) {
     // a watcher here settles it (a peek never waits on its failover lock)
-    if (watching.has(d.admit.dispatchId)) continue;
+    if (watching.has(d.admit.dispatchId) || failingOverElsewhere(d)) continue;
     try {
       await settle(deps, run, d, record);
     } catch (e) {
@@ -227,6 +255,7 @@ export async function claim(deps: Deps, run: Run): Promise<void> {
   const done = new Set(limits.map((l) => l.d.admit.dispatchId));
   for (const { d, record } of unannounced(run)) {
     if (done.has(d.admit.dispatchId) || watching.has(d.admit.dispatchId)) continue;
+    if (record.status === "limit" && failingOverElsewhere(d)) continue;
     try {
       await settle(deps, run, d, record);
     } catch (e) {

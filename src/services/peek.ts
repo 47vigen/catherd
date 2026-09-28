@@ -83,7 +83,8 @@ export async function peek(
   let runs: Run[];
   if (i.run) {
     const run = findRun(i.run);
-    await claim(deps, run);
+    // ownership now; what the run's earlier owner left is taken care of after the call returns
+    await claim(deps, run, { background: true });
     runs = [run];
   } else {
     const all = listRuns().runs;
