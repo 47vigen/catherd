@@ -1,4 +1,5 @@
 import type { Budget } from "../domain/budget.ts";
+import type { SessionEnv } from "../infra/claude-session.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
@@ -124,9 +125,9 @@ export interface Deps {
   profiles: ProfilePort;
   routing: RoutingPort;
   version: string;
-  /** how often the supervisor and the dispatch wait poll, in ms */
+  /** how often the supervisor and the dispatch watchers poll, in ms */
   pollMs: number;
-  /** how often a running dispatch reports progress, in ms (spec §4.4: 30 s) */
-  tickMs: number;
+  /** the Claude Code session this process serves (spec §3.3), from its environment; null outside one */
+  session: SessionEnv | null;
   now: () => number;
 }

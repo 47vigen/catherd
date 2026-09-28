@@ -189,13 +189,19 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     const started = Date.now();
     let lastActivity = started;
     let finalAt: number | null = null;
+    // spec §3.6: a quiet stretch of half the idle timeout, not busy, is a stall, reported once per dispatch
+    let stalled = false;
+    let stallChecked = false;
     const open = new Set<string>();
     const stream = { offset: 0, rest: "", decoder: new TextDecoder("utf-8") };
 
     while (!done && reason === null) {
       await Bun.sleep(spec.pollMs);
       const lines = readNew(p.events, stream);
-      if (lines.length) lastActivity = Date.now();
+      if (lines.length) {
+        lastActivity = Date.now();
+        stallChecked = false;
+      }
       for (const line of lines) {
         let d: LineInfo | undefined;
         try {
@@ -222,8 +228,32 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended, read
         // from the child itself too, since `done` is set by a callback that may not have run yet
         if (done || child.exitCode !== null || child.signalCode !== null) break;
-        if (busy) lastActivity = Date.now();
-        else reason = "idle-timeout";
+        if (busy) {
+          // a new quiet stretch starts: it gets its own stall check
+          lastActivity = Date.now();
+          stallChecked = false;
+        } else reason = "idle-timeout";
+      } else if (!stalled && !stallChecked && now - lastActivity >= spec.idleMs / 2) {
+        // asked once per quiet stretch: a busy answer starts a new quiet stretch, with its own half-way check,
+        // so a worker busy here and idle later is reported stalled before the idle check ends it
+        stallChecked = true;
+        const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
+        if (busy) {
+          lastActivity = Date.now();
+          stallChecked = false;
+        } else if (!done) {
+          stalled = true;
+          // advisory: a write that fails is logged and never ends a healthy worker
+          try {
+            writeJsonAtomic(p.stall, {
+              schema: 1,
+              at: new Date().toISOString(),
+              quietMs: Date.now() - lastActivity,
+            });
+          } catch (e) {
+            log("warn", "stall", { dispatch: spec.dispatchDir, error: errorMessage(e) });
+          }
+        }
       }
     }
   } catch (e) {

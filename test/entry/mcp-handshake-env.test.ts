@@ -8,4 +8,15 @@ describe("doctor's MCP handshake", () => {
     expect(env.PATH).toBe("/usr/bin");
     expect(env.HOME).toBe("/h");
   });
+
+  it("starts the server with no session identity, so it never takes itself for the doctor's session", () => {
+    const env = handshakeEnv({
+      CLAUDE_CODE_SESSION_ID: "s",
+      CLAUDE_CODE_HOST_SESSION_ID: "h",
+      CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc-socks/1.sock",
+      CLAUDE_CODE_MESSAGING_TOKEN: "t",
+      PATH: "/usr/bin",
+    });
+    expect(env).toEqual({ PATH: "/usr/bin" });
+  });
 });

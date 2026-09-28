@@ -4,10 +4,16 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import { dispatchPaths } from "../infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
-import { dispatchState, type DispatchState, latestDispatch } from "./dispatches.ts";
+import {
+  dispatchState,
+  type DispatchState,
+  latestDispatch,
+  listDispatches,
+  recordHints,
+} from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import {
   type AgentRun,
@@ -18,6 +24,7 @@ import {
   readRecords,
   runFile,
 } from "./run-store.ts";
+import { claimRun, currentSession } from "./sessions.ts";
 import { refreshState } from "./state.ts";
 
 export async function startRun(
@@ -35,7 +42,9 @@ export async function startRun(
     aLines: i.aLines,
     version: deps.version,
     now: new Date(deps.now()),
+    startedBy: currentSession(deps),
   });
+  await claimRun(deps, run);
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
   return { run: run.id, dir: run.dir, ...(hints.length ? { hints } : {}) };
@@ -81,17 +90,23 @@ function capReply(reply: string, path: string): string {
   return `${head.slice(0, CAP_CHARS)}\n[capped: the full reply is ${path}]`;
 }
 
-/** A role's latest dispatch: its record once finished, and its capped reply. Reads only. */
-export function result(
+/**
+ * A role's latest dispatch: its record once finished, its capped reply and its hints. Spec §3.7: reading a
+ * finished record marks it read, with the collect lease (each record is marked read once, whoever reads it);
+ * an earlier record of the same name still unread (a usage limit its stand-in replaced) is marked read with it,
+ * and its hints come first.
+ */
+export async function result(
   deps: Deps,
   i: { run: string; name: string },
-): {
+): Promise<{
   name: string;
   state: DispatchState | null;
   record: RunRecord | null;
   reply: string;
   replyPath: string | null;
-} {
+  hints: string[];
+}> {
   const run = findRun(i.run);
   assertId("role name", i.name);
   const d = latestDispatch(run, i.name);
@@ -99,7 +114,17 @@ export function result(
     throw new CatherdError("E_RUN_NOT_FOUND", `${i.name} was never dispatched in this run`, {
       fix: "status(run) lists the roles",
     });
-  const record = readRecords(run).records.find((r) => r.dispatchId === d.admit.dispatchId) ?? null;
+  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
+  const record = records.get(d.admit.dispatchId) ?? null;
+  const hints: string[] = [];
+  for (const x of listDispatches(run).filter((x) => x.admit.name === i.name)) {
+    const r = records.get(x.admit.dispatchId);
+    if (!r || !awaitsCollect(x.dir) || !(await tryCollect(x.dir))) continue;
+    // read at once: the lease ends as the record goes out
+    endCollect(x.dir);
+    if (x.admit.dispatchId !== d.admit.dispatchId) hints.push(...recordHints(run, x, r));
+  }
+  if (record) for (const h of recordHints(run, d, record)) if (!hints.includes(h)) hints.push(h);
   const reply = dispatchPaths(d.dir).reply;
   const text = existsSync(reply) ? readFileSync(reply, "utf8") : "";
   return {
@@ -108,6 +133,7 @@ export function result(
     record,
     reply: capReply(text, relative(run.dir, reply)),
     replyPath: relative(run.dir, reply),
+    hints,
   };
 }
 

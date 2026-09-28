@@ -197,6 +197,15 @@ describe("claude-code parse", () => {
     });
   });
 
+  it("says what the worker is doing: a command, a file edit, its text (spec §3.7 peek)", () => {
+    const all = lines("read-only-write.jsonl")
+      .map((l) => claudeCodeAdapter.parse(l).activity)
+      .filter(Boolean);
+    expect(all).toContain("edit <repo>/out.txt");
+    expect(all).toContain('$ echo "hi" > out.txt');
+    expect(lines("ok.jsonl").map((l) => claudeCodeAdapter.parse(l).activity)).toContain("hello");
+  });
+
   it("reports the first request's own input from its assistant message, not the session's total", () => {
     const first = lines("read-only-write.jsonl")
       .map((l) => claudeCodeAdapter.parse(l).requestInput)

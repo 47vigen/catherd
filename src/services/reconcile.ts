@@ -3,11 +3,12 @@ import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
+import { settle, stallPoll, unsettledLimits, watching } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, type Run } from "./run-store.ts";
-import { refreshState } from "./state.ts";
+import { ownsRun } from "./sessions.ts";
 
 /**
  * Builds before the spec.json fix (plan-2 review I1) wrote every env value of the MCP server into
@@ -39,19 +40,31 @@ export interface ReconcileReport {
 }
 
 /**
- * Waits for a live dispatch this process did not start, then finalizes it. A state.md refresh that
- * fails rejects, after the record is written, with a message that says so.
+ * Waits for a live dispatch this process did not start, then finalizes and settles it (plan 10). A state.md
+ * refresh that fails rejects, after the record is written, with a message that says so.
  */
 async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void> {
-  await waitForFinish(d, { pollMs: deps.pollMs, tickMs: Number.POSITIVE_INFINITY, now: deps.now });
-  await finalizeDispatch(run, d);
-  const { hints } = await refreshState(run);
-  if (hints[0]) throw new Error(hints[0]);
+  watching.add(d.admit.dispatchId);
+  try {
+    await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
+    const record = await finalizeDispatch(run, d);
+    // a limit of a run this session does not own waits, unread, for the session that claims the run
+    if (record.status === "limit" && !ownsRun(deps, run)) return;
+    const s = await settle(deps, run, d, record);
+    if (s.stateHints[0]) throw new Error(s.stateHints[0]);
+  } finally {
+    watching.delete(d.admit.dispatchId);
+  }
 }
 
 /**
- * Spec §4.7: on server start, finalize each finished dispatch that has no record, and watch each live
- * one until it finishes. A run that cannot be read is skipped with a warning; it never stops the server.
+ * Spec §4.7: on server start, finalize and settle each finished dispatch that has no record, settle each
+ * unread usage limit that was never failed over (its server died between the two), and watch each live one
+ * until it finishes. A run that cannot be read is skipped with a warning; it never stops the server.
+ *
+ * Plan 10 fix-round ruling: a usage limit fails over here only in a run this session owns. A limit of a run
+ * another session owns, or no session does (a 1.0 run, a run started outside Claude Code), is only recorded:
+ * the session that claims the run settles it then (`claim`), so no stale run starts a stand-in on its own.
  */
 export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
   const { runs, corrupt } = listRuns();
@@ -75,20 +88,36 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
       warn(run, e);
       continue;
     }
+    const mine = ownsRun(deps, run);
     for (const d of pending) {
       if (d.state !== "finished") {
         report.watching.push(d.admit.dispatchId);
         watchers.push(watchAndFinalize(deps, run, d).catch((e: unknown) => warn(run, e)));
         continue;
       }
+      let hints: string[] = [];
       try {
-        await finalizeDispatch(run, d);
+        const record = await finalizeDispatch(run, d);
+        if (record.status !== "limit" || mine) hints = (await settle(deps, run, d, record)).stateHints;
       } catch (e) {
         warn(run, e);
         continue;
       }
       report.finalized.push(d.admit.dispatchId);
-      for (const h of (await refreshState(run)).hints) warn(run, h);
+      for (const h of hints) warn(run, h);
+    }
+    let limits: ReturnType<typeof unsettledLimits> = [];
+    try {
+      if (mine) limits = unsettledLimits(run);
+    } catch (e) {
+      warn(run, e);
+    }
+    for (const { d, record } of limits) {
+      try {
+        for (const h of (await settle(deps, run, d, record)).stateHints) warn(run, h);
+      } catch (e) {
+        warn(run, e);
+      }
     }
   }
   log("info", "reconcile", {

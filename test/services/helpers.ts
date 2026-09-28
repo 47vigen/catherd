@@ -3,18 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
+import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
-import {
-  dispatch,
-  type DispatchInput,
-  type Progress,
-  wait,
-  watchersSettled,
-} from "../../src/services/dispatch-service.ts";
+import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
+import { result } from "../../src/services/run-service.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 
@@ -53,7 +49,9 @@ export function testView(over: Partial<ProfileView> = {}): ProfileView {
 }
 
 /** Deps with a fixed profile view (mutate `view` to change it mid-test) and a routing fake. */
-export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): Deps & { view: ProfileView } {
+export function fakeDeps(
+  o: { view?: ProfileView; now?: () => number; session?: SessionEnv | null } = {},
+): Deps & { view: ProfileView } {
   const view = o.view ?? testView();
   const routing: RoutingPort = {
     async route(req) {
@@ -100,7 +98,15 @@ export function fakeDeps(o: { view?: ProfileView; now?: () => number } = {}): De
       return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
     },
   };
-  return { profiles, routing, version: "0.0.0-test", pollMs: 50, tickMs: 100, now: o.now ?? Date.now, view };
+  return {
+    profiles,
+    routing,
+    version: "0.0.0-test",
+    pollMs: 50,
+    session: o.session ?? null,
+    now: o.now ?? Date.now,
+    view,
+  };
 }
 
 /** An isolated CATHERD_HOME, a fresh git repo and a run in it. Call `afterEach(snapshotEnv())` in the file. */
@@ -137,31 +143,16 @@ export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_
 }
 
 /**
- * `dispatch`, then `wait` on that name until nothing of it runs (a failover stand-in included): what one
- * 0.x dispatch call did. The last record, and every hint on the way (the records' first, then the state
- * hints, once each).
+ * `dispatch`, then everything its watchers settle (a failover stand-in included), then `result`: what one
+ * 0.x dispatch call did. The last record, and every hint on the way (the records' first, then dispatch's
+ * state hints, once each).
  */
-export async function runRole(
-  deps: Deps,
-  i: DispatchInput,
-  onProgress?: Progress,
-): Promise<{ record: RunRecord; hints: string[] }> {
+export async function runRole(deps: Deps, i: DispatchInput): Promise<{ record: RunRecord; hints: string[] }> {
   const started = await dispatch(deps, i);
-  const hints: string[] = [];
-  const state = [...started.hints];
-  let record: RunRecord | null = null;
-  for (;;) {
-    const w = await wait(deps, { run: i.run, names: [i.name] }, onProgress);
-    for (const r of w.records) {
-      hints.push(...r.hints);
-      record = r.record;
-    }
-    for (const h of w.hints) if (!state.includes(h)) state.push(h);
-    if (!w.running.includes(i.name)) break;
-  }
   await watchersSettled();
-  if (!record) throw new Error(`no record for ${i.name}`);
-  return { record, hints: [...hints, ...state.filter((h) => !hints.includes(h))] };
+  const r = await result(deps, { run: i.run, name: i.name });
+  if (!r.record) throw new Error(`no record for ${i.name}`);
+  return { record: r.record, hints: [...r.hints, ...started.hints.filter((h) => !r.hints.includes(h))] };
 }
 
 interface FakeFiles {
@@ -173,7 +164,7 @@ interface FakeFiles {
   exit?: { code: number | null; signal: string | null; reason: ExitReason; endedAt: string };
   events?: string;
   reply?: string;
-  /** leave the marker `dispatch` leaves for `wait`, as any catherd server that launched it does */
+  /** leave the unread mark admission leaves, as any catherd server that admitted it does */
   collect?: boolean;
 }
 

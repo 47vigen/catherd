@@ -3,20 +3,24 @@ import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import * as dispatchDir from "../../src/infra/dispatch-dir.ts";
 import { awaitsCollect, dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import * as fin from "../../src/services/finalize.ts";
-import * as state from "../../src/services/state.ts";
 import {
   dispatch,
   type DispatchInput,
   launcher,
-  wait,
+  type Settled,
+  settledHooks,
+  type Stalled,
+  stallHooks,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
 import { admit } from "../../src/services/admission.ts";
 import { listDispatches, liveDispatches, startLimits } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
+import { reconcileAll } from "../../src/services/reconcile.ts";
+import { result } from "../../src/services/run-service.ts";
 import { readRecords, runPaths } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
@@ -178,8 +182,6 @@ describe("dispatch", () => {
 /** A file the simulated worker waits for before it exits: the test decides when each worker ends. */
 const holdFile = () => join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
 const OK = { reply: "Done.\nSTATUS: complete — ok" };
-const NOTHING = "nothing to wait for: every dispatch of this run has been collected; dispatch a role first";
-const NOTHING_FOR = (n: string) => `${n} has nothing to collect: result(run, "${n}") reads its last record`;
 const L2 = { name: "worker-M1.L2", lane: "M1.L2", rung: "codex:gpt-6-sol#medium" };
 
 /** Two lanes whose workers each run until released: M1.L1 at Luna, M1.L2 at Sol medium. */
@@ -192,7 +194,10 @@ function twoLanes() {
   return { ...s, releaseA: () => writeFileSync(a, ""), releaseB: () => writeFileSync(b, "") };
 }
 
-describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => {
+const read = (deps: ReturnType<typeof fakeDeps>, run: string, name = "worker-M1.L1") =>
+  result(deps, { run, name });
+
+describe("dispatch returns at launch; its watcher settles it; result reads it (plan 10)", () => {
   it("returns while the worker still runs, with its name and admission time", async () => {
     const release = holdFile();
     const { run, deps } = setup({ ...OK, holdUntil: release });
@@ -214,14 +219,14 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect(readNotes(run).next).toBe("review M1");
     expect(readFileSync(runPaths(run.dir).state, "utf8")).not.toContain("Running:\n- none");
     writeFileSync(release, "");
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record.status)).toEqual(["ok"]);
-    expect(w.records[0]?.hints).toEqual(["climb: unchanged"]);
-    expect({ started: w.started, running: w.running }).toEqual({ started: [], running: [] });
+    await watchersSettled();
+    const r = await read(deps, run.id);
+    expect(r.record?.status).toBe("ok");
+    expect(r.hints).toEqual(["climb: unchanged"]);
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Running:\n- none");
   });
 
-  it("has two dispatches issued one after the other live at once; wait returns the first to finish", async () => {
+  it("has two dispatches issued one after the other live at once, each recorded as it finishes", async () => {
     const { run, deps, releaseA, releaseB } = twoLanes();
     const a = await dispatch(deps, input(run.id));
     const b = await dispatch(deps, input(run.id, L2));
@@ -229,178 +234,72 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect(Date.parse(b.dispatched.admittedAt) - Date.parse(a.dispatched.admittedAt)).toBeLessThan(5_000);
     expect(liveDispatches(run).map((d) => d.admit.name)).toEqual([a, b].map((x) => x.dispatched.name).sort());
     releaseB();
-    const first = await wait(deps, { run: run.id });
-    expect(first.records.map((r) => r.record.name)).toEqual(["worker-M1.L2"]);
-    expect(first.running).toEqual(["worker-M1.L1"]);
-    releaseA();
-    const second = await wait(deps, { run: run.id });
-    expect(second.records.map((r) => r.record.name)).toEqual(["worker-M1.L1"]);
-    expect(second.running).toEqual([]);
-    expect(readRecords(run).records).toHaveLength(2);
-  });
-
-  it("waits for every one of them with all: true", async () => {
-    const { run, deps, releaseA, releaseB } = twoLanes();
-    await dispatch(deps, input(run.id));
-    await dispatch(deps, input(run.id, L2));
-    releaseB();
-    let done = false;
-    const all = wait(deps, { run: run.id, all: true }).then((w) => {
-      done = true;
-      return w;
-    });
-    // wait records M1.L2 once it finishes, and goes on waiting for M1.L1
     await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L2"));
-    expect(done).toBe(false);
+    expect(liveDispatches(run).map((d) => d.admit.name)).toEqual(["worker-M1.L1"]);
     releaseA();
-    const w = await all;
-    expect(w.records.map((r) => r.record.name)).toEqual(["worker-M1.L2", "worker-M1.L1"]);
-    expect(w.running).toEqual([]);
+    await watchersSettled();
+    expect(readRecords(run).records.map((r) => r.name)).toEqual(["worker-M1.L2", "worker-M1.L1"]);
   });
 
-  it("returns the records of one wait in the order the roles finished, whatever order it saw them in", async () => {
-    const { run, deps, releaseA, releaseB } = twoLanes();
-    await dispatch(deps, input(run.id));
-    await dispatch(deps, input(run.id, L2));
-    // both finish, M1.L2 first, before any wait polls: one poll then sees both at once
-    releaseB();
-    await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L2"));
-    releaseA();
-    await waitFor(() => readRecords(run).records.some((r) => r.name === "worker-M1.L1"));
-    const w = await wait(deps, { run: run.id, all: true });
-    expect(w.records.map((r) => r.record.name)).toEqual(["worker-M1.L2", "worker-M1.L1"]);
-  });
-
-  it("returns at once, with a hint, when nothing is uncollected", async () => {
-    const { run, deps } = setup(OK);
-    expect(await wait(deps, { run: run.id })).toEqual({
-      records: [],
-      started: [],
-      running: [],
-      hints: [NOTHING],
-    });
-    expect((await wait(deps, { run: run.id, names: ["worker-M9.L9"] })).hints).toEqual([
-      NOTHING_FOR("worker-M9.L9"),
-      NOTHING,
-    ]);
-  });
-
-  it("keeps the run's other roles in running when the names given have nothing to collect", async () => {
-    const release = holdFile();
-    const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    expect(await wait(deps, { run: run.id, names: ["worker-M9.L9"] })).toEqual({
-      records: [],
-      started: [],
-      running: ["worker-M1.L1"],
-      hints: [NOTHING_FOR("worker-M9.L9")],
-    });
-    writeFileSync(release, "");
-    expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
-  });
-
-  it("lists in running a role that finished but was not collected, and the next wait returns it (I-1)", async () => {
-    const { run, deps, releaseA, releaseB } = twoLanes();
-    await dispatch(deps, input(run.id));
-    const b = await dispatch(deps, input(run.id, L2));
-    releaseB();
-    await waitFor(() =>
-      readExit(listDispatches(run).find((d) => d.admit.dispatchId === b.dispatched.dispatchId)?.dir ?? ""),
-    );
-    releaseA();
-    const first = await wait(deps, { run: run.id, names: ["worker-M1.L1"] });
-    expect(first.records.map((r) => r.record.name)).toEqual(["worker-M1.L1"]);
-    expect(first.running).toEqual(["worker-M1.L2"]);
-    const next = await wait(deps, { run: run.id });
-    expect(next.records.map((r) => r.record.name)).toEqual(["worker-M1.L2"]);
-    expect(next.running).toEqual([]);
-  });
-
-  it("finalizes a role as soon as it exits, and leaves its record for wait to hand back (I-2)", async () => {
+  it("settles a role as soon as it exits, and leaves its record unread until result reads it", async () => {
     const release = holdFile();
     const { run, deps } = setup({ ...OK, holdUntil: release });
     await dispatch(deps, input(run.id));
     writeFileSync(release, "");
     await waitFor(() => readRecords(run).records.length === 1);
     await waitFor(() => readFileSync(runPaths(run.dir).state, "utf8").includes("Running:\n- none"));
-    const d = listDispatches(run)[0];
-    expect(awaitsCollect(d?.dir ?? "")).toBe(true);
-    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+    const d = listDispatches(run)[0] as { dir: string };
+    expect(awaitsCollect(d.dir)).toBe(true);
+    expect((await read(deps, run.id)).record?.status).toBe("ok");
+    expect(awaitsCollect(d.dir)).toBe(false);
   });
 
-  it("hints and drops a dispatch it cannot finalize, and still returns the others (I-3)", async () => {
-    const { run, deps } = setup(OK);
-    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
-    const files = { proc: "dead" as const, exit, reply: "ok\nSTATUS: complete — ok", collect: true };
-    const broken = await fakeDispatch(run, {}, files);
-    const fine = await fakeDispatch(run, { name: "writer", role: "writer", lane: null, owns: [] }, files);
-    const real = fin.finalizeDispatch;
-    const spy = spyOn(fin, "finalizeDispatch").mockImplementation((r, d) =>
-      d.admit.dispatchId === broken.admit.dispatchId ? Promise.reject(new Error("disk on fire")) : real(r, d),
-    );
-    try {
-      const w = await wait(deps, { run: run.id, all: true });
-      expect(w.records.map((r) => r.record.dispatchId)).toEqual([fine.admit.dispatchId]);
-      expect(w.hints).toContain(
-        'worker-M1.L1: not finalized: disk on fire; result(run, "worker-M1.L1") reads its record once it has one',
-      );
-      expect(w.running).toEqual([]);
-      expect((await wait(deps, { run: run.id })).hints).toEqual([NOTHING]);
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it("puts back what it collected when an error escapes, so the next wait returns it (I-3)", async () => {
+  it("runs every settled hook once per dispatch, and a hook that throws stops nothing", async () => {
     const release = holdFile();
     const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    writeFileSync(release, "");
-    await waitFor(() => readRecords(run).records.length === 1);
-    await watchersSettled();
-    const spy = spyOn(state, "refreshState").mockImplementation(() => Promise.reject(new Error("no disk")));
+    const seen: string[] = [];
+    const bad = () => {
+      throw new Error("hook broke");
+    };
+    const good = (s: Settled) => {
+      seen.push(`${s.record.name} ${s.record.status}`);
+    };
+    settledHooks.add(bad);
+    settledHooks.add(good);
     try {
-      expect(await wait(deps, { run: run.id }).catch((e: Error) => e.message)).toBe("no disk");
+      await dispatch(deps, input(run.id));
+      writeFileSync(release, "");
+      await watchersSettled();
     } finally {
-      spy.mockRestore();
+      settledHooks.delete(bad);
+      settledHooks.delete(good);
     }
-    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+    expect(seen).toEqual(["worker-M1.L1 ok"]);
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("Running:\n- none");
   });
 
-  it("stops without collecting when its caller aborts it (I-3)", async () => {
+  it("tells the stall hooks, once, when the supervisor reports a stall", async () => {
     const release = holdFile();
     const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    const ac = new AbortController();
-    const pending = wait(deps, { run: run.id }, undefined, ac.signal);
-    ac.abort();
-    writeFileSync(release, "");
-    expect((await pending).records).toEqual([]);
-    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
-  });
-
-  it("puts back what it collected when aborted during its final refresh (N-1)", async () => {
-    const release = holdFile();
-    const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    writeFileSync(release, "");
-    await waitFor(() => readRecords(run).records.length === 1);
-    await watchersSettled();
-    const ac = new AbortController();
-    const real = state.refreshState;
-    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
-      ac.abort();
-      return real(r, c);
-    });
+    const seen: string[] = [];
+    const hook = (s: Stalled) => {
+      seen.push(`${s.d.admit.name} ${s.quietMs}`);
+    };
+    stallHooks.add(hook);
     try {
-      expect((await wait(deps, { run: run.id }, undefined, ac.signal)).records).toEqual([]);
+      await dispatch(deps, input(run.id));
+      const d = listDispatches(run)[0] as { dir: string };
+      writeFileSync(dispatchPaths(d.dir).stall, JSON.stringify({ schema: 1, at: "x", quietMs: 450_000 }));
+      await waitFor(() => seen.length > 0);
+      writeFileSync(release, "");
+      await watchersSettled();
     } finally {
-      spy.mockRestore();
+      stallHooks.delete(hook);
     }
-    expect((await wait(deps, { run: run.id })).records.map((r) => r.record.status)).toEqual(["ok"]);
+    expect(seen).toEqual(["worker-M1.L1 450000"]);
   });
 
-  it("keeps the mark when the launch throws: dispatch says so, and a wait returns the lost record (M-4)", async () => {
+  it("keeps the mark when the launch throws: dispatch says so, and the lost record is settled and read (M-4)", async () => {
     const { run, deps } = setup(OK);
     startLimits.graceMs = 300;
     const real = launcher.launch;
@@ -414,16 +313,16 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
       launcher.launch = real;
     }
     expect(isCatherdError(e) && e.message).toMatch(/no fork/);
-    expect(isCatherdError(e) && e.fix).toMatch(/wait\(run\) returns its record/);
+    expect(isCatherdError(e) && e.fix).toMatch(/result\(run, "worker-M1\.L1"\) reads its record, lost/);
     const d = listDispatches(run)[0];
     expect(d && awaitsCollect(d.dir)).toBe(true);
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record)).toEqual([
+    await watchersSettled();
+    expect((await read(deps, run.id)).record).toEqual(
       expect.objectContaining({ status: "failed", exitCode: null }),
-    ]);
+    );
   });
 
-  it("returns the lost record of a dispatch whose server died after admitting it, before launching it", async () => {
+  it("records a dispatch whose server died after admitting it, before launching it, at the next start", async () => {
     const { run, deps } = setup(OK);
     startLimits.graceMs = 300;
     // what dispatch had done when its process died: admission only
@@ -437,48 +336,36 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
       failoverFrom: null,
     });
     expect(awaitsCollect(d.dir)).toBe(true);
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record)).toEqual([
+    await (
+      await reconcileAll(deps)
+    ).done;
+    expect((await read(deps, run.id)).record).toEqual(
       expect.objectContaining({ dispatchId: d.admit.dispatchId, status: "failed", exitCode: null }),
-    ]);
+    );
   });
 
-  it("collects a dispatch that finished while no wait ran, as after a server restart, once", async () => {
-    const { run, deps } = setup(OK);
-    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
-    const files = { proc: "dead" as const, exit, reply: "ok\nSTATUS: complete — ok", collect: true };
-    const unrecorded = await fakeDispatch(run, {}, files);
-    // one the new server's reconcile recorded first is collected too
-    const reconciled = await fakeDispatch(
-      run,
-      { name: "writer", role: "writer", lane: null, owns: [] },
-      files,
-    );
-    await finalizeDispatch(run, reconciled);
-    // one no catherd dispatch launched for a wait (an older build's) is left to reconcile
-    await fakeDispatch(
-      run,
-      { name: "writer-old", role: "writer", lane: null, owns: [] },
-      { ...files, collect: false },
-    );
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record.dispatchId).sort()).toEqual(
-      [unrecorded, reconciled].map((d) => d.admit.dispatchId).sort(),
-    );
-    expect(w.records.find((r) => r.record.name === "writer")?.record.status).toBe("ok");
-    expect(readRecords(run).records).toHaveLength(2);
-    expect((await wait(deps, { run: run.id })).records).toEqual([]);
-  });
-
-  it("hands a record to one wait only, when two wait at once", async () => {
+  it("marks a record read for one reader, when two read at once", async () => {
     const release = holdFile();
     const { run, deps } = setup({ ...OK, holdUntil: release });
     await dispatch(deps, input(run.id));
-    const both = Promise.all([wait(deps, { run: run.id }), wait(deps, { run: run.id })]);
     writeFileSync(release, "");
-    const [x, y] = await both;
-    expect([...x.records, ...y.records]).toHaveLength(1);
-    expect(readRecords(run).records).toHaveLength(1);
+    await watchersSettled();
+    const d = listDispatches(run)[0] as { dir: string };
+    const collects: boolean[] = [];
+    const real = dispatchDir.tryCollect;
+    const spy = spyOn(dispatchDir, "tryCollect").mockImplementation(async (dir) => {
+      const got = await real(dir);
+      collects.push(got);
+      return got;
+    });
+    try {
+      const [x, y] = await Promise.all([read(deps, run.id), read(deps, run.id)]);
+      expect(x.record).toEqual(y.record);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(collects.filter(Boolean)).toHaveLength(1);
+    expect(awaitsCollect(d.dir)).toBe(false);
   });
 
   it("still refuses from dispatch, before anything starts", async () => {
@@ -489,80 +376,38 @@ describe("dispatch returns at launch, wait collects (plan 9, finding 1)", () => 
     expect(isCatherdError(e) && e.code).toBe("E_ADMIT_DUPLICATE");
     expect(listDispatches(run)).toHaveLength(1);
     writeFileSync(release, "");
-    expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
-  });
-
-  it("reports progress while it waits", async () => {
-    const release = holdFile();
-    const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    const ticks: string[] = [];
-    const pending = wait(deps, { run: run.id }, (m) => ticks.push(m));
-    await waitFor(() => ticks.length > 0);
-    writeFileSync(release, "");
-    expect((await pending).records).toHaveLength(1);
-    expect(ticks[0]).toMatch(/^worker-M1\.L1 · codex:gpt-6-luna#high · \d+s/);
+    await watchersSettled();
+    expect(readRecords(run).records).toHaveLength(1);
   });
 });
 
-describe("collection is a lease: a crash between collecting and returning loses nothing (codex P2)", () => {
+describe("reading is a lease: a crash between taking a record and returning it loses nothing (codex P2)", () => {
   const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
-  /** A finished dispatch a wait had collected, as its lease names `owner`: the marker is gone. */
+  /** A finished, recorded dispatch a reader had taken, as its lease names `owner`: the mark is gone. */
   async function leased(
     run: Parameters<typeof fakeDispatch>[0],
     owner: { pid: number; startTime: string | null },
   ) {
     const d = await fakeDispatch(run, {}, { proc: "dead", exit, reply: "ok\nSTATUS: complete — ok" });
+    await finalizeDispatch(run, d);
     writeFileSync(dispatchPaths(d.dir).lease, JSON.stringify(owner));
     return d;
   }
 
-  it("collects a lease whose owner died, returns its record and ends the lease", async () => {
+  it("reads a record whose reader died holding its lease, and ends the lease", async () => {
     const { run, deps } = setup(OK);
     const d = await leased(run, { pid: await deadProcess(), startTime: "gone" });
-    const w = await wait(deps, { run: run.id });
-    expect(w.records.map((r) => r.record.dispatchId)).toEqual([d.admit.dispatchId]);
+    expect(awaitsCollect(d.dir)).toBe(true);
+    expect((await read(deps, run.id)).record?.dispatchId).toBe(d.admit.dispatchId);
     expect(existsSync(dispatchPaths(d.dir).lease)).toBe(false);
     expect(awaitsCollect(d.dir)).toBe(false);
   });
 
-  it("lists a dead owner's lease in running when the names given leave it out", async () => {
-    const { run, deps } = setup(OK);
-    await leased(run, { pid: await deadProcess(), startTime: "gone" });
-    const w = await wait(deps, { run: run.id, names: ["worker-M9.L9"] });
-    expect(w.running).toEqual(["worker-M1.L1"]);
-  });
-
-  it("never takes a lease whose owner lives", async () => {
+  it("never takes a lease whose owner lives: the record is returned, the lease left alone", async () => {
     const { run, deps } = setup(OK);
     const d = await leased(run, { pid: process.pid, startTime: processStartTime(process.pid) });
-    const w = await wait(deps, { run: run.id });
-    expect(w.records).toEqual([]);
-    expect(w.running).toEqual([]);
+    expect((await read(deps, run.id)).record?.dispatchId).toBe(d.admit.dispatchId);
     expect(existsSync(dispatchPaths(d.dir).lease)).toBe(true);
-  });
-
-  it("holds a lease, not nothing, while it fails over, and ends it when it returns", async () => {
-    const release = holdFile();
-    const { run, deps } = setup({ ...OK, holdUntil: release });
-    await dispatch(deps, input(run.id));
-    writeFileSync(release, "");
-    await waitFor(() => readRecords(run).records.length === 1);
-    await watchersSettled();
-    const d = listDispatches(run)[0] as { dir: string };
-    const real = state.refreshState;
-    const during: boolean[] = [];
-    const spy = spyOn(state, "refreshState").mockImplementation((r, c) => {
-      during.push(existsSync(dispatchPaths(d.dir).lease));
-      return real(r, c);
-    });
-    try {
-      expect((await wait(deps, { run: run.id })).records).toHaveLength(1);
-    } finally {
-      spy.mockRestore();
-    }
-    expect(during).toEqual([true]);
-    expect(existsSync(dispatchPaths(d.dir).lease)).toBe(false);
   });
 });
 

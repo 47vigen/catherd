@@ -1,17 +1,20 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { applyPatch, defaultProfileDoc, patchBetween, resolveProfile } from "../../../src/domain/profile.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   CHANGED_ON_DISK,
   liveEffects,
   memoRuns,
   type RunRow,
   stampOf,
+  watchDirs,
 } from "../../../src/entry/tui/effects.ts";
 import { activate, createProfile, patchProfile } from "../../../src/services/profile-service.ts";
 import { activeName } from "../../../src/services/profile-store.ts";
-import { appendRoute, type Run } from "../../../src/services/run-store.ts";
+import type { Run } from "../../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../../helpers.ts";
-import { freshRun } from "../../services/helpers.ts";
+import { fakeDispatch, freshRun, waitFor } from "../../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -24,6 +27,7 @@ const row = (id: string, live = 0): RunRow => ({
   roleRuns: 0,
   landed: 0,
   budget: null,
+  session: null,
 });
 
 describe("the run list's memo (spec §9.4: memoised by mtime)", () => {
@@ -59,58 +63,102 @@ describe("the run list's memo (spec §9.4: memoised by mtime)", () => {
 });
 
 describe("the live effects", () => {
-  it("lists a run and reads its climbs and route decisions", () => {
+  it("lists a run, and its session, and opens the session and a role (spec §4)", async () => {
     const { run } = freshRun("Jobs screen");
-    const at = new Date().toISOString();
-    const base = {
-      at,
-      lane: "M1.L1",
-      role: "worker" as const,
-      ladder: ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"],
-      kind: "repo_code" as const,
-      difficulty: "build" as const,
-    };
-    appendRoute(run, {
-      ...base,
-      rung: "codex:gpt-6-luna#high",
-      source: "route",
-      decidedBy: "lane",
-      from: null,
-      reason: null,
-    });
-    appendRoute(run, {
-      ...base,
-      rung: "codex:gpt-6-sol#medium",
-      source: "climb",
-      decidedBy: "lane",
-      from: "codex:gpt-6-luna#high",
-      reason: "refused",
-    });
+    const d = await fakeDispatch(run, {}, { proc: "self" });
     const fx = liveEffects();
-    const { rows } = fx.runs();
-    expect(rows).toEqual([
-      expect.objectContaining({ id: run.id, title: "Jobs screen", live: 0, landed: 0, budget: null }),
+    expect(fx.runs().rows).toEqual([
+      expect.objectContaining({
+        id: run.id,
+        title: "Jobs screen",
+        live: 1,
+        landed: 0,
+        budget: null,
+        session: null,
+      }),
     ]);
-    const d = fx.run(run.id);
-    expect(d.climbs).toEqual([
-      {
-        lane: "M1.L1",
-        from: "codex:gpt-6-luna#high",
-        to: "codex:gpt-6-sol#medium",
-        reason: "refused",
-        env: false,
+    expect(fx.sessions().rows).toEqual([
+      expect.objectContaining({ key: null, name: "earlier runs", liveRoles: 1 }),
+    ]);
+    const s = fx.session(null);
+    expect(s.dirs).toEqual([run.dir]);
+    expect(s.runs[0]?.roles.map((r) => [r.name, r.live])).toEqual([["worker-M1.L1", true]]);
+    expect(fx.role(run.id, d.admit.dispatchId)).toMatchObject({
+      name: "worker-M1.L1",
+      brief: "brief",
+      record: null,
+    });
+  });
+
+  it("watches run folders for any change below them, and gathers a burst into one call", async () => {
+    const { run } = freshRun();
+    let calls = 0;
+    // the path the watch is given may pass through a symlink (macOS: /var is /private/var)
+    const stop = watchDirs([run.dir], () => calls++);
+    expect(stop).not.toBeNull();
+    try {
+      // the watch may start after watchDirs returns (FSEvents): touch a probe until it reports, once per wait
+      const probe = join(run.dir, "probe");
+      const end = Date.now() + 20_000;
+      for (let i = 0; calls === 0; i++) {
+        if (Date.now() > end) throw new Error("the watch never reported a change");
+        writeFileSync(probe, String(i));
+        await waitFor(() => calls > 0, 500).catch(() => null);
+      }
+      calls = 0;
+      // only changes below the run folder, in a folder made after the watch started
+      const nested = join(run.dir, "roles", "w", "2");
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(join(nested, "events.jsonl"), "{}\n");
+      writeFileSync(join(nested, "events.jsonl"), "{}\n{}\n");
+      await waitFor(() => calls > 0, 10_000);
+      expect(calls).toBe(1);
+    } finally {
+      stop?.();
+    }
+  }, 30_000);
+
+  it("never calls after stop, even for an event already queued", () => {
+    let listener: (() => void) | null = null;
+    const timers: (() => void)[] = [];
+    let calls = 0;
+    const stop = watchDirs(["/runs/a"], () => calls++, {
+      watch: (_dir, fire) => {
+        listener = fire;
+        return { on: () => {}, close: () => {} };
       },
-    ]);
-    expect(d.decisions).toEqual([
-      {
-        lane: "M1.L1",
-        role: "worker",
-        source: "lane",
-        kind: "repo_code",
-        difficulty: "build",
-        rung: "codex:gpt-6-luna#high",
+      setTimeout: (f) => {
+        timers.push(f);
+        return timers.length;
       },
-    ]);
+      clearTimeout: () => {},
+      realpath: (d) => d,
+    });
+    expect(stop).not.toBeNull();
+    listener!();
+    listener!();
+    expect(timers.length).toBe(1);
+    stop?.();
+    listener!();
+    for (const t of timers) t();
+    expect(calls).toBe(0);
+    expect(timers.length).toBe(1);
+  });
+
+  it("watches the real path of a folder reached through a symlink", () => {
+    const seen: string[] = [];
+    watchDirs(["/tmp/link"], () => {}, {
+      watch: (dir) => {
+        seen.push(dir);
+        return { on: () => {}, close: () => {} };
+      },
+      realpath: (d) => (d === "/tmp/link" ? "/private/tmp/real" : d),
+    });
+    expect(seen).toEqual(["/private/tmp/real"]);
+  });
+
+  it("cannot watch a folder that is not there: the screen polls instead", () => {
+    expect(watchDirs(["/nonexistent/catherd-run"], () => {})).toBeNull();
   });
 
   it("saves the staged treat-likes and the patch through the services", async () => {

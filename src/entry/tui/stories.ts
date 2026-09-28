@@ -1,5 +1,6 @@
 import type { ProfilePatch } from "../../domain/profile.ts";
 import type { CommandId } from "./commands.ts";
+import type { FixtureOptions } from "./fixtures.ts";
 import type { AppApi } from "./providers/app.tsx";
 import type { AppKeymap } from "./providers/keymap.tsx";
 import type { Action } from "./state.ts";
@@ -11,6 +12,8 @@ export interface Story {
   name: string;
   title: string;
   steps: Step[];
+  /** the fixtures the frame snapshots render it on (the storybook shows it on its one set) */
+  fixtures?: FixtureOptions;
 }
 
 const SHOWN: Step[] = [{ show: "default" }];
@@ -45,11 +48,31 @@ export const STORIES: Story[] = [
     steps: [{ command: "tab.status" }, { command: "app.palette" }],
   },
   { name: "help", title: "Keyboard shortcuts", steps: [{ command: "tab.status" }, { command: "app.help" }] },
-  { name: "runs", title: "Runs: the list", steps: [{ command: "tab.runs" }] },
   {
-    name: "run",
-    title: "Runs: one live run",
-    steps: [{ command: "tab.runs" }, { action: { type: "run", id: "20260926-114800-jobs-screen" } }],
+    name: "runs-empty",
+    title: "Runs: no runs yet",
+    steps: [{ command: "tab.runs" }],
+    fixtures: { runs: [], sessions: [] },
+  },
+  { name: "runs", title: "Runs: the sessions", steps: [{ command: "tab.runs" }] },
+  {
+    name: "session",
+    title: "Runs: one session with two runs, one continued elsewhere",
+    steps: [{ command: "tab.runs" }, { action: { type: "session", key: "s-auth" } }],
+  },
+  {
+    name: "session-live",
+    title: "Runs: a live session with three live roles",
+    steps: [{ command: "tab.runs" }, { action: { type: "session", key: "s-jobs" } }],
+  },
+  {
+    name: "role",
+    title: "Runs: a role opened",
+    steps: [
+      { command: "tab.runs" },
+      { action: { type: "session", key: "s-jobs" } },
+      { action: { type: "role", run: "20260926-114800-jobs-screen", dispatchId: "d1" } },
+    ],
   },
 ];
 

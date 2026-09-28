@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { z } from "zod";
+import { dispatchHints } from "../domain/hints.ts";
 import { ACCESS, type RunRecord } from "../domain/record.ts";
 import { ROLES } from "../domain/roles.ts";
 import { dispatchPaths, readExit, supervisorAlive } from "../infra/dispatch-dir.ts";
@@ -31,6 +32,8 @@ const AdmitSchema = z.looseObject({
   repo: z.string(),
   /** `git status` fingerprints when admitted, for changedOwned and violations */
   before: z.record(z.string(), z.string()),
+  /** the Claude Code session that dispatched it (spec §3.3); absent on 1.0 dispatches and outside Claude Code */
+  sessionId: z.string().optional(),
 });
 export type Admit = z.infer<typeof AdmitSchema>;
 
@@ -142,4 +145,30 @@ export function latestDispatch(run: Run, name: string): Dispatch | null {
     // no pointer yet
   }
   return all.find((d) => d.admit.dispatchId === id) ?? all.at(-1) ?? null;
+}
+
+/** failover.json: what failover did for a limited dispatch (plan 10), written once, under its lock. */
+const FailoverSchema = z.looseObject({
+  schema: z.literal(1),
+  at: z.string(),
+  /** the stand-in it launched, if any */
+  standIn: z.object({ dispatchId: z.string(), rung: z.string() }).nullable(),
+  /** the limited record's hints, as failover left them ("limit: … failed over to …", "failover: …") */
+  hints: z.array(z.string()),
+  /** the pause it wrote to state.md, if any */
+  pause: z.string().nullable(),
+});
+export type FailoverFile = z.infer<typeof FailoverSchema>;
+
+export function readFailover(dir: string): FailoverFile | null {
+  try {
+    return readVersioned(dispatchPaths(dir).failover, FailoverSchema, 1);
+  } catch {
+    return null;
+  }
+}
+
+/** Spec §4.4: what to do next about one finished record; for a usage limit, the failover's own hints. */
+export function recordHints(run: Run, d: Dispatch, r: RunRecord): string[] {
+  return readFailover(d.dir)?.hints ?? dispatchHints(r, d.admit.owns, relative(run.dir, d.dir));
 }

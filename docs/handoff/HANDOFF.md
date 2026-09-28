@@ -1,9 +1,25 @@
-# catherd 1.0 — handoff (2026-09-27, fourth session, updated after plan 9)
+# catherd — handoff (2026-09-28, fifth session: 1.1 on autopilot)
 
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 
-## Where things stand
+
+## catherd 1.1 (session 5, autopilot)
+
+Binding spec: `docs/specs/2026-09-28-catherd-1.1-design.md` (above the 1.0 spec). Three plans, one PR each, in order:
+
+| Plan | File | State |
+| ---- | ---- | ----- |
+| 10 push results, `peek`, sessions and the runs page (§3, §4, §14) | `docs/plans/2026-09-28-10-push-sessions.md` | **merged** (PR #15; 5 task-review batches + 1 fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan10-ledger.md`) |
+| 11 worker access, the enforced protocol, verifier gate ledger, park/answer, climb, re-entry, skill (§5–§10) | `docs/plans/2026-09-28-11-access-protocol.md` | written, pre-validated on main (1239 pass) |
+| 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13) | `docs/plans/2026-09-28-12-failover-install-release.md` | written, pre-validated on main (1214 pass) |
+
+The §3.9 spike was done statically against the Claude Code 2.1.283 binary (delivery works on Linux and macOS for
+an MCP-server child with no settings; never declare `from-mode`). The owner confirms live delivery with
+`bun scripts/spike-push.ts` (plan 10 Task 1) and in the §15 acceptance, for which the release PR is held.
+Plans 11 and 12 were pre-validated on `main`; each lists "Assumes from earlier plans" to re-check at preflight.
+
+## Where things stand (1.0)
 
 | Plan | File | State |
 | ---- | ---- | ----- |

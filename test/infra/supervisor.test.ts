@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
+import * as store from "../../src/infra/store.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
 import { exited, snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
@@ -92,6 +93,93 @@ describe("supervise", () => {
     const exit = await supervise(s);
     expect(exit?.reason).toBe("cancelled");
     expect(exit?.signal).toBe("SIGKILL");
+  });
+});
+
+describe("supervise reports a stall (spec §3.6)", () => {
+  it("writes stall.json once the worker is quiet for half its idle timeout and not busy", async () => {
+    const s = spec(`echo '{"type":"a"}'; sleep 30`, { idleMs: 400 });
+    const exit = await supervise(s, { isBusy: async () => false });
+    expect(exit?.reason).toBe("idle-timeout");
+    const stall = JSON.parse(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8"));
+    expect(stall).toMatchObject({ schema: 1, at: expect.any(String) });
+    expect(stall.quietMs).toBeGreaterThanOrEqual(200);
+  });
+
+  it("writes it once per dispatch, however many quiet stretches follow", async () => {
+    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again
+    const s = spec(`sleep 0.4; echo '{"type":"a"}'; sleep 0.4; echo '{"type":"b"}'`, { idleMs: 600 });
+    let first: string | null = null;
+    const exit = await supervise(s, {
+      isBusy: async () => false,
+      onLine: () => {
+        first ??= readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8");
+        return {};
+      },
+    });
+    expect(exit?.reason).toBe("exited");
+    expect(first).not.toBeNull();
+    expect(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8")).toBe(first as unknown as string);
+  });
+
+  it("keeps supervising a healthy worker when the advisory stall.json write fails", async () => {
+    const real = store.writeJsonAtomic;
+    let tried = false;
+    const spy = spyOn(store, "writeJsonAtomic").mockImplementation((file, value, o) => {
+      if (file.endsWith("stall.json")) {
+        tried = true;
+        throw new Error("ENOSPC: no space left on device");
+      }
+      real(file, value, o);
+    });
+    try {
+      const s = spec(`echo '{"type":"a"}'; sleep 2; echo '{"type":"b"}'`, { idleMs: 2400 });
+      const exit = await supervise(s, { isBusy: async () => false });
+      expect(exit).toMatchObject({ code: 0, reason: "exited" });
+      expect(readFileSync(dispatchPaths(s.dispatchDir).events, "utf8")).toContain('"b"');
+      expect(tried).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("asks again in the next quiet stretch when the full idle check found the worker busy", async () => {
+    // busy at the half-way check and at the idle check, then quiet and not busy: that stretch is a stall
+    const answers = [true, true];
+    const s = spec("sleep 30", { idleMs: 300 });
+    const exit = await supervise(s, { isBusy: async () => answers.shift() ?? false });
+    expect(exit?.reason).toBe("idle-timeout");
+    expect(existsSync(dispatchPaths(s.dispatchDir).stall)).toBe(true);
+  });
+
+  it("reports a stall before idle-timeout when the half-way check found the worker busy (codex r2)", async () => {
+    // busy at the half-way check, then quiet and not busy: that busy answer starts a new quiet stretch, whose
+    // own half-way check reports the stall before the idle check ends the worker
+    const answers = [true];
+    const s = spec("sleep 30", { idleMs: 300 });
+    let stallAtEnd = null as boolean | null;
+    const exit = await supervise(s, {
+      isBusy: async () => answers.shift() ?? false,
+      interrupt: async () => {
+        stallAtEnd = existsSync(dispatchPaths(s.dispatchDir).stall);
+      },
+    });
+    expect(exit?.reason).toBe("idle-timeout");
+    expect(stallAtEnd).toBe(true);
+    expect(existsSync(dispatchPaths(s.dispatchDir).stall)).toBe(true);
+  });
+
+  it("reports no stall while the worker is busy, or has a tool call open", async () => {
+    const busy = spec("sleep 30", { idleMs: 200, wallMs: 600 });
+    expect((await supervise(busy, { isBusy: async () => true }))?.reason).toBe("wall-timeout");
+    expect(existsSync(dispatchPaths(busy.dispatchDir).stall)).toBe(false);
+    const open = spec(`echo '{"open":"t1"}'; sleep 30`, { idleMs: 200, wallMs: 600 });
+    const exit = await supervise(open, {
+      onLine: (l) => (l.includes("open") ? { item: { id: "t1", open: true } } : {}),
+      isBusy: async () => false,
+    });
+    expect(exit?.reason).toBe("wall-timeout");
+    expect(existsSync(dispatchPaths(open.dispatchDir).stall)).toBe(false);
   });
 });
 

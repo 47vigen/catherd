@@ -210,9 +210,22 @@ describe("dialogs and armed keys", () => {
     expect(run(s, { type: "open", dialog: confirm }).armed).toBeNull();
   });
 
-  it("opens and leaves a run, and pauses", () => {
-    const s = run(initialState("runs"), { type: "run", id: "r1" }, { type: "pause" });
-    expect([s.run, s.paused]).toEqual(["r1", true]);
-    expect(run(s, { type: "run", id: null }, { type: "pause" })).toMatchObject({ run: null, paused: false });
+  it("opens a session, then a role, goes back one level at a time, and pauses (spec §4)", () => {
+    const s = run(
+      initialState("runs"),
+      { type: "session", key: "s1" },
+      { type: "role", run: "r1", dispatchId: "d1" },
+      { type: "pause" },
+    );
+    expect([s.session, s.role, s.paused]).toEqual([{ key: "s1" }, { run: "r1", dispatchId: "d1" }, true]);
+    const up = run(s, { type: "up" });
+    expect([up.session, up.role]).toEqual([{ key: "s1" }, null]);
+    expect(run(up, { type: "up" }, { type: "pause" })).toMatchObject({
+      session: null,
+      role: null,
+      paused: false,
+    });
+    // "earlier runs" is a session too, with no key
+    expect(run(initialState("runs"), { type: "session", key: null }).session).toEqual({ key: null });
   });
 });

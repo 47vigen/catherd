@@ -25,6 +25,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
+import { tail } from "./run-debug.ts";
 import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
 const text = (file: string): string => {
@@ -53,6 +54,15 @@ function claimStale(dir: string): boolean {
   const who = readClaimant(dir);
   if (who && !isAlive(who.pid, who.startTime)) return true;
   return claimAgeMs(dir) > settleLimits.timeoutMs + gitLimits.timeoutMs + settleLimits.claimMarginMs;
+}
+
+/**
+ * Whether another live process holds this dispatch's finalizer claim (not yet stale): that process writes its
+ * record and settles it, so a recovery pass (`claim`) leaves it alone rather than wait on it.
+ */
+export function finalizingElsewhere(dir: string): boolean {
+  const who = readClaimant(dir);
+  return who !== null && who.pid !== process.pid && !claimStale(dir);
 }
 
 /** The owned paths of the run's other dispatches whose lifetime overlapped [start, end]. */
@@ -215,6 +225,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     images: o.images,
     error: o.error,
     replyPath: relative(run.dir, p.reply),
+    ...(a.sessionId ? { sessionId: a.sessionId } : {}),
   };
 }
 
@@ -252,7 +263,7 @@ function recordHarness(run: Run, d: Dispatch, r: RunRecord): void {
  * appendRecord's per-dispatch dedupe keeps that to one record either way (audit C2). A claimer that throws
  * releases its claim.
  *
- * In this process, a second finalizer (a `wait` beside the dispatch's watcher) joins the first one's
+ * In this process, a second finalizer (`cancel` beside the dispatch's watcher) joins the first one's
  * promise. Across processes it waits for the claimant's record, and takes over only once the claim is
  * stale (claimant dead, or past its settle window): never while a live claimant may still be settling.
  */
@@ -321,39 +332,46 @@ async function finalizeOnce(run: Run, d: Dispatch): Promise<RunRecord> {
   return saved;
 }
 
-/** The last event of a running dispatch worth showing in a progress line, if any. */
-export function lastEvent(d: Dispatch): string | null {
+/** How much of a role's last event `peek` and the runs page show (spec §3.7). */
+export const LAST_EVENT_CHARS = 160;
+
+const oneLine = (s: string): string => {
+  const line = s.split("\n").find((l) => l.trim()) ?? "";
+  return line.length > LAST_EVENT_CHARS ? `${line.slice(0, LAST_EVENT_CHARS - 1)}…` : line;
+};
+
+/**
+ * Spec §3.7: what a live role is doing, from the end of its events.jsonl: the last line its adapter reads as an
+ * activity (a command, a file edit, a message line), else the last event's name; null before any event.
+ */
+export function lastActivity(d: Dispatch): string | null {
   const a = adapterFor(d.admit.backend);
-  const line = nonBlankLines(dispatchPaths(d.dir).events).at(-1);
-  if (!a || !line) return null;
-  try {
-    return a.parse(line).lastEvent ?? null;
-  } catch {
-    return null;
+  if (!a) return null;
+  let name: string | null = null;
+  for (const line of tail(dispatchPaths(d.dir).events, 200).toReversed()) {
+    let delta;
+    try {
+      delta = a.parse(line);
+    } catch {
+      continue;
+    }
+    if (delta.activity) return oneLine(delta.activity);
+    name ??= delta.lastEvent ?? null;
   }
+  return name;
 }
 
-/** Waits until the dispatch finishes, calling `onTick` every `tickMs`; a throwing onTick never ends the wait. */
+/** Waits until the dispatch finishes, polling every `pollMs`; `onPoll` runs at each poll, and never ends the wait. */
 export async function waitForFinish(
   d: Dispatch,
-  o: {
-    pollMs: number;
-    tickMs: number;
-    now: () => number;
-    onTick?: (secs: number, lastEvent: string | null) => void;
-  },
+  o: { pollMs: number; now: () => number; onPoll?: () => void },
 ): Promise<void> {
-  const started = Date.now();
-  let ticked = started;
   while (dispatchState(d, o.now()) !== "finished") {
     await Bun.sleep(o.pollMs);
-    if (o.onTick && Date.now() - ticked >= o.tickMs) {
-      ticked = Date.now();
-      try {
-        o.onTick(Math.round((ticked - started) / 1000), lastEvent(d));
-      } catch {
-        // a progress report must never stop the wait
-      }
+    try {
+      o.onPoll?.();
+    } catch {
+      // a report on the way must never stop the wait
     }
   }
 }

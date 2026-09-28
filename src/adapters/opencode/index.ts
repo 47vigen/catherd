@@ -181,10 +181,24 @@ function finalize(run: FinishedRun): Outcome {
   };
 }
 
+/** Spec §3.7: the tool opencode ran (a command, a file edit, another tool with its first argument) or its text. */
+function opencodeActivity(e: Record<string, any>): string | undefined {
+  if (e.type === "text" && typeof e.part?.text === "string") return e.part.text;
+  if (e.type !== "tool_use" || typeof e.part?.tool !== "string") return undefined;
+  const input = e.part.state?.input ?? {};
+  if (typeof input.command === "string") return `$ ${input.command}`;
+  const path = input.filePath ?? input.path;
+  if (/^(edit|write|patch)$/.test(e.part.tool) && typeof path === "string") return `edit ${path}`;
+  const first = Object.values(input).find((v) => typeof v === "string");
+  return `${e.part.tool}${typeof first === "string" ? ` ${first}` : ""}`;
+}
+
 function parse(line: string): EventDelta {
   const e = parseOpencodeLine(line);
   if (!e) return {};
   const d: EventDelta = { lastEvent: eventName(e) };
+  const activity = opencodeActivity(e);
+  if (activity) d.activity = activity;
   if (typeof e.sessionID === "string") d.thread = e.sessionID;
   if (e.type === "step_finish") {
     d.tokens = opencodeTokens(e.part?.tokens);

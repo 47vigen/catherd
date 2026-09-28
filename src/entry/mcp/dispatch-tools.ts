@@ -2,37 +2,17 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
-import { cancel, dispatch, type Progress, wait } from "../../services/dispatch-service.ts";
+import { cancel, dispatch } from "../../services/dispatch-service.ts";
+import { peek } from "../../services/peek.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
-
-type Notify = (n: {
-  method: "notifications/progress";
-  params: { progressToken: string | number; progress: number; message: string };
-}) => Promise<void>;
-
-/** Progress notifications that can never fail a wait: the client may be gone (audit C8). */
-export function progressTo(token: string | number | undefined, send: Notify): Progress | undefined {
-  if (token === undefined) return undefined;
-  let n = 0;
-  return (message) => {
-    try {
-      send({
-        method: "notifications/progress",
-        params: { progressToken: token, progress: ++n, message },
-      }).catch(() => {}); // the client is gone: progress is best effort
-    } catch {
-      // the transport is closed
-    }
-  };
-}
 
 export function registerDispatchTools(server: McpServer, deps: Deps): void {
   server.registerTool(
     "dispatch",
     {
       description:
-        "Start one role on a process backend (codex, claude-code, opencode) and return at launch, in about a second, with { dispatched: { name, role, rung, dispatchId, admittedAt }, hints }; the role runs on, and wait(run) collects its record. Dispatch every independent role one after another, then call wait. The brief is the text itself. With lane, the lane file's Owns: paths guard against overlapping lanes. thread resumes that role's thread for its own fix round. Refused with a structured error (E_ADMIT_*, E_RUN_BUDGET, E_BACKEND_*) before anything starts. Call it from the main thread.",
+        "Start one role on a process backend (codex, claude-code, opencode) and return at launch, in about a second, with { dispatched: { name, role, rung, dispatchId, admittedAt }, hints }; the role runs on. When it finishes, catherd sends this session a <cross-session-message from-name=\"catherd\"> naming the run, the role and its status, and result(run, name) reads the record. Dispatch every independent role one after another, then end your turn. The brief is the text itself. With lane, the lane file's Owns: paths guard against overlapping lanes. thread resumes that role's thread for its own fix round. Refused with a structured error (E_ADMIT_*, E_RUN_BUDGET, E_BACKEND_*) before anything starts. Call it from the main thread.",
       inputSchema: {
         run: z.string(),
         role: z.enum(ROLES),
@@ -48,35 +28,25 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
   );
 
   server.registerTool(
-    "wait",
+    "peek",
     {
       description:
-        "Block until at least one of the run's uncollected dispatches has finished (only those in names, when given; every one of them with all: true), reporting progress meanwhile, and return { records, started, running, hints }. records holds each finished role's { record, hints }, in the order they finished, each returned by one wait only; a role that hit a usage limit has its failover stand-in launched, listed in started. running names every uncollected role this call did not return, still running or already finished, stand-ins included: act on the records, then wait again while running is not empty. Returns at once, with a hint, when nothing is uncollected. Call it from the main thread.",
+        "A look at the runs, without waiting: with run, that run (and this session becomes its owner); without, every run this session owns, else the newest. Per run: each live role with its rung, seconds since it started and its last event (the last command, file edit or message line); every finished record not yet read, as the first line of catherd's message; the latest native Claude run; the run's next step. name narrows it to one role. It never marks a record read: result(run, name) does. Call it when the user asks how it is going, when a decision needs the other roles' state, or once after run_start on a resumed run; never in a loop.",
       inputSchema: {
-        run: z.string(),
-        names: z.array(z.string().regex(ID_PATTERN)).optional(),
-        all: z.boolean().optional(),
+        run: z.string().optional(),
+        name: z.string().regex(ID_PATTERN).optional(),
       },
     },
-    (a, extra) =>
-      handle(() =>
-        wait(
-          deps,
-          a,
-          progressTo(extra._meta?.progressToken, (n) => extra.sendNotification(n)),
-          // a wait its caller cancelled collects nothing: the record would go to no one
-          extra.signal,
-        ),
-      ),
+    (a) => handle(() => peek(deps, a)),
   );
 
   server.registerTool(
     "cancel",
     {
       description:
-        "Stop a live dispatch (interrupt, then SIGTERM, then SIGKILL) and return its record, marked cancelled, and hints.",
+        "Stop a live dispatch (interrupt, then SIGTERM, then SIGKILL) and return its record, marked cancelled and read, and hints.",
       inputSchema: { run: z.string(), name: z.string().regex(ID_PATTERN) },
     },
-    (a) => handle(() => cancel(deps, a.run, a.name)),
+    (a) => handle(() => cancel(deps, a.run, a.name, { read: true })),
   );
 }
