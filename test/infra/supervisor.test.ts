@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
+import * as store from "../../src/infra/store.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
 import { exited, snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
@@ -119,6 +120,31 @@ describe("supervise reports a stall (spec §3.6)", () => {
     expect(exit?.reason).toBe("exited");
     expect(first).not.toBeNull();
     expect(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8")).toBe(first as unknown as string);
+  });
+
+  it("keeps supervising a healthy worker when the advisory stall.json write fails", async () => {
+    const real = store.writeJsonAtomic;
+    const spy = spyOn(store, "writeJsonAtomic").mockImplementation((file, value, o) => {
+      if (file.endsWith("stall.json")) throw new Error("ENOSPC: no space left on device");
+      real(file, value, o);
+    });
+    try {
+      const s = spec(`echo '{"type":"a"}'; sleep 0.5; echo '{"type":"b"}'`, { idleMs: 800 });
+      const exit = await supervise(s, { isBusy: async () => false });
+      expect(exit).toMatchObject({ code: 0, reason: "exited" });
+      expect(readFileSync(dispatchPaths(s.dispatchDir).events, "utf8")).toContain('"b"');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("asks again in the next quiet stretch when the full idle check found the worker busy", async () => {
+    // busy at the half-way check and at the idle check, then quiet and not busy: that stretch is a stall
+    const answers = [true, true];
+    const s = spec("sleep 30", { idleMs: 300 });
+    const exit = await supervise(s, { isBusy: async () => answers.shift() ?? false });
+    expect(exit?.reason).toBe("idle-timeout");
+    expect(existsSync(dispatchPaths(s.dispatchDir).stall)).toBe(true);
   });
 
   it("reports no stall while the worker is busy, or has a tool call open", async () => {
