@@ -5,6 +5,8 @@ import { configDir } from "../infra/paths.ts";
 import { VERSION } from "../infra/version.ts";
 import { doctor } from "../services/doctor.ts";
 import { jevKey, saveJevKey, testJevKey } from "../services/jev-service.ts";
+import { reinstallCommand } from "../services/doctor-checks.ts";
+import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../services/global-install.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
 import { formatRefreshed } from "./catalog-command.ts";
 import { mark as markOf } from "./cli-kit.ts";
@@ -63,6 +65,29 @@ export async function jevStep(
   }
 }
 
+/**
+ * Spec 1.1 §12: installs the global CLI at this version (the plugin's launcher then needs no bunx), and
+ * says "installing catherd…" before the resolve. It never stops `init`: a failure is a `!` line and its fix.
+ */
+export async function globalStep(
+  version: string,
+  o: { skip: boolean; deps?: GlobalInstallDeps; plain?: boolean },
+): Promise<void> {
+  const mark = (state: State) => markOf(state, o.plain === true);
+  if (o.skip)
+    return console.log(`- catherd: not installed globally (--no-global); the plugin starts it with bunx`);
+  const r = await ensureGlobal(version, o.deps ?? realGlobalInstall, () =>
+    console.log(`installing catherd… (${reinstallCommand(version)})`),
+  );
+  if (r.state === "current") return console.log(`${mark("ok")} catherd ${version} is installed globally`);
+  if (r.state === "installed")
+    return console.log(
+      `${mark("ok")} catherd ${version} installed globally; the plugin starts it without bunx`,
+    );
+  console.log(`${mark("warn")} could not install catherd globally: ${r.reason}`);
+  console.log(`    fix: ${reinstallCommand(version)}`);
+}
+
 /** What happened to the profile: written, kept, or (when the defaults do not validate here) why not. */
 export function profileLines(r: InitResult, plain = false): string[] {
   const mark = (state: State) => markOf(state, plain);
@@ -90,11 +115,16 @@ export const initCommand = defineCommand({
   meta: {
     name: "init",
     description:
-      "First run: the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
+      "First run: the global catherd command, the Jev key, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
     "no-input": { type: "boolean", description: "ask nothing: keep what exists, else write the defaults" },
+    // read as global: false, like no-input above
+    "no-global": {
+      type: "boolean",
+      description: "do not install the global catherd command (bun add -g catherd-cli@<this version>)",
+    },
     profile: { type: "string", description: "the profile to set up and make active (default: default)" },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
@@ -107,6 +137,7 @@ export const initCommand = defineCommand({
     try {
       if (process.stdout.isTTY) for (const line of welcomeLines(VERSION)) console.log(line);
       console.log(`catherd ${VERSION}: setting up in ${configDir()}`);
+      await globalStep(VERSION, { skip: (args as { global?: boolean }).global === false, plain });
       await jevStep(ask, {}, plain);
       if (args.profile !== undefined) ask?.skip?.();
       const name = assertProfileName(

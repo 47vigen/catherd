@@ -67,7 +67,7 @@ In a terminal:
 | Command                                                                                   | What it does                                                                                        |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `catherd`                                                                                 | The dashboard: Status, Profiles and Runs (below)                                                    |
-| `catherd init [--no-input] [--profile <p>]`                                               | First-run setup                                                                                     |
+| `catherd init [--no-input] [--no-global] [--profile <p>]`                                 | First-run setup; installs the global `catherd` at its own version unless `--no-global`              |
 | `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                            |
 | `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                             |
 | `catherd profile use --repo --clear`                                                      | Unbinds the repo you are in; it runs on the active profile again                                    |
