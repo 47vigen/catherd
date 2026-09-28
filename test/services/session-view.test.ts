@@ -92,6 +92,36 @@ describe("runs grouped by session (spec §4)", () => {
     expect(groupRuns([a, b]).map((g) => g.session?.sessionId)).toEqual(["s-1", "s-2"]);
   });
 
+  it("takes where a run lives from its current owner: back with its starter, it is not continued elsewhere", async () => {
+    withHome();
+    const repo = tempRepo();
+    const r = run(repo, "back and forth", "s-a", 10);
+    // s-b peeks at it once, then s-a dispatches again: [s-a, s-b, s-a]
+    await claimRun(fakeDeps({ session: registry(4_000_003, "s-b", "peeker") }), r);
+    await claimRun(fakeDeps({ session: registry(4_000_004, "s-a", "starter") }), r);
+    expect(sessionFacts(r).continuedIn).toBeNull();
+    const by = new Map(groupRuns([r]).map((g) => [g.session?.sessionId, g.runs[0]]));
+    expect(by.get("s-a")).toMatchObject({ continued: null, continuedIn: null, current: true });
+    expect(by.get("s-b")).toMatchObject({ continued: "here", current: false });
+  });
+
+  it("names the last of several sessions a run went through, and only it holds the run now", async () => {
+    withHome();
+    const repo = tempRepo();
+    const r = run(repo, "a to b to c", "s-a", 10);
+    await claimRun(fakeDeps({ session: registry(4_000_005, "s-b", "second") }), r);
+    await claimRun(fakeDeps({ session: registry(4_000_006, "s-c", "third") }), r);
+    expect(sessionFacts(r).continuedIn).toBe("third");
+    const current = groupRuns([r]).map((g) => [g.session?.sessionId, g.runs[0]?.current]);
+    expect(current).toEqual(
+      expect.arrayContaining([
+        ["s-a", false],
+        ["s-b", false],
+        ["s-c", true],
+      ]),
+    );
+  });
+
   it("says a run continued in another session, from the run's own facts", async () => {
     withHome();
     const repo = tempRepo();

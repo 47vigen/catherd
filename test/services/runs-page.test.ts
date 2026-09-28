@@ -60,6 +60,26 @@ async function twoRuns() {
 const readLines = (f: string) => readFileSync(join(FX, f), "utf8").split("\n").filter(Boolean);
 
 describe("the runs page (spec §4)", () => {
+  it("counts a run's live roles and landings once, under the session that owns it now", async () => {
+    const { jobs } = await twoRuns();
+    // auth build → kit follow-up → review pass: the jobs run is the review pass's now
+    const row = (sessionId: string, name: string, m: number) =>
+      JSON.stringify({
+        sessionId,
+        hostSessionId: null,
+        name,
+        at: new Date(Date.now() - m * 60_000).toISOString(),
+      });
+    writeFileSync(
+      runPaths(jobs.dir).sessions,
+      `{"kind":"sessions","schema":1}\n${row("s-kit", "kit follow-up", 5)}\n${row("s-rev", "review pass", 1)}\n`,
+    );
+    const counts = Object.fromEntries(
+      sessionRows(fakeDeps()).rows.map((r) => [r.key, [r.liveRoles, r.landed]]),
+    );
+    expect(counts).toEqual({ "s-auth": [0, 0], "s-kit": [0, 0], "s-rev": [1, 1] });
+  });
+
   it("lists the sessions, newest activity first, with their runs, live roles and landings", async () => {
     await twoRuns();
     const { rows } = sessionRows(fakeDeps());

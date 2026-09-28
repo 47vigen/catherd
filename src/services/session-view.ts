@@ -6,7 +6,9 @@ import { readSessionRows } from "./sessions.ts";
 /**
  * Spec §4: runs grouped by the Claude Code session that drove them. A run belongs to the session that started it
  * (`meta.startedBy`); a run listed in another session's rows of `sessions.jsonl` also appears under that session,
- * as "continued here", and under its starting session it says "continued in <name>". Runs from 1.0 (no
+ * as "continued here", and under its starting session it says "continued in <name>", naming the session that
+ * owns it now (the last row of `sessions.jsonl`; a run that came back to its starter is not "continued" at
+ * all). Only the current owner's group counts its live roles and landings. Runs from 1.0 (no
  * `startedBy`) go under "earlier runs".
  */
 
@@ -23,8 +25,10 @@ export interface GroupedRun {
   run: Run;
   /** "here": this session continued a run another started; "elsewhere": another session continued it */
   continued: "here" | "elsewhere" | null;
-  /** the session that continued it, for "elsewhere" */
+  /** the session that owns it now, for "elsewhere" */
   continuedIn: string | null;
+  /** the run lives on in this session now (it is the run's current owner): its live roles count here */
+  current: boolean;
 }
 
 export interface SessionGroup {
@@ -98,15 +102,29 @@ export function groupRuns(runs: Run[], files: SessionFile[] = readSessionFiles()
     const at = runActivity(run);
     const trail = trails.get(run.id) ?? [];
     const starter = run.meta.startedBy?.sessionId ?? null;
-    const others = [...new Set(trail.map((t) => t.sessionId))].filter((id) => id !== starter);
-    const last = others.at(-1);
-    // a run continued elsewhere lives on there: here it counts from when it started, not from its latest write
+    // the run lives on in its current owner: the last session that took it (a run can come back to its starter)
+    const owner = trail.at(-1)?.sessionId ?? starter;
+    const moved = owner !== starter && owner !== null;
+    // a run that lives on elsewhere counts, in a session it left, from when that session last took it
+    const tookAt = (id: string | null): number =>
+      Date.parse(trail.findLast((t) => t.sessionId === id)?.at ?? run.meta.createdAt) || 0;
     add(
       starter,
-      { run, continued: last ? "elsewhere" : null, continuedIn: last ? sessionOf(last).name : null },
-      last ? Date.parse(run.meta.createdAt) || 0 : at,
+      {
+        run,
+        continued: moved ? "elsewhere" : null,
+        continuedIn: moved ? sessionOf(owner).name : null,
+        current: !moved,
+      },
+      moved ? tookAt(starter) : at,
     );
-    for (const id of others) add(id, { run, continued: "here", continuedIn: null }, at);
+    for (const id of new Set(trail.map((t) => t.sessionId)))
+      if (id !== starter)
+        add(
+          id,
+          { run, continued: "here", continuedIn: null, current: id === owner },
+          id === owner ? at : tookAt(id),
+        );
   }
   const out = [...groups.values()];
   for (const g of out)

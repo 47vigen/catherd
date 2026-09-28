@@ -88,9 +88,8 @@ export interface RoleDetail {
 
 const keyOf = (g: SessionGroup): string | null => g.session?.sessionId ?? null;
 
-/** The runs a session holds that live on in it: not the ones another session continued. */
-const ownRuns = (g: SessionGroup): Run[] =>
-  g.runs.filter((x) => x.continued !== "elsewhere").map((x) => x.run);
+/** The runs that live on in a session now (it owns them): each run's live roles and landings count once. */
+const ownRuns = (g: SessionGroup): Run[] => g.runs.filter((x) => x.current).map((x) => x.run);
 
 function rowOf(deps: Deps, g: SessionGroup): SessionRow {
   const own = ownRuns(g);
