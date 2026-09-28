@@ -302,6 +302,19 @@ describe("the land gate (spec 1.1 §6)", () => {
     );
   });
 
+  it("refuses a skip on a commit that is not HEAD: later source commits would bypass the reviewer", async () => {
+    const { repo, run } = freshRun();
+    const docs = commitFiles(repo, ["docs/guide.md"]);
+    commitFiles(repo, ["src/a.ts"]);
+    for (const skip of ["docs-only", "no-code"]) {
+      const e = await refusal(land(fakeDeps(), landing(run.id, docs, { skip })));
+      expect(e.code).toBe("E_LAND_GATE");
+      expect(e.message).toStartWith(`land M1: skip "${skip}" refused: ${docs} is not HEAD (`);
+      expect(e.fix).toContain("land M1 with HEAD");
+    }
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
+  });
+
   it("lands a no-code milestone with skip, measuring from the last landed commit, and refuses source changes", async () => {
     const { repo, run } = freshRun();
     const first = commitFiles(repo, ["src/a.ts"]);

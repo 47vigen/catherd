@@ -146,6 +146,17 @@ export async function milestoneFiles(run: Run, commit: string): Promise<string[]
   return r.out.split("\n").filter(Boolean);
 }
 
+/** `rev`'s full commit hash in the run's repo. Throws E_IO_UNEXPECTED when git cannot say. */
+export async function fullCommit(run: Run, rev: string): Promise<string> {
+  const r = await git(run.meta.repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`]);
+  const sha = r.kind === "ok" ? r.out.trim() : "";
+  if (!sha)
+    throw new CatherdError("E_IO_UNEXPECTED", `git could not resolve ${rev} in ${run.meta.repo}`, {
+      fix: `check that git works in ${run.meta.repo}`,
+    });
+  return sha;
+}
+
 /** the repo's own docs/ folder, or a doc extension anywhere: app/docs/page.tsx is code */
 const DOC = /^docs\/|\.(md|mdx|markdown|txt|rst|adoc)$/i;
 /** .txt files that configure a build or pin dependencies: not docs */

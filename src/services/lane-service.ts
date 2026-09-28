@@ -20,6 +20,7 @@ import {
   isDocPath,
   isSourcePath,
   landedMilestones,
+  fullCommit,
   milestoneFiles,
   milestoneStart,
   reviewerPassed,
@@ -232,6 +233,17 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
       },
     );
   if (skip) {
+    // the range a skip is judged on must be the milestone as it stands: an older commit would leave
+    // later source commits unreviewed
+    const [landed, head] = await Promise.all([fullCommit(run, commit), fullCommit(run, "HEAD")]);
+    if (landed !== head)
+      throw new CatherdError(
+        "E_LAND_GATE",
+        `land ${m}: skip "${skip}" refused: ${commit} is not HEAD (${head.slice(0, 7)}): commits after it would land unreviewed`,
+        {
+          fix: `land ${m} with HEAD (${head.slice(0, 7)}) once it holds the milestone; if source changed, run reviewer-${m} and the verifier and land without skip`,
+        },
+      );
     const files = await milestoneFiles(run, commit);
     // an empty range lands nothing: the milestone's work is most likely not committed yet
     if (files.length === 0) {
