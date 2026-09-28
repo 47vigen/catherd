@@ -60,7 +60,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 **Every error is `{ code, message, fix }`.** Read the code, act on the fix, and never retry the same call blindly:
 
 - `E_ADMIT_OVERLAP`: the lane shares an owned path with a running lane. Dispatch it when that one returns.
-- `E_ADMIT_DUPLICATE`: that role name is already running. Wait for it, or `cancel` it.
+- `E_ADMIT_DUPLICATE`: that role name is already running. It reports through a catherd message when it finishes; `peek(run, name)` shows it now, and `cancel` stops it.
 - `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; run a `claude:` rung as its agent; skip a role that is off.
 - `E_RUN_BUDGET`: the run's budget is spent (a soft cap: roles already running finish). Pause, report and push.
 - `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`: tell the user the `fix`, word for word, then pause.
