@@ -80,6 +80,40 @@ describe("Protocol next (spec 1.1 §10)", () => {
     expect(protocolNext(run, [])).toBe("route and preflight M2's lanes");
   });
 
+  it("sends a lane back to dispatch after a climb, or when its latest dispatch did not end ok", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    for (const l of ["M1.L1", "M1.L2"])
+      await route(deps, { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
+    worked(run, "M1.L1");
+    const d = await fakeDispatch(run, { name: "worker-M1.L2", lane: "M1.L2" });
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: "worker-M1.L2", status: "limit" }),
+    );
+    expect(protocolNext(run, [])).toBe("dispatch M1.L2");
+    // a climb after the lane's first dispatch: the lane runs again, at the next rung
+    await climb(fakeDeps({ now: () => Date.now() + 1000 }), {
+      run: run.id,
+      lane: "M1.L1",
+      reason: "check-failed-twice",
+    });
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
+    const blocked = await fakeDispatch(run, { name: "worker-M1.L2", lane: "M1.L2" });
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: blocked.admit.dispatchId,
+        name: "worker-M1.L2",
+        replyStatus: "blocked",
+      }),
+    );
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
+  });
+
   it("says finish once every milestone landed", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

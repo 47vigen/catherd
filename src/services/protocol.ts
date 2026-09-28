@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunRecord } from "../domain/record.ts";
+import type { RouteRow } from "../domain/route.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
-import { listDispatches, liveDispatches } from "./dispatches.ts";
+import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import type { VerifierStep } from "./gate-service.ts";
 import {
   landedMilestones,
@@ -42,6 +43,38 @@ function laneIds(run: Run): string[] {
 }
 
 /**
+ * Whether `lane` needs no dispatch now: its latest dispatch or native agent run since its latest route row
+ * (a climb writes one) is still running, or ended ok with no blocked or refused reply. A lane whose last
+ * try failed, hit a limit, was blocked, or was climbed since goes back to dispatch.
+ */
+function laneDone(run: Run, lane: string, routes: RouteRow[], live: Dispatch[]): boolean {
+  const from = Math.max(...routes.filter((r) => r.lane === lane).map((r) => Date.parse(r.at)));
+  // a dispatch routes its lane first, so a try at the route's own time counts as after it
+  const after = (t: string) => !(Date.parse(t) < from);
+  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
+  const running = new Set(live.map((d) => d.admit.dispatchId));
+  const tries = [
+    ...listDispatches(run)
+      .filter((d) => d.admit.lane === lane && after(d.admit.admittedAt))
+      .map((d) => {
+        const r = records.get(d.admit.dispatchId);
+        const ok = r
+          ? r.status === "ok" && r.replyStatus !== "blocked" && r.replyStatus !== "refused"
+          : running.has(d.admit.dispatchId);
+        return { at: Date.parse(d.admit.admittedAt), ok };
+      }),
+    ...readAgentRuns(run)
+      .filter((a) => a.lane === lane && after(a.at))
+      .map((a) => ({ at: Date.parse(a.at), ok: a.status === "ok" })),
+  ];
+  const latest = tries.reduce<(typeof tries)[number] | null>(
+    (best, t) => (best === null || t.at >= best.at ? t : best),
+    null,
+  );
+  return latest?.ok ?? false;
+}
+
+/**
  * The step the milestone loop is at: the first milestone neither landed nor parked, and within it the
  * first of route, dispatch, collect, reviewer, verifier and land that is still to do.
  */
@@ -57,17 +90,13 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
       ? `${parked.join(", ")} parked: wait for the owner`
       : "finish: the final gate, then the report";
   const mine = lanes.filter((l) => milestoneOf(l) === m);
-  const routed = new Set(readRoutes(run).map((r) => r.lane));
+  const routes = readRoutes(run);
+  const routed = new Set(routes.map((r) => r.lane));
   if (mine.some((l) => !routed.has(l))) return `route and preflight ${m}'s lanes`;
-  const dispatched = new Set([
-    ...listDispatches(run).map((d) => d.admit.lane),
-    ...readAgentRuns(run).map((a) => a.lane),
-  ]);
-  const waiting = mine.filter((l) => !dispatched.has(l));
+  const live = liveDispatches(run, now);
+  const waiting = mine.filter((l) => !laneDone(run, l, routes, live));
   if (waiting.length) return `dispatch ${waiting.join(", ")}`;
-  const running = liveDispatches(run, now).filter(
-    (d) => d.admit.lane !== null && mine.includes(d.admit.lane),
-  );
+  const running = live.filter((d) => d.admit.lane !== null && mine.includes(d.admit.lane));
   if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
   const start = milestoneStart(run, m);
   if (!reviewerPassed(run, m, start)) return `${m}: reviewer`;
