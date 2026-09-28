@@ -24,7 +24,7 @@ import {
 import { validateNamed } from "../../src/services/profile-store.ts";
 import { backgroundSync, sourcesStatus, syncSources, TTL_MS } from "../../src/services/source-sync.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { recordedFetch } from "./source-fixtures.ts";
+import { fixtureJson, recordedFetch } from "./source-fixtures.ts";
 
 afterEach(snapshotEnv());
 
@@ -278,6 +278,28 @@ describe("the shipped defaults after a sync (plan 13 R-A)", () => {
     expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
     const c = clock();
     await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
+    expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
+  });
+
+  it("keep every shipped capability when models.dev denies one (spec 1.2 §3.5: the shipped file is the floor)", async () => {
+    withHome();
+    const md = structuredClone(fixtureJson("models-dev.json")) as Record<
+      string,
+      { models: Record<string, { modalities?: { input?: string[] } }> }
+    >;
+    const sol = md.openai?.models["gpt-6-sol"];
+    if (!sol) throw new Error("fixture lacks openai/gpt-6-sol");
+    sol.modalities = { input: ["text"] };
+    const base = recordedFetch().impl;
+    const impl = (async (input: RequestInfo | URL) =>
+      String(input) === MODELS_DEV_URL
+        ? new Response(JSON.stringify(md), { status: 200 })
+        : base(input)) as typeof fetch;
+    const c = clock();
+    await syncSources({ transport: c.transport(impl), now: c.now, aaKey: null });
+    expect(readDerived()?.facts["gpt-6-sol"]?.capabilities?.imageIn).toBe(false);
+    const fam = loadCatalog({ timings: false }).families.find((f) => f.id === "gpt-6-sol");
+    expect(fam?.capabilities).toEqual({ toolUse: true, imageIn: true, reasoning: true });
     expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
   });
 });

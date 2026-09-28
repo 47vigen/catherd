@@ -206,7 +206,16 @@ export function applyFacts(families: Family[], facts: Record<string, FamilyFacts
         context: got.context ?? cur.context,
       };
     }
-    return { ...f, price: x.price ?? f.price, capabilities: x.capabilities ?? f.capabilities, on };
+    // a sync may add a capability, never remove one the shipped file gives (the floor)
+    const got = x.capabilities;
+    const capabilities = got
+      ? {
+          toolUse: f.capabilities.toolUse || got.toolUse,
+          imageIn: f.capabilities.imageIn || got.imageIn,
+          reasoning: f.capabilities.reasoning || got.reasoning,
+        }
+      : f.capabilities;
+    return { ...f, price: x.price ?? f.price, capabilities, on };
   });
 }
 

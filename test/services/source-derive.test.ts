@@ -147,6 +147,19 @@ describe("catalog facts (spec 1.2 §3.5)", () => {
     expect(c.families.find((f) => f.id === "gpt-6-sol")?.on.opencode?.efforts).toContain("turbo");
   });
 
+  it("lets a sync add a capability, never remove one", () => {
+    const ctx = shippedContext(NOW);
+    const shipped = ctx.models.families.filter((f) => f.id === "gpt-6-sol");
+    const [sol] = shipped;
+    if (!sol) throw new Error("no gpt-6-sol");
+    const noImage = [{ ...sol, capabilities: { ...sol.capabilities, imageIn: false } }];
+    const says = (imageIn: boolean) => ({
+      "gpt-6-sol": { capabilities: { toolUse: false, imageIn, reasoning: true }, on: {}, speed: {} },
+    });
+    expect(applyFacts(shipped, says(false))[0]?.capabilities).toEqual(sol.capabilities);
+    expect(applyFacts(noImage, says(true))[0]?.capabilities.imageIn).toBe(true);
+  });
+
   it("warns when OpenRouter or LiteLLM prices a family more than 10 % apart, or disagrees on an effort", () => {
     expect(keyless().warnings).toEqual([]);
     const raw = rawAnswers(AT);
