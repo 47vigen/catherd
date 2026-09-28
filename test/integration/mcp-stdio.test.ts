@@ -15,6 +15,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { configDir, runsDir } from "../../src/infra/paths.ts";
+import { findRun } from "../../src/services/run-store.ts";
+import { passGate } from "../services/helpers.ts";
 import { defaultProfileDoc } from "../../src/domain/profile.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call } from "../mcp-helpers.ts";
@@ -236,6 +238,10 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
 
       // land: five columns with minutes, and what it learned goes to the repo's knowledge.
       const sha = commitAll(repo);
+      // spec 1.1 §6: no reviewer and no verifier yet, so land refuses the milestone
+      const gated = { run, milestone: "M1", what: "a", commit: sha, evidence: "grep ok", next: "M1.L2" };
+      expect((await call(c, "land", gated)).error?.code).toBe("E_LAND_GATE");
+      await passGate(findRun(run), "M1");
       const landed = await call(c, "land", {
         run,
         milestone: "M1",

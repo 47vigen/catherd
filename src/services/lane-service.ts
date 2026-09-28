@@ -15,6 +15,14 @@ import {
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { budgetOf } from "./budget.ts";
+import {
+  isDocPath,
+  isSourcePath,
+  milestoneFiles,
+  milestoneStart,
+  reviewerPassed,
+  verifierPassed,
+} from "./milestones.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendLedger,
@@ -163,6 +171,45 @@ export async function climb(
 
 const cell = (s: string) => s.replace(/[|\n]/g, "/").replace(/\s+/g, " ").trim();
 
+export const LAND_SKIPS = ["docs-only", "no-code"] as const;
+export type LandSkip = (typeof LAND_SKIPS)[number];
+
+/**
+ * Spec 1.1 §6: a milestone lands only with a reviewer record and a verifier verdict since its lanes
+ * started, or with a `skip` the commit range bears out. Throws E_LAND_GATE naming what is missing.
+ */
+async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefined): Promise<void> {
+  if (skip) {
+    const files = await milestoneFiles(run, commit);
+    const against =
+      skip === "docs-only" ? files.filter((f) => !isDocPath(f)) : files.filter((f) => isSourcePath(f));
+    if (against.length === 0) return;
+    const shown = `${against.slice(0, 5).join(", ")}${against.length > 5 ? `, and ${against.length - 5} more` : ""}`;
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: skip "${skip}" refused: ${skip === "docs-only" ? "files outside the docs changed" : "source files changed"}: ${shown}`,
+      { fix: `run the reviewer (reviewer-${m}) and the verifier on ${m}, then land it without skip` },
+    );
+  }
+  const start = milestoneStart(run, m);
+  const missing = [
+    ...(reviewerPassed(run, m, start)
+      ? []
+      : [`a reviewer record (a dispatch named reviewer-${m}, status ok)`]),
+    ...(verifierPassed(run, m, start)
+      ? []
+      : [`a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok)`]),
+  ];
+  if (missing.length)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: missing ${missing.join(" and ")}, since its lanes started`,
+      {
+        fix: `dispatch reviewer-${m} and run the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}"), then land again; a docs-only milestone passes skip: "docs-only"`,
+      },
+    );
+}
+
 /**
  * Spec §4.7: the full five-column ledger row, with the minutes since the previous landing (or the
  * run's start), and `learned` appended to the repo's knowledge.md.
@@ -177,6 +224,7 @@ export async function land(
     evidence: string;
     next: string;
     learned?: string;
+    skip?: LandSkip;
   },
 ): Promise<{ ledger: string; minutes: number; hints?: string[] }> {
   const run = findRun(i.run);
@@ -185,6 +233,7 @@ export async function land(
     throw new CatherdError("E_RUN_COMMIT", `no commit ${i.commit} in ${run.meta.repo}`, {
       fix: "commit the milestone first, then pass its hash",
     });
+  await gate(run, i.milestone, i.commit, i.skip);
   const now = new Date(deps.now());
   let row = "";
   let minutes = 0;

@@ -26,7 +26,7 @@ import {
 } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, passGate, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -149,6 +149,8 @@ describe("land", () => {
     let now = start + 12 * 60_000;
     const deps = fakeDeps({ now: () => now });
     const c1 = commit(repo);
+    await passGate(run, "M1");
+    await passGate(run, "M2");
     const first = await land(deps, {
       run: run.id,
       milestone: "M1",
@@ -206,6 +208,9 @@ describe("a failed state.md refresh", () => {
     await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await setNext({ run: run.id, next: "dispatch M1.L1" });
     const c1 = commit(repo);
+    // after the lane's route, as a reviewer and a verifier would be
+    await passGate(run, "M1", new Date(now).toISOString());
+    await passGate(run, "M2", new Date(now).toISOString());
     const state = readFileSync(runPaths(run.dir).state, "utf8");
     breakGitStatus();
     const hint = `state.md not refreshed: git status failed in ${repo}`;

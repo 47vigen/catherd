@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { CLIMB_REASONS } from "../../domain/route.ts";
-import { ask, climb, land, route } from "../../services/lane-service.ts";
+import { ask, climb, LAND_SKIPS, land, route } from "../../services/lane-service.ts";
 import type { Deps } from "../../services/ports.ts";
 import { preflight } from "../../services/preflight.ts";
 import { handle } from "./result.ts";
@@ -67,7 +67,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "land",
     {
       description:
-        "Record a landed milestone after you commit it: its five-column ledger row (with the minutes it took) and state.md's last check and next step, with any hints. learned, when given, goes to this repo's knowledge.md.",
+        "Record a landed milestone after you commit it: its five-column ledger row (with the minutes it took) and state.md's last check and next step, with any hints. learned, when given, goes to this repo's knowledge.md. Refused with E_LAND_GATE unless, since the milestone's lanes started, a reviewer dispatch named reviewer-<milestone> ended ok and a verifier verdict naming the milestone was recorded ok (record_agent_run, role verifier). skip: docs-only lands a milestone whose commit range changed only docs; skip: no-code one that changed no source file (put the evidence, e.g. a green pipeline, in evidence).",
       inputSchema: {
         run: z.string(),
         milestone: z.string().min(1),
@@ -76,6 +76,7 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
         evidence: z.string().min(1),
         next: z.string().min(1),
         learned: z.string().min(1).optional(),
+        skip: z.enum(LAND_SKIPS).optional(),
       },
     },
     (a) => handle(() => land(deps, a)),

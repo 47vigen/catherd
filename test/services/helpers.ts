@@ -11,7 +11,8 @@ import { dispatch, type DispatchInput, watchersSettled } from "../../src/service
 import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { result } from "../../src/services/run-service.ts";
-import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import { makeRecord } from "../domain/make-record.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 
 export { makeRecord } from "../domain/make-record.ts";
@@ -240,4 +241,39 @@ export async function fakeDispatch(
   writeJsonAtomic(admitPath(dir), admit);
   setLatest(run, admit.name, admit.dispatchId);
   return { dir, admit };
+}
+
+/**
+ * What `land`'s gate asks for (spec 1.1 §6): a reviewer record named reviewer-<m> and a verifier verdict
+ * naming <m>, both ok and stamped `at` (default now), which must not be before the milestone's lanes started.
+ */
+export async function passGate(run: Run, m: string, at = new Date().toISOString()): Promise<void> {
+  await appendRecord(
+    run,
+    makeRecord({
+      runId: run.id,
+      dispatchId: newDispatchId(),
+      name: `reviewer-${m}`,
+      role: "reviewer",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      startedAt: at,
+      endedAt: at,
+      tokens: { input: 0, cached: 0, output: 0 },
+      changedOwned: [],
+      access: "read-only",
+    }),
+  );
+  appendAgentRun(run, {
+    at,
+    name: `verifier-${m}`,
+    role: "verifier",
+    rung: "claude:claude-opus-5-5#low",
+    agent: null,
+    totalTokens: 0,
+    costUsd: null,
+    secs: null,
+    status: "ok",
+    lane: null,
+  });
 }
