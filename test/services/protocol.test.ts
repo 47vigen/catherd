@@ -114,6 +114,37 @@ describe("Protocol next (spec 1.1 §10)", () => {
     expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
   });
 
+  it("says a lane climbed past its top rung is out of rungs, not dispatch (spec 1.1 §9, §10)", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    let t = Date.now();
+    const at = () => fakeDeps({ now: () => (t += 1000) });
+    for (const l of ["M1.L1", "M1.L2"])
+      await route(at(), { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
+    worked(run, "M1.L2");
+    let top = false;
+    while (!top) top = (await climb(at(), { run: run.id, lane: "M1.L1", reason: "check-failed-twice" })).top;
+    expect(protocolNext(run, [])).toBe("M1.L1: out of rungs — ask finding, then the architect or park M1");
+    // a try at the top rung that ends ok after all: the lane is done
+    appendAgentRun(run, {
+      at: new Date((t += 1000)).toISOString(),
+      name: "worker-M1.L1",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 1,
+      costUsd: null,
+      secs: 1,
+      status: "ok",
+      lane: "M1.L1",
+    });
+    expect(protocolNext(run, [])).toBe("M1: reviewer");
+    // a plain re-route after an ok try (e.g. an architect delta re-read) keeps the lane done
+    await route(at(), { run: run.id, laneFile: "lanes/M1.L2.md", role: "worker" });
+    expect(protocolNext(run, [])).toBe("M1: reviewer");
+  });
+
   it("says finish once every milestone landed", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

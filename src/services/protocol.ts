@@ -44,12 +44,14 @@ function laneIds(run: Run): string[] {
 }
 
 /**
- * Whether `lane` needs no dispatch now: its latest dispatch or native agent run since its latest route row
- * (a climb writes one) is still running, or ended ok with no blocked or refused reply. A lane whose last
- * try failed, hit a limit, was blocked, or was climbed since goes back to dispatch.
+ * Whether `lane` needs no dispatch now: its latest dispatch or native agent run since its latest climb is
+ * still running, or ended ok with no blocked or refused reply. A lane whose last try failed, hit a limit,
+ * was blocked, or was climbed since goes back to dispatch; a plain re-route leaves an ok try standing.
  */
 function laneDone(run: Run, lane: string, routes: RouteRow[], live: Dispatch[]): boolean {
-  const from = Math.max(...routes.filter((r) => r.lane === lane).map((r) => Date.parse(r.at)));
+  const from = Math.max(
+    ...routes.filter((r) => r.lane === lane && r.source === "climb").map((r) => Date.parse(r.at)),
+  );
   // a dispatch routes its lane first, so a try at the route's own time counts as after it
   const after = (t: string) => !(Date.parse(t) < from);
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
@@ -95,8 +97,15 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
   const routed = new Set(routes.map((r) => r.lane));
   if (mine.some((l) => !routed.has(l))) return `route and preflight ${m}'s lanes`;
   const live = liveDispatches(run, now);
-  const waiting = mine.filter((l) => !laneDone(run, l, routes, live));
+  const notDone = mine.filter((l) => !laneDone(run, l, routes, live));
+  // spec 1.1 §9: a climb past the top rung (from === rung) leaves nothing to climb to; that is a decision
+  const spent = notDone.filter((l) => {
+    const last = routes.findLast((r) => r.lane === l);
+    return last?.source === "climb" && last.from === last.rung;
+  });
+  const waiting = notDone.filter((l) => !spent.includes(l));
   if (waiting.length) return `dispatch ${waiting.join(", ")}`;
+  if (spent.length) return `${spent.join(", ")}: out of rungs — ask finding, then the architect or park ${m}`;
   const running = live.filter((d) => d.admit.lane !== null && mine.includes(d.admit.lane));
   if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
   const start = milestoneStart(run, m);
