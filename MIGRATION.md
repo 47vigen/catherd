@@ -107,7 +107,8 @@ must now take it as an argument.
 ### The runs page, by session
 
 `catherd`'s Runs tab lists the Claude Code sessions that drove runs, newest first; open one to watch its runs,
-milestones and roles live. Runs started by 1.0 are under "earlier runs". `catherd runs list` and `status` group
+milestones and roles live; a milestone opens on its digest (what landed, lanes and climbs, reviewer and
+verifier, tokens). Runs started by 1.0 are under "earlier runs". `catherd runs list` and `status` group
 the same way, and their `--json` gains `session`.
 
 ## From 0.x to 1.0

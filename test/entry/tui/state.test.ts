@@ -228,4 +228,24 @@ describe("dialogs and armed keys", () => {
     // "earlier runs" is a session too, with no key
     expect(run(initialState("runs"), { type: "session", key: null }).session).toEqual({ key: null });
   });
+
+  it("opens a milestone of the session; up goes back to the session, and another session closes it", () => {
+    const s = run(
+      initialState("runs"),
+      { type: "session", key: "s1" },
+      { type: "role", run: "r1", dispatchId: "d1" },
+      { type: "arm", what: "cancel", target: "r1/x", at: 0 },
+      { type: "milestone", run: "r1", name: "M0" },
+    );
+    expect([s.session, s.milestone, s.role, s.armed]).toEqual([
+      { key: "s1" },
+      { run: "r1", name: "M0" },
+      null,
+      null,
+    ]);
+    const up = run(s, { type: "up" });
+    expect([up.session, up.milestone]).toEqual([{ key: "s1" }, null]);
+    expect(run(s, { type: "session", key: "s2" }).milestone).toBeNull();
+    expect(initialState("runs").milestone).toBeNull();
+  });
 });

@@ -38,6 +38,8 @@ import {
 } from "../../services/profile-store.ts";
 import { listRuns, type Run, runPaths } from "../../services/run-store.ts";
 import {
+  type MilestoneDetail,
+  milestoneDetail,
   type RoleDetail,
   roleDetail,
   type SessionDetail,
@@ -53,6 +55,7 @@ import { mcpHandshake } from "../mcp/handshake.ts";
 export { CHANGED_ON_DISK } from "../../services/profile-service.ts";
 export type {
   Milestone,
+  MilestoneDetail,
   RoleDetail,
   RoleRow,
   SessionDetail,
@@ -89,6 +92,8 @@ export interface Effects {
   session(key: string | null): SessionDetail;
   /** a role's screen */
   role(run: string, dispatchId: string): RoleDetail;
+  /** spec 1.1 §10: a milestone's screen, its digest */
+  milestone(run: string, name: string): MilestoneDetail;
   /**
    * calls `onChange` when a file under one of `dirs` changes (spec §4: the open screen redraws when a run file
    * changes); null when they cannot be watched here, and the screen polls every second instead
@@ -277,6 +282,7 @@ export function liveEffects(repo: string | null = null): Effects {
     sessions: () => sessionRows(deps),
     session: (key) => sessionDetail(deps, key),
     role: (run, dispatchId) => roleDetail(deps, run, dispatchId),
+    milestone: (run, name) => milestoneDetail(run, name),
     watch: watchDirs,
     async cancel(run, name) {
       const r = await cancel(deps, run, name);

@@ -124,6 +124,8 @@ export interface AppState {
   session: { key: string | null } | null;
   /** the role the open session shows, by its dispatch */
   role: { run: string; dispatchId: string } | null;
+  /** spec 1.1 §10: the milestone the open session shows, its digest */
+  milestone: { run: string; name: string } | null;
   paused: boolean;
   armed: Armed | null;
 }
@@ -151,7 +153,9 @@ export type Action =
   | { type: "session"; key: string | null }
   /** opens one role of the open session */
   | { type: "role"; run: string; dispatchId: string }
-  /** the Runs tab goes back one level: a role to its session, a session to the list */
+  /** opens one milestone of the open session, on its digest */
+  | { type: "milestone"; run: string; name: string }
+  /** the Runs tab goes back one level: a milestone or a role to its session, a session to the list */
   | { type: "up" }
   | { type: "pause" }
   | { type: "arm"; what: Armed["what"]; target: string; at: number }
@@ -164,6 +168,7 @@ export const initialState = (tab: Tab = "status"): AppState => ({
   dialogs: [],
   session: null,
   role: null,
+  milestone: null,
   paused: false,
   armed: null,
 });
@@ -333,10 +338,13 @@ export function reduce(s: AppState, a: Action): AppState {
       return next === top ? s : { ...s, dialogs: [...s.dialogs.slice(0, -1), next] };
     }
     case "session":
-      return { ...s, session: { key: a.key }, role: null, armed: null };
+      return { ...s, session: { key: a.key }, role: null, milestone: null, armed: null };
     case "role":
-      return { ...s, role: { run: a.run, dispatchId: a.dispatchId }, armed: null };
+      return { ...s, role: { run: a.run, dispatchId: a.dispatchId }, milestone: null, armed: null };
+    case "milestone":
+      return { ...s, milestone: { run: a.run, name: a.name }, role: null, armed: null };
     case "up":
+      if (s.milestone) return { ...s, milestone: null, armed: null };
       return s.role ? { ...s, role: null, armed: null } : { ...s, session: null, armed: null };
     case "pause":
       return { ...s, paused: !s.paused };

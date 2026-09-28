@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { budgetStatus } from "../domain/budget.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
@@ -84,6 +85,16 @@ export interface RoleDetail {
   brief: string;
   reply: string;
   record: RunRecord | null;
+}
+
+export interface MilestoneDetail {
+  run: string;
+  runTitle: string;
+  name: string;
+  landed: boolean;
+  what: string;
+  /** R/digests/<name>.md; null when land has not written one (not landed, or landed by 1.0) */
+  digest: string | null;
 }
 
 const keyOf = (g: SessionGroup): string | null => g.session?.sessionId ?? null;
@@ -218,5 +229,22 @@ export function roleDetail(deps: Deps, runId: string, dispatchId: string): RoleD
     brief: text(p.brief),
     reply: text(p.reply),
     record,
+  };
+}
+
+/** Spec 1.1 §10: a milestone's screen, its digest. */
+export function milestoneDetail(runId: string, name: string): MilestoneDetail {
+  const run = findRun(runId);
+  // a milestone name only: never a path out of the run folder
+  const m = /^M\d+$/.test(name) ? milestonesOf(run).find((x) => x.name === name) : undefined;
+  if (!m) throw new Error(`no milestone "${name}" in run ${runId}`);
+  const file = join(run.dir, "digests", `${name}.md`);
+  return {
+    run: run.id,
+    runTitle: run.meta.title,
+    name,
+    landed: m.landed,
+    what: m.what,
+    digest: existsSync(file) ? readFileSync(file, "utf8") : null,
   };
 }
