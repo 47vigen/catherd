@@ -35,6 +35,8 @@ const TOOLS = [
   "profile_get",
   "profile_validate",
   "profile_set",
+  "gate_check",
+  "gate_pass",
 ];
 
 describe("MCP server", () => {

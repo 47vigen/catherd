@@ -1,0 +1,112 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { formatRun } from "../../src/entry/runs-command.ts";
+import { isCatherdError } from "../../src/domain/errors.ts";
+import { gateCheck, gatePass, gatesFile, latestVerifierStep } from "../../src/services/gate-service.ts";
+import { summarizeRun } from "../../src/services/summary.ts";
+import { snapshotEnv } from "../helpers.ts";
+import { call, mcpClient } from "../mcp-helpers.ts";
+import { fakeDeps, freshRun } from "./helpers.ts";
+
+afterEach(snapshotEnv());
+
+function write(repo: string, file: string, text: string): void {
+  mkdirSync(dirname(join(repo, file)), { recursive: true });
+  writeFileSync(join(repo, file), text);
+}
+function commit(repo: string): string {
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("add", "-A");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
+  return git("rev-parse", "--short", "HEAD").trim();
+}
+
+const item = (run: string, over: Record<string, unknown> = {}) => ({
+  run,
+  item: "unit tests",
+  command: "bun test",
+  paths: ["src/", "package.json"],
+  ...over,
+});
+
+describe("the gate ledger (spec 1.1 §7)", () => {
+  it("carries a pass over while the command and the content of its paths are the same", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    write(repo, "package.json", "{}");
+    const c1 = commit(repo);
+    const deps = fakeDeps();
+    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
+    const passed = await gatePass(deps, { ...item(run.id), evidence: "12 pass" });
+    expect(passed.commit).toBe(c1);
+    // an unrelated file changes: still carried, from the commit it passed on
+    write(repo, "docs/x.md", "x");
+    commit(repo);
+    expect(await gateCheck(deps, item(run.id))).toMatchObject({ carried: true, commit: c1 });
+    expect(await gateCheck(deps, item(run.id, { command: "bun test --bail" }))).toEqual({ carried: false });
+    // a file under its paths changes: run it again
+    write(repo, "src/a.ts", "b");
+    commit(repo);
+    expect(await gateCheck(deps, item(run.id))).toEqual({ carried: false });
+  });
+
+  it("hashes uncommitted changes under its paths, so a verifier on an uncommitted tree gets its own hash", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    write(repo, "src/a.ts", "dirty");
+    await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    expect((await gateCheck(deps, item(run.id))).carried).toBe(true);
+    write(repo, "src/a.ts", "dirtier");
+    expect((await gateCheck(deps, item(run.id))).carried).toBe(false);
+    write(repo, "src/new.ts", "n");
+    expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(false);
+  });
+
+  it("keeps the ledger per repo, beside knowledge.md, and a pass is found from another run of the repo", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    await gatePass(fakeDeps(), { ...item(run.id), evidence: "ok" });
+    expect(await Bun.file(gatesFile(repo)).text()).toContain('"evidence":"ok"');
+  });
+
+  it("refuses a path that leaves the repo", async () => {
+    const { run } = freshRun();
+    try {
+      await gateCheck(fakeDeps(), item(run.id, { paths: ["../x"] }));
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+    }
+  });
+
+  it("records each check as the verifier's step, which status shows", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps({ now: () => Date.parse("2026-09-28T10:05:00Z") });
+    await gateCheck(deps, item(run.id, { item: "boot check" }));
+    expect(latestVerifierStep(run)).toEqual({
+      at: "2026-09-28T10:05:00.000Z",
+      item: "boot check",
+      carried: false,
+    });
+    const s = summarizeRun(deps, run);
+    expect(s.verifier?.item).toBe("boot check");
+    expect(formatRun(s)).toContain("  verifier step boot check at 10:05");
+  });
+
+  it("serves gate_check and gate_pass over MCP", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const c = await mcpClient(fakeDeps());
+    expect((await call(c, "gate_check", item(run.id))).data).toEqual({ carried: false });
+    expect((await call(c, "gate_pass", { ...item(run.id), evidence: "ok" })).data.recorded).toBe(true);
+    expect((await call(c, "gate_check", item(run.id))).data.carried).toBe(true);
+  });
+});
