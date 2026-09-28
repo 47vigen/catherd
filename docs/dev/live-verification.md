@@ -226,7 +226,7 @@ runs show <run id> --json` holds the records; write down what you saw.
    PATH="/tmp/fake-codex:$PATH" claude
    ```
 
-   Keep the default failover map (each Codex rung to OpenCode Go), or without Go point the Codex rung
+   Keep the default failover map (Luna high and Sol medium to OpenCode Go; Sol high and xhigh have no default stand-in), or without Go point the Codex rung
    `route` picks for the lane at a stand-in you have, for example: `profile set failover.codex:gpt-6-luna#high claude-code:claude-sonnet-5#high`.
    Run a one-lane task. Look for: a record with status `limit` on the Codex rung, and a second record on the
    stand-in rung whose `failoverFrom` names the Codex rung; the lane finishes on the stand-in. Afterwards

@@ -51,9 +51,9 @@ describe("the default profile (spec §7.2)", () => {
     });
   });
 
-  it("fails every Codex rung over to OpenCode Go, and writes out every field", () => {
+  it("fails the worker rungs that have a fitting stand-in over to OpenCode Go, and writes out every field", () => {
     expect(p.failover).toEqual(DEFAULT_FAILOVER);
-    expect(Object.keys(DEFAULT_FAILOVER).sort()).toEqual([...new Set(p.roles.worker.rungs)].sort());
+    for (const from of Object.keys(DEFAULT_FAILOVER)) expect(p.roles.worker.rungs).toContain(from);
     expect(Object.keys(defaultProfileDoc())).toEqual([
       "schema",
       "name",
@@ -297,14 +297,14 @@ describe("patchBetween", () => {
     const b = applyPatch(a, {
       budget: { usd: 5 },
       roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
-      failover: { "codex:gpt-6-sol#high": null },
+      failover: { "codex:gpt-6-sol#medium": null },
       notify: ["finish"],
     });
     const p = patchBetween(a, b);
     expect(p).toEqual({
       budget: { usd: 5 },
       roles: { worker: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null } },
-      failover: { "codex:gpt-6-sol#high": null },
+      failover: { "codex:gpt-6-sol#medium": null },
       notify: ["finish"],
     });
     expect(applyPatch(a, p)).toEqual(b);

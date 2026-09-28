@@ -158,15 +158,15 @@ export const BUILTIN_ROLES: Record<Role, RoleConfig> = {
 };
 
 /**
- * Spec §7.2: each Codex rung fails over to the best-matching OpenCode Go model. Go serves GPT-6 Luna
- * itself; for Sol it has no GPT model, so Kimi K3 stands in through a shipped treat-like (scores.json),
- * which `profile show` marks inferred.
+ * Spec 1.1 §11: each shipped worker rung fails over to the best stand-in the shipped catalog offers
+ * (`rankStandIns` over `catalogRungs`, pinned by test/domain/failover.test.ts): on another quota, paid
+ * from a plan, and no downgrade on the dims the rung's bars use. Go serves GPT-6 Luna itself; Kimi K3
+ * borrows Sol medium's scores (a shipped treat-like). Sol high and xhigh have no such stand-in on the
+ * owner's plans, so they have none: a limit on them pauses the lane instead of dropping it a tier.
  */
 export const DEFAULT_FAILOVER: Record<string, string> = {
   [LUNA_HIGH]: "opencode:opencode-go/gpt-6-luna#high",
   [SOL("medium")]: "opencode:opencode-go/kimi-k3#max",
-  [SOL("high")]: "opencode:opencode-go/kimi-k3#max",
-  [SOL("xhigh")]: "opencode:opencode-go/kimi-k3#max",
 };
 
 /** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */

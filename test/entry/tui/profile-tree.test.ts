@@ -129,7 +129,8 @@ describe("the Profiles tree (spec §9.1)", () => {
 
   it("marks both default stand-ins inferred, as plan 5 Ruling 2 says (spec §7.2)", () => {
     const rows = buildRows(input());
-    expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("→ kimi-k3#max (inferred)");
+    expect(row(rows, "failover:codex:gpt-6-sol#medium").value).toBe("→ kimi-k3#max (inferred)");
+    expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("none");
     expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe("→ gpt-6-luna#high (inferred)");
   });
 
@@ -217,7 +218,7 @@ describe("edits", () => {
     withHome();
     const c = loadCatalog({ timings: false });
     const models = catalogQuery({ scoredOnly: false, limit: 1000 }, p.billing).models;
-    const standIns = failoverOptions(p, models, c, "codex:gpt-6-sol#high");
+    const standIns = failoverOptions(p, models, c, "codex:gpt-6-sol#medium");
     expect(standIns[0]).toEqual({ value: "", title: "none", current: false });
     expect(standIns.some((o) => o.value.startsWith("codex:"))).toBe(false);
     expect(standIns.some((o) => o.value === "claude-code:claude-opus-5-5#xhigh")).toBe(true);

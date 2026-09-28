@@ -121,8 +121,8 @@ describe("validateProfile", () => {
     });
     expect(v.errors).toEqual([]);
     expect(messages(v.warnings)).toEqual([
-      "stand-in claude:claude-opus-5-5#high is a native subagent: the orchestrator must start it, dispatch cannot",
       "codex:gpt-6-astra#high is on no enabled role's ladder, so this never runs",
+      "stand-in claude:claude-opus-5-5#high is a native subagent: the orchestrator must start it, dispatch cannot",
     ]);
   });
 

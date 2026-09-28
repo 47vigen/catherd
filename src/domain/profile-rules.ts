@@ -1,5 +1,4 @@
 import {
-  billingKeyOf,
   type Catalog,
   capableFor,
   effortOffered,
@@ -8,11 +7,14 @@ import {
   rungInfo,
   scoresOf,
 } from "./catalog.ts";
-import { type Rung, tryParseRung } from "./ids.ts";
+import { quotaOf } from "./failover.ts";
+import { tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { candidates, clearsBar, type RoutingProfile } from "./select.ts";
+
+export { quotaOf };
 
 /** One finding of `validate`: where in the profile, what is wrong, and the action that fixes it. */
 export interface Issue {
@@ -34,12 +36,6 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
   billing: p.billing,
   role: p.roles[role],
 });
-
-/**
- * Spec §7.1 and §4.5: a stand-in on the same quota would be out of quota too. The billing key names the
- * quota, except that the native `claude` path and headless `claude-code` both draw on the Claude plan.
- */
-export const quotaOf = (r: Rung): string => (billingKeyOf(r) === "claude" ? "claude-code" : billingKeyOf(r));
 
 /** Whether a rung's scores are catherd's guess: borrowed through a treat-like, or only `inferred` ones. */
 export function inferredScores(c: Catalog, info: RungInfo): { inferred: boolean; via: string | null } {
