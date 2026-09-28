@@ -11,10 +11,11 @@ Binding spec: `docs/specs/2026-09-28-catherd-1.2-design.md` (above 1.1 and 1.0).
 | Plan | File | State |
 | ---- | ---- | ----- |
 | 13 sources and sync (§3, §4, §9, §10, §11) | `docs/plans/2026-09-28-13-sources-sync.md` | **merged** (PR #22: 14 tasks in 4 parallel waves from a pre-validated scratch, final review 0 C / 4 I fixed in one wave, one Codex round (2 P2, same as I3); ledger `plan13-ledger.md`) |
-| 14 routing and profiles (§5–§8, §9 TUI/route, §7 shipped scores + weekly refresh, 1.2.0 changeset) | `docs/plans/2026-09-28-14-routing-profiles.md` | PR #23: written on plan 13's scratch, replayed onto main `cff7d19`; 12 tasks in 2 parallel waves (scratch `plan14-scratch` c3a94f2, executed identical), final review 0 C / 2 I + Codex 3 P2 fixed in one wave, scoped re-review clean; ledger `plan14-ledger.md`. Merges on green CI |
+| 14 routing and profiles (§5–§8, §9 TUI/route, §7 shipped scores + weekly refresh, 1.2.0 changeset) | `docs/plans/2026-09-28-14-routing-profiles.md` | PR #23: written on plan 13's scratch, replayed onto main `cff7d19`; 12 tasks in 2 parallel waves (scratch `plan14-scratch` c3a94f2, executed identical), final review 0 C / 2 I + Codex 3 P2 fixed in one wave, scoped re-review clean; ledger `plan14-ledger.md`. **merged** (PR #23) |
 
-After plan 14 merges, the "chore: release catherd" PR is **held** for the owner's acceptance (spec §11); the exact
-commands are posted on it. The AA fixtures are synthetic (no key in the sandbox): the owner re-records them
+The release PR #24 ("chore: release catherd", catherd-cli@1.2.0) is **held** for the owner's acceptance (spec §11,
+`docs/dev/live-verification.md` §10); the exact commands are posted on it. Next session: nothing runs until the
+owner reports the acceptance; then merge #24 (npm OIDC publish, plugin stamped 1.2.0). The AA fixtures are synthetic (no key in the sandbox): the owner re-records them
 (`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md` "1.2 follow-ups".
 
 ## catherd 1.1 (session 5, autopilot)

@@ -407,7 +407,7 @@ config: the commands below save and restore what they change.
 **1. A fresh `init`, with and without an Artificial Analysis key; `doctor` shows every source fresh.**
 
 ```sh
-export CATHERD_HOME="$(mktemp -d)"             # a fresh install, apart from your own
+export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"   # apart from your own, agents too
 ARTIFICIAL_ANALYSIS_API_KEY= catherd init --no-input --no-global
 catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | "\(.state) \(.word): \(.detail)"'
 ```
@@ -416,11 +416,11 @@ Look for `ok fresh:` and every keyless source (`models-dev`, `openrouter-models`
 `litellm`, `arena`, `vectara`, `epoch`) under an hour old, and `no Artificial Analysis key`. Then with your key:
 
 ```sh
-export CATHERD_HOME="$(mktemp -d)"
+export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"
 ARTIFICIAL_ANALYSIS_API_KEY=<your key> catherd init --no-input --no-global
 catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | .detail'
 ls -l "$CATHERD_HOME/config/credentials.json"   # -rw------- ; the key was tested before it was saved
-unset CATHERD_HOME
+unset CATHERD_HOME CATHERD_CLAUDE_AGENTS_DIR
 ```
 
 Look for `artificial-analysis` among the fresh sources and `Artificial Analysis key set, <n> requests left today`.
