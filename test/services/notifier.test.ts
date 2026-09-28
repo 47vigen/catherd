@@ -360,6 +360,48 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     }
   });
 
+  it("leaves a notice unmarked when another session claims the run while it is in flight; the new owner hears it (codex r3)", async () => {
+    const { run, deps, n } = await owned();
+    const theirs = await fakeInbox();
+    try {
+      writeFileSync(
+        join(claudeHome(), "sessions", "204.json"),
+        JSON.stringify({ pid: 204, sessionId: "s-next", name: "next", messagingSocketPath: theirs.path }),
+      );
+      const next = fakeDeps({
+        session: { sessionId: "s-next", hostSessionId: null, socketPath: theirs.path, token: "next-token" },
+      });
+      const m = startNotifier(next, { coalesceMs: 20 });
+      notifiers.push(m);
+      n.stop();
+      // the run moves to s-next while the old owner's frame is on its way
+      const moving: typeof sendToInbox = async (t, c, p) => {
+        await peek(next, { run: run.id });
+        return sendToInbox(t, c, p);
+      };
+      const old = startNotifier(deps, { coalesceMs: 20, send: moving });
+      notifiers.push(old);
+      const d = await finished(run, "worker-M1.L1");
+      await settle(deps, run, d, await recordOf(run, d));
+      await old.idle();
+      // the old session got a copy, but the mark is the new owner's to write
+      await (inbox as FakeInbox).received(1);
+      expect(existsSync(dispatchPaths(d.dir).notified)).toBe(false);
+      await m.idle();
+      await m.scan();
+      await m.idle();
+      const [f] = await theirs.received(1);
+      expect(theirs.frames).toHaveLength(1);
+      expect(f?.auth).toEqual({ type: "auth", token: "next-token" });
+      expect(f?.message.content).toContain(`name: "worker-M1.L1"`);
+      expect(JSON.parse(readFileSync(dispatchPaths(d.dir).notified, "utf8"))).toMatchObject({
+        msgId: f?.msg_id,
+      });
+    } finally {
+      await theirs.close();
+    }
+  });
+
   it("announces a role cancelled from the dashboard or the CLI at later, but not one the MCP cancel returned", async () => {
     const { run, deps, n } = await owned();
     process.env.PATH = simPath();

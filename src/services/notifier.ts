@@ -19,8 +19,10 @@ import { currentSession, ownsRun } from "./sessions.ts";
  * session owns, a dispatch that is settled with its record still unread is announced to the session's peer inbox;
  * notices that arrive within the window of each other go as one message; a message that went out is written down
  * (`notified.json`), so a restart never sends it twice, and claimed while it goes, so two servers of one session never
- * both send it. Disk stays the truth: a notice that cannot be sent is dropped (its claim freed), and the record
- * waits, unread, for `result` or `peek`.
+ * both send it. Ownership is asked again under the claim and once more after the message went: a run another session
+ * claimed meanwhile is left unmarked, so its new owner announces it too (a copy to the session that gave the run up is
+ * acceptable, a notice lost to the owner is not). Disk stays the truth: a notice that cannot be sent is dropped (its
+ * claim freed), and the record waits, unread, for `result` or `peek`.
  */
 
 export interface NotifierOptions {
@@ -166,7 +168,8 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
         const release = tryLock(q.mark);
         if (!release) continue; // another server is announcing it
         claims.push(release);
-        if (q.due()) due.push(q);
+        // asked again under the claim: the run may have moved, or the notice gone out, while it was taken
+        if (q.due() && owned(q.run)) due.push(q);
       }
       if (due.length === 0) return;
       const notices = due.map((q) => q.notice);
@@ -184,8 +187,11 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
         return;
       }
       const at = new Date(deps.now()).toISOString();
-      for (const q of due) writeJsonAtomic(q.mark, { schema: 1, msgId: r.msgId, at });
-      log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId) });
+      // a run that moved while the message was on its way is left unmarked: its new owner announces it too
+      const marked = due.filter((q) => owned(q.run));
+      for (const q of marked) writeJsonAtomic(q.mark, { schema: 1, msgId: r.msgId, at });
+      const unmarked = due.filter((q) => !marked.includes(q)).map((q) => q.notice.dispatchId);
+      log("info", "notify", { msgId: r.msgId, dispatches: notices.map((n) => n.dispatchId), unmarked });
     } finally {
       for (const release of claims) release();
     }
