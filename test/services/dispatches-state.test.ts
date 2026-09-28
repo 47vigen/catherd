@@ -111,7 +111,7 @@ describe("state.md", () => {
       `- worker-M1.L1 · codex:gpt-6-sol#medium · thread new · since ${d.admit.admittedAt.slice(11, 16)} · roles/worker-M1.L1/${d.admit.dispatchId}/brief.md`,
     );
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(text);
-    expect(text.trimEnd().split("\n").at(-1)).toBe(
+    expect(text.trimEnd().split("\n").at(-2)).toBe(
       "Next: running worker-M1.L1 (results arrive as catherd messages; peek to check); then review M1",
     );
   });
@@ -147,6 +147,6 @@ describe("state.md", () => {
     });
     const text = readFileSync(runPaths(run.dir).state, "utf8");
     expect(text).toContain("Last check: bun test 12/12");
-    expect(text.trimEnd().split("\n").at(-1)).toBe("Next: land M1");
+    expect(text.trimEnd().split("\n").at(-2)).toBe("Next: land M1");
   });
 });

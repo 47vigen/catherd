@@ -48,6 +48,8 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
   ],
   budget: { fraction: 0.5, minutes: { spent: 30, cap: 60 } },
   milestones: ["M1 | the parser | abc123 | 12 | bun test"],
+  verifier: null,
+  questions: [],
   warnings: ["runs.jsonl: skipped 1 unreadable row(s)"],
   ...over,
 });
@@ -102,7 +104,10 @@ describe("catherd status and watch --once", () => {
     expect(text.out).toContain("  done 1 role run(s), 1 ok\n");
     const j = JSON.parse(catherd(["watch", "--once", "--json"]).out);
     expect(j.runs.map((r: { id: string }) => r.id)).toEqual([run.id]);
-    expect(catherd(["watch", "--once"]).out).toBe(text.out);
+    // two CLI spawns read the wall clock apart: the elapsed times may tick between them, nothing else
+    const clockless = (out: string) =>
+      out.replace(/running \d+s/g, "running <n>s").replace(/ · \d+ min\n/g, " · <n> min\n");
+    expect(clockless(catherd(["watch", "--once"]).out)).toBe(clockless(text.out));
   });
 
   it("names an unknown run with exit 1", () => {

@@ -36,6 +36,15 @@ describe("catherd profile show", () => {
     expect(r.out).not.toContain("cursor");
   });
 
+  it("marks a role whose network is off (spec §5)", () => {
+    withHome();
+    expect(catherd(["set", "roles.writer.network", "false"]).code).toBe(0);
+    const writer = catherd(["show"])
+      .out.split("\n")
+      .find((l) => l.startsWith("  writer"));
+    expect(writer).toContain("workspace-write (no network), enforced");
+  });
+
   it("prints JSON with every default filled in", () => {
     withHome();
     const j = JSON.parse(catherd(["show", "--json"]).out);

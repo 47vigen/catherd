@@ -60,6 +60,29 @@ export function parseLaneHeader(text: string): LaneHeader {
   };
 }
 
+/** The fix every lane-header refusal carries: the values the catalog knows. */
+export const LANE_HEADER_FIX = `write the lane's header lines as Kind: ${KINDS.join("|")} and Difficulty: ${DIFFICULTIES.join("|")}`;
+
+/**
+ * Spec 1.1 §6: a lane's `Kind:` and `Difficulty:` must be values the catalog knows, so routing never falls
+ * back on a typo. `where` names the lane file in the message. Throws E_LANE_INVALID; returns the header.
+ */
+export function assertLaneHeader(text: string, where: string): LaneHeader {
+  const h = parseLaneHeader(text);
+  const problems: string[] = [];
+  const check = (label: string, value: string | null, ok: boolean) => {
+    if (ok) return;
+    problems.push(
+      value === null ? `no ${label}: line` : `${label} "${unquote(value)}" is not one the catalog knows`,
+    );
+  };
+  check("Kind", field(text, "kind"), h.kind !== null);
+  check("Difficulty", field(text, "difficulty"), h.difficulty !== null);
+  if (problems.length)
+    throw new CatherdError("E_LANE_INVALID", `${where}: ${problems.join("; ")}`, { fix: LANE_HEADER_FIX });
+  return h;
+}
+
 const bare = (p: string) => p.replace(/\/+$/, "");
 const covers = (outer: string, inner: string) => inner === outer || inner.startsWith(`${outer}/`);
 

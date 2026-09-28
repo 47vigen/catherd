@@ -17,6 +17,8 @@ export type ErrorCode =
   | "E_ADMIT_ID"
   | "E_ADMIT_THREAD"
   | "E_LANE_INVALID"
+  | "E_LAND_GATE"
+  | "E_CLIMB_DESIGN"
   | "E_JEV_KEY"
   | "E_JEV_NETWORK"
   | "E_JEV_RESPONSE"

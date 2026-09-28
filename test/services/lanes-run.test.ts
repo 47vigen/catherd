@@ -26,7 +26,7 @@ import {
 } from "../../src/services/run-store.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, LADDER, makeRecord, passGate, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -38,7 +38,10 @@ const codeOf = async (p: Promise<unknown> | (() => unknown)) => {
   }
   return "ok";
 };
-const lastLine = (file: string) => readFileSync(file, "utf8").trimEnd().split("\n").at(-1);
+const nextLine = (file: string) =>
+  readFileSync(file, "utf8")
+    .split("\n")
+    .find((l) => l.startsWith("Next: "));
 
 function commit(repo: string): string {
   const git = (...a: string[]) =>
@@ -63,7 +66,7 @@ describe("startRun", () => {
       aLines: ["A1 x"],
     });
     expect(findRun(run).meta.repo).toBe(repo);
-    expect(lastLine(join(dir, "state.md"))).toBe("Next: plan the milestones");
+    expect(nextLine(join(dir, "state.md"))).toBe("Next: plan the milestones");
     expect(
       await codeOf(
         startRun(fakeDeps(), { repo: mkdtempSync(join(tmpdir(), "nogit-")), title: "t", aLines: ["A1"] }),
@@ -134,7 +137,7 @@ describe("route and climb", () => {
       from: LADDER[0],
       reason: "check-failed-twice: roles/x/stderr",
     });
-    expect(lastLine(runPaths(run.dir).state)).toBe(`Next: dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
+    expect(nextLine(runPaths(run.dir).state)).toBe(`Next: dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
     await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
     await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
     const top = await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
@@ -149,6 +152,8 @@ describe("land", () => {
     let now = start + 12 * 60_000;
     const deps = fakeDeps({ now: () => now });
     const c1 = commit(repo);
+    await passGate(run, "M1");
+    await passGate(run, "M2");
     const first = await land(deps, {
       run: run.id,
       milestone: "M1",
@@ -158,7 +163,11 @@ describe("land", () => {
       next: "M2",
       learned: "the suite takes 4 min",
     });
-    expect(first).toEqual({ ledger: `M1 | login / form | ${c1} | 12 | bun test/12/12`, minutes: 12 });
+    expect(first).toEqual({
+      ledger: `M1 | login / form | ${c1} | 12 | bun test/12/12`,
+      minutes: 12,
+      digest: "digests/M1.md",
+    });
     now += 5 * 60_000;
     const second = await land(deps, {
       run: run.id,
@@ -172,7 +181,7 @@ describe("land", () => {
     const ledger = readFileSync(runPaths(run.dir).ledger, "utf8").trim().split("\n");
     expect(ledger).toHaveLength(3);
     expect(ledger.every((row) => row.split(" | ").length === 5)).toBe(true);
-    expect(lastLine(runPaths(run.dir).state)).toBe("Next: finish");
+    expect(nextLine(runPaths(run.dir).state)).toBe("Next: finish");
     mkdirSync(join(repo, "sub"));
     expect(await readKnowledge(join(repo, "sub"))).toContain("Ship it M1: the suite takes 4 min");
   });
@@ -206,6 +215,9 @@ describe("a failed state.md refresh", () => {
     await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await setNext({ run: run.id, next: "dispatch M1.L1" });
     const c1 = commit(repo);
+    // after the lane's route, as a reviewer and a verifier would be
+    await passGate(run, "M1", new Date(now).toISOString());
+    await passGate(run, "M2", new Date(now).toISOString());
     const state = readFileSync(runPaths(run.dir).state, "utf8");
     breakGitStatus();
     const hint = `state.md not refreshed: git status failed in ${repo}`;
@@ -221,7 +233,12 @@ describe("a failed state.md refresh", () => {
     // climb's Next note was kept in state.json although state.md was not refreshed
     expect(readNotes(run).next).toBe(`dispatch M1.L1 at ${LADDER[1]} on a fresh thread`);
     const land1 = { run: run.id, milestone: "M1", what: "x", commit: c1, evidence: "ok", next: "M2" };
-    expect(await land(deps, land1)).toEqual({ ledger: `M1 | x | ${c1} | 3 | ok`, minutes: 3, hints: [hint] });
+    expect(await land(deps, land1)).toEqual({
+      ledger: `M1 | x | ${c1} | 3 | ok`,
+      minutes: 3,
+      digest: "digests/M1.md",
+      hints: [hint],
+    });
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(state);
     now += 4 * 60_000;
     // the landing time was kept although state.md was not refreshed
@@ -304,7 +321,7 @@ describe("run files, result and agent runs", () => {
     );
     expect(await codeOf(() => readRunFile({ run: run.id, path: "nope.md" }))).toBe("E_IO_PATH");
     await setNext({ run: run.id, next: "paused: user asked" });
-    expect(lastLine(runPaths(run.dir).state)).toBe("Next: paused: user asked");
+    expect(nextLine(runPaths(run.dir).state)).toBe("Next: paused: user asked");
   });
 
   it("returns a live role's state, then its record, capped reply and hints", async () => {

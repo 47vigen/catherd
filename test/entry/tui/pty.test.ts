@@ -65,6 +65,9 @@ async function start(args: string) {
     "LC_ALL=C.UTF-8",
     // no key: doctor's discovery never reaches the Models API
     "ANTHROPIC_API_KEY=",
+    // doctor's access probes: a closed local port and no docker, never the registry or the real daemon
+    "CATHERD_PROBE_URL=http://127.0.0.1:9/",
+    "CATHERD_PROBE_DOCKER=catherd-no-docker",
   ].join(" ");
   tmux(
     "new-session",

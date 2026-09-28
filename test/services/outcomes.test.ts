@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { laneOutcome, latestOutcomes, type RouteRow } from "../../src/domain/route.ts";
 import { climb, land, route } from "../../src/services/lane-service.ts";
-import { readOutcomes, readRoutes, runPaths } from "../../src/services/run-store.ts";
+import { readOutcomes, readRoutes, type Run, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, LADDER, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, LADDER, passGate, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -28,8 +28,10 @@ function jevDeps() {
   return deps;
 }
 
-const landM1 = (deps: ReturnType<typeof fakeDeps>, run: string, commit: string) =>
-  land(deps, { run, milestone: "M1", what: "jobs", commit, evidence: "ok", next: "M2" });
+async function landM1(deps: ReturnType<typeof fakeDeps>, run: Run, commit: string) {
+  await passGate(run, "M1");
+  return land(deps, { run: run.id, milestone: "M1", what: "jobs", commit, evidence: "ok", next: "M2" });
+}
 
 describe("outcomes.jsonl (spec §5.6)", () => {
   it("keeps the question set and Jev's probabilities with the lane's route", async () => {
@@ -53,7 +55,7 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     }
     await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked", evidence: "no database", env: true });
     await climb(deps, { run: run.id, lane: "M1.L2", reason: "check-failed-twice" });
-    await landM1(deps, run.id, head(repo));
+    await landM1(deps, run, head(repo));
     const rows = readOutcomes(run);
     expect(rows.map((o) => o.lane)).toEqual(["M1.L1", "M1.L2"]);
     expect(rows[0]).toMatchObject({
@@ -78,6 +80,7 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     const deps = jevDeps();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await passGate(run, "m1");
     const typo = await land(deps, {
       run: run.id,
       milestone: "m1",
@@ -90,7 +93,7 @@ describe("outcomes.jsonl (spec §5.6)", () => {
       'land: no routed lane is in milestone "m1" (routed: M1.L1); check its name: no lane outcome was recorded',
     ]);
     expect(readOutcomes(run)).toEqual([]);
-    expect((await landM1(deps, run.id, head(repo))).hints).toBeUndefined();
+    expect((await landM1(deps, run, head(repo))).hints).toBeUndefined();
     expect(readOutcomes(run).map((o) => o.lane)).toEqual(["M1.L1"]);
   });
 
@@ -115,7 +118,7 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     }
     for (let i = 0; i < LADDER.length; i++)
       await climb(deps, { run: run.id, lane: "M1.L1", reason: "blocker" });
-    await landM1(deps, run.id, head(repo));
+    await landM1(deps, run, head(repo));
     const rows = readOutcomes(run);
     expect(rows.map((o) => [o.lane, o.landed])).toEqual([
       ["M1.L1", false],

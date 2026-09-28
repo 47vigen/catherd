@@ -23,6 +23,12 @@ export interface CodexScenario {
   recordTo?: string;
   /** `codex sandbox`: "allow" runs the command, "deny" refuses any write; unset, codex has no such command */
   sandbox?: "allow" | "deny";
+  /** which `codex sandbox` syntax this Codex knows: "current" (default) or the old `<os> --full-auto` one */
+  sandboxForm?: "current" | "old";
+  /** `codex sandbox` fails any command whose text holds one of these */
+  sandboxDeny?: string[];
+  /** `codex sandbox` appends its arguments here, one JSON line per call */
+  sandboxArgsTo?: string;
   /** overrides for one rung of an `exec`, keyed `model#effort` (`default` when no effort flag is passed) */
   byRung?: Record<string, Omit<CodexScenario, "byRung" | "recordTo">>;
 }

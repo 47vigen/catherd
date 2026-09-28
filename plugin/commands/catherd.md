@@ -7,4 +7,4 @@ Use the `catherd` skill for this, and follow it exactly.
 
 Task: $ARGUMENTS
 
-If the task is empty, resume: call `status()`, tell the user which run it names, and continue that run from its state.md.
+If the task is empty, resume: call `status()`, tell the user which run it names, call `peek(run)` once, and continue that run from its `Protocol next` step.

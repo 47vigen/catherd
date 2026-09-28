@@ -9,6 +9,7 @@ import { reconcileAll } from "../../services/reconcile.ts";
 import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
+import { registerProtocolTools } from "./protocol-tools.ts";
 import { sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
@@ -53,6 +54,7 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
   registerLaneTools(server, deps);
   registerDispatchTools(server, deps);
   registerSetupTools(server, deps);
+  registerProtocolTools(server, deps);
   return server;
 }
 

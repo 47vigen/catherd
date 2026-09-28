@@ -32,6 +32,7 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
     `run ${s.id}  ${s.title}`,
     `  repo ${s.repo} · started ${s.createdAt} · ${Math.round((now - Date.parse(s.createdAt)) / 60_000)} min`,
   ];
+  for (const q of s.questions) lines.push(`  ${mark("warn")} parked ${q.milestone}: ${q.question}`);
   for (const l of s.live) lines.push(`  live ${l.name}  ${l.rung}  ${l.state} ${l.secs}s`);
   lines.push(
     `  done ${t.runs} role run(s), ${t.ok} ok${t.notOk.length ? `; not ok: ${t.notOk.join(", ")}` : ""}`,
@@ -47,6 +48,10 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
   if (s.budget) lines.push(`  budget ${formatBudget(s.budget)}`);
   if (s.jev.decisions) lines.push(`  jev ${s.jev.decisions} decision(s), ${s.jev.fallbacks} fallback(s)`);
   for (const m of s.milestones) lines.push(`  landed ${m}`);
+  if (s.verifier)
+    lines.push(
+      `  verifier step ${s.verifier.item}${s.verifier.carried ? " (carried over)" : ""} at ${s.verifier.at.slice(11, 16)}`,
+    );
   for (const l of s.stateTail) lines.push(`  | ${l}`);
   for (const w of s.warnings) lines.push(`  ${mark("warn")} ${w}`);
   return lines;

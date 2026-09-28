@@ -1,3 +1,15 @@
+const PARKED = /^parked: [^;]*; /;
+
+/**
+ * Spec 1.1 §8: `next` with the parked milestones in front of it, once ("parked: M2 waits on the owner;
+ * <next>"), whoever wrote the step: a milestone stays parked in state.md until it is answered.
+ */
+export function withParked(next: string, parked: string[]): string {
+  const base = next.replace(PARKED, "");
+  if (parked.length === 0) return base;
+  return `parked: ${parked.join(", ")} ${parked.length > 1 ? "wait" : "waits"} on the owner; ${base}`;
+}
+
 export interface StateView {
   title: string;
   head: string;
@@ -5,9 +17,11 @@ export interface StateView {
   running: { name: string; rung: string; thread: string | null; since: string; brief: string }[];
   lastCheck: string | null;
   next: string;
+  /** spec 1.1 §10: the protocol's next step, derived from the run's files; always the last line */
+  protocol: string;
 }
 
-/** state.md: enough for a fresh session to resume from alone; the next step is always the last line. */
+/** state.md: enough for a fresh session to resume from alone; the protocol's next step is always the last line. */
 export function renderState(s: StateView): string {
   const waiting = s.running.map((r) => r.name);
   return [
@@ -29,6 +43,7 @@ export function renderState(s: StateView): string {
     "",
     // 1.1: no tool waits; each running role's record arrives as a catherd message
     `Next: ${waiting.length ? `running ${waiting.join(", ")} (results arrive as catherd messages; peek to check); then ${s.next}` : s.next}`,
+    `Protocol next: ${s.protocol}`,
     "",
   ].join("\n");
 }

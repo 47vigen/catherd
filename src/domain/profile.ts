@@ -43,6 +43,7 @@ const RoleDocSchema = z.looseObject({
   access: z.string().optional(),
   rungs: z.array(z.string()).optional(),
   defaultRung: z.string().optional(),
+  network: z.boolean().optional(),
 });
 
 export const ProfileDocSchema = z.looseObject({
@@ -113,6 +114,8 @@ export type RoleConfig = {
   /** in ladder order, each `backend:model#effort`; `claude:` runs as a native subagent, `claude-code:` headless */
   rungs: string[];
   defaultRung?: string;
+  /** spec §5: false drops a workspace-write role's network, loopback and Docker grants; absent means granted */
+  network?: false;
 };
 
 /** A profile with every default filled in: what the run engine, the CLI and the agent files read. */
@@ -210,6 +213,7 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
             : STORED_FALLBACK.access,
       rungs: [...(d?.rungs ?? b.rungs)],
       ...(defaultRung ? { defaultRung } : {}),
+      ...(d?.network === false ? { network: false as const } : {}),
     };
   }
   const harness: Profile["harness"] = {};
@@ -254,6 +258,7 @@ const RolePatchSchema = z
     access: z.enum(ACCESS),
     rungs: z.array(RungSchema),
     defaultRung: RungSchema.nullable(),
+    network: z.boolean(),
   })
   .partial();
 

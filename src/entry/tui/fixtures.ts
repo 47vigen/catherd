@@ -96,6 +96,8 @@ const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): Run
   harness: [],
   budget: null,
   milestones: [],
+  verifier: null,
+  questions: [],
   warnings: [],
   ...o,
 });

@@ -5,6 +5,8 @@ import type { Tokens } from "../domain/record.ts";
 import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
+import { latestVerifierStep, type VerifierStep } from "./gate-service.ts";
+import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, liveDispatches } from "./dispatches.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
@@ -20,6 +22,8 @@ import {
 
 export interface RunSummary {
   id: string;
+  /** spec 1.1 §8: the owner questions not answered yet, listed first */
+  questions: OpenQuestion[];
   title: string;
   repo: string;
   createdAt: string;
@@ -37,6 +41,8 @@ export interface RunSummary {
   harness: { backend: string; native: number; isolated: number }[];
   budget: BudgetStatus | null;
   milestones: string[];
+  /** spec 1.1 §7: the verifier's latest gate_check, so the user sees where it is */
+  verifier: VerifierStep | null;
   warnings: string[];
 }
 
@@ -57,6 +63,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   }
   return {
     id: run.id,
+    questions: openQuestions(run),
     title: run.meta.title,
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,
@@ -94,6 +101,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     }),
     budget,
     milestones: nonBlankLines(runPaths(run.dir).ledger).slice(1),
+    verifier: latestVerifierStep(run),
     warnings,
   };
 }

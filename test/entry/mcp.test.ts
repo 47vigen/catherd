@@ -35,13 +35,22 @@ const TOOLS = [
   "profile_get",
   "profile_validate",
   "profile_set",
+  "gate_check",
+  "gate_pass",
+  "park",
+  "answer",
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the 1.0 tools", async () => {
+  it("lists exactly the 1.1 tools", async () => {
     freshRun();
     const c = await mcpClient();
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
+    const described = (name: string) =>
+      c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");
+    // status is the verdict for a verifier: a FAIL recorded ok would open the land gate
+    expect(await described("record_agent_run")).toContain('pass status: "failed" when its verdict is FAIL');
+    expect(await described("land")).toContain("or a Claude subagent recorded with record_agent_run");
   });
 
   it("reports its version in status", async () => {
@@ -84,6 +93,16 @@ describe("MCP server", () => {
         evidence: "e",
         next: "n",
       }),
+      // a milestone becomes the digest's file name: an id, never a path
+      await call(c, "land", {
+        run: run.id,
+        milestone: "../state",
+        what: "w",
+        commit: "abcdef1",
+        evidence: "e",
+        next: "n",
+        skip: "no-code",
+      }),
     ];
     for (const r of rejected) {
       expect(r.isError).toBe(true);
@@ -113,7 +132,7 @@ describe("MCP server", () => {
       (await call(c, "write_run_file", { run: run.id, path: "state.md", content: "" })).error?.code,
     ).toBe("E_IO_PATH");
     const set = await call(c, "set_next", { run: run.id, next: "paused: lunch" });
-    expect(set.data.state.trimEnd().split("\n").at(-1)).toBe("Next: paused: lunch");
+    expect(set.data.state.trimEnd().split("\n").at(-2)).toBe("Next: paused: lunch");
     expect(set.data.hints).toBeUndefined();
     const agent = await call(c, "record_agent_run", {
       run: run.id,

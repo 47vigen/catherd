@@ -1,8 +1,19 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { realTmpdir } from "../../src/adapters/access.ts";
 import { locksDir } from "../../src/infra/paths.ts";
+import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
 import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
@@ -16,6 +27,10 @@ import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
+
+/** What the HTTPS probe reaches in tests: a local server, so no test leaves the machine. */
+const ping = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("{}") });
+afterAll(() => ping.stop(true));
 
 /** The simulator bin folders a test made, removed after it. */
 const bins: string[] = [];
@@ -41,6 +56,8 @@ function machine(o: { codex?: CodexScenario; opencode?: OpencodeScenario; bins?:
   const bin = binDir();
   for (const b of o.bins ?? ["codex", "claude", "opencode"]) symlinkSync(join(SIM, b), join(bin, b));
   process.env.PATH = `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${ping.port}/-/ping`;
+  process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   Object.assign(
     process.env,
     withScenario({ models: fx("codex/models.json"), sandbox: "allow", ...o.codex }).env,
@@ -93,6 +110,8 @@ describe("doctor", () => {
       mcp: "ok ready",
       locks: "ok ready",
       "sandbox:codex": "ok ready",
+      "access:codex": "ok ready",
+      "access:opencode": "ok ready",
       "access:full": "warn warning",
       "access:advisory": "warn warning",
     });
@@ -291,19 +310,208 @@ describe("doctor", () => {
     expect([r.ready, check(r, "mcp")?.detail]).toEqual([false, "no answer within 20 s"]);
   });
 
-  it("warns, with the fix, when a Codex workspace-write sandbox cannot write the lock dir; skips when it cannot test", async () => {
-    machine({ codex: { sandbox: "deny" } });
+  it("runs the five access probes in codex sandbox with the grants a worker gets (spec §5, §12)", async () => {
+    const argsTo = join(binDir(), "sandbox-args.jsonl");
+    machine({ codex: { sandboxArgsTo: argsTo } });
     installPlugin(VERSION);
     patchProfile("default", {});
-    const denied = check(await run(), "sandbox:codex");
-    expect(denied).toMatchObject({ state: "warn", word: "not writable" });
-    expect(denied?.fix).toBe(
-      `add "${locksDir()}" to writable_roots under [sandbox_workspace_write] in ~/.codex/config.toml`,
-    );
+    const r = await run();
+    expect(check(r, "sandbox:codex")).toMatchObject({ state: "ok", detail: "codex sandbox" });
+    expect(check(r, "access:codex")).toMatchObject({
+      state: "ok",
+      detail: "lock-dir write, temp write, loopback bind, outbound HTTPS in codex sandbox · no docker",
+    });
+    const calls = readFileSync(argsTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as string[]);
+    // `true` first, then lock, temp, loopback and HTTPS (docker is not installed here)
+    expect(calls).toHaveLength(5);
+    for (const c of calls) {
+      expect(c).toContain("sandbox_workspace_write.network_access=true");
+      expect(
+        c.some((a) => a.startsWith("sandbox_workspace_write.writable_roots=") && a.includes(locksDir())),
+      ).toBe(true);
+    }
+  });
+
+  it("warns with a fix per probe the Codex sandbox blocks", async () => {
+    machine({ codex: { sandboxDeny: ["Bun.listen", "fetch("] } });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const c = check(await run(), "access:codex");
+    expect(c).toMatchObject({ state: "warn", word: "blocked" });
+    expect(c?.detail).toStartWith("in codex sandbox, a worker cannot: loopback bind (");
+    expect(c?.detail).toContain("; outbound HTTPS (");
+    expect(c?.fix?.split("\n")).toEqual([
+      expect.stringMatching(/^loopback bind: catherd passes this grant to Codex itself/),
+      expect.stringMatching(/^outbound HTTPS: catherd passes this grant to Codex itself/),
+    ]);
+  });
+
+  it("falls back to the old codex sandbox form, and skips when neither form runs", async () => {
+    machine({ codex: { sandboxForm: "old" } });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const r = await run();
+    expect(check(r, "sandbox:codex")?.detail).toEndWith("--full-auto (the old form)");
+    expect(check(r, "access:codex")?.state).toBe("ok");
     machine({ codex: { sandbox: undefined } });
     installPlugin(VERSION);
     patchProfile("default", {});
-    expect(check(await run(), "sandbox:codex")).toMatchObject({ state: "skip", word: "not tested" });
+    const none = await run();
+    expect(check(none, "sandbox:codex")).toMatchObject({ state: "skip", word: "not tested" });
+    expect(check(none, "access:codex")).toMatchObject({ state: "skip", word: "not tested" });
+  });
+
+  it("probes no network for roles whose network is off, and says opencode cannot enforce it", async () => {
+    const argsTo = join(binDir(), "sandbox-args.jsonl");
+    machine({ codex: { sandboxArgsTo: argsTo } });
+    installPlugin(VERSION);
+    patchProfile("default", {
+      roles: { worker: { network: false }, writer: { network: false }, artist: { network: false } },
+    });
+    const r = await run();
+    expect(check(r, "access:codex")?.detail).toBe(
+      "lock-dir write, temp write in codex sandbox · network off by profile",
+    );
+    const probed = readFileSync(argsTo, "utf8");
+    expect(probed).toContain("sandbox_workspace_write.network_access=false");
+    expect(probed).not.toContain("sandbox_workspace_write.network_access=true");
+    expect(check(r, "access:opencode")?.detail).toContain(
+      "network: false is not enforced by opencode's shell",
+    );
+  });
+
+  it("runs no docker probe for a backend whose workspace-write roles all have network off", async () => {
+    machine();
+    const marker = join(binDir(), "docker-ran");
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(
+      fake,
+      `#!/bin/sh\ntouch ${marker}\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n`,
+    );
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {
+      roles: { worker: { network: false }, writer: { network: false }, artist: { network: false } },
+    });
+    const c = check(await run(), "access:codex");
+    expect(c).toMatchObject({
+      state: "ok",
+      word: "ready",
+      detail: "lock-dir write, temp write in codex sandbox · network off by profile",
+    });
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("warns when docker is installed but does not answer", async () => {
+    machine();
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(fake, "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const c = check(await run(), "access:opencode");
+    expect(c).toMatchObject({ state: "warn", word: "blocked" });
+    expect(c?.detail).toContain("docker version (Cannot connect to the Docker daemon)");
+    expect(c?.fix).toBe(`docker version: start Docker: ${fake} version fails`);
+  });
+
+  it("still reports when the lock dir cannot be created: the lock probe row fails with the error", async () => {
+    machine();
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    mkdirSync(dirname(locksDir()), { recursive: true });
+    writeFileSync(locksDir(), "not a dir");
+    const r = await run();
+    expect(check(r, "locks")).toMatchObject({ state: "fail", word: "not writable" });
+    const c = check(r, "access:opencode");
+    expect(c).toMatchObject({ state: "warn", word: "blocked" });
+    expect(c?.detail).toContain("lock-dir write (cannot create");
+  });
+
+  it("skips the access probes of a backend that is not installed, and runs none of them", async () => {
+    machine({ bins: ["codex", "claude"] });
+    const marker = join(binDir(), "docker-ran");
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(fake, `#!/bin/sh\ntouch ${marker}\n`);
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const r = await run();
+    expect(check(r, "access:opencode")).toMatchObject({
+      state: "skip",
+      word: "not installed",
+      detail: "opencode is not installed: no worker runs on it here",
+    });
+    // codex is installed: its probes still run
+    expect(check(r, "access:codex")?.state).toBe("ok");
+    rmSync(marker, { force: true });
+    machine({ bins: ["claude"] });
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const none = await run();
+    expect(check(none, "access:codex")?.word).toBe("not installed");
+    expect(check(none, "sandbox:codex")).toBeUndefined();
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("names a failed probe by its last stderr line, not stdout's or Bun's version trailer", async () => {
+    machine();
+    const fake = join(binDir(), "fake-docker");
+    writeFileSync(
+      fake,
+      "#!/bin/sh\necho 'Client:' \necho ' Context: default'\necho 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock' >&2\nexit 1\n",
+    );
+    chmodSync(fake, 0o755);
+    process.env.CATHERD_PROBE_DOCKER = fake;
+    process.env.CATHERD_PROBE_URL = "http://127.0.0.1:9/";
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const c = check(await run(), "access:opencode");
+    expect(c?.detail).toContain(
+      "docker version (Cannot connect to the Docker daemon at unix:///var/run/docker.sock)",
+    );
+    expect(c?.detail).toContain("outbound HTTPS (ConnectionRefused");
+    expect(c?.detail).not.toContain("Bun v");
+  });
+
+  it("counts a proxy's 407 or 403 as blocked HTTPS, not reachable", async () => {
+    for (const status of [407, 403]) {
+      const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("", { status }) });
+      try {
+        machine();
+        process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${proxy.port}/-/ping`;
+        installPlugin(VERSION);
+        patchProfile("default", {});
+        const c = check(await run(), "access:opencode");
+        expect(c).toMatchObject({ state: "warn", word: "blocked" });
+        expect(c?.detail).toContain(`outbound HTTPS (HTTP ${status}`);
+      } finally {
+        proxy.stop(true);
+      }
+    }
+  });
+
+  it("says a probe past its time limit timed out, and a shell that did not start did not start", async () => {
+    const shell = {
+      how: "a fake shell",
+      close: () => {},
+      run: async (_s: string, args: string[]) =>
+        args.includes(locksDir())
+          ? { ok: false, out: "", err: "sh -c x _ y timed out after 20000 ms" }
+          : args.includes(realTmpdir())
+            ? null
+            : { ok: true, out: "", err: "" },
+    };
+    const r = await runProbes(shell, false);
+    expect(r.find((p) => p.id === "lock")?.why).toBe("timed out after 20 s");
+    expect(r.find((p) => p.id === "temp")?.why).toBe("the probe shell did not start");
   });
 
   it("tests a Jev key, and skips Jev when the profile turns it off", async () => {

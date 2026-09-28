@@ -33,11 +33,21 @@ if (args[0] === "debug" && args[1] === "models") {
   say(JSON.stringify(s.models ?? { models: [] }));
   process.exit(0);
 }
-// `codex sandbox <os> --full-auto -- <cmd…>`: "allow" runs the command, "deny" lets only `true` through
-// (as a workspace-write sandbox refuses a write outside the cwd); unset, the subcommand is unknown.
+// `codex sandbox [-c …] -- <cmd…>` (sandboxForm "current", the default) or the old
+// `codex sandbox <os> --full-auto [-c …] -- <cmd…>` (sandboxForm "old"); the other form is refused as an
+// unknown argument. "allow" runs the command, "deny" lets only `true` through (as a workspace-write sandbox
+// refuses a write outside the cwd); sandboxDeny fails any command whose text holds one of its strings.
+// Unset, the subcommand is unknown. sandboxArgsTo gets each call's arguments as one JSON line.
 if (args[0] === "sandbox" && s.sandbox) {
+  const old = args[1] === "macos" || args[1] === "linux";
+  if (old !== (s.sandboxForm === "old")) {
+    process.stderr.write(`error: unexpected argument '${args[1]}' found\n`);
+    process.exit(2);
+  }
+  if (s.sandboxArgsTo) appendFileSync(s.sandboxArgsTo, `${JSON.stringify(args)}\n`);
   const cmd = args.slice(args.indexOf("--") + 1);
-  if (s.sandbox === "deny" && cmd.join(" ") !== "sh -c true") {
+  const denied = ((s.sandboxDeny ?? []) as string[]).some((d) => cmd.join(" ").includes(d));
+  if (denied || (s.sandbox === "deny" && cmd.join(" ") !== "sh -c true")) {
     process.stderr.write("sh: 1: cannot create: Permission denied\n");
     process.exit(1);
   }

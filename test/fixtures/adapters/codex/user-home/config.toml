@@ -1,0 +1,8 @@
+model = "gpt-6-sol"
+
+[sandbox_workspace_write]
+writable_roots = ["/opt/pip-cache", "/home/me/.m2"]
+network_access = false
+
+[profiles.fast.sandbox_workspace_write]
+writable_roots = ["/not/read"]

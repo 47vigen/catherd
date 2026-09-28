@@ -32,7 +32,8 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
-import { findRun, readRecords, type Run } from "./run-store.ts";
+import { route } from "./lane-service.ts";
+import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
 import { claimRun, ownsRun } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
@@ -282,6 +283,17 @@ function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
   await claim(deps, run);
+  const hints: string[] = [];
+  let rung = i.rung;
+  // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
+  if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {
+    assertId("lane", i.lane);
+    const routed = await route(deps, { run: i.run, laneFile: `lanes/${i.lane}.md`, role: i.role });
+    if (!routed.ladder.includes(i.rung)) {
+      rung = routed.rung;
+      hints.push(`${i.rung} is not on ${i.lane}'s routed ladder: dispatched at ${routed.rung}`);
+    }
+  }
   const { d, specPath } = await admit(
     deps,
     run,
@@ -289,7 +301,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
       role: i.role,
       name: i.name,
       brief: i.brief,
-      rung: i.rung,
+      rung,
       thread: i.thread ?? null,
       lane: i.lane ?? null,
       failoverFrom: null,
@@ -305,7 +317,6 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     // a launch that failed is still watched: its record (lost, after the start grace) is announced
     watch(deps, run, d);
   }
-  const hints: string[] = [];
   await refresh(run, i.next ? { next: i.next } : {}, hints);
   return { dispatched: dispatchedOf(d), hints };
 }

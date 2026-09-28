@@ -22,7 +22,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "run_start",
     {
       description:
-        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id and the folder, and hints when state.md could not be written yet.",
+        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id, the folder, protocol (the next step of the milestone loop and its six-line checklist), and hints when state.md could not be written yet.",
       inputSchema: {
         repo: z.string().min(1),
         title: z.string().min(1),
@@ -89,7 +89,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "record_agent_run",
     {
       description:
-        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane's kind in the catalog timings.",
+        "After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane's kind in the catalog timings. status says how the subagent's work ended: for a verifier it is the verdict, so pass status: \"failed\" when its verdict is FAIL; only a PASS is recorded ok.",
       inputSchema: {
         run: z.string(),
         name: z.string().regex(ID_PATTERN),

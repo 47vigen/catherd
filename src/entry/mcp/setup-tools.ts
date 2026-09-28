@@ -73,7 +73,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "profile_set",
     {
       description:
-        "Apply a patch to a profile (without a name: the profile this repo runs on, as in profile_get; a new name starts from the default profile): objective, jev.use, billing, roles (enabled, access, rungs, defaultRung), harness isolation per backend, failover, budget, timeouts, preflight.confirm, lock.heavy and notify. Lists replace, maps merge, and null removes a key. An unknown key is refused. It validates first and writes nothing when invalid; otherwise it saves, rewrites the agent files and relinks them. Returns the errors and warnings, the diff, and newSessionNeededFor: the agents that apply from the next Claude Code session.",
+        "Apply a patch to a profile (without a name: the profile this repo runs on, as in profile_get; a new name starts from the default profile): objective, jev.use, billing, roles (enabled, access, network, rungs, defaultRung), harness isolation per backend, failover, budget, timeouts, preflight.confirm, lock.heavy and notify. Lists replace, maps merge, and null removes a key. An unknown key is refused. It validates first and writes nothing when invalid; otherwise it saves, rewrites the agent files and relinks them. Returns the errors and warnings, the diff, and newSessionNeededFor: the agents that apply from the next Claude Code session.",
       inputSchema: { name: PROFILE, repo: REPO, patch: ProfilePatchSchema },
     },
     (a) => handle(async () => deps.profiles.set(a.name, a.patch, await toplevel(a.repo))),

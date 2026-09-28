@@ -1,3 +1,4 @@
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,7 +59,11 @@ describe("dispatch on claude-code (simulator)", () => {
       cliVersion: "2.1.282",
     });
     expect(hints).toEqual([]);
-    expect(seen).toMatchObject({ stdin: "---\nRead lanes/M1.L1.md", cwd: repo, pwd: repo });
+    expect(seen).toMatchObject({
+      stdin: `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      cwd: repo,
+      pwd: repo,
+    });
     const d = latestDispatch(run, "worker-M1.L1");
     expect(readFileSync(dispatchPaths(d?.dir ?? "").reply, "utf8")).toBe(
       "Done.\nSTATUS: complete — retried once",

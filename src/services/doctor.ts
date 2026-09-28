@@ -5,9 +5,9 @@ import type { Profile } from "../domain/profile.ts";
 import { ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
-import { locksDir } from "../infra/paths.ts";
 import { linkedProfiles } from "./agent-links.ts";
-import { backendChecks, usedBackends, workspaceWriteBackends } from "./doctor-backends.ts";
+import { accessChecks } from "./doctor-access.ts";
+import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck } from "./doctor-push.ts";
 import {
   agentsCheck,
@@ -148,7 +148,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
 
   const used = usedBackends(profiles);
-  checks.push(...(await backendChecks(used, profiles)));
+  const installed = new Set<string>();
+  checks.push(...(await backendChecks(used, profiles, installed)));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({
@@ -228,35 +229,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     );
 
   checks.push(locksCheck());
-  for (const id of workspaceWriteBackends(profiles)) {
-    const a = adapterFor(id);
-    if (!a?.canWrite) continue;
-    const r = await a.canWrite(locksDir()).catch(() => null);
-    const base = { id: `sandbox:${id}`, label: `heavy-lock dir from ${id}'s sandbox` };
-    checks.push(
-      r === null
-        ? {
-            ...base,
-            state: "skip",
-            word: "not tested",
-            detail: `no ${id} sandbox to test with on this machine`,
-          }
-        : r.ok
-          ? {
-              ...base,
-              state: "ok",
-              word: "ready",
-              detail: "a workspace-write worker can take the heavy lock",
-            }
-          : {
-              ...base,
-              state: "warn",
-              word: "not writable",
-              detail: `a workspace-write ${id} worker cannot write ${locksDir()}, so catherd lock fails inside it`,
-              ...(r.fix ? { fix: r.fix } : {}),
-            },
-    );
-  }
+  // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
+  checks.push(...(await accessChecks(profiles, installed)));
 
   const full: string[] = [];
   const advisory: string[] = [];

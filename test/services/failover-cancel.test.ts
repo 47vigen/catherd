@@ -1,3 +1,4 @@
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -199,7 +200,9 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
     expect(readRecords(run).records.map((r) => r.status)).toEqual(["limit", "ok"]);
     const stand = latestDispatch(run, "worker-M1.L1");
     expect(stand?.admit.thread).toBeNull();
-    expect(readFileSync(dispatchPaths(stand?.dir ?? "").brief, "utf8")).toBe("Read lanes/M1.L1.md");
+    expect(readFileSync(dispatchPaths(stand?.dir ?? "").brief, "utf8")).toBe(
+      `Read lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+    );
   });
 
   it("keeps the limited run's violations in the hints after a successful failover", async () => {
@@ -227,7 +230,11 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
     const paths = [...brief.matchAll(/: (\/\S+)/g)].map((m) => m[1] as string);
     expect(paths).toHaveLength(2);
     for (const p of paths) expect(existsSync(p)).toBe(true);
-    expect(readFileSync(paths[1] as string, "utf8")).toBe("Fix: BUG src/a.ts:3 — off by one");
+    expect(readFileSync(paths[1] as string, "utf8")).toBe(
+      `Fix: BUG src/a.ts:3 — off by one\n\n${replyContract("worker")}\n`,
+    );
+    // spec 1.1 §6: the stand-in's own brief carries the reply contract too
+    expect(brief).toEndWith(`${replyContract("worker")}\n`);
   });
 
   it("puts the stand-in through the budget again, and pauses when it is refused", async () => {

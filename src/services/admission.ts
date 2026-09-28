@@ -4,8 +4,9 @@ import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
-import { overlaps, parseLaneHeader } from "../domain/lane.ts";
+import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
+import { withReplyContract } from "../domain/role-prompts.ts";
 import type { Role } from "../domain/roles.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -57,7 +58,7 @@ function laneOwns(run: Run, lane: string): string[] {
     throw new CatherdError("E_LANE_INVALID", `no lane file lanes/${lane}.md`, {
       fix: "write it with write_run_file first",
     });
-  const owns = parseLaneHeader(readFileSync(file, "utf8")).owns;
+  const owns = assertLaneHeader(readFileSync(file, "utf8"), `lanes/${lane}.md`).owns;
   if (owns.length === 0)
     throw new CatherdError("E_LANE_INVALID", `lanes/${lane}.md has no Owns: line`, {
       fix: "add `Owns: <paths>` below the lane's title",
@@ -172,6 +173,7 @@ export async function admit(
   const plan = adapter.plan({
     rung,
     access: rc.access,
+    network: rc.network !== false,
     thread: i.thread,
     isolated,
     repo: run.meta.repo,
@@ -244,7 +246,8 @@ export async function admit(
       ...(sessionId ? { sessionId } : {}),
     };
     ensurePrivateDir(dir);
-    writeTextAtomic(p.brief, i.brief);
+    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included
+    writeTextAtomic(p.brief, withReplyContract(i.role, i.brief));
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(

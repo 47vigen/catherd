@@ -2,6 +2,7 @@ import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
+  type AccessShell,
   type BackendAdapter,
   compareVersions,
   type EventDelta,
@@ -12,6 +13,10 @@ import {
   type RunRequest,
   type SpawnPlan,
 } from "../backend.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { claudeHome } from "../../infra/paths.ts";
+import { dockerSocket, scratchShell, writableRoots } from "../access.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import {
   CLAUDE_LIMIT,
@@ -60,6 +65,75 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
   full: ["--permission-mode", "bypassPermissions"],
 };
 
+/**
+ * Spec §5 for headless Claude Code. Its Bash runs unsandboxed unless the user turned Claude Code's own
+ * sandbox on (`sandbox.enabled`); then these settings, merged over the user's, add the lock and temp dirs,
+ * loopback binds, the Docker socket and `docker` itself (which cannot run inside that sandbox). Outbound
+ * domains stay the user's `sandbox.network.allowedDomains`: doctor's `access:claude-code` row says when
+ * the registry is not among them. `network: false` drops the network grants and the web tools (and with
+ * them Docker: the socket and `docker *` are network grants) and sets `allowLocalBinding: false`, so the
+ * user's own `true` does not carry over (their allowedDomains and other array grants merge in and stay;
+ * doctor says `network: false` is not enforced by claude-code's shell). With the user's sandbox on, `enabled: true`
+ * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off.
+ */
+export function claudeAccessArgs(access: Access, network = true, repo?: string): string[] {
+  const base = CLAUDE_ACCESS[access];
+  if (access !== "workspace-write") return base;
+  const sock = dockerSocket();
+  const sandbox = {
+    ...(claudeSandboxOn(repo) ? { enabled: true } : {}),
+    filesystem: { allowWrite: writableRoots() },
+    ...(network
+      ? {
+          network: { allowLocalBinding: true, ...(sock ? { allowUnixSockets: [sock] } : {}) },
+          excludedCommands: ["docker *"],
+        }
+      : // a boolean overrides the user's own `allowLocalBinding: true`; their array grants cannot be revoked here
+        { network: { allowLocalBinding: false } }),
+  };
+  const args = [...base, "--settings", JSON.stringify({ sandbox })];
+  if (!network) {
+    const i = args.indexOf("--disallowedTools") + 1;
+    args[i] = [args[i], "WebFetch", "WebSearch"].join(",");
+  }
+  return args;
+}
+
+/** `sandbox.enabled` in one settings file, when it says true or false; undefined when absent or unreadable. */
+function sandboxEnabledIn(file: string): boolean | undefined {
+  try {
+    const on = JSON.parse(readFileSync(file, "utf8"))?.sandbox?.enabled;
+    return typeof on === "boolean" ? on : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether Claude Code's Bash sandbox is on for a worker in `repo` (`sandbox.enabled`): the most specific
+ * settings file that says wins, as Claude Code layers them: the user's settings.json, then the project's
+ * .claude/settings.json and .claude/settings.local.json (Claude Code has no user-level settings.local.json).
+ */
+export function claudeSandboxOn(repo: string = process.cwd()): boolean {
+  const files = [
+    join(claudeHome(), "settings.json"),
+    join(repo, ".claude", "settings.json"),
+    join(repo, ".claude", "settings.local.json"),
+  ];
+  return files.map(sandboxEnabledIn).findLast((on) => on !== undefined) ?? false;
+}
+
+/**
+ * Spec §5: with Claude Code's own sandbox off (its default) a headless worker's Bash is an unsandboxed
+ * shell, which doctor probes as is. With it on, only a model turn runs inside it, so doctor says what to
+ * check instead of spending one.
+ */
+async function accessShell(): Promise<AccessShell | string> {
+  if (claudeSandboxOn())
+    return "Claude Code's own sandbox is on (sandbox.enabled): catherd passes the lock, temp, loopback and Docker grants in --settings; outbound HTTPS reaches only sandbox.network.allowedDomains, so add registry.npmjs.org and the hosts your checks need there";
+  return scratchShell("an unsandboxed shell (Claude Code's sandbox is off)", []);
+}
+
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
@@ -80,7 +154,7 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.thread === null ? ["--session-id", crypto.randomUUID()] : ["--resume", r.thread]),
       "--permission-prompts",
       "none",
-      ...CLAUDE_ACCESS[r.access],
+      ...claudeAccessArgs(r.access, r.network, r.repo),
       // --bare would also drop OAuth, so a Claude plan could not log in; --safe-mode keeps auth
       ...(r.isolated ? ["--safe-mode"] : []),
     ],
@@ -237,6 +311,7 @@ export const claudeCodeAdapter: BackendAdapter = {
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: CLAUDE_LIMIT, tooOld: CLAUDE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
+  accessShell,
   // the `result` event is the last thing claude prints; a CLI still running 30 s later is stuck
   graceAfterFinalMs: 30_000,
 };

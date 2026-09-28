@@ -255,11 +255,11 @@ real tools — the thing the unit and contract tests cannot show.
       `plugin/skills/catherd/`, or lists one of them twice, that is a defect against
       the design (skills are already slash-invocable on their own) — record it before
       deciding whether to drop `plugin/commands/`.
-   2. Ask: "List the catherd MCP tools you have." Look for: all twenty-one tool names
+   2. Ask: "List the catherd MCP tools you have." Look for: all twenty-five tool names
       (`run_start, write_run_file, read_run_file, status, result, set_next,
       record_agent_run, read_knowledge, runs_summary, route, climb, ask, land,
       preflight, dispatch, peek, cancel, catalog_query, profile_get, profile_validate,
-      profile_set`).
+      profile_set, gate_check, gate_pass, park, answer`).
    3. Ask: "Call the catherd status tool." Look for: its `version` equal to your
       checkout's `package.json` version, and `runs` empty on a fresh machine (or the
       runs already on it).

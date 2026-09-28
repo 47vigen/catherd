@@ -283,6 +283,8 @@ const SERVER_OWNED = new Set([
   "jev.jsonl",
   "agents.jsonl",
   "harness.jsonl",
+  "verifier.jsonl",
+  "questions.jsonl",
   "outcomes.jsonl",
   "sessions.jsonl",
 ]);
@@ -313,6 +315,8 @@ export function runFile(run: Run, path: string, mode: "read" | "write"): string 
     (SERVER_OWNED.has(folded) ||
       folded === "roles" ||
       folded.startsWith(`roles${sep}`) ||
+      folded === "digests" ||
+      folded.startsWith(`digests${sep}`) ||
       folded.endsWith(".lock"))
   )
     throw new CatherdError("E_IO_PATH", `${rel} is written by catherd itself`, {
