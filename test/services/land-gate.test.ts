@@ -235,6 +235,17 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(namesMilestone("verifierM1", "M1")).toBe(false);
   });
 
+  it("ends the milestone in a name at the end, '-', '.', '_' or whitespace, for reviewer and verifier alike", () => {
+    const refused = ["M1fix", "M1A", "M10"];
+    const accepted = ["M1", "M1-fix", "M1.2", "M1_x"];
+    expect(refused.map((s) => namesMilestone(`verifier-${s}`, "M1"))).toEqual([false, false, false]);
+    expect(refused.map((s) => reviewsMilestone(`reviewer-${s}`, "M1"))).toEqual([false, false, false]);
+    expect(accepted.map((s) => namesMilestone(`verifier-${s}`, "M1"))).toEqual([true, true, true, true]);
+    expect(accepted.map((s) => reviewsMilestone(`reviewer-${s}`, "M1"))).toEqual([true, true, true, true]);
+    expect(namesMilestone("M1 verifier", "M1")).toBe(true);
+    expect(reviewsMilestone("reviewer-M1 again", "M1")).toBe(true);
+  });
+
   it("takes reviewer-<M> followed by the end, '-', '.' or '_' as M's reviewer, never reviewer-M10 for M1", async () => {
     expect(
       ["reviewer-M1", "reviewer-M1-fix", "reviewer-M1.2", "reviewer-M1_b"].map((n) =>

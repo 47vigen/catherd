@@ -10,17 +10,17 @@ import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./ru
 // Spec 1.1 §6 and §10: what a milestone has been through, read from the run's own records. `land` gates on
 // it, and the protocol's next step is derived from it.
 
-/** `name` names milestone `m` as a word: verifier-M1 and M1-verifier do, verifier-M10 does not. */
-export const namesMilestone = (name: string, m: string): boolean =>
-  new RegExp(`(^|[^A-Za-z0-9])${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^0-9])`).test(name);
+/** Where a milestone name may end inside a longer name: the end, '-', '.', '_' or whitespace (M1-fix, M1.2). */
+const MILESTONE_END = String.raw`(?=$|[-._\s])`;
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** `name` is milestone `m`'s reviewer: reviewer-<m> then the end, '-', '.' or '_' (reviewer-M10 is not M1's). */
-export const reviewsMilestone = (name: string, m: string): boolean => {
-  const head = `reviewer-${m}`;
-  return (
-    name.startsWith(head) && (name.length === head.length || "-._".includes(name[head.length] as string))
-  );
-};
+/** `name` names milestone `m` as a word: verifier-M1 and M1-verifier do; verifier-M10 and verifier-M1fix do not. */
+export const namesMilestone = (name: string, m: string): boolean =>
+  new RegExp(`(^|[^A-Za-z0-9])${escapeRe(m)}${MILESTONE_END}`).test(name);
+
+/** `name` is milestone `m`'s reviewer: reviewer-<m>, the milestone ending as in namesMilestone (reviewer-M10 is not M1's). */
+export const reviewsMilestone = (name: string, m: string): boolean =>
+  new RegExp(`^reviewer-${escapeRe(m)}${MILESTONE_END}`).test(name);
 
 const inMilestone = (lane: string | null | undefined, m: string): boolean =>
   typeof lane === "string" && lane.startsWith(`${m}.`);
