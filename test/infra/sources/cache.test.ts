@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sourcesDir } from "../../../src/infra/paths.ts";
 import {
   cachePath,
+  calibrationPath,
+  derivedPath,
   readCached,
+  readDerived,
   readSyncState,
   tryLockSync,
   writeCached,
+  writeDerived,
   writeSyncState,
 } from "../../../src/infra/sources/cache.ts";
 import { noPosixModes, snapshotEnv, withHome } from "../../helpers.ts";
@@ -50,10 +54,51 @@ describe("the source cache (spec 1.2 §3.3)", () => {
     writeSyncState({
       schema: 1,
       sources: {
-        arena: { lastAttemptAt: "2026-09-28T10:00:00.000Z", error: "http 503", rateLimitRemaining: null },
+        arena: {
+          fetchedAt: null,
+          lastAttemptAt: "2026-09-28T10:00:00.000Z",
+          error: "http 503",
+          rateLimitRemaining: null,
+        },
       },
     });
     expect(readSyncState().sources.arena?.error).toBe("http 503");
+  });
+
+  it("keeps derived.json beside calibration.json, and reads a changed file again", () => {
+    withHome();
+    expect(readDerived()).toBeNull();
+    const d = {
+      schema: 1 as const,
+      builtAt: "2026-09-28T10:00:00.000Z",
+      scores: [],
+      facts: {},
+      fits: [
+        {
+          dim: "agentic" as const,
+          source: "arena",
+          field: "agent_bash_recovery_steps",
+          n: 12,
+          a: 1,
+          b: 0,
+          r2: 0.7,
+          used: true,
+        },
+      ],
+      unmatched: { arena: ["Kimi K3"] },
+      warnings: [],
+    };
+    writeDerived(d);
+    expect(readDerived()).toEqual(d);
+    expect(JSON.parse(readFileSync(calibrationPath(), "utf8"))).toEqual({
+      schema: 1,
+      builtAt: "2026-09-28T10:00:00.000Z",
+      fits: d.fits,
+    });
+    writeDerived({ ...d, warnings: ["gpt-6-sol: input price differs"] });
+    expect(readDerived()?.warnings).toEqual(["gpt-6-sol: input price differs"]);
+    writeFileSync(derivedPath(), "{broken");
+    expect(readDerived()).toBeNull();
   });
 
   it("lets one sync hold the lock at a time", () => {

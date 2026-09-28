@@ -1,0 +1,3 @@
+[test]
+# spec 1.2 §3.2: no test process, and no process a test starts with its env, syncs the public sources
+preload = ["./test/preload.ts"]

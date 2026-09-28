@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { errorMessage } from "../../domain/errors.ts";
-import type { SourceId } from "../../domain/sources.ts";
+import { type Derived, DerivedSchema, type SourceId } from "../../domain/sources.ts";
 import { tryLock } from "../filelock.ts";
 import { log } from "../log.ts";
 import { sourcesDir } from "../paths.ts";
@@ -53,6 +53,8 @@ const StateSchema = z.looseObject({
     .record(
       z.string(),
       z.looseObject({
+        /** when the cached answer was fetched (its TTL runs from here); null before a first success */
+        fetchedAt: z.iso.datetime().nullable().default(null),
         lastAttemptAt: z.iso.datetime(),
         error: z.string().nullable(),
         /** Artificial Analysis: `x-ratelimit-remaining` of its last answer */
@@ -83,4 +85,40 @@ export const writeSyncState = (s: SyncState): void => writeJsonAtomic(statePath(
 export function tryLockSync(): (() => void) | null {
   ensurePrivateDir(sourcesDir());
   return tryLock(join(sourcesDir(), "sync"));
+}
+
+export const derivedPath = (): string => join(sourcesDir(), "derived.json");
+/** Spec 1.2 §4.2: every fit with its R², used or not. */
+export const calibrationPath = (): string => join(sourcesDir(), "calibration.json");
+
+let memo: { mtimeMs: number; size: number; file: string; derived: Derived | null } | null = null;
+
+/**
+ * What the last sync derived; null when never synced or unreadable (routing then reads the shipped values
+ * alone). Read on every catalog load, so it is parsed again only when the file changes.
+ */
+export function readDerived(): Derived | null {
+  const file = derivedPath();
+  let st: { mtimeMs: number; size: number };
+  try {
+    st = statSync(file);
+  } catch {
+    return null;
+  }
+  if (memo?.file === file && memo.mtimeMs === st.mtimeMs && memo.size === st.size) return memo.derived;
+  let derived: Derived | null = null;
+  try {
+    derived = readVersioned(file, DerivedSchema, 1);
+  } catch (e) {
+    log("debug", "sources", { derived: errorMessage(e) });
+  }
+  memo = { file, mtimeMs: st.mtimeMs, size: st.size, derived };
+  return derived;
+}
+
+/** Writes derived.json and calibration.json atomically. */
+export function writeDerived(d: Derived): void {
+  memo = null;
+  writeTextAtomic(derivedPath(), `${JSON.stringify(d)}\n`);
+  writeJsonAtomic(calibrationPath(), { schema: 1, builtAt: d.builtAt, fits: d.fits });
 }
