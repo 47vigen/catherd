@@ -1,3 +1,4 @@
+import { errorMessage } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 
 /** How `init` finds and installs the global `catherd` (injectable: tests never reach the registry). */
@@ -11,9 +12,11 @@ export interface GlobalInstallDeps {
 export type GlobalInstall =
   | { state: "current" }
   | { state: "installed" }
+  /** installed, but the `catherd` first on PATH is another version (or none), so the launcher still runs bunx */
+  | { state: "shadowed"; onPath: string | null }
   | { state: "failed"; reason: string };
 
-async function run(cmd: string[]): Promise<{ ok: boolean; output: string }> {
+async function run(cmd: string[]): Promise<{ ok: boolean; stdout: string; output: string }> {
   const p = Bun.spawn(cmd, {
     env: scrubSecrets(process.env),
     stdin: "ignore",
@@ -25,7 +28,7 @@ async function run(cmd: string[]): Promise<{ ok: boolean; output: string }> {
     new Response(p.stderr).text(),
     p.exited,
   ]);
-  return { ok: code === 0, output: `${err}${out}` };
+  return { ok: code === 0, stdout: out, output: `${err}${out}` };
 }
 
 export const realGlobalInstall: GlobalInstallDeps = {
@@ -33,9 +36,14 @@ export const realGlobalInstall: GlobalInstallDeps = {
     const bin = Bun.which("catherd", { PATH: process.env.PATH ?? "" });
     if (!bin) return null;
     const r = await run([bin, "--version"]).catch(() => null);
-    return r?.ok ? r.output.trim() : null;
+    // stdout only: a warning on stderr must not make this version look like another one
+    return r?.ok ? r.stdout.trim() : null;
   },
-  install: (version) => run([process.execPath, "add", "-g", `catherd-cli@${version}`]),
+  install: (version) =>
+    run([process.execPath, "add", "-g", `catherd-cli@${version}`]).catch((e: unknown) => ({
+      ok: false,
+      output: errorMessage(e),
+    })),
 };
 
 /**
@@ -49,8 +57,12 @@ export async function ensureGlobal(
 ): Promise<GlobalInstall> {
   if ((await deps.installedVersion()) === version) return { state: "current" };
   installing();
-  const r = await deps.install(version);
-  if (r.ok) return { state: "installed" };
+  // never rejects: a failed install is reported, and init goes on
+  const r = await deps.install(version).catch((e: unknown) => ({ ok: false, output: errorMessage(e) }));
+  if (r.ok) {
+    const onPath = await deps.installedVersion().catch(() => null);
+    return onPath === version ? { state: "installed" } : { state: "shadowed", onPath };
+  }
   const reason = r.output.split("\n").find((l) => l.trim()) ?? "bun add -g failed";
   return { state: "failed", reason: reason.trim() };
 }

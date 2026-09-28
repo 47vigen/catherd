@@ -84,6 +84,15 @@ export async function globalStep(
     return console.log(
       `${mark("ok")} catherd ${version} installed globally; the plugin starts it without bunx`,
     );
+  if (r.state === "shadowed") {
+    const found = r.onPath === null ? "no catherd is on PATH" : `the catherd first on PATH is ${r.onPath}`;
+    console.log(
+      `${mark("warn")} catherd ${version} installed globally, but ${found}, so the plugin starts it with bunx`,
+    );
+    return console.log(
+      `    fix: put bun's global bin folder (bun pm bin -g) first on PATH, then run catherd init again`,
+    );
+  }
   console.log(`${mark("warn")} could not install catherd globally: ${r.reason}`);
   console.log(`    fix: ${reinstallCommand(version)}`);
 }

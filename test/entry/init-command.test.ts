@@ -42,10 +42,17 @@ describe("globalStep (spec 1.1 §12)", () => {
     }
     return out;
   };
-  const deps = (onPath: string | null, ok = true) => ({
-    installedVersion: async () => onPath,
-    install: async () => ({ ok, output: ok ? "" : "error: 503 from the registry\n" }),
-  });
+  /** `after`: what the catherd on PATH reports once the install ran (default: the installed version) */
+  const deps = (onPath: string | null, ok = true, after?: string | null) => {
+    let now = onPath;
+    return {
+      installedVersion: async () => now,
+      install: async (v: string) => {
+        if (ok) now = after === undefined ? v : after;
+        return { ok, output: ok ? "" : "error: 503 from the registry\n" };
+      },
+    };
+  };
 
   it("says installing catherd… first, then that it is installed", async () => {
     expect(await lines(() => globalStep("1.1.0", { skip: false, deps: deps("1.0.0") }))).toEqual([
@@ -66,6 +73,39 @@ describe("globalStep (spec 1.1 §12)", () => {
     ).toEqual([
       "installing catherd… (bun add -g catherd-cli@1.1.0)",
       "! could not install catherd globally: error: 503 from the registry",
+      "    fix: bun add -g catherd-cli@1.1.0",
+    ]);
+  });
+
+  it("says what to fix when the catherd first on PATH is still another one after the install", async () => {
+    expect(
+      await lines(() =>
+        globalStep("1.1.0", { skip: false, deps: deps("1.0.0", true, "1.0.0"), plain: true }),
+      ),
+    ).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! catherd 1.1.0 installed globally, but the catherd first on PATH is 1.0.0, so the plugin starts it with bunx",
+      "    fix: put bun's global bin folder (bun pm bin -g) first on PATH, then run catherd init again",
+    ]);
+    expect(
+      await lines(() => globalStep("1.1.0", { skip: false, deps: deps(null, true, null), plain: true })),
+    ).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! catherd 1.1.0 installed globally, but no catherd is on PATH, so the plugin starts it with bunx",
+      "    fix: put bun's global bin folder (bun pm bin -g) first on PATH, then run catherd init again",
+    ]);
+  });
+
+  it("goes on when the install itself throws", async () => {
+    const d = {
+      ...deps(null),
+      install: async () => {
+        throw new Error("spawn bun ENOENT");
+      },
+    };
+    expect(await lines(() => globalStep("1.1.0", { skip: false, deps: d, plain: true }))).toEqual([
+      "installing catherd… (bun add -g catherd-cli@1.1.0)",
+      "! could not install catherd globally: spawn bun ENOENT",
       "    fix: bun add -g catherd-cli@1.1.0",
     ]);
   });
