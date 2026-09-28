@@ -1,5 +1,5 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-25-02-run-service.md
-Spec: docs/superpowers/specs/2026-09-25-catherd-1.0-design.md
+# SDD ledger — plan: docs/plans/2026-09-25-02-run-service.md
+Spec: docs/specs/2026-09-25-catherd-1.0-design.md
 Base: 9deaebc (main 67c0947 + plan commit). Plan code pre-validated by its writer in a scratch copy.
 Batches: A1={1,2,3} → A2={4,5,6,7} → parallel worktrees B1={8,9,13,10} and B2={12,11} → C1={14} → parallel C2={15}, C3={16}. Reviews per batch, overlapped with the next batch.
 Ruling: bundle sequential tasks per agent and overlap each batch's review with the next batch's implementation (user directive: fewer tokens, faster) — costs rework in later batches if a review finds an interface defect.

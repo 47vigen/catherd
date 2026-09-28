@@ -1,6 +1,6 @@
 # Pre-flight: plan 4 (catalog and routing)
 
-Read-only scan of `docs/superpowers/plans/2026-09-25-04-catalog-routing.md` against the spec (§5, §3.5, §4.1, §8, §11.1) and the tree at `dd730d2`. The briefs match the plan line for line; `task-11-brief.md` also carries the plan's closing "Self-review" and "After this plan" sections, which does no harm. Wave 1 (Tasks 1, 4, 5, 6) is already merged on this branch.
+Read-only scan of `docs/plans/2026-09-25-04-catalog-routing.md` against the spec (§5, §3.5, §4.1, §8, §11.1) and the tree at `dd730d2`. The briefs match the plan line for line; `task-11-brief.md` also carries the plan's closing "Self-review" and "After this plan" sections, which does no harm. Wave 1 (Tasks 1, 4, 5, 6) is already merged on this branch.
 
 **Result: no same-wave file overlap. 8 conflicts: 3 medium, 5 low.** None of them breaks the replay, because the replay machine had no `ANTHROPIC_API_KEY` and nothing exercised the 0.x TUI writer.
 

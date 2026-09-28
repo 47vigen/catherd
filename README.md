@@ -142,18 +142,18 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 ## Docs
 
-| Where                                                                                                                | What                                                                  |
-| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [MIGRATION.md](MIGRATION.md)                                                                                         | Upgrading from 0.x                                                    |
-| [CHANGELOG.md](CHANGELOG.md)                                                                                         | Releases                                                              |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                                                                                   | Development setup, the checks, commits, changesets, live tests        |
-| [SECURITY.md](SECURITY.md)                                                                                           | Reporting a vulnerability; what catherd stores and how                |
-| [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md) | The 1.0 design (binding)                                              |
-| [`docs/dev/`](docs/dev/)                                                                                             | Maintainer docs: live verification, manual tests, dependencies, ideas |
-| [`docs/dev/live-verification.md`](docs/dev/live-verification.md)                                                     | What CI cannot run: live tests, fixture capture, the Codex sandbox    |
-| [`docs/tui-frames.md`](docs/tui-frames.md)                                                                           | Every dashboard screen as text (generated, checked in CI)             |
-| [`docs/superpowers/`](docs/superpowers/), [`docs/research/`](docs/research/)                                         | How 1.0 was designed and built: plans, reviews, research              |
-| [`docs/archive/0.x/`](docs/archive/0.x/)                                                                             | The 0.x design and plans, for history                                 |
+| Where                                                                                              | What                                                                  |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [MIGRATION.md](MIGRATION.md)                                                                       | Upgrading from 0.x                                                    |
+| [CHANGELOG.md](CHANGELOG.md)                                                                       | Releases                                                              |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                                                                 | Development setup, the checks, commits, changesets, live tests        |
+| [SECURITY.md](SECURITY.md)                                                                         | Reporting a vulnerability; what catherd stores and how                |
+| [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design (binding)                                              |
+| [`docs/dev/`](docs/dev/)                                                                           | Maintainer docs: live verification, manual tests, dependencies, ideas |
+| [`docs/dev/live-verification.md`](docs/dev/live-verification.md)                                   | What CI cannot run: live tests, fixture capture, the Codex sandbox    |
+| [`docs/tui-frames.md`](docs/tui-frames.md)                                                         | Every dashboard screen as text (generated, checked in CI)             |
+| [`docs/plans/`](docs/plans/), [`docs/handoff/`](docs/handoff/), [`docs/research/`](docs/research/) | How 1.0 was designed and built: plans, reviews, research              |
+| [`docs/archive/0.x/`](docs/archive/0.x/)                                                           | The 0.x design and plans, for history                                 |
 
 ## Contributing
 

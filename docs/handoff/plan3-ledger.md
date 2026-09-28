@@ -1,5 +1,5 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-25-03-adapters.md
-Spec: docs/superpowers/specs/2026-09-25-catherd-1.0-design.md · Base 6885432 (main 903bbbb + plan). Plan code pre-validated by its writer (661 pass in scratch; live checks vs claude 2.1.282 and @opencode/cli 2.0.16).
+# SDD ledger — plan: docs/plans/2026-09-25-03-adapters.md
+Spec: docs/specs/2026-09-25-catherd-1.0-design.md · Base 6885432 (main 903bbbb + plan). Plan code pre-validated by its writer (661 pass in scratch; live checks vs claude 2.1.282 and @opencode/cli 2.0.16).
 Batches: wave1 parallel worktrees X1={1→2}, X2={3→6}, X3={4}, X4={9} → wave2 parallel Y1={5}, Y2={7→8} → Z={10→11}. One review per batch overlapped with the next wave.
 Ruling (plan writer): Claude isolation via --safe-mode (not --bare, which drops OAuth); every fresh claude-code run passes --session-id; claude-code access via dontAsk/acceptEdits/bypassPermissions + allow/deny lists + no permission prompts; full access refused as root unless IS_SANDBOX; opencode agents via frontmatter permissions + 'opencode reload'; isolated opencode via --standalone; Go→Zen only with same model+variant; until plan 5 architect/verifier native, other Claude roles headless, Claude stand-ins headless; opencode totals = session totals minus earlier records on that session — accepted — costs rework in plan 5 if the native/headless default changes.
 Carry-overs owned here: supervise-bin explicit exit; contract suite gaps (in Task 1); backend.ts env comment stale (fold into Task 1).

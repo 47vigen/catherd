@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-25-04-catalog-routing.md
+# SDD ledger — plan: docs/plans/2026-09-25-04-catalog-routing.md
 Branch: claude/ecstatic-pasteur-yidat7, base 2c01441
 Ruling: all plans are developed on the harness-designated branch claude/ecstatic-pasteur-yidat7, one PR per plan, branch restarted from main after each merge — the session may push only there — cost if wrong: none, branch names are cosmetic.
 Ruling: pre-flight scan runs concurrently with wave 1 (tasks 1,4,5,6) instead of before it — the plan was replayed end-to-end in a scratch copy, so conflicts are unlikely and wall-clock matters — cost if wrong: redo of a wave-1 batch.

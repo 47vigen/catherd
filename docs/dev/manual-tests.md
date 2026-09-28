@@ -4,7 +4,7 @@ Three checks that need a human at Claude Desktop, because MCP servers and plugin
 load at session start; no automated test can show that. Run them before each major
 release, and again after any Claude Code release that might change MCP call
 backgrounding, subagent loading or plugin discovery (see §14, Risks, of the
-[1.0 design](../superpowers/specs/2026-09-25-catherd-1.0-design.md)). The checks that need real backend accounts (live tests, fixture capture, the
+[1.0 design](../specs/2026-09-25-catherd-1.0-design.md)). The checks that need real backend accounts (live tests, fixture capture, the
 Codex sandbox, the Jev key prompt) are in [`live-verification.md`](live-verification.md).
 
 Do these in order: S1 and S2 gate `wait` and the Claude agent files that the plugin

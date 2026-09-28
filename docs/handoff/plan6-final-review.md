@@ -220,7 +220,7 @@ corrupt `catalog.override.json`, or a catalog refresh that drops a rung the draf
   names `waitForThemeMode` with a dark fallback.
 - Billing, `lock.heavy` and `preflight.confirm` are not in the tree: plan Ruling 14.
 - 11 widgets, not "about 18": S4 ("about").
-- `docs/superpowers/plans/2026-09-26-08-cursor-grok.md` on this branch: out of scope, per the brief.
+- `docs/plans/2026-09-26-08-cursor-grok.md` on this branch: out of scope, per the brief.
 - Codex live test: needs the owner's login (`CATHERD_LIVE=1`); typechecked only.
 - The PTY test's one flake in five full-suite runs: the plan asks plan 7 to watch it on CI.
 

@@ -129,13 +129,13 @@ None.
   README/help now describe the new behaviour consistently.
 - Stale 0.x code paths in docs/research/*.md (`src/core/…`, `docs/ideas.md`): these are dated research
   records of the 0.x tree, which batch D chose to leave as history.
-- Relative links inside docs/superpowers/plans (paths in code blocks, sibling-relative references):
+- Relative links inside docs/plans (paths in code blocks, sibling-relative references):
   historical plan records, outside the link check the brief asked for.
 - Plan 8 anchors after the doctor, profile-service and capture-fixtures splits: the ledger already rules a
   fresh re-check before plan 8 runs, and plan 8 is not executed here.
 - The `UPGRADE` fix string is two alternatives rather than one command: it is the audit N12 wording, and
   plugin users upgrade through the plugin anyway.
-- Deferred minors in docs/superpowers/handoff/plan7-final-review.md: excluded by the brief.
+- Deferred minors in docs/handoff/plan7-final-review.md: excluded by the brief.
 - Whether GitHub private vulnerability reporting is enabled (SECURITY.md depends on it): an owner action
   already logged in progress.md, and I cannot check it from here.
 - Live backends (Codex, opencode, a real Jev key, the plugin inside Claude Code): cannot be exercised in

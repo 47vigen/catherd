@@ -1,7 +1,7 @@
 # SDD ledger — cleanup before 1.0 (owner request 2026-09-27: full audit, remove dead code, principled cleanup, organize docs + locations, update 0.x md, make 1.0 ready)
 Base: main d87a791. One PR, merged before the 1.0.0 release PR. Codex rounds cap 4.
 Audits dispatched (read-only): dead code, docs, readiness.
-Ruling: no move of docs/superpowers/plans/2026-09-26-08-cursor-grok.md until the plan-8 re-check lands (it is being edited) — cost: none.
+Ruling: no move of docs/plans/2026-09-26-08-cursor-grok.md until the plan-8 re-check lands (it is being edited) — cost: none.
 Docs audit done (audit-docs.md): layout proposed (root + CONTRIBUTING/SECURITY/CoC; docs/dev/; docs/archive/0.x/; tui-frames.md stays). False claims: skill 2, manual-tests 5, dependencies 5, ideas 8, research broken paths. Risk: main plugin skill 1.0 vs .mcp.json 0.2.1 until release PR merges; marketplace no ref.
 Release PR opened: 47vigen/catherd#11 'chore: release catherd' (catherd-cli@1.0.0), head 321c8f2. HELD for owner's live verification; cleanup PR merges first (release PR will refresh itself).
 Dead-code audit done (audit-dead-code.md): 4 dead, 13 test-only, 8 unused params, 5 unreachable, 3 0.x leftovers, 75 needless exports, 13 duplicates, 4 unread catalog fields, 3 undocumented CLI surfaces.

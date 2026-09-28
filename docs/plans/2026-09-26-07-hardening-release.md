@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun ≥ 1.4 (`bun test`, `bun pm pack`, `bun audit`, lcov coverage report), TypeScript 7 (`tsc --noEmit`), zod 4, citty 0.2, `@modelcontextprotocol/sdk` 1.30, oxlint, oxfmt, GitHub Actions (`oven-sh/setup-bun@v2`, `changesets/action@v2`), Dependabot, tmux (the TUI's PTY test). No new runtime dependency.
 
-**Spec:** `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` — §3.3 (the process model), §3.4 (schemas, unknown fields), §6 (the backends: busy, interrupt, isolation), §10.2 (the log), §10.3 (`doctor`), §10.4 (preflight never as root, secrets), §11 (testing: live tests, fixture capture, hygiene and the coverage floor), §12 (CI and release) and §14 (risks), with D2 (the clean break) and D7 (live verification on the owner's machine). The carry-overs come from `docs/superpowers/handoff/HANDOFF.md` ("Plan 7 (hardening)"), `docs/superpowers/handoff/plan4-ledger.md`, the plan-5 ledger (`docs/superpowers/handoff/plan5-ledger.md` and the session ledger it was copied from) and the reviews they cite (`plan1-final-review.md`, `plan2-rereview-final.md`, `plan3-final-review.md`). Plans 1–6 (`docs/superpowers/plans/2026-09-2{5,6}-0*.md`) built everything this plan stands on; plan 6 (the TUI) lands before this plan runs.
+**Spec:** `docs/specs/2026-09-25-catherd-1.0-design.md` — §3.3 (the process model), §3.4 (schemas, unknown fields), §6 (the backends: busy, interrupt, isolation), §10.2 (the log), §10.3 (`doctor`), §10.4 (preflight never as root, secrets), §11 (testing: live tests, fixture capture, hygiene and the coverage floor), §12 (CI and release) and §14 (risks), with D2 (the clean break) and D7 (live verification on the owner's machine). The carry-overs come from `docs/handoff/HANDOFF.md` ("Plan 7 (hardening)"), `docs/handoff/plan4-ledger.md`, the plan-5 ledger (`docs/handoff/plan5-ledger.md` and the session ledger it was copied from) and the reviews they cite (`plan1-final-review.md`, `plan2-rereview-final.md`, `plan3-final-review.md`). Plans 1–6 (`docs/plans/2026-09-2{5,6}-0*.md`) built everything this plan stands on; plan 6 (the TUI) lands before this plan runs.
 
 ## Global Constraints
 
@@ -5559,7 +5559,7 @@ In `README.md`, replace:
 bun run typecheck && bun run lint && bun run format:check
 ```
 
-Design: [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
+Design: [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md).
 Releases go through [Changesets](https://github.com/changesets/changesets): add one with
 `bunx changeset`.
 ````
@@ -5574,7 +5574,7 @@ CI runs this on Linux and macOS, on Bun 1.4.0 and the latest Bun. What CI cannot
 fixture capture, the Codex sandbox, the Jev key prompt) is in
 [`docs/live-verification.md`](docs/live-verification.md), with the exact commands.
 
-Design: [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
+Design: [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md).
 Releases go through [Changesets](https://github.com/changesets/changesets): add one with
 `bunx changeset`.
 ````

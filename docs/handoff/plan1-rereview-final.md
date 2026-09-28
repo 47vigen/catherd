@@ -38,7 +38,7 @@ and 1 known env-only failure.
    - Fix: `src/infra/supervisor.ts:142` writes `pgid: child.pid`. The child is spawned with
      `detached: true` (`:116`), so its pid is its pgid.
    - Test: `test/infra/supervisor.test.ts:38`.
-6. **Spec §3.3 text. ADDRESSED.** `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md:101-102` names
+6. **Spec §3.3 text. ADDRESSED.** `docs/specs/2026-09-25-catherd-1.0-design.md:101-102` names
    `src/entry/supervise-bin.ts <spec.json>` as a thin entry that never loads the TUI. It notes that
    `catherd _supervise` runs the same code, for manual use.
 

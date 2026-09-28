@@ -1,7 +1,7 @@
 # Final whole-branch review: plan 2 (the run service and MCP tools)
 
 - **Range:** 9deaebc..f78dde9 (21 commits, 82 files, +6255/−1958), branch claude/project-analysis-review-xb3fot.
-- **Requirements:** plan docs/superpowers/plans/2026-09-25-02-run-service.md; spec §3.1, §3.3–3.5, §4 (including §4.8), §10.1 and §10.4; the rulings in progress.md; git-contract-note.md.
+- **Requirements:** plan docs/plans/2026-09-25-02-run-service.md; spec §3.1, §3.3–3.5, §4 (including §4.8), §10.1 and §10.4; the rulings in progress.md; git-contract-note.md.
 - **Method:** the reviewer template (requesting-code-review/code-reviewer.md). I reviewed the diff myself, in five passes by area:
   1. domain and infra;
   2. services;

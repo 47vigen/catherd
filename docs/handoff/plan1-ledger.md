@@ -1,5 +1,5 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-25-01-foundation.md
-Spec: docs/superpowers/specs/2026-09-25-catherd-1.0-design.md
+# SDD ledger — plan: docs/plans/2026-09-25-01-foundation.md
+Spec: docs/specs/2026-09-25-catherd-1.0-design.md
 Branch: claude/project-analysis-review-xb3fot. Execution: subagent-driven, full autonomy granted by the user (approve, merge, release).
 Models: implementers haiku (plan carries full code) → escalate sonnet/opus; task reviewers sonnet; final review fable.
 
@@ -62,7 +62,7 @@ Deferred minors from rereview-1.md: 6 (stale-marker stat/rm race, paused reclaim
 Task 5: fix round 2/5 commit 863ce63..4cbe2a0 (re-review bundled with fix-2 re-review)
 Batch C + fix round 2 cherry-picked 4cbe2a0..d55780b
 Review C dispatched (T10+T11 task review + fix-2 re-review + N1 re-review) on 863ce63..d55780b
-Plan 2 writer dispatched in parallel (docs/superpowers/plans/2026-09-25-02-run-service.md)
+Plan 2 writer dispatched in parallel (docs/plans/2026-09-25-02-run-service.md)
 Full suite on d55780b: 441 pass, 1 fail (known theme test, Bun 1.3.11); typecheck/lint/format clean
 Review C: T10 PASS, T11 PASS; fix-2 11/11 ADDRESSED; N1 ADDRESSED; 14 deferred minors in review-C.md
 Task 5: complete (fix rounds 1-2, review clean)

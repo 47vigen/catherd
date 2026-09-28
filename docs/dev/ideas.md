@@ -1,7 +1,7 @@
 # Ideas for 1.x
 
 Improvements collected from real catherd runs and from designing it, not yet planned. When one is picked up it moves
-into a spec or plan under `docs/superpowers/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
+into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
 (the evidence), and where it would live.
 
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
@@ -63,6 +63,46 @@ in place.
   stored name.
 - The page watches the data folder and redraws when a record or state file changes; live roles' elapsed time ticks
   every second, with each role's last event from `peek`'s source.
+
+## 1.1.0 scope, settled (grilled 2026-09-28)
+
+1.1.0 = push results to the main thread (section above), the runs page by session (above) and the whole fix bundle
+(below). Model scores from public sources go to 1.2.0. Implemented by the maintainer's own subagents in reviewed
+bundles, not by catherd on itself; the plan goes to `docs/plans/`. Decisions per item:
+
+- **Worker access.** Roles that write (worker, artist, writer) get network access plus the lock dir and the temp dir
+  as writable roots by default; the rest of the disk stays closed. Verified 2026-09-28 on Codex 0.157 with
+  `-c sandbox_mode="workspace-write" -c sandbox_workspace_write.network_access=true -c
+  sandbox_workspace_write.writable_roots=[<locks>,"/private/tmp"]`: lock-dir write, `docker ps` over the OrbStack
+  socket, a loopback `bind()`, an HTTPS fetch and a `/tmp` write all pass. A profile field `network: false` tightens
+  it. opencode and headless Claude Code get the same intent through their own mechanisms (a researcher pins them
+  down first); where one cannot, `doctor` says which of the five probes fail. `doctor` runs the five probes with the
+  exact flags workers get.
+- **Protocol enforced by the tools.** `dispatch` routes an unrouted lane itself; `dispatch` appends the role's reply
+  contract (last line `STATUS: …`) to every brief; `land` refuses a milestone without a reviewer record and a
+  verifier verdict unless the reason is `docs-only` or `no-code`, and it checks the diff to hold the claim.
+- **MCP server launch.** `.mcp.json` runs the global `catherd mcp` when installed (`init` installs it), else falls
+  back to `bunx`; `doctor` starts the server once and says "reinstall" when a module is missing.
+- **Verifier.** Its brief says to run independent gate items side by side within the lock's slots and to build each
+  commit's image once. A small gate ledger records each passed item with the command and the hash of its paths; a
+  later run in the same repo reports an item as carried over when both match, except items whose paths are in the
+  milestone's diff. The verifier reports each step it starts, so `peek` and `status` show where it is.
+- **Owner questions.** `park(run, milestone, question)` pushes the full question and parks only that milestone; the
+  rest continues. The answer comes in the main session, which records it and unparks; with no session, the next
+  `run_start` or `peek` shows unanswered questions first.
+- **Climb.** `climb` asks Jev for the kind of the failure first; plan design or file ownership is refused with a fix
+  line ("send it to the architect").
+- **Routing.** Under objective `cost`, `route` starts at the cheapest rung whose score clears the lane's difficulty,
+  using today's `scores.json`.
+- **Failover.** An inferred stand-in must clear the rung's own bar; Claude-plan rungs rank last; with no fitting
+  stand-in there is none, and `doctor` says so. Fix the "treated like" labels.
+- **Small items.** The marketplace plugin source becomes a full HTTPS URL; `doctor`'s sandbox probe uses `codex
+  sandbox [COMMAND]`; `validate` warns on a descending ladder; `doctor` shows the shipped defaults' access rows as
+  info; `init` says "installing catherd…" before the first resolve; the TUI's first frame does not say "0 profiles".
+  First-turn cost stays an idea.
+- **Acceptance.** CI green; a `claude -p` test on a scratch repo proving messages arrive while the session is free,
+  `peek` works, route/review/verify are enforced and a worker runs `bun install` and its tests itself; then the real
+  run: merge MR !54 and run auth plan 5 MR B in a fresh Desktop session, compared with MR A's numbers.
 
 ## Fix bundle: everything open, by priority
 

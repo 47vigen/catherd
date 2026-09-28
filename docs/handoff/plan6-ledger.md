@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-26-06-tui.md
+# SDD ledger — plan: docs/plans/2026-09-26-06-tui.md
 --- session 4 (2026-09-26) ---
 Branch claude/great-dijkstra-85qdx7 at main d0f6fd8. Bun 1.4.2. Gate green (950 pass, 10 skip).
 Ruling: inside a repo bound to another profile, the TUI opens on and labels the profile that repo runs on (`here`), and "Save & make active" there binds the repo (`activate(name, repo)`); outside a repo it acts on the global active profile — same rule plan 5 applied to CLI and MCP — cost if wrong: one label and one activate call to change. (handoff)

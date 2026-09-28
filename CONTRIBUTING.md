@@ -51,7 +51,7 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
 
 ## Architecture
 
-The binding design is [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](docs/superpowers/specs/2026-09-25-catherd-1.0-design.md).
+The binding design is [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md).
 `src/` is layered, and each layer imports only from itself and the layers before it:
 
 ```
@@ -103,8 +103,8 @@ Development-only environment variables: `CATHERD_LIVE` (live tests), `CATHERD_ST
 
 - `docs/dev/`: maintainer docs: live verification, manual tests, [dependencies](docs/dev/dependencies.md) (why each
   one) and the [1.x ideas list](docs/dev/ideas.md).
-- `docs/superpowers/`: how 1.0 was designed and built: the spec, the implementation plans, and the review and
-  handoff records. catherd is built with coding agents; the contracts they work under are in
-  `docs/superpowers/handoff/process/`.
+- `docs/specs/`: the design specs (the 1.0 spec is binding). `docs/plans/`: the implementation plans.
+  `docs/handoff/`: the handoff, ledgers and review records. catherd is built with coding agents; the contracts they
+  work under are in `docs/handoff/process/`.
 - `docs/research/`: the dated research behind the design decisions.
 - `docs/archive/0.x/`: the 0.x design and plans, kept for history.

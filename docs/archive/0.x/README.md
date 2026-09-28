@@ -4,7 +4,7 @@ These files are the design and implementation plans for catherd 0.1 and 0.2 (npm
 earlier). catherd 1.0 is a clean-break rewrite, so they no longer describe the code.
 
 - `specs/2026-09-24-catherd-design.md`: the 0.x design. The 1.0 design,
-  [`docs/superpowers/specs/2026-09-25-catherd-1.0-design.md`](../../superpowers/specs/2026-09-25-catherd-1.0-design.md),
+  [`docs/specs/2026-09-25-catherd-1.0-design.md`](../../specs/2026-09-25-catherd-1.0-design.md),
   supersedes it where they disagree and still defers to it for the roles, the orchestrator sequence (§10), the climb
   rules and the reply contract.
 - `plans/2026-09-24-0{1..4}-*.md`: the four 0.x implementation plans (core, routing, MCP and plugin, TUI).

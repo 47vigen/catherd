@@ -7,21 +7,21 @@ Read it after the spec, before touching any plan.
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 1 foundation | `docs/superpowers/plans/2026-09-25-01-foundation.md` | merged (PR #3) |
+| 1 foundation | `docs/plans/2026-09-25-01-foundation.md` | merged (PR #3) |
 | 2 run service + MCP | `…-02-run-service.md` | merged (PR #4) |
 | 3 adapters (claude-code, opencode v2, capture kit) | `…-03-adapters.md` | merged (PR #5) |
 | 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6) |
 | 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds) |
-| 6 TUI (opencode-style, `@opentui/keymap`) | `docs/superpowers/plans/2026-09-26-06-tui.md` | **merged** (PR #9; final review + fix wave, 6 Codex rounds; ledger `plan6-ledger.md`) |
-| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/superpowers/plans/2026-09-26-07-hardening-release.md` | **merged** (PR #10; 14 tasks, final review + fix wave, 3 Codex rounds; ledger `plan7-ledger.md`). Release PR #11 (catherd-cli@1.0.0) **held for the owner's live-verification results** (`docs/dev/live-verification.md`) |
+| 6 TUI (opencode-style, `@opentui/keymap`) | `docs/plans/2026-09-26-06-tui.md` | **merged** (PR #9; final review + fix wave, 6 Codex rounds; ledger `plan6-ledger.md`) |
+| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/plans/2026-09-26-07-hardening-release.md` | **merged** (PR #10; 14 tasks, final review + fix wave, 3 Codex rounds; ledger `plan7-ledger.md`). Release PR #11 (catherd-cli@1.0.0) **held for the owner's live-verification results** (`docs/dev/live-verification.md`) |
 | — pre-1.0 cleanup | (no plan file; audits + briefs in the PR) | **merged** PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC |
 | — whole-project review fixes | (another session) | **merged** (PR #13: 30 of 32 review findings; a macOS supervisor-test race fixed before merge) |
-| 9 findings from the real 0.x runs | `docs/superpowers/plans/2026-09-27-09-run-findings.md` | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
-| 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/superpowers/plans/2026-09-26-08-cursor-grok.md` | written, pre-validated, re-checked on `d87a791` (Part A 1093 / Part B 1145 pass). **Not executed (owner: hold).** Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
+| 9 findings from the real 0.x runs | `docs/plans/2026-09-27-09-run-findings.md` | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
+| 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/plans/2026-09-26-08-cursor-grok.md` | written, pre-validated, re-checked on `d87a791` (Part A 1093 / Part B 1145 pass). **Not executed (owner: hold).** Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
 
 Owner process rules added in session 4: Codex review rounds are capped at 4 per PR (PR #14 exempt: rounds until clean; request Codex right after each push without waiting for CI); worker scratch files stay inside the worker's worktree (a shared scratchpad collided).
 
-Authority order: spec `docs/superpowers/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.
+Authority order: spec `docs/specs/2026-09-25-catherd-1.0-design.md` → plan → rulings.
 Research behind the spec: `docs/research/2026-09-25-*.md` (audit, opencode, opencode-tui, tui, models, jev, cursor-grok).
 Plan 5's rulings, reviews and Codex rounds: `plan5-ledger.md` (read it before plan 6/7: several plan-5 rulings
 change what later plans consume).
@@ -69,7 +69,7 @@ change what later plans consume).
 - superpowers `subagent-driven-development`, adapted by owner directive: bundle 1–3 tasks per agent, run
   independent batches in parallel git worktrees (`isolation: "worktree"`), workers on Opus 5.5 (`opus-low` /
   `opus-medium` agent types once loaded, else general-purpose with `model: "opus"`).
-- Contracts for every dispatch are in `docs/superpowers/handoff/process/` — copy them to `.superpowers/sdd/`
+- Contracts for every dispatch are in `docs/handoff/process/` — copy them to `.superpowers/sdd/`
   (gitignored) at session start: `worker-contract.md`, `reviewer-contract.md`, `re-reviewer-contract.md`.
   Dispatch prompts stay short: one line of context, the contract path, the brief path (`task-brief` script),
   the reset SHA, parallel-batch boundaries, and the rulings that bind the task.
@@ -94,7 +94,7 @@ change what later plans consume).
 - One branch per session is imposed by the harness; one PR per plan. After a merge, restart the branch from
   `main` (`git fetch origin main && git checkout -B <branch> origin/main`, push with `--force-with-lease`).
 - Ledger per plan in `.superpowers/sdd/<plan>/progress.md` (gitignored); copy it to
-  `docs/superpowers/handoff/planN-ledger.md` when the plan merges. Rulings as
+  `docs/handoff/planN-ledger.md` when the plan merges. Rulings as
   `Ruling: <what> — <why> — <cost if wrong>`.
 - Commit subjects ≤ 100 chars, first word lower-case (commitlint; a failed hook leaves the changes staged and
   uncommitted — check `git log` after committing). Never commit a `bun.lock` rewritten by an older Bun.

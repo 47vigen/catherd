@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-09-26-07-hardening-release.md
+# SDD ledger — plan: docs/plans/2026-09-26-07-hardening-release.md
 --- session 4 (2026-09-26) ---
 Plan 6 merged (PR #9 → main 6195f4e). Branch claude/great-dijkstra-85qdx7 restarted at 6195f4e.
 Ruling (OWNER): Codex fix rounds capped at 4 per PR.
