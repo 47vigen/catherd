@@ -9,7 +9,65 @@ import {
   refreshDiscovery,
   saveTreatLike,
 } from "../services/catalog-service.ts";
+import { readDerived } from "../infra/sources/cache.ts";
+import { type SyncReport, syncSources } from "../services/source-sync.ts";
 import { exitCodeOf, JSON_ARG, mark, printError } from "./cli-kit.ts";
+
+/**
+ * Spec 1.2 §9: a sync, one line per source (fetched, fresh, skipped, or failed with the answer it kept),
+ * then the rungs newly scored, the user's stand-ins no longer needed and the cross-check warnings.
+ */
+export function syncLines(r: SyncReport, plain = false): string[] {
+  if (r.busy) return ["- sources: another sync is running; its results apply when it ends"];
+  const out: string[] = [];
+  for (const s of r.sources) {
+    if (s.state === "fetched") out.push(`${mark("ok", plain)} ${s.source}: fetched`);
+    else if (s.state === "fresh") out.push(`- ${s.source}: fresh (fetched ${s.fetchedAt})`);
+    else if (s.state === "skipped") out.push(`- ${s.source}: ${s.detail}`);
+    else
+      out.push(
+        `${mark("warn", plain)} ${s.source}: ${s.error}; ${s.fetchedAt ? `keeps the answer fetched ${s.fetchedAt}` : "no earlier answer"}`,
+      );
+  }
+  if (r.newlyScored.length) out.push(`newly scored: ${r.newlyScored.join(", ")}`);
+  for (const n of r.noLongerNeeded)
+    out.push(`stand-in no longer needed: ${n.rung} has values of its own for what ${n.like} lent it`);
+  for (const w of r.warnings) out.push(`${mark("warn", plain)} ${w}`);
+  return out;
+}
+
+const sync = defineCommand({
+  meta: {
+    name: "sync",
+    description:
+      "Fetch the public model facts and scores now (each source at most every 12 hours unless --force) and show what changed",
+  },
+  args: {
+    force: { type: "boolean", description: "fetch every source, however fresh" },
+    unmatched: {
+      type: "boolean",
+      description: "also list each source's ids that match no model in the catalog",
+    },
+    ...JSON_ARG,
+  },
+  async run({ args }) {
+    try {
+      const r = await syncSources({ force: args.force === true });
+      if (args.json) console.log(JSON.stringify(r, null, 2));
+      else for (const l of syncLines(r)) console.log(l);
+      if (args.unmatched && !args.json) {
+        const unmatched = readDerived()?.unmatched ?? {};
+        if (Object.keys(unmatched).length === 0) console.log("unmatched: none");
+        for (const [source, ids] of Object.entries(unmatched))
+          console.log(`unmatched in ${source}: ${ids.join(", ")}`);
+      }
+      const got = r.sources.some((s) => s.state === "fetched" || s.state === "fresh");
+      process.exitCode = r.failed.length && !got ? 1 : 0;
+    } catch (e) {
+      fail(e);
+    }
+  },
+});
 
 /** One backend's refresh: its model count, else why it listed none, then its fix on a line of its own. */
 export function formatRefreshed(r: Refreshed, plain = false): string {
@@ -99,8 +157,8 @@ const treatLike = defineCommand({
   },
 });
 
-/** Spec §8: `catherd catalog refresh|list|treat-like <rung> <like>`. */
+/** Spec §8 and 1.2 §9: `catherd catalog refresh|list|sync|treat-like <rung> <like>`. */
 export const catalogCommand = defineCommand({
   meta: { name: "catalog", description: "The model catalog" },
-  subCommands: { refresh, list, "treat-like": treatLike },
+  subCommands: { refresh, list, sync, "treat-like": treatLike },
 });
