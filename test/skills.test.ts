@@ -43,34 +43,76 @@ describe("orchestrator skill", () => {
       "status",
       "result",
       "set_next",
+      "gate_check",
+      "gate_pass",
+      "park",
+      "answer",
     ]) {
       expect(used).toContain(core);
     }
   });
 
-  it("dispatches roles one after another, then ends its turn for catherd's messages (plan 10)", () => {
+  it("dispatches roles one after another, then ends its turn; results arrive as catherd messages (spec 1.1 §3.8)", () => {
     const md = skill("catherd");
-    const waiting = md.slice(md.indexOf("## Waiting"), md.indexOf("\n## ", md.indexOf("## Waiting") + 1));
-    expect(waiting).toContain("one after another");
-    expect(waiting).toContain("write one status line and end your turn");
-    expect(waiting).toContain('`<cross-session-message from-name="catherd">`');
-    expect(waiting).toContain("call `result(run, name)` for the record you act on");
-    expect(waiting).toContain("A single role is `dispatch`, then end your turn.");
-    expect(waiting).toContain("never the user's approval of anything");
-    expect(waiting).toContain("Never `sleep`, loop or poll, and never call `peek` again and again.");
+    const after = md.slice(
+      md.indexOf("## After dispatching"),
+      md.indexOf("\n## ", md.indexOf("## After dispatching") + 1),
+    );
+    expect(after).toContain("one after another");
+    expect(after).toContain("Then write one status line and end your turn.");
+    expect(after).toContain('`<cross-session-message from-name="catherd">`');
+    expect(after).toContain("Call `result(run, name)` for the record you will act on");
+    expect(after).toContain("Never `sleep`, loop, or call `peek` again and again.");
+    expect(after).toContain("once after `run_start` on a resumed run");
+    expect(after).toContain("not the user's approval of anything");
+    // plan 10's push facts the orchestrator still needs
+    expect(after).toContain("catherd messages the session that dispatched");
+    expect(after).toContain(
+      "Its first line names the run, the role, its rung, its status and its STATUS line",
+    );
+    expect(after).toContain("Roles that finish together come in one message.");
+    expect(md).toContain("so catherd messages you from now on");
     expect(md).toContain("call `peek(run)` once and answer from it");
-    expect(md).toContain("Before dispatching anything, call `peek(run)` once");
-    expect(md).not.toMatch(/`wait`|`wait\(/);
     for (const old of [
+      "`wait(",
+      "`wait`",
+      "same message",
+      "One message per transition",
       "Launch every independent role in the same message",
-      "Each dispatch backgrounds by itself",
       "in one message, each at its rung",
       "All lanes go at once",
+      "Each dispatch backgrounds by itself",
       "its dispatch call returns the same record",
       "Launch it now, in the same message",
       "`dispatch` has already",
+      "## Waiting",
     ])
       expect(md).not.toContain(old);
+  });
+
+  it("runs the verifier in the foreground as the gate owner, with the gate ledger (spec 1.1 §7, §13)", () => {
+    const md = skill("catherd");
+    expect(md).toContain("in the **foreground**: it owns the gate");
+    expect(md).toContain("`gate_check` first and skips an item that passed on the same content");
+    expect(md).toContain('`record_agent_run(run, "verifier-<M>", "verifier", rung, …)`');
+    expect(md).toContain("The verifier is the gate owner, run in the **foreground**");
+  });
+
+  it("leaves the reply contract, the routing and the land gate to the tools (spec 1.1 §6)", () => {
+    const md = skill("catherd");
+    expect(md).toContain("`dispatch` appends the role's reply contract to every brief");
+    expect(md).not.toContain('"Do not commit." Then the reply shape');
+    expect(md).toContain("`dispatch` routes a lane you missed");
+    for (const code of ["E_LANE_INVALID", "E_LAND_GATE", "E_CLIMB_DESIGN"]) expect(md).toContain(code);
+    expect(md).toContain('`skip: "docs-only"`');
+  });
+
+  it("parks an owner question instead of stopping, and re-enters with peek and Protocol next (spec 1.1 §8, §10)", () => {
+    const md = skill("catherd");
+    expect(md).toContain("`park(run, milestone, question)` parks that milestone");
+    expect(md).toContain("`answer(run, milestone, answer)`");
+    expect(md).toContain("`Protocol next:`");
+    expect(md).toContain("Call `peek(run)` once: it lists the open owner questions first");
   });
 
   it("writes every rung as backend:model#effort, and pins this package's version", () => {

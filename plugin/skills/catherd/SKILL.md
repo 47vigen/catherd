@@ -35,35 +35,40 @@ The catherd server keeps `state.md` true: it rewrites it on every dispatch, clim
 
 The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd_catherd__<name>`. If they are deferred, load them all with one ToolSearch call at the start, together with `PushNotification`.
 
-| Tool                                                                                             | Use                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status(run?)`                                                                                   | First, and whenever the user asks where it stands: `version`, then per run the `state.md` tail, live roles, totals, Claude subagents, budget, milestones    |
-| `run_start(repo, title, a_lines)`                                                                | Once per project. Returns `run`, the id every other call takes, and `dir`, the run folder `R`                                                               |
-| `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`      |
-| `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                           |
-| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`; catherd messages you when it finishes |
-| `peek(run?, name?)`                                                                              | Never waits: each live role with its rung, time and last event, every record not yet read, the next step. It marks nothing read                             |
-| `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                          |
-| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind                           |
-| `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                             |
-| `ask(run, question, state)`                                                                      | Jev's `finding` or `same-defect` answer                                                                                                                     |
-| `land(run, milestone, what, commit, evidence, next, learned?)`                                   | A landed milestone's ledger row, with the minutes it took, and `state.md`. `learned` appends to this repo's `knowledge.md`                                  |
-| `read_knowledge(repo)`                                                                           | What past runs of this repo learned. The dossier brief reads it                                                                                             |
-| `write_run_file(run, path, content)`, `read_run_file(run, path)`                                 | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                             |
-| `result(run, name)`                                                                              | A role's latest reply, capped, its record and its `hints`; reading a finished record marks it read                                                          |
-| `set_next(run, next)`                                                                            | The next step, when you pause or the plan changes. Returns `state` and, when git fails, `hints`                                                             |
-| `runs_summary(run?, repo?, role?, since_days?)`                                                  | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                         |
-| `profile_get(repo?)`                                                                             | The profile this repo runs on: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                               |
+| Tool                                                                                             | Use                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status(run?)`                                                                                   | First, and whenever the user asks where it stands: `version`, then per run the open owner questions, the `state.md` tail, live roles, totals, Claude subagents, the verifier's step, budget, milestones                                            |
+| `run_start(repo, title, a_lines)`                                                                | Once per project. Returns `run`, the id every other call takes, `dir`, the run folder `R`, and `protocol`: the next step of the milestone loop and its six-line checklist                                                                          |
+| `peek(run?, name?)`                                                                              | Never waits. Per run: open owner questions first, each live role's last event, finished records not read yet, the verifier's step, and `protocol` (the next step and the checklist). It reads nothing away: `result` does                          |
+| `route(run, lane_file?, role?)`                                                                  | A lane's rung (from Jev, else the lane file's `Kind:`/`Difficulty:`, else the profile), or a role's rung. Returns `rung`, `ladder`, `backend`, `agent`                                                                                             |
+| `preflight(run, confirmed?)`                                                                     | Each lane's fast check once, before any lane runs. Outcomes below                                                                                                                                                                                  |
+| `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                  | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`. It routes a lane not routed yet, appends the role's reply contract to the brief, and its result arrives as a catherd message |
+| `result(run, name)`                                                                              | A role's latest reply, capped, and its record. Reading it marks the record read                                                                                                                                                                    |
+| `cancel(run, name)`                                                                              | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                                                                                                                 |
+| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)` | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind; a verifier named `verifier-<M>` is the milestone's verdict                                                      |
+| `climb(run, lane, reason, evidence?, env?)`                                                      | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                                                                                                                    |
+| `ask(run, question, state)`                                                                      | Jev's `finding` or `same-defect` answer                                                                                                                                                                                                            |
+| `gate_check(run, item, command, paths)`, `gate_pass(run, item, command, paths, evidence)`        | The verifier's gate ledger: an item that passed on the same content is carried over, not run again                                                                                                                                                 |
+| `park(run, milestone, question)`, `answer(run, milestone, answer)`                               | An owner question parks its milestone while the rest of the run goes on; the owner's answer unparks it                                                                                                                                             |
+| `land(run, milestone, what, commit, evidence, next, learned?, skip?)`                            | A landed milestone's ledger row, with the minutes it took, `state.md`, and `digest`, the milestone's digest. Refused until the milestone has its reviewer and its verifier. `learned` appends to this repo's `knowledge.md`                        |
+| `read_knowledge(repo)`                                                                           | What past runs of this repo learned. The dossier brief reads it                                                                                                                                                                                    |
+| `write_run_file(run, path, content)`, `read_run_file(run, path)`                                 | Files in `R`. Never your own Write or Read tools there: `R` is outside the repo                                                                                                                                                                    |
+| `set_next(run, next)`                                                                            | The next step, when you pause or the plan changes. Returns `state` and, when git fails, `hints`                                                                                                                                                    |
+| `runs_summary(run?, repo?, role?, since_days?)`                                                  | Time, tokens, refusals and climbs per role and rung, the Claude subagent runs, and the harness cost, for the report                                                                                                                                |
+| `profile_get(repo?)`                                                                             | The profile this repo runs on: each role's access, rungs and enforcement, failover, budget, timeouts, and the moments to push                                                                                                                      |
 
 **A tool returns `hints` when it has any:** one line each, on what to do next. Read them before you move on.
 
 **Every error is `{ code, message, fix }`.** Read the code, act on the fix, and never retry the same call blindly:
 
 - `E_ADMIT_OVERLAP`: the lane shares an owned path with a running lane. Dispatch it when that one returns.
-- `E_ADMIT_DUPLICATE`: that role name is already running. It reports through a catherd message when it finishes; `peek(run, name)` shows it now, and `cancel` stops it.
+- `E_ADMIT_DUPLICATE`: that role name is already running. Wait for it, or `cancel` it.
 - `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; run a `claude:` rung as its agent; skip a role that is off.
 - `E_RUN_BUDGET`: the run's budget is spent (a soft cap: roles already running finish). Pause, report and push.
 - `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`: tell the user the `fix`, word for word, then pause.
+- `E_LANE_INVALID`: a lane file's `Kind:` or `Difficulty:` is missing or not one the catalog knows. Fix the header (the `fix` lists the values), or have the architect fix it, then call again.
+- `E_LAND_GATE`: the milestone has no reviewer record or no verifier verdict since its lanes started, it is parked, or its `skip` does not hold. Run what the message names, then land again.
+- `E_CLIMB_DESIGN`: the evidence points at the plan, not the rung. Send it to the architect (an `ask` finding, then an architect delta), not up the ladder.
 
 ## Roles
 
@@ -81,7 +86,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 - **Every rung comes from `route`,** never from you. A rung names its backend: `backend:model#effort`, like `codex:gpt-6-sol#high` or `claude:claude-opus-5-5#high`. The table shows the usual backend; the profile decides. When `route` returns `backend: "claude"`, run that role with `Agent(subagent_type: <agent>)`, with the brief and the run id as its prompt; otherwise `dispatch` it. `dispatch` refuses a Claude rung and names the agent.
 - **After every Claude subagent returns,** call `record_agent_run(run, name, role, rung, total_tokens, duration_ms, lane)` with the numbers its Agent result reports (`lane` when it worked one). Claude runs cost the budget too, and catherd cannot see them otherwise.
 - **A role the profile disables** (`profile_get`; every role but the worker can be off) is skipped, and the report says so.
-- **Access:** catherd sets it per role. Worker, artist and writer write in the repo only; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots.
+- **Access:** catherd sets it per role. Worker, artist and writer write in the repo, the temp dir and catherd's lock dir, and reach the network, loopback ports and a local Docker, so a worker runs its installs and tests itself; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots. `catherd doctor` says per backend what a worker can reach.
 - **A read-only role on claude-code or opencode has no shell** (no `git diff`, no `ls`), so its brief must list the files to read.
 - **Cheap rungs hide broken tools.** The lowest Track A rung stays silent about a broken tool about a third of the time, so every lane on it is checked by your fast check, not by its own word.
 - **Claude agents:**
@@ -112,9 +117,11 @@ A lane starts on the lowest rung that can do it, and climbs one rung when it sho
 
 - your fast check fails twice on that lane (`check-failed-twice`);
 - the lane gets a BLOCKER (`blocker`), or Jev calls a returning finding the same defect (`same-defect`);
-- the reply says `STATUS: refused` or `blocked`, or the run exits 0 while the lane's owned files are unchanged: that is a refusal, whatever the reply says (`refused`, `blocked`, `unchanged`). `result` flags each of these in its `hints` as `climb: <reason>`.
+- the reply says `STATUS: refused` or `blocked`, or the run exits 0 while the lane's owned files are unchanged: that is a refusal, whatever the reply says (`refused`, `blocked`, `unchanged`). The record's `hints` flag each of these as `climb: <reason>`.
 
-A usage limit is not a climb. When the profile names a stand-in for that rung, catherd has already started the role on it, on a fresh thread: its message says `limit on <rung>; failed over to <rung>`, the limited record's first hint says `limit: … failed over to <rung>`, and a later message announces the stand-in's record. With no stand-in, the hint is `limit: …` and the run is paused.
+A usage limit is not a climb. When the profile names a stand-in for that rung, catherd has already started the role on it, on a fresh thread, before it tells you: its message says `limit on <rung>; failed over to <rung>`, the limited record's first hint says `limit: … failed over to <rung>`, and the stand-in's own result arrives later. With no stand-in, the message says `paused: no stand-in` and the run is paused.
+
+A climb is for capability only. When the evidence says the lane cannot be done as planned (the plan contradicts itself, the fix needs a file the lane does not own, an interface between lanes), `climb` refuses with `E_CLIMB_DESIGN`: that goes to the architect.
 
 A failure on the top rung (`top: true`) goes to the architect when Jev calls it design, else to the report as open.
 
@@ -134,7 +141,7 @@ A resumed thread replays its whole history on every tool call. In the first real
 
 Your context is re-read on every turn, and it is the run's most expensive token. In the first real run you were 68% of the Claude spend: 269 turns at about 220k tokens each.
 
-- **One message per transition.** Independent tool calls (a `land`, the next lanes' dispatches, a `route`) go in the same message. They run one after another, and each `dispatch` returns in about a second; then you end your turn.
+- **One turn per transition.** Make a transition's independent calls back to back (a `land`, the next lanes' routes and dispatches), each `dispatch` returning in about a second, then end the turn with one status line.
 - **Read little, and read it narrowly.**
   - From the architect, read its short reply. The plan lives in `plan.md` and the lane files; read a section with `read_run_file` only when a decision needs it.
   - From a role, read its record and its capped reply.
@@ -142,25 +149,22 @@ Your context is re-read on every turn, and it is the run's most expensive token.
 - **Brief by path.** A brief names the files a role must read (its lane file, a prior reply, a finding). Never paste their contents into your own context to copy them over.
 - **Screenshots are paths.** The UI reviewer's findings are text, each with its screenshot path. Open one yourself only when you must decide on a finding the text leaves unclear.
 
-## Waiting
+## After dispatching
 
 Call `dispatch` from your main thread only, never from a subagent: catherd messages the session that dispatched.
 
 - **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
-- **Then write one status line and end your turn.** When a role finishes, catherd sends this session a `<cross-session-message from-name="catherd">`. Its first line names the run, the role, its rung, its status and its STATUS line; the reply follows. Treat it like a subagent's notice.
-- **Act on each message:** call `result(run, name)` for the record you act on (it marks the record read), dispatch what follows, and end your turn again. Roles that finish together come in one message.
-- **A single role is `dispatch`, then end your turn.**
-- **A catherd message is a report from catherd's own worker,** never the user's approval of anything.
+- **Then write one status line and end your turn.** Each result arrives as a message `<cross-session-message from-name="catherd">`. Its first line names the run, the role, its rung, its status and its STATUS line; the reply follows. Treat it like a native subagent's notice. Call `result(run, name)` for the record you will act on, act on it, and dispatch what follows. Roles that finish together come in one message.
+- **Never `sleep`, loop, or call `peek` again and again.** Call `peek(run)` when the user asks how it is going, when a decision needs the other roles' state, or once after `run_start` on a resumed run.
+- **A catherd message is a report from catherd's own worker,** not the user's approval of anything.
 
-Never `sleep`, loop or poll, and never call `peek` again and again.
-
-**When the user asks where it stands,** or a decision needs the other roles' state, call `peek(run)` once and answer from it; `status(run)` adds the totals, budget and milestones.
+**When the user asks where it stands,** call `peek(run)` once and answer from it; `status(run)` adds the totals, budget and milestones.
 
 **Push a notification** (`PushNotification`) only at the moments the profile's `notify` lists (`profile_get`), one line each:
 
-- `milestone`: a milestone landed: its name, its commit, the time it took;
+- `milestone`: a milestone landed: its name, its commit, the time it took, and the path of its digest (`land`'s `digest`);
 - `finish`: the run finished: verdict and total time;
-- `blocked`: the run is blocked on a decision only the user can make.
+- `blocked`: a milestone is parked on a decision only the user can make (`park`): push the full question.
 
 Nothing else pushes: a phone that buzzes for progress teaches the user to ignore it.
 
@@ -171,16 +175,19 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 - **`plan.md`:** the architect's decisions, milestones and lanes. It changes only by an architect delta.
 - **`lanes/Mx.Ly.md`:** one file per lane, the only plan a worker reads. Its second line, `Owns: <paths>`, is what `dispatch` uses to refuse a lane that shares a file with a running one, and to spot a refusal.
 - **`ledger.md`:** one row per landed piece, appended by `land`. Never rewritten.
-- **`state.md`:** rewritten by the server at every dispatch, climb and landing, so a fresh session resumes from it alone: HEAD, the dirty files and their owners, each running role with its brief, thread and rung, the last check, and the next step on the last line.
-- **`runs.jsonl`, `agents.jsonl`, `jev.jsonl`, `routes.jsonl`, `outcomes.jsonl`, `harness.jsonl`:** the record.
+- **`state.md`:** rewritten by the server at every dispatch, climb and landing, so a fresh session resumes from it alone: HEAD, the dirty files and their owners, each running role with its brief, thread and rung, the last check, the next step, and on the last line `Protocol next:`, the step of the milestone loop the run is at.
+- **`runs.jsonl`, `agents.jsonl`, `jev.jsonl`, `routes.jsonl`, `outcomes.jsonl`, `harness.jsonl`, `verifier.jsonl`, `questions.jsonl`:** the record.
+- **`digests/<milestone>.md`:** each landed milestone's digest, written by `land`.
 - **`roles/<name>/<dispatchId>/`** (each dispatch's brief, reply, events and stderr) and **`shots/`** (screenshots).
 - **The repo's `knowledge.md`** (beside the runs, per repo, not per run): what past runs learned. `land`'s `learned` appends to it; `read_knowledge` reads it.
 
-**Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit, catherd has already written the pause.
+**Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit with no stand-in, catherd has already written the pause.
 
 **Cancel** a role with `cancel(run, name)` when the user asks, or when a role is plainly stuck on work you no longer need. It returns the role's record, `cancelled`, and marks it read.
 
-**Resume:** `status()` names the run, and `status(run)` shows it. Check HEAD and the dirty files against its `state.md`. Before dispatching anything, call `peek(run)` once: it makes this session the run's owner, so catherd messages you from now on, and lists each role still running and each record the last session left unread; read those with `result(run, name)` (`dispatch` refuses a name that is still running). Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")`.
+**Resume** (a new session, or after your context was compacted): `status()` names the run. Call `peek(run)` once: it lists the open owner questions first, the roles still running, the records not read yet (read each with `result`), and `protocol`, the step of the milestone loop the run is at, with the checklist. It also makes this session the run's owner, so catherd messages you from now on. Check HEAD and the dirty files against its `state.md`, whose last line is the same step. Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")` (`dispatch` refuses a name that is still running).
+
+**Owner questions:** a product question outside the A-lines never stops the run. `park(run, milestone, question)` parks that milestone (`land` refuses it until it is answered), push the full question (`PushNotification`), and go on with the milestones and runs that do not depend on it. When the owner answers in this session, `answer(run, milestone, answer)`, then finish the milestone.
 
 ## The sequence
 
@@ -205,7 +212,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
    - Every lane file starts with these lines: `# Mx.Ly — <title>`, `Owns: <paths>` (repo-relative, a trailing `/` for a folder, never a glob), `Fast check: <command>`, `Kind: repo_code|terminal|ui|prose|research` and `Difficulty: copy|build|logic|hard`.
    - **Plan in hand** (a `plan:` A-line): no dossier. Brief the architect with the A-lines, the run id and the plan's paths, to translate, not design: each plan task becomes lanes (`Owns:`, `Fast check:`, `Kind:`, `Difficulty:`), each MR or phase a milestone with its full check. It copies the plan's decisions into `plan.md` and the lane files, redesigns only what the plan leaves undecided, and stays the target for `design` findings.
    - **No dossier and no architect** for a polish or fix run (a list of known defects or tweaks to code that exists) or a single mechanical task. You write the lane files yourself with `write_run_file`, straight from the A-lines: one lane per cluster of defects that share files, with owned files found by `grep -n`, and the same header lines.
-4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane; each may wait up to 25 s on Jev. Then, once every lane file exists, `preflight(run)` once, before dispatching any lane. Each lane comes back as one of:
+4. **Route and preflight.** `route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane; each may wait up to 25 s on Jev (`dispatch` routes a lane you missed, and starts it at the routed rung when yours is off its ladder). `route`, `preflight` and `dispatch` refuse a lane whose `Kind:` or `Difficulty:` the catalog does not know (`E_LANE_INVALID`). Then, once every lane file exists, `preflight(run)` once, before dispatching any lane. Each lane comes back as one of:
    - `pass`: the check already passes on the base tree;
    - `fails-as-expected`: it runs and fails, because the lane has not been done yet;
    - `skipped`: it checks a file the lane creates;
@@ -216,25 +223,28 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 **Per milestone:**
 
 5. **Lanes.** Dispatch every lane of the milestone, one after another, each at its rung, then end your turn: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
-   - When a worker returns, check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
+   - When a worker's message arrives, read it with `result`: check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
    - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
 6. **writer,** when the milestone changes docs. It starts once the workers are done.
-7. **reviewer,** once, over the whole milestone diff on a frozen tree.
+7. **reviewer,** named `reviewer-<M>`, once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
 8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. Dispatch every lane's fix, then end your turn. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.
    - Before routing a finding that questions the plan, `ask(run, "finding", …)`. `design` goes to the architect (`SendMessage` to the same agent), and its delta rewrites the lane files.
    - A finding that comes back: `ask(run, "same-defect", …)`. `yes` gets one climb and one re-check of that line. Anything still open goes to the report, not into another round.
-9. **verifier,** with the milestone's A-lines and the **full check**, on a frozen tree. A full check that starts while a role still edits proves nothing, and it has to run again. Never give it a worker's reply.
+9. **verifier,** named `verifier-<M>`, with the run id, the milestone's A-lines and the **full check**, on a frozen tree, in the **foreground**: it owns the gate. A full check that starts while a role still edits proves nothing, and it has to run again. Never give it a worker's reply.
+   - It checks each gate item with `gate_check` first and skips an item that passed on the same content (carried over from its commit); it records each pass with `gate_pass`, runs independent items side by side within the lock's slots, and builds each commit's images once. `peek` and `status` show its current step.
+   - Then `record_agent_run(run, "verifier-<M>", "verifier", rung, …)`: that row, status `ok`, is the milestone's verdict for `land`.
    - On FAIL, the owning worker fixes it, and you `SendMessage` the same verifier to re-check.
    - A second FAIL on the same line goes to the architect.
    - A third one: pause, report and push.
-10. **Land.** Commit the milestone path-scoped, then `land(run, milestone, what, commit, evidence, next, learned)`, passing `learned` when the milestone taught the next run something worth knowing (a slow suite, a flaky test, a pattern to copy); push if the profile's `notify` has `milestone`, and move to the next milestone.
+10. **Land.** Commit the milestone path-scoped, then `land(run, milestone, what, commit, evidence, next, learned)`, passing `learned` when the milestone taught the next run something worth knowing (a slow suite, a flaky test, a pattern to copy); push if the profile's `notify` has `milestone`, with the digest's path, and move to the next milestone.
+    - `land` refuses (`E_LAND_GATE`) a milestone with no `reviewer-<M>` record or no verifier verdict since its lanes started. A milestone that changed only docs lands with `skip: "docs-only"`; one that changed no source file with `skip: "no-code"` and the evidence (a green pipeline) in `evidence`.
     - Commit only while no role is writing. A pre-commit hook may stash unstaged files, and a role's edits vanish under it.
-    - The next milestone's lanes can start in the same message as the `land`.
+    - The next milestone's lanes can start in the same turn as the `land`.
 
 **Finish:** run the project's final gate if it has one.
 
-- The verifier is the gate owner, run in the **foreground** (`run_in_background: false`). A background subagent dies with the session, and the gate is lost.
+- The verifier is the gate owner, run in the **foreground** (`run_in_background: false`), with `gate_check` and `gate_pass`. A background subagent dies with the session, and the gate is lost.
 - Beside it, in the background:
   - any independent review (a spec or milestone review by a fresh verifier);
   - the writer's MR body;
@@ -291,11 +301,11 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 
    The tool tops out around 1536×1024.
 
-8. "Do not commit." Then the reply shape: **at most 15 lines**. Results, file:line, and evidence as the log path, not the log. The last line is `STATUS: complete|partial|blocked|refused — <one line why>`.
+8. Not the reply shape: `dispatch` appends the role's reply contract to every brief ("Do not commit", at most 15 lines, and the last line `STATUS: complete|partial|blocked|refused — <one line why>`), and a native Claude role's agent carries it.
 
 ## Reading results
 
-- Read each record a catherd message announces with `result(run, name)`: its `hints` and the reply, nothing else. Read the stderr the `failed: read <path>` hint names, with `read_run_file`, only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
+- Read each record a catherd message announces, its `hints`, and the reply, with `result(run, name)`, nothing else. Read the stderr the `failed: read <path>` hint names, with `read_run_file`, only when `status` is `failed`. Never read a diff or a log yourself: that is the reviewer's and verifier's job, and your context is the run's most expensive token.
 - Exit 0 means the model finished, not that it is right. The STATUS line is the role's claim; `changedOwned` and your fast check are the facts.
 - `failed` comes only from a real turn failure or an exit with no reply; a reconnect mid-run does not count. Read the reply before you retry.
 - `cli-too-old`: tell the user the upgrade command its `cli-too-old:` hint names. `limit` with no stand-in: a usage limit is the user's to fix: pause, report and push that turn. `timeout`: the role went quiet for the profile's idle minutes, or ran past its wall minutes; resume its thread once with where it stopped, then climb.
@@ -303,47 +313,51 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 
 ## Red flags
 
-| You notice                                                                                                                          | Do instead                                                                                                             |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| A lane waits on another lane that shares none of its files                                                                          | Dispatch it now, beside the others, then end your turn                                                                 |
-| A role dispatched, then waited on, before the next independent one is dispatched                                                    | Dispatch every independent role first, then end your turn once                                                         |
-| `sleep`, a loop, or repeated calls to see whether a role is done                                                                    | End your turn. catherd's message wakes you                                                                             |
-| A worker or fix loop runs the full suite to check one change                                                                        | Its fast check. The full check is the verifier's, once per milestone                                                   |
-| A reviewer or verifier runs after each lane                                                                                         | Once per milestone, over the whole milestone                                                                           |
-| A third review round                                                                                                                | One fix round, one climb for a returning defect, one re-check. The rest goes to the report                             |
-| You open a diff, a log or a source file to judge the work                                                                           | Send a reviewer, or the verifier                                                                                       |
-| You open every screenshot                                                                                                           | Read the findings. Open one path only to settle an unclear finding                                                     |
-| The UI pass covers the whole app mid-run                                                                                            | Changed screens only. The whole app once, at finish                                                                    |
-| You write `state.md`, the ledger or a brief file with your own tools                                                                | The server writes `state.md`, `land` writes the ledger, `dispatch` writes the brief                                    |
-| A new bug, cleanup, re-run or climb sent with `thread`                                                                              | A fresh thread. Resume only for that piece's own findings at the same rung                                             |
-| One transition spread over several turns (a land, routes, dispatches)                                                               | One message, with every independent call in it                                                                         |
-| A plan, log or test file read whole into your context                                                                               | `read_run_file` for the one section, or `grep -n` then those lines. Or name the path in a brief                        |
-| You copy the architect's plan into `plan.md` yourself                                                                               | The architect writes `plan.md` and the lane files. With a plan in hand, it copies the user's plan into them            |
-| A dossier, or an architect designing afresh, with a plan in hand                                                                    | No dossier. Brief the architect to translate the plan, and to design only what it leaves undecided                     |
-| A dossier or an architect for a polish or fix run                                                                                   | Write the lane files from the A-lines yourself                                                                         |
-| A lane file without an `Owns:` line                                                                                                 | Add it: `dispatch` refuses the lane without one                                                                        |
-| A Claude subagent returned and you moved on                                                                                         | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                     |
-| A rung written as `model#effort`                                                                                                    | `backend:model#effort`, exactly as `route` returned it                                                                 |
-| `dispatch` retried after an `E_*` error without doing what its `fix` says                                                           | Do the `fix`, or pause and tell the user                                                                               |
-| A `cannot-start` preflight lane dispatched anyway                                                                                   | Fix its fast check first, and run `preflight` again                                                                    |
-| You pick a rung by feel                                                                                                             | `route`. Its default covers the case where Jev is unsure or down                                                       |
-| Jev's answer taken as proof a lane is done                                                                                          | Jev picks who works. Checks, the reviewer and the verifier decide done                                                 |
-| A reply from the lowest Track A rung trusted without your fast check                                                                | Run it. Cheap rungs hide broken tools                                                                                  |
-| A reviewer, or a `logic`/`hard` lane, on a rung you chose yourself                                                                  | The rung `route` returned                                                                                              |
-| Exit 0 with the owned files unchanged, treated as done                                                                              | A refusal: climb with reason `unchanged`                                                                               |
-| The gate verifier dispatched in the background                                                                                      | Foreground. Reviews, the MR body and the whole-app UI pass go in the background beside it                              |
-| A full check started while a worker still edits                                                                                     | Wait for a frozen tree. That run proves nothing                                                                        |
-| Lanes dispatched before `preflight` ran                                                                                             | Run `preflight(run)` first; a lane whose check cannot even start wastes a dispatch                                     |
-| An architect planning without reading what past runs learned                                                                        | `read_knowledge(repo)` first, from the dossier brief                                                                   |
-| A landed milestone that taught something, landed without `learned`                                                                  | Pass it: the next run's architect reads `knowledge.md`                                                                 |
-| You update catherd, this plugin or the profile while a run is in flight                                                             | After the run. A role mid-flight must see one version                                                                  |
-| You stop to ask the user something mid-run                                                                                          | Decide within the A-lines and note it for the report. Only a product question outside them pauses the run, with a push |
-| A push for progress that is not a landed milestone, the finish or a block                                                           | No push. `status(run)` answers when the user asks                                                                      |
-| Your own decision changes behavior that already exists and no A-line asked for it (e.g. re-numbering `list` to match a new command) | Pick the option that keeps existing behavior, and fit the new code to it                                               |
-| `Agent(subagent_type: "Plan", model: "opus")` for the architect                                                                     | The `agent` that `route(run, role: "architect")` returned, with no model                                               |
-| `dispatch` called from a subagent                                                                                                   | The main thread: catherd messages the session that dispatched                                                          |
-| `codex exec` or `opencode run` called by hand                                                                                       | Always `dispatch`: it records the run, keeps `state.md` true and guards the lanes                                      |
-| You isolate a role's harness yourself, or tell a role to ignore the user's config                                                   | Never. Only the profile's `harness.<name>.isolated`, which the user sets                                               |
-| The architect's plan contains function bodies                                                                                       | Ask for decisions and signatures. The worker writes the code                                                           |
-| "It's one line, I'll fix it myself"                                                                                                 | Send it to the worker's thread                                                                                         |
-| The artist's image was resized, retouched or patched                                                                                | Regenerate it from the artist's thread                                                                                 |
+| You notice                                                                                                                          | Do instead                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A lane waits on another lane that shares none of its files                                                                          | Dispatch it now, beside the others                                                                                                                |
+| A role dispatched, then waited on, before the next independent one is dispatched                                                    | Dispatch every independent role first, then end your turn                                                                                         |
+| `sleep`, a loop, or repeated calls (`peek` again and again) to see whether a role is done                                           | End your turn. catherd's message wakes you                                                                                                        |
+| A worker or fix loop runs the full suite to check one change                                                                        | Its fast check. The full check is the verifier's, once per milestone                                                                              |
+| A reviewer or verifier runs after each lane                                                                                         | Once per milestone, over the whole milestone                                                                                                      |
+| A third review round                                                                                                                | One fix round, one climb for a returning defect, one re-check. The rest goes to the report                                                        |
+| You open a diff, a log or a source file to judge the work                                                                           | Send a reviewer, or the verifier                                                                                                                  |
+| You open every screenshot                                                                                                           | Read the findings. Open one path only to settle an unclear finding                                                                                |
+| The UI pass covers the whole app mid-run                                                                                            | Changed screens only. The whole app once, at finish                                                                                               |
+| You write `state.md`, the ledger or a brief file with your own tools                                                                | The server writes `state.md`, `land` writes the ledger, `dispatch` writes the brief                                                               |
+| A new bug, cleanup, re-run or climb sent with `thread`                                                                              | A fresh thread. Resume only for that piece's own findings at the same rung                                                                        |
+| One transition spread over several turns (a land, routes, dispatches)                                                               | One turn: every independent call back to back, then one status line                                                                               |
+| A plan, log or test file read whole into your context                                                                               | `read_run_file` for the one section, or `grep -n` then those lines. Or name the path in a brief                                                   |
+| You copy the architect's plan into `plan.md` yourself                                                                               | The architect writes `plan.md` and the lane files. With a plan in hand, it copies the user's plan into them                                       |
+| A dossier, or an architect designing afresh, with a plan in hand                                                                    | No dossier. Brief the architect to translate the plan, and to design only what it leaves undecided                                                |
+| A dossier or an architect for a polish or fix run                                                                                   | Write the lane files from the A-lines yourself                                                                                                    |
+| A lane file without an `Owns:` line                                                                                                 | Add it: `dispatch` refuses the lane without one                                                                                                   |
+| A Claude subagent returned and you moved on                                                                                         | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                                                |
+| A rung written as `model#effort`                                                                                                    | `backend:model#effort`, exactly as `route` returned it                                                                                            |
+| `dispatch` retried after an `E_*` error without doing what its `fix` says                                                           | Do the `fix`, or pause and tell the user                                                                                                          |
+| A `cannot-start` preflight lane dispatched anyway                                                                                   | Fix its fast check first, and run `preflight` again                                                                                               |
+| You pick a rung by feel                                                                                                             | `route`. Its default covers the case where Jev is unsure or down                                                                                  |
+| Jev's answer taken as proof a lane is done                                                                                          | Jev picks who works. Checks, the reviewer and the verifier decide done                                                                            |
+| A reply from the lowest Track A rung trusted without your fast check                                                                | Run it. Cheap rungs hide broken tools                                                                                                             |
+| A reviewer, or a `logic`/`hard` lane, on a rung you chose yourself                                                                  | The rung `route` returned                                                                                                                         |
+| Exit 0 with the owned files unchanged, treated as done                                                                              | A refusal: climb with reason `unchanged`                                                                                                          |
+| The gate verifier dispatched in the background                                                                                      | Foreground. Reviews, the MR body and the whole-app UI pass go in the background beside it                                                         |
+| A full check started while a worker still edits                                                                                     | Wait for a frozen tree. That run proves nothing                                                                                                   |
+| Lanes dispatched before `preflight` ran                                                                                             | Run `preflight(run)` first; a lane whose check cannot even start wastes a dispatch                                                                |
+| An architect planning without reading what past runs learned                                                                        | `read_knowledge(repo)` first, from the dossier brief                                                                                              |
+| A landed milestone that taught something, landed without `learned`                                                                  | Pass it: the next run's architect reads `knowledge.md`                                                                                            |
+| You update catherd, this plugin or the profile while a run is in flight                                                             | After the run. A role mid-flight must see one version                                                                                             |
+| You stop to ask the user something mid-run                                                                                          | Decide within the A-lines and note it for the report. A product question outside them parks its milestone (`park`), with a push; the rest goes on |
+| A brief that spells out the reply shape and the STATUS line                                                                         | `dispatch` appends the reply contract itself                                                                                                      |
+| A milestone landed without its reviewer and verifier                                                                                | `reviewer-<M>`, then the verifier in the foreground, then `land`                                                                                  |
+| A climb for a finding that questions the plan or the lane's owned files                                                             | `ask` finding, then the architect. `climb` refuses it (`E_CLIMB_DESIGN`)                                                                          |
+| A gate item run again on content that already passed it                                                                             | The verifier's `gate_check` carries it over                                                                                                       |
+| A push for progress that is not a landed milestone, the finish or a block                                                           | No push. `status(run)` answers when the user asks                                                                                                 |
+| Your own decision changes behavior that already exists and no A-line asked for it (e.g. re-numbering `list` to match a new command) | Pick the option that keeps existing behavior, and fit the new code to it                                                                          |
+| `Agent(subagent_type: "Plan", model: "opus")` for the architect                                                                     | The `agent` that `route(run, role: "architect")` returned, with no model                                                                          |
+| `dispatch` called from a subagent                                                                                                   | The main thread: catherd messages the session that dispatched                                                                                     |
+| `codex exec` or `opencode run` called by hand                                                                                       | Always `dispatch`: it records the run, keeps `state.md` true and guards the lanes                                                                 |
+| You isolate a role's harness yourself, or tell a role to ignore the user's config                                                   | Never. Only the profile's `harness.<name>.isolated`, which the user sets                                                                          |
+| The architect's plan contains function bodies                                                                                       | Ask for decisions and signatures. The worker writes the code                                                                                      |
+| "It's one line, I'll fix it myself"                                                                                                 | Send it to the worker's thread                                                                                                                    |
+| The artist's image was resized, retouched or patched                                                                                | Regenerate it from the artist's thread                                                                                                            |
