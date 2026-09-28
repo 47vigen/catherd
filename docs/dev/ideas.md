@@ -355,6 +355,17 @@ agent board has GPT-6 Sol (Max) but not Opus 5.5 or GPT-6 Luna; Vectara has GPT-
 picker is the path for exactly the rungs a fresh release adds, and each daily sync shrinks that list without anyone
 typing a number.
 
+## From the 1.1.0 install (2026-09-28)
+
+- **An invalid profile cannot be repaired field by field.** Clearing `treatLike` in `catalog.override.json` left three
+  rungs unscored (`gpt-5.6-sol#high`, `gpt-5.6-sol#medium`, `gpt-6-luna#medium`). Every `catherd profile set` then
+  failed with `E_CONFIG_INVALID`, even a `set` that removes one of those rungs, because each save validates the whole
+  profile and the other bad field still fails. The workaround was to restore the mappings, make the edits, and clear them
+  again. Fix: a save that removes errors and adds none goes through, and the result lists the errors still open.
+- **`treat-like` cannot be undone from the CLI.** There is no `catherd catalog treat-like --rm`, so the only way to
+  reset a mapping is to edit `catalog.override.json` by hand. Add `--rm <rung>` and `--reset`. Before removing a mapping,
+  warn which profile rungs it would leave unscored.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
