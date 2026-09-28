@@ -90,6 +90,47 @@ describe("anchors and calibration (spec 1.2 §4.1, §4.2)", () => {
     expect(d.scores.some((s) => s.dim === "repo_code")).toBe(false);
   });
 
+  it("anchors terminal on the vendors' Terminal-Bench 4.0 values, fitting Epoch's 2.0 table onto them (C-2)", () => {
+    const d = keyless();
+    // Epoch's Terminal-Bench shares no rung with the shipped values: it is not used, and Haiku gets none
+    expect(d.fits.find((f) => f.field === "terminalbench")).toMatchObject({
+      dim: "terminal",
+      source: "epoch",
+      n: 0,
+      used: false,
+    });
+    expect(d.scores.filter((s) => s.dim === "terminal")).toEqual([]);
+  });
+
+  it("anchors on the hand-typed values only, never on a shipped keyless value", () => {
+    const c = shippedContext(NOW);
+    // a shipped value that came from a source (it carries one) is no anchor: the fits stay as they are
+    const scores = [
+      ...c.scores.scores,
+      ...[
+        "gpt-5.6-terra#max",
+        "gpt-6-astra#max",
+        "claude-sonnet-5#max",
+        "gpt-6-luna#max",
+        "gpt-6-sol#high",
+      ].map((rung) => ({
+        rung,
+        dim: "honesty" as const,
+        value: 50,
+        benchmark: "Vectara",
+        version: "x",
+        url: "https://example.com/v",
+        date: "2026-09-27",
+        confidence: "measured" as const,
+        source: "vectara",
+      })),
+    ];
+    const d = derive(rawAnswers(AT), { ...c, scores: { ...c.scores, scores } });
+    expect(d.fits.filter((f) => f.dim === "honesty")).toEqual(
+      keyless().fits.filter((f) => f.dim === "honesty"),
+    );
+  });
+
   it("calibrates Artificial Analysis onto the shipped anchor, never using it as one (synthetic fixture)", () => {
     const d = derive(rawAnswers(AT, { aa: true }), shippedContext(NOW));
     expect(d.fits.find((f) => f.field === "scicode")).toMatchObject({ dim: "repo_code", n: 5, used: true });

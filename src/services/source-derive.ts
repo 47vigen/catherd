@@ -1,3 +1,4 @@
+import { measuredOrBetter } from "../domain/bars.ts";
 import { calibrate, DIM_SOURCES, type FieldRef } from "../domain/calibration.ts";
 import {
   DIMS,
@@ -43,12 +44,6 @@ export interface DeriveContext {
 
 /** Spec 1.2 §3.5: a price that differs by more than this is a sync warning. */
 const PRICE_TOLERANCE = 0.1;
-/**
- * Plan 13 R18: dimensions whose fits are computed and recorded but give no synced value. Terminal's anchor
- * (Epoch's Terminal-Bench 2.0) is not the shipped values' unit (Terminal-Bench 4.0), so the shipped terminal
- * values stay authoritative until plan 14 moves terminal onto one unit.
- */
-const HELD_DIMS: ReadonlySet<Dim> = new Set(["terminal"]);
 /** Spec 1.2 §3.5: the models.dev provider that serves a backend key its own catalog. */
 const OPENCODE_KEYS = ["opencode", "opencode-go"] as const;
 
@@ -105,7 +100,7 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
   const scores: Score[] = [];
   const fits: FitRow[] = [];
   const push = (dim: Dim, f: FieldRef, k: Keyed, value: number, extra: Partial<Score>) => {
-    if (!k.family || HELD_DIMS.has(dim)) return;
+    if (!k.family) return;
     scores.push({
       rung: `${k.family.id}#${k.effort}`,
       dim,
@@ -125,8 +120,9 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
     let anchor: Map<string, number>;
     if (spec.anchor === "shipped") {
       anchor = new Map();
+      // the hand-typed values published for the rung; never the shipped keyless ones (they carry a source)
       for (const s of ctx.scores.scores)
-        if (s.dim === dim && s.confidence !== "inferred") {
+        if (s.dim === dim && s.source === undefined && measuredOrBetter(s)) {
           const { id, effort } = splitSourceRung(s.rung);
           anchor.set(`${map.key(id)}#${effort}`, s.value);
         }
@@ -182,12 +178,17 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
 }
 
 /**
- * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no value at (neither a direct synced one
- * nor a shipped one above `inferred`, in `shipped` as `<family>#<effort>|<dim>`), the best synced value at the
- * nearest effort that has one (the weaker on a tie). The shipped values are not spread this way: the shipped
- * file already says which efforts it carries, and an adjacent value never overrides one it carries.
+ * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no value at (neither one in `direct` nor
+ * one `shipped` names, as `<family>#<effort>|<dim>`), the best value in `direct` at the nearest effort that
+ * has one (the weaker on a tie). A sync spreads only its own values, and never onto a value the shipped file
+ * carries; `rebuildShipped` spreads the shipped file's published values, with an empty `shipped`.
  */
-function adjacent(families: Family[], direct: Score[], shipped: Set<string>, now: number): Score[] {
+export function adjacent(
+  families: Family[],
+  direct: Score[],
+  shipped: ReadonlySet<string>,
+  now: number,
+): Score[] {
   const out: Score[] = [];
   for (const f of families)
     for (const dim of DIMS) {
@@ -208,7 +209,7 @@ function adjacent(families: Family[], direct: Score[], shipped: Set<string>, now
           ...from,
           rung: `${f.id}#${e}`,
           confidence: "adjacent",
-          note: `${from.source} has it at ${near}; carried to this effort`,
+          note: `${from.source ?? from.benchmark} has it at ${near}; carried to this effort`,
         });
       }
     }
