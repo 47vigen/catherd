@@ -50,6 +50,12 @@ export async function probePush(env: Record<string, string | undefined> = proces
   const sessionId = sessionFileFor(s)?.sessionId ?? s.sessionId;
   const nonce = crypto.randomUUID().slice(0, 8);
   const r = await sendToInbox(s, envelope(`catherd doctor: push test ${nonce}, no action needed`), "later");
+  // a socket that is gone or refuses is a shell that outlived its session, not a protocol change
+  if (r.outcome === "no-session" || r.outcome === "refused")
+    return {
+      outcome: "no-session",
+      detail: `this session's inbox is not reachable (${r.reason ?? r.outcome}); run catherd doctor from a live Claude Code session to test push`,
+    };
   if (r.outcome !== "sent")
     return {
       outcome: "failed",
@@ -88,7 +94,7 @@ export function pushCheck(p: PushProbe): Check {
         ...base,
         state: "warn",
         word: "held",
-        fix: 'set "crossSessionInbound": "accept" in ~/.claude/settings.json, or remove a project setting that sets it to hold or refuse',
+        fix: `set "crossSessionInbound": "accept" in ${join(claudeHome(), "settings.json")}, or remove a project setting that sets it to hold or refuse`,
       };
     case "unconfirmed":
       return { ...base, state: "warn", word: "not confirmed" };

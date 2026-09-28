@@ -87,10 +87,40 @@ describe("doctor's push row (spec §3.9)", () => {
       word: "no session",
       detail: "run catherd doctor from a Claude Code session to test push",
     });
+  });
+
+  it("calls a gone or refusing socket unreachable, not a Claude Code that cannot be notified", async () => {
+    withHome();
+    // a shell that outlived its session: the socket file is gone
     const gone = join(mkdtempSync(join(tmpdir(), "cc-socks-")), "9.sock");
-    const failed = await probePush({ CLAUDE_CODE_SESSION_ID: "s", CLAUDE_CODE_MESSAGING_SOCKET: gone });
-    expect(pushCheck(failed)).toMatchObject({ state: "fail", word: "failed" });
-    expect(failed.detail).toContain("catherd cannot notify this Claude Code version; peek still works");
+    const stale = await probePush({ CLAUDE_CODE_SESSION_ID: "s", CLAUDE_CODE_MESSAGING_SOCKET: gone });
+    expect(pushCheck(stale)).toMatchObject({ state: "skip", word: "no session" });
+    expect(stale.detail).toContain("this session's inbox is not reachable");
+    expect(stale.detail).toContain("run catherd doctor from a live Claude Code session");
+    expect(stale.detail).not.toContain("Claude Code version");
+    // a path nobody listens on refuses the connection
+    const dead = join(mkdtempSync(join(tmpdir(), "cc-socks-")), "10.sock");
+    writeFileSync(dead, "");
+    const refused = await probePush({ CLAUDE_CODE_SESSION_ID: "s", CLAUDE_CODE_MESSAGING_SOCKET: dead });
+    expect(pushCheck(refused)).toMatchObject({ state: "skip", word: "no session" });
+  });
+
+  it("fails, with the protocol advice, when the socket takes the connection but the send errors", () => {
+    expect(
+      pushCheck({
+        outcome: "failed",
+        detail: "catherd cannot notify this Claude Code version; peek still works",
+      }),
+    ).toMatchObject({ state: "fail", word: "failed" });
+  });
+
+  it("names the settings file of the Claude config dir in use when a message is held", () => {
+    withHome();
+    const dir = mkdtempSync(join(tmpdir(), "cc-config-"));
+    process.env.CLAUDE_CONFIG_DIR = dir;
+    const fix = pushCheck({ outcome: "held", detail: "held" }).fix ?? "";
+    expect(fix).toContain(join(dir, "settings.json"));
+    expect(fix).not.toContain("~/.claude");
   });
 
   it("is a row of the report only when doctor is given the probe", async () => {
