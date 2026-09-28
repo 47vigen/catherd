@@ -9,6 +9,61 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## Push results to the main thread, drop `wait` (designed 2026-09-28)
+
+_Why:_ `wait` fixed serial dispatch but blocks the main thread: an MCP call does not background, so the session freezes
+until the lanes finish, and the user cannot even ask how it is going. Claude Code sessions have a peer inbox (a Unix
+socket, `.workspace/references/claude-code-cross-session-messaging.md` in agora); catherd can use it to tell the main
+thread a role finished, the way native subagents do. Every decision below was settled with the user in a grilling
+session; the facts were verified in the 2.1.283 binary.
+
+Facts it rests on:
+- The receiver treats a message as self-sent when its own pid is an ancestor of the sender (a `ps -o ppid=` walk, 10
+  levels, 32 on retry; macOS). The plugin's MCP server is a direct child of the session, so its messages pass with no
+  `crossSessionInbound` setting. The detached supervisor (ppid 1) does not.
+- MCP children get `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_HOST_SESSION_ID` and `CLAUDE_CODE_MESSAGING_SOCKET`; the
+  session file `~/.claude/sessions/<pid>.json` gives its name.
+- `priority`: `later` waits for the turn to end (native task notices use it), `next` drains at the next tool round,
+  `now` aborts the turn.
+
+Design:
+1. **Disk stays the source of truth.** The supervisor writes the record as today; each record is delivered once by its
+   collect marker. A message only announces it.
+2. **The MCP server sends.** It watches the records of the roles it dispatched and sends one message per finished role
+   over `CLAUDE_CODE_MESSAGING_SOCKET`; roles that finish within about 3 s of each other share one message. On start it
+   sends for any unread record of its session's runs.
+3. **The message.** First line self-contained, e.g. `catherd · M2.L1 worker · sol#medium · ok · complete · 1m51s · 3
+   files`; then the worker's reply, capped at about 2 KB; then a pointer to `result(run, name)`.
+4. **When.** Every end (ok, failed, limit, timeout), plus two mid-run events: the supervisor sees a stall, or a limit
+   moved the role to its failover rung. No progress lines; `peek` has those.
+5. **Priority.** Normal ends go `later`; blocked, stalled and limit messages go `next`; never `now`.
+6. **Which session.** `dispatch` records `CLAUDE_CODE_SESSION_ID`. The message goes to the live session with that id,
+   found by id, not pid; a run continued in another session (it called `run_start` or `peek` for it) moves delivery
+   there. With no live session the record stays unread for the next `peek` or `run_start`; phone pushes follow the
+   profile's notify moments as today.
+7. **Tools.** `wait` is removed. New `peek(run?, name?)`, non-blocking: each live role with elapsed time and its last
+   event (last command or message), plus finished records not yet read. `result` stays for a full record.
+8. **Skill.** After dispatching independent roles, write one status line and end the turn; results arrive as messages,
+   to be treated like native subagent notices. Never sleep, loop or poll `peek`; call it when the user asks how it is
+   going or a decision needs the others' state. Native Claude roles (architect, verifier) keep their own notices.
+9. **Settings.** `init` does not touch `crossSessionInbound`. `doctor` sends a test message from the MCP server to its
+   own session and reports whether it arrived.
+
+## Runs page by main-thread session (designed 2026-09-28)
+
+_Why:_ one `/catherd` job (the whole auth build) became several runs, one per milestone and worktree, listed flat. The
+user wants to open the session that drove the job and see every role, where it is, past runs and milestones, updating
+in place.
+
+- The run stays the unit (parallel runs in separate worktrees are needed). `run_start` stores the session id, host id
+  and name in `meta.json`; the runs page groups by session first: session, its runs, their milestones, their roles.
+- A run continued from another session stays under the one that started it, marked "continued in X", and shows as a
+  link under the second.
+- The session's name is read live from its session file (so a renamed Desktop session renames here), else the last
+  stored name.
+- The page watches the data folder and redraws when a record or state file changes; live roles' elapsed time ticks
+  every second, with each role's last event from `peek`'s source.
+
 ## Fix bundle: everything open, by priority
 
 One line per open problem found in real use; the entry with the evidence is in the section named after it.
