@@ -67,15 +67,13 @@ export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   if (!me) return false;
   const p = runPaths(run.dir);
   const at = new Date(deps.now()).toISOString();
-  const changed = await withFileLock(p.stateJson, () => {
+  // the trail row goes in under the same lock: the trail's last row is the owner (session-view reads it so)
+  return withFileLock(p.stateJson, () => {
     const notes = readNotes(run);
     if (runOwner(run)?.sessionId === me.sessionId) return false;
     writeJsonAtomic(p.stateJson, { ...notes, owner: { sessionId: me.sessionId, since: at } });
-    return true;
-  });
-  if (changed) {
     ensureJsonlHeader(p.sessions, "sessions");
     appendJsonl(p.sessions, { sessionId: me.sessionId, hostSessionId: me.hostSessionId, name: me.name, at });
-  }
-  return changed;
+    return true;
+  });
 }

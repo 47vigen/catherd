@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
+import { lockHeld } from "../../src/infra/filelock.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
+import * as store from "../../src/infra/store.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { listDispatches } from "../../src/services/dispatches.ts";
@@ -83,6 +85,24 @@ describe("session identity and run ownership (spec §3.3)", () => {
       schema: 1,
       owner: { sessionId: "s-b" },
     });
+  });
+
+  it("appends the trail row under the state.json lock, so its last row is always the owner", async () => {
+    const { run } = freshRun();
+    const held: boolean[] = [];
+    const real = store.appendJsonl;
+    const spy = spyOn(store, "appendJsonl").mockImplementation((file, row) => {
+      if (file === runPaths(run.dir).sessions) held.push(lockHeld(runPaths(run.dir).stateJson));
+      real(file, row);
+    });
+    try {
+      await claimRun(fakeDeps({ session: session(105, "s-a", "first") }), run);
+      await claimRun(fakeDeps({ session: session(106, "s-b", "second") }), run);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(held).toEqual([true, true]);
+    expect(readSessionRows(run).at(-1)?.sessionId).toBe(runOwner(run)?.sessionId as string);
   });
 
   it("stamps the dispatching session on admit.json and the record, and takes the run over on dispatch", async () => {
