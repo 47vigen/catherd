@@ -303,7 +303,7 @@ git fetch origin changeset-release/main && git checkout --detach FETCH_HEAD
 bun install --frozen-lockfile
 version="$(jq -r .version package.json)"   # the version the release PR sets
 bun pm pack                                  # writes catherd-cli-$version.tgz
-bun add -g "./catherd-cli-$version.tgz"
+bun add -g "$PWD/catherd-cli-$version.tgz"   # absolute: bun resolves ./ from its global folder
 catherd --version                            # prints $version
 ```
 
@@ -328,6 +328,7 @@ Once both runs have passed and the release PR has merged, go back to the publish
 
 ```sh
 cd ~/catherd-rc && git checkout .claude-plugin/marketplace.json
+version="$(jq -r .version package.json)"   # read again: this may be a new shell
 claude plugin uninstall catherd@catherd && claude plugin marketplace remove catherd
 bun add -g "catherd-cli@$version"
 claude plugin marketplace add 47vigen/catherd && claude plugin install catherd@catherd
