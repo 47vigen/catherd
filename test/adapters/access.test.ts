@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { dockerSocket, realTmpdir, writableRoots } from "../../src/adapters/access.ts";
+import {
+  dockerSocket,
+  dockerSocketCandidates,
+  realTmpdir,
+  writableRoots,
+} from "../../src/adapters/access.ts";
 import type { RunRequest } from "../../src/adapters/backend.ts";
-import { claudeCodeAdapter } from "../../src/adapters/claude-code/index.ts";
+import { claudeCodeAdapter, claudeSandboxOn } from "../../src/adapters/claude-code/index.ts";
 import { codexAdapter } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { applyPatch, defaultProfileDoc, patchAt, resolveProfile } from "../../src/domain/profile.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { fakeDeps, freshRun, testView, writeLane } from "../services/helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 
@@ -42,6 +47,40 @@ describe("worker access grants (spec §5)", () => {
   it("finds the Docker socket DOCKER_HOST names", () => {
     process.env.DOCKER_HOST = "unix:///tmp/some/docker.sock";
     expect(dockerSocket()).toBe("/tmp/some/docker.sock");
+  });
+
+  it("takes the lock dir and the Docker socket by their real paths (sandboxes compare real paths)", () => {
+    const home = withHome();
+    const real = tempDir("catherd-real-");
+    const link = join(home, "linked");
+    symlinkSync(real, link);
+    process.env.CATHERD_HOME = link;
+    mkdirSync(locksDir(), { recursive: true });
+    expect(writableRoots()[0]).toBe(join(real, "data", "locks"));
+    writeFileSync(join(real, "docker.sock"), "");
+    process.env.DOCKER_HOST = `unix://${join(link, "docker.sock")}`;
+    expect(dockerSocket()).toBe(join(real, "docker.sock"));
+  });
+
+  it("grants no local socket for a remote DOCKER_HOST, and else takes the first usual socket that exists", () => {
+    const home = tempDir("catherd-sock-");
+    for (const host of ["tcp://10.0.0.5:2376", "ssh://me@box", "npipe:////./pipe/docker_engine"]) {
+      process.env.DOCKER_HOST = host;
+      expect(dockerSocket([join(home, "a.sock")])).toBeNull();
+    }
+    delete process.env.DOCKER_HOST;
+    const [a, b, c] = ["a.sock", "b.sock", "c.sock"].map((f) => join(home, f)) as [string, string, string];
+    expect(dockerSocket([a, b, c])).toBeNull();
+    writeFileSync(c, "");
+    expect(dockerSocket([a, b, c])).toBe(c);
+    writeFileSync(b, "");
+    expect(dockerSocket([a, b, c])).toBe(b);
+    expect(dockerSocketCandidates(home)).toEqual([
+      "/var/run/docker.sock",
+      join(home, ".orbstack", "run", "docker.sock"),
+      join(home, ".docker", "run", "docker.sock"),
+      join(home, ".colima", "default", "docker.sock"),
+    ]);
   });
 
   it("gives a Codex workspace-write worker network and the extra roots, fresh and resumed", () => {
@@ -89,6 +128,35 @@ describe("worker access grants (spec §5)", () => {
       expect.arrayContaining(["WebFetch", "WebSearch", "Bash(git commit *)"]),
     );
     expect(claudeCodeAdapter.plan(req({ rung, access: "read-only" })).args).not.toContain("--settings");
+  });
+
+  it("keeps the user's sandbox on in --settings, from any of their settings files, so a shallow merge cannot drop it", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    mkdirSync(join(home, "claude"), { recursive: true });
+    const repo = tempDir("catherd-repo-");
+    mkdirSync(join(repo, ".claude"), { recursive: true });
+    const rung = parseRung("claude-code:claude-sonnet-5#high");
+    const enabled = () =>
+      JSON.parse(after(claudeCodeAdapter.plan(req({ rung, repo })).args, "--settings")).sandbox.enabled;
+    const put = (file: string, on: boolean | undefined) =>
+      writeFileSync(file, JSON.stringify(on === undefined ? {} : { sandbox: { enabled: on } }));
+    expect(enabled()).toBeUndefined();
+    for (const file of [
+      join(home, "claude", "settings.json"),
+      join(repo, ".claude", "settings.json"),
+      join(repo, ".claude", "settings.local.json"),
+    ]) {
+      put(file, true);
+      expect([file, enabled()]).toEqual([file, true]);
+      expect(claudeSandboxOn(repo)).toBe(true);
+      put(file, undefined);
+    }
+    // the most specific file wins: the project's local settings turn the user's sandbox off
+    put(join(home, "claude", "settings.json"), true);
+    put(join(repo, ".claude", "settings.local.json"), false);
+    expect(enabled()).toBeUndefined();
+    expect(claudeSandboxOn(repo)).toBe(false);
   });
 
   it("probes headless Claude Code's shell unsandboxed, and says what to check when its sandbox is on", async () => {

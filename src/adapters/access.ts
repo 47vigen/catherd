@@ -26,31 +26,38 @@ export function scratchShell(how: string, prefix: string[]): AccessShell {
 
 // Spec §5: what a workspace-write worker may reach besides the repo, as each backend's own flags grant it.
 
-/** The temp dir by its real path (macOS: /var/folders/… is /private/var/folders/…); sandboxes compare real paths. */
-export function realTmpdir(): string {
+/** `p` by its real path when it exists (macOS: /var/folders/… is /private/var/folders/…), else as given. */
+function realOr(p: string): string {
   try {
-    return realpathSync(tmpdir());
+    return realpathSync(p);
   } catch {
-    return tmpdir();
+    return p;
   }
 }
 
-/** The directories a workspace-write worker writes besides the repo: the heavy-lock dir and the temp dir. */
-export const writableRoots = (): string[] => [locksDir(), realTmpdir()];
+/** The temp dir by its real path (macOS: /var/folders/… is /private/var/folders/…); sandboxes compare real paths. */
+export const realTmpdir = (): string => realOr(tmpdir());
+
+/** The directories a workspace-write worker writes besides the repo: the heavy-lock dir and the temp dir, real paths. */
+export const writableRoots = (): string[] => [realOr(locksDir()), realTmpdir()];
+
+/** The usual local Docker sockets, in the order they are tried (OrbStack and Docker Desktop link /var/run/docker.sock). */
+export const dockerSocketCandidates = (home = homedir()): string[] => [
+  "/var/run/docker.sock",
+  join(home, ".orbstack", "run", "docker.sock"),
+  join(home, ".docker", "run", "docker.sock"),
+  join(home, ".colima", "default", "docker.sock"),
+];
 
 /**
- * The local Docker socket a worker may talk to: `DOCKER_HOST` when it names a unix socket, else the first
- * of the usual paths that exists (OrbStack and Docker Desktop link /var/run/docker.sock; Colima does not).
+ * The local Docker socket a worker may talk to, by its real path: the one `DOCKER_HOST` names when it is a
+ * unix socket; none when it names a remote daemon (tcp://, ssh://…), which the user's docker client uses
+ * instead of any local socket; else the first of `candidates` that exists.
  */
-export function dockerSocket(): string | null {
+export function dockerSocket(candidates = dockerSocketCandidates()): string | null {
   const host = process.env.DOCKER_HOST;
-  if (host?.startsWith("unix://")) return host.slice("unix://".length);
-  for (const p of [
-    "/var/run/docker.sock",
-    join(homedir(), ".orbstack", "run", "docker.sock"),
-    join(homedir(), ".docker", "run", "docker.sock"),
-    join(homedir(), ".colima", "default", "docker.sock"),
-  ])
-    if (existsSync(p)) return p;
-  return null;
+  if (host?.startsWith("unix://")) return realOr(host.slice("unix://".length));
+  if (host) return null;
+  const found = candidates.find((p) => existsSync(p));
+  return found ? realOr(found) : null;
 }

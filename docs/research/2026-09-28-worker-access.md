@@ -12,7 +12,7 @@ under `test/sim/`. Everything marked **[unverified]** goes to `docs/dev/live-ver
 A role with `workspace-write` access (worker, writer and artist by default) must be able to: write the repo; read
 the disk; reach the network; bind a loopback port; write catherd's lock dir (`<data>/locks`) and the temp dir; talk
 to a local Docker socket. Everything else stays closed. `read-only` and `full` do not change. A profile may take the
-network and loopback away from one role with `roles.<role>.network: false`.
+network, loopback and Docker away from one role with `roles.<role>.network: false`.
 
 The auth build showed why (60 of 171 replies `partial`/`blocked`): under Codex's `workspace-write` sandbox a worker
 could not write the lock dir (`catherd lock` failed), reach the Docker socket (testcontainers), `bind()` a loopback
@@ -31,9 +31,18 @@ top of whatever config is loaded.
 -c sandbox_workspace_write.writable_roots=["<locks dir>","<real TMPDIR>"]
 ```
 
-A JSON array of strings is valid TOML, so catherd writes the list with `JSON.stringify`. The temp dir goes in by its
-real path (`realpath(tmpdir())`: on macOS `/var/folders/…` is `/private/var/folders/…`, and the sandbox compares real
-paths).
+A JSON array of strings is valid TOML, so catherd writes the list with `JSON.stringify`. The lock and temp dirs go in
+by their real paths (`realpath(tmpdir())`: on macOS `/var/folders/…` is `/private/var/folders/…`, and the sandbox
+compares real paths).
+
+**The user's own `writable_roots`.** A `-c` value replaces the key it names; as far as the TOML semantics go, Codex
+has no array merge, so `-c sandbox_workspace_write.writable_roots=[…]` would drop the roots the user listed (a pip
+cache, `~/.m2`). catherd therefore reads the top-level `[sandbox_workspace_write] writable_roots` from
+`$CODEX_HOME/config.toml` (default `~/.codex`) and passes the union, the user's first. Limits, for Codex profiles:
+roots set under a Codex `--profile` (`[profiles.<name>.sandbox_workspace_write]`) or in a managed requirements file
+are not read, so a worker loses them; an isolated run (`--ignore-user-config`) gets catherd's two only, as it gets
+none of the user's config. **[unverified]** the replace semantics themselves: live-verification §4 checks that a
+root the user configured stays writable.
 
 **Verified** (spec §5, owner's machine, Codex 0.157, 2026-09-28): with these two overrides a lock-dir write,
 `docker ps` over the OrbStack socket, a loopback `bind()`, an HTTPS fetch and a `/tmp` write all pass. With
@@ -116,9 +125,13 @@ none` any other domain is denied, not asked. catherd does not widen the user's d
 run in the vendor CLI as the user configured it); doctor says to add `registry.npmjs.org` and the hosts the checks
 need.
 
-**[unverified]** how `--settings` arrays merge with the user's (concatenated or replaced): the docs do not say. A
-replace would drop the user's own `allowWrite` entries for that run; the live check compares a worker's `/sandbox`
-view with and without catherd's flags.
+**[unverified]** how `--settings` merges with the user's settings: the docs do not say. A shallow merge would replace
+the whole `sandbox` object, dropping the user's `sandbox.enabled` (an unsandboxed Bash for a user who turned the
+sandbox on) and their `allowedDomains`; an array replace would drop their own `allowWrite` entries. Defensively,
+catherd puts `enabled: true` in the object whenever the user's sandbox is on (read from `~/.claude/settings.json`,
+`settings.local.json` and the project's `.claude/settings*.json`, the most specific file that says winning), so the
+sandbox stays on under either merge. The domains and `allowWrite` entries are the live check's to settle
+(live-verification §4 compares a worker's view with and without catherd's flags).
 
 **Doctor.** With the user's sandbox off, the probes run in a plain `sh`, as for opencode. With it on, only a model
 turn runs inside Claude Code's sandbox, so doctor does not spend one: the `access:claude-code` row is `not tested`

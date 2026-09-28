@@ -70,13 +70,16 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
  * sandbox on (`sandbox.enabled`); then these settings, merged over the user's, add the lock and temp dirs,
  * loopback binds, the Docker socket and `docker` itself (which cannot run inside that sandbox). Outbound
  * domains stay the user's `sandbox.network.allowedDomains`: doctor's `access:claude-code` row says when
- * the registry is not among them. `network: false` drops the network grants and the web tools.
+ * the registry is not among them. `network: false` drops the network grants and the web tools (and with
+ * them Docker: the socket and `docker *` are network grants). With the user's sandbox on, `enabled: true`
+ * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off.
  */
-export function claudeAccessArgs(access: Access, network = true): string[] {
+export function claudeAccessArgs(access: Access, network = true, repo?: string): string[] {
   const base = CLAUDE_ACCESS[access];
   if (access !== "workspace-write") return base;
   const sock = dockerSocket();
   const sandbox = {
+    ...(claudeSandboxOn(repo) ? { enabled: true } : {}),
     filesystem: { allowWrite: writableRoots() },
     ...(network
       ? {
@@ -93,14 +96,29 @@ export function claudeAccessArgs(access: Access, network = true): string[] {
   return args;
 }
 
-/** Whether the user turned Claude Code's Bash sandbox on in their own settings (`sandbox.enabled`). */
-export function claudeSandboxOn(): boolean {
+/** `sandbox.enabled` in one settings file, when it says true or false; undefined when absent or unreadable. */
+function sandboxEnabledIn(file: string): boolean | undefined {
   try {
-    const s = JSON.parse(readFileSync(join(claudeHome(), "settings.json"), "utf8"));
-    return s?.sandbox?.enabled === true;
+    const on = JSON.parse(readFileSync(file, "utf8"))?.sandbox?.enabled;
+    return typeof on === "boolean" ? on : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/**
+ * Whether Claude Code's Bash sandbox is on for a worker in `repo` (`sandbox.enabled`): the most specific
+ * settings file that says wins, as Claude Code layers them: the user's settings.json and
+ * settings.local.json, then the project's .claude/settings.json and .claude/settings.local.json.
+ */
+export function claudeSandboxOn(repo: string = process.cwd()): boolean {
+  const files = [
+    join(claudeHome(), "settings.json"),
+    join(claudeHome(), "settings.local.json"),
+    join(repo, ".claude", "settings.json"),
+    join(repo, ".claude", "settings.local.json"),
+  ];
+  return files.map(sandboxEnabledIn).findLast((on) => on !== undefined) ?? false;
 }
 
 /**
@@ -134,7 +152,7 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.thread === null ? ["--session-id", crypto.randomUUID()] : ["--resume", r.thread]),
       "--permission-prompts",
       "none",
-      ...claudeAccessArgs(r.access, r.network),
+      ...claudeAccessArgs(r.access, r.network, r.repo),
       // --bare would also drop OAuth, so a Claude plan could not log in; --safe-mode keeps auth
       ...(r.isolated ? ["--safe-mode"] : []),
     ],

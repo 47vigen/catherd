@@ -114,7 +114,7 @@ export type RoleConfig = {
   /** in ladder order, each `backend:model#effort`; `claude:` runs as a native subagent, `claude-code:` headless */
   rungs: string[];
   defaultRung?: string;
-  /** spec §5: false drops a workspace-write role's network and loopback grants; absent means granted */
+  /** spec §5: false drops a workspace-write role's network, loopback and Docker grants; absent means granted */
   network?: false;
 };
 

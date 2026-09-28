@@ -110,6 +110,38 @@ Look for: `control: 0` (if not, try the old form, `codex sandbox macos --full-au
 which one runs), then `0` on every probe, and doctor's `sandbox:codex` and `access:codex` rows `✓ ready`. Record
 each probe that is not `0` with its error line and doctor's row, `! blocked` with a fix per probe.
 
+**Your own Codex `writable_roots` survive.** A `-c …writable_roots=` override replaces the array, so catherd passes
+the union of yours (the top-level `[sandbox_workspace_write]` in `~/.codex/config.toml`) and its two. Check both
+halves. Make a dir (`R=$(mktemp -d); echo "$R"`) and add it to `writable_roots` under `[sandbox_workspace_write]` in
+`~/.codex/config.toml` (create the table if it is missing), then, in the same shell as `G` above:
+
+```bash
+cd "$(mktemp -d)"
+codex sandbox -c sandbox_mode=workspace-write -- sh -c 'touch "$1/.p"' _ "$R"; echo "config only: $?"
+codex sandbox "${G[@]}" -- sh -c 'touch "$1/.p"' _ "$R"; echo "catherd's roots only: $?"
+codex sandbox "${G[@]:0:4}" -c "sandbox_workspace_write.writable_roots=[\"$R\",\"$L\",\"$T\"]" -- sh -c 'touch "$1/.p"' _ "$R"; echo "union: $?"
+cd -
+```
+
+Look for: `config only: 0` and `union: 0`. `catherd's roots only` says whether `-c` replaces (non-zero) or merges
+(`0`) the array; record which. Then take `$R` out of `~/.codex/config.toml` again.
+
+**Headless Claude Code with your sandbox on stays sandboxed.** catherd passes `--settings` with a `sandbox` object
+(the grants) and, when your sandbox is on, `enabled: true`. Check that your own keys survive the merge. In
+`~/.claude/settings.json`, set `"sandbox": {"enabled": true, "filesystem": {"allowWrite": ["<a dir of yours>"]},
+"network": {"allowedDomains": ["example.com"]}}`, then:
+
+```bash
+S=$(bun -e 'const { claudeAccessArgs } = await import("./src/adapters/claude-code/index.ts"); const a = claudeAccessArgs("workspace-write"); console.log(a[a.indexOf("--settings") + 1])')
+echo "$S"
+claude -p --permission-prompts none --settings "$S" --allowedTools Bash "Run: touch /etc/catherd-probe; touch <a dir of yours>/.p; curl -sI https://example.com; curl -sI https://registry.npmjs.org/-/ping. Report each command's exit code."
+```
+
+Look for: `$S` holds `"enabled":true`; `/etc/catherd-probe` is refused (the sandbox is on); your `allowWrite` dir
+is writable and `example.com` answers (your keys were merged, not replaced); the registry is refused unless it is in
+your `allowedDomains`. Record the four exit codes. If your `allowWrite` dir or `example.com` fails, `--settings`
+replaces those keys: note it for the research note (`docs/research/2026-09-28-worker-access.md` §4).
+
 ## 5. The Jev key prompt on a real terminal
 
 In a new terminal window (a real TTY, not an editor's output pane), with a throwaway home so your own
