@@ -192,6 +192,46 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
   });
 
+  it("hashes a symlinked gate path by its target's content too: a changed target is not carried", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "shared/\n");
+    write(repo, "src/a.ts", "a");
+    write(repo, "shared/secrets.env", "A=1");
+    write(repo, "shared/conf/x.json", "{}");
+    symlinkSync("shared/secrets.env", join(repo, ".env"));
+    symlinkSync("shared/conf", join(repo, "conf"));
+    symlinkSync("shared/missing", join(repo, "dangling"));
+    commit(repo);
+    const deps = fakeDeps();
+    const env = item(run.id, { paths: [".env", "conf", "dangling"] });
+    await gatePass(deps, { ...env, evidence: "ok" });
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    write(repo, "shared/secrets.env", "A=2");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    write(repo, "shared/secrets.env", "A=1");
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    // a symlinked directory is walked: a file changed in it, and a new file there
+    write(repo, "shared/conf/x.json", "{1}");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    write(repo, "shared/conf/x.json", "{}");
+    write(repo, "shared/conf/y.json", "{}");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    rmSync(join(repo, "shared/conf/y.json"));
+    expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
+    // a dangling link that comes to point at something
+    write(repo, "shared/missing", "m");
+    expect(await gateCheck(deps, env)).toEqual({ carried: false });
+    rmSync(join(repo, "shared/missing"));
+    // a symlink inside a walked ignored directory, and a cycle, which terminates
+    symlinkSync("../secrets.env", join(repo, "shared/conf/link.env"));
+    symlinkSync("..", join(repo, "shared/conf/up"));
+    const walked = item(run.id, { paths: ["shared/conf"] });
+    await gatePass(deps, { ...walked, evidence: "ok" });
+    expect(await gateCheck(deps, walked)).toMatchObject({ carried: true });
+    write(repo, "shared/secrets.env", "A=3");
+    expect(await gateCheck(deps, walked)).toEqual({ carried: false });
+  });
+
   it("refuses an ignored directory with more files than it walks, naming narrower paths", async () => {
     const { repo, run } = freshRun();
     write(repo, ".gitignore", "big/\n");

@@ -1,4 +1,12 @@
-import { existsSync, lstatSync, readdirSync, readlinkSync, type Stats } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  type Stats,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
@@ -51,22 +59,92 @@ function cleanPaths(paths: string[]): string[] {
   }
 }
 
+const sha = (b: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(b).digest("hex");
+
+const tooMany = (p: string) =>
+  new CatherdError("E_INPUT_INVALID", `gate path ${p} holds more than ${GATE_WALK_MAX} files to hash`, {
+    fix: "name narrower paths: the files or directories under it that the gate item reads",
+  });
+
+/** How many files one gate path's hash has read so far, against GATE_WALK_MAX, and the realpaths it walked. */
+interface Budget {
+  path: string;
+  files: number;
+  seen: Set<string>;
+}
+
+const count = (b: Budget): void => {
+  if (++b.files > GATE_WALK_MAX) throw tooMany(b.path);
+};
+
 /**
- * One dirty path as git would store it: its type and exec bit as well as its bytes (a symlink by its
- * target, not the file it points at), so a lost exec bit or a file turned symlink is new content.
+ * What a symlink points at, by content only (never its path, which may be outside the repo): a file by its
+ * type, exec bit and bytes; a directory walked, names relative to it; "dangling" when nothing is there; and
+ * "cycle" for a realpath this hash already walked.
  */
-async function dirtyEntry(file: string): Promise<string> {
+async function targetEntry(link: string, b: Budget): Promise<string> {
+  let real: string;
+  try {
+    real = realpathSync(link);
+  } catch {
+    return "dangling";
+  }
+  if (b.seen.has(real)) return "cycle";
+  b.seen.add(real);
+  const s = statSync(real);
+  if (s.isFile()) return `${s.mode & 0o111 ? "exec" : "file"} ${sha(await Bun.file(real).bytes())}`;
+  if (!s.isDirectory()) return "other";
+  const h = new Bun.CryptoHasher("sha256");
+  const visit = async (rel: string): Promise<void> => {
+    for (const name of readdirSync(join(real, rel)).sort()) {
+      const r = rel ? `${rel}/${name}` : name;
+      let e: Stats;
+      try {
+        e = lstatSync(join(real, r));
+      } catch {
+        continue;
+      }
+      if (e.isDirectory()) {
+        await visit(r);
+        continue;
+      }
+      count(b);
+      h.update(`${r}=${await diskEntry(join(real, r), b)}\n`);
+    }
+  };
+  await visit("");
+  return `dir ${h.digest("hex")}`;
+}
+
+/**
+ * One path on disk as git would store it: its type and exec bit as well as its bytes, so a lost exec bit or a
+ * file turned symlink is new content; a symlink by its link text and by what it points at (targetEntry), so
+ * editing a link's target is new content too.
+ */
+async function diskEntry(file: string, b: Budget): Promise<string> {
   let s: Stats;
   try {
     s = lstatSync(file);
   } catch {
     return "gone";
   }
-  const sha = (b: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(b).digest("hex");
-  if (s.isSymbolicLink()) return `link ${sha(readlinkSync(file))}`;
+  if (s.isSymbolicLink()) return `link ${sha(readlinkSync(file))} -> ${await targetEntry(file, b)}`;
   if (!s.isFile()) return s.isDirectory() ? "dir" : "other";
   return `${s.mode & 0o111 ? "exec" : "file"} ${sha(await Bun.file(file).bytes())}`;
 }
+
+/** One dirty path's entry, with its own budget and cycle guard. */
+const dirtyEntry = (file: string, path: string): Promise<string> =>
+  diskEntry(file, { path, files: 0, seen: new Set() });
+
+/** Whether `file` is a symlink on disk. */
+const isLink = (file: string): boolean => {
+  try {
+    return lstatSync(file).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
 
 /** Whether git ignores `p` (a tracked file never is). */
 async function ignored(repo: string, p: string): Promise<boolean> {
@@ -91,14 +169,7 @@ function walk(repo: string, p: string): string[] {
     }
     if (!s.isDirectory()) {
       out.push(rel);
-      if (out.length > GATE_WALK_MAX)
-        throw new CatherdError(
-          "E_INPUT_INVALID",
-          `gate path ${p} holds more than ${GATE_WALK_MAX} files to hash`,
-          {
-            fix: "name narrower paths: the files or directories under it that the gate item reads",
-          },
-        );
+      if (out.length > GATE_WALK_MAX) throw tooMany(p);
       return;
     }
     for (const name of readdirSync(join(repo, rel))) visit(`${rel}/${name}`);
@@ -136,14 +207,18 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
       );
     h.update(`${p}=${at || "missing"}\n`);
     // git status leaves ignored files out, so an ignored path (.env, a build output) or one not at HEAD is
-    // hashed by what is on disk; "." keeps to HEAD and the not-ignored status
-    if (p !== "." && (!at || (await ignored(repo, p))))
-      for (const f of walk(repo, p)) h.update(`disk ${f}=${await dirtyEntry(join(repo, f))}\n`);
+    // hashed by what is on disk; "." keeps to HEAD and the not-ignored status. A symlink's HEAD entry is only
+    // its link text, so a named symlink is hashed from disk too, by what it points at
+    if (p !== "." && (!at || isLink(join(repo, p)) || (await ignored(repo, p)))) {
+      // one budget per gate path: its walk and every symlink target it follows count against GATE_WALK_MAX
+      const budget: Budget = { path: p, files: 0, seen: new Set() };
+      for (const f of walk(repo, p)) h.update(`disk ${f}=${await diskEntry(join(repo, f), budget)}\n`);
+    }
   }
   const dirty = Object.keys(await statusSnapshot(repo))
     .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)
     .sort();
-  for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f))}\n`);
+  for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f), f)}\n`);
   return h.digest("hex");
 }
 
