@@ -111,6 +111,18 @@ describe("catherd catalog", () => {
     expect(bad.err).toStartWith("error E_CONFIG_INVALID: a/c#high has no scores of its own to lend\nfix: ");
   });
 
+  it("saves a treat-like with --json as JSON, shaped like --clear's rung and like", () => {
+    withHome();
+    const r = catherd(
+      "treat-like",
+      "opencode:opencode-go/kimi-k3#default",
+      "codex:gpt-6-sol#medium",
+      "--json",
+    );
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out)).toEqual({ rung: "opencode-go/kimi-k3#default", like: "gpt-6-sol#medium" });
+  });
+
   it("refuses a malformed rung with exit 2 and leaves the override file unchanged", () => {
     withHome();
     expect(catherd("treat-like", "a/b#high", "gpt-6-sol#high").code).toBe(0);

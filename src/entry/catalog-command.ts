@@ -238,7 +238,8 @@ const treatLike = defineCommand({
         return;
       }
       const r = await saveTreatLike(args.rung as string, args.like as string);
-      console.log(`✓ ${r.rung} is treated like ${r.like}`);
+      if (args.json) return console.log(JSON.stringify(r, null, 2));
+      console.log(`${mark("ok")} ${r.rung} is treated like ${r.like}`);
     } catch (e) {
       fail(e);
     }
