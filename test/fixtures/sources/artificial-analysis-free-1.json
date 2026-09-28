@@ -1,0 +1,9 @@
+{
+"synthetic":"built from the fields docs/dev/ideas.md documents, with made-up values; re-record with a key (README.md)",
+"data":[
+{"slug":"gpt-6-astra-xhigh","name":"GPT-6 Astra (xhigh)","release_date":"2026-09-03","model_creator":{"name":"OpenAI","slug":"openai"},"evaluations":{"artificial_analysis_intelligence_index":61.2,"artificial_analysis_coding_index":58.4,"artificial_analysis_agentic_index":63.0},"cost_per_task":0.92,"pricing":{"price_1m_input_tokens":10,"price_1m_output_tokens":50},"median_output_tokens_per_second":71.5,"median_time_to_first_token_seconds":9.2},
+{"slug":"claude-opus-5-5-high","name":"Claude Opus 5.5 (high)","release_date":"2026-09-22","model_creator":{"name":"Anthropic","slug":"anthropic"},"evaluations":{"artificial_analysis_intelligence_index":53.6},"cost_per_task":0.41,"pricing":{"price_1m_input_tokens":4,"price_1m_output_tokens":20},"median_output_tokens_per_second":null,"median_time_to_first_token_seconds":null},
+{"slug":"claude-4-5-haiku","name":"Claude 4.5 Haiku","release_date":"2025-10-15","model_creator":{"name":"Anthropic","slug":"anthropic"},"evaluations":{"artificial_analysis_intelligence_index":37.4,"artificial_analysis_coding_index":33.1,"artificial_analysis_agentic_index":35.2},"cost_per_task":0.05,"pricing":{"price_1m_input_tokens":1,"price_1m_output_tokens":5},"median_output_tokens_per_second":102.7,"median_time_to_first_token_seconds":0.7}
+],
+"pagination":{"page":1,"total_pages":2}
+}
