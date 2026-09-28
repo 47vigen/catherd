@@ -17,8 +17,13 @@ of work, climbing a ladder only when a cheaper rung falls short.
   opencode and headless `claude-code:` rungs run through catherd's MCP server.
 - **Survives restarts.** Workers are detached processes writing straight to disk, so a dropped
   MCP server never loses a run.
-- **Guard rails for autopilot.** Quota failover to a rung on another quota, a preflight check before any
-  worker starts, per-repo knowledge carried between runs, and a run budget.
+- **Results come to you.** Roles run side by side while you keep talking to Claude; each one that finishes
+  arrives in the session as a message, like a native subagent's notice, and `peek` shows how a run stands.
+- **A protocol the tools enforce.** Every lane is routed, every brief ends with the reply contract, and a
+  milestone lands only after a reviewer and a verifier passed it. Workers can run their own checks (network,
+  loopback, Docker, the lock dir); an owner question parks one milestone, not the run.
+- **Guard rails for autopilot.** Quota failover to a stand-in that clears the same bars, a preflight check
+  before any worker starts, per-repo knowledge carried between runs, and a run budget.
 
 ## Requirements
 
@@ -38,10 +43,13 @@ you have (`/catherd-setup` in Claude Code, or `catherd profile set roles.<role>.
 ## Install
 
 ```sh
-bunx catherd-cli init
+bun add -g catherd-cli
+catherd init
 ```
 
-The npm package is `catherd-cli`; the command it installs is `catherd`. `init` asks for the optional Jev key,
+The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init` works too: `init`
+installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
+it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the optional Jev key,
 writes the default profile and links its Claude agents, lists your backends' models, and ends with a readiness
 report (`--no-input` asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile
 instead of `default`; piped, it reads one answer per line once stdin closes: the Jev key, the profile, whether to replace it, each on its own line even when a question is skipped). Then add the plugin to Claude Code:
@@ -52,13 +60,15 @@ claude plugin install catherd@catherd
 ```
 
 Start a new Claude Code session so the plugin, its MCP server and the agent files load, then check with
-`bunx catherd-cli doctor`.
+`catherd doctor`. Run it once from inside that session too (ask Claude to run `catherd doctor`): its `push` row
+then checks that finished roles can reach the session.
 
 ## Use
 
 In Claude Code:
 
-- `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run.
+- `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run. While it runs, keep
+  talking: each finished role arrives as a message from catherd, and "how is it going?" gets a `peek`.
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
   use, cost or speed, isolation, budget and failover.
 
@@ -132,7 +142,15 @@ ones first; a role opens on its brief, reply and record; the open screen redraws
   (the palette shows each command by title; the ids are listed in
   [`src/entry/tui/commands.ts`](src/entry/tui/commands.ts)).
 
-## Upgrading from 0.x
+## Upgrading
+
+From 1.0: run `catherd init` (it installs catherd 1.1 globally), update the plugin
+(`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude Code
+session. `wait` is gone: results arrive as messages, `peek` shows a run, `result` reads a record. A profile saved
+by 1.0 keeps its failover map; `catherd profile validate` says what to change. The details are in
+[MIGRATION.md](MIGRATION.md).
+
+### From 0.x
 
 1.0 is a clean break: run `bunx catherd-cli init` once. It moves your 0.x `config.json`, `projects.json` and
 profiles into a `0.x-backup-<time>/` folder next to them (it never reads or deletes them), writes the 1.0
@@ -145,11 +163,12 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 | Where                                                                                              | What                                                                  |
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [MIGRATION.md](MIGRATION.md)                                                                       | Upgrading from 0.x                                                    |
+| [MIGRATION.md](MIGRATION.md)                                                                       | Upgrading from 1.0 and from 0.x                                       |
 | [CHANGELOG.md](CHANGELOG.md)                                                                       | Releases                                                              |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                 | Development setup, the checks, commits, changesets, live tests        |
 | [SECURITY.md](SECURITY.md)                                                                         | Reporting a vulnerability; what catherd stores and how                |
-| [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design (binding)                                              |
+| [`docs/specs/2026-09-28-catherd-1.1-design.md`](docs/specs/2026-09-28-catherd-1.1-design.md)       | The 1.1 design (binding; builds on 1.0's)                             |
+| [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design                                                        |
 | [`docs/dev/`](docs/dev/)                                                                           | Maintainer docs: live verification, manual tests, dependencies, ideas |
 | [`docs/dev/live-verification.md`](docs/dev/live-verification.md)                                   | What CI cannot run: live tests, fixture capture, the Codex sandbox    |
 | [`docs/tui-frames.md`](docs/tui-frames.md)                                                         | Every dashboard screen as text (generated, checked in CI)             |
