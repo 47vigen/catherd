@@ -108,13 +108,12 @@ function sandboxEnabledIn(file: string): boolean | undefined {
 
 /**
  * Whether Claude Code's Bash sandbox is on for a worker in `repo` (`sandbox.enabled`): the most specific
- * settings file that says wins, as Claude Code layers them: the user's settings.json and
- * settings.local.json, then the project's .claude/settings.json and .claude/settings.local.json.
+ * settings file that says wins, as Claude Code layers them: the user's settings.json, then the project's
+ * .claude/settings.json and .claude/settings.local.json (Claude Code has no user-level settings.local.json).
  */
 export function claudeSandboxOn(repo: string = process.cwd()): boolean {
   const files = [
     join(claudeHome(), "settings.json"),
-    join(claudeHome(), "settings.local.json"),
     join(repo, ".claude", "settings.json"),
     join(repo, ".claude", "settings.local.json"),
   ];

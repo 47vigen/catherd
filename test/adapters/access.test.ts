@@ -152,6 +152,11 @@ describe("worker access grants (spec §5)", () => {
       expect(claudeSandboxOn(repo)).toBe(true);
       put(file, undefined);
     }
+    // Claude Code reads no user-level settings.local.json, so neither does catherd
+    put(join(home, "claude", "settings.json"), true);
+    put(join(home, "claude", "settings.local.json"), false);
+    expect(enabled()).toBe(true);
+    put(join(home, "claude", "settings.local.json"), undefined);
     // the most specific file wins: the project's local settings turn the user's sandbox off
     put(join(home, "claude", "settings.json"), true);
     put(join(repo, ".claude", "settings.local.json"), false);

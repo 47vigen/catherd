@@ -128,8 +128,8 @@ need.
 **[unverified]** how `--settings` merges with the user's settings: the docs do not say. A shallow merge would replace
 the whole `sandbox` object, dropping the user's `sandbox.enabled` (an unsandboxed Bash for a user who turned the
 sandbox on) and their `allowedDomains`; an array replace would drop their own `allowWrite` entries. Defensively,
-catherd puts `enabled: true` in the object whenever the user's sandbox is on (read from `~/.claude/settings.json`,
-`settings.local.json` and the project's `.claude/settings*.json`, the most specific file that says winning), so the
+catherd puts `enabled: true` in the object whenever the user's sandbox is on (read from `~/.claude/settings.json`
+and the project's `.claude/settings*.json`, the most specific file that says winning), so the
 sandbox stays on under either merge. The domains and `allowWrite` entries are the live check's to settle
 (live-verification §4 compares a worker's view with and without catherd's flags).
 
