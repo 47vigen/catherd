@@ -34,6 +34,7 @@ import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { result } from "../../src/services/run-service.ts";
 import { readRecords, type Run, runPaths } from "../../src/services/run-store.ts";
+import { claimRun } from "../../src/services/sessions.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
@@ -84,6 +85,16 @@ function setup(s: CodexScenario, failover: Record<string, string> = FAILOVER) {
   Object.assign(process.env, withScenario(s).env);
   writeLane(run, "M1.L1", ["src/a.ts"]);
   return { repo, run, deps: fakeDeps({ view: testView({ failover }) }) };
+}
+
+/** Deps of a server whose session owns `run`: reconcile fails over only there (a claim does it for the others). */
+async function owned(run: Run) {
+  const deps = fakeDeps({
+    view: testView({ failover: FAILOVER }),
+    session: { sessionId: "s-me", hostSessionId: null, socketPath: null, token: null },
+  });
+  await claimRun(deps, run);
+  return deps;
 }
 
 const input = (run: string, over: Partial<DispatchInput> = {}): DispatchInput => ({
@@ -340,7 +351,8 @@ describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)
 
   it("is settled by the next server's reconcile when its own server died before settling it, once", async () => {
     const release = held();
-    const { run, deps } = setup({ ...DONE, holdUntil: release });
+    const { run } = setup({ ...DONE, holdUntil: release });
+    const deps = await owned(run);
     const { d } = await limitedOnDisk(run);
     // reconcile settles before it returns; its `done` would wait for the held stand-in too
     await reconcileAll(deps);
@@ -355,7 +367,8 @@ describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)
   });
 
   it("leaves a read limit alone at the next start: failover is for what the orchestrator has not read", async () => {
-    const { run, deps } = setup(DONE);
+    const { run } = setup(DONE);
+    const deps = await owned(run);
     const { d } = await limitedOnDisk(run);
     await result(deps, { run: run.id, name: "worker-M1.L1" });
     expect(awaitsCollect(d.dir)).toBe(false);

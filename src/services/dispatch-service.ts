@@ -25,6 +25,7 @@ import {
   launchPath,
   listDispatches,
   liveDispatches,
+  pendingDispatches,
   readFailover,
   readProc,
   recordHints,
@@ -192,12 +193,41 @@ export function adopt(deps: Deps, run: Run): void {
 }
 
 /**
+ * Spec §3.3 with the plan 10 fix-round ruling: `dispatch` and `peek` on a run make this session its owner. When
+ * the owner changes, this session takes over what the run's earlier owner left: it watches the live roles
+ * (`adopt`), records and settles each role that finished with no record, and settles each unread usage limit
+ * that was never failed over. Each settle runs the hooks, so the notifier tells the new owner. A settle that
+ * fails is logged and never fails the call.
+ */
+export async function claim(deps: Deps, run: Run): Promise<void> {
+  if (!(await claimRun(deps, run))) return;
+  adopt(deps, run);
+  const warn = (d: Dispatch, e: unknown) =>
+    log("warn", "claim", { run: run.id, name: d.admit.name, error: errorMessage(e) });
+  for (const d of pendingDispatches(run, deps.now())) {
+    if (d.state !== "finished" || watching.has(d.admit.dispatchId)) continue;
+    try {
+      await settle(deps, run, d, await finalizeDispatch(run, d));
+    } catch (e) {
+      warn(d, e);
+    }
+  }
+  for (const { d, record } of unsettledLimits(run)) {
+    try {
+      await settle(deps, run, d, record);
+    } catch (e) {
+      warn(d, e);
+    }
+  }
+}
+
+/**
  * Spec §4.4, plan 9 ruling 1: admit and launch one role, start its watcher, then refresh state.md with
  * `next` (after the launch, so nothing delays it). Returns at once; catherd announces the record (spec §3).
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
-  if (await claimRun(deps, run)) adopt(deps, run);
+  await claim(deps, run);
   const { d, specPath } = await admit(deps, run, {
     role: i.role,
     name: i.name,
@@ -404,7 +434,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
 
 /**
  * The finished dispatches of a run that still await catherd's action after a restart: a usage limit recorded,
- * not yet failed over (no failover.json) and not yet read. Reconcile settles them.
+ * not yet failed over (no failover.json) and not yet read. Reconcile settles them for a run this session owns;
+ * a claim of the run (`claim`) settles them for the session that takes it over.
  */
 export const unsettledLimits = (run: Run): { d: Dispatch; record: RunRecord }[] => {
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));

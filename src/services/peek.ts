@@ -1,13 +1,13 @@
 import { assertId } from "../domain/ids.ts";
 import { noticeHeader } from "../domain/notice.ts";
 import { awaitsCollect } from "../infra/dispatch-dir.ts";
-import { adopt } from "./dispatch-service.ts";
+import { claim } from "./dispatch-service.ts";
 import { type Dispatch, type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { lastActivity } from "./finalize.ts";
 import { finishedNotice } from "./notifier.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, listRuns, readAgentRuns, readRecords, type Run } from "./run-store.ts";
-import { claimRun, currentSession, runOwner } from "./sessions.ts";
+import { currentSession, runOwner } from "./sessions.ts";
 import { readNotes } from "./state.ts";
 
 export interface PeekRole {
@@ -83,7 +83,7 @@ export async function peek(
   let runs: Run[];
   if (i.run) {
     const run = findRun(i.run);
-    if (await claimRun(deps, run)) adopt(deps, run);
+    await claim(deps, run);
     runs = [run];
   } else {
     const all = listRuns().runs;

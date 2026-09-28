@@ -35,6 +35,12 @@ export function runOwner(run: Run): Owner | null {
   return r.success ? r.data : null;
 }
 
+/** Whether this process serves a session and that session owns the run now. */
+export function ownsRun(deps: Deps, run: Run): boolean {
+  const me = currentSession(deps);
+  return me !== null && runOwner(run)?.sessionId === me.sessionId;
+}
+
 const SessionRowSchema = z.looseObject({
   sessionId: z.string(),
   hostSessionId: z.string().nullable(),

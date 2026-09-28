@@ -11,7 +11,7 @@ import { type Settled, settledHooks, type Stalled, stallHooks } from "./dispatch
 import { type Dispatch, listDispatches, readFailover } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
-import { currentSession, runOwner } from "./sessions.ts";
+import { currentSession, ownsRun } from "./sessions.ts";
 
 /**
  * Spec §3.4: runs only inside the MCP server, the session's child and so its only sender (§3.2). For every run this
@@ -126,10 +126,7 @@ export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
   let flight: Promise<void> = Promise.resolve();
 
   /** This session's id, when there is one and it owns the run. */
-  const owned = (run: Run): boolean => {
-    const me = currentSession(deps);
-    return me !== null && runOwner(run)?.sessionId === me.sessionId;
-  };
+  const owned = (run: Run): boolean => ownsRun(deps, run);
 
   const flush = (): void => {
     timer = null;

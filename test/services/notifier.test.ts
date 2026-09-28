@@ -8,13 +8,15 @@ import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { adopt, dispatch, settle, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
-import type { Dispatch } from "../../src/services/dispatches.ts";
+import { type Dispatch, listDispatches, readFailover } from "../../src/services/dispatches.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
+import { peek } from "../../src/services/peek.ts";
+import { reconcileAll } from "../../src/services/reconcile.ts";
 import { result } from "../../src/services/run-service.ts";
-import type { Run } from "../../src/services/run-store.ts";
+import { createRun, readRecords, type Run } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { type FakeInbox, fakeInbox } from "../sim/peer-inbox.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { deadProcess, fakeDeps, fakeDispatch, freshRun, testView, writeLane } from "./helpers.ts";
@@ -308,5 +310,114 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     const frames = await (inbox as FakeInbox).received(2);
     expect(frames[1]?.priority).toBe("later");
     expect(frames[1]?.message.content).toContain("· codex:gpt-6-sol#high · ok · STATUS: complete ·");
+  });
+});
+
+describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)", () => {
+  const LIMIT = { eventsFile: join(FX, "limit.jsonl"), exitCode: 1 };
+  const FAILOVER = { "codex:gpt-6-sol#medium": "codex:gpt-6-sol#high" };
+  const other = (sessionId: string) =>
+    fakeDeps({ session: { sessionId, hostSessionId: null, socketPath: null, token: null } });
+
+  /** A usage limit recorded, unread and never failed over, as a server that died before settling it left it. */
+  async function limitedOnDisk(run: Run): Promise<Dispatch> {
+    const d = await fakeDispatch(
+      run,
+      {},
+      { proc: "dead", exit: exit(1), events: readFileSync(LIMIT.eventsFile, "utf8"), collect: true },
+    );
+    expect((await finalizeDispatch(run, d)).status).toBe("limit");
+    return d;
+  }
+
+  // a failed test still lets its held stand-in finish, before the file's hook waits for the watchers
+  const releases: string[] = [];
+  afterEach(() => {
+    for (const r of releases.splice(0)) writeFileSync(r, "");
+  });
+
+  function scenario(): string {
+    const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
+    releases.push(release);
+    process.env.PATH = simPath();
+    Object.assign(
+      process.env,
+      withScenario({
+        byRung: {
+          "gpt-6-sol#medium": LIMIT,
+          "gpt-6-sol#high": { reply: "Done.\nSTATUS: complete — ok", holdUntil: release },
+        },
+      }).env,
+    );
+    return release;
+  }
+
+  it("starts no stand-in at start for a limit of a run nobody or another session owns; a claim settles it once", async () => {
+    const release = scenario();
+    const { run } = freshRun("Auth plan 5 MR B");
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const d = await limitedOnDisk(run);
+    const theirs = createRun({
+      repo: tempRepo(),
+      title: "theirs",
+      aLines: ["A1 it works"],
+      version: "0.0.0-test",
+    });
+    writeLane(theirs, "M1.L1", ["src/a.ts"]);
+    await claimRun(other("s-other"), theirs);
+    const t = await limitedOnDisk(theirs);
+    const deps = fakeDeps({ session: await sessionWithInbox(), view: testView({ failover: FAILOVER }) });
+    const n = startNotifier(deps, { coalesceMs: 20 });
+    notifiers.push(n);
+    await reconcileAll(deps);
+    await n.scan();
+    await n.idle();
+    expect([readFailover(d.dir), readFailover(t.dir)]).toEqual([null, null]);
+    expect([listDispatches(run).length, listDispatches(theirs).length]).toEqual([1, 1]);
+    expect(inbox?.frames).toEqual([]);
+    // this session takes the run over: its limit fails over now, once, and this session hears of it
+    await peek(deps, { run: run.id });
+    expect(readFailover(d.dir)?.standIn?.rung).toBe("codex:gpt-6-sol#high");
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain(
+      "· limit on codex:gpt-6-sol#medium; failed over to codex:gpt-6-sol#high ·",
+    );
+    await peek(deps, { run: run.id });
+    await reconcileAll(deps);
+    expect(listDispatches(run)).toHaveLength(2);
+    expect(listDispatches(theirs)).toHaveLength(1);
+    writeFileSync(release, "");
+    await watchersSettled();
+  });
+
+  it("records, settles and announces a role that finished unrecorded when a dispatch takes the run over", async () => {
+    const release = scenario();
+    const { run } = freshRun("Auth plan 5 MR B");
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    await claimRun(other("s-before"), run);
+    // finished after its server died: no record yet, nobody told
+    const left = await fakeDispatch(
+      run,
+      { sessionId: "s-before" },
+      { proc: "dead", exit: exit(), reply: "Done.\nSTATUS: complete — ok", collect: true },
+    );
+    const deps = fakeDeps({ session: await sessionWithInbox("s-now", 203) });
+    const n = startNotifier(deps, { coalesceMs: 20 });
+    notifiers.push(n);
+    await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L2",
+      brief: "b",
+      rung: "codex:gpt-6-sol#high",
+      lane: "M1.L2",
+    });
+    expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([left.admit.dispatchId]);
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain(`name: "${left.admit.name}"`);
+    await n.idle();
+    expect(existsSync(dispatchPaths(left.dir).notified)).toBe(true);
+    writeFileSync(release, "");
+    await watchersSettled();
   });
 });
