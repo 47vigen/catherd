@@ -6,11 +6,19 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../../src/domain/profile.ts";
-import { inferredScores, validateProfile } from "../../src/domain/profile-rules.ts";
+import {
+  inferredScores,
+  repairs,
+  standInsToConfirm,
+  validateProfile,
+} from "../../src/domain/profile-rules.ts";
+import { withStandIns } from "../../src/services/standins.ts";
 import { shipped } from "./shipped.ts";
 
 const BACKENDS = ["codex", "claude-code", "opencode", "claude"];
-const check = (patch: ProfilePatch = {}, c = shipped()) =>
+/** The catalog as loadCatalog serves it: the shipped files, with each rung's inferred stand-ins. */
+const catalog = (o: Parameters<typeof shipped>[0] = {}) => withStandIns(shipped(o));
+const check = (patch: ProfilePatch = {}, c = catalog()) =>
   validateProfile(resolveProfile(applyPatch(defaultProfileDoc(), patch), "p"), c, BACKENDS);
 const messages = (issues: { message: string }[]) => issues.map((i) => i.message);
 
@@ -34,15 +42,16 @@ describe("validateProfile", () => {
     expect(check({ roles: { writer: { rungs: [], enabled: false } } }).errors).toEqual([]);
   });
 
-  it("refuses an unscored rung until a treat-like maps it", () => {
+  it("warns, never errs, on an unscored rung no rung is near enough to stand in for (spec 1.2 §6.1)", () => {
     const rung = "opencode:opencode-go/glm-5.3#high";
     const bad = check({ roles: { reviewer: { rungs: ["codex:gpt-6-sol#high", rung] } } });
-    expect(bad.errors).toContainEqual({
+    expect(bad.errors).toEqual([]);
+    expect(bad.warnings).toContainEqual({
       path: "roles.reviewer.rungs",
-      message: `${rung} is unscored`,
+      message: `${rung} is unscored and no rung is near enough to stand in for it: routing skips it`,
       fix: `map it with: catherd catalog treat-like ${rung} <a scored rung>; catalog_query lists them`,
     });
-    const liked = shipped({
+    const liked = catalog({
       override: {
         schema: 1,
         treatLike: { "opencode-go/glm-5.3#high": "gpt-6-sol#high" },
@@ -50,9 +59,37 @@ describe("validateProfile", () => {
         bars: {},
       },
     });
-    expect(check({ roles: { reviewer: { rungs: ["codex:gpt-6-sol#high", rung] } } }, liked).errors).toEqual(
-      [],
-    );
+    const mapped = check({ roles: { reviewer: { rungs: ["codex:gpt-6-sol#high", rung] } } }, liked);
+    expect(mapped.errors).toEqual([]);
+    expect(messages(mapped.warnings).some((m) => m.includes("unscored"))).toBe(false);
+  });
+
+  it("lists a rung that leans on an inferred stand-in as a stand-in to confirm, once, where bars choose", () => {
+    // GPT-5.6 Terra has no repo_code, terminal or honesty value: its nearest stand-ins lend them
+    const terra = "opencode:opencode/gpt-5.6-terra#high";
+    const v = check({
+      roles: { worker: { rungs: ["codex:gpt-6-sol#medium", "codex:gpt-5.6-terra#high"] } },
+      failover: { "codex:gpt-6-sol#medium": terra },
+      billing: { opencode: "subscription" },
+    });
+    expect(v.errors).toEqual([]);
+    const c = catalog();
+    const lent = c.inferred["gpt-5.6-terra#high"];
+    expect(v.warnings.filter((w) => w.message.startsWith("stand-in to confirm"))).toEqual([
+      {
+        path: "roles.worker.rungs",
+        message: `stand-in to confirm: gpt-5.6-terra#high (codex:gpt-5.6-terra#high, ${terra}) has no repo_code, terminal or honesty value of its own; routing uses ${lent?.repo_code?.like}'s repo_code, ${lent?.terminal?.like}'s terminal, ${lent?.honesty?.like}'s honesty (inferred)`,
+        fix: "confirm or replace it: catherd catalog treat-like --suggest codex:gpt-5.6-terra#high, then catherd catalog treat-like codex:gpt-5.6-terra#high <a rung>",
+      },
+    ]);
+    // a role with one rung runs it whatever the bars say: nothing to confirm there
+    expect(
+      standInsToConfirm(
+        resolveProfile(applyPatch(defaultProfileDoc(), { roles: { reviewer: { rungs: [terra] } } }), "p"),
+        c,
+        BACKENDS,
+      ),
+    ).toEqual([]);
   });
 
   it("refuses a rung on a backend catherd cannot run yet, a bad effort, and an incapable model", () => {
@@ -86,22 +123,23 @@ describe("validateProfile", () => {
     ]);
   });
 
-  it("refuses a stand-in that is unscored or on the same quota, native claude and claude-code counting as one", () => {
-    const e = messages(
-      check({
-        failover: {
-          "codex:gpt-6-sol#high": "codex:gpt-6-luna#high",
-          "codex:gpt-6-sol#medium": "opencode:opencode-go/glm-5.3#high",
-          "claude:claude-opus-5-5#high": "claude-code:claude-opus-5-5#high",
-        },
-        roles: { architect: { rungs: ["claude:claude-opus-5-5#high"] } },
-      }).errors,
-    );
+  it("refuses a stand-in on the same quota, native claude and claude-code counting as one, and warns on an unscored one", () => {
+    const v = check({
+      failover: {
+        "codex:gpt-6-sol#high": "codex:gpt-6-luna#high",
+        "codex:gpt-6-sol#medium": "opencode:opencode-go/glm-5.3#high",
+        "claude:claude-opus-5-5#high": "claude-code:claude-opus-5-5#high",
+      },
+      roles: { architect: { rungs: ["claude:claude-opus-5-5#high"] } },
+    });
+    const e = messages(v.errors);
     expect(e).toEqual([
-      "stand-in opencode:opencode-go/glm-5.3#high is unscored",
       "stand-in codex:gpt-6-luna#high draws on the same quota as codex:gpt-6-sol#high, which is out when codex:gpt-6-sol#high hits its limit",
       "stand-in claude-code:claude-opus-5-5#high draws on the same quota as claude:claude-opus-5-5#high, which is out when claude:claude-opus-5-5#high hits its limit",
     ]);
+    expect(messages(v.warnings)).toContain(
+      "stand-in opencode:opencode-go/glm-5.3#high is unscored and no rung is near enough to stand in for it",
+    );
   });
 
   it("lets Go and Zen stand in for each other, since they bill apart", () => {
@@ -124,6 +162,8 @@ describe("validateProfile", () => {
       "downgrade: opencode:opencode-go/kimi-k3#max stands in for codex:gpt-6-astra#high, scoring below it on repo_code, terminal, honesty, agentic, frontend",
       "codex:gpt-6-astra#high is on no enabled role's ladder, so this never runs",
       "stand-in claude:claude-opus-5-5#high is a native subagent: the orchestrator must start it, dispatch cannot",
+      // no source publishes a Claude honesty value: Opus uses Sol's, inferred
+      "stand-in to confirm: claude-opus-5-5#high has no honesty value of its own; routing uses gpt-6-sol#high's honesty (inferred)",
     ]);
   });
 
@@ -204,11 +244,16 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
         message: `stand-in ${OPUS_MAX} spends Claude quota, while ${GO_LUNA} could stand in on another plan`,
         fix: `catherd profile set failover.${LUNA} ${GO_LUNA}`,
       },
+      {
+        path: `failover.${LUNA}`,
+        message:
+          "stand-in to confirm: claude-opus-5-5#max has no honesty value of its own; routing uses gpt-6-sol#max's honesty (inferred)",
+        fix: `confirm or replace it: catherd catalog treat-like --suggest ${OPUS_MAX}, then catherd catalog treat-like ${OPUS_MAX} <a rung>`,
+      },
     ]);
     // with Go metered, nothing else is paid from a plan: the Claude stand-in is the only one
-    expect(check({ billing: { "opencode-go": "metered" }, failover: { [LUNA]: OPUS_MAX } }).warnings).toEqual(
-      [],
-    );
+    const metered = check({ billing: { "opencode-go": "metered" }, failover: { [LUNA]: OPUS_MAX } }).warnings;
+    expect(messages(metered).some((m) => m.includes("spends Claude quota"))).toBe(false);
   });
 
   it("warns where a ladder goes down: a rung scoring below the one before it and above it nowhere", () => {
@@ -217,7 +262,7 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
     expect(v.errors).toEqual([]);
     expect(v.warnings).toContainEqual({
       path: "roles.worker.rungs",
-      message: `the ladder goes down at ${LUNA}: it scores below ${XHIGH} on terminal, honesty, frontend`,
+      message: `the ladder goes down at ${LUNA}: it scores below ${XHIGH} on terminal, honesty, agentic, steer, frontend`,
       fix: "order roles.worker.rungs weakest first",
     });
     // Luna high → Sol medium: lower on repo_code but higher on honesty, so not down (the default ladder)
@@ -226,17 +271,41 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
 });
 
 describe("inferredScores", () => {
-  it("marks the default profile's Kimi stand-in inferred, and Go Luna and Sol not", () => {
-    const c = shipped();
+  it("marks both of the default profile's Go stand-ins inferred, saying what each borrows, and Sol not", () => {
+    const c = catalog();
     expect(inferredScores(c, rungInfo(c, "opencode:opencode-go/kimi-k3#max"))).toEqual({
       inferred: true,
       via: "gpt-6-sol#medium",
+      note: "scores borrowed from gpt-6-sol#medium",
     });
-    // Go Luna high carries Luna max's published values (adjacent): no longer only catherd's guesses
+    // Go Luna high has values of its own; the shipped treat-like lends only what no source publishes
     expect(inferredScores(c, rungInfo(c, "opencode:opencode-go/gpt-6-luna#high"))).toEqual({
-      inferred: false,
-      via: null,
+      inferred: true,
+      via: "gpt-5.6-luna#high",
+      note: "agentic, steer borrowed from gpt-5.6-luna#high",
     });
     expect(inferredScores(c, rungInfo(c, "codex:gpt-6-sol#high")).inferred).toBe(false);
+    // an inferred stand-in counts as catherd's guess too
+    expect(inferredScores(c, rungInfo(c, "codex:gpt-5.6-terra#high"))).toMatchObject({
+      inferred: true,
+      via: null,
+    });
+  });
+});
+
+describe("profile repair (spec 1.2 §6.2)", () => {
+  const e = (path: string, message: string) => ({ path, message });
+  const two = { errors: [e("a", "one"), e("b", "two")], warnings: [] };
+
+  it("lets a save through that removes one of two errors and adds none", () => {
+    expect(repairs(two, { errors: [e("b", "two")], warnings: [] })).toBe(true);
+    expect(repairs(two, { errors: [], warnings: [] })).toBe(true);
+  });
+
+  it("refuses one that adds an error, even while it removes another, or that removes none", () => {
+    expect(repairs(two, { errors: [e("b", "two"), e("c", "three")], warnings: [] })).toBe(false);
+    expect(repairs(two, two)).toBe(false);
+    // a profile that does not exist yet has no errors to repair
+    expect(repairs(null, { errors: [e("a", "one")], warnings: [] })).toBe(false);
   });
 });

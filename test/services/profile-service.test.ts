@@ -116,6 +116,38 @@ describe("patchProfile", () => {
     expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.reviewer.access).toBe("network-off");
   });
 
+  it("saves a repair: a patch that removes one of two errors and adds none, listing the one still open", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    // two errors, as a hand edit (or a catherd before 1.2) could leave them
+    const broken = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, enabled: false } } };
+    writeFileSync(
+      file("default"),
+      JSON.stringify({ ...broken, failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" } }),
+    );
+    expect(validateNamed("default").errors).toHaveLength(2);
+    const r = patchProfile("default", { roles: { worker: { enabled: true } } });
+    expect(r.saved).toBe(true);
+    expect(r.errors.map((e) => e.message)).toEqual([
+      "stand-in codex:gpt-6-luna#high draws on the same quota as codex:gpt-6-sol#high, which is out when codex:gpt-6-sol#high hits its limit",
+    ]);
+    expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.worker.enabled).toBe(true);
+  });
+
+  it("refuses a patch that adds an error, even one that removes another", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    const broken = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, enabled: false } } };
+    writeFileSync(file("default"), JSON.stringify(broken));
+    const before = readFileSync(file("default"), "utf8");
+    const r = patchProfile("default", { roles: { worker: { enabled: true }, writer: { rungs: [] } } });
+    expect(r.saved).toBe(false);
+    expect(r.errors.map((e) => e.message)).toEqual(["the writer role has no usable rung"]);
+    expect(readFileSync(file("default"), "utf8")).toBe(before);
+  });
+
   it("writes nothing when the result is invalid, and returns the errors", () => {
     withHome();
     patchProfile("default", {});

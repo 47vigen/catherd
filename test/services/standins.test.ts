@@ -116,10 +116,12 @@ describe("inferred values in the catalog (spec 1.2 §6.1)", () => {
     expect(c.inferred["gpt-6-sol#medium"]).toBeUndefined();
     // Kimi K3 borrows everything through its shipped treat-like: nothing to infer either
     expect(c.inferred["opencode-go/kimi-k3#max"]).toBeUndefined();
-    // GPT-6 Luna has no agentic value in any source: a stand-in lends one, as inferred
-    const luna = scoresOf(c, "gpt-6-luna#high");
-    expect(luna?.inferred).toEqual(["agentic"]);
-    expect(luna?.standIns.agentic).toBe(c.inferred["gpt-6-luna#high"]?.agentic?.like);
+    // GPT-6 Luna's missing agentic value comes from its shipped treat-like, not a guess
+    expect(scoresOf(c, "gpt-6-luna#high")?.inferred).toEqual([]);
+    // GPT-5.6 Terra has no repo_code, terminal or honesty value: stand-ins lend them, as inferred
+    const terra = scoresOf(c, "gpt-5.6-terra#high");
+    expect(terra?.inferred).toEqual(["repo_code", "terminal", "honesty"]);
+    expect(terra?.standIns.repo_code).toBe(c.inferred["gpt-5.6-terra#high"]?.repo_code?.like);
     // steer carries no bar: never inferred
     expect(Object.values(c.inferred).some((x) => x.steer)).toBe(false);
   });
@@ -128,6 +130,6 @@ describe("inferred values in the catalog (spec 1.2 §6.1)", () => {
     withHome();
     const c = loadCatalog({ timings: false });
     expect(c.inferred).toEqual(inferStandIns({ ...c, inferred: {} }));
-    expect(scoresOf(c, "gpt-6-luna#high")?.values.agentic).toBeDefined();
+    expect(scoresOf(c, "gpt-5.6-terra#high")?.values.repo_code).toBeDefined();
   });
 });

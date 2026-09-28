@@ -6,7 +6,7 @@ import {
   type ProfileDoc,
   resolveProfile,
 } from "../../domain/profile.ts";
-import { validateProfile } from "../../domain/profile-rules.ts";
+import { repairs, validateProfile } from "../../domain/profile-rules.ts";
 import { catalogQuery, loadCatalog } from "../../services/catalog-service.ts";
 import type { RunRecord } from "../../domain/record.ts";
 import type { DoctorReport } from "../../services/doctor.ts";
@@ -425,9 +425,12 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     staged: Record<string, string> = {},
   ) => {
     const p = resolveProfile(after, name);
-    const v = validateProfile(p, withStaged(loadCatalog({ timings: false }), staged), BACKENDS);
+    const c = withStaged(loadCatalog({ timings: false }), staged);
+    const v = validateProfile(p, c, BACKENDS);
+    // spec 1.2 §6.2, as the ProfileService rules: a save that repairs part of an invalid profile goes through
+    const was = docs.has(name) ? validateProfile(resolveProfile(before, name), c, BACKENDS) : null;
     return {
-      saved: v.errors.length === 0,
+      saved: repairs(was, v),
       ...v,
       diff: diffProfiles(resolveProfile(before, name), p),
       linked: [],

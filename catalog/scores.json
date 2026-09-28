@@ -3029,6 +3029,30 @@
     "opencode-go/kimi-k3#max": {
       "like": "gpt-6-sol#medium",
       "note": "the default profile's OpenCode Go stand-in for Sol; no DeepSWE 1.1, Terminal-Bench 4.0 or honesty score is published for it"
+    },
+    "gpt-6-luna#none": {
+      "like": "gpt-5.6-luna#none",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6-luna#low": {
+      "like": "gpt-5.6-luna#low",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6-luna#medium": {
+      "like": "gpt-5.6-luna#medium",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6-luna#high": {
+      "like": "gpt-5.6-luna#high",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6-luna#xhigh": {
+      "like": "gpt-5.6-luna#xhigh",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6-luna#max": {
+      "like": "gpt-5.6-luna#max",
+      "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
     }
   },
   "bars": {

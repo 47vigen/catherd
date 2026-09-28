@@ -15,7 +15,7 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { type Validation, validateProfile } from "../domain/profile-rules.ts";
+import { repairs, type Validation, validateProfile } from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
@@ -85,10 +85,12 @@ const unsaved = (v: Validation): Saved => ({
 export const CHANGED_ON_DISK = "profile";
 
 /**
- * Spec §7.3 `patch` (profile_set, `catherd profile set`): validates first and writes nothing when invalid.
- * A profile that does not exist yet starts from the default profile. With `expect` (the profile as a
- * preview read it), it writes nothing when the profile under the lock is no longer that one: the patch
- * would land on values the preview never showed.
+ * Spec §7.3 `patch` (profile_set, `catherd profile set`, the TUI's save): validates first and writes
+ * nothing when invalid, unless the save repairs the profile (spec 1.2 §6.2): it removes at least one error
+ * the stored profile had and adds none. Then it saves, and the result's `errors` are those still open. A
+ * profile that does not exist yet starts from the default profile. With `expect` (the profile as a preview
+ * read it), it writes nothing when the profile under the lock is no longer that one: the patch would land on
+ * values the preview never showed.
  */
 export function patchProfile(
   name: string | undefined,
@@ -112,7 +114,7 @@ export function patchProfile(
     const after = applyPatch(before, patch);
     const resolved = resolveProfile(after, n);
     const v = validate(after, n);
-    if (v.errors.length) return unsaved(v);
+    if (v.errors.length && !repairs(profileExists(n) ? validate(before, n) : null, v)) return unsaved(v);
     const diff = diffProfiles(resolveProfile(before, n), resolved);
     return { saved: true, ...v, diff, ...saveAndLink(n, after) };
   });

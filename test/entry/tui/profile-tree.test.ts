@@ -135,7 +135,9 @@ describe("the Profiles tree (spec §9.1)", () => {
       "→ kimi-k3#max (scores borrowed from gpt-6-sol#medium)",
     );
     expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("none");
-    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe("→ gpt-6-luna#high");
+    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe(
+      "→ gpt-6-luna#high (agentic, steer borrowed from gpt-5.6-luna#high)",
+    );
   });
 
   it("puts a validation issue on the row it is about", () => {
@@ -229,7 +231,9 @@ describe("edits", () => {
     // Opus high has values of its own now (carried from xhigh and max): nothing borrowed
     expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe("");
     expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe("");
-    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe("");
+    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe(
+      "agentic, steer borrowed from gpt-5.6-luna#high",
+    );
     const likes = treatLikeOptions(c);
     expect(likes.map((o) => o.value)).toContain("gpt-6-sol#medium");
     // a rung that borrows through a treat-like lends nothing of its own

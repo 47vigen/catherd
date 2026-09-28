@@ -38,6 +38,8 @@ export interface StandIn {
   to: string;
   inferred: boolean;
   via: string | null;
+  /** what the treat-like lends, as `profile show` says it */
+  note: string | null;
 }
 
 /** Spec §7.2: each stand-in; `via` names the rung whose scores it borrows (spec 1.1 §11). */
@@ -46,7 +48,7 @@ export function standIns(p: Profile, c: Catalog): StandIn[] {
     try {
       return { from, to, ...inferredScores(c, rungInfo(c, to)) };
     } catch {
-      return { from, to, inferred: false, via: null };
+      return { from, to, inferred: false, via: null, note: null };
     }
   });
 }
@@ -93,8 +95,7 @@ export function formatProfile(
   const harness = Object.entries(p.harness).filter(runs);
   lines.push(`harness ${harness.map(([k, h]) => `${k} ${h.isolated ? "isolated" : "native"}`).join(" · ")}`);
   lines.push(o.standIns.length ? "failover" : "failover none");
-  for (const s of o.standIns)
-    lines.push(`  ${s.from} → ${s.to}${s.via ? ` (scores borrowed from ${s.via})` : ""}`);
+  for (const s of o.standIns) lines.push(`  ${s.from} → ${s.to}${s.note ? ` (${s.note})` : ""}`);
   const budget = Object.entries(p.budget).map(([k, v]) => (k === "usd" ? `$${v}` : `${v} ${k}`));
   lines.push(`budget ${budget.join(" · ") || "no cap"}`);
   lines.push(`timeouts idle ${p.timeouts.idleMin} min · wall ${p.timeouts.wallMin} min`);
@@ -265,7 +266,12 @@ const set = defineCommand({
     if (!r.saved) throw refused(r.errors);
     if (r.diff.length === 0) console.log("no change");
     for (const c of r.diff) console.log(`${mark("ok")} ${formatChange(c)}`);
-    printIssues([], r.warnings);
+    // spec 1.2 §6.2: a save that repairs part of an invalid profile goes through; it lists what is still open
+    if (r.errors.length)
+      console.log(
+        `${mark("warn")} saved; ${r.errors.length} ${r.errors.length === 1 ? "error is" : "errors are"} still open:`,
+      );
+    printIssues(r.errors, r.warnings);
     printSynced(r);
   },
 });

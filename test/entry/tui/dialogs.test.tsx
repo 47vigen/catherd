@@ -4,7 +4,7 @@ import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { useApp, useDialogHandler } from "../../../src/entry/tui/providers/app.tsx";
 import { DataProvider } from "../../../src/entry/tui/providers/data.tsx";
 import { useCommandLayer } from "../../../src/entry/tui/providers/keymap.tsx";
-import { defaultProfileDoc, type ProfilePatch } from "../../../src/domain/profile.ts";
+import { applyPatch, defaultProfileDoc, type ProfilePatch } from "../../../src/domain/profile.ts";
 import {
   type Action,
   type AppState,
@@ -227,6 +227,28 @@ describe("SaveDialog (spec §9.2)", () => {
     expect(answers).toEqual(["save"]);
   });
 
+  it("offers Save for a repair: a save that fixes one error of an invalid profile and adds none (spec 1.2 §6.2)", async () => {
+    const effects = fixtureEffects();
+    // the stored profile has two errors: the writer has no rung, and a stand-in shares its rung's quota
+    const read = effects.readProfile;
+    effects.readProfile = (n) =>
+      applyPatch(read(n), {
+        roles: { writer: { rungs: [] } },
+        failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" },
+      });
+    // the draft names a stand-in on another quota: one error fixed, none added
+    const answers = await save(
+      { failover: { "codex:gpt-6-sol#high": "opencode:opencode-go/kimi-k3#max" } },
+      effects,
+    );
+    const f = h!.s.frame();
+    expect(f).toContain("This save fixes an error and adds none; these stay open:");
+    expect(f).toContain("✗ roles.writer.rungs: the writer role has no usable rung");
+    expect(f).toContain("[ Save ]  [ Save & make active ]  [ Cancel ]");
+    await h!.s.press("return");
+    expect(answers).toEqual(["save"]);
+  });
+
   it("answers activate from the second button, and cancels from the third", async () => {
     const answers = await save({ budget: { usd: 5 } });
     await h!.s.press("right", "return");
@@ -280,9 +302,6 @@ describe("SaveDialog (spec §9.2)", () => {
     const f = h!.s.frame();
     for (const e of [
       "✗ roles.worker.enabled: the worker cannot be disabled",
-      "✗ roles.architect.rungs: codex:nope#high is unscored",
-      "✗ roles.verifier.rungs: claude:nope#low is unscored",
-      "✗ roles.reviewer.rungs: codex:zzz#high is unscored",
       "✗ roles.reviewer.rungs: the reviewer role has no usable rung",
     ])
       expect(f).toContain(e);

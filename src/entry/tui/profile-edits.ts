@@ -113,12 +113,12 @@ export function failoverOptions(
       if (!(r.enabled || usable(r.rung)) || r.rung.startsWith("claude:")) continue;
       const q = quotaOf(parseRung(r.rung));
       if (q === quota) continue;
-      const via = inferredScores(c, rungInfo(c, r.rung)).via;
+      const note = inferredScores(c, rungInfo(c, r.rung)).note;
       out.push({
         value: r.rung,
         title: shortRung(r.rung),
         group: m.billing,
-        detail: via ? `scores borrowed from ${via}` : "",
+        detail: note ?? "",
         current: r.rung === cur,
       });
     }
