@@ -19,7 +19,7 @@ function catherd(args: string[], cwd?: string) {
 }
 
 describe("catherd profile show", () => {
-  it("shows each role's access and enforcement, and marks the Go stand-ins inferred", () => {
+  it("shows each role's access and enforcement, and says whose scores a stand-in borrows", () => {
     withHome();
     const r = catherd(["show"]);
     expect(r.code).toBe(0);
@@ -29,10 +29,12 @@ describe("catherd profile show", () => {
       "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
     );
     expect(lines.find((l) => l.startsWith("  architect"))).toContain("read-only, advisory");
-    expect(r.out).toContain("  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high (inferred)\n");
+    // Go's Luna has scores of its own (inferred ones): no label; Kimi K3 has none, so it borrows Sol medium's
+    expect(r.out).toContain("  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high\n");
     expect(r.out).toContain(
-      "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (inferred: treated like gpt-6-sol#medium)\n",
+      "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (scores borrowed from gpt-6-sol#medium)\n",
     );
+    expect(r.out).not.toContain("treated like");
     expect(r.out).not.toContain("cursor");
   });
 

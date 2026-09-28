@@ -40,7 +40,7 @@ export interface StandIn {
   via: string | null;
 }
 
-/** Spec §7.2: each stand-in, marked inferred when its scores are catherd's guess. */
+/** Spec §7.2: each stand-in; `via` names the rung whose scores it borrows (spec 1.1 §11). */
 export function standIns(p: Profile, c: Catalog): StandIn[] {
   return Object.entries(p.failover).map(([from, to]) => {
     try {
@@ -94,9 +94,7 @@ export function formatProfile(
   lines.push(`harness ${harness.map(([k, h]) => `${k} ${h.isolated ? "isolated" : "native"}`).join(" · ")}`);
   lines.push(o.standIns.length ? "failover" : "failover none");
   for (const s of o.standIns)
-    lines.push(
-      `  ${s.from} → ${s.to}${s.inferred ? ` (inferred${s.via ? `: treated like ${s.via}` : ""})` : ""}`,
-    );
+    lines.push(`  ${s.from} → ${s.to}${s.via ? ` (scores borrowed from ${s.via})` : ""}`);
   const budget = Object.entries(p.budget).map(([k, v]) => (k === "usd" ? `$${v}` : `${v} ${k}`));
   lines.push(`budget ${budget.join(" · ") || "no cap"}`);
   lines.push(`timeouts idle ${p.timeouts.idleMin} min · wall ${p.timeouts.wallMin} min`);
