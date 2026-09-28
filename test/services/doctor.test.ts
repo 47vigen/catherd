@@ -60,8 +60,10 @@ function installPlugin(version: string): void {
 }
 
 const answers = async (): Promise<Handshake> => ({ ok: true, tools: ["status", "dispatch"] });
+/** Jev answers from a fake: a test that saves a key must never reach the real API. */
+const offlineJev = () => ({ fetchImpl: fakeFetch({ status: 200, body: { data: [] } }).impl });
 const run = (over: Partial<Parameters<typeof doctor>[0]> = {}) =>
-  doctor({ bunVersion: "1.4.2", version: VERSION, handshake: answers, ...over });
+  doctor({ bunVersion: "1.4.2", version: VERSION, handshake: answers, jev: offlineJev(), ...over });
 const check = (r: DoctorReport, id: string): Check | undefined => r.checks.find((c) => c.id === id);
 const states = (r: DoctorReport) => Object.fromEntries(r.checks.map((c) => [c.id, `${c.state} ${c.word}`]));
 
