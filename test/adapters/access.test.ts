@@ -51,8 +51,20 @@ describe("worker access grants (spec §5)", () => {
     const bun = join(home, ".bun", "install", "cache");
     mkdirSync(gocache, { recursive: true });
     mkdirSync(bun, { recursive: true });
-    const roots = toolchainCaches({ GOCACHE: gocache, GOMODCACHE: join(home, "missing") }, home);
+    const none = () => [];
+    const roots = toolchainCaches({ GOCACHE: gocache, GOMODCACHE: join(home, "missing") }, home, none);
     expect(roots).toEqual([realpathSync(gocache), realpathSync(bun)]);
+    // `go env -w` and pnpm's store-dir live outside the env: what the tools report is granted too
+    const gowritten = join(home, "go-env-w");
+    const store = join(home, "store", "v10");
+    mkdirSync(gowritten, { recursive: true });
+    mkdirSync(store, { recursive: true });
+    const tools = (bin: string) => (bin === "go" ? [gowritten, join(home, "no-mod")] : [store]);
+    expect(toolchainCaches({}, home, tools)).toEqual([
+      realpathSync(gowritten),
+      realpathSync(store),
+      realpathSync(bun),
+    ]);
     process.env.GOCACHE = gocache;
     expect(writableRoots()).toContain(realpathSync(gocache));
   });
