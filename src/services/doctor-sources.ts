@@ -1,4 +1,8 @@
+import type { Profile } from "../domain/profile.ts";
+import { type StandInToConfirm, standInsToConfirm } from "../domain/profile-rules.ts";
+import { loadCatalog } from "./catalog-service.ts";
 import type { Check } from "./doctor-checks.ts";
+import { runnableBackends } from "./profile-store.ts";
 import { sourcesStatus, TTL_MS } from "./source-sync.ts";
 
 const HOUR = 3_600_000;
@@ -11,13 +15,29 @@ export function ageText(ms: number): string {
   return `${Math.round(ms / DAY)} d`;
 }
 
+/** Spec 1.2 §6.1, §9: the stand-ins to confirm across `profiles`, one per canonical rung. */
+export function standInsToConfirmIn(profiles: Profile[]): StandInToConfirm[] {
+  if (profiles.length === 0) return [];
+  const c = loadCatalog({ timings: false });
+  const seen = new Map<string, StandInToConfirm>();
+  for (const p of profiles)
+    for (const x of standInsToConfirm(p, c, runnableBackends()))
+      if (!seen.has(x.canonical)) seen.set(x.canonical, x);
+  return [...seen.values()];
+}
+
+/** `gpt-5.6-terra#high (repo_code, terminal, honesty)`, the rung and the dimensions a stand-in fills. */
+const confirmText = (xs: StandInToConfirm[]): string =>
+  `stand-ins to confirm: ${xs.map((x) => `${x.canonical} (${x.dims.map((d) => d.dim).join(", ")})`).join(", ")}`;
+
 /**
  * Spec 1.2 §9: the `sources` row: each source's age and last error, whether an Artificial Analysis key is
- * set, and its requests left today (`x-ratelimit-remaining` of its last answer). `info` before the first
- * sync (routing uses the shipped scores); a warning when a source fails or has not been fetched for two
- * TTLs (a day), since background syncs would have refreshed it. It reads the sync's state only: no request.
+ * set, its requests left today (`x-ratelimit-remaining` of its last answer), and the linked profiles'
+ * stand-ins to confirm (`confirm`, spec 1.2 §6.1). `info` before the first sync (routing uses the shipped
+ * scores); a warning when a source fails or has not been fetched for two TTLs (a day), since background
+ * syncs would have refreshed it. It reads the sync's state only: no request.
  */
-export function sourcesCheck(now = Date.now()): Check {
+export function sourcesCheck(now = Date.now(), confirm: StandInToConfirm[] = []): Check {
   const s = sourcesStatus();
   const shown = s.sources.filter((x) => x.source !== "artificial-analysis" || s.aaKey);
   const keyless = s.sources.filter((x) => x.source !== "artificial-analysis");
@@ -29,7 +49,7 @@ export function sourcesCheck(now = Date.now()): Check {
       : sameDay
         ? `, ${s.rateLimitRemaining} requests left today`
         : `, ${s.rateLimitRemaining} requests left on ${s.rateLimitAt?.slice(0, 10)}`;
-  const aa = s.aaKey ? `Artificial Analysis key set${left}` : "no Artificial Analysis key";
+  const aa = `${s.aaKey ? `Artificial Analysis key set${left}` : "no Artificial Analysis key"}${confirm.length ? `; ${confirmText(confirm)}` : ""}`;
   const base = { id: "sources", label: "sources" };
   if (keyless.every((x) => x.fetchedAt === null && x.error === null))
     return {

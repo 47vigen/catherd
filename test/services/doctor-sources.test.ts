@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { MODELS_DEV_URL } from "../../src/infra/sources/models-dev.ts";
-import { ageText, sourcesCheck } from "../../src/services/doctor-sources.ts";
+import { applyPatch, defaultProfileDoc, resolveProfile } from "../../src/domain/profile.ts";
+import { ageText, sourcesCheck, standInsToConfirmIn } from "../../src/services/doctor-sources.ts";
 import { syncSources, TTL_MS } from "../../src/services/source-sync.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { recordedFetch } from "./source-fixtures.ts";
@@ -79,5 +80,26 @@ describe("doctor's sources row (spec 1.2 §9)", () => {
       ageText(47 * 3_600_000),
       ageText(5 * 24 * 3_600_000),
     ]).toEqual(["1 min", "2 h", "47 h", "5 d"]);
+  });
+});
+
+describe("doctor's stand-ins to confirm (spec 1.2 §6.1, §9)", () => {
+  it("lists the rungs that lean on an inferred stand-in, once each, and nothing for the default profile", () => {
+    withHome();
+    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
+    const def = resolveProfile(defaultProfileDoc(), "default");
+    expect(standInsToConfirmIn([def])).toEqual([]);
+    const worker = [...def.roles.worker.rungs, "codex:gpt-5.6-terra#high"];
+    const terra = resolveProfile(
+      applyPatch(defaultProfileDoc(), { roles: { worker: { rungs: worker } } }),
+      "t",
+    );
+    const confirm = standInsToConfirmIn([terra, terra]);
+    expect(confirm.map((x) => [x.canonical, x.dims.map((d) => d.dim)])).toEqual([
+      ["gpt-5.6-terra#high", ["repo_code", "terminal", "honesty"]],
+    ]);
+    expect(sourcesCheck(T0, confirm).detail).toBe(
+      "routing uses the shipped scores; no Artificial Analysis key; stand-ins to confirm: gpt-5.6-terra#high (repo_code, terminal, honesty)",
+    );
   });
 });

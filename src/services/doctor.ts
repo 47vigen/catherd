@@ -9,7 +9,7 @@ import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck } from "./doctor-push.ts";
-import { sourcesCheck } from "./doctor-sources.ts";
+import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
 import {
   agentsCheck,
   type Check,
@@ -191,8 +191,14 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     }
   }
 
-  // spec 1.2 §9: the public sources' ages and errors, and the Artificial Analysis key
-  checks.push(guarded("sources", "sources", "catherd catalog sync --force", () => sourcesCheck()));
+  // spec 1.2 §9: the public sources' ages and errors, the Artificial Analysis key, and the active and linked
+  // profiles' stand-ins to confirm
+  const mine = [...(active ? [active] : []), ...profiles.filter((p) => p.name !== active?.name)];
+  checks.push(
+    guarded("sources", "sources", "catherd catalog sync --force", () =>
+      sourcesCheck(Date.now(), standInsToConfirmIn(mine)),
+    ),
+  );
 
   checks.push(pluginCheck(d.version));
 
