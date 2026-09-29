@@ -1,8 +1,28 @@
-# catherd — handoff (2026-09-28, sixth session: 1.2 on autopilot)
+# catherd — handoff (2026-09-29, seventh session: the 1.3 backend designs)
 
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 
+
+## catherd 1.3 design (session 7, docs only): Cursor, Grok Build, Antigravity
+
+Binding spec, **draft for the owner's review**: `docs/specs/2026-09-29-catherd-1.3-design.md`. It supersedes spec 1.0's
+D5 phasing and §6.4/§6.5; plan 8 is superseded. Evidence: `docs/research/2026-09-29-cursor-grok-antigravity.md`,
+which ran the real binaries (Cursor 2026.09.28, grok 1.0.44, agy 1.2.13) on the owner's Mac. None was signed in, so
+every model-turn behaviour is a Ruling plus a live-verification step.
+
+| Plan | File | State |
+| ---- | ---- | ----- |
+| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | written, pre-validated on a scratch branch; **not executed (owner: hold)** |
+| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch; **not executed** |
+| 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch; **not executed** |
+
+**Implementation stays on hold until the owner says go.** The owner first reviews the spec's §9 open questions
+(one release or three, read-only on native agy, writing into vendor config, billing modes, doctor probes that spend a
+turn, isolation keys, agy plan terms, hidden flags, the owner's machine). Before any live step the owner's machine
+needs `grok login` plus a grok reinstall (the installed grok is a Linux ELF), `cursor-agent update && cursor-agent
+login`, and `agy` installed and signed in once (research §0, §8). Plans 16 and 17 depend on plan 15's groundwork;
+execute 15 first, then 16 and 17 in parallel. Only the last of the three to merge carries the 1.3.0 changeset.
 
 ## catherd 1.2 (session 6, autopilot)
 
@@ -48,7 +68,7 @@ Plans 11 and 12 were pre-validated on `main` and replayed onto each merged prede
 | — pre-1.0 cleanup | (no plan file; audits + briefs in the PR) | **merged** PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC |
 | — whole-project review fixes | (another session) | **merged** (PR #13: 30 of 32 review findings; a macOS supervisor-test race fixed before merge) |
 | 9 findings from the real 0.x runs | `docs/plans/2026-09-27-09-run-findings.md` | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
-| 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/plans/2026-09-26-08-cursor-grok.md` | written, pre-validated, re-checked on `d87a791` (Part A 1093 / Part B 1145 pass). **Not executed (owner: hold).** Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
+| 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/plans/2026-09-26-08-cursor-grok.md` | **Superseded by plans 15–17 (spec 1.3).** Was: written, pre-validated on `d87a791`, never executed. Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
 
 Owner process rules added in session 4: Codex review rounds are capped at 4 per PR (PR #14 exempt: rounds until clean; request Codex right after each push without waiting for CI); worker scratch files stay inside the worker's worktree (a shared scratchpad collided).
 
@@ -89,8 +109,7 @@ change what later plans consume).
 2. PRs #12, #13 and #14 are merged; the release PR #11 goes once the owner's results are in (§6 now also
    checks parallel lanes, an opencode worker, a climb, failover and a budget stop): merging it publishes
    catherd-cli@1.0.0 (npm OIDC) and the plugin stamped 1.0.0.
-3. Plan 8 when the owner says go: re-check anchors after #12, then Part A (Cursor, 1.1), release, Part B
-   (Grok, 1.2), release.
+3. ~~Plan 8~~: superseded by spec 1.3 and plans 15–17 (see the 1.3 section at the top).
 4. 1.0.x candidates: the deferred minors listed in `plan7-final-review.md` and `cleanup-final-review.md`
    (e.g. doctor names only the first mismatching profile, a stranded failover warning without a fix line,
    subcommands that accept unknown flags silently).
@@ -148,8 +167,9 @@ change what later plans consume).
   reports whether Codex is logged in with ChatGPT, Linux + macOS CI matrix, live-test docs + the owner's
   live-verification kit, Changesets release of 1.0 (0.2.1 → 1.0.0 via `.github/workflows/release.yml`:
   changesets/action opens "chore: release catherd", merging it publishes with npm OIDC).
-- **Plan 8:** Cursor CLI adapter (1.1), Grok CLI adapter (1.2) from `docs/research/2026-09-25-cursor-grok.md`,
-  each through `test/adapters/contract.ts`, a simulator in `test/sim/`, live tests gated by `CATHERD_LIVE=1`.
+- **Plans 15–17** (replace plan 8): Cursor, Grok Build and Antigravity adapters from
+  `docs/research/2026-09-29-cursor-grok-antigravity.md`, each through `test/adapters/contract.ts`, a simulator in
+  `test/sim/`, live tests gated by `CATHERD_LIVE=1`.
 - **Live verification (needs the owner's machine):** fixture capture with `CATHERD_LIVE=1` for OpenCode Go,
   Claude and Codex (`src/entry/capture-fixtures.ts`, default out `test/fixtures/adapters`); check
   `codex sandbox <os> --full-auto` and the hidden Jev-key prompt on a real TTY. Plan 7 writes this as a doc.
