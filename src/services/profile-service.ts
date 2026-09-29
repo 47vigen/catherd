@@ -15,7 +15,7 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { repairs, type Validation, validateProfile } from "../domain/profile-rules.ts";
+import { repairs, type Validation } from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
@@ -37,7 +37,7 @@ import {
   readProjects,
   requireProfile,
   roleEnforcement,
-  runnableBackends,
+  validateHere,
   validateNamed,
 } from "./profile-store.ts";
 
@@ -67,7 +67,7 @@ function saveAndLink(name: string, doc: ProfileDoc): Synced {
 }
 
 const validate = (doc: ProfileDoc, name: string): Validation =>
-  validateProfile(resolveProfile(doc, name), loadCatalog({ timings: false }), runnableBackends(), doc);
+  validateHere(resolveProfile(doc, name), loadCatalog({ timings: false }), doc);
 
 /** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
 export type Saved = ProfileSaved;

@@ -10,6 +10,8 @@ import { probeBackend, readyAdapter, resetReadiness, standInFor } from "../../sr
 import { accessChecks } from "../../src/services/doctor-access.ts";
 import { backendChecks } from "../../src/services/doctor-backends.ts";
 import { resolveProfile } from "../../src/domain/profile.ts";
+import { patchProfile } from "../../src/services/profile-service.ts";
+import { isolationKeyErrors } from "../../src/services/profile-store.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import {
@@ -323,6 +325,36 @@ describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
       detail: "in cursor's sandbox, a worker cannot: lock-dir write (touch: Operation not permitted)",
       fix: "lock-dir write: add it to additionalReadwritePaths in ~/.cursor/sandbox.json",
     });
+  });
+});
+
+describe("an isolated backend's API key (spec 1.3 §8)", () => {
+  const isolated = resolveProfile({ schema: 1, harness: { cursor: { isolated: true } } }, "p");
+  const MISSING = {
+    path: "harness.cursor.isolated",
+    message: "an isolated cursor run needs CURSOR_API_KEY, which catherd's environment does not have",
+    fix: "export CURSOR_API_KEY=<key>, or catherd profile set harness.cursor.isolated false",
+  };
+
+  it("is an error while an isolated backend's key is not set, and nothing once it is or while native", () => {
+    fake({ isolationKey: "CURSOR_API_KEY" });
+    expect(isolationKeyErrors(isolated, {})).toEqual([MISSING]);
+    expect(isolationKeyErrors(isolated, { CURSOR_API_KEY: "k" })).toEqual([]);
+    expect(isolationKeyErrors(resolveProfile({ schema: 1 }, "p"), {})).toEqual([]);
+    // a backend that isolates without a key of its own
+    fake();
+    expect(isolationKeyErrors(isolated, {})).toEqual([]);
+  });
+
+  it("refuses a save that isolates the backend with no key, naming the export", () => {
+    withHome();
+    fake({ isolationKey: "CURSOR_API_KEY" });
+    delete process.env.CURSOR_API_KEY;
+    const r = patchProfile("default", { harness: { cursor: { isolated: true } } });
+    expect(r.saved).toBe(false);
+    expect(r.errors).toContainEqual(MISSING);
+    process.env.CURSOR_API_KEY = "key-for-test";
+    expect(patchProfile("default", { harness: { cursor: { isolated: true } } }).saved).toBe(true);
   });
 });
 

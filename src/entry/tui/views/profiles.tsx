@@ -41,6 +41,10 @@ const ABOUT: Partial<Record<RowAction["type"], string>> = {
   notify: "space turns this notification on or off",
 };
 
+/** Spec 1.3 §8: a harness row's line: what isolating it needs, and what its native mode loads. */
+export const isolationAbout = (i: { note?: string; key?: string }): string =>
+  [`${ABOUT.isolated}${i.key ? ` (it needs ${i.key})` : ""}`, i.note].filter(Boolean).join("; ");
+
 /**
  * The profiles poll failed after a good read (its error is newer than the value it keeps): one error line
  * and, when the failure says, its fix; none once a read succeeds again.
@@ -411,7 +415,16 @@ export function ProfilesView(props: { width: number; height: number }) {
         },
         ...(row.issue.fix ? [{ text: ` fix: ${row.issue.fix}`, tone: "muted" as const }] : []),
       ]
-    : [{ text: ` ${(row && ABOUT[row.action.type]) ?? ""}`, tone: "muted" as const }];
+    : [
+        {
+          text: ` ${
+            row?.action.type === "isolated"
+              ? isolationAbout(app.effects.isolation(row.action.harness))
+              : ((row && ABOUT[row.action.type]) ?? "")
+          }`,
+          tone: "muted" as const,
+        },
+      ];
   const aboutLines = about
     .flatMap((p) => wrap(p.text, props.width).map((text) => ({ ...p, text })))
     .slice(0, 2);

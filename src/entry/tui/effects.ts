@@ -4,7 +4,7 @@ import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
 import { type Catalog, rungInfo } from "../../domain/catalog.ts";
 import { HARNESS_KEYS, type Profile, type ProfileDoc, type ProfilePatch } from "../../domain/profile.ts";
-import { type Validation, validateProfile } from "../../domain/profile-rules.ts";
+import type { Validation } from "../../domain/profile-rules.ts";
 import type { Access } from "../../domain/record.ts";
 import { VERSION } from "../../infra/version.ts";
 import {
@@ -39,7 +39,7 @@ import {
   projectsFile,
   readProfileDoc,
   readProjects,
-  runnableBackends,
+  validateHere,
 } from "../../services/profile-store.ts";
 import { listRuns, type Run, runPaths } from "../../services/run-store.ts";
 import {
@@ -121,6 +121,8 @@ export interface Effects {
   enforcement(rung: string, access: Access): "enforced" | "advisory";
   /** the harnesses a profile can isolate */
   harnesses: readonly string[];
+  /** spec 1.3 §8: what a harness's native mode loads, and the API key its isolation needs, when it says */
+  isolation(harness: string): { note?: string; key?: string };
   /** the native agents a profile links, by name */
   agents(p: Profile): string[];
   /**
@@ -341,9 +343,16 @@ export function liveEffects(repo: string | null = null): Effects {
         models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
       };
     },
-    validate: (p, c) => validateProfile(p, c, runnableBackends()),
+    validate: (p, c) => validateHere(p, c),
     enforcement: enforcementOf,
     harnesses,
+    isolation(h) {
+      const a = adapterFor(h);
+      return {
+        ...(a?.isolationNote ? { note: a.isolationNote } : {}),
+        ...(a?.isolationKey ? { key: a.isolationKey } : {}),
+      };
+    },
     agents: (p) => agentFiles(p, VERSION).map((f) => f.name),
     async save(name, patch, treatLikes, shown) {
       for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);

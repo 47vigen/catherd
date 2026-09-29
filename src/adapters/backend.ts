@@ -149,6 +149,11 @@ export interface BackendAdapter {
   accessShell?(o: { network: boolean }): Promise<AccessShell | string>;
   /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
   isolationNote?: string;
+  /**
+   * Spec 1.3 §8: the env variable an isolated run logs in with, when isolation moves the CLI's home away from
+   * the user's login (`CURSOR_API_KEY`); an isolated profile without it does not validate.
+   */
+  isolationKey?: string;
   graceAfterFinalMs: number | null;
 }
 
