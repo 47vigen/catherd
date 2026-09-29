@@ -108,12 +108,16 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
     expect(standInFor({}, "not a rung")).toBeNull();
   });
 
-  it("pairs the same Grok model on grok and Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
+  it("pairs the same Grok or Gemini model on Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
     expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#default");
     expect(standInFor({}, "cursor:grok-4.7#default")).toBe("grok:grok-4.7#high");
     expect(standInFor({ "grok:grok-4.7#low": "codex:gpt-6-sol#high" }, "grok:grok-4.7#low")).toBe(
       "codex:gpt-6-sol#high",
     );
+    expect(standInFor({}, "antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#default");
+    expect(standInFor({}, "cursor:gemini-3.8-flash#default")).toBe("antigravity:gemini-3.8-flash#high");
+    const own = { "antigravity:gemini-3.8-flash#high": "codex:gpt-6-luna#high" };
+    expect(standInFor(own, "antigravity:gemini-3.8-flash#high")).toBe("codex:gpt-6-luna#high");
   });
 
   it("passes admission for a ladder rung, and no other rung of that backend does", async () => {

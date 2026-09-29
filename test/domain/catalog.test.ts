@@ -161,6 +161,46 @@ describe("Cursor's families (spec 1.3 §7.1)", () => {
   });
 });
 
+describe("Antigravity's families (spec 1.3 §6.6, §7.1)", () => {
+  const fam = (id: string) => shippedModels().families.find((f) => f.id === id);
+
+  it("gives the four Gemini families an agy id, the Gemini API's thinking levels and its 1M context", () => {
+    for (const [id, agy] of [
+      ["gemini-3-8-flash", "gemini-3.8-flash"],
+      ["gemini-3-7-flash", "gemini-3.7-flash"],
+      ["gemini-3-6-flash", "gemini-3.6-flash"],
+    ] as const)
+      expect(fam(id)?.on.antigravity).toEqual({
+        id: agy,
+        efforts: ["low", "medium", "high"],
+        context: 1048576,
+      });
+    expect(fam("gemini-3-1-pro")?.on.antigravity).toEqual({
+      id: "gemini-3.1-pro",
+      efforts: ["low", "high"],
+      context: 1048576,
+    });
+    // Cursor keeps its own ids, efforts and window
+    expect(fam("gemini-3-8-flash")?.on.cursor).toEqual({
+      id: "gemini-3.8-flash",
+      efforts: [],
+      context: 200000,
+    });
+  });
+
+  it("reads an agy rung as its family's canonical rung, billed under antigravity", () => {
+    expect(rungInfo(shipped(), "antigravity:gemini-3.8-flash#low")).toMatchObject({
+      key: "antigravity",
+      canonical: "gemini-3-8-flash#low",
+      efforts: ["low", "medium", "high"],
+      context: 1048576,
+    });
+    expect(rungInfo(shipped(), "antigravity:gemini-3.1-pro#default").canonical).toBe(
+      "gemini-3-1-pro#default",
+    );
+  });
+});
+
 describe("rungInfo", () => {
   it("maps a backend's model id to its family and canonical rung", () => {
     const c = shipped();

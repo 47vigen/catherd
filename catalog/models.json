@@ -5,7 +5,8 @@
     "claude": "https://platform.claude.com/docs/en/models/overview (2026-09-25); efforts https://platform.claude.com/docs/en/build-with-claude/effort; prices https://platform.claude.com/docs/en/about-claude/pricing",
     "codex": "codex debug models --bundled, Codex CLI 0.157.0 (2026-09-25); prices https://developers.openai.com/api/docs/pricing; plan weights https://learn.chatgpt.com/docs/pricing",
     "opencode": "opencode models <provider> --verbose on 1.18.32 and the v2 model.list (2026-09-25); https://opencode.ai/docs/zen, https://opencode.ai/docs/go",
-    "cursor": "cursor-agent models on 2026.09.28-64d2043 (research 2026-09-29 §2.4; ids to confirm in the live kit, docs/dev/live-verification.md §11); prices https://openrouter.ai/api/v1/models and https://models.dev/api.json (2026-09-28)"
+    "cursor": "cursor-agent models on 2026.09.28-64d2043 (research 2026-09-29 §2.4; ids to confirm in the live kit, docs/dev/live-verification.md §11); prices https://openrouter.ai/api/v1/models and https://models.dev/api.json (2026-09-28)",
+    "antigravity": "agy 1.2.13 docs (models, and slugs such as gemini-3.8-flash-high; research 2026-09-29 §4.5) and the Gemini API's thinking levels; ids and efforts to confirm in the live kit, docs/dev/live-verification.md §13"
   },
   "backends": {
     "codex": {
@@ -333,7 +334,10 @@
       "releaseDate": "2026-09-02",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
-      "on": { "cursor": { "id": "gemini-3.8-flash", "efforts": [], "context": 200000 } }
+      "on": {
+        "cursor": { "id": "gemini-3.8-flash", "efforts": [], "context": 200000 },
+        "antigravity": { "id": "gemini-3.8-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
+      }
     },
     {
       "id": "gemini-3-7-flash",
@@ -342,7 +346,10 @@
       "releaseDate": "2026-08-13",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
-      "on": { "cursor": { "id": "gemini-3.7-flash", "efforts": [], "context": 200000 } }
+      "on": {
+        "cursor": { "id": "gemini-3.7-flash", "efforts": [], "context": 200000 },
+        "antigravity": { "id": "gemini-3.7-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
+      }
     },
     {
       "id": "gemini-3-6-flash",
@@ -351,7 +358,10 @@
       "releaseDate": "2026-07-21",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
-      "on": { "cursor": { "id": "gemini-3.6-flash", "efforts": [], "context": 200000 } }
+      "on": {
+        "cursor": { "id": "gemini-3.6-flash", "efforts": [], "context": 200000 },
+        "antigravity": { "id": "gemini-3.6-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
+      }
     },
     {
       "id": "gemini-3-1-pro",
@@ -360,7 +370,10 @@
       "releaseDate": "2026-02-19",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 2, "cached": 0.2, "output": 12 },
-      "on": { "cursor": { "id": "gemini-3.1-pro", "efforts": [], "context": 200000 } }
+      "on": {
+        "cursor": { "id": "gemini-3.1-pro", "efforts": [], "context": 200000 },
+        "antigravity": { "id": "gemini-3.1-pro", "efforts": ["low", "high"], "context": 1048576 }
+      }
     }
   ]
 }

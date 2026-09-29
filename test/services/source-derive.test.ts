@@ -52,6 +52,23 @@ describe("a family with no effort (spec 1.3 §7.1)", () => {
   });
 });
 
+describe("a family one backend runs without an effort (spec 1.3 §7.1)", () => {
+  it("carries the value at the family's default effort to #default, which Cursor and agy's bare model run", () => {
+    const d = keyless();
+    const high = d.scores.filter((s) => s.rung === "gemini-3-8-flash#high");
+    expect(high.length).toBeGreaterThan(0);
+    const bare = d.scores.filter((s) => s.rung === "gemini-3-8-flash#default");
+    // one value per dimension #high has, the best of its values there
+    expect(new Set(bare.map((s) => s.dim))).toEqual(new Set(high.map((s) => s.dim)));
+    for (const s of bare) {
+      expect(s).toMatchObject({ confidence: "adjacent", note: expect.stringContaining("has it at high;") });
+      expect(high.some((h) => h.dim === s.dim && h.value === s.value)).toBe(true);
+    }
+    // every backend of GPT-6 Sol names an effort: no #default
+    expect(d.scores.some((s) => s.rung === "gpt-6-sol#default")).toBe(false);
+  });
+});
+
 describe("anchors and calibration (spec 1.2 §4.1, §4.2)", () => {
   it("takes the anchor's own values as measured", () => {
     expect(find(keyless(), "claude-opus-5-5#high", "agentic", "measured")).toEqual([
