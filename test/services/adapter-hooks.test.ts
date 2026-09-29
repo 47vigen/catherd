@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
-import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
+import { adapterFor, registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
-import { resetReadiness, standInFor } from "../../src/services/backends.ts";
+import { probeBackend, readyAdapter, resetReadiness, standInFor } from "../../src/services/backends.ts";
+import { backendChecks } from "../../src/services/doctor-backends.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import {
   claimSeams,
@@ -191,6 +192,91 @@ describe("prepare", () => {
       fix: expect.stringContaining("cursor"),
     });
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+  });
+});
+
+describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
+  /** What Bun's spawn throws for a binary built for another OS (seen on macOS: a Linux ELF). */
+  const execFormat = (how: "code" | "message") =>
+    how === "code"
+      ? Object.assign(new Error("ENOEXEC: unknown error, posix_spawn '/home/u/.grok/bin/grok'"), {
+          code: "ENOEXEC",
+        })
+      : new Error("spawn /home/u/.grok/bin/grok: exec format error");
+
+  it("reports a CLI the OS cannot execute as installed but unable to run, with the reinstall command", async () => {
+    for (const how of ["code", "message"] as const) {
+      resetReadiness();
+      fake({
+        install: "curl -fsSL https://example.invalid/install.sh | bash",
+        probe: async () => {
+          throw execFormat(how);
+        },
+      });
+      const p = await probeBackend(adapterFor("cursor") as BackendAdapter);
+      expect(p).toEqual({
+        installed: true,
+        version: null,
+        versionOk: false,
+        loggedIn: null,
+        problems: [
+          {
+            code: "E_BACKEND_CANNOT_RUN",
+            message: `cursor is installed but cannot run on this OS: ${how === "code" ? "/home/u/.grok/bin/grok" : "exec format error"}`,
+            fix: "curl -fsSL https://example.invalid/install.sh | bash",
+          },
+        ],
+      });
+      let err: unknown;
+      await readyAdapter("cursor").catch((e: unknown) => (err = e));
+      expect(isCatherdError(err) && err.code).toBe("E_BACKEND_CANNOT_RUN");
+    }
+    // any other failure of a probe is not this one
+    fake({
+      probe: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(probeBackend(adapterFor("cursor") as BackendAdapter)).rejects.toThrow("boom");
+  });
+
+  it("shows it in doctor's backend row as cannot run, with the reinstall command", async () => {
+    process.env.PATH = "/nonexistent";
+    fake({
+      probe: async () => {
+        throw execFormat("code");
+      },
+    });
+    const rows = await backendChecks(new Map(), []);
+    expect(rows.find((r) => r.id === "backend:cursor")).toMatchObject({
+      state: "skip",
+      word: "cannot run",
+      fix: "reinstall cursor for this OS",
+    });
+  });
+
+  it("refuses a backend whose probe finds it logged out, before anything runs (never a browser login)", async () => {
+    let probed = 0;
+    fake({
+      probe: async () => {
+        probed++;
+        return {
+          installed: true,
+          version: "1.0.0",
+          versionOk: true,
+          loggedIn: false,
+          problems: [
+            { code: "E_BACKEND_NOT_LOGGED_IN", message: "cursor is not logged in", fix: "cursor login" },
+          ],
+        };
+      },
+    });
+    const { run, deps } = setup();
+    expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_NOT_LOGGED_IN");
+    expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+    // a failing probe is never kept: once logged in, the next dispatch goes
+    expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_NOT_LOGGED_IN");
+    expect(probed).toBe(2);
   });
 });
 

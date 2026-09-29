@@ -251,6 +251,7 @@ function codexActivity(e: Record<string, any>): string | undefined {
 export const codexAdapter: BackendAdapter = {
   id: "codex",
   minVersion: CODEX_MIN_VERSION,
+  install: "npm i -g @openai/codex",
   probe,
   listModels,
   plan,

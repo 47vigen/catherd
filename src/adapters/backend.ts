@@ -110,6 +110,8 @@ export interface Spent {
 export interface BackendAdapter {
   id: AdapterId;
   minVersion: string;
+  /** the command that installs (or reinstalls) the CLI, for a probe problem's fix */
+  install?: string;
   probe(): Promise<Probe>;
   /** The models the backend offers; in `repo` when given, for a backend whose listing depends on it. */
   listModels(repo?: string): Promise<DiscoveredModel[]>;
