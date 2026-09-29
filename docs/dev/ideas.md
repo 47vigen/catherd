@@ -435,6 +435,54 @@ typing a number.
   toolchain caches that are present (`go env GOCACHE`/`GOMODCACHE`, the pnpm store, `~/.bun/install/cache`) to
   `writable_roots`, and add a `doctor` probe for them.
 
+## From the 1.1.0 platform run (2026-09-28/29)
+
+Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, auth plan 5 MR B) went from 1.1.0 to 1.2.0 mid-run, during a pause. It ran seven worker lanes, a writer, a reviewer, and a verifier in three rounds. Evidence lives in that run folder (`runs.jsonl`, the lane files and the role records).
+
+**Delivery and the loop**
+
+- **Messages arrive only when the next turn starts.** worker-M3.L1 ended at 17:43:08, and its catherd message reached the main thread only after the owner's next message, about 20 min later. An idle main thread is not woken. Until something wakes it, `peek` is the only way to see it, and the owner read the silence as a hang. Fix: wake an idle owner session, or let `status` show "finished, unread" prominently.
+- **`protocol.next` ignores lane order.** It said "dispatch M3.L3, M3.L4" while both depended on L1's kit changes, which have to compile first. Admission guards only file overlap, not package-level compile coupling. Fix: add a `After: M3.L1` lane header that `protocol.next` and admission respect.
+- **The dispatch description still says "wait(run) collects its record".** `wait` was removed in 1.1.0.
+
+**Lanes and Owns**
+
+- **An Owns list cannot grow mid-lane.**
+  - L3 (Task 11 Go) ended partial on `services/notification/cmd/notification/audit_platform_test.go:93`, outside its Owns. The plan's grep excluded `_test.go`.
+  - L4 (Task 12) stopped on four panel clones that `dupes` found only after the allowlist emptied.
+  - Each case needed a hand-written lane: L5, L6, L7, and a rescoped L4.
+
+  Fix: an `owns_add(run, lane, paths, why)` tool that re-checks overlap. Clone-driven work also needs a "discover, then split" step, because the files are knowable only after the gate runs.
+- **A writer's edits are blamed on the lanes.** The writer role has no lane and no Owns:
+  - its record reads "0 owned files changed" after it edited 11 docs;
+  - the L4 fix record listed its 7 concurrent doc edits as L4 violations.
+
+  Fix: give non-lane roles an Owns (or a docs lane), and attribute each edit to the process that wrote it.
+- **Jev overrode the lane headers.** All four first lanes declared `Kind`/`Difficulty`, and routing replaced them (declared logic → `repo_code`/`copy`), so the logic lanes started on `luna#high`. Fix: a declared header wins, or the route record says why it didn't.
+- **A lane could not declare an allowed exception to its own absence grep.** The plan's `func Allowed` grep also matched an unrelated `services/verification/internal/job/command.go:120`, and `acceptancetest\.SignIn` matched the surviving `SignInAuth` and `SignInSSO`. The workers returned partial correctly, but a check that can never pass looks the same as work that isn't done yet. Fix: an `Allow:` line under the check, and word boundaries in plan greps.
+- **`dispatch` accepted a thread id that doesn't exist.** The orchestrator passed a wrong thread for the L4 fix, the role launched, and codex failed with "no rollout found for thread id". Fix: check `thread` against `runs.jsonl` (same name) before launching, or default to the name's last thread.
+
+**Preflight and environment**
+
+- **Preflight runs without the user's environment.** The testcontainers checks in L1 and L3 failed "rootless Docker not found", because `DOCKER_HOST` points at OrbStack and preflight doesn't inherit it. They were reported as fails-as-expected, not as cannot-start. Fix: run preflight in the user's login environment, and class "cannot start" apart from "fails as expected".
+- **The verdict has no environment class.** In verifier rounds 2 and 3, both acceptance suites failed on the environment:
+  - a connected Cisco AnyConnect socket filter drops unsigned binaries' connections to the docker bridge subnet, while `curl` passes, and a 20-line Go binary reproduces it;
+  - `proxy.golang.org` returned EOF inside an image build.
+
+  Both came out as a plain FAIL. Fix: a verdict of `BLOCKED: environment`, with the probe that proves it, so the orchestrator surfaces the blocker instead of cycling fix rounds.
+- **The version bump changed the sandbox silently.** Worker records went from `workspace-write, isolated: true` (1.1.0) to `access: full, isolated: false` (1.2.0) with no note in the run. Fix: pin the protocol and the sandbox per run, or log the change in `state.md`.
+
+**Verifier**
+
+- **The foreground verifier handed off and ended.** Its first turn ended after 80 s with "the status monitor will report each one as it finishes". No monitor reports to the main thread, so it had to be resumed with SendMessage, and ending the turn killed an auth `task check` mid-govulncheck. Fix: the verifier prompt forbids background watchers and ending the turn while a command runs.
+- **Lint reached only the verifier.** The workers' fast checks ran `go test`, never `golangci-lint`, so an `unparam` in tokenapi and a `revive` in both services' `audit_names.go` cost a full verifier round of about 43 min. Fix: a lane's fast check includes the linter of every package it touched.
+- **`gate_check` carried nothing across rounds.** The round-2 verifier didn't have round 1's item names, so every item ran again. Fix: `gate_check` lists the milestone's recorded items, and the verifier reuses their names.
+
+**Ledger and knowledge**
+
+- **`land` accepted inexact verifier names.** M2 landed with verifier records named `verifier-M2-pre`, `-gate1` and `-gate3`, with no exact `verifier-M2` row. Its ledger minutes (1689) counted the whole paused night. Fix: match the name exactly, and subtract the pauses.
+- **`knowledge.md` is keyed by worktree path.** Every worktree (`dev-registry`, `auth-verification`, `auth-kit-cleanup`) is a new repo, so `read_knowledge` for M3 was empty although M1 and M2 wrote `learned`. Fix: key by the git origin.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
