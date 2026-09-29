@@ -31,8 +31,11 @@ bun run format:check
 bun test
 ```
 
-CI runs them on Linux and macOS, on Bun 1.4.0 and the latest Bun, and on one job also checks the coverage floor
-over `src/`:
+CI runs them once, on the pull request, and only when it touches code (`src/`, `test/`, `catalog/`, `plugin/`,
+`scripts/`, `.github/`, `package.json`, `bun.lock` or the tool configs): on Linux with Bun 1.4.0 and the latest Bun,
+and on macOS with the latest Bun. A nightly run on `main` adds macOS with Bun 1.4.0. A docs-only pull request runs
+only `format:check`. The required check is the `ci` job, which passes when every job that ran passed. One job also
+checks the coverage floor over `src/`:
 
 ```sh
 bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
@@ -73,10 +76,63 @@ opencode) is an adapter under `src/adapters/`. Each CLI subcommand file is named
 
 ## Releases
 
-Releases go through [Changesets](https://github.com/changesets/changesets). On `main`, the release workflow opens
-or updates a "chore: release catherd" pull request that bumps the version, writes `CHANGELOG.md` and stamps the
-plugin's version (`bun run version-packages`). Merging that pull request publishes `catherd-cli` to npm, pushes the
-`v<version>` tag and creates a GitHub release.
+Releases go through [Changesets](https://github.com/changesets/changesets) and `.github/workflows/release.yml`, the
+workflow npm's trusted publisher is bound to (OIDC, no npm token). It runs no tests: every change was tested on its
+pull request.
+
+1. A pull request with a changeset merges into `main`.
+2. The release workflow opens or updates the "chore: release catherd" pull request, which bumps the version, writes
+   `CHANGELOG.md` and stamps the plugin's version (`bun run version-packages`). Its CI is short: it checks the
+   format and runs the npm pack smoke on the new version, and skips the test matrix.
+3. Merging it publishes `catherd-cli` to npm under `latest` (after the pack smoke, about a minute), pushes the
+   `v<version>` tag, which the plugin marketplace serves, and creates a GitHub release.
+
+## Beta channel
+
+`beta` is a long-lived branch. Every push to it publishes a snapshot, `x.y.z-beta.<datetime>` (for example
+`1.3.0-beta.20260929095202`), under npm's `beta` dist-tag, in a few minutes. There is no release pull request, and
+`latest` never moves. `x.y.z` is the version the branch's changesets would release, so a beta needs at least one
+changeset; a push with none publishes nothing.
+
+Why snapshots and not changesets pre mode: pre mode needs a version pull request on `beta` and a `changeset pre
+exit` before promotion, and it commits `pre.json` and prerelease changelog entries that then conflict with `main`.
+A snapshot changes only the release runner's copy, so `beta` keeps its changesets and promotes to `main` as a plain
+merge.
+
+Cut a beta:
+
+```sh
+git switch -c my-change origin/beta
+bunx changeset                      # the bump the stable release will get
+git push -u origin my-change        # open the pull request against beta; merge it when ci is green
+```
+
+Or push straight to `beta`. After the publish, `npm view catherd-cli dist-tags` shows it.
+
+Use a beta:
+
+- The CLI: `bunx catherd-cli@beta`, or `bun add -g catherd-cli@beta`.
+- The plugin: each beta publish also force-pushes the `plugin-beta` branch, whose marketplace is named
+  `catherd-beta` and pins the plugin to that beta. In Claude Code, uninstall the stable `catherd@catherd` first
+  (both would start an MCP server named catherd), then:
+
+  ```
+  /plugin marketplace add https://github.com/47vigen/catherd.git#plugin-beta
+  /plugin install catherd@catherd-beta
+  ```
+
+  After the next beta, run `/plugin marketplace update catherd-beta` and restart Claude Code. To go back,
+  uninstall `catherd@catherd-beta` and install `catherd@catherd` again.
+
+Promote beta to stable:
+
+1. Open a pull request from `beta` to `main` and merge it **with a merge commit** (not squash), so `beta` stays an
+   ancestor of `main`. Its changesets come along.
+2. Merge the "chore: release catherd" pull request as usual; that publishes `latest`.
+3. Bring `beta` up to date: `git push origin origin/main:beta` (a fast-forward). It publishes nothing, because the
+   release consumed the changesets.
+
+A fix that lands on `main` while a beta is open reaches `beta` by merging `main` into it.
 
 ## Live tests and fixture capture
 

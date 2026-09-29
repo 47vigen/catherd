@@ -39,7 +39,9 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
 - The TUI follows opencode's: `@opentui/react`, `@opentui/keymap`, a `ctrl+p` palette, a `ctrl+x` leader, 16 theme
   tokens; keyboard-first, predictable, no surprises.
 - Releases are versioned with Changesets; the Release workflow opens "chore: release catherd", and merging it
-  publishes to npm through OIDC and stamps the plugin version.
+  publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
+  Release runs only the pack smoke. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
+  `beta` dist-tag. CONTRIBUTING.md, "Releases" and "Beta channel", has the flow and the promotion steps.
 - Cursor CLI and Grok CLI adapters are planned (`docs/plans/2026-09-26-08-cursor-grok.md`), on hold until the owner
   says.
 
