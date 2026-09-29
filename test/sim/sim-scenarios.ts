@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -128,5 +128,16 @@ export interface GrokScenario extends Common {
 
 export const withClaudeScenario = (s: ClaudeScenario) => write("CATHERD_SIM_CLAUDE", s);
 export const withCursorScenario = (s: CursorScenario) => write("CATHERD_SIM_CURSOR", s);
-export const withGrokScenario = (s: GrokScenario) => write("CATHERD_SIM_GROK", s);
+/**
+ * The sim reads a Grok login as the auth.json in GROK_HOME (research §3.9), and `withHome` pins GROK_HOME to the
+ * test's temp home: a scenario logged in (the default) gets one there.
+ */
+export function withGrokScenario(s: GrokScenario) {
+  const home = process.env.GROK_HOME;
+  if (home && s.loggedIn !== false && !existsSync(join(home, "auth.json"))) {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "auth.json"), "{}");
+  }
+  return write("CATHERD_SIM_GROK", s);
+}
 export const withOpencodeScenario = (s: OpencodeScenario) => write("CATHERD_SIM_OPENCODE", s);
