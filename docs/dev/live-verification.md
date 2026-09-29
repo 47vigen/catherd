@@ -3,7 +3,7 @@
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
 access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10); since 1.3 the Cursor and Grok Build adapters (spec 1.3 §10, sections 11 and 12). Run it on your own machine before a
+§11, section 10); since 1.3 the Cursor, Grok Build and Antigravity adapters (spec 1.3 §10, sections 11 to 13). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -715,3 +715,116 @@ limit came as an `error` event.
 **12. Trust and the project's instructions.** In a scratch repo with an `AGENTS.md` that says "End every reply with
 the word MARMALADE.", run one grok worker lane. Look for: the reply ends with MARMALADE (`--trust` loads the
 project's instructions headless; research §3.7 could not tell whether an untrusted run skips them).
+
+## 13. Antigravity (1.3, plan 17)
+
+Spec 1.3 §6 and §10, research 2026-09-29 §8 (Antigravity). Nothing below that needs a model turn has been seen live:
+plan 17's rulings name what each step confirms. Write down every difference, with the step's number; a step that
+fails its "look for" is a ruling to revisit before the release. **Never run `agy -p` signed out**: it opens a
+browser and waits 60 s (research §4.8).
+
+**Setup.** Install agy 1.2.13 or newer (`brew install --cask antigravity-cli`), run `agy` once and sign in with
+Google. For the isolated steps also create a Gemini API key and `export GEMINI_API_KEY=<key>` in that shell only.
+
+```sh
+agy --version                          # 1.2.13 or newer
+catherd doctor --json | jq -r '.checks[] | select(.id | test("antigravity")) | "\(.id) \(.state) \(.word): \(.detail)"'
+```
+
+Look for: `backend:antigravity ok ready: 1.2.13 · Google login · <n> models` (or `warn billing` while the profile
+still bills `antigravity` as `metered`), `quota:antigravity info` with your plan's quota (Ruling on `/usage`),
+`isolation:antigravity`, and `access:antigravity skip not tested` for a profile with a workspace-write role on it.
+
+**1. The model listing (Rulings on the listing format and the effort fold).**
+
+```sh
+agy models
+catherd catalog refresh && catherd catalog list --backend antigravity
+```
+
+Look for: the listing's format (plan 17 reads each line's first word as a slug); whether slugs carry an effort
+suffix (`gemini-3.8-flash-high`) or not; and the ids of the four Gemini families in `catalog/models.json`
+`on.antigravity` (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`) with their efforts
+(catherd assumes `low, medium, high` for Flash and `low, high` for Pro). Write down every difference; each fixes
+`on.antigravity` or `parseAgyModels`. Also try `agy models --output-format json`: if it now works, the parser can
+read it instead.
+
+**2. A headless run with the pointer prompt (Ruling on the prompt route and the stream).**
+
+```sh
+catherd capture-fixtures --backend antigravity --out /tmp/agy-fixtures
+ls /tmp/agy-fixtures/antigravity/*/
+```
+
+Needs `GEMINI_API_KEY` (capture runs isolated). Look for three cases captured: `ok`, `resume`, `read-only-write`.
+In `ok.jsonl`: one `init`, `step_update` events (is each payload nested under `step_update`, as the `result` line
+is?), `tool` steps with `tool_name` and `tool_info`, and exactly one `result` with `status: "SUCCESS"`, a
+`conversation_id`, and `usage`. In `ok.json`: `outcome.status` `ok`, and non-zero tokens. Check that
+`result.response` is the final message only, and whether `input_tokens` includes `cache_read_tokens`. Copy the
+three streams over `test/fixtures/adapters/antigravity/` (keeping the synthetic ones' names) and run
+`bun test test/adapters/antigravity*.test.ts`; a failure there is a parser ruling to revisit.
+
+**3. The stdin route (the prompt route's fallback).** In a scratch repo:
+
+```sh
+scratch="$(mktemp -d)" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
+printf '%s\n' '{"event":"user","message":{"content":"Reply with the word hello."}}' > in.jsonl
+agy --input-format stream-json --output-format stream-json --model gemini-3.8-flash --disable-slash-commands < in.jsonl | tail -1
+```
+
+Look for: a `SUCCESS` result that says hello. Note it either way; catherd uses the pointer prompt of step 2, and
+this route replaces it only if step 2 shows agy ignoring the brief file.
+
+**4. `--sandbox --dangerously-skip-permissions` still confines shell (Ruling on workspace-write).**
+
+```sh
+agy -p 'Run the shell command: touch /tmp/catherd-agy-outside.txt. Then run: touch inside.txt. Report each result.' \
+  --output-format stream-json --model gemini-3.8-flash --disable-slash-commands --sandbox --dangerously-skip-permissions | tail -1
+ls /tmp/catherd-agy-outside.txt inside.txt
+```
+
+Look for: `inside.txt` exists and `/tmp/catherd-agy-outside.txt` does not (then `rm` it if it does). If the outside
+write went through, the ruling fails: isolated `workspace-write` must use `toolPermission: "proceed-in-sandbox"`
+in catherd's settings, and native `workspace-write` stays advisory (spec 1.3 §6.3). Then ask for a `write_file`
+outside the repo the same way: the file tools are expected **not** to be confined (enforcement `advisory`).
+
+**5. The isolated deny rules hold headless (Ruling on the settings file and read-only).**
+
+```sh
+CATHERD_LIVE=1 bun test test/live/antigravity.live.test.ts
+cat ~/.local/share/catherd/agy-home/read-only/.gemini/antigravity-cli/settings.json
+```
+
+Look for: both tests pass (the isolated one only with `GEMINI_API_KEY`): the read-only role wrote no `out.txt`. The
+settings hold `modelProvider: "gemini"` and `permissions.deny: ["write_file(*)", "command(*)"]`; if agy ignores
+that shape, find the documented one and correct `agySettings`. Note where `denied_actions` appear in the stream.
+
+**6. Resume keeps the conversation (Ruling on `sameAccessOnly`).** Step 5's first test resumes the conversation it
+started and the reply names `out.txt`. By hand, resume one of step 2's conversation ids with a changed `--sandbox`
+(add or drop it): if agy takes the new flags, `resume.sameAccessOnly` can become `false`.
+
+**7. The Keychain login under another HOME (Ruling on isolation keys).**
+
+```sh
+HOME="$(mktemp -d)" agy models
+```
+
+Look for: `Please sign in` (the login does not follow a moved HOME, so isolation needs the key, spec 1.3 §9 Q6).
+If it lists models instead, note it: isolation could then run on the Google login.
+
+**8. A quota stop and `/usage` (Rulings on the limit texts and doctor's quota).**
+
+```sh
+agy -p "/usage" --output-format json
+```
+
+Look for: an answer with no agent turn (no `step_update`; nothing spent in the quota it prints). If a quota stop can
+be hit (a small Gemini API spend cap), save its stderr: the `AGY_ERROR:` line's fields, and check that
+`catherd runs show <id>` records the role as `limit`.
+
+**9. Plan terms (spec 1.3 §9 Q7).** On a network that reaches antigravity.google, read the Antigravity terms for
+whether an orchestrator may drive `agy` on a consumer plan, and record the answer here. Until then the README
+points automation at the API-key route.
+
+**10. Auto-update stays off during a run.** During step 5, `agy --version` before and after is the same, with
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` in the worker's env (spec 1.3 §3.3).
