@@ -194,6 +194,49 @@ describe("prepare", () => {
   });
 });
 
+describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
+  const KEEPS = { supported: true, sameAccessOnly: true, threadPattern: /^th-\d+$/ };
+
+  it("refuses to resume a thread under another access before anything runs, and resumes it under the same", async () => {
+    const seen: unknown[] = [];
+    fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
+    const { run, deps } = setup();
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    await appendRecord(
+      run,
+      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+    );
+    let err: unknown;
+    await admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" })).catch(
+      (e: unknown) => (err = e),
+    );
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_ADMIT_THREAD",
+      message:
+        "cursor keeps the access a thread started with: th-7 ran workspace-write, and the reviewer role runs read-only",
+      fix: "dispatch a fresh thread (omit `thread`)",
+    });
+    expect(seen).toEqual([]);
+    expect(existsSync(roleDir(run, "reviewer-1"))).toBe(false);
+    expect(await refusal(admit(deps, run, input({ thread: "th-7" })))).toBe("admitted");
+    // a thread catherd has no record of is the backend's to refuse
+    expect(await refusal(admit(deps, run, input({ name: "w2", thread: "th-9" })))).toBe("admitted");
+  });
+
+  it("resumes under any access on a backend that applies each run's own flags", async () => {
+    fake();
+    const { run, deps } = setup();
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    await appendRecord(
+      run,
+      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+    );
+    expect(
+      await refusal(admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" }))),
+    ).toBe("admitted");
+  });
+});
+
 describe("finalize's overlap window", () => {
   it("counts a lane that ended between this dispatch's admission and its worker's start as another's", async () => {
     const { run } = freshRun();
