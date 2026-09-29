@@ -1,0 +1,3 @@
+{"type":"text","data":"hello\nSTATUS: complete — said hello"}
+{"type":"usage","messageId":"resp_1","stopReason":"end_turn","usage":{"input_tokens":812,"output_tokens":45,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"reasoning_tokens":0},"signature":"<sig>"}
+{"type":"end","stopReason":"end_turn","sessionId":"4d0b3e2f-8c5e-4f9b-a071-2e3d4c5b6f70","requestId":"req_2","usage":{"input_tokens":812,"output_tokens":45,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"reasoning_tokens":0,"total_tokens":857},"num_turns":1}
