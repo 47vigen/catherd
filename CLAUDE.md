@@ -42,8 +42,8 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
   publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
   Release re-tests only a direct push, and runs the pack smoke before a publish. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
   `beta` dist-tag. CONTRIBUTING.md, "Releases" and "Beta channel", has the flow and the promotion steps.
-- Cursor CLI and Grok CLI adapters are planned (`docs/plans/2026-09-26-08-cursor-grok.md`), on hold until the owner
-  says.
+- Cursor CLI, Grok Build and Antigravity CLI (`agy`) adapters are designed for 1.3 (spec
+  `docs/specs/2026-09-29-catherd-1.3-design.md`, plans 15–17; plan 8 is superseded), on hold until the owner says.
 
 ## Autopilot: executing plans end to end
 
