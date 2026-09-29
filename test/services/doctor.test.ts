@@ -22,12 +22,14 @@ import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { configFile } from "../../src/services/profile-store.ts";
 import { fakeFetch } from "../fake-fetch.ts";
-import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import {
+  type AgyScenario,
   type CursorScenario,
   type GrokScenario,
   type OpencodeScenario,
+  withAgyScenario,
   withClaudeScenario,
   withCursorScenario,
   withGrokScenario,
@@ -62,6 +64,7 @@ function machine(
     opencode?: OpencodeScenario;
     cursor?: CursorScenario;
     grok?: GrokScenario;
+    agy?: AgyScenario;
     bins?: string[];
   } = {},
 ): string {
@@ -81,9 +84,11 @@ function machine(
     withOpencodeScenario({ models: fx("opencode/models.json").data, ...o.opencode }).env,
     withCursorScenario({ modelsFile: join(FX, "cursor", "models.txt"), ...o.cursor }).env,
     withGrokScenario({ ...o.grok }).env,
+    withAgyScenario({ modelsFile: join(FX, "antigravity", "models.txt"), ...o.agy }).env,
   );
   delete process.env.CURSOR_API_KEY;
   delete process.env.XAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
   return home;
 }
 
@@ -126,6 +131,7 @@ describe("doctor", () => {
       "backend:opencode": "ok ready",
       "backend:cursor": "skip missing",
       "backend:grok": "skip missing",
+      "backend:antigravity": "skip missing",
       jev: "warn no key",
       sources: "info not synced",
       plugin: "ok ready",
@@ -220,6 +226,46 @@ describe("doctor", () => {
       detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
       fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
     });
+  });
+
+  it("shows agy's version, Google login, listing and quota, its isolation note and its untested access", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "agy"] });
+    // the probe reads HOME's agy settings: never the user's own
+    process.env.HOME = tempDir("catherd-userhome-");
+    installPlugin(VERSION);
+    const saved = patchProfile("default", {
+      roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } },
+    });
+    expect(saved.saved).toBe(true);
+    const r = await run();
+    expect(check(r, "backend:antigravity")).toMatchObject({
+      state: "warn",
+      word: "billing",
+      detail:
+        "1.2.13 · Google login · profile default bills antigravity as metered, but this login is subscription · 6 models",
+      fix: "catherd profile set billing.antigravity subscription --profile default",
+    });
+    expect(check(r, "quota:antigravity")).toMatchObject({
+      state: "info",
+      detail: "Weekly quota: 62% left, resets Monday 09:00",
+    });
+    expect(check(r, "isolation:antigravity")?.detail).toBe(
+      "native Antigravity shares its settings and permission rules with the Antigravity desktop app",
+    );
+    expect(check(r, "access:antigravity")).toMatchObject({ state: "skip", word: "not tested" });
+    expect(r.ready).toBe(true);
+  });
+
+  it("fails a logged-out agy a role runs on, with the login fix, and asks it no quota", async () => {
+    const usageTo = join(tempDir("catherd-usage-"), "args");
+    machine({ bins: ["codex", "claude", "opencode", "agy"], agy: { loggedIn: false, usageTo } });
+    process.env.HOME = tempDir("catherd-userhome-");
+    installPlugin(VERSION);
+    patchProfile("default", { roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } } });
+    const r = await run();
+    expect(check(r, "backend:antigravity")).toMatchObject({ state: "fail", word: "not logged in" });
+    expect(check(r, "quota:antigravity")).toBeUndefined();
+    expect(existsSync(usageTo)).toBe(false);
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {

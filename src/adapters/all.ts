@@ -1,3 +1,4 @@
+import { antigravityAdapter } from "./antigravity/index.ts";
 import { claudeCodeAdapter } from "./claude-code/index.ts";
 import { codexAdapter } from "./codex/index.ts";
 import { cursorAdapter } from "./cursor/index.ts";
@@ -10,3 +11,4 @@ registerAdapter(claudeCodeAdapter);
 registerAdapter(opencodeAdapter);
 registerAdapter(cursorAdapter);
 registerAdapter(grokAdapter);
+registerAdapter(antigravityAdapter);
