@@ -68,8 +68,9 @@ jobs:
             *) echo "::notice::no changesets on beta, nothing to publish"; exit 0 ;;
           esac
           # the tests ran on the PR, not here: publish only a commit that a PR into beta merged with ci green
-          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
-            -q '[.[] | select(.merged_at != null and .base.ref == "beta")][0].number // empty')
+          # the closed PRs into beta, not commits/{sha}/pulls: that one lists only open PRs for a commit off main
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=beta&sort=updated&direction=desc&per_page=30" \
+            -q '[.[] | select(.merge_commit_sha == env.GITHUB_SHA)][0].number // empty')
           if [ -z "$pr" ]; then
             echo "::error::$GITHUB_SHA reached beta without a pull request, so ci never tested it; nothing published"
             exit 1
