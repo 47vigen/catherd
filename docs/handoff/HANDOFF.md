@@ -14,7 +14,7 @@ every model-turn behaviour is a Ruling plus a live-verification step.
 | Plan | File | State |
 | ---- | ---- | ----- |
 | 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | **merged** (PR #30: replayed from the pre-validated scratch; one Codex round, 2 P2 fixed; final review 0 C / 1 I fixed; ledger `plan15-ledger.md`) |
-| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch (8 tasks, gate green); **not executed** |
+| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | **merged** (PR #31: replayed from the pre-validated scratch; final review 0 C / 2 I fixed + scoped re-review clean; one Codex round, 1 P2 fixed, 2 tracked; ledger `plan16-ledger.md`) |
 | 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch (9 tasks, gate green, carries the changeset); **not executed** |
 
 **The owner said go on 2026-09-29; plans run in order 15 → 16 → 17.** The spec's §9 questions are closed: on 2026-09-29 the owner

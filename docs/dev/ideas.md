@@ -515,6 +515,11 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **sandbox.toml: bare keys after catherd's block change tables** when the block moves to the end; and two catherd
   homes on one machine rewrite each other's block. Both rare. (Plan 16 final review, Minors 3 and 5.)
 
+- **A sandbox.toml link catherd cannot follow or write** (dangling, or into a read-only store such as Nix) fails
+  closed with a raw ENOENT/EACCES instead of `E_CONFIG_INVALID` and the isolate fix. And `sessionFor` could hash
+  the dispatch id alone rather than the full dispatch path, so a differently resolved data dir cannot change it.
+  (Plan 16 re-review, Minors.)
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
