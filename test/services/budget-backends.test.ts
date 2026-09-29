@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
+import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { readyAdapter, resetReadiness } from "../../src/services/backends.ts";
 import { budgetOf, liveTokens, spendOf } from "../../src/services/budget.ts";
@@ -10,6 +12,8 @@ import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDispatch, freshRun, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
+// a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
+afterEach(() => registerAdapter(antigravityAdapter));
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const agentRun = {
@@ -75,7 +79,8 @@ describe("readyAdapter", () => {
   it("refuses a backend with no adapter, and a CLI that is logged out or too old, with its fix", async () => {
     resetReadiness();
     process.env.PATH = simPath();
-    expect((await code(readyAdapter("antigravity"))).code).toBe("E_BACKEND_MISSING"); // no adapter until plan 17
+    unregisterAdapter("antigravity");
+    expect((await code(readyAdapter("antigravity"))).code).toBe("E_BACKEND_MISSING");
     Object.assign(process.env, withScenario({ loggedIn: false }).env);
     expect(await code(readyAdapter("codex"))).toEqual({
       code: "E_BACKEND_NOT_LOGGED_IN",

@@ -85,3 +85,24 @@ export async function discovered(
   if (models.length === 0) return cached?.models ?? [];
   return writeDiscovery(backend, models, now, o.repo).models;
 }
+
+/**
+ * Spec 1.3 §4.6, §6.6: a listing's slugs by model, those that differ only by one of `suffixes` (`gpt-6-sol-xhigh`,
+ * `gemini-3.8-flash-high`) folded into one; each model's efforts hold the suffixes it was listed with, and
+ * `default` when its bare slug is listed too.
+ */
+export function foldEffortSlugs(slugs: string[], suffixes: readonly string[]): Map<string, Set<string>> {
+  const byModel = new Map<string, Set<string>>();
+  for (const slug of slugs) {
+    const effort = suffixes.find((e) => slug.endsWith(`-${e}`));
+    const model = effort ? slug.slice(0, -(effort.length + 1)) : slug;
+    const efforts = byModel.get(model) ?? new Set<string>();
+    efforts.add(effort ?? "default");
+    byModel.set(model, efforts);
+  }
+  return byModel;
+}
+
+/** A listing may be coloured: ESC `[` … a letter. */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
+export const stripAnsi = (text: string): string => text.replace(ANSI, "");

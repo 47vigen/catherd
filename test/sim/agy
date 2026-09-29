@@ -1,0 +1,134 @@
+#!/usr/bin/env bun
+// Antigravity CLI (agy) simulator for catherd's tests (research 2026-09-29 §4): behaviour comes from the JSON
+// scenario in CATHERD_SIM_AGY.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_AGY ?? "", "utf8")) as Record<string, any>;
+const args = process.argv.slice(2);
+const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+const fail = (text: string, code = 1): never => {
+  process.stderr.write(`${text}\n`);
+  process.exit(code);
+};
+const home = process.env.HOME ?? "";
+const settingsFile = join(home, ".gemini", "antigravity-cli", "settings.json");
+const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : null;
+// research §4.8: a Google login (the scenario's), or GEMINI_API_KEY with modelProvider "gemini" in the settings
+const loggedIn =
+  s.loggedIn !== false || (!!process.env.GEMINI_API_KEY && settings?.modelProvider === "gemini");
+
+if (args[0] === "--version" || args[0] === "-version") {
+  say(s.version ?? "1.2.13");
+  process.exit(0);
+}
+if (args[0] === "models") {
+  // research §4.5 [run]: `--output-format` is not a flag of `models` in 1.2.13
+  if (args.length > 1) fail(`flags provided but not defined: ${args[1]}`, 2);
+  say("Fetching available models...");
+  if (!loggedIn)
+    fail("Error: Please sign in to view available models. Launch the CLI without arguments to sign in.");
+  if (s.modelsFile) process.stdout.write(readFileSync(s.modelsFile, "utf8"));
+  process.exit(s.modelsExit ?? 0);
+}
+
+// Go `flag`: one or two dashes; `-name value` or `-name=value`
+const VALUE = [
+  "p",
+  "print",
+  "prompt",
+  "output-format",
+  "input-format",
+  "model",
+  "effort",
+  "mode",
+  "add-dir",
+  "conversation",
+  "print-timeout",
+  "json-schema",
+  "agent",
+  "project",
+  "log-file",
+];
+const BOOL = ["sandbox", "dangerously-skip-permissions", "disable-slash-commands", "c", "continue", "new-project"];
+const CHOICES: Record<string, string[]> = {
+  effort: ["low", "medium", "high", "max"],
+  "output-format": ["text", "json", "stream-json"],
+  "input-format": ["text", "stream-json"],
+};
+const opts: Record<string, string> = {};
+for (let i = 0; i < args.length; i++) {
+  const a = args[i] as string;
+  if (!a.startsWith("-")) fail(`sim: unexpected argument ${a}`, 2);
+  const [name, inline] = a.replace(/^--?/, "").split(/=(.*)/s) as [string, string | undefined];
+  if ((s.unknownFlags ?? []).includes(`--${name}`) || (!VALUE.includes(name) && !BOOL.includes(name)))
+    fail(`flags provided but not defined: -${name}\nUsage of agy:\n  -p string\n    \tprompt`, 2);
+  opts[name] = VALUE.includes(name) ? (inline ?? args[++i] ?? "") : "true";
+  const allowed = CHOICES[name];
+  if (allowed && !allowed.includes(opts[name] as string))
+    fail(`invalid value "${opts[name]}" for flag -${name}: must be one of ${allowed.join("|")}`, 2);
+}
+const prompt = opts.p ?? opts.print ?? opts.prompt;
+if (prompt === undefined) fail("sim: only print mode is simulated", 2);
+const json = opts["output-format"] ?? "text";
+
+if (!loggedIn) {
+  // research §4.8 [run]: headless does not fail fast; it opens the browser and waits 60 s
+  if (s.browserTo) appendFileSync(s.browserTo, "opened\n");
+  process.stderr.write("Authentication required. Please visit the URL to log in: https://accounts.google.com/o/oauth2/auth?sim\n");
+  say(
+    '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"authentication failed or timed out","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}',
+  );
+  process.exit(1);
+}
+
+// research §4.8: `/usage` answers without an agent turn
+if (prompt === "/usage" && !opts["disable-slash-commands"]) {
+  if (s.usageTo) appendFileSync(s.usageTo, `${JSON.stringify(args)}\n`);
+  if (s.usageExit) fail("Error: could not read usage", s.usageExit);
+  say(
+    JSON.stringify(
+      s.usage ?? {
+        conversation_id: "",
+        status: "SUCCESS",
+        response: "Weekly quota: 62% left, resets Monday 09:00",
+        error: "",
+      },
+    ),
+  );
+  process.exit(0);
+}
+if (json !== "stream-json") fail("sim: only stream-json runs are simulated", 2);
+
+const PICKED = ["AGY_CLI_DISABLE_AUTO_UPDATE", "CATHERD_DATA_DIR", "CATHERD_CONFIG_DIR"];
+writeFileSync(
+  s.recordTo,
+  JSON.stringify({
+    args,
+    stdin: prompt,
+    cwd: process.cwd(),
+    pwd: process.env.PWD ?? null,
+    xdgConfig: process.env.XDG_CONFIG_HOME ?? null,
+    home: process.env.HOME ?? null,
+    vars: Object.fromEntries(PICKED.flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]]]))),
+    settings,
+    envKeys: Object.keys(process.env),
+  }),
+);
+const conversation = opts.conversation ?? "00000000-0000-4000-8000-0000000a9e1d";
+setTimeout(async () => {
+  for (const t of s.touch ?? []) {
+    mkdirSync(dirname(join(process.cwd(), t.path)), { recursive: true });
+    writeFileSync(join(process.cwd(), t.path), t.content);
+  }
+  if (s.eventsFile)
+    process.stdout.write(
+      readFileSync(s.eventsFile, "utf8")
+        .replace(/"conversation_id":"[^"]+"/g, `"conversation_id":"${conversation}"`)
+        .replaceAll("<repo>", process.cwd()),
+    );
+  if (s.stderr) process.stderr.write(s.stderr);
+  // research §4.4: agy leaves daemon background tasks running after its result
+  if (s.hangMs) await Bun.sleep(s.hangMs);
+  process.exit(s.exitCode ?? 0);
+}, s.delayMs ?? 0);

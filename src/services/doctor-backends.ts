@@ -128,6 +128,10 @@ export async function backendChecks(
             }
           : { id: `backend:${id}`, label: id, state: "ok", word: "ready", detail },
       );
+      // spec 1.3 §6.6: asked only of a logged-in CLI (a logged-out agy -p would open a browser)
+      const quota = probe.loggedIn && a.quota ? await a.quota().catch(() => null) : null;
+      if (quota)
+        checks.push({ id: `quota:${id}`, label: `${id} quota`, state: "info", word: "quota", detail: quota });
       continue;
     }
     checks.push({

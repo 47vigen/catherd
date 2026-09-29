@@ -1,8 +1,33 @@
 # Upgrading catherd
 
+- [From 1.2 to 1.3](#from-12-to-13)
 - [From 1.1 to 1.2](#from-11-to-12)
 - [From 1.0 to 1.1](#from-10-to-11)
 - [From 0.x to 1.0](#from-0x-to-10)
+
+## From 1.2 to 1.3
+
+1.3 reads 1.2's profiles, runs, credentials and catalog as they are; nothing is moved or converted, and `init` asks
+nothing new. Upgrade the same way as to 1.2, then start a new Claude Code session:
+
+```sh
+bun add -g catherd-cli@latest && catherd doctor
+claude plugin marketplace update catherd && claude plugin update catherd@catherd
+```
+
+- Three backends join: Cursor (`cursor:`), Grok Build (`grok:`) and Antigravity (`antigravity:`). Each is off until a
+  profile puts a rung on it; the default profile is unchanged. The README's backend sections say how each logs in,
+  what each access mode runs, and what isolation needs.
+- `catherd doctor` shows a `backend:` row for each, missing or not, and for a backend a profile uses, its
+  `isolation:` and `access:` rows. `quota:antigravity` shows a signed-in agy's plan quota.
+- Isolating Cursor, Grok or Antigravity needs its API key (`CURSOR_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`) in the
+  environment catherd runs in: a profile that isolates one without it no longer validates.
+- A read-only role (architect, reviewer, researcher by default) cannot run on native Antigravity, which has no
+  read-only mode: isolate it, or put the role on another backend.
+- A thread resumed under another access or network grant than it started with is refused on a backend that keeps a thread's access
+  (Grok, Antigravity), with the fix "dispatch a fresh thread".
+- After the next sync, Gemini, Grok and Composer rungs have scores of their own. Grok and Gemini rungs fail over
+  between Grok Build or Antigravity and Cursor on a usage limit unless your profile names another stand-in.
 
 ## From 1.1 to 1.2
 

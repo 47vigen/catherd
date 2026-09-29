@@ -39,9 +39,8 @@ describe("catherd profile show", () => {
     );
     expect(r.out).not.toContain("treated like");
     expect(r.out).toContain(
-      "harness codex native · claude-code native · opencode native · cursor native · grok native\n",
+      "harness codex native · claude-code native · opencode native · cursor native · grok native · antigravity native\n",
     );
-    expect(r.out).not.toContain("antigravity");
   });
 
   it("marks a role whose network is off (spec §5)", () => {

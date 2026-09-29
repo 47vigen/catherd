@@ -232,7 +232,7 @@ exports[`frames profiles 80x24 1`] = `
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-  ↓ 69 more
+  ↓ 74 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ exports[`frames profiles 80x24 plain 1`] = `
      claude-code (headless)  claude-plan
        > claude-fable-5-1           0 of 5
        > claude-haiku-4-5-20251001  0 of 1
-  v 69 more
+  v 74 more
 space turns the role on or off; enter opens its access, default rung and models
 
 --------------------------------------------------------------------------------
@@ -294,7 +294,7 @@ exports[`frames profiles 100x30 1`] = `
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
        ▸ gpt-5.6-sol             0 of 6
-  ↓ 63 more
+  ↓ 68 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ exports[`frames profiles 100x30 plain 1`] = `
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
        > gpt-5.6-sol             0 of 6
-  v 63 more
+  v 68 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ----------------------------------------------------------------------------------------------------
@@ -372,7 +372,7 @@ exports[`frames profiles 120x40 1`] = `
      opencode  metered
        ▸ opencode/claude-fable-5-1   0 of 5
        ▸ opencode/claude-haiku-4-5   0 of 2
-  ↓ 53 more
+  ↓ 58 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ exports[`frames profiles 120x40 plain 1`] = `
      opencode  metered
        > opencode/claude-fable-5-1   0 of 5
        > opencode/claude-haiku-4-5   0 of 2
-  v 53 more
+  v 58 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -444,7 +444,7 @@ exports[`frames profiles-dirty 80x24 1`] = `
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-  ↓ 69 more
+  ↓ 74 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ exports[`frames profiles-dirty 80x24 plain 1`] = `
      claude-code (headless)  claude-plan
        > claude-fable-5-1           0 of 5
        > claude-haiku-4-5-20251001  0 of 1
-  v 69 more
+  v 74 more
 space turns the role on or off; enter opens its access, default rung and models
 
 --------------------------------------------------------------------------------
@@ -506,7 +506,7 @@ exports[`frames profiles-dirty 100x30 1`] = `
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
        ▸ gpt-5.6-sol             0 of 6
-  ↓ 63 more
+  ↓ 68 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -540,7 +540,7 @@ exports[`frames profiles-dirty 100x30 plain 1`] = `
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
        > gpt-5.6-sol             0 of 6
-  v 63 more
+  v 68 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ----------------------------------------------------------------------------------------------------
@@ -584,7 +584,7 @@ exports[`frames profiles-dirty 120x40 1`] = `
      opencode  metered
        ▸ opencode/claude-fable-5-1   0 of 5
        ▸ opencode/claude-haiku-4-5   0 of 2
-  ↓ 53 more
+  ↓ 58 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -628,7 +628,7 @@ exports[`frames profiles-dirty 120x40 plain 1`] = `
      opencode  metered
        > opencode/claude-fable-5-1   0 of 5
        > opencode/claude-haiku-4-5   0 of 2
-  v 53 more
+  v 58 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ------------------------------------------------------------------------------------------------------------------------

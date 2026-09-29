@@ -12,7 +12,7 @@ import { accessChecks } from "../../src/services/doctor-access.ts";
 import { backendChecks } from "../../src/services/doctor-backends.ts";
 import { resolveProfile } from "../../src/domain/profile.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
-import { isolationKeyErrors } from "../../src/services/profile-store.ts";
+import { isolatedOnlyErrors, isolationKeyErrors } from "../../src/services/profile-store.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { listDispatches, roleDir } from "../../src/services/dispatches.ts";
 import {
@@ -108,12 +108,16 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
     expect(standInFor({}, "not a rung")).toBeNull();
   });
 
-  it("pairs the same Grok model on grok and Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
+  it("pairs the same Grok or Gemini model on Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
     expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#default");
     expect(standInFor({}, "cursor:grok-4.7#default")).toBe("grok:grok-4.7#high");
     expect(standInFor({ "grok:grok-4.7#low": "codex:gpt-6-sol#high" }, "grok:grok-4.7#low")).toBe(
       "codex:gpt-6-sol#high",
     );
+    expect(standInFor({}, "antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#default");
+    expect(standInFor({}, "cursor:gemini-3.8-flash#default")).toBe("antigravity:gemini-3.8-flash#high");
+    const own = { "antigravity:gemini-3.8-flash#high": "codex:gpt-6-luna#high" };
+    expect(standInFor(own, "antigravity:gemini-3.8-flash#high")).toBe("codex:gpt-6-luna#high");
   });
 
   it("passes admission for a ladder rung, and no other rung of that backend does", async () => {
@@ -366,6 +370,99 @@ describe("an isolated backend's API key (spec 1.3 §8)", () => {
     expect(r.errors).toContainEqual(MISSING);
     process.env.CURSOR_API_KEY = "key-for-test";
     expect(patchProfile("default", { harness: { cursor: { isolated: true } } }).saved).toBe(true);
+  });
+});
+
+describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", () => {
+  const reviewerOn = (
+    harness: Record<string, { isolated: boolean }>,
+    failover: Record<string, string> = {},
+  ) =>
+    resolveProfile(
+      {
+        schema: 1,
+        roles: { reviewer: { rungs: ["codex:gpt-6-sol#high"] }, writer: { rungs: ["cursor:go-m1#default"] } },
+        harness,
+        failover,
+      },
+      "p",
+    );
+  const NATIVE = {
+    path: "failover.codex:gpt-6-sol#high",
+    message: "cursor:go-m1#default: native cursor cannot hold the reviewer role to read-only",
+    fix: "isolate cursor (catherd profile set harness.cursor.isolated true), or put this role on another backend",
+  };
+
+  it("is an error for a role at that access on the native harness, a failover stand-in's included", () => {
+    fake({ isolatedOnly: ["read-only"] });
+    // the writer (workspace-write) runs natively as it likes; the reviewer fails over onto the backend
+    expect(isolatedOnlyErrors(reviewerOn({}))).toEqual([]);
+    expect(isolatedOnlyErrors(reviewerOn({}, { "codex:gpt-6-sol#high": "cursor:go-m1#default" }))).toEqual([
+      NATIVE,
+    ]);
+    expect(
+      isolatedOnlyErrors(
+        reviewerOn({ cursor: { isolated: true } }, { "codex:gpt-6-sol#high": "cursor:go-m1#default" }),
+      ),
+    ).toEqual([]);
+    const onIt = resolveProfile({ schema: 1, roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } }, "p");
+    expect(isolatedOnlyErrors(onIt)).toEqual([{ ...NATIVE, path: "roles.reviewer.rungs" }]);
+    fake();
+    expect(isolatedOnlyErrors(onIt)).toEqual([]);
+  });
+
+  it("counts a paired stand-in the profile does not name (Codex, PR #32)", () => {
+    const p = resolveProfile(
+      { schema: 1, roles: { reviewer: { rungs: ["cursor:gemini-3.8-flash#default"] } } },
+      "p",
+    );
+    expect(isolatedOnlyErrors(p)).toEqual([
+      {
+        path: "roles.reviewer.rungs",
+        message:
+          "antigravity:gemini-3.8-flash#high, the automatic stand-in of cursor:gemini-3.8-flash#default: native antigravity cannot hold the reviewer role to read-only",
+        fix: "isolate antigravity (catherd profile set harness.antigravity.isolated true), or name another stand-in (catherd profile set failover.cursor:gemini-3.8-flash#default <rung>)",
+      },
+    ]);
+    const named = { ...p, failover: { "cursor:gemini-3.8-flash#default": "codex:gpt-6-sol#high" } };
+    expect(isolatedOnlyErrors(named)).toEqual([]);
+  });
+
+  it("refuses a save that puts a read-only role on the backend's native harness", () => {
+    withHome();
+    fake({ isolatedOnly: ["read-only"] });
+    const r = patchProfile("default", { roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } });
+    expect(r.saved).toBe(false);
+    expect(r.errors).toContainEqual({ ...NATIVE, path: "roles.reviewer.rungs" });
+  });
+});
+
+describe("doctor's quota row (spec 1.3 §6.6)", () => {
+  it("shows the quota a logged-in backend reports, and nothing when it is logged out or cannot say", async () => {
+    process.env.PATH = "/nonexistent";
+    let asked = 0;
+    const quota = async () => {
+      asked++;
+      return "Weekly quota: 62% left";
+    };
+    fake({ quota });
+    expect((await backendChecks(new Map(), [])).find((r) => r.id === "quota:cursor")).toEqual({
+      id: "quota:cursor",
+      label: "cursor quota",
+      state: "info",
+      word: "quota",
+      detail: "Weekly quota: 62% left",
+    });
+    const loggedOut = { installed: true, version: "1.0.0", versionOk: true, loggedIn: false, problems: [] };
+    fake({ quota, probe: async () => loggedOut });
+    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:cursor")).toBe(false);
+    expect(asked).toBe(1);
+    fake({
+      quota: async () => {
+        throw new Error("no answer");
+      },
+    });
+    expect((await backendChecks(new Map(), [])).some((r) => r.id === "quota:cursor")).toBe(false);
   });
 });
 

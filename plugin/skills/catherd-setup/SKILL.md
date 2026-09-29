@@ -21,7 +21,7 @@ You tune the user's catherd profile in conversation. A profile says, per role, w
 Ask these, one at a time, each with its recommended answer:
 
 1. **Their order of speed, cost and quality.** Recommend cost first, the default `objective`: catherd climbs a rung when a cheap one cannot do the work, so the lanes that need speed get it anyway, and the reviewer and the verifier hold quality either way.
-2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`, `grok`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend, and on Claude last among the workers, since it spends the same quota as this conversation.
+2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`, `grok`, `antigravity`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend, and on Claude last among the workers, since it spends the same quota as this conversation.
 3. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when `runs_summary` has any.
 
 ## 2. Read the facts before proposing
@@ -59,7 +59,7 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 **Budget and timeouts.** `budget` (`minutes`, `tokens`, `usd`) is a soft cap: from 80 % routing starts at the cheapest rung that clears the bar, and at 100 % no new role starts. `timeouts.idleMin` (15) stops a role that has gone quiet, `timeouts.wallMin` (90) one that runs too long. `preflight.confirm: true` makes `preflight` show its commands for the user to approve first.
 
-**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`, `cursor`, `grok`), offer `harness.<name>.isolated` with its harness line from `runs_summary` (Codex has none: it reports no per-request input, so say there is no figure for it instead of offering one) and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
+**Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`, `cursor`, `grok`, `antigravity`), offer `harness.<name>.isolated` with its harness line from `runs_summary` (Codex has none: it reports no per-request input, so say there is no figure for it instead of offering one) and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
 
 ## 4. Write it
 
@@ -70,6 +70,6 @@ Each proposal has three parts: the change, a worked example from their facts, an
 
 ## 5. Say what applies when
 
-- Codex, claude-code, opencode, Cursor and grok changes, access and isolation included, apply at the next dispatch, even in a run already under way. Isolating Cursor needs `CURSOR_API_KEY` in the environment catherd runs in, and isolating grok `XAI_API_KEY`; `profile_validate` refuses either without.
+- Codex, claude-code, opencode, Cursor, grok and Antigravity changes, access and isolation included, apply at the next dispatch, even in a run already under way. Isolating Cursor needs `CURSOR_API_KEY` in the environment catherd runs in, isolating grok `XAI_API_KEY`, and isolating Antigravity `GEMINI_API_KEY`; `profile_validate` refuses each without. A read-only role (reviewer, architect, researcher) can run on Antigravity only isolated: agy has no read-only mode.
 - An agent listed in `newSessionNeededFor` applies from the next Claude Code session: Claude Code reads agent files when a session starts. Other Claude changes apply now.
 - Editing a profile that is not the active one writes its agent files but links none; they apply once it becomes active (`catherd profile use <name>`), or in a repo it is bound to (`catherd profile use <name> --repo`).

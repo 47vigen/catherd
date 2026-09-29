@@ -520,6 +520,14 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
   the dispatch id alone rather than the full dispatch path, so a differently resolved data dir cannot change it.
   (Plan 16 re-review, Minors.)
 
+- **Isolated agy lists models as the native account.** `prepare` checks an isolated rung against `agy models` run
+  under the user's HOME and its shared discovery cache, so a Google-plan listing can reject (or admit) a rung the
+  `GEMINI_API_KEY` project serves differently. List under the isolated HOME, with the cache keyed by auth route.
+  (Codex P2, PR #32; the grok twin is above.)
+- **agy's 10-minute readiness cache.** A probe that saw agy signed in is kept 10 minutes, so a sign-out inside that
+  window still reaches a native `-p` (which opens a browser). Document it, or re-run `agy models` in native
+  `prepare` (~10 s a dispatch). (Plan 17 final review, Minor 3.)
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:

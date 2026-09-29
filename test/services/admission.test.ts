@@ -2,6 +2,8 @@ import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
+import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
@@ -13,6 +15,8 @@ import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
+// a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
+afterEach(() => registerAdapter(antigravityAdapter));
 beforeEach(() => {
   resetReadiness();
 });
@@ -114,7 +118,7 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    // Antigravity has no adapter until plan 17.
+    unregisterAdapter("antigravity");
     deps.view.roles.worker?.rungs.push("antigravity:gemini-3.8-flash#default");
     expect(
       await refusal(

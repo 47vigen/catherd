@@ -216,7 +216,14 @@ describe("the live effects", () => {
   it("names the harnesses, the native agents and each rung's enforcement", () => {
     withHome();
     const fx = liveEffects();
-    expect([...fx.harnesses].sort()).toEqual(["claude-code", "codex", "cursor", "grok", "opencode"]);
+    expect([...fx.harnesses].sort()).toEqual([
+      "antigravity",
+      "claude-code",
+      "codex",
+      "cursor",
+      "grok",
+      "opencode",
+    ]);
     const p = resolveProfile(defaultProfileDoc(), "default");
     expect(fx.agents(p)).toContain("catherd-default-architect-claude-opus-5-5-high");
     expect(fx.enforcement("codex:gpt-6-sol#high", "workspace-write")).toBe("enforced");

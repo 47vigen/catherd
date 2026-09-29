@@ -12,7 +12,7 @@ import {
   scoresOf,
 } from "../domain/catalog.ts";
 import { DIFFICULTIES, type Difficulty, KINDS, type Kind } from "../domain/lane.ts";
-import type { SourcesFile } from "../domain/sources.ts";
+import { defaultEffortOf, type SourcesFile } from "../domain/sources.ts";
 import type { SourceTransport } from "../infra/sources/http.ts";
 import { adjacent, derive, type RawAnswers } from "./source-derive.ts";
 import { cachedAnswers, syncSources } from "./source-sync.ts";
@@ -72,6 +72,7 @@ export function rebuildShipped(
     direct.filter((s) => s.confidence !== "inferred"),
     new Set(),
     ctx.now,
+    (f) => defaultEffortOf(ctx.sources, f),
   );
   const scores = best([...direct, ...spread], ctx.now);
   const benchmark = (d: Dim) => {

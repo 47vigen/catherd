@@ -170,17 +170,30 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
 };
 
 /**
- * Spec 1.3 §7.3: the same Grok model through grok or Cursor bills two pools, so each stands in for the other
- * on a limit: grok at any effort for Cursor's slug (which has none), Cursor's for grok at the families' default
- * effort, `high`. Consulted after the profile's own failover and never written into a profile, where a pair whose
- * rung is on no ladder would warn "never runs"; never a stand-in for a shipped Codex, Claude or opencode rung.
+ * Spec 1.3 §7.3: the same model through two backends bills two pools, so each stands in for the other on a
+ * limit: grok's or agy's rung at any catalog effort for Cursor's slug (which has none), and Cursor's for them at
+ * the families' default effort, `high`. Grok and Gemini are paired with Cursor. Consulted after the profile's own
+ * failover and never written into a profile, where a pair whose rung is on no ladder would warn "never runs";
+ * never a stand-in for a shipped Codex, Claude or opencode rung.
  */
 export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
-  ["grok-4.7", "grok-4.6", "grok-4.5"].flatMap((m) => [
-    // `#default` too: grok runs it with no --effort (spec §5.2), and a limit on it must fail over the same way
-    ...["default", "low", "medium", "high", "xhigh"].map((e) => [`grok:${m}#${e}`, `cursor:${m}#default`]),
-    [`cursor:${m}#default`, `grok:${m}#high`],
-  ]),
+  (
+    [
+      ["grok", ["grok-4.7", "grok-4.6", "grok-4.5"], ["low", "medium", "high", "xhigh"]],
+      [
+        "antigravity",
+        ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
+        ["low", "medium", "high"],
+      ],
+      ["antigravity", ["gemini-3.1-pro"], ["low", "high"]],
+    ] as const
+  ).flatMap(([backend, models, efforts]) =>
+    models.flatMap((m) => [
+      // `#default` too: it runs with no effort flag (spec §5.2), and a limit on it must fail over the same way
+      ...["default", ...efforts].map((e) => [`${backend}:${m}#${e}`, `cursor:${m}#default`]),
+      [`cursor:${m}#default`, `${backend}:${m}#high`],
+    ]),
+  ),
 );
 
 /** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */

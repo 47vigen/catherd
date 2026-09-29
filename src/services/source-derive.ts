@@ -171,7 +171,9 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
       const family = map.family(id);
       if (family && effort !== null) shipped.add(`${family.id}#${effort}|${s.dim}`);
     }
-  scores.push(...adjacent(ctx.models.families, scores, shipped, ctx.now));
+  scores.push(
+    ...adjacent(ctx.models.families, scores, shipped, ctx.now, (f) => defaultEffortOf(ctx.sources, f)),
+  );
 
   const { facts, warnings } = factsOf(raw, ctx, map);
   return {
@@ -211,13 +213,16 @@ function aaFeatures(table: Map<string, Map<string, Keyed>>): Derived["features"]
  * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no value at (neither one in `direct` nor
  * one `shipped` names, as `<family>#<effort>|<dim>`), the best value in `direct` at the nearest effort that
  * has one (the weaker on a tie). A sync spreads only its own values, and never onto a value the shipped file
- * carries; `rebuildShipped` spreads the shipped file's published values, with an empty `shipped`.
+ * carries; `rebuildShipped` spreads the shipped file's published values, with an empty `shipped`. A family that
+ * one backend runs without an effort (Cursor's bare slug, spec 1.3 §7.1) also gets `#default`, carried from the
+ * value nearest `defaultEffort(family)`.
  */
 export function adjacent(
   families: Family[],
   direct: Score[],
   shipped: ReadonlySet<string>,
   now: number,
+  defaultEffort: (f: Family) => string = () => "high",
 ): Score[] {
   const out: Score[] = [];
   for (const f of families)
@@ -230,9 +235,11 @@ export function adjacent(
         if (!had || outranks(s, had, now)) byEffort.set(effort, s);
       }
       if (byEffort.size === 0) continue;
-      for (const e of familyEfforts(f)) {
+      const efforts = familyEfforts(f);
+      const bare = efforts.length > 0 && Object.values(f.on).some((o) => o && o.efforts.length === 0);
+      for (const e of bare ? [...efforts, "default"] : efforts) {
         if (byEffort.has(e) || shipped.has(`${f.id}#${e}|${dim}`)) continue;
-        const near = nearestEffort(e, [...byEffort.keys()]);
+        const near = nearestEffort(e === "default" ? defaultEffort(f) : e, [...byEffort.keys()]);
         const from = near ? byEffort.get(near) : undefined;
         if (!near || !from) continue;
         out.push({

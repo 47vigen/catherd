@@ -20,6 +20,7 @@ import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { configDir } from "../infra/paths.ts";
 import { readJsonFile } from "../infra/store.ts";
+import { standInFor } from "./backends.ts";
 import { backendOfKey, loadCatalog } from "./catalog-service.ts";
 
 // Spec §7.3, the read side of the profile service: where profiles, config.json and projects.json live,
@@ -138,10 +139,50 @@ export function isolationKeyErrors(
   return out;
 }
 
-/** Spec §7.1 validation on this machine: the backends catherd can run here, and the keys isolation needs. */
+/**
+ * Spec 1.3 §9 Q2: each enabled role whose rung, or a failover stand-in of one, runs natively on a backend that
+ * holds the role's access only when isolated (agy has no read-only flag).
+ */
+export function isolatedOnlyErrors(p: Profile): Issue[] {
+  const out: Issue[] = [];
+  for (const role of ROLES) {
+    const rc = p.roles[role];
+    if (!rc.enabled) continue;
+    // a stand-in the profile does not name is the one dispatch picks on its own (a paired backend's or the
+    // adapter's); one on the rung's own backend adds nothing, since the rung's own error names that backend
+    const runs = [
+      ...rc.rungs.map((r) => [r, `roles.${role}.rungs`]),
+      ...rc.rungs.flatMap((r) => {
+        if (p.failover[r]) return [[p.failover[r], `failover.${r}`, null]];
+        const s = standInFor(p.failover, r);
+        return s && tryParseRung(s)?.backend !== tryParseRung(r)?.backend
+          ? [[s, `roles.${role}.rungs`, r]]
+          : [];
+      }),
+    ] as [string, string, string | null][];
+    for (const [rung, path, auto] of runs) {
+      const b = tryParseRung(rung)?.backend;
+      if (!b || p.harness[b]?.isolated || !adapterFor(b)?.isolatedOnly?.includes(rc.access)) continue;
+      const isolate = `isolate ${b} (catherd profile set harness.${b}.isolated true)`;
+      out.push({
+        path,
+        message: `${rung}${auto ? `, the automatic stand-in of ${auto}` : ""}: native ${b} cannot hold the ${role} role to ${rc.access}`,
+        fix: auto
+          ? `${isolate}, or name another stand-in (catherd profile set failover.${auto} <rung>)`
+          : `${isolate}, or put this role on another backend`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Spec §7.1 validation on this machine: the backends catherd can run here, the keys isolation needs, and the
+ * accesses a backend holds only when isolated.
+ */
 export function validateHere(p: Profile, c: Catalog, doc?: ProfileDoc): Validation {
   const v = validateProfile(p, c, runnableBackends(), doc);
-  return { ...v, errors: [...v.errors, ...isolationKeyErrors(p)] };
+  return { ...v, errors: [...v.errors, ...isolationKeyErrors(p), ...isolatedOnlyErrors(p)] };
 }
 
 /** `repo`: the git toplevel whose listing route reads (opencode lists its models per repository). */
