@@ -1,0 +1,15 @@
+Available models
+
+auto - Auto (current, default)
+composer-2.5 - Composer 2.5
+composer-2.5-fast - Composer 2.5 Fast
+gpt-6-sol - GPT-6 Sol
+gpt-6-sol-low - GPT-6 Sol Low
+gpt-6-sol-high - GPT-6 Sol High
+gpt-6-sol-xhigh - GPT-6 Sol Extra High
+gpt-6-luna-high - GPT-6 Luna High
+claude-opus-5-5-thinking-high - Claude Opus 5.5 Thinking High
+grok-4.7 - Grok 4.7
+gemini-3.8-flash - Gemini 3.8 Flash
+
+Tip: use --model <id> (or /model in interactive mode) to switch.
