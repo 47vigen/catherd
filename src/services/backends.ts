@@ -17,7 +17,7 @@ function execFormatError(e: unknown): string | null {
   if ((e as { code?: unknown }).code !== "ENOEXEC" && !/exec format error/i.test(e.message)) return null;
   // macOS names the path (posix_spawn '/…/grok'), Linux only the command (uv_spawn 'grok')
   const bin = /spawn '([^']+)'/.exec(e.message)?.[1];
-  return bin ? (Bun.which(bin) ?? bin) : "exec format error";
+  return bin ? (Bun.which(bin, { PATH: process.env.PATH ?? "" }) ?? bin) : "exec format error";
 }
 
 /**
