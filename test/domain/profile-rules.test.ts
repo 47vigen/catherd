@@ -218,8 +218,8 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
       {
         path: `failover.${XHIGH}`,
         message: `downgrade: ${KIMI} stands in for ${XHIGH}, scoring below it on repo_code`,
-        // Opus xhigh (repo_code 74.2 carried from max): the only stand-in with no downgrade, on the Claude plan
-        fix: `catherd profile set failover.${XHIGH} claude-code:claude-opus-5-5#xhigh`,
+        // Sonnet 5.5 xhigh (scored through its inferred stand-in): the cheapest with no downgrade, on the Claude plan
+        fix: `catherd profile set failover.${XHIGH} claude-code:claude-sonnet-5-5#xhigh`,
       },
     ]);
   });

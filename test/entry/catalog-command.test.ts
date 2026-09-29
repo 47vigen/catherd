@@ -288,7 +288,7 @@ describe("catherd catalog", () => {
     withHome();
     const r = catherd("refresh", "--json");
     const rows = JSON.parse(r.out) as { backend: string; models: number; error?: string }[];
-    expect(rows.find((x) => x.backend === "claude-code")?.models).toBe(4);
+    expect(rows.find((x) => x.backend === "claude-code")?.models).toBe(5);
     expect(rows.find((x) => x.backend === "codex")).toMatchObject({
       error: "codex is not on PATH",
       fix: "npm i -g @openai/codex",
