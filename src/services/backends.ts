@@ -3,6 +3,7 @@ import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { formatRung, tryParseRung } from "../domain/ids.ts";
+import { PAIRED_FAILOVER } from "../domain/profile.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -14,7 +15,9 @@ export const resetReadiness = (): void => ready.clear();
 function execFormatError(e: unknown): string | null {
   if (!(e instanceof Error)) return null;
   if ((e as { code?: unknown }).code !== "ENOEXEC" && !/exec format error/i.test(e.message)) return null;
-  return /posix_spawn '([^']+)'/.exec(e.message)?.[1] ?? "exec format error";
+  // macOS names the path (posix_spawn '/…/grok'), Linux only the command (uv_spawn 'grok')
+  const bin = /spawn '([^']+)'/.exec(e.message)?.[1];
+  return bin ? (Bun.which(bin, { PATH: process.env.PATH ?? "" }) ?? bin) : "exec format error";
 }
 
 /**
@@ -66,11 +69,11 @@ export async function readyAdapter(backend: string): Promise<{ adapter: BackendA
 }
 
 /**
- * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default (for `repo`,
- * when given), else none.
+ * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else the same model on its paired backend
+ * (spec 1.3 §7.3), else its backend's default (for `repo`, when given), else none.
  */
 export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
-  const own = failover[rung];
+  const own = failover[rung] ?? PAIRED_FAILOVER[rung];
   if (own) return own;
   const r = tryParseRung(rung);
   if (!r) return null;

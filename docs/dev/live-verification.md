@@ -3,7 +3,7 @@
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
 access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10); since 1.3 the Cursor adapter (spec 1.3 §10, section 11). Run it on your own machine before a
+§11, section 10); since 1.3 the Cursor and Grok Build adapters (spec 1.3 §10, sections 11 and 12). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -586,3 +586,132 @@ Look for: `ok`, and the access row naming which of the five probes pass under yo
 
 **11. Auto-update stays off during a run.** During step 5, `ls -l ~/.local/bin/cursor-agent` before and after:
 the link does not change mid-run (`--disable-auto-update` is hidden, spec 1.3 §9 Q8).
+
+## 12. Grok Build (1.3, plan 16)
+
+Spec 1.3 §5 and §10, research 2026-09-29 §8 (Grok). Every behaviour below that needs a model turn was read from
+grok 1.0.44's user guide or binary and never seen live: plan 16's rulings name what each step confirms. Write down
+every difference, with the step's number; a step that fails its "look for" is a ruling to revisit before the release.
+
+**Setup.** Reinstall grok (the owner's `~/.grok/bin/grok` was a Linux build, research §3.1), then log in. For steps
+1, 6 and the isolated live test also create a key at console.x.ai and `export XAI_API_KEY=<key>` in that shell only.
+
+```sh
+curl -fsSL https://x.ai/cli/install.sh | bash
+grok --version                         # grok 1.0.44 (…) or newer
+grok login                             # or: grok login --device-code
+catherd doctor --json | jq -r '.checks[] | select(.id | test("grok")) | "\(.id) \(.state) \(.word): \(.detail)"'
+```
+
+Look for: `backend:grok ok ready: 1.0.44 · Grok login · <n> models` (or `warn billing` with the fix when a profile
+that routes to grok bills it otherwise); `sandbox:grok info`, which on a Mac with Docker Desktop or OrbStack says grok
+refuses its read-only profile and catherd runs read-only roles with the read tools only; with a grok role on
+workspace-write, `access:grok skip not tested` and `isolation:grok warn weak`.
+
+**1. A headless run with the brief by file, and `end` with and without a key (plan 16 Rulings on the stream).**
+
+```sh
+catherd capture-fixtures --backend grok --out /tmp/grok-fixtures
+ls /tmp/grok-fixtures/grok/*/
+```
+
+Needs `XAI_API_KEY` (capture runs isolated). Look for three cases captured: `ok`, `resume`, `read-only-write`. In
+`ok.jsonl`: `text` events and the field that holds their text (catherd reads `data`), `tool_call` and
+`tool_call_update` events with `toolCallId`, `toolName`, `kind`, `rawInput` and `status`, one `usage` per model
+response, and a last `end` whose `sessionId` is the `-s` id catherd passed and which has `total_cost_usd` (an API
+key). In `ok.json`: `outcome.status` `ok`, non-zero tokens, the reply is the text after the last tool call. Copy the
+streams over `test/fixtures/adapters/grok/` (keeping the synthetic ones' names) and run
+`bun test test/adapters/grok*.test.ts`; a failure there is a parser ruling to revisit. Then, with the key unset and
+the Grok login, run step 3's live test and look in its run's `events.jsonl` for an `end` without `total_cost_usd`.
+
+**2. The model listing logged in.**
+
+```sh
+grok models
+catherd catalog refresh && catherd catalog list --backend grok
+```
+
+Look for: the first line `You are logged in with …`; the default model (1.0.44 says `grok-4.6`); whether `grok-4.7`
+is listed. Every id that differs from `grok-4.7`, `grok-4.6`, `grok-4.5` fixes `on.grok` in `catalog/models.json`.
+
+**3. catherd-ws, a resume, and the read-only profile.**
+
+```sh
+CATHERD_LIVE=1 bun test test/live/grok.live.test.ts
+sed -n '/# >>> catherd/,/# <<< catherd/p' ~/.grok/sandbox.toml
+grok -p hi --sandbox read-only --output-format streaming-json; echo "exit $?"
+```
+
+Look for: all tests pass (the isolated one only with `XAI_API_KEY`); the first resumes the session it started and
+the reply names `out.txt`; `~/.grok/sandbox.toml` holds catherd's marked block with `[profiles.catherd-ws]` and
+`[profiles.catherd-ws-offline]`, and every table of yours is as it was. The last command refuses with "could not
+apply the 'read-only' sandbox profile" on a Mac whose docker socket is a link, as research §3.6 saw; elsewhere it
+answers. Then run one worker lane (`/catherd` in a scratch repo) whose brief also runs `catherd lock -- true` and
+`go env GOCACHE && go build ./...` (or `bun install` in a Bun repo): the lock and the cache writes pass under
+`catherd-ws`.
+
+**4. The read tools only, where read-only refuses.** On a Mac with a linked socket, step 3's read-only test ran
+`--sandbox workspace --tools read_file,grep,list_dir,web_search,web_fetch`. Look for: no `out.txt`, and in the run's
+`events.jsonl` no `tool_call` other than those five tools (the write had no tool to call).
+
+**5. A different `--sandbox` on resume is refused.** With the session id of step 3's first run (`catherd runs show`):
+
+```sh
+echo 'Say hi.' > /tmp/grok-brief.md
+grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -r <session> --sandbox off; echo "exit $?"
+```
+
+Look for: an `error` (write down its text and exit code). catherd never sends this: admission refuses a resume under
+another access first (spec 1.3 §3.2).
+
+**6. An isolated HOME loads none of your Claude or Cursor setup.**
+
+```sh
+home="$(mktemp -d)"; HOME="$home" GROK_HOME="$home/.grok" GROK_MEMORY=0 \
+  GROK_CLAUDE_AGENTS_ENABLED=0 GROK_CLAUDE_RULES_ENABLED=0 GROK_CLAUDE_SKILLS_ENABLED=0 \
+  GROK_CLAUDE_MCPS_ENABLED=0 GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CURSOR_AGENTS_ENABLED=0 \
+  GROK_CURSOR_RULES_ENABLED=0 GROK_CURSOR_SKILLS_ENABLED=0 GROK_CURSOR_MCPS_ENABLED=0 \
+  GROK_CURSOR_HOOKS_ENABLED=0 grok inspect --json | jq .
+```
+
+Look for: no plugin, agent, skill or permission rule from your `~/.claude`, and no `~/.agents/skills`; `grok models`
+under the same env says `You are using XAI_API_KEY.`
+
+**7. The time from `end` to exit (the upload drain).** In step 3's run dir, compare the `end` event's arrival with the
+record's `endedAt`: catherd kills grok 30 s after `end` (`graceAfterFinalMs`). Note how long grok would have run on:
+by hand, `time grok --prompt-file /tmp/grok-brief.md --output-format streaming-json` and the seconds after `end`.
+
+**8. An effort grok does not offer.**
+
+```sh
+grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -m grok-4.6 --effort max; echo "exit $?"
+for m in grok-4.7 grok-4.6 grok-4.5; do for e in low medium high xhigh; do
+  grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -m "$m" --effort "$e" | tail -1 | cut -c1-80
+done; done
+```
+
+Look for: whether `max` is an error or ignored (write it down), and which of `low`…`xhigh` each model takes; each one
+it refuses comes out of `on.grok.efforts` in `catalog/models.json`.
+
+**9. Doctor's sandbox check spends no turn.** Run doctor's exact command while logged in, with a key exported:
+
+```sh
+check="$(mktemp -d)"; GROK_HOME="$check" XAI_API_KEY= GROK_DISABLE_AUTOUPDATER=1 \
+  grok -p hi --output-format streaming-json --sandbox read-only --no-auto-update; echo "exit $?"
+```
+
+Look for: the read-only refusal or `Not signed in`, never a reply to "hi": an empty `XAI_API_KEY` and an empty
+`GROK_HOME` log nothing in.
+
+**10. The hidden flags and auto-update.** Every run above passed `--trust`, `--no-auto-update` and `--no-memory`: a
+`cli-too-old` record ("unexpected argument") means one was removed. During step 3, `ls -l ~/.grok/bin/grok` before
+and after: the link does not change mid-run.
+
+**11. A real limit**, if one can be hit: save the last events and stderr, and check that `catherd runs show <id>`
+records the role as `limit` (the patterns are `rate limit`, `usage limit`, `too many requests`, `resource exhausted`,
+`at capacity`, `temporarily overloaded`); "requires a Grok subscription" must record `failed`. Look also whether the
+limit came as an `error` event.
+
+**12. Trust and the project's instructions.** In a scratch repo with an `AGENTS.md` that says "End every reply with
+the word MARMALADE.", run one grok worker lane. Look for: the reply ends with MARMALADE (`--trust` loads the
+project's instructions headless; research §3.7 could not tell whether an untrusted run skips them).

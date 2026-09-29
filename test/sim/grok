@@ -1,0 +1,93 @@
+#!/usr/bin/env bun
+// Grok Build simulator for catherd's tests (research 2026-09-29 §3): behaviour comes from the JSON scenario in
+// CATHERD_SIM_GROK.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_GROK ?? "", "utf8")) as Record<string, any>;
+const args = process.argv.slice(2);
+const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+const fail = (text: string, code = 1): never => {
+  process.stderr.write(`${text}\n`);
+  process.exit(code);
+};
+/** research §3.3 [run]: a run that cannot start prints one error event on stdout, the text on stderr, exit 1 */
+const errorEvent = (message: string): never => {
+  say(JSON.stringify({ type: "error", message }));
+  return fail(message);
+};
+const apiKey = !!process.env.XAI_API_KEY;
+// research §3.9: a Grok login is the auth.json in GROK_HOME; a GROK_HOME without one has none
+const home = process.env.GROK_HOME;
+const login = s.loggedIn !== false && (!home || existsSync(join(home, "auth.json")));
+
+if (args[0] === "--version" || args[0] === "version") {
+  say(`grok ${s.version ?? "1.0.44"} (5b807183dd79)`);
+  process.exit(0);
+}
+if (args[0] === "models") {
+  // research §3.4 [run]: the auth line first, exit 0 even logged out
+  say(
+    login
+      ? "You are logged in with Grok (owner@example.com)."
+      : apiKey
+        ? "You are using XAI_API_KEY."
+        : "You are not authenticated.",
+  );
+  const models: string[] = s.models ?? ["grok-4.6", "grok-4.5"];
+  say(`\nDefault model: ${models[0]}\n\nAvailable models:`);
+  models.forEach((m, i) => say(i === 0 ? `  * ${m} (default)` : `  - ${m}`));
+  process.exit(0);
+}
+
+const VALUE = ["--prompt-file", "-p", "--output-format", "--cwd", "-m", "--effort", "-s", "-r", "--sandbox", "--tools"];
+const BOOL = ["--always-approve", "--trust", "--no-auto-update", "--no-memory", "--yolo"];
+const opts: Record<string, string> = {};
+for (let i = 0; i < args.length; i++) {
+  const a = args[i] as string;
+  if ((s.unknownFlags ?? []).includes(a) || !(VALUE.includes(a) || BOOL.includes(a)))
+    fail(`error: unexpected argument '${a}' found\n\nUsage: grok [OPTIONS]`, 2);
+  opts[a] = VALUE.includes(a) ? (args[++i] ?? "") : "true";
+}
+const prompt = opts["--prompt-file"] ? readFileSync(opts["--prompt-file"], "utf8") : opts["-p"];
+if (prompt === undefined) fail("sim: only headless runs (--prompt-file or -p) are simulated", 2);
+// research §3.6 [run]: the sandbox is applied before the login is checked
+const sandbox = opts["--sandbox"];
+if (s.socketSymlink && (sandbox === "read-only" || sandbox === "strict"))
+  fail(
+    "warning: sandbox could not be applied: socket deny resolution failed: could not resolve runtime-socket deny path /var/run/docker.sock: endpoint is a symlink\n" +
+      `error: could not apply the '${sandbox}' sandbox profile; see the warning above for the cause. Refusing to start with its protections missing.`,
+  );
+if (!login && !apiKey) errorEvent("Not signed in. To authenticate without a browser, run:\n  grok login --device-code\n");
+// research §3.5 [doc 18]: a different --sandbox on resume is refused
+if (opts["-r"] && sandbox && sandbox !== s.sessionSandbox)
+  errorEvent(`--sandbox ${sandbox} differs from the session's saved profile ${s.sessionSandbox ?? "off"}`);
+
+const cwd = opts["--cwd"] ?? process.cwd();
+const PICKED = ["GROK_HOME", "GROK_MEMORY", "GROK_DISABLE_AUTOUPDATER", "GROK_CLAUDE_HOOKS_ENABLED", "CATHERD_DATA_DIR"];
+writeFileSync(
+  s.recordTo,
+  JSON.stringify({
+    args,
+    stdin: prompt,
+    cwd: process.cwd(),
+    pwd: process.env.PWD ?? null,
+    xdgConfig: process.env.XDG_CONFIG_HOME ?? null,
+    home: process.env.HOME ?? null,
+    vars: Object.fromEntries(PICKED.flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]]]))),
+    envKeys: Object.keys(process.env),
+  }),
+);
+const session = opts["-r"] ?? opts["-s"] ?? "00000000-0000-4000-8000-00000000900c";
+setTimeout(async () => {
+  for (const t of s.touch ?? []) {
+    mkdirSync(dirname(join(cwd, t.path)), { recursive: true });
+    writeFileSync(join(cwd, t.path), t.content);
+  }
+  if (s.eventsFile)
+    process.stdout.write(readFileSync(s.eventsFile, "utf8").replace(/"sessionId":"[^"]*"/g, `"sessionId":"${session}"`));
+  if (s.stderr) process.stderr.write(s.stderr);
+  // research §3.3: a one-shot run may drain uploads after its end event
+  if (s.hangMs) await Bun.sleep(s.hangMs);
+  process.exit(s.exitCode ?? 0);
+}, s.delayMs ?? 0);

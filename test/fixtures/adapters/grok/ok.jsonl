@@ -1,0 +1,14 @@
+{"type":"available_commands","commands":[{"name":"compact","description":"Compact the conversation"}]}
+{"type":"thought","data":"The lane file first."}
+{"type":"text","data":"I'll read the lane file."}
+{"type":"tool_call","toolCallId":"call_1","title":"Read lanes/M1.L1.md","kind":"read","status":"in_progress","toolName":"read_file","rawInput":{"path":"lanes/M1.L1.md"}}
+{"type":"tool_call_update","toolCallId":"call_1","status":"completed"}
+{"type":"usage","messageId":"resp_1","stopReason":"tool_use","usage":{"input_tokens":3100,"output_tokens":900,"cache_read_input_tokens":20000,"cache_creation_input_tokens":0,"reasoning_tokens":400},"signature":"<sig>"}
+{"type":"tool_call","toolCallId":"call_2","title":"Edit src/a.ts","kind":"edit","status":"in_progress","toolName":"search_replace","rawInput":{"path":"src/a.ts"}}
+{"type":"tool_call_update","toolCallId":"call_2","status":"completed"}
+{"type":"tool_call","toolCallId":"call_3","title":"bun test","kind":"execute","status":"in_progress","toolName":"run_terminal_cmd","rawInput":{"command":"bun test"}}
+{"type":"tool_call_update","toolCallId":"call_3","status":"completed"}
+{"type":"text","data":"Done."}
+{"type":"text","data":"\nSTATUS: complete — wrote src/a.ts"}
+{"type":"usage","messageId":"resp_2","stopReason":"end_turn","usage":{"input_tokens":4110,"output_tokens":993,"cache_read_input_tokens":21000,"cache_creation_input_tokens":0,"reasoning_tokens":210},"signature":"<sig>"}
+{"type":"end","stopReason":"end_turn","sessionId":"3c9a2f1e-7b4d-4e8a-9f60-1d2c3b4a5e6f","requestId":"req_1","usage":{"input_tokens":7210,"output_tokens":1893,"cache_read_input_tokens":41000,"cache_creation_input_tokens":0,"reasoning_tokens":610,"total_tokens":50103},"num_turns":2,"modelUsage":{"grok-4.6":{"inputTokens":7210,"outputTokens":1893,"cacheReadInputTokens":41000,"modelCalls":2,"costUSD":0.0127}},"total_cost_usd":0.0127,"total_cost_usd_ticks":127000000}

@@ -108,6 +108,14 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
     expect(standInFor({}, "not a rung")).toBeNull();
   });
 
+  it("pairs the same Grok model on grok and Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
+    expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#default");
+    expect(standInFor({}, "cursor:grok-4.7#default")).toBe("grok:grok-4.7#high");
+    expect(standInFor({ "grok:grok-4.7#low": "codex:gpt-6-sol#high" }, "grok:grok-4.7#low")).toBe(
+      "codex:gpt-6-sol#high",
+    );
+  });
+
   it("passes admission for a ladder rung, and no other rung of that backend does", async () => {
     fake();
     const { run, deps } = setup();

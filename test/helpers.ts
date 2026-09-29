@@ -23,6 +23,8 @@ export function withHome(): string {
   process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   // the Codex home whose config.toml a worker's writable_roots are read from: never the developer's own
   process.env.CODEX_HOME = join(home, "codex");
+  // grok's home, whose sandbox.toml a native workspace-write prepare edits: never the developer's own
+  process.env.GROK_HOME = join(home, "grok-home");
   for (const k of [
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_HOST_SESSION_ID",
