@@ -40,7 +40,7 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
   tokens; keyboard-first, predictable, no surprises.
 - Releases are versioned with Changesets; the Release workflow opens "chore: release catherd", and merging it
   publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
-  Release runs only the pack smoke. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
+  Release re-tests only a direct push, and runs the pack smoke before a publish. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
   `beta` dist-tag. CONTRIBUTING.md, "Releases" and "Beta channel", has the flow and the promotion steps.
 - Cursor CLI and Grok CLI adapters are planned (`docs/plans/2026-09-26-08-cursor-grok.md`), on hold until the owner
   says.

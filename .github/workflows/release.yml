@@ -3,8 +3,9 @@ name: Release
 # npm's trusted publisher for catherd-cli is bound to this file name, so both channels publish from here.
 #   main: opens or updates the "chore: release catherd" PR; merging that PR publishes `latest`.
 #   beta: every push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR.
-# No test matrix runs here: every change was tested on its PR by ci.yml (the required `ci` check). Only the npm
-# pack smoke runs, right before a publish, because it tests the exact version about to ship.
+# A commit that a PR merged with its `ci` check green is not tested again: ci.yml already ran on that PR. Any other
+# commit (a direct push) runs ci.yml here first, sized by its diff, so a direct docs push costs only the format
+# check. The npm pack smoke runs right before a publish, because it tests the exact version about to ship.
 on:
   push:
     branches: [main, beta]
@@ -19,7 +20,37 @@ permissions:
   id-token: write
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      # the closed PRs into this branch, matched by merge commit; not commits/{sha}/pulls, which lists only open
+      # PRs for a commit that is not on the default branch. A failed lookup counts as untested: CI runs.
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tested=false
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=$GITHUB_REF_NAME&sort=updated&direction=desc&per_page=30" \
+            -q '[.[] | select(.merge_commit_sha == env.GITHUB_SHA)][0].number // empty') || pr=
+          if [ -n "$pr" ]; then
+            head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" -q .head.sha) &&
+              green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=ci" \
+                -q '[.check_runs[] | select(.conclusion == "success")] | length') &&
+              [ "$green" != 0 ] && tested=true
+          fi
+          echo "PR: ${pr:-none}, tested: $tested"
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: gate
+    if: needs.gate.outputs.tested != 'true'
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: [gate, ci]
+    if: ${{ !cancelled() && needs.gate.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.ci.result) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -58,8 +89,6 @@ jobs:
       - name: Publish a beta snapshot under the beta dist-tag
         id: beta
         if: github.ref_name == 'beta'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           bunx changeset version --snapshot beta
           version=$(node -p 'require("./package.json").version')
@@ -67,21 +96,6 @@ jobs:
             *-beta.*) ;;
             *) echo "::notice::no changesets on beta, nothing to publish"; exit 0 ;;
           esac
-          # the tests ran on the PR, not here: publish only a commit that a PR into beta merged with ci green
-          # the closed PRs into beta, not commits/{sha}/pulls: that one lists only open PRs for a commit off main
-          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=beta&sort=updated&direction=desc&per_page=30" \
-            -q '[.[] | select(.merge_commit_sha == env.GITHUB_SHA)][0].number // empty')
-          if [ -z "$pr" ]; then
-            echo "::error::$GITHUB_SHA reached beta without a pull request, so ci never tested it; nothing published"
-            exit 1
-          fi
-          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" -q .head.sha)
-          green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=ci" \
-            -q '[.check_runs[] | select(.conclusion == "success")] | length')
-          if [ "$green" = 0 ]; then
-            echo "::error::the ci check of #$pr is not green; nothing published"
-            exit 1
-          fi
           bun scripts/stamp-plugin-version.mjs
           bun test/pack-smoke.ts
           bunx changeset publish --tag beta --no-git-tag

@@ -77,8 +77,9 @@ opencode) is an adapter under `src/adapters/`. Each CLI subcommand file is named
 ## Releases
 
 Releases go through [Changesets](https://github.com/changesets/changesets) and `.github/workflows/release.yml`, the
-workflow npm's trusted publisher is bound to (OIDC, no npm token). It runs no tests: every change was tested on its
-pull request.
+workflow npm's trusted publisher is bound to (OIDC, no npm token). A commit that a pull request merged with its `ci`
+check green is not tested again. Any other commit, a direct push, first runs CI in the release workflow, sized by its
+diff (a docs-only push runs only the format check).
 
 1. A pull request with a changeset merges into `main`.
 2. The release workflow opens or updates the "chore: release catherd" pull request, which bumps the version, writes
@@ -107,9 +108,8 @@ bunx changeset                      # the bump the stable release will get
 git push -u origin my-change        # open the pull request against beta; merge it when ci is green
 ```
 
-Only a pull request reaches npm: the release workflow publishes a `beta` commit only when a pull request into
-`beta` merged it with its `ci` check green. A direct push to `beta` publishes nothing and fails the run. After the
-publish, `npm view catherd-cli dist-tags` shows it.
+A direct push to `beta` also publishes, after CI passes in the release workflow. After the publish,
+`npm view catherd-cli dist-tags` shows it.
 
 Use a beta:
 
@@ -134,7 +134,7 @@ Promote beta to stable:
 3. Bring `beta` up to date: `git push origin origin/main:beta` (a fast-forward). It publishes nothing, because the
    release consumed the changesets.
 
-A fix that lands on `main` while a beta is open reaches `beta` through a pull request from `main` to `beta`.
+A fix that lands on `main` while a beta is open reaches `beta` by merging `main` into it.
 
 ## Live tests and fixture capture
 
