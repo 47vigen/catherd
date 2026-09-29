@@ -39,6 +39,8 @@ const AUTO = "cursor:auto#default";
 const BUNNY = "opencode:opencode/space-bunny-free#default";
 /** spec 1.3 §5.6: grok 1.0.44's default model (research §3.4) at its cheapest effort */
 const GROK = "grok:grok-4.6#low";
+/** spec 1.3 §6.6: the cheapest Gemini effort; capture runs isolated, on GEMINI_API_KEY */
+const FLASH_LOW = "antigravity:gemini-3.8-flash#low";
 
 /** Spec §11.7–8: one cheap run per backend, plus a read-only role trying to write where enforcement is advisory. */
 const CAPTURE_CASES: CaptureCase[] = [
@@ -56,6 +58,17 @@ const CAPTURE_CASES: CaptureCase[] = [
   { backend: "grok", name: "ok", rung: GROK, access: "workspace-write", brief: WORK },
   { backend: "grok", name: "resume", rung: GROK, access: "read-only", brief: SAY_HELLO, resume: RECALL },
   { backend: "grok", name: "read-only-write", rung: GROK, access: "read-only", brief: TRY_WRITE },
+  // spec 1.3 §6.6: the same three on agy; read-only runs under catherd's deny rules (research §8 agy 2, 5, 6)
+  { backend: "antigravity", name: "ok", rung: FLASH_LOW, access: "workspace-write", brief: WORK },
+  {
+    backend: "antigravity",
+    name: "resume",
+    rung: FLASH_LOW,
+    access: "read-only",
+    brief: SAY_HELLO,
+    resume: RECALL,
+  },
+  { backend: "antigravity", name: "read-only-write", rung: FLASH_LOW, access: "read-only", brief: TRY_WRITE },
 ];
 export const CAPTURE_BACKENDS = [...new Set(CAPTURE_CASES.map((c) => c.backend))];
 
