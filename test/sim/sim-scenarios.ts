@@ -9,9 +9,9 @@ interface Recorded {
   cwd: string;
   pwd: string | null;
   xdgConfig: string | null;
-  /** HOME as the CLI saw it (cursor-agent) */
+  /** HOME as the CLI saw it (cursor-agent, grok) */
   home?: string | null;
-  /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR) */
+  /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR; grok: GROK_*) */
   vars?: Record<string, string>;
   envKeys: string[];
 }
@@ -111,6 +111,22 @@ export interface CursorScenario extends Common {
   sandboxArgsTo?: string;
 }
 
+export interface GrokScenario extends Common {
+  /** a Grok login in GROK_HOME (default true); a non-empty XAI_API_KEY in the env logs it in too */
+  loggedIn?: boolean;
+  /** the ids `grok models` lists, the first as the default (default: grok-4.6, grok-4.5) */
+  models?: string[];
+  /** this "Mac"'s /var/run/docker.sock is a symlink: read-only and strict refuse to start (research §3.6) */
+  socketSymlink?: boolean;
+  /** the sandbox a resumed session started with; another `--sandbox` on `-r` is refused */
+  sessionSandbox?: string;
+  /** flags this "older" CLI does not know (clap's error, exit 2) */
+  unknownFlags?: string[];
+  /** written to stderr after the events */
+  stderr?: string;
+}
+
 export const withClaudeScenario = (s: ClaudeScenario) => write("CATHERD_SIM_CLAUDE", s);
 export const withCursorScenario = (s: CursorScenario) => write("CATHERD_SIM_CURSOR", s);
+export const withGrokScenario = (s: GrokScenario) => write("CATHERD_SIM_GROK", s);
 export const withOpencodeScenario = (s: OpencodeScenario) => write("CATHERD_SIM_OPENCODE", s);
