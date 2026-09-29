@@ -47,20 +47,21 @@ export const bodyOf = (e: Event): Event => {
 };
 
 /**
- * Spec 1.3 §6.5: input as reported, cached = cache reads, output = output + thinking. Whether `input_tokens`
- * includes the cache reads is unverified (research §4.4): when the reads exceed it, it cannot, so they add back.
- * ponytail: a run whose uncached input happens to exceed its cache reads still undercounts; the live capture decides.
+ * Spec 1.3 §6.5: input with the cache reads in it, cached = cache reads, output = output + thinking. Whether
+ * `input_tokens` already includes the reads is unverified (research §4.4): `total_tokens` says so when it adds up
+ * one way; without it, reads that exceed the input cannot be in it, so they add back.
  */
 export function agyTokens(u: Event | undefined): Tokens {
   if (!u) return { ...ZERO_TOKENS };
   const n = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
   const cached = n("cache_read_tokens");
   const input = n("input_tokens");
-  return {
-    input: cached > input ? input + cached : input,
-    cached,
-    output: n("output_tokens") + n("thinking_tokens"),
-  };
+  const output = n("output_tokens") + n("thinking_tokens");
+  const separate =
+    typeof u.total_tokens === "number" && u.total_tokens !== input + output
+      ? u.total_tokens === input + cached + output
+      : cached > input;
+  return { input: separate ? input + cached : input, cached, output };
 }
 
 export function eventName(e: Event): string {

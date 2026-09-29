@@ -53,7 +53,7 @@ describe("dispatch on agy (simulator)", () => {
       status: "ok",
       backend: "antigravity",
       replyStatus: "complete",
-      tokens: { input: 15989, cached: 9728, output: 335 },
+      tokens: { input: 25717, cached: 9728, output: 335 },
       changedOwned: ["src/a.ts"],
       cliVersion: "1.2.13",
       thread: "00000000-0000-4000-8000-0000000a9e1d",

@@ -411,6 +411,23 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     expect(isolatedOnlyErrors(onIt)).toEqual([]);
   });
 
+  it("counts a paired stand-in the profile does not name (Codex, PR #32)", () => {
+    const p = resolveProfile(
+      { schema: 1, roles: { reviewer: { rungs: ["cursor:gemini-3.8-flash#default"] } } },
+      "p",
+    );
+    expect(isolatedOnlyErrors(p)).toEqual([
+      {
+        path: "roles.reviewer.rungs",
+        message:
+          "antigravity:gemini-3.8-flash#high, the automatic stand-in of cursor:gemini-3.8-flash#default: native antigravity cannot hold the reviewer role to read-only",
+        fix: "isolate antigravity (catherd profile set harness.antigravity.isolated true), or name another stand-in (catherd profile set failover.cursor:gemini-3.8-flash#default <rung>)",
+      },
+    ]);
+    const named = { ...p, failover: { "cursor:gemini-3.8-flash#default": "codex:gpt-6-sol#high" } };
+    expect(isolatedOnlyErrors(named)).toEqual([]);
+  });
+
   it("refuses a save that puts a read-only role on the backend's native harness", () => {
     withHome();
     fake({ isolatedOnly: ["read-only"] });

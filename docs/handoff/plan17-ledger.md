@@ -1,0 +1,10 @@
+# Plan 17 — docs/plans/2026-09-29-17-antigravity.md (ledger)
+
+- Executed by replaying `plan17-on-16` (the writer's pre-validated task commits, already replayed 15 → 16 → 17) onto main 787852b (plan 16 merged): 10 commits. One conflict, `PAIRED_FAILOVER` and its test: plan 16 added grok's `#default` rows (Codex, PR #31).
+- Ruling: agy's Gemini pairs carry `#default` too, as grok's do — agy runs `#default` with no `--effort`, and a limit on it must fail over the same way — cost if wrong: 7 extra table keys. (This overrides the plan's Ruling 18 wording, "never names `#default`".)
+- Ruling: MIGRATION and the changeset say a resume keeps its access **or network grant** (plan 15's e14b601), and name Grok's failover pairs next to Gemini's — the notes must match the code — none.
+- Gate on the combined head: 1829 pass, 0 fail (1851 tests, 171 files).
+- Final review (opus): 0 Critical, 1 Important, 3 Minor. Grok's two plan-16 bugs do not recur in agy (catherd writes no user agy file; the thread comes from the first step's `conversation_id`). Important fixed: native `prepare` fails closed unless `agy models` confirmed the login (a timeout or reworded output no longer lets `agy -p` open a browser). Minor 1 (docs overstate) is moot after the fix; Minor 2 is the `#default` ruling above; Minor 3 (10-minute readiness cache) → ideas.md.
+- Codex round (PR #32): P1 fixed — `profile validate` counts the automatic stand-in (`standInFor`: paired or adapter) of a read-only role's rung, so `cursor:gemini-*` on a read-only role with native agy is refused. P2 fixed — agy tokens read from `total_tokens` whether input includes the cache reads (the `ok.jsonl` fixture adds up the "separate" way, so its input is now 25717). P2 tracked — isolated agy lists models under the native account → ideas.md.
+- Fix wave touched 4 src/test groups but each fix is local with a test that failed first; no re-review (same call as the size rule: the wave is three independent one-function changes).
+- Gate after the fix wave: 1827 pass, 22 skip; 5 fails were 5 s timeouts under load (the run took 494 s against 285 s), all pass on rerun.

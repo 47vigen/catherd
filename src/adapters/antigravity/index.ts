@@ -127,13 +127,14 @@ async function prepare(req: {
         fix: "export GEMINI_API_KEY=<key>, or catherd profile set harness.antigravity.isolated false",
       });
     prepareAgyHome(req.access, req.network !== false);
-  } else if (nativeLogin === false)
+  } else if (nativeLogin !== true)
+    // spec 1.3 §6.1: fail closed; agy models failing some other way (a timeout, reworded output) is no proof
     throw new CatherdError(
       "E_BACKEND_NOT_LOGGED_IN",
-      "agy is not signed in: a native run would open a browser",
-      {
-        fix: LOGIN_FIX,
-      },
+      nativeLogin === false
+        ? "agy is not signed in: a native run would open a browser"
+        : "catherd could not confirm agy is signed in (agy models failed), and a signed-out native run opens a browser",
+      { fix: LOGIN_FIX },
     );
   const { model, effort } = req.rung;
   const models = await discovered("antigravity", listModels, { maxAgeMs: DAY_MS, need: model });

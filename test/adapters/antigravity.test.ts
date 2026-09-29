@@ -147,7 +147,7 @@ describe("agy finalize (spec 1.3 §6.5)", () => {
       status: "ok",
       thread: "3f2a9c4e-8b1d-4e6f-a5c7-9d0e1f2a3b4c",
       reply: "Done.\nSTATUS: complete — wrote src/a.ts",
-      tokens: { input: 15989, cached: 9728, output: 335 },
+      tokens: { input: 25717, cached: 9728, output: 335 },
       costUsd: null,
       error: null,
     });
@@ -223,7 +223,7 @@ describe("agy parse (spec 1.3 §6.5)", () => {
     expect(antigravityAdapter.parse(lines("ok.jsonl").at(-1) as string)).toMatchObject({
       final: true,
       thread: "3f2a9c4e-8b1d-4e6f-a5c7-9d0e1f2a3b4c",
-      tokens: { input: 15989, cached: 9728, output: 335 },
+      tokens: { input: 25717, cached: 9728, output: 335 },
       lastEvent: "result/SUCCESS",
     });
     const quota = JSON.stringify({ event: "result", result: { status: "ERROR", error: "quota exhausted" } });
@@ -336,6 +336,13 @@ describe("agy models, prepare and quota (spec 1.3 §6.3, §6.4, §6.6)", () => {
     await antigravityAdapter.probe();
     expect(await prep("antigravity:gemini-3.8-flash#high", "read-only")).toBe("E_ADMIT_RUNG");
     expect(await prep("antigravity:gemini-3.8-flash#high", "full")).toBe("ok");
+  });
+
+  it("refuses a native run when `agy models` failed some other way: it cannot confirm the login (review, PR #32)", async () => {
+    withHome();
+    sim({ modelsExit: 1 });
+    expect((await antigravityAdapter.probe()).loggedIn).toBeNull();
+    expect(await prep("antigravity:gemini-3.8-flash#high")).toBe("E_BACKEND_NOT_LOGGED_IN");
   });
 
   it("refuses a native run once the probe found agy logged out: it would open a browser", async () => {

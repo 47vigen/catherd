@@ -29,7 +29,7 @@ describe("agy events (spec 1.3 §6.5)", () => {
       status: "SUCCESS",
       response: "Done.\nSTATUS: complete — wrote src/a.ts",
       error: "",
-      tokens: { input: 15989, cached: 9728, output: 335 },
+      tokens: { input: 25717, cached: 9728, output: 335 },
     });
     expect(f.lastEvent).toBe("result/SUCCESS");
   });
@@ -44,6 +44,14 @@ describe("agy events (spec 1.3 §6.5)", () => {
       output: 12,
     });
     expect(agyTokens(undefined)).toEqual({ input: 0, cached: 0, output: 0 });
+  });
+
+  it("reads from total_tokens whether input includes the cache reads (Codex, PR #32)", () => {
+    const u = { input_tokens: 15989, output_tokens: 25, thinking_tokens: 310, cache_read_tokens: 9728 };
+    // total = input + cache + output: the reads are not in input
+    expect(agyTokens({ ...u, total_tokens: 26052 })).toEqual({ input: 25717, cached: 9728, output: 335 });
+    // total = input + output: they are
+    expect(agyTokens({ ...u, total_tokens: 16324 })).toEqual({ input: 15989, cached: 9728, output: 335 });
   });
 
   it("names events by kind, step type and state, and reads a payload nested under its event or flat", () => {

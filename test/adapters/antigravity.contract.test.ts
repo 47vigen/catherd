@@ -16,7 +16,7 @@ runAdapterContract(
       expect: {
         status: "ok",
         thread: "3f2a9c4e-8b1d-4e6f-a5c7-9d0e1f2a3b4c",
-        tokens: { input: 15989, cached: 9728, output: 335 },
+        tokens: { input: 25717, cached: 9728, output: 335 },
         reply: "Done.\nSTATUS: complete — wrote src/a.ts",
       },
     },
