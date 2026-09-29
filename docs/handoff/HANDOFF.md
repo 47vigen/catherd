@@ -24,8 +24,9 @@ needs `grok login` plus a grok reinstall (the installed grok is a Linux ELF), `c
 login`, and `agy` installed and signed in once (research §0, §8). Plans 16 and 17 depend on plan 15's groundwork;
 execute them in order 15 → 16 → 17 (16 and 17 were written in parallel on plan 15's scratch and conflict in shared
 files; plan 17's header carries the cross-plan rulings X1–X3). Plan 17 carries the 1.3.0 changeset. Pre-validation:
-plan 15 1620 → 1698 pass on `a444e1b`; plan 16 1698 → 1763; plan 17 1698 → 1761 (each on its own scratch branch,
-kept locally: `plan15-scratch`, `plan16-scratch`, `plan17-scratch`).
+plan 15 1620 → 1698 pass on `a444e1b`; plan 16 1698 → 1765; plan 17 1698 → 1761 alone, and 15 → 16 → 17 replayed
+together 1825 pass (local branches `plan15-scratch`, `plan16-scratch`, `plan17-scratch`, `plan17-on-16`). Run the gate
+with `FORCE_COLOR` unset: an exported `FORCE_COLOR=3` breaks 30 CLI output tests.
 
 ## catherd 1.2 (session 6, autopilot)
 
