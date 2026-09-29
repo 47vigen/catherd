@@ -1,23 +1,62 @@
 name: Release
 
+# npm's trusted publisher for catherd-cli is bound to this file name, so both channels publish from here.
+#   main: opens or updates the "chore: release catherd" PR; merging that PR publishes `latest`.
+#   beta: a push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR. Latest
+#   only: GitHub keeps one pending run per group, so pushes that land during a run collapse into the newest one,
+#   whose snapshot holds all of them.
+# A commit that a PR merged with its `ci` check green is not tested again: ci.yml already ran on that PR. Any other
+# commit (a direct push) runs ci.yml here first, sized by its diff, so a direct docs push costs only the format
+# check. The npm pack smoke runs right before a publish, because it tests the exact version about to ship.
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
 
+# never cancel: a cancelled run could stop halfway through a publish
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
   pull-requests: write
+  checks: read
   id-token: write
 
 jobs:
-  # spec §12: releases are gated on green CI, the whole matrix
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      # the closed PRs into this branch, matched by merge commit; not commits/{sha}/pulls, which lists only open
+      # PRs for a commit that is not on the default branch. A failed lookup counts as untested: CI runs.
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tested=false
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=$GITHUB_REF_NAME&sort=updated&direction=desc&per_page=30" \
+            -q '[.[] | select(.merge_commit_sha == env.GITHUB_SHA)][0].number // empty') || pr=
+          # ...and only when the PR was up to date: its head already held the base tip it merged into (the merge
+          # commit's first parent). A PR merged behind its base combines code that ci never ran together.
+          if [ -n "$pr" ]; then
+            head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" -q .head.sha) &&
+              base=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" -q '.parents[0].sha') &&
+              status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head" -q .status) &&
+              green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=ci" \
+                -q '[.check_runs[] | select(.conclusion == "success")] | length') &&
+              case "$status" in ahead | identical) [ "$green" != 0 ] && tested=true ;; esac
+          fi
+          echo "PR: ${pr:-none}, tested: $tested"
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+
   ci:
+    needs: gate
+    if: needs.gate.outputs.tested != 'true'
     uses: ./.github/workflows/ci.yml
 
   release:
-    needs: ci
+    needs: [gate, ci]
+    if: ${{ !cancelled() && needs.gate.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.ci.result) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,13 +75,50 @@ jobs:
       # OIDC trusted publishing needs a recent npm; no NPM_TOKEN is used.
       - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
+
       # On main with changesets: opens or updates the "chore: release catherd" PR. On that PR's merge:
       # publishes to npm, pushes the v<version> tag (the plugin marketplace's release tag) and a GitHub release.
-      - uses: changesets/action@v2
+      - if: github.ref_name == 'main'
+        uses: changesets/action@v2
         with:
           version-script: bun run version-packages
-          publish-script: bunx changeset publish
+          publish-script: bun run release:publish
           pr-title: "chore: release catherd"
           commit-message: "chore: release catherd"
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # Snapshot, not changesets pre mode: pre mode needs a version PR on beta and a `pre exit` before promotion,
+      # and it commits pre.json and prerelease CHANGELOG entries that then conflict with main. A snapshot
+      # versions only this runner's working tree, so beta keeps its changesets untouched and promotes to main as
+      # a plain merge. {datetime} keeps successive betas in semver order.
+      - name: Publish a beta snapshot under the beta dist-tag
+        id: beta
+        if: github.ref_name == 'beta'
+        run: |
+          bunx changeset version --snapshot beta
+          version=$(node -p 'require("./package.json").version')
+          case "$version" in
+            *-beta.*) ;;
+            *) echo "::notice::no changesets on beta, nothing to publish"; exit 0 ;;
+          esac
+          bun scripts/stamp-plugin-version.mjs
+          bun test/pack-smoke.ts
+          bunx changeset publish --tag beta --no-git-tag
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The beta plugin: a commit of the stamped plugin, force-pushed to the plugin-beta branch, whose own
+      # marketplace (catherd-beta) serves the plugin from that same branch. See CONTRIBUTING.md, "Beta channel".
+      - name: Point the plugin-beta branch at this beta
+        if: steps.beta.outputs.version
+        env:
+          VERSION: ${{ steps.beta.outputs.version }}
+        run: |
+          sed -i -e 's/^  "name": "catherd",/  "name": "catherd-beta",/' -e 's/"ref": "v[^"]*"/"ref": "plugin-beta"/' \
+            .claude-plugin/marketplace.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C plugin-beta
+          git add .claude-plugin/marketplace.json plugin
+          git commit -m "chore: plugin for catherd-cli@$VERSION"
+          git push --force origin plugin-beta

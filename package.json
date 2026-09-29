@@ -40,7 +40,8 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "tui-frames": "CATHERD_WRITE_FRAMES=1 bun test test/entry/tui/frames.test.tsx",
-    "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs"
+    "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs",
+    "release:publish": "npm view catherd-cli@$npm_package_version version >/dev/null 2>&1 || bun test/pack-smoke.ts && changeset publish"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

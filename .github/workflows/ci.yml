@@ -1,23 +1,98 @@
 name: CI
 
-# Pull requests run here; main runs this same workflow from release.yml, before anything is released.
+# The one gate. A change is tested here, on its pull request, and nowhere else: release.yml trusts it and never
+# re-runs the matrix. Branch protection requires the `ci` job alone, which reports on every PR, docs-only included.
 on:
   pull_request:
+    branches: [main, beta]
+  # nightly on main: the full matrix, with macOS on the Bun floor, and a new Bun caught with no PR open
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+  # release.yml, for a pushed commit that no green PR tested
   workflow_call:
+
+# a new push to a PR cancels its previous run
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      release: ${{ steps.diff.outputs.release }}
+    steps:
+      # code = anything the tests, the typecheck or the package read. Docs, specs, plans, ideas and changesets are
+      # not code. A PR is judged by its files, a push from release.yml by its diff (a compare that hits the API's
+      # 300-file cap counts as code), and a nightly or manual run is code. The release PR is not code either, but
+      # only when it is this repository's own changeset-release/main (a fork can take the name) and it touches only
+      # what `bun run version-packages` writes: version stamps, CHANGELOG and removed changesets. Its package job
+      # still packs and runs the new version. A failed file listing fails the job, so the gate never passes on a
+      # guess. A rename counts under both of its paths.
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          code=true release=false files=
+          if [ -n "$PR" ]; then
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[] | .filename, .previous_filename // empty')
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "${BEFORE//0/}" ]; then
+            files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" \
+              -q 'if (.files | length) >= 300 then "src/" else .files[] | .filename, .previous_filename // empty end')
+          fi
+          if [ -n "$files" ]; then
+            stamped='^(\.changeset/[^/]+\.md|CHANGELOG\.md|package\.json|\.claude-plugin/marketplace\.json|plugin/\.claude-plugin/plugin\.json|plugin/bin/catherd-mcp|plugin/skills/catherd/SKILL\.md)$'
+            if [ "$HEAD_REF" = changeset-release/main ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] &&
+              ! grep -qvE "$stamped" <<<"$files"; then
+              code=false release=true
+            elif ! grep -qE '^(src|test|catalog|plugin|scripts|\.github|\.claude-plugin)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.oxfmtrc\.json|THIRD_PARTY_NOTICES\.md|LICENSE|docs/tui-frames\.md)$' <<<"$files"; then
+              code=false
+            fi
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          echo "release=$release" | tee -a "$GITHUB_OUTPUT"
+
+  # oxfmt also checks the Markdown and YAML outside docs/, so even a docs-only PR runs it (about 20 s)
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+
   check:
-    # spec §12: {ubuntu, macOS} × {Bun 1.4.0, latest}. 1.4.0 is the floor catherd's runtime guard allows;
-    # latest catches a new Bun before users do. bun.lock pins everything else.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # spec §12: {ubuntu, macOS} × {Bun 1.4.0, latest}. 1.4.0 is the floor catherd's runtime guard allows; latest
+    # catches a new Bun before users do. bun.lock pins everything else. PRs skip macOS × 1.4.0: the Bun floor is
+    # a runtime question, not a platform one, and ubuntu × 1.4.0 covers it. macOS stays on PRs with the latest
+    # Bun, since most users run catherd on macOS (tmux, process groups and paths differ there). The nightly run
+    # restores the fourth cell. The repo is public, so macOS minutes cost nothing; what it costs is ~1 min of
+    # wall clock, which the parallel ubuntu jobs mostly hide.
     name: ${{ matrix.os }} · Bun ${{ matrix.bun }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         bun: ["1.4.0", latest]
+        exclude:
+          - os: macos-latest
+            bun: ${{ github.event_name == 'pull_request' && '1.4.0' || 'none' }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -31,7 +106,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun run format:check
       # every non-live test: the architecture test and docs/tui-frames.md's freshness are among them
       - if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.bun == 'latest') }}
         run: bun test
@@ -42,6 +116,8 @@ jobs:
           bun test/coverage-floor.ts coverage/lcov.info
 
   package:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.release == 'true'
     name: package · audit and npm pack smoke
     runs-on: ubuntu-latest
     steps:
@@ -54,3 +130,16 @@ jobs:
         run: bun audit --audit-level=high
       - name: npm pack smoke (spec §12)
         run: bun test/pack-smoke.ts
+
+  # the required status check: green when every job that ran passed, so a docs-only PR is never blocked
+  ci:
+    name: ci
+    needs: [changes, format, check, package]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in *" failure "* | *" cancelled "*) exit 1 ;; esac
