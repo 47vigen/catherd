@@ -75,7 +75,16 @@ export function withStaged(c: Catalog, staged: Record<string, string>): Catalog 
   return { ...c, treatLike };
 }
 
-const GROUP_ORDER = ["claude", "claude-code", "codex", "opencode-go", "opencode", "cursor", "grok"];
+const GROUP_ORDER = [
+  "claude",
+  "claude-code",
+  "codex",
+  "opencode-go",
+  "opencode",
+  "cursor",
+  "grok",
+  "antigravity",
+];
 const GROUP_NOTE: Record<string, string> = { claude: "native subagent", "claude-code": "headless" };
 
 interface ModelEntry {

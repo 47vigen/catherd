@@ -11,8 +11,8 @@ export function assertId(kind: string, value: string): string {
   return value;
 }
 
-/** The backends that run as a process through a `BackendAdapter` (cursor and grok: plan 8). */
-export const ADAPTER_IDS = ["codex", "claude-code", "opencode", "cursor", "grok"] as const;
+/** The backends that run as a process through a `BackendAdapter` (spec 1.3: cursor, grok and antigravity). */
+export const ADAPTER_IDS = ["codex", "claude-code", "opencode", "cursor", "grok", "antigravity"] as const;
 
 /** `claude` is the native Claude Code subagent path (no process); the rest are adapters. */
 const RUNG_BACKENDS = [...ADAPTER_IDS, "claude"] as const;

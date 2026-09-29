@@ -13,6 +13,7 @@ export const DEFAULT_BILLING: Record<BillingKey, BillingMode> = {
   opencode: "metered",
   cursor: "metered",
   grok: "metered",
+  antigravity: "metered",
 };
 
 /**

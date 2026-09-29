@@ -95,6 +95,17 @@ describe("resolveProfile", () => {
     expect(p.billing.cursor).toBe("metered");
   });
 
+  it("gives antigravity a billing mode and a harness toggle, off and metered until the user says (spec 1.3 §3.3)", () => {
+    const p = resolveProfile({ schema: 1 }, "bare");
+    expect(p.billing.antigravity).toBe("metered");
+    expect(p.harness.antigravity).toEqual({ isolated: false });
+    const patch = { billing: { antigravity: "subscription" }, harness: { antigravity: { isolated: true } } };
+    expect(ProfilePatchSchema.parse(patch)).toEqual(patch as never);
+    expect(patchAt("harness.antigravity.isolated", "true")).toEqual({
+      harness: { antigravity: { isolated: true } },
+    });
+  });
+
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {
     const p = resolveProfile(
       {

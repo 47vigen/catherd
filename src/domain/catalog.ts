@@ -40,11 +40,20 @@ export const BILLING_KEYS = [
   "opencode",
   "cursor",
   "grok",
+  "antigravity",
 ] as const;
 export type BillingKey = (typeof BILLING_KEYS)[number];
 
 /** The keys a family's `on` map uses; the native `claude` pseudo-backend runs claude-code's model ids. */
-const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor", "grok"] as const;
+const MODEL_KEYS = [
+  "codex",
+  "claude-code",
+  "opencode-go",
+  "opencode",
+  "cursor",
+  "grok",
+  "antigravity",
+] as const;
 type ModelKey = (typeof MODEL_KEYS)[number];
 
 export function billingKeyOf(r: Rung): BillingKey {

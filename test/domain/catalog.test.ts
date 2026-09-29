@@ -2,10 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  buildCatalog,
   CONFIDENCE,
   capableFor,
   DIMS,
   effectiveRank,
+  ModelsFileSchema,
   OverrideSchema,
   outranks,
   RANK,
@@ -153,6 +155,26 @@ describe("rungInfo", () => {
     expect(rungInfo(c, "codex:gpt-6-sol#high").efforts).toEqual(["low", "medium"]);
     expect(rungInfo(c, "codex:gpt-6-luna#high").listed).toBe(false);
     expect(rungInfo(c, "codex:gpt-6-sol#high").listed).toBe(true);
+  });
+
+  it("maps an antigravity rung through a family's on.antigravity, billed under its own key (spec 1.3 §3.3)", () => {
+    const models = shippedModels();
+    const flash = {
+      id: "flash-x",
+      name: "Flash X",
+      capabilities: { toolUse: true, imageIn: true, reasoning: true },
+      price: { input: 1, cached: 0.1, output: 4 },
+      on: { antigravity: { id: "flash-x-cli", efforts: ["low", "high"], context: 1000000 } },
+    };
+    const c = buildCatalog({
+      models: ModelsFileSchema.parse({ ...models, families: [...models.families, flash] }),
+      scores: shippedScores(),
+    });
+    expect(rungInfo(c, "antigravity:flash-x-cli#low")).toMatchObject({
+      key: "antigravity",
+      canonical: "flash-x#low",
+      efforts: ["low", "high"],
+    });
   });
 
   it("names an unknown model by its own id", () => {

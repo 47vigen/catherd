@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { CatherdError, errorMessage, isCatherdError } from "../../src/domain/errors.ts";
-import { assertId, formatRung, newDispatchId, parseRung, tryParseRung } from "../../src/domain/ids.ts";
+import {
+  ADAPTER_IDS,
+  assertId,
+  formatRung,
+  newDispatchId,
+  parseRung,
+  tryParseRung,
+} from "../../src/domain/ids.ts";
 
 describe("CatherdError", () => {
   it("carries a code and a fix, and serialises without the stack", () => {
@@ -41,6 +48,16 @@ describe("parseRung", () => {
     expect(tryParseRung("codex:gpt-6-sol#high")).toEqual(parseRung("codex:gpt-6-sol#high"));
     expect(tryParseRung("codex:gpt-6-sol")).toBeNull();
     expect(tryParseRung("nope:x#high")).toBeNull();
+  });
+
+  it("knows the three 1.3 backends by their ids (spec 1.3 §3.3)", () => {
+    expect(ADAPTER_IDS).toEqual(["codex", "claude-code", "opencode", "cursor", "grok", "antigravity"]);
+    expect(parseRung("antigravity:gemini-3.8-flash#low")).toEqual({
+      backend: "antigravity",
+      model: "gemini-3.8-flash",
+      effort: "low",
+    });
+    expect(tryParseRung("agy:gemini-3.8-flash#low")).toBeNull();
   });
 
   it("round-trips through formatRung", () => {
