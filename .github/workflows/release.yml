@@ -34,11 +34,15 @@ jobs:
           tested=false
           pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=$GITHUB_REF_NAME&sort=updated&direction=desc&per_page=30" \
             -q '[.[] | select(.merge_commit_sha == env.GITHUB_SHA)][0].number // empty') || pr=
+          # ...and only when the PR was up to date: its head already held the base tip it merged into (the merge
+          # commit's first parent). A PR merged behind its base combines code that ci never ran together.
           if [ -n "$pr" ]; then
             head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" -q .head.sha) &&
+              base=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" -q '.parents[0].sha') &&
+              status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head" -q .status) &&
               green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=ci" \
                 -q '[.check_runs[] | select(.conclusion == "success")] | length') &&
-              [ "$green" != 0 ] && tested=true
+              case "$status" in ahead | identical) [ "$green" != 0 ] && tested=true ;; esac
           fi
           echo "PR: ${pr:-none}, tested: $tested"
           echo "tested=$tested" >> "$GITHUB_OUTPUT"

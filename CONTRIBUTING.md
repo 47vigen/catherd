@@ -78,7 +78,7 @@ opencode) is an adapter under `src/adapters/`. Each CLI subcommand file is named
 
 Releases go through [Changesets](https://github.com/changesets/changesets) and `.github/workflows/release.yml`, the
 workflow npm's trusted publisher is bound to (OIDC, no npm token). A commit that a pull request merged with its `ci`
-check green is not tested again. Any other commit, a direct push, first runs CI in the release workflow, sized by its
+check green, while up to date with its base, is not tested again. Any other commit, a direct push, first runs CI in the release workflow, sized by its
 diff (a docs-only push runs only the format check).
 
 1. A pull request with a changeset merges into `main`.
