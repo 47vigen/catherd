@@ -6,7 +6,7 @@ Read it after the spec, before touching any plan.
 
 ## catherd 1.3 design (session 7, docs only): Cursor, Grok Build, Antigravity
 
-Binding spec, **draft for the owner's review**: `docs/specs/2026-09-29-catherd-1.3-design.md`. It supersedes spec 1.0's
+Binding spec, **approved 2026-09-29**: `docs/specs/2026-09-29-catherd-1.3-design.md`. It supersedes spec 1.0's
 D5 phasing and §6.4/§6.5; plan 8 is superseded. Evidence: `docs/research/2026-09-29-cursor-grok-antigravity.md`,
 which ran the real binaries (Cursor 2026.09.28, grok 1.0.44, agy 1.2.13) on the owner's Mac. None was signed in, so
 every model-turn behaviour is a Ruling plus a live-verification step.
@@ -17,9 +17,10 @@ every model-turn behaviour is a Ruling plus a live-verification step.
 | 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch (8 tasks, gate green); **not executed** |
 | 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch (9 tasks, gate green, carries the changeset); **not executed** |
 
-**Implementation stays on hold until the owner says go.** The owner first reviews the spec's §9 open questions
-(one release or three, read-only on native agy, writing into vendor config, billing modes, doctor probes that spend a
-turn, isolation keys, agy plan terms, hidden flags, the owner's machine). Before any live step the owner's machine
+**Implementation stays on hold until the owner says go.** The spec's §9 questions are closed: on 2026-09-29 the owner
+accepted all nine recommendations, which the plans already follow (one 1.3.0 release, no native read-only on agy,
+only `[profiles.catherd-*]` in the user's grok config, the billing modes, no model-turn doctor probe, isolation by API
+key, ship agy with the terms note, the pinned hidden flags). Before any live step the owner's machine
 needs `grok login` plus a grok reinstall (the installed grok is a Linux ELF), `cursor-agent update && cursor-agent
 login`, and `agy` installed and signed in once (research §0, §8). Plans 16 and 17 depend on plan 15's groundwork;
 execute them in order 15 → 16 → 17 (16 and 17 were written in parallel on plan 15's scratch and conflict in shared
