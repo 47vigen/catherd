@@ -222,6 +222,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     threadHeavy: o.tokens.input >= THREAD_HEAVY_INPUT,
     access: a.access,
     isolated: a.isolated,
+    ...(a.network === undefined ? {} : { network: a.network }),
     images: o.images,
     error: o.error,
     replyPath: relative(run.dir, p.reply),

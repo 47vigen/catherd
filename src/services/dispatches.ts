@@ -27,6 +27,8 @@ const AdmitSchema = z.looseObject({
   failoverOf: z.string().optional(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
+  /** the role's network grant (1.1 §5) when admitted; absent before 1.3 */
+  network: z.boolean().optional(),
   cliVersion: z.string().nullable(),
   admittedAt: z.string(),
   repo: z.string(),

@@ -164,11 +164,20 @@ export async function admit(
     });
   // a resumed thread lives in the home it started in (CODEX_HOME), whatever the profile says now
   const started = i.thread === null ? undefined : recordsOnThread(run, rung.backend, i.thread).at(-1);
+  const network = rc.network !== false;
   // spec 1.3 §3.2: a backend that fixes a thread's access when it starts it refuses another on resume
   if (started && adapter.resume.sameAccessOnly && started.access !== rc.access)
     throw new CatherdError(
       "E_ADMIT_THREAD",
       `${adapter.id} keeps the access a thread started with: ${i.thread} ran ${started.access}, and the ${i.role} role runs ${rc.access}`,
+      { fix: "dispatch a fresh thread (omit `thread`)" },
+    );
+  // and the network grant: grok keeps a session's sandbox profile, agy's isolated homes differ by it.
+  // A record from before 1.3 carries no grant to compare.
+  if (started?.network !== undefined && adapter.resume.sameAccessOnly && started.network !== network)
+    throw new CatherdError(
+      "E_ADMIT_THREAD",
+      `${adapter.id} keeps the network grant a thread started with: ${i.thread} ran ${started.network ? "with" : "without"} the network, and the ${i.role} role runs ${network ? "with" : "without"} it`,
       { fix: "dispatch a fresh thread (omit `thread`)" },
     );
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
@@ -181,12 +190,12 @@ export async function admit(
     access: rc.access,
     isolated,
     repo: run.meta.repo,
-    network: rc.network !== false,
+    network,
   });
   const plan = adapter.plan({
     rung,
     access: rc.access,
-    network: rc.network !== false,
+    network,
     thread: i.thread,
     isolated,
     repo: run.meta.repo,
@@ -252,6 +261,7 @@ export async function admit(
       ...(i.failoverOf ? { failoverOf: i.failoverOf } : {}),
       access: rc.access,
       isolated,
+      network,
       cliVersion: probe.version,
       admittedAt: new Date(deps.now()).toISOString(),
       repo: run.meta.repo,

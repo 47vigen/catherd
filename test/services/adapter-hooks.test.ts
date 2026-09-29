@@ -14,7 +14,7 @@ import { resolveProfile } from "../../src/domain/profile.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
 import { isolationKeyErrors } from "../../src/services/profile-store.ts";
 import { locksDir } from "../../src/infra/paths.ts";
-import { roleDir } from "../../src/services/dispatches.ts";
+import { listDispatches, roleDir } from "../../src/services/dispatches.ts";
 import {
   claimSeams,
   finalizeDispatch,
@@ -390,17 +390,65 @@ describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
     expect(await refusal(admit(deps, run, input({ name: "w2", thread: "th-9" })))).toBe("admitted");
   });
 
+  it("refuses to resume a thread under another network grant before anything runs", async () => {
+    const seen: unknown[] = [];
+    fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
+    const { run, deps } = setup();
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
+    const on = { backend: "cursor", rung: "cursor:go-m1#default" };
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D0", thread: "th-7", network: true }));
+    let err: unknown;
+    await admit(deps, run, input({ thread: "th-7" })).catch((e: unknown) => (err = e));
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_ADMIT_THREAD",
+      message:
+        "cursor keeps the network grant a thread started with: th-7 ran with the network, and the worker role runs without it",
+      fix: "dispatch a fresh thread (omit `thread`)",
+    });
+    expect(seen).toEqual([]);
+    expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+    // the same grant resumes; a record from before 1.3 carries none to compare
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D1", thread: "th-8", network: false }));
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D2", thread: "th-9" }));
+    expect(await refusal(admit(deps, run, input({ name: "w2", thread: "th-8" })))).toBe("admitted");
+    expect(await refusal(admit(deps, run, input({ name: "w3", thread: "th-9" })))).toBe("admitted");
+  });
+
+  it("writes the role's network grant into admit.json, and finalize copies it to the record", async () => {
+    fake();
+    const { run, deps } = setup();
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
+    await admit(deps, run, input());
+    const [d] = listDispatches(run);
+    expect(d?.admit.network).toBe(false);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const done = await fakeDispatch(run, { name: "w9", network: false }, { proc: "dead", exit });
+    expect((await finalizeDispatch(run, done)).network).toBe(false);
+  });
+
   it("resumes under any access on a backend that applies each run's own flags", async () => {
     fake();
     const { run, deps } = setup();
     deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
     await appendRecord(
       run,
       makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
     );
+    await appendRecord(
+      run,
+      makeRecord({
+        dispatchId: "D1",
+        backend: "cursor",
+        rung: "cursor:go-m1#default",
+        thread: "th-8",
+        network: true,
+      }),
+    );
     expect(
       await refusal(admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" }))),
     ).toBe("admitted");
+    expect(await refusal(admit(deps, run, input({ thread: "th-8" })))).toBe("admitted");
   });
 });
 
