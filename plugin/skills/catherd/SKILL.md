@@ -65,7 +65,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 - `E_ADMIT_DUPLICATE`: that role name is already running. It reports through a catherd message when it finishes; `peek(run, name)` shows it now, and `cancel` stops it.
 - `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; run a `claude:` rung as its agent; skip a role that is off.
 - `E_RUN_BUDGET`: the run's budget is spent (a soft cap: roles already running finish). Pause, report and push.
-- `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`: tell the user the `fix`, word for word, then pause.
+- `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`, `E_BACKEND_CANNOT_RUN`: tell the user the `fix`, word for word, then pause.
 - `E_LANE_INVALID`: a lane file's `Kind:` or `Difficulty:` is missing or not one the catalog knows. Fix the header (the `fix` lists the values), or have the architect fix it, then call again.
 - `E_LAND_GATE`: the milestone has no reviewer record or no verifier verdict since its lanes started, it is parked, or its `skip` does not hold. Run what the message names, then land again.
 - `E_CLIMB_DESIGN`: the evidence points at the plan, not the rung. Send it to the architect (an `ask` finding, then an architect delta), not up the ladder.

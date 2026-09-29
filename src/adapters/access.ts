@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { locksDir } from "../infra/paths.ts";
+import { configDir, dataDir, locksDir } from "../infra/paths.ts";
 import type { AccessShell } from "./backend.ts";
 import { runCli } from "./cli.ts";
 
@@ -63,6 +63,23 @@ const effectiveCaches = (query: ToolQuery): string[] =>
     ? (asked ??= [...query("go", ["env", "GOCACHE", "GOMODCACHE"]), ...query("pnpm", ["store", "path"])])
     : [...query("go", ["env", "GOCACHE", "GOMODCACHE"]), ...query("pnpm", ["store", "path"])];
 
+/** Each toolchain cache's env variable and its value: the env's, else the tool's default under `home`. */
+function cacheVars(env: Record<string, string | undefined>, home: string): Record<string, string> {
+  const mac = process.platform === "darwin";
+  const cache = env.XDG_CACHE_HOME || join(home, ".cache");
+  const data = env.XDG_DATA_HOME || join(home, ".local", "share");
+  const gopath = (env.GOPATH || join(home, "go")).split(":")[0] as string;
+  return {
+    GOCACHE: env.GOCACHE || (mac ? join(home, "Library", "Caches", "go-build") : join(cache, "go-build")),
+    GOMODCACHE: env.GOMODCACHE || join(gopath, "pkg", "mod"),
+    npm_config_store_dir:
+      env.npm_config_store_dir ||
+      (mac ? join(home, "Library", "pnpm", "store") : join(data, "pnpm", "store")),
+    BUN_INSTALL_CACHE_DIR: env.BUN_INSTALL_CACHE_DIR || join(home, ".bun", "install", "cache"),
+    npm_config_cache: env.npm_config_cache || join(home, ".npm"),
+  };
+}
+
 /**
  * The toolchain caches a worker's checks write, where they exist: Go's build and module caches and the pnpm store
  * (as the tools themselves report them, else their defaults), Bun's install cache and npm's cache. Without them a
@@ -73,19 +90,29 @@ export function toolchainCaches(
   home = env.HOME || homedir(),
   query: ToolQuery = queryTool,
 ): string[] {
-  const mac = process.platform === "darwin";
-  const cache = env.XDG_CACHE_HOME || join(home, ".cache");
-  const data = env.XDG_DATA_HOME || join(home, ".local", "share");
-  const gopath = (env.GOPATH || join(home, "go")).split(":")[0] as string;
-  const paths = [
-    ...effectiveCaches(query),
-    env.GOCACHE || (mac ? join(home, "Library", "Caches", "go-build") : join(cache, "go-build")),
-    env.GOMODCACHE || join(gopath, "pkg", "mod"),
-    env.npm_config_store_dir || (mac ? join(home, "Library", "pnpm", "store") : join(data, "pnpm", "store")),
-    env.BUN_INSTALL_CACHE_DIR || join(home, ".bun", "install", "cache"),
-    env.npm_config_cache || join(home, ".npm"),
-  ];
+  const paths = [...effectiveCaches(query), ...Object.values(cacheVars(env, home))];
   return [...new Set(paths.filter((p) => existsSync(p)).map(realOr))];
+}
+
+/**
+ * Spec 1.3 §4.4: the env of an isolated worker whose CLI is isolated by a HOME of catherd's (Cursor reads
+ * `~/.claude` whatever its own config dir says). catherd's own config and data stay put, so a `catherd lock`
+ * in the worker takes the same lock dir, and so do the toolchain caches `writableRoots` grants, which would
+ * otherwise start cold under the new HOME, where no sandbox lets the worker write.
+ * ponytail: only these caches follow; other dotfiles (~/.npmrc, ~/.gitconfig, ~/.cargo) stay behind.
+ */
+export function movedHomeEnv(
+  home: string,
+  env: Record<string, string | undefined> = process.env,
+  realHome = env.HOME || homedir(),
+): Record<string, string> {
+  return {
+    HOME: home,
+    CATHERD_CONFIG_DIR: configDir(),
+    CATHERD_DATA_DIR: dataDir(),
+    GOPATH: env.GOPATH || join(realHome, "go"),
+    ...cacheVars(env, realHome),
+  };
 }
 
 /**

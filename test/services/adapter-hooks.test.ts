@@ -2,19 +2,26 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
-import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
+import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { adapterFor, registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
-import { resetReadiness, standInFor } from "../../src/services/backends.ts";
-import { roleDir } from "../../src/services/dispatches.ts";
+import { probeBackend, readyAdapter, resetReadiness, standInFor } from "../../src/services/backends.ts";
+import { accessChecks } from "../../src/services/doctor-access.ts";
+import { backendChecks } from "../../src/services/doctor-backends.ts";
+import { resolveProfile } from "../../src/domain/profile.ts";
+import { patchProfile } from "../../src/services/profile-service.ts";
+import { isolationKeyErrors } from "../../src/services/profile-store.ts";
+import { locksDir } from "../../src/infra/paths.ts";
+import { listDispatches, roleDir } from "../../src/services/dispatches.ts";
 import {
   claimSeams,
   finalizeDispatch,
   settleLimits,
   takeOverStaleClaim,
 } from "../../src/services/finalize.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { appendRecord, createRun, readRecords } from "../../src/services/run-store.ts";
 import { gitLimits } from "../../src/infra/git.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
@@ -22,7 +29,8 @@ import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, wa
 
 afterEach(snapshotEnv());
 afterEach(() => {
-  unregisterAdapter("cursor");
+  // the fake adapter stands under Cursor's id: put the real one back
+  registerAdapter(cursorAdapter);
   claimSeams.beforeTakeover = async () => {};
   settleLimits.timeoutMs = 20_000;
   settleLimits.claimMarginMs = 10_000;
@@ -137,6 +145,7 @@ describe("prepare", () => {
         access: "workspace-write",
         isolated: false,
         repo: run.meta.repo,
+        network: true,
       },
     ]);
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
@@ -191,6 +200,255 @@ describe("prepare", () => {
       fix: expect.stringContaining("cursor"),
     });
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+  });
+});
+
+describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
+  /** What Bun's spawn throws for a binary built for another OS (seen on macOS: a Linux ELF). */
+  const execFormat = (how: "code" | "message") =>
+    how === "code"
+      ? Object.assign(new Error("ENOEXEC: unknown error, posix_spawn '/home/u/.grok/bin/grok'"), {
+          code: "ENOEXEC",
+        })
+      : new Error("spawn /home/u/.grok/bin/grok: exec format error");
+
+  it("reports a CLI the OS cannot execute as installed but unable to run, with the reinstall command", async () => {
+    for (const how of ["code", "message"] as const) {
+      resetReadiness();
+      fake({
+        install: "curl -fsSL https://example.invalid/install.sh | bash",
+        probe: async () => {
+          throw execFormat(how);
+        },
+      });
+      const p = await probeBackend(adapterFor("cursor") as BackendAdapter);
+      expect(p).toEqual({
+        installed: true,
+        version: null,
+        versionOk: false,
+        loggedIn: null,
+        problems: [
+          {
+            code: "E_BACKEND_CANNOT_RUN",
+            message: `cursor is installed but cannot run on this OS: ${how === "code" ? "/home/u/.grok/bin/grok" : "exec format error"}`,
+            fix: "curl -fsSL https://example.invalid/install.sh | bash",
+          },
+        ],
+      });
+      let err: unknown;
+      await readyAdapter("cursor").catch((e: unknown) => (err = e));
+      expect(isCatherdError(err) && err.code).toBe("E_BACKEND_CANNOT_RUN");
+    }
+    // any other failure of a probe is not this one
+    fake({
+      probe: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(probeBackend(adapterFor("cursor") as BackendAdapter)).rejects.toThrow("boom");
+  });
+
+  it("shows it in doctor's backend row as cannot run, with the reinstall command", async () => {
+    process.env.PATH = "/nonexistent";
+    fake({
+      probe: async () => {
+        throw execFormat("code");
+      },
+    });
+    const rows = await backendChecks(new Map(), []);
+    expect(rows.find((r) => r.id === "backend:cursor")).toMatchObject({
+      state: "skip",
+      word: "cannot run",
+      fix: "reinstall cursor for this OS",
+    });
+  });
+
+  it("refuses a backend whose probe finds it logged out, before anything runs (never a browser login)", async () => {
+    let probed = 0;
+    fake({
+      probe: async () => {
+        probed++;
+        return {
+          installed: true,
+          version: "1.0.0",
+          versionOk: true,
+          loggedIn: false,
+          problems: [
+            { code: "E_BACKEND_NOT_LOGGED_IN", message: "cursor is not logged in", fix: "cursor login" },
+          ],
+        };
+      },
+    });
+    const { run, deps } = setup();
+    expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_NOT_LOGGED_IN");
+    expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+    // a failing probe is never kept: once logged in, the next dispatch goes
+    expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_NOT_LOGGED_IN");
+    expect(probed).toBe(2);
+  });
+});
+
+describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
+  const onIt = [resolveProfile({ schema: 1, roles: { worker: { rungs: ["cursor:go-m1#default"] } } }, "p")];
+
+  it("says a backend with no sandbox runner is not tested, and why, without spending a model turn", async () => {
+    fake();
+    const rows = await accessChecks(onIt, new Set(["cursor"]));
+    expect(rows.filter((r) => r.id === "access:cursor")).toEqual([
+      {
+        id: "access:cursor",
+        label: "cursor worker access",
+        state: "skip",
+        word: "not tested",
+        detail:
+          "no way to run a shell in cursor's sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn",
+      },
+    ]);
+  });
+
+  it("gives a failed probe the sandbox's own fix when its shell names one", async () => {
+    withHome();
+    process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker-here";
+    fake({
+      accessShell: async () => ({
+        how: "cursor's sandbox",
+        run: async (_script, args) =>
+          args[0] === locksDir()
+            ? { ok: false, out: "", err: "touch: Operation not permitted" }
+            : { ok: true, out: "", err: "" },
+        close: () => {},
+        fixes: { lock: "add it to additionalReadwritePaths in ~/.cursor/sandbox.json" },
+      }),
+    });
+    const row = (await accessChecks(onIt, new Set(["cursor"]))).find((r) => r.id === "access:cursor");
+    expect(row).toMatchObject({
+      id: "access:cursor",
+      state: "warn",
+      word: "blocked",
+      detail: "in cursor's sandbox, a worker cannot: lock-dir write (touch: Operation not permitted)",
+      fix: "lock-dir write: add it to additionalReadwritePaths in ~/.cursor/sandbox.json",
+    });
+  });
+});
+
+describe("an isolated backend's API key (spec 1.3 §8)", () => {
+  const isolated = resolveProfile({ schema: 1, harness: { cursor: { isolated: true } } }, "p");
+  const MISSING = {
+    path: "harness.cursor.isolated",
+    message: "an isolated cursor run needs CURSOR_API_KEY, which catherd's environment does not have",
+    fix: "export CURSOR_API_KEY=<key>, or catherd profile set harness.cursor.isolated false",
+  };
+
+  it("is an error while an isolated backend's key is not set, and nothing once it is or while native", () => {
+    fake({ isolationKey: "CURSOR_API_KEY" });
+    expect(isolationKeyErrors(isolated, {})).toEqual([MISSING]);
+    expect(isolationKeyErrors(isolated, { CURSOR_API_KEY: "k" })).toEqual([]);
+    expect(isolationKeyErrors(resolveProfile({ schema: 1 }, "p"), {})).toEqual([]);
+    // a backend that isolates without a key of its own
+    fake();
+    expect(isolationKeyErrors(isolated, {})).toEqual([]);
+  });
+
+  it("refuses a save that isolates the backend with no key, naming the export", () => {
+    withHome();
+    fake({ isolationKey: "CURSOR_API_KEY" });
+    delete process.env.CURSOR_API_KEY;
+    const r = patchProfile("default", { harness: { cursor: { isolated: true } } });
+    expect(r.saved).toBe(false);
+    expect(r.errors).toContainEqual(MISSING);
+    process.env.CURSOR_API_KEY = "key-for-test";
+    expect(patchProfile("default", { harness: { cursor: { isolated: true } } }).saved).toBe(true);
+  });
+});
+
+describe("a backend that keeps a thread's access (spec 1.3 §3.2)", () => {
+  const KEEPS = { supported: true, sameAccessOnly: true, threadPattern: /^th-\d+$/ };
+
+  it("refuses to resume a thread under another access before anything runs, and resumes it under the same", async () => {
+    const seen: unknown[] = [];
+    fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
+    const { run, deps } = setup();
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    await appendRecord(
+      run,
+      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+    );
+    let err: unknown;
+    await admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" })).catch(
+      (e: unknown) => (err = e),
+    );
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_ADMIT_THREAD",
+      message:
+        "cursor keeps the access a thread started with: th-7 ran workspace-write, and the reviewer role runs read-only",
+      fix: "dispatch a fresh thread (omit `thread`)",
+    });
+    expect(seen).toEqual([]);
+    expect(existsSync(roleDir(run, "reviewer-1"))).toBe(false);
+    expect(await refusal(admit(deps, run, input({ thread: "th-7" })))).toBe("admitted");
+    // a thread catherd has no record of is the backend's to refuse
+    expect(await refusal(admit(deps, run, input({ name: "w2", thread: "th-9" })))).toBe("admitted");
+  });
+
+  it("refuses to resume a thread under another network grant before anything runs", async () => {
+    const seen: unknown[] = [];
+    fake({ resume: KEEPS, prepare: async (r) => void seen.push(r) });
+    const { run, deps } = setup();
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
+    const on = { backend: "cursor", rung: "cursor:go-m1#default" };
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D0", thread: "th-7", network: true }));
+    let err: unknown;
+    await admit(deps, run, input({ thread: "th-7" })).catch((e: unknown) => (err = e));
+    expect(isCatherdError(err) && err.toJSON()).toEqual({
+      code: "E_ADMIT_THREAD",
+      message:
+        "cursor keeps the network grant a thread started with: th-7 ran with the network, and the worker role runs without it",
+      fix: "dispatch a fresh thread (omit `thread`)",
+    });
+    expect(seen).toEqual([]);
+    expect(existsSync(roleDir(run, "worker-1"))).toBe(false);
+    // the same grant resumes; a record from before 1.3 carries none to compare
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D1", thread: "th-8", network: false }));
+    await appendRecord(run, makeRecord({ ...on, dispatchId: "D2", thread: "th-9" }));
+    expect(await refusal(admit(deps, run, input({ name: "w2", thread: "th-8" })))).toBe("admitted");
+    expect(await refusal(admit(deps, run, input({ name: "w3", thread: "th-9" })))).toBe("admitted");
+  });
+
+  it("writes the role's network grant into admit.json, and finalize copies it to the record", async () => {
+    fake();
+    const { run, deps } = setup();
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
+    await admit(deps, run, input());
+    const [d] = listDispatches(run);
+    expect(d?.admit.network).toBe(false);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const done = await fakeDispatch(run, { name: "w9", network: false }, { proc: "dead", exit });
+    expect((await finalizeDispatch(run, done)).network).toBe(false);
+  });
+
+  it("resumes under any access on a backend that applies each run's own flags", async () => {
+    fake();
+    const { run, deps } = setup();
+    deps.view.roles.reviewer = { enabled: true, access: "read-only", rungs: ["cursor:go-m1#default"] };
+    deps.view.roles.worker = { ...deps.view.roles.worker!, network: false };
+    await appendRecord(
+      run,
+      makeRecord({ dispatchId: "D0", backend: "cursor", rung: "cursor:go-m1#default", thread: "th-7" }),
+    );
+    await appendRecord(
+      run,
+      makeRecord({
+        dispatchId: "D1",
+        backend: "cursor",
+        rung: "cursor:go-m1#default",
+        thread: "th-8",
+        network: true,
+      }),
+    );
+    expect(
+      await refusal(admit(deps, run, input({ role: "reviewer", name: "reviewer-1", thread: "th-7" }))),
+    ).toBe("admitted");
+    expect(await refusal(admit(deps, run, input({ thread: "th-8" })))).toBe("admitted");
   });
 });
 

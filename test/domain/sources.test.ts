@@ -72,10 +72,24 @@ describe("id and effort mapping (spec 1.2 §3.4)", () => {
     expect(m.key("claude-4-5-haiku")).toBe("claude-haiku-4-5");
   });
 
+  it("maps the sources' Grok, Composer and Gemini names onto the 1.3 families (spec 1.3 §7.1)", () => {
+    const m = idMapper(shippedModels().families, sourcesFile().aliases);
+    const fam = (rung: string) => m.family(splitSourceRung(rung).id)?.id ?? null;
+    expect(fam("Grok 4.7#xhigh")).toBe("grok-4-7");
+    expect(fam("x-ai/grok-4.6")).toBe("grok-4-6");
+    expect(fam("grok-4.5")).toBe("grok-4-5");
+    expect(fam("Composer 2.5#none")).toBe("composer-2-5");
+    expect(fam("Gemini 3.8 Flash#high")).toBe("gemini-3-8-flash");
+    expect(fam("google/gemini-3.7-flash")).toBe("gemini-3-7-flash");
+    expect(fam("Gemini 3.1 Pro Preview")).toBe("gemini-3-1-pro");
+    expect(fam("gemini-3-1-pro-preview")).toBe("gemini-3-1-pro");
+    expect(fam("grok-build-0.1")).toBeNull();
+  });
+
   it("never guesses: an id with no family, alias or backend id maps to none", () => {
     const m = idMapper(shippedModels().families, sourcesFile().aliases);
     for (const id of [
-      "gemini-3.8-flash",
+      "gemini-3.9-flash",
       "claude-opus-5",
       "gpt-6-sol-pro",
       "openai/gpt-6-sol:batch",

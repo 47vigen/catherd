@@ -1,5 +1,5 @@
 import { realTmpdir } from "../adapters/access.ts";
-import type { AccessShell } from "../adapters/backend.ts";
+import type { AccessProbeId, AccessShell } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { tryParseRung } from "../domain/ids.ts";
@@ -12,7 +12,7 @@ import type { Check } from "./doctor-checks.ts";
 // Spec §5 and §12: the five access probes doctor runs per backend that serves a workspace-write role, each
 // in that backend's worker shell with the grants a worker gets, and the rows that report them.
 
-export type ProbeId = "lock" | "temp" | "loopback" | "https" | "docker";
+export type ProbeId = AccessProbeId;
 
 /**
  * What the probes reach: npm's ping, through HTTPS_PROXY when it is set (Bun's fetch honours it), and
@@ -131,8 +131,13 @@ export async function runProbes(shell: AccessShell, network: boolean): Promise<P
   return out;
 }
 
-/** The fix for a failed probe, per backend: Codex's sandbox holds catherd's grants; the others run unsandboxed. */
-function fixFor(backend: string, id: ProbeId): string {
+/**
+ * The fix for a failed probe: the sandbox's own when its shell names one; Codex's sandbox holds catherd's grants;
+ * the others run unsandboxed.
+ */
+function fixFor(backend: string, id: ProbeId, shell: AccessShell): string {
+  const own = shell.fixes?.[id];
+  if (own) return own;
   if (backend === "codex") {
     const override =
       "catherd passes this grant to Codex itself (with your top-level [sandbox_workspace_write] writable_roots added): check that no --profile or managed requirements.toml overrides it";
@@ -173,7 +178,7 @@ export async function accessChecks(profiles: Profile[], installed: ReadonlySet<s
   const checks: Check[] = [];
   for (const [id, network] of workspaceWriteNetwork(profiles)) {
     const a = adapterFor(id);
-    if (!a?.accessShell) continue;
+    if (!a) continue;
     if (!installed.has(id)) {
       checks.push({
         id: `access:${id}`,
@@ -184,7 +189,9 @@ export async function accessChecks(profiles: Profile[], installed: ReadonlySet<s
       });
       continue;
     }
-    const shell = await a.accessShell({ network }).catch((e: unknown) => String(e));
+    const shell = a.accessShell
+      ? await a.accessShell({ network }).catch((e: unknown) => String(e))
+      : `no way to run a shell in ${id}'s sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn`;
     if (id === "codex")
       checks.push(
         typeof shell === "string"
@@ -217,7 +224,7 @@ export async function accessChecks(profiles: Profile[], installed: ReadonlySet<s
             state: "warn",
             word: "blocked",
             detail: `in ${shell.how}, a worker cannot: ${failed.map((r) => `${r.label} (${r.why})`).join("; ")}`,
-            fix: failed.map((r) => `${r.label}: ${fixFor(id, r.id)}`).join("\n"),
+            fix: failed.map((r) => `${r.label}: ${fixFor(id, r.id, shell)}`).join("\n"),
           }
         : {
             ...base,

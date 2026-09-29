@@ -14,7 +14,8 @@ import {
   ProfileDocSchema,
   resolveProfile,
 } from "../domain/profile.ts";
-import { type Validation, validateProfile } from "../domain/profile-rules.ts";
+import { type Issue, type Validation, validateProfile } from "../domain/profile-rules.ts";
+import type { Catalog } from "../domain/catalog.ts";
 import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { configDir } from "../infra/paths.ts";
@@ -116,12 +117,39 @@ export const runnableBackends = (): string[] => ["claude", ...ADAPTER_IDS.filter
 export const keyRunnable = (key: string, backends: string[] = runnableBackends()): boolean =>
   backends.includes(backendOfKey(key));
 
+/**
+ * Spec 1.3 §8: each backend `p` isolates whose isolated run logs in with an API key that is not in `env` (the
+ * environment catherd runs, and starts workers, in).
+ */
+export function isolationKeyErrors(
+  p: Profile,
+  env: Record<string, string | undefined> = process.env,
+): Issue[] {
+  const out: Issue[] = [];
+  for (const [id, h] of Object.entries(p.harness)) {
+    const key = h.isolated ? adapterFor(id)?.isolationKey : undefined;
+    if (key && !env[key])
+      out.push({
+        path: `harness.${id}.isolated`,
+        message: `an isolated ${id} run needs ${key}, which catherd's environment does not have`,
+        fix: `export ${key}=<key>, or catherd profile set harness.${id}.isolated false`,
+      });
+  }
+  return out;
+}
+
+/** Spec §7.1 validation on this machine: the backends catherd can run here, and the keys isolation needs. */
+export function validateHere(p: Profile, c: Catalog, doc?: ProfileDoc): Validation {
+  const v = validateProfile(p, c, runnableBackends(), doc);
+  return { ...v, errors: [...v.errors, ...isolationKeyErrors(p)] };
+}
+
 /** `repo`: the git toplevel whose listing route reads (opencode lists its models per repository). */
 export function validateNamed(name?: string, repo: string | null = null): Validation {
   const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
   const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
-  return validateProfile(resolveProfile(doc, n), catalog, runnableBackends(), doc);
+  return validateHere(resolveProfile(doc, n), catalog, doc);
 }
 
 /** Spec D10: how strongly the backend holds a role to its access mode. */

@@ -302,6 +302,7 @@ async function probe(): Promise<Probe> {
 export const claudeCodeAdapter: BackendAdapter = {
   id: "claude-code",
   minVersion: CLAUDE_MIN_VERSION,
+  install: "npm i -g @anthropic-ai/claude-code",
   probe,
   listModels: () => listClaudeModels(),
   prepare,

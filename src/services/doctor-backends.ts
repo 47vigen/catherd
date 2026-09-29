@@ -4,6 +4,7 @@ import "../adapters/all.ts";
 import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import { probeBackend } from "./backends.ts";
 import { refreshDiscovery } from "./catalog-service.ts";
 import { type Check, errText, fixOf } from "./doctor-checks.ts";
 
@@ -30,6 +31,7 @@ const PROBLEM_WORD: Record<string, string> = {
   E_BACKEND_MISSING: "missing",
   E_BACKEND_TOO_OLD: "too old",
   E_BACKEND_NOT_LOGGED_IN: "not logged in",
+  E_BACKEND_CANNOT_RUN: "cannot run",
 };
 
 /**
@@ -91,7 +93,7 @@ export async function backendChecks(
   for (const id of ADAPTER_IDS) {
     const a = adapterFor(id);
     if (!a) continue;
-    const probe: Probe = await a.probe().catch((e: unknown) => ({
+    const probe: Probe = await probeBackend(a).catch((e: unknown) => ({
       installed: false,
       version: null,
       versionOk: false,
@@ -101,6 +103,9 @@ export async function backendChecks(
       ],
     }));
     if (probe.installed) installed?.add(id);
+    // spec 1.3 §4.7: what the probe found worth knowing, nothing to fix (an `agent` on PATH that is not Cursor)
+    for (const i of probe.info ?? [])
+      checks.push({ id: i.id, label: i.label, state: "info", word: "info", detail: i.detail });
     const problem = probe.problems[0];
     const use = used.get(id);
     if (!problem) {

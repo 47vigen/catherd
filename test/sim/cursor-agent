@@ -1,0 +1,103 @@
+#!/usr/bin/env bun
+// Cursor CLI simulator for catherd's tests (research 2026-09-29 §2): behaviour comes from the JSON scenario
+// in CATHERD_SIM_CURSOR.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_CURSOR ?? "", "utf8")) as Record<string, any>;
+const args = process.argv.slice(2);
+const say = (text: string) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+const fail = (text: string, code = 1): never => {
+  process.stderr.write(`${text}\n`);
+  process.exit(code);
+};
+// research §2.2 [run]: a CLI with no login and no key fails every call that reaches the server, first thing
+const loggedIn = s.loggedIn !== false || !!process.env.CURSOR_API_KEY;
+const AUTH =
+  "Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.";
+
+if (args[0] === "--version" || args[0] === "-v") {
+  say(s.version ?? "2026.09.28-64d2043");
+  process.exit(0);
+}
+if (args[0] === "models" || args[0] === "--list-models") {
+  if (!loggedIn) fail(AUTH);
+  if (s.modelsFile) process.stdout.write(readFileSync(s.modelsFile, "utf8"));
+  process.exit(s.modelsExit ?? 0);
+}
+if (args[0] === "sandbox") {
+  // the hidden `agent sandbox run [flags] -- <cmd…>` (research §2.6)
+  if (s.sandbox === "missing") fail("error: unknown command 'sandbox'");
+  if (s.sandboxArgsTo) appendFileSync(s.sandboxArgsTo, `${JSON.stringify(args)}\n`);
+  const cmd = args.slice(args.indexOf("--") + 1);
+  if ((s.sandboxDeny ?? []).some((d: string) => cmd.join(" ").includes(d)))
+    fail("sandbox: Operation not permitted");
+  const r = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
+  process.exit(r.exitCode ?? 1);
+}
+
+const VALUE = ["--output-format", "--model", "--mode", "--sandbox", "--workspace", "--resume", "--api-key"];
+const BOOL = ["-p", "--print", "--trust", "--force", "-f", "--yolo", "--approve-mcps", "--disable-auto-update"];
+const CHOICES: Record<string, string[]> = { "--sandbox": ["enabled", "disabled"], "--mode": ["plan", "ask"] };
+const opts: Record<string, string> = {};
+const prompt: string[] = [];
+for (let i = 0; i < args.length; i++) {
+  const a = args[i] as string;
+  if (!a.startsWith("-")) {
+    prompt.push(a);
+    continue;
+  }
+  if ((s.unknownFlags ?? []).includes(a) || (!VALUE.includes(a) && !BOOL.includes(a)))
+    fail(`error: unknown option '${a}'`);
+  opts[a] = VALUE.includes(a) ? (args[++i] ?? "") : "true";
+  const allowed = CHOICES[a];
+  if (allowed && !allowed.includes(opts[a] as string))
+    fail(
+      `error: option '${a} <mode>' argument '${opts[a]}' is invalid. Allowed choices are ${allowed.join(", ")}.`,
+    );
+}
+if (!opts["-p"] && !opts["--print"]) fail("sim: only print mode is simulated", 2);
+if (!loggedIn) fail(AUTH);
+if (!opts["--trust"] && !opts["--force"] && !opts["--yolo"] && !opts["-f"])
+  fail("⚠ Workspace Trust Required\nPass --trust, --yolo, or -f if you trust this directory");
+
+// research §2.2: stdin is read only when there is no positional prompt
+let stdin = "";
+if (prompt.length === 0)
+  try {
+    stdin = readFileSync(0, "utf8");
+  } catch {
+    // no stdin
+  }
+const workspace = opts["--workspace"] ?? process.cwd();
+const PICKED = ["NO_OPEN_BROWSER", "CURSOR_CONFIG_DIR", "CURSOR_DATA_DIR", "CATHERD_DATA_DIR", "CATHERD_CONFIG_DIR"];
+writeFileSync(
+  s.recordTo,
+  JSON.stringify({
+    args,
+    stdin: [...prompt, stdin].filter(Boolean).join("\n"),
+    cwd: process.cwd(),
+    pwd: process.env.PWD ?? null,
+    xdgConfig: process.env.XDG_CONFIG_HOME ?? null,
+    home: process.env.HOME ?? null,
+    vars: Object.fromEntries(PICKED.flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]]]))),
+    envKeys: Object.keys(process.env),
+  }),
+);
+const session = opts["--resume"] ?? "00000000-0000-4000-8000-00000000c0de";
+setTimeout(async () => {
+  for (const t of s.touch ?? []) {
+    mkdirSync(dirname(join(workspace, t.path)), { recursive: true });
+    writeFileSync(join(workspace, t.path), t.content);
+  }
+  if (s.eventsFile)
+    process.stdout.write(
+      readFileSync(s.eventsFile, "utf8")
+        .replace(/"session_id":"[^"]*"/g, `"session_id":"${session}"`)
+        .replaceAll("<repo>", workspace),
+    );
+  if (s.stderr) process.stderr.write(s.stderr);
+  // research §2.10: the CLI waits for background shells after its result, with no limit
+  if (s.hangMs) await Bun.sleep(s.hangMs);
+  process.exit(s.exitCode ?? 0);
+}, s.delayMs ?? 0);

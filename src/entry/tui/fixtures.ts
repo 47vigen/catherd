@@ -523,6 +523,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     validate: (p, c) => validateProfile(p, c, BACKENDS),
     enforcement: (rung) => (rung.startsWith("codex:") ? "enforced" : "advisory"),
     harnesses: ["codex", "claude-code", "opencode"],
+    isolation: () => ({}),
     agents: (p) =>
       (["architect", "verifier"] as const)
         .filter((r) => p.roles[r].enabled)

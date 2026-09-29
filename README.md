@@ -6,7 +6,7 @@
  (")(")
 ```
 
-Autopilot builds from your own Claude Code session. Claude plans and verifies, Codex, opencode or
+Autopilot builds from your own Claude Code session. Claude plans and verifies, Codex, opencode, Cursor or
 headless Claude Code workers write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
 of work, climbing a ladder only when a cheaper rung falls short.
 
@@ -14,7 +14,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
   you'd rather save the tokens your customizations cost.
 - **Claude roles stay native.** `claude:` rungs run as ordinary Claude Code subagents; Codex,
-  opencode and headless `claude-code:` rungs run through catherd's MCP server.
+  opencode, Cursor and headless `claude-code:` rungs run through catherd's MCP server.
 - **Survives restarts.** Workers are detached processes writing straight to disk, so a dropped
   MCP server never loses a run.
 - **Results come to you.** Roles run side by side while you keep talking to Claude; each one that finishes
@@ -34,6 +34,8 @@ of work, climbing a ladder only when a cheaper rung falls short.
   - [opencode](https://opencode.ai) **v2**, 2.0.16 or newer: `curl -fsSL https://opencode.ai/v2/install | bash`
     (the npm package `opencode-ai` is v1 and is not supported)
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
+  - Cursor's CLI, `cursor-agent` 2026.09.28 or newer: `curl https://cursor.com/install -fsS | bash`, then
+    `cursor-agent login` (below)
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
 - Optional: a free [Artificial Analysis](https://artificialanalysis.ai) API key for more scores, in
   `ARTIFICIAL_ANALYSIS_API_KEY` or saved by `catherd init`; its numbers are read for you alone and never shipped
@@ -41,6 +43,23 @@ of work, climbing a ladder only when a cheaper rung falls short.
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
 you have (`/catherd-setup` in Claude Code, or `catherd profile set roles.<role>.rungs <rung>`).
+
+### Cursor
+
+A Cursor rung names Cursor's own model slug, with the effort as the slug's suffix: `cursor:gpt-6-sol#xhigh` runs
+`gpt-6-sol-xhigh`, and `#default` runs the bare slug (`cursor:composer-2.5#default`). `cursor-agent models` lists
+what your account offers; `catherd catalog refresh` reads it. No profile uses Cursor until you put a rung on it.
+Its Composer and Grok models bill from Cursor's own pool, the other models at API rates after your plan's included
+usage, so a Cursor rung ranks as `metered`.
+
+- **Native** (the default) runs with your login and your Cursor setup. It also loads your Claude Code hooks,
+  skills and plugins, which Cursor reads from `~/.claude`. `workspace-write` runs in Cursor's sandbox under your
+  `~/.cursor/sandbox.json`, which catherd never edits: `catherd doctor` shows which of a worker's checks (the lock
+  dir, temp, loopback, the network, Docker) it allows. `read-only` runs Cursor's ask mode, which asks the model not
+  to write but cannot stop it (`advisory`).
+- **Isolated** (`catherd profile set harness.cursor.isolated true`) needs `CURSOR_API_KEY`, since a login cannot
+  move to another home. catherd runs Cursor under its own HOME with its own `sandbox.json`, which gives a worker
+  catherd's writable roots.
 
 ## Install
 
@@ -133,6 +152,7 @@ Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (bot
 | `TYPESAFE_API_KEY`            | The Jev key, instead of the one `catherd init` saves                                                        |
 | `ARTIFICIAL_ANALYSIS_API_KEY` | An Artificial Analysis key for `catalog sync`, instead of the one `catherd init` saves                      |
 | `CATHERD_NO_SYNC`             | `1`: no automatic sync of the public sources (at MCP server start and in `init`); `catalog sync` still runs |
+| `CURSOR_API_KEY`              | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                       |
 | `CATHERD_HOME`                | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                   |
 | `CATHERD_LOG`                 | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                      |
 | `CATHERD_LOCK_SLOTS`          | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                 |

@@ -2,8 +2,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 function root(kind: "config" | "data"): string {
-  // set for an isolated worker whose XDG_CONFIG_HOME points elsewhere, so its `catherd lock` reads this config
+  // set for an isolated worker whose XDG_CONFIG_HOME or HOME points elsewhere, so its `catherd lock` reads
+  // this config and takes this lock dir
   if (kind === "config" && process.env.CATHERD_CONFIG_DIR) return process.env.CATHERD_CONFIG_DIR;
+  if (kind === "data" && process.env.CATHERD_DATA_DIR) return process.env.CATHERD_DATA_DIR;
   const home = process.env.CATHERD_HOME;
   if (home) return join(home, kind);
   if (kind === "config") return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "catherd");

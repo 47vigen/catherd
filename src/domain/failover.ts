@@ -113,7 +113,8 @@ function effortGap(a: string, b: string): number {
 const BACKEND_OF_KEY: Record<string, string> = { "opencode-go": "opencode" };
 
 /**
- * Every rung the catalog knows how to name: each shipped family's model on each backend at each effort,
+ * Every rung the catalog knows how to name: each shipped family's model on each backend at each effort (at
+ * `#default` when it has none),
  * each listed model at each effort, and each treat-like whose model is an opencode id (`opencode-go/…`,
  * `opencode/…`), such as the shipped Kimi K3 stand-in. Sorted, without duplicates.
  */
@@ -122,7 +123,9 @@ export function catalogRungs(c: Catalog): string[] {
   for (const f of c.families)
     for (const [key, m] of Object.entries(f.on)) {
       if (!m) continue;
-      for (const e of m.efforts) out.add(`${BACKEND_OF_KEY[key] ?? key}:${m.id}#${e}`);
+      // a model with no effort has one rung, #default (Claude Code's Haiku, Cursor's Composer; spec 1.3 §7.1)
+      for (const e of m.efforts.length ? m.efforts : ["default"])
+        out.add(`${BACKEND_OF_KEY[key] ?? key}:${m.id}#${e}`);
     }
   for (const [backend, l] of Object.entries(c.listed))
     for (const m of l.models) for (const e of m.efforts) out.add(`${backend}:${m.id}#${e}`);

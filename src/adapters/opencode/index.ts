@@ -314,6 +314,7 @@ async function probe(): Promise<Probe> {
 export const opencodeAdapter: BackendAdapter = {
   id: "opencode",
   minVersion: OPENCODE_MIN_VERSION,
+  install: OPENCODE_INSTALL,
   probe,
   listModels,
   prepare,

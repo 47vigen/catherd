@@ -85,14 +85,22 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
       const { id, effort } = splitSourceRung(row.rung);
       const family = map.family(id);
       if (!family) (unmatched[source] ??= new Set()).add(id);
-      const e = effort ?? (family ? defaultEffortOf(ctx.sources, family) : "");
+      // spec 1.3 §7.1: a family with no effort (Composer) has one rung, #default, whatever effort a source names
+      const effortless = family !== null && familyEfforts(family).length === 0;
+      const e = effortless ? "default" : (effort ?? (family ? defaultEffortOf(ctx.sources, family) : ""));
       const key = `${map.key(family?.id ?? id)}#${e}`;
       const field = `${source}.${row.field}`;
       const at = table.get(field) ?? new Map<string, Keyed>();
       table.set(field, at);
       const had = at.get(key);
       if (!had || row.value > had.row.value)
-        at.set(key, { key, family, effort: e, assumed: effort === null && family !== null, row });
+        at.set(key, {
+          key,
+          family,
+          effort: e,
+          assumed: effort === null && family !== null && !effortless,
+          row,
+        });
     }
   const valuesOf = (f: FieldRef) =>
     new Map([...(table.get(`${f.source}.${f.field}`)?.values() ?? [])].map((k) => [k.key, k.row.value]));
@@ -261,7 +269,8 @@ function factsOf(
   for (const f of ctx.models.families) {
     const x: FamilyFacts = { on: {}, speed: {} };
     const vendor = (f as { vendor?: unknown }).vendor;
-    const own = md && typeof vendor === "string" ? modelsDevFacts(md, vendor, f.id) : null;
+    const own =
+      md && typeof vendor === "string" ? modelsDevFacts(md, vendor, modelsDevId(md, vendor, f, map)) : null;
     if (own?.price) x.price = own.price;
     if (own && own.toolUse !== null && own.imageIn !== null && own.reasoning !== null)
       x.capabilities = { toolUse: own.toolUse, imageIn: own.imageIn, reasoning: own.reasoning };
@@ -288,6 +297,15 @@ function factsOf(
     if (own?.efforts) warnings.push(...effortWarnings(f, own.efforts, liteLlm, map));
   }
   return { facts, warnings };
+}
+
+/**
+ * The id of `vendor`'s models.dev model that is `f`: its own id, else the first that maps to it (spec 1.3 §7.1:
+ * `gemini-3-8-flash` is Google's `gemini-3.8-flash`, `gemini-3-1-pro` its aliased `gemini-3.1-pro-preview`).
+ */
+function modelsDevId(md: unknown, vendor: string, f: Family, map: IdMapper): string {
+  const ids = Object.keys((md as Record<string, { models?: object }>)[vendor]?.models ?? {});
+  return ids.includes(f.id) ? f.id : (ids.find((id) => map.family(id) === f) ?? f.id);
 }
 
 /** The first entry of `list` whose id maps to `f` (OpenRouter's `:batch` variants never do). */

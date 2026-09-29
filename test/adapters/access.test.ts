@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   dockerSocket,
   dockerSocketCandidates,
+  movedHomeEnv,
   realTmpdir,
   toolchainCaches,
   writableRoots,
@@ -14,7 +15,7 @@ import { claudeCodeAdapter, claudeSandboxOn } from "../../src/adapters/claude-co
 import { codexAdapter } from "../../src/adapters/codex/index.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { applyPatch, defaultProfileDoc, patchAt, resolveProfile } from "../../src/domain/profile.ts";
-import { locksDir } from "../../src/infra/paths.ts";
+import { configDir, dataDir, locksDir } from "../../src/infra/paths.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
@@ -67,6 +68,28 @@ describe("worker access grants (spec §5)", () => {
     ]);
     process.env.GOCACHE = gocache;
     expect(writableRoots()).toContain(realpathSync(gocache));
+  });
+
+  it("moves an isolated worker's HOME, keeping catherd's own dirs and the user's toolchain caches (spec 1.3 §4.4)", () => {
+    withHome();
+    const mac = process.platform === "darwin";
+    const env = movedHomeEnv("/iso/home", { HOME: "/u", GOPATH: "/u/gp:/u/gp2" }, "/u");
+    expect(env).toEqual({
+      HOME: "/iso/home",
+      CATHERD_CONFIG_DIR: configDir(),
+      CATHERD_DATA_DIR: dataDir(),
+      GOPATH: "/u/gp:/u/gp2",
+      GOCACHE: mac ? "/u/Library/Caches/go-build" : "/u/.cache/go-build",
+      GOMODCACHE: "/u/gp/pkg/mod",
+      npm_config_store_dir: mac ? "/u/Library/pnpm/store" : "/u/.local/share/pnpm/store",
+      BUN_INSTALL_CACHE_DIR: "/u/.bun/install/cache",
+      npm_config_cache: "/u/.npm",
+    });
+    // a worker that runs `catherd lock` under that env takes the lock dir catherd itself uses
+    const locks = locksDir();
+    delete process.env.CATHERD_HOME;
+    Object.assign(process.env, env);
+    expect(locksDir()).toBe(locks);
   });
 
   it("finds the Docker socket DOCKER_HOST names", () => {

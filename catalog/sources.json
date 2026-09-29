@@ -69,7 +69,8 @@
   ],
   "aliases": {
     "claude-4-5-haiku": "claude-haiku-4-5",
-    "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
+    "gemini-3.1-pro-preview": "gemini-3-1-pro"
   },
   "defaultEffort": {
     "gpt-6-astra": "medium",
@@ -82,6 +83,14 @@
     "claude-opus-5-5": "high",
     "claude-sonnet-5-5": "high",
     "claude-sonnet-5": "high",
-    "claude-haiku-4-5": "default"
+    "claude-haiku-4-5": "default",
+    "grok-4-7": "high",
+    "grok-4-6": "high",
+    "grok-4-5": "high",
+    "composer-2-5": "default",
+    "gemini-3-8-flash": "high",
+    "gemini-3-7-flash": "high",
+    "gemini-3-6-flash": "high",
+    "gemini-3-1-pro": "high"
   }
 }

@@ -11,7 +11,7 @@ import {
   openRevert,
   useProfileDialogs,
 } from "../../../src/entry/tui/views/profile-actions.ts";
-import { ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
+import { isolationAbout, ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
 import { writeDiscovery } from "../../../src/adapters/discovery.ts";
 import { saveTreatLike } from "../../../src/services/catalog-service.ts";
 import { snapshotEnv, withHome } from "../../helpers.ts";
@@ -798,5 +798,14 @@ describe("keys that land in one tick (Review Focus 2)", () => {
     const fx = await profiles();
     await h!.s.burst("ctrl+x", "n", "cheap", "return");
     expect(fx.writes).toEqual(["create cheap"]);
+  });
+});
+
+describe("the harness row's line (spec 1.3 §8)", () => {
+  it("names the API key isolation needs and what the native mode loads, when the backend says", () => {
+    expect(isolationAbout({})).toBe("space runs the backend with catherd's own config instead of yours");
+    expect(isolationAbout({ note: "native X loads your Y", key: "X_API_KEY" })).toBe(
+      "space runs the backend with catherd's own config instead of yours (it needs X_API_KEY); native X loads your Y",
+    );
   });
 });

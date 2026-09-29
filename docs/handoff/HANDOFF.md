@@ -13,11 +13,11 @@ every model-turn behaviour is a Ruling plus a live-verification step.
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | written, pre-validated (14 tasks, gate green); **not executed (owner: hold)** |
+| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | **merged** (PR #30: replayed from the pre-validated scratch; one Codex round, 2 P2 fixed; final review 0 C / 1 I fixed; ledger `plan15-ledger.md`) |
 | 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch (8 tasks, gate green); **not executed** |
 | 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch (9 tasks, gate green, carries the changeset); **not executed** |
 
-**Implementation stays on hold until the owner says go.** The spec's §9 questions are closed: on 2026-09-29 the owner
+**The owner said go on 2026-09-29; plans run in order 15 → 16 → 17.** The spec's §9 questions are closed: on 2026-09-29 the owner
 accepted all nine recommendations, which the plans already follow (one 1.3.0 release, no native read-only on agy,
 only `[profiles.catherd-*]` in the user's grok config, the billing modes, no model-turn doctor probe, isolation by API
 key, ship agy with the terms note, the pinned hidden flags). Before any live step the owner's machine

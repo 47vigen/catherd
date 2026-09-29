@@ -68,6 +68,8 @@ export const RunRecordSchema = z.looseObject({
   threadHeavy: z.boolean(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
+  /** the role's network grant (1.1 §5) it ran under, copied from admit.json; absent before 1.3 */
+  network: z.boolean().optional(),
   images: z.array(z.string()),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
   replyPath: z.string(),

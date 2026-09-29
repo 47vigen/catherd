@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BackendAdapter, FinishedRun } from "../adapters/backend.ts";
+import type { BackendAdapter, FinishedRun, Outcome, RunRequest } from "../adapters/backend.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import type { Access } from "../domain/record.ts";
@@ -21,13 +21,21 @@ interface CaptureCase {
   rung: string;
   access: Access;
   brief: string;
+  /** a second brief that resumes the first run's thread in the same repo; the resumed run is captured */
+  resume?: string;
 }
 
 const SAY_HELLO =
   "Reply with the single word hello. The last line of your reply is exactly: STATUS: complete — said hello";
 const TRY_WRITE =
   "Create a file named out.txt containing the word hi. If you cannot, say why. The last line of your reply is: STATUS: complete|blocked — <one line why>";
+const WORK =
+  "Create a file named notes.txt containing hi, read it back, then run the shell command `git status --short`. The last line of your reply is exactly: STATUS: complete — wrote notes.txt";
+const RECALL =
+  "Which single word did you reply with earlier in this chat? Reply with it. The last line of your reply is exactly: STATUS: complete — recalled";
 const HAIKU = "claude-code:claude-haiku-4-5-20251001#default";
+/** spec 1.3 §4.6: `auto` has no family; only the live kit and the capture run it */
+const AUTO = "cursor:auto#default";
 const BUNNY = "opencode:opencode/space-bunny-free#default";
 
 /** Spec §11.7–8: one cheap run per backend, plus a read-only role trying to write where enforcement is advisory. */
@@ -37,6 +45,10 @@ const CAPTURE_CASES: CaptureCase[] = [
   { backend: "claude-code", name: "read-only-write", rung: HAIKU, access: "read-only", brief: TRY_WRITE },
   { backend: "opencode", name: "ok", rung: BUNNY, access: "read-only", brief: SAY_HELLO },
   { backend: "opencode", name: "read-only-write", rung: BUNNY, access: "read-only", brief: TRY_WRITE },
+  // spec 1.3 §4.7: a read, a write and a shell call; a resumed chat (research §2.5); ask mode trying to write
+  { backend: "cursor", name: "ok", rung: AUTO, access: "workspace-write", brief: WORK },
+  { backend: "cursor", name: "resume", rung: AUTO, access: "read-only", brief: SAY_HELLO, resume: RECALL },
+  { backend: "cursor", name: "read-only-write", rung: AUTO, access: "read-only", brief: TRY_WRITE },
 ];
 export const CAPTURE_BACKENDS = [...new Set(CAPTURE_CASES.map((c) => c.backend))];
 
@@ -79,12 +91,71 @@ function cleanStrings(v: unknown, clean: (s: string) => string): unknown {
   return v;
 }
 
+/** One run as an isolated dispatch would start it (plan, the worker env), without the supervisor. */
+async function runOnce(
+  adapter: BackendAdapter,
+  request: RunRequest,
+  timeoutMs: number,
+): Promise<{ run: FinishedRun; events: string; stderr: string; o: Outcome }> {
+  const plan = adapter.plan(request);
+  const startedAtMs = Date.now();
+  const p = Bun.spawn([plan.cmd, ...plan.args], {
+    cwd: plan.cwd,
+    env: workerEnv(process.env, plan.env, plan.cwd),
+    // spec 1.3 §3.3: the brief goes on stdin only to a CLI whose plan reads it there (grok reads a file)
+    stdin: plan.stdinPath ? Bun.file(plan.stdinPath) : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    // its own group, so a timeout stops whatever the CLI started too, as the supervisor does
+    detached: true,
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup(p.pid, "SIGKILL");
+  }, timeoutMs);
+  // as preflight does: a process the CLI left behind (in its own session) may hold the pipes open
+  const out = collect(p.stdout);
+  const err = collect(p.stderr);
+  const code = await p.exited;
+  clearTimeout(timer);
+  const drained = await Promise.race([
+    Promise.all([out.done, err.done]).then(() => true),
+    Bun.sleep(DRAIN_MS).then(() => false),
+  ]);
+  if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
+  out.stop();
+  err.stop();
+  const events = out.text();
+  const stderr = err.text();
+  const run: FinishedRun = {
+    request,
+    eventLines: events.split("\n").filter((l) => l.trim()),
+    reply: "",
+    stderr,
+    exit: {
+      code: p.signalCode ? null : code,
+      signal: p.signalCode ?? null,
+      reason: timedOut ? "wall-timeout" : "exited",
+      endedAt: new Date().toISOString(),
+    },
+    startedAtMs,
+  };
+  // as a dispatch records it: the backend's own totals and limits, on a fresh thread (nothing prior)
+  const o = await settled(adapter, adapter.finalize(run), run, () => ({
+    tokens: { input: 0, cached: 0, output: 0 },
+    costUsd: 0,
+  }));
+  return { run, events, stderr, o };
+}
+
 /**
  * Runs one case the way an isolated dispatch would (prepare, plan, the worker env), without the
  * supervisor. Isolated, so the stream names none of the owner's own hooks, plugins, MCP servers or config:
- * the fixtures are committed.
+ * the fixtures are committed. A case with `resume` runs its brief, then resumes that thread in the same
+ * scratch repo with `resume`, and captures the resumed run.
  */
-async function captureOne(
+export async function captureOne(
   adapter: BackendAdapter,
   version: string,
   c: CaptureCase,
@@ -96,8 +167,8 @@ async function captureOne(
     const briefPath = join(work, "brief.md");
     writeFileSync(briefPath, c.brief);
     const rung = parseRung(c.rung);
-    await adapter.prepare?.({ rung, access: c.access, isolated: true, repo });
-    const request = {
+    await adapter.prepare?.({ rung, access: c.access, isolated: true, repo, network: true });
+    const request: RunRequest = {
       rung,
       access: c.access,
       thread: null,
@@ -107,54 +178,20 @@ async function captureOne(
       replyPath: join(work, "reply.md"),
       dispatchDir: work,
     };
-    const plan = adapter.plan(request);
-    const startedAtMs = Date.now();
-    const p = Bun.spawn([plan.cmd, ...plan.args], {
-      cwd: plan.cwd,
-      env: workerEnv(process.env, plan.env, plan.cwd),
-      stdin: Bun.file(briefPath),
-      stdout: "pipe",
-      stderr: "pipe",
-      // its own group, so a timeout stops whatever the CLI started too, as the supervisor does
-      detached: true,
-    });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup(p.pid, "SIGKILL");
-    }, timeoutMs);
-    // as preflight does: a process the CLI left behind (in its own session) may hold the pipes open
-    const out = collect(p.stdout);
-    const err = collect(p.stderr);
-    const code = await p.exited;
-    clearTimeout(timer);
-    const drained = await Promise.race([
-      Promise.all([out.done, err.done]).then(() => true),
-      Bun.sleep(DRAIN_MS).then(() => false),
-    ]);
-    if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
-    out.stop();
-    err.stop();
-    const events = out.text();
-    const stderr = err.text();
-    const run: FinishedRun = {
-      request,
-      eventLines: events.split("\n").filter((l) => l.trim()),
-      reply: "",
-      stderr,
-      exit: {
-        code: p.signalCode ? null : code,
-        signal: p.signalCode ?? null,
-        reason: timedOut ? "wall-timeout" : "exited",
-        endedAt: new Date().toISOString(),
-      },
-      startedAtMs,
-    };
-    // as a dispatch records it: the backend's own totals and limits, on a fresh thread (nothing prior)
-    const o = await settled(adapter, adapter.finalize(run), run, () => ({
-      tokens: { input: 0, cached: 0, output: 0 },
-      costUsd: 0,
-    }));
+    let captured = await runOnce(adapter, request, timeoutMs);
+    const resumed = c.resume === undefined ? null : captured.o.thread;
+    if (c.resume !== undefined) {
+      if (!resumed)
+        return {
+          backend: c.backend,
+          name: c.name,
+          status: "skipped",
+          reason: `the first run left no thread to resume (${captured.o.error?.message ?? captured.o.status})`,
+        };
+      writeFileSync(briefPath, c.resume);
+      captured = await runOnce(adapter, { ...request, thread: resumed }, timeoutMs);
+    }
+    const { run, events, stderr, o } = captured;
     const scrub: Scrub = {
       secrets: secretEnvValues(process.env),
       paths: [
@@ -180,7 +217,8 @@ async function captureOne(
           rung: c.rung,
           access: c.access,
           isolated: true,
-          brief: c.brief,
+          brief: c.resume ?? c.brief,
+          ...(resumed ? { resumed } : {}),
           exitCode: run.exit.code,
           reason: run.exit.reason,
           capturedAt: new Date().toISOString(),

@@ -24,7 +24,13 @@ import { configFile } from "../../src/services/profile-store.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
-import { type OpencodeScenario, withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
+import {
+  type CursorScenario,
+  type OpencodeScenario,
+  withClaudeScenario,
+  withCursorScenario,
+  withOpencodeScenario,
+} from "../sim/sim-scenarios.ts";
 
 afterEach(snapshotEnv());
 
@@ -48,7 +54,9 @@ const SIM = join(import.meta.dir, "..", "sim");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
 
 /** A machine with the simulated CLIs `bins` on PATH (all three by default), the codex sandbox allowing writes. */
-function machine(o: { codex?: CodexScenario; opencode?: OpencodeScenario; bins?: string[] } = {}): string {
+function machine(
+  o: { codex?: CodexScenario; opencode?: OpencodeScenario; cursor?: CursorScenario; bins?: string[] } = {},
+): string {
   const home = withHome();
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
   delete process.env.TYPESAFE_API_KEY;
@@ -63,7 +71,9 @@ function machine(o: { codex?: CodexScenario; opencode?: OpencodeScenario; bins?:
     withScenario({ models: fx("codex/models.json"), sandbox: "allow", ...o.codex }).env,
     withClaudeScenario({}).env,
     withOpencodeScenario({ models: fx("opencode/models.json").data, ...o.opencode }).env,
+    withCursorScenario({ modelsFile: join(FX, "cursor", "models.txt"), ...o.cursor }).env,
   );
+  delete process.env.CURSOR_API_KEY;
   return home;
 }
 
@@ -104,6 +114,7 @@ describe("doctor", () => {
       "backend:codex": "ok ready",
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
+      "backend:cursor": "skip missing",
       jev: "warn no key",
       sources: "info not synced",
       plugin: "ok ready",
@@ -119,6 +130,41 @@ describe("doctor", () => {
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · ChatGPT login · \d+ models$/);
     expect(check(r, "agents")?.detail).toBe("2 linked");
     expect(check(r, "access:full")?.detail).toBe("no sandbox for: verifier (default), ui-reviewer (default)");
+  });
+
+  it("shows Cursor's CLI with its version, login and listing, and an agent on PATH that is not Cursor as info", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"] });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    const bin = process.env.PATH?.split(":")[0] as string;
+    writeFileSync(join(bin, "agent"), "#!/bin/sh\necho 'agent 1.0 (a build agent)'\n");
+    chmodSync(join(bin, "agent"), 0o755);
+    const r = await run();
+    expect(check(r, "backend:cursor")).toMatchObject({
+      state: "ok",
+      word: "ready",
+      detail: "2026.09.28 · Cursor login · 8 models",
+    });
+    expect(check(r, "name:agent")).toMatchObject({
+      label: "agent",
+      state: "info",
+      detail: expect.stringContaining("another program than cursor-agent"),
+    });
+    expect(r.ready).toBe(true);
+  });
+
+  it("fails a logged-out Cursor a role runs on, with the login fix", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"], cursor: { loggedIn: false } });
+    installPlugin(VERSION);
+    // Composer is unscored: its inferred stand-ins let the role run (spec 1.3 §7.2)
+    const saved = patchProfile("default", { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } });
+    expect(saved.saved).toBe(true);
+    const r = await run();
+    expect(check(r, "backend:cursor")).toMatchObject({
+      state: "fail",
+      word: "not logged in",
+      fix: "cursor-agent login, or export CURSOR_API_KEY=<key>",
+    });
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {

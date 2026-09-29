@@ -16,7 +16,12 @@ export interface Probe {
   /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
   billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
+  /** what doctor shows as information, nothing to fix (spec 1.3 §4.7: an `agent` on PATH that is not Cursor) */
+  info?: { id: string; label: string; detail: string }[];
 }
+
+/** Doctor's five access probes (spec 1.1 §5). */
+export type AccessProbeId = "lock" | "temp" | "loopback" | "https" | "docker";
 
 /** A worker's shell for doctor's probes: `run` is `sh -c <script> _ <args…>`; `close` removes its scratch dir. */
 export interface AccessShell {
@@ -24,6 +29,8 @@ export interface AccessShell {
   how: string;
   run(script: string, args: string[]): Promise<CliResult | null>;
   close(): void;
+  /** how to grant what this sandbox refused, per probe, when the backend's own config grants it */
+  fixes?: Partial<Record<AccessProbeId, string>>;
 }
 
 export interface DiscoveredModel {
@@ -110,6 +117,8 @@ export interface Spent {
 export interface BackendAdapter {
   id: AdapterId;
   minVersion: string;
+  /** the command that installs (or reinstalls) the CLI, for a probe problem's fix */
+  install?: string;
   probe(): Promise<Probe>;
   /** The models the backend offers; in `repo` when given, for a backend whose listing depends on it. */
   listModels(repo?: string): Promise<DiscoveredModel[]>;
@@ -117,7 +126,13 @@ export interface BackendAdapter {
    * Refuses a rung this backend cannot run and readies the backend's own config, before admission writes
    * anything (spec §6.3: variants are validated before dispatch). Throws a CatherdError.
    */
-  prepare?(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void>;
+  prepare?(req: {
+    rung: Rung;
+    access: Access;
+    isolated: boolean;
+    repo: string;
+    network?: boolean;
+  }): Promise<void>;
   plan(req: RunRequest): SpawnPlan;
   parse(line: string): EventDelta;
   finalize(run: FinishedRun): Outcome;
@@ -137,10 +152,16 @@ export interface BackendAdapter {
   /**
    * Spec §5 and §12: a shell that runs a command the way this backend's workspace-write worker runs one,
    * with the grants the worker gets, for doctor's access probes; a string says why it cannot be tested here.
+   * Absent: the CLI has no way to run a shell in its sandbox without a model turn (spec 1.3 §3.4).
    */
   accessShell?(o: { network: boolean }): Promise<AccessShell | string>;
   /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
   isolationNote?: string;
+  /**
+   * Spec 1.3 §8: the env variable an isolated run logs in with, when isolation moves the CLI's home away from
+   * the user's login (`CURSOR_API_KEY`); an isolated profile without it does not validate.
+   */
+  isolationKey?: string;
   graceAfterFinalMs: number | null;
 }
 

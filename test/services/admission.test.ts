@@ -114,10 +114,10 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    // Cursor has no adapter until 1.1.
-    deps.view.roles.worker?.rungs.push("cursor:gpt-6-sol#default");
+    // Grok has no adapter until plan 16.
+    deps.view.roles.worker?.rungs.push("grok:grok-4.7#default");
     expect(
-      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "cursor:gpt-6-sol#default" }))),
+      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "grok:grok-4.7#default" }))),
     ).toBe("E_BACKEND_MISSING");
   });
 

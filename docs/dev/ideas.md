@@ -494,6 +494,16 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **An isolated headless worker cannot read its lane file.** worker-M4.L1 (`claude-code`, `isolated: true`) was told "your lane file is lanes/M4.L1.md in the run" and replied "I couldn't find `lanes/M4.L1.md` on disk, so I worked from your summary". It guessed its Owns from the brief and edited four files the lane file did not list, which came back as violations (`directory.go`, `internal_test.go`, two Dokploy READMEs). All four were right to edit, but only because the brief happened to be detailed. Fix: `dispatch` inlines the lane file (Owns, Fast check, body) into the brief, or passes its absolute path and grants read access to the run folder.
 - **`preflight` reruns every past milestone's lanes.** Called for M4, which had one new lane, it ran all seven M3 lane checks too (Go testcontainers and four panels), took about 2 min behind the lock while the M4 worker was already running, and reported a failure on an M3 lane (`TestSeedWritesEveryStateThePanelShows`) that has nothing to do with M4. Fix: preflight only lanes that have not landed, or take a `milestone` argument.
 
+## 1.3 follow-ups (plan reviews, 2026-09-29)
+
+- **Discovery runs a non-Cursor `agent`.** `refreshDiscovery` calls `listModels()` without a probe, so with only
+  grok's `agent` on PATH catherd runs `agent models`. Its lines do not parse, so nothing is written, but the row shows a
+  raw spawn error. Fix: `listModels` returns `[]` unless the `agent` found prints Cursor's date-hash version, or
+  `refreshDiscovery` skips a backend `probeBackend` calls not installed. (Plan 15 final review, Minor 2.)
+- **Downgrade fixes can suggest a Cursor stand-in** on a machine without Cursor. `profile-rules` builds its stand-in
+  pool from every registered adapter. Fix: limit the pool to backends the profile already names. (Plan 15 final
+  review, Minor 4.)
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
