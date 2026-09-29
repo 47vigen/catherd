@@ -7,7 +7,10 @@ import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit, prepareLimits } from "../../src/services/admission.ts";
 import { probeBackend, readyAdapter, resetReadiness, standInFor } from "../../src/services/backends.ts";
+import { accessChecks } from "../../src/services/doctor-access.ts";
 import { backendChecks } from "../../src/services/doctor-backends.ts";
+import { resolveProfile } from "../../src/domain/profile.ts";
+import { locksDir } from "../../src/infra/paths.ts";
 import { roleDir } from "../../src/services/dispatches.ts";
 import {
   claimSeams,
@@ -15,7 +18,7 @@ import {
   settleLimits,
   takeOverStaleClaim,
 } from "../../src/services/finalize.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { appendRecord, createRun, readRecords } from "../../src/services/run-store.ts";
 import { gitLimits } from "../../src/infra/git.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
@@ -277,6 +280,49 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
     // a failing probe is never kept: once logged in, the next dispatch goes
     expect(await refusal(admit(deps, run, input()))).toBe("E_BACKEND_NOT_LOGGED_IN");
     expect(probed).toBe(2);
+  });
+});
+
+describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
+  const onIt = [resolveProfile({ schema: 1, roles: { worker: { rungs: ["cursor:go-m1#default"] } } }, "p")];
+
+  it("says a backend with no sandbox runner is not tested, and why, without spending a model turn", async () => {
+    fake();
+    const rows = await accessChecks(onIt, new Set(["cursor"]));
+    expect(rows.filter((r) => r.id === "access:cursor")).toEqual([
+      {
+        id: "access:cursor",
+        label: "cursor worker access",
+        state: "skip",
+        word: "not tested",
+        detail:
+          "no way to run a shell in cursor's sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn",
+      },
+    ]);
+  });
+
+  it("gives a failed probe the sandbox's own fix when its shell names one", async () => {
+    withHome();
+    process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker-here";
+    fake({
+      accessShell: async () => ({
+        how: "cursor's sandbox",
+        run: async (_script, args) =>
+          args[0] === locksDir()
+            ? { ok: false, out: "", err: "touch: Operation not permitted" }
+            : { ok: true, out: "", err: "" },
+        close: () => {},
+        fixes: { lock: "add it to additionalReadwritePaths in ~/.cursor/sandbox.json" },
+      }),
+    });
+    const row = (await accessChecks(onIt, new Set(["cursor"]))).find((r) => r.id === "access:cursor");
+    expect(row).toMatchObject({
+      id: "access:cursor",
+      state: "warn",
+      word: "blocked",
+      detail: "in cursor's sandbox, a worker cannot: lock-dir write (touch: Operation not permitted)",
+      fix: "lock-dir write: add it to additionalReadwritePaths in ~/.cursor/sandbox.json",
+    });
   });
 });
 

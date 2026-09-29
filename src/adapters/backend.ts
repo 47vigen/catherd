@@ -18,12 +18,17 @@ export interface Probe {
   problems: { code: ErrorCode; message: string; fix: string }[];
 }
 
+/** Doctor's five access probes (spec 1.1 §5). */
+export type AccessProbeId = "lock" | "temp" | "loopback" | "https" | "docker";
+
 /** A worker's shell for doctor's probes: `run` is `sh -c <script> _ <args…>`; `close` removes its scratch dir. */
 export interface AccessShell {
   /** how it runs, for the doctor rows: "codex sandbox", "an unsandboxed shell" */
   how: string;
   run(script: string, args: string[]): Promise<CliResult | null>;
   close(): void;
+  /** how to grant what this sandbox refused, per probe, when the backend's own config grants it */
+  fixes?: Partial<Record<AccessProbeId, string>>;
 }
 
 export interface DiscoveredModel {
@@ -139,6 +144,7 @@ export interface BackendAdapter {
   /**
    * Spec §5 and §12: a shell that runs a command the way this backend's workspace-write worker runs one,
    * with the grants the worker gets, for doctor's access probes; a string says why it cannot be tested here.
+   * Absent: the CLI has no way to run a shell in its sandbox without a model turn (spec 1.3 §3.4).
    */
   accessShell?(o: { network: boolean }): Promise<AccessShell | string>;
   /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
