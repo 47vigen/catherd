@@ -176,7 +176,13 @@ export async function admit(
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
-  await prepared(adapter, { rung, access: rc.access, isolated, repo: run.meta.repo });
+  await prepared(adapter, {
+    rung,
+    access: rc.access,
+    isolated,
+    repo: run.meta.repo,
+    network: rc.network !== false,
+  });
   const plan = adapter.plan({
     rung,
     access: rc.access,

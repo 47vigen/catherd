@@ -143,6 +143,7 @@ describe("prepare", () => {
         access: "workspace-write",
         isolated: false,
         repo: run.meta.repo,
+        network: true,
       },
     ]);
     expect(existsSync(roleDir(run, "worker-1"))).toBe(false);

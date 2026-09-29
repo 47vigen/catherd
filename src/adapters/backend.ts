@@ -16,6 +16,8 @@ export interface Probe {
   /** the billing mode that login implies, when it implies one: doctor compares it with the profiles' */
   billing?: BillingMode;
   problems: { code: ErrorCode; message: string; fix: string }[];
+  /** what doctor shows as information, nothing to fix (spec 1.3 §4.7: an `agent` on PATH that is not Cursor) */
+  info?: { id: string; label: string; detail: string }[];
 }
 
 /** Doctor's five access probes (spec 1.1 §5). */
@@ -124,7 +126,13 @@ export interface BackendAdapter {
    * Refuses a rung this backend cannot run and readies the backend's own config, before admission writes
    * anything (spec §6.3: variants are validated before dispatch). Throws a CatherdError.
    */
-  prepare?(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void>;
+  prepare?(req: {
+    rung: Rung;
+    access: Access;
+    isolated: boolean;
+    repo: string;
+    network?: boolean;
+  }): Promise<void>;
   plan(req: RunRequest): SpawnPlan;
   parse(line: string): EventDelta;
   finalize(run: FinishedRun): Outcome;
