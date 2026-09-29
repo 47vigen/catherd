@@ -25,24 +25,33 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      release: ${{ steps.diff.outputs.release }}
     steps:
       # code = anything the tests, the typecheck or the package read. Docs, specs, plans, ideas and changesets are
-      # not code; the release PR (only version stamps, CHANGELOG and removed changesets, written by
-      # `bun run version-packages`) is not code either: its package job still packs and runs the new version.
+      # not code. The release PR is not code either, but only when it is this repository's own
+      # changeset-release/main (a fork can take the name) and it touches only what `bun run version-packages`
+      # writes: version stamps, CHANGELOG and removed changesets. Its package job still packs and runs the new
+      # version. A failed file listing fails the job, so the gate never passes on a guess.
       - id: diff
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          if [ -z "$PR" ]; then code=true
-          elif [ "$HEAD_REF" = changeset-release/main ]; then code=false
-          elif gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[].filename' |
-            grep -qE '^(src|test|catalog|plugin|scripts|\.github)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.oxfmtrc\.json|docs/tui-frames\.md)$'
-          then code=true
-          else code=false
+          code=true release=false
+          if [ -n "$PR" ]; then
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[].filename')
+            stamped='^(\.changeset/[^/]+\.md|CHANGELOG\.md|package\.json|\.claude-plugin/marketplace\.json|plugin/\.claude-plugin/plugin\.json|plugin/bin/catherd-mcp|plugin/skills/catherd/SKILL\.md)$'
+            if [ "$HEAD_REF" = changeset-release/main ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] &&
+              ! grep -qvE "$stamped" <<<"$files"; then
+              code=false release=true
+            elif ! grep -qE '^(src|test|catalog|plugin|scripts|\.github)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.oxfmtrc\.json|docs/tui-frames\.md)$' <<<"$files"; then
+              code=false
+            fi
           fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          echo "release=$release" | tee -a "$GITHUB_OUTPUT"
 
   # oxfmt also checks the Markdown and YAML outside docs/, so even a docs-only PR runs it (about 20 s)
   format:
@@ -98,7 +107,7 @@ jobs:
 
   package:
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.head_ref == 'changeset-release/main'
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.release == 'true'
     name: package · audit and npm pack smoke
     runs-on: ubuntu-latest
     steps:
