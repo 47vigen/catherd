@@ -67,7 +67,7 @@ Rulings of this plan (`what — why — cost if wrong`); each one a live check n
 20. **Spec §7.3's failover pairs are deferred to plans 16 and 17.** Their partner backends (`grok`, `antigravity`) have no adapter in plan 15; a `DEFAULT_FAILOVER` entry onto them errors "catherd cannot run grok yet" and breaks C-3. — Cost if wrong: none; plan 16 adds Grok ↔ Cursor, plan 17 Gemini ↔ Cursor.
 21. **`DEFAULT_BILLING.antigravity` is `metered`** until plan 17's probe reads the login (spec §9 Q4). — Cost if wrong: none in plan 15 (no adapter).
 22. **`init` is unchanged**: it detects no backend and asks nothing new (spec §8); Cursor is off until a rung names it.
-23. **Tests that need a backend with no adapter use `grok`** (it was `cursor`); plan 16 moves them to `antigravity`. The capture-fixtures "no cases" test keeps `grok`.
+23. **Tests that need a backend with no adapter use `grok`** (it was `cursor`); plan 16 moves them to `antigravity`. The capture-fixtures "no cases" test keeps `grok`. Once plan 17 registers the last id, no real id lacks an adapter: plan 17's Ruling X2 has the in-process tests `unregisterAdapter(<real id>)` and restore it in `afterEach`, and the spawned "no cases" test name an id with no cases (`nope`).
 24. **Capture cases** run `cursor:auto#default` isolated (so they need `CURSOR_API_KEY`): `ok` (write, read, shell; workspace-write), `resume` (a hello, then a recall on the same chat), `read-only-write` (ask mode). No capture case writes outside its scratch dir; the sandbox-outside check is live §11 step 3. — Cost if wrong: none.
 
 ## Assumes from earlier plans (re-check on the head you execute on)

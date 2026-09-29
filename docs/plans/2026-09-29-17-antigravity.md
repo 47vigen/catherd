@@ -4,24 +4,30 @@
 
 **Goal:** Google's Antigravity CLI (`agy`) as catherd's backend `antigravity` (spec 1.3 §6): `agy` ≥ 1.2.13, logged in when `agy models` answers (never `agy -p` while signed out: it opens a browser), `-p` naming the brief file, stream-json events, `ok` only on a `SUCCESS` result, per-access isolated homes on `GEMINI_API_KEY` with catherd's own `settings.json`, read-only roles only isolated (§9 Q2), doctor's `quota:antigravity`; the four Gemini families on `antigravity` and the Gemini failover pairs with Cursor (§7.1, §7.3); docs, live verification §13, and the one `minor` changeset that ships plans 15–17 as 1.3.0 (§2).
 
-**Architecture:** the adapter is one folder, `src/adapters/antigravity/` (`events.ts`, `models.ts`, `home.ts`, `index.ts`), registered in `src/adapters/all.ts`, with a simulator `test/sim/agy`, synthetic fixtures under `test/fixtures/adapters/antigravity/` that cite the research, and the contract suite. Two optional `BackendAdapter` fields carry what is new to the contract: `isolatedOnly` (the accesses a backend holds only when isolated; `validateHere` and `prepare` refuse them natively) and `quota()` (doctor's quota row). The Gemini failover pairs are a domain table (`sameModelStandIn`) that `standInFor` falls back to; `adjacent` carries a family's values to `#default` for a backend that runs it without an effort. The effort fold Cursor's listing uses moves to `src/adapters/discovery.ts`, shared.
+**Architecture:** the adapter is one folder, `src/adapters/antigravity/` (`events.ts`, `models.ts`, `home.ts`, `index.ts`), registered in `src/adapters/all.ts`, with a simulator `test/sim/agy`, synthetic fixtures under `test/fixtures/adapters/antigravity/` that cite the research, and the contract suite. Two optional `BackendAdapter` fields carry what is new to the contract: `isolatedOnly` (the accesses a backend holds only when isolated; `validateHere` and `prepare` refuse them natively) and `quota()` (doctor's quota row). The Gemini failover pairs are rows of plan 16's `PAIRED_FAILOVER` (`src/domain/profile.ts`), the one table `standInFor` reads after the profile's own entry; `adjacent` carries a family's values to `#default` for a backend that runs it without an effort. The effort fold Cursor's listing uses moves to `src/adapters/discovery.ts`, shared.
 
 **Tech Stack:** Bun ≥ 1.4, TypeScript, zod 4, citty, `@modelcontextprotocol/sdk`, `@opentui/react`. No new dependency.
 
-**Spec:** `docs/specs/2026-09-29-catherd-1.3-design.md` §2, §3 (done by plan 15), §6, §7.1, §7.3, §8, §9 (every recommendation followed: Q2 read-only only isolated, Q3 never the user's `~/.gemini`, Q4 billing from the probe, Q5 no model turn in doctor, Q6 isolation needs the key, Q7 the README note), §10; research `docs/research/2026-09-29-cursor-grok-antigravity.md` §4 (all), §5, §7, §8 (agy list). Plan 15 (`docs/plans/2026-09-29-15-groundwork-cursor.md`) is this plan's base: its rulings, helpers (`movedHomeEnv`, `E_BACKEND_CANNOT_RUN`, isolation keys, the logged-out refusal, "not tested" access rows, the capture stdin rule) and the Cursor effort fold are consumed as they are.
+**Spec:** `docs/specs/2026-09-29-catherd-1.3-design.md` §2, §3 (done by plan 15), §6, §7.1, §7.3, §8, §9 (every recommendation followed: Q2 read-only only isolated, Q3 never the user's `~/.gemini`, Q4 billing from the probe, Q5 no model turn in doctor, Q6 isolation needs the key, Q7 the README note), §10; research `docs/research/2026-09-29-cursor-grok-antigravity.md` §4 (all), §5, §7, §8 (agy list). Plan 16 (`docs/plans/2026-09-29-16-grok.md`), on plan 15 (`docs/plans/2026-09-29-15-groundwork-cursor.md`), is this plan's base: plan 16's `PAIRED_FAILOVER` and admission's network check (its Task 9) are extended and relied on, and plan 15's rulings, helpers (`movedHomeEnv`, `E_BACKEND_CANNOT_RUN`, isolation keys, the logged-out refusal, "not tested" access rows, the capture stdin rule) and the Cursor effort fold are consumed as they are.
 
 **Carries the 1.3.0 release.** Plans 15, 16 (Grok) and 17 each open one PR; plan 17 merges last, so its Task 9 adds the one `minor` changeset and `MIGRATION.md`'s "From 1.2 to 1.3" (spec §2, §9 Q1). The release PR is held for the owner's live acceptance (live verification §11–§13).
 
-**Pre-validated on scratch branch `plan17-scratch`, built on `plan15-scratch` at `194c6d4` (main `a444e1b` plus plan 15, gate green): every task below is that branch's commit, in order, each built test-first; the full gate is green on the head (counts under "Verified facts").** `git show <task commit>` on `plan17-scratch` reproduces any file.
+**Pre-validated twice.** First on scratch branch `plan17-scratch`, built on `plan15-scratch` at `194c6d4` (main `a444e1b` plus plan 15, gate green): every task below is that branch's commit, in order, each built test-first. Then replayed onto plan 16: branch `plan17-on-16` is `plan16-scratch` (`f0f3cee`, plan 16 with its Task 9) plus these nine commits cherry-picked and one test commit for Ruling X2; the full gate is green on its head, 1825 pass / 22 skip / 0 fail (1847 tests, 170 files); the conflicts met and their resolutions are under "Verified facts". **This plan builds on plan 16**: execute it on plan 16's merged head. `git show <task commit>` on `plan17-on-16` reproduces any file as it is after the replay (on `plan17-scratch`, as first written).
 
 > **Cross-plan rulings (controller, 2026-09-29), binding over this plan's text.** Plans 16 and 17 were written in
 > parallel on `plan15-scratch`; execute 15 → 16 → 17 in order, and replay this plan onto plan 16's merged head.
-> - Ruling X1: this plan's same-model stand-in table (`sameModelStandIn` / `SAME_MODEL`, Rulings 18 and Task 4) is
->   merged into plan 16's `PAIRED_FAILOVER` (Ruling 15 there): add the Gemini ↔ Cursor rows to that table and keep
->   `standInFor` reading one table — two tables for one idea is a second place to forget — cost if wrong: a rename.
-> - Ruling X2: tests that need "a backend with no adapter" (plan 15 Ruling 23, plan 16 Ruling 18, this plan's
->   Ruling 22) register a test-only id through the registry helpers instead of borrowing a real backend, since after
->   plan 17 every `ADAPTER_IDS` entry has an adapter — cost if wrong: those tests fail loudly at replay.
+> - Ruling X1: the Gemini ↔ Cursor pairs are rows of plan 16's `PAIRED_FAILOVER` (Ruling 15 there), not a second
+>   table: Task 4 below is written that way (`sameModelStandIn` / `SAME_MODEL` are gone), and `standInFor` keeps
+>   reading one table — two tables for one idea is a second place to forget — cost if wrong: a rename.
+> - Ruling X2: tests that need "a backend with no adapter" cannot register a test-only id (`BackendAdapter.id` is
+>   typed from `ADAPTER_IDS`, and a registered adapter is present). After this plan every `ADAPTER_IDS` entry has an
+>   adapter, so an in-process test takes a real one away: `unregisterAdapter("antigravity")` in the test, and
+>   `registerAdapter(antigravityAdapter)` in an `afterEach` (`src/adapters/registry.ts` exports both). That covers
+>   `test/services/admission.test.ts` and `test/services/budget-backends.test.ts` (plan 15 Ruling 23, plan 16
+>   Ruling 18, this plan's Ruling 22). The spawned `test/entry/capture-fixtures-command.test.ts` cannot be reached
+>   by an in-process unregister, and its refusal is about capture cases, not adapters: it names an id with no cases,
+>   `nope`. `test/entry/profile-command.test.ts`'s `not.toContain` goes: every harness is listed — cost if wrong:
+>   those tests fail loudly at replay.
 > - Ruling X3: resolve the known conflicts plan 16 lists (`all.ts`, `sim-scenarios.ts`, `doctor.test.ts`, capture
 >   cases, README, setup skill, live-verification) by keeping both sides; regenerate the TUI frames snapshot; check
 >   the changeset's and MIGRATION's Grok bullets against plan 16 as merged (this plan's Ruling 23).
@@ -37,7 +43,7 @@
 - Spec 1.3 §6.1: "**`agy -p` must never run while logged out**, because it opens a browser (research §4.8)." §6.5: "`ok` only when `result.status` is `SUCCESS`."
 - Spec 1.3 §9 Q2: "refuse read-only roles on native agy (`profile validate` error: "isolate antigravity, or put this role on another backend"). Isolated agy gets deny rules." §9 Q3: catherd never writes `~/.gemini/antigravity-cli/settings.json`.
 - Spec 1.3 §7.3 and §8: a new backend's rungs are never default stand-ins for the shipped rungs, and a new backend is off in the default profile until the user puts a rung on it. Plan 14's C-3 holds: the default profile validates with no errors and no warnings.
-- Plan 16 (Grok) is written in parallel on the same base. Edits to the files both touch (`src/adapters/all.ts`, `catalog/models.json`, `src/domain/failover.ts`'s `SAME_MODEL`, `docs/dev/live-verification.md`, `README.md`, `test/services/doctor.test.ts`, the harness lists in `test/entry/*`) are small and additive: keep every line of both on a conflict.
+- Plan 16 (Grok) merges first, and this plan builds on it. Edits to the files both touch (`src/adapters/all.ts`, `catalog/models.json`, `src/domain/profile.ts`'s `PAIRED_FAILOVER`, `docs/dev/live-verification.md`, `README.md`, `test/services/doctor.test.ts`, the harness lists in `test/entry/*`) are small and additive: keep every line of both.
 - MCP: 26 tools, unchanged.
 
 ## Review Focus
@@ -61,34 +67,35 @@ Every vendor behaviour research §4 marks UNVERIFIED, [bin] or changelog-only is
 7. **Logged in means `agy models` answered** (exit 0); "Please sign in" or "authentication failed" in its output is signed out; anything else is unknown (`loggedIn: null`). Signed out is `E_BACKEND_NOT_LOGGED_IN` unless `GEMINI_API_KEY` is set; then the probe reports no problem (isolated runs sign in by key) and `prepare` refuses every native run from the probe's result, kept in the module (`nativeLogin`). — Spec §3.3, §6.1; the key alone does nothing without `modelProvider: "gemini"` (research §4.8). — Cost if wrong: none known; with `GEMINI_API_KEY` set, a signed-out probe is kept for the readiness TTL, so a sign-in made meanwhile reaches native runs within 10 min.
 8. **Login and billing**: `login` "Google" and `billing` `subscription`, or "API key" and `metered` when the user's own settings name `modelProvider: "gemini"` and `GEMINI_API_KEY` is set (read, never written). `DEFAULT_BILLING.antigravity` stays `metered` (plan 15 Ruling 21): doctor's billing row gives a Google-login user the one-line fix. — Spec §9 Q4. — Cost if wrong: until the user follows the fix, a Google-login rung ranks as metered.
 9. **`agy` must be on PATH**; there is no `~/.local/bin/agy` fallback, and the install fix says to put `~/.local/bin` on PATH. — Spec §6.1 asks to accept the install script's path, but a probe that looks there would run a real agy in every test on the owner's machine, and Cursor's installer needs the same PATH entry. — Cost if wrong: a user without `~/.local/bin` on PATH sees "agy is not on PATH" with that fix.
-10. **Isolated homes are per access**: `<data>/agy-home/{read-only,workspace-write,workspace-write-offline,full}`, `HOME` moved there by `movedHomeEnv` (catherd's dirs and the toolchain caches kept), with `.gemini/antigravity-cli/settings.json` = `{ modelProvider: "gemini" }` plus read-only `permissions.deny: ["write_file(*)", "command(*)"]`, workspace-write `permissions.allow: ["write_file(<root>)" for each writableRoots(), "read_url(*)" unless network is off]`, full nothing more. Conversations are not shared across homes (agy keeps them in SQLite): a resume after the role's `network` setting changed does not find its conversation. — Spec §6.3, §6.4; research §4.7 ("Paths allowed under write_file are mounted read-write"). — Cost if wrong: the settings shape, `read_url(*)` or the deny rules are not agy's (unverified); an isolated read-only worker can write; live §13 step 5.
+10. **Isolated homes are per access**: `<data>/agy-home/{read-only,workspace-write,workspace-write-offline,full}`, `HOME` moved there by `movedHomeEnv` (catherd's dirs and the toolchain caches kept), with `.gemini/antigravity-cli/settings.json` = `{ modelProvider: "gemini" }` plus read-only `permissions.deny: ["write_file(*)", "command(*)"]`, workspace-write `permissions.allow: ["write_file(<root>)" for each writableRoots(), "read_url(*)" unless network is off]`, full nothing more. Conversations are not shared across homes (agy keeps them in SQLite): a resume after the role's `network` setting changed would not find its conversation, so admission refuses it (Ruling 26). — Spec §6.3, §6.4; research §4.7 ("Paths allowed under write_file are mounted read-write"). — Cost if wrong: the settings shape, `read_url(*)` or the deny rules are not agy's (unverified); an isolated read-only worker can write; live §13 step 5.
 11. **Access flags**: read-only none (isolated only), workspace-write `--sandbox --dangerously-skip-permissions`, full `--dangerously-skip-permissions`. `--sandbox` still confines shell under `--dangerously-skip-permissions` (spec §6.3's ruling "yes"). Enforcement: read-only `advisory`, workspace-write `advisory` (the file tools, every one approved, are not sandboxed), full `enforced`. — Spec §6.3 says "enforced for shell; advisory for file tools"; the table has one value, and the file tools decide it. — Cost if wrong: if the sandbox lets shell out under the skip flag, isolated workspace-write needs `toolPermission: "proceed-in-sandbox"` in its settings; live §13 step 4.
 12. **§9 Q2 as `BackendAdapter.isolatedOnly: ["read-only"]`**: `isolatedOnlyErrors` (services, in `validateHere`) errors on each enabled role at that access whose rung or failover stand-in runs natively on the backend, fix "isolate antigravity (catherd profile set harness.antigravity.isolated true), or put this role on another backend"; `prepare` refuses the same (`E_ADMIT_RUNG`) for a profile saved earlier. — Cost if wrong: none known; the implicit pair (Ruling 18) is not validated (Review Focus 2).
 13. **Doctor's quota**: `BackendAdapter.quota()`; agy's runs `agy -p /usage --output-format json` and shows the reply's `response` lines joined (≤ 200 characters); doctor calls it only when the probe says `loggedIn: true`, and shows no row when it fails. — Spec §6.6; research §4.8 (changelog 1.1.11, unverified live). — Cost if wrong: if `/usage` spends a turn, each doctor spends a little quota; live §13 step 8.
-14. **Resume**: `resume.sameAccessOnly: true` (admission refuses another access, plan 15's §3.2 check); `--conversation <id>` from the recorded repo; a conversation id matches `^[A-Za-z0-9][\w-]{7,127}$` (never flag-shaped). — Spec §6.2; research §4.6. — Cost if wrong: a stricter check than agy needs; live §13 step 6.
+14. **Resume**: `resume.sameAccessOnly: true` (admission refuses another access, plan 15's §3.2 check, or another network grant, plan 16's Task 9 and Ruling 22 — see Ruling 26); `--conversation <id>` from the recorded repo; a conversation id matches `^[A-Za-z0-9][\w-]{7,127}$` (never flag-shaped). — Spec §6.2; research §4.6. — Cost if wrong: a stricter check than agy needs; live §13 step 6.
 15. **`graceAfterFinalMs: 30_000`, no `--print-timeout`**: agy leaves daemon background tasks running after its result (research §4.4), and the grace kill of the process group stops them. — Spec §6.2, §6.5. — Cost if wrong: none known.
 16. **Catalog ids on agy** are Cursor's ids (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`); efforts are the Gemini API's thinking levels, Flash `low, medium, high`, 3.1 Pro `low, high` (agy's `max` is not listed until the listing shows it); context 1,048,576. — Research §4.5 [doc] (slugs `gemini-3.8-flash-high`, `gemini-3.1-pro-high`); spec §6.6. — Cost if wrong: validation errors "has no effort" on an effort agy has, or `prepare` refuses a listed one; live §13 step 1.
 17. **`#default` for a bare backend**: `adjacent` carries a family's value to `#default` when the family has efforts and some backend runs it without one (Cursor's Gemini), from the value nearest the family's default effort; `derive` and `rebuildShipped` pass `defaultEffortOf`. — Plan 15 Ruling 18 re-keys a family's values once it has efforts, which would leave `cursor:gemini-*#default` unscored after this plan. The rule is generic, so plan 16's Grok families get it with no change. — Cost if wrong: Cursor's default Gemini variant is scored like the family's `high` effort.
-18. **Spec §7.3's pairs as `sameModelStandIn`**, not `DEFAULT_FAILOVER` entries: a table in `src/domain/failover.ts` (`antigravity` ↔ `cursor` for the four Gemini ids), consulted by `standInFor` after the profile's and the adapter's stand-in, at `#default` both ways (Cursor names no effort for these; agy's `#default` is its own default). — A `DEFAULT_FAILOVER` entry is written into the default profile, where "on no enabled role's ladder" and "stand-in to confirm" warnings break C-3; spec §3.1 keeps `failoverFor` unimplemented. Plan 16 adds its Grok row to the same table. — Cost if wrong: `profile show` and the dashboard do not list the implicit pair (admission and failover use it).
+18. **Spec §7.3's Gemini pairs are rows of plan 16's `PAIRED_FAILOVER`** (`src/domain/profile.ts`, Ruling X1), not `DEFAULT_FAILOVER` entries and not a second table: `antigravity:<gemini>#<e>` → `cursor:<gemini>#default` for each catalog effort (Flash `low, medium, high`, 3.1 Pro `low, high`), and `cursor:<gemini>#default` → `antigravity:<gemini>#high`, the families' `defaultEffort`, as grok's pairs are. `standInFor` reads the table after the profile's own entry. `agy`'s own `#default` is not a catalog rung, so the table never names it (plan 16's test checks every paired rung is one). — A `DEFAULT_FAILOVER` entry is written into the default profile, where "on no enabled role's ladder" and "stand-in to confirm" warnings break C-3; spec §3.1 keeps `failoverFor` unimplemented. — Cost if wrong: `profile show` and the dashboard do not list the implicit pair (admission and failover use it); a Cursor Gemini limit runs agy at `high`, not at agy's own default.
 19. **Isolation note** = spec §6.4's text; `isolationKey: "GEMINI_API_KEY"` (plan 15's validation and TUI row apply); `AGY_CLI_DISABLE_AUTO_UPDATE=true` on every agy call. — Cost if wrong: none known; live §13 step 10.
 20. **Capture and live rung `antigravity:gemini-3.8-flash#low`** (spec §6.6). Capture runs isolated (it needs `GEMINI_API_KEY`): `ok` (workspace-write: a write, a read, a shell call), `resume` (read-only), `read-only-write` (the deny rules). The live test runs native workspace-write with a resume, and isolated read-only when `GEMINI_API_KEY` is set. — Cost if wrong: none.
 21. **Tests never meet a real agy or the user's `~/.gemini`**: every test that probes or runs the simulator sets `HOME` to a temp dir, PATH holds the simulators only. — Cost if wrong: none.
-22. **Tests that need a backend with no adapter keep `grok`** (it has none on this base). On the merged head after plan 16, every adapter id has an adapter: move those tests (`test/services/admission.test.ts`, `test/services/budget-backends.test.ts`, `test/entry/capture-fixtures-command.test.ts`) to `unregisterAdapter` around a real id, or to whatever plan 16 chose. — Cost if wrong: those tests fail on the merged head until moved.
-23. **The 1.3.0 changeset and "From 1.2 to 1.3" describe all three backends**; their Grok bullets were written without plan 16's code, so the executor reconciles them with plan 16 as merged. — Spec §2. — Cost if wrong: release notes that misdescribe Grok.
+22. **Tests that need a backend with no adapter**: on plan 16's head they use `antigravity` (plan 16 Ruling 18); once this plan registers it, every adapter id has an adapter, so they follow Ruling X2 (`unregisterAdapter("antigravity")` and a restoring `afterEach` in `test/services/admission.test.ts` and `test/services/budget-backends.test.ts`; `nope` in the spawned `test/entry/capture-fixtures-command.test.ts`; `profile-command.test.ts`'s `not.toContain` removed). The executor makes these moves in Task 6, where registration makes them fail (on `plan17-on-16` they are the separate commit `f9fa079`). — Cost if wrong: those tests fail on the merged head until moved.
+23. **The 1.3.0 changeset and "From 1.2 to 1.3" describe all three backends**; their Grok bullets were written without plan 16's code, so the executor reconciles them with plan 16 as merged (among others: the resume refusal also covers another network grant, plan 16 Task 9, so the "another access" bullets in both files add "or network grant"). — Spec §2. — Cost if wrong: release notes that misdescribe Grok.
 24. **`foldEffortSlugs` and `stripAnsi` move to `src/adapters/discovery.ts`**, shared by Cursor's and agy's listings; Cursor's behaviour is unchanged (its tests pass as they are). — Cost if wrong: none.
 25. **Native workspace-write's defaults are said in the README**, not in doctor's `access:antigravity` row, which stays plan 15's generic "not tested" (no sandbox runner, spec §3.4, §9 Q5). — Cost if wrong: a user reads why their native agy worker has no network in the README instead of doctor.
+26. **A network change strands an isolated conversation, and admission refuses that resume** (Codex review of the docs PR): the isolated homes differ by the grant (`workspace-write` and `workspace-write-offline`, Ruling 10), and conversations are not shared across homes, so a resume after the role's `network` changed would not find its conversation. agy declares `resume.sameAccessOnly: true`, so plan 16's generic check (its Task 9, Ruling 22: `admit.json` and the record carry `network`, and a resume whose grant differs is `E_ADMIT_THREAD`, fix "dispatch a fresh thread (omit `thread`)") refuses it before anything runs. No second mechanism here. — Cost if wrong: none beyond plan 16's (a lane that flips `network` mid-run starts a fresh conversation).
 
 ## Assumes from earlier plans (re-check on the head you execute on)
 
-`plan15-scratch` at `194c6d4` (main `a444e1b` plus plan 15), i.e. plan 15 merged. The executor re-finds every diff hunk by its context. These interfaces are consumed as plan 15 left them:
+Plan 16 merged on plan 15 (`plan16-scratch` at `f0f3cee`: main `a444e1b`, plan 15, plan 16 with its Task 9). The executor re-finds every diff hunk by its context. These interfaces are consumed as plans 15 and 16 left them:
 
 - `src/adapters/backend.ts`: `BackendAdapter` (`install`, `isolationKey`, `isolationNote`, `prepare`'s `network`, `resume.sameAccessOnly`), `Probe` (`login`, `billing`, `info`), `DiscoveredModel`, `RunRequest`, `SpawnPlan`.
 - `src/adapters/access.ts`: `movedHomeEnv(home)`, `writableRoots()`; `src/adapters/cli.ts`: `runCli`, `jsonOf`; `src/adapters/discovery.ts`: `discovered`, `readDiscovery`; `src/adapters/cursor/models.ts`: `parseCursorModels`, `CURSOR_EFFORTS`.
-- `src/services/backends.ts`: `readyAdapter`, `standInFor`, `probeBackend`; `src/services/profile-store.ts`: `validateHere`, `isolationKeyErrors`; `src/services/doctor-backends.ts`: `backendChecks` (info rows); `src/services/doctor-access.ts`: the "not tested" row; `src/services/capture.ts`: `CAPTURE_CASES`, `captureFixtures` (stdin only when `stdinPath` is set).
+- `src/services/backends.ts`: `readyAdapter`, `standInFor` (reads `PAIRED_FAILOVER`), `probeBackend`; `src/domain/profile.ts`: `PAIRED_FAILOVER` (plan 16 Ruling 15); `src/services/admission.ts`: the `sameAccessOnly` refusal of another access or another network grant (plan 16 Task 9); `src/services/profile-store.ts`: `validateHere`, `isolationKeyErrors`; `src/services/doctor-backends.ts`: `backendChecks` (info rows); `src/services/doctor-access.ts`: the "not tested" row; `src/services/capture.ts`: `CAPTURE_CASES`, `captureFixtures` (stdin only when `stdinPath` is set).
 - `src/services/source-derive.ts`: `derive`, `adjacent`; `src/services/catalog-refresh.ts`: `rebuildShipped`; `src/domain/sources.ts`: `defaultEffortOf`, `familyEfforts`, `nearestEffort`; `src/domain/failover.ts`: `catalogRungs` (`#default` for a model with no effort).
 - `catalog/models.json`: the Gemini families plan 15 added with `on.cursor`; `catalog/sources.json` `defaultEffort` Gemini `high`.
 - `test/services/adapter-hooks.test.ts`: `fake()` (a stand-in adapter under Cursor's id); `test/services/doctor.test.ts`: `machine()`; `test/sim/sim-scenarios.ts`: `write`, the Cursor scenario; `test/adapters/contract.ts`: `runAdapterContract`.
-- Plan 16 (Grok) may merge before this plan (the release order is 15, 16, 17). On that head, rebase: keep plan 16's lines in `all.ts`, `catalog/models.json`, `SAME_MODEL`, the doctor table and the harness lists (`"backend:grok"` next to `"backend:antigravity"`, `grok native` in `profile show`'s harness line), and apply Ruling 22.
+- Plan 16's lines in the files both plans touch: `all.ts`, `catalog/models.json`, `PAIRED_FAILOVER`, the doctor table and the harness lists (`"backend:grok"` next to `"backend:antigravity"`, `grok native` in `profile show`'s harness line). Keep them, and apply Ruling 22.
 
 ## Verified facts (scratch build, 2026-09-29)
 
@@ -96,9 +103,11 @@ Every vendor behaviour research §4 marks UNVERIFIED, [bin] or changelog-only is
 - Each task's own tests failed before its code and passed after (Task 2's with the simulator moved away, Task 5's contract suite with `index.ts` moved away), with typecheck, lint and format:check green at each commit. Tasks 8 and 9 are docs only.
 - `plan17-scratch` commits, one per task: 1 `3e5cd4b`, 2 `dab6691`, 3 `f77f09b`, 4 `679458a`, 5 `ecaf971`, 6 `dff6dd5`, 7 `f195361`, 8 `c3bcf34`, 9 `705fd48`.
 - The full suite after Task 6's registration failed only in the two harness lists (`profile show`'s harness line and the dashboard's effects), which Task 6 updates; the default profile still validates with no errors and no warnings (C-3), and every pinned failover and stand-in test is unchanged.
-- The frames change of Task 4 is the Profiles tree's Antigravity group ("↓ 65 more" → "↓ 70 more" in two 80×24 frames); the 120×40 snapshots move the same way.
+- The frames change of Task 4 is the Profiles tree's Antigravity group ("↓ 65 more" → "↓ 70 more" in two 80×24 frames on `plan17-scratch`, "↓ 69 more" → "↓ 74 more" on plan 16's head); the 120×40 snapshots move the same way.
 - oxfmt formats `catalog/*.json`, `README.md`, `MIGRATION.md` and `.changeset/*.md`; `docs/**`, `test/fixtures/**` and `test/sim/agy` (no extension) are not formatted.
-- Not validated here: anything a signed-in `agy` does (no login, and no real `agy` may run); the merge with plan 16 (written in parallel on the same base); the changeset's and MIGRATION's Grok bullets against plan 16's code.
+- **Replayed onto plan 16** (`plan17-on-16`, 2026-09-29): `plan16-scratch` `f0f3cee` plus `git cherry-pick 194c6d4..plan17-scratch` (the nine task commits, now 1 `2411f63`, 2 `755e527`, 3 `4c41f84`, 4 `f66783c`, 5 `6db3bb6`, 6 `2e3774b`, 7 `150e5c2`, 8 `afd2d5c`, 9 `ff9f9e3`) and `f9fa079` (Ruling X2's test moves). Full gate on the head: **1825 pass / 22 skip / 0 fail (1847 tests, 170 files)**; typecheck, lint and format:check green. Plan 16's head was 1765 / 20 / 0 (1785 tests, 164 files): 60 new passing tests and 2 new skips. `doctor.test.ts` timed out once under a machine load average of 24 (5 s per test) and passed alone and on the rerun: a load flake, as before the replay.
+- Conflicts met on the replay, and how each was resolved: Task 2 `test/sim/sim-scenarios.ts` (both scenario types kept); Task 4 `src/services/backends.ts`, `test/domain/failover.test.ts`, `test/services/adapter-hooks.test.ts` (Ruling X1: `SAME_MODEL` / `sameModelStandIn` dropped, the Gemini rows added to `PAIRED_FAILOVER`, the two stand-in tests merged into plan 16's; Cursor → agy became `#high`, since agy's `#default` is not a catalog rung and plan 16's test checks that every paired rung is one) and the frames (regenerated: "↓ 69 more" → "↓ 74 more" on plan 16's head); Task 6 `src/adapters/all.ts`, `test/entry/profile-command.test.ts`, `test/entry/tui/effects.test.ts`, `test/services/doctor.test.ts` (both sides: both registrations, both harnesses, both scenarios and both backend rows and tests; `machine()` deletes `XAI_API_KEY` and `GEMINI_API_KEY`); Task 7 `src/services/capture.ts`, `test/services/capture.test.ts` (both sides) and `test/entry/capture-fixtures-command.test.ts` (Ruling X2: `nope`); Task 8 `README.md`, `docs/dev/live-verification.md`, `plugin/skills/catherd-setup/SKILL.md` (both sections and bullets; the lists name Grok Build and Antigravity; live verification says sections 11 to 13). Tasks 1, 3, 5 and 9 applied cleanly. After the replay, `test/services/admission.test.ts` and `test/services/budget-backends.test.ts` still named `antigravity` as the backend with no adapter; `f9fa079` moves them to Ruling X2.
+- Not validated here: anything a signed-in `agy` does (no login, and no real `agy` may run); the changeset's and MIGRATION's Grok bullets against plan 16's code (Ruling 23).
 
 ## File Structure
 
@@ -107,7 +116,7 @@ Every vendor behaviour research §4 marks UNVERIFIED, [bin] or changelog-only is
 | `src/adapters/antigravity/events.ts`, `models.ts` (new), `src/adapters/discovery.ts`, `src/adapters/cursor/models.ts`, `test/fixtures/adapters/antigravity/*` (new) | 1 | events, tokens, status words, `AGY_ERROR`; the listing; the shared effort fold |
 | `test/sim/agy` (new), `test/sim/sim-scenarios.ts` | 2 | the simulator |
 | `src/adapters/backend.ts`, `src/services/profile-store.ts`, `src/services/doctor-backends.ts` | 3 | `isolatedOnly`, `quota`; `isolatedOnlyErrors`; the quota row |
-| `catalog/models.json`, `src/domain/failover.ts`, `src/services/backends.ts`, `src/services/source-derive.ts`, `src/services/catalog-refresh.ts`, the frames | 4 | `on.antigravity`; `sameModelStandIn`, `standInFor`; `#default` carried |
+| `catalog/models.json`, `src/domain/profile.ts`, `src/services/source-derive.ts`, `src/services/catalog-refresh.ts`, the frames | 4 | `on.antigravity`; the Gemini rows of `PAIRED_FAILOVER`; `#default` carried |
 | `src/adapters/antigravity/home.ts`, `index.ts` (new) | 5 | homes and settings; the adapter |
 | `src/adapters/all.ts` | 6 | registration |
 | `src/services/capture.ts`, `test/live/antigravity.live.test.ts` (new) | 7 | capture cases; the live test |
@@ -1187,14 +1196,13 @@ git log --oneline -1   # a failed hook leaves the changes uncommitted
 
 ### Task 4: Gemini on Antigravity, a bare slug's `#default` rung, and the Gemini failover pairs (spec 1.3 §6.6, §7.1, §7.3; Rulings 16–18)
 
-The four Gemini families gain `on.antigravity` (same ids as Cursor's, efforts from the Gemini API's thinking levels, 1M context), and `sources.antigravity` names where they come from. Giving a family efforts re-keys its source values at their efforts (plan 15 Ruling 18), which would leave Cursor's bare Gemini slugs (`#default`) unscored: `adjacent` now also carries a value to `#default` for a family that some backend runs without an effort, from the value nearest the family's default effort (`derive` and `rebuildShipped` pass `defaultEffortOf`). `sameModelStandIn` (domain) pairs the same model on Antigravity and Cursor at `#default`, and `standInFor` falls back to it after the profile's and the adapter's stand-in. Regenerate the frames: `CATHERD_WRITE_FRAMES=1 env -u FORCE_COLOR bun test test/entry/tui/frames.test.tsx --update-snapshots` (the Profiles tree gains the Antigravity group: "↓ 65 more" becomes "↓ 70 more").
+The four Gemini families gain `on.antigravity` (same ids as Cursor's, efforts from the Gemini API's thinking levels, 1M context), and `sources.antigravity` names where they come from. Giving a family efforts re-keys its source values at their efforts (plan 15 Ruling 18), which would leave Cursor's bare Gemini slugs (`#default`) unscored: `adjacent` now also carries a value to `#default` for a family that some backend runs without an effort, from the value nearest the family's default effort (`derive` and `rebuildShipped` pass `defaultEffortOf`). Plan 16's `PAIRED_FAILOVER` (domain, the one table `standInFor` reads after the profile's own entry) gains the Gemini rows: agy at each catalog effort stands in to Cursor's bare slug, and Cursor's to agy at `high`, the families' default effort (Ruling 18, Ruling X1). Regenerate the frames: `CATHERD_WRITE_FRAMES=1 env -u FORCE_COLOR bun test test/entry/tui/frames.test.tsx --update-snapshots` (the Profiles tree gains the Antigravity group: "↓ 69 more" becomes "↓ 74 more" on plan 16's head).
 
 **Files:**
 
 - Modify: `catalog/models.json`
 - Modify: `docs/tui-frames.md`
-- Modify: `src/domain/failover.ts`
-- Modify: `src/services/backends.ts`
+- Modify: `src/domain/profile.ts`
 - Modify: `src/services/catalog-refresh.ts`
 - Modify: `src/services/source-derive.ts`
 - Test: `test/domain/catalog.test.ts`
@@ -1205,8 +1213,8 @@ The four Gemini families gain `on.antigravity` (same ids as Cursor's, efforts fr
 - Test: `test/services/source-sync.test.ts`
 
 **Interfaces:**
-- Produces: `sameModelStandIn(r: Rung): Rung | null` in `src/domain/failover.ts` (a `SAME_MODEL` table of `{ backends: [a, b], model: RegExp }` rows; plan 16 adds its Grok row); `adjacent(families, direct, shipped, now, defaultEffort = () => "high")`; `on.antigravity` on `gemini-3-8-flash`, `gemini-3-7-flash`, `gemini-3-6-flash` (`low, medium, high`) and `gemini-3-1-pro` (`low, high`), each `context: 1048576`.
-- Consumes: `standInFor` (`src/services/backends.ts`), `defaultEffortOf`, `familyEfforts`, `nearestEffort` (`src/domain/sources.ts`).
+- Produces: the Gemini rows of `PAIRED_FAILOVER` in `src/domain/profile.ts` (plan 16's table, now built from `[backend, models, efforts]` rows; 30 entries); `adjacent(families, direct, shipped, now, defaultEffort = () => "high")`; `on.antigravity` on `gemini-3-8-flash`, `gemini-3-7-flash`, `gemini-3-6-flash` (`low, medium, high`) and `gemini-3-1-pro` (`low, high`), each `context: 1048576`.
+- Consumes: `PAIRED_FAILOVER` and `standInFor` as plan 16 left them (`src/domain/profile.ts`, `src/services/backends.ts`, unchanged), `defaultEffortOf`, `familyEfforts`, `nearestEffort` (`src/domain/sources.ts`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1262,46 +1270,31 @@ Modify `test/domain/catalog.test.ts` (re-find each hunk by its context):
      const c = shipped();
 ````
 
-Modify `test/domain/failover.test.ts` (re-find each hunk by its context):
+Modify `test/domain/failover.test.ts` (plan 16's `PAIRED_FAILOVER` test; re-find each hunk by its context):
 
 ````diff
-@@ -6,7 +6,9 @@ import {
-   claudeBilled,
-   downgradeDims,
-   rankStandIns,
-+  sameModelStandIn,
- } from "../../src/domain/failover.ts";
-+import { parseRung } from "../../src/domain/ids.ts";
- import { BUILTIN_ROLES, DEFAULT_FAILOVER } from "../../src/domain/profile.ts";
- import { shipped } from "./shipped.ts";
- 
-@@ -116,6 +118,26 @@ describe("catalogRungs", () => {
-   });
+@@ -137,12 +137,19 @@ describe("DEFAULT_FAILOVER (spec 1.1 §11)", () => {
  });
- 
-+describe("the same model on the other backend (spec 1.3 §7.3)", () => {
-+  const pair = (rung: string) => {
-+    const r = sameModelStandIn(parseRung(rung));
-+    return r && `${r.backend}:${r.model}#${r.effort}`;
-+  };
-+
-+  it("pairs Gemini on Antigravity with Gemini on Cursor, both ways, at the vendor's default effort", () => {
-+    expect(pair("antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#default");
-+    expect(pair("antigravity:gemini-3.1-pro#low")).toBe("cursor:gemini-3.1-pro#default");
-+    expect(pair("cursor:gemini-3.6-flash#default")).toBe("antigravity:gemini-3.6-flash#default");
-+  });
-+
-+  it("never pairs a shipped backend's rung, nor a model the other backend does not serve", () => {
-+    expect(pair("codex:gpt-6-sol#high")).toBeNull();
-+    expect(pair("cursor:gpt-6-sol#high")).toBeNull();
-+    expect(pair("antigravity:claude-sonnet-4-6#default")).toBeNull();
-+    expect(pair("opencode:opencode/gemini-3.8-flash#high")).toBeNull();
-+  });
-+});
-+
- describe("DEFAULT_FAILOVER (spec 1.1 §11)", () => {
-   it("gives each shipped worker rung a stand-in the shipped catalog accepts, never a Claude-billed one", () => {
+
+ describe("PAIRED_FAILOVER (spec 1.3 §7.3)", () => {
+-  it("pairs each Grok rung with the same model on Cursor, both ways, and nothing a shipped role runs", () => {
++  it("pairs each Grok and Gemini rung with the same model on Cursor, both ways, and nothing a shipped role runs", () => {
      const c = shipped();
+     expect(PAIRED_FAILOVER["grok:grok-4.7#low"]).toBe("cursor:grok-4.7#default");
+     expect(PAIRED_FAILOVER["grok:grok-4.5#xhigh"]).toBe("cursor:grok-4.5#default");
+     expect(PAIRED_FAILOVER["cursor:grok-4.6#default"]).toBe("grok:grok-4.6#high");
+-    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(15);
++    expect(PAIRED_FAILOVER["antigravity:gemini-3.8-flash#high"]).toBe("cursor:gemini-3.8-flash#default");
++    expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#low"]).toBe("cursor:gemini-3.1-pro#default");
++    expect(PAIRED_FAILOVER["cursor:gemini-3.6-flash#default"]).toBe("antigravity:gemini-3.6-flash#high");
++    // Cursor serves no other Gemini, and no Gemini through opencode pairs
++    expect(PAIRED_FAILOVER["cursor:gpt-6-sol#high"]).toBeUndefined();
++    expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#medium"]).toBeUndefined();
++    expect(PAIRED_FAILOVER["opencode:opencode/gemini-3.8-flash#high"]).toBeUndefined();
++    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(30);
+     const shippedRungs = new Set(Object.values(BUILTIN_ROLES).flatMap((r) => r.rungs));
+     for (const [from, to] of Object.entries(PAIRED_FAILOVER)) {
+       expect(catalogRungs(c)).toContain(from);
 ````
 
 Modify `test/services/source-derive.test.ts` (re-find each hunk by its context):
@@ -1355,29 +1348,33 @@ Modify `test/services/source-sync.test.ts` (re-find each hunk by its context):
        confidence: "measured",
 ````
 
-Modify `test/services/adapter-hooks.test.ts` (re-find each hunk by its context):
+Modify `test/services/adapter-hooks.test.ts` (plan 16's pairing test; re-find each hunk by its context):
 
 ````diff
-@@ -108,6 +108,13 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
+@@ -108,12 +108,16 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
      expect(standInFor({}, "not a rung")).toBeNull();
    });
- 
-+  it("is the same model on the other backend for a Gemini rung, when nothing else stands in (spec 1.3 §7.3)", () => {
+
+-  it("pairs the same Grok model on grok and Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
++  it("pairs the same Grok or Gemini model on Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
+     expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#default");
+     expect(standInFor({}, "cursor:grok-4.7#default")).toBe("grok:grok-4.7#high");
+     expect(standInFor({ "grok:grok-4.7#low": "codex:gpt-6-sol#high" }, "grok:grok-4.7#low")).toBe(
+       "codex:gpt-6-sol#high",
+     );
 +    expect(standInFor({}, "antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#default");
-+    expect(standInFor({}, "cursor:gemini-3.8-flash#default")).toBe("antigravity:gemini-3.8-flash#default");
++    expect(standInFor({}, "cursor:gemini-3.8-flash#default")).toBe("antigravity:gemini-3.8-flash#high");
 +    const own = { "antigravity:gemini-3.8-flash#high": "codex:gpt-6-luna#high" };
 +    expect(standInFor(own, "antigravity:gemini-3.8-flash#high")).toBe("codex:gpt-6-luna#high");
-+  });
-+
+   });
+
    it("passes admission for a ladder rung, and no other rung of that backend does", async () => {
-     fake();
-     const { run, deps } = setup();
 ````
 
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `env -u FORCE_COLOR bun test test/domain/catalog.test.ts test/domain/failover.test.ts test/services/source-derive.test.ts test/services/source-sync.test.ts test/services/adapter-hooks.test.ts`
-Expected: FAIL: `sameModelStandIn` is not exported, the families have no `on.antigravity`, and no `#default` value is carried.
+Expected: FAIL: `PAIRED_FAILOVER` has no Gemini row (15 entries, `undefined` for the Gemini rungs, and `standInFor` returns `null` for them), the families have no `on.antigravity`, and no `#default` value is carried.
 
 - [ ] **Step 3: Implement**
 
@@ -1446,66 +1443,47 @@ Modify `catalog/models.json` (re-find each hunk by its context):
  }
 ````
 
-Modify `src/domain/failover.ts` (re-find each hunk by its context):
+Modify `src/domain/profile.ts` (plan 16's `PAIRED_FAILOVER`; re-find each hunk by its context). `standInFor` and `src/domain/failover.ts` do not change: every agy rung in the table is a catalog rung (the effort lists match `on.antigravity`), which plan 16's test checks.
 
 ````diff
-@@ -109,6 +109,27 @@ function effortGap(a: string, b: string): number {
-   return i < 0 || j < 0 ? EFFORT_ORDER.length : Math.abs(i - j);
- }
- 
-+/**
-+ * Spec 1.3 §7.3: the same model on two backends bills to two pools. Each pair names its two backends and the
-+ * models both serve under one id; only the new backends pair, so their rungs never stand in for the shipped ones.
-+ */
-+const SAME_MODEL: { backends: [Rung["backend"], Rung["backend"]]; model: RegExp }[] = [
-+  { backends: ["antigravity", "cursor"], model: /^gemini-3\.(8|7|6)-flash$|^gemini-3\.1-pro$/ },
-+];
-+
-+/**
-+ * The same model on the pair's other backend, at that vendor's default effort (Cursor names none for these),
-+ * or null. A limit's stand-in when neither the profile nor the adapter names one.
-+ */
-+export function sameModelStandIn(r: Rung): Rung | null {
-+  for (const { backends, model } of SAME_MODEL) {
-+    const i = backends.indexOf(r.backend);
-+    if (i >= 0 && model.test(r.model))
-+      return { backend: backends[1 - i] as Rung["backend"], model: r.model, effort: "default" };
-+  }
-+  return null;
-+}
-+
- /** How a family's `on` key or a model id's prefix maps to the backend that runs it. */
- const BACKEND_OF_KEY: Record<string, string> = { "opencode-go": "opencode" };
- 
-````
+@@ -170,16 +170,29 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
+ };
 
-Modify `src/services/backends.ts` (re-find each hunk by its context):
-
-````diff
-@@ -2,6 +2,7 @@ import type { BackendAdapter, Probe } from "../adapters/backend.ts";
- import { adapterFor } from "../adapters/registry.ts";
- import "../adapters/all.ts";
- import { CatherdError } from "../domain/errors.ts";
-+import { sameModelStandIn } from "../domain/failover.ts";
- import { formatRung, tryParseRung } from "../domain/ids.ts";
- 
- const READY_TTL_MS = 10 * 60_000;
-@@ -67,13 +68,13 @@ export async function readyAdapter(backend: string): Promise<{ adapter: BackendA
- 
  /**
-  * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default (for `repo`,
-- * when given), else none.
-+ * when given), else the same model on the backend it pairs with (spec 1.3 §7.3), else none.
+- * Spec 1.3 §7.3: the same Grok model through grok or Cursor bills two pools, so each stands in for the other
+- * on a limit: grok at any effort for Cursor's slug (which has none), Cursor's for grok at the families' default
+- * effort, `high`. Consulted after the profile's own failover and never written into a profile, where a pair whose
+- * rung is on no ladder would warn "never runs"; never a stand-in for a shipped Codex, Claude or opencode rung.
++ * Spec 1.3 §7.3: the same model through two backends bills two pools, so each stands in for the other on a
++ * limit: grok's or agy's rung at any catalog effort for Cursor's slug (which has none), and Cursor's for them at
++ * the families' default effort, `high`. Grok and Gemini are paired with Cursor. Consulted after the profile's own
++ * failover and never written into a profile, where a pair whose rung is on no ladder would warn "never runs";
++ * never a stand-in for a shipped Codex, Claude or opencode rung.
   */
- export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
-   const own = failover[rung];
-   if (own) return own;
-   const r = tryParseRung(rung);
-   if (!r) return null;
--  const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? null;
-+  const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? sameModelStandIn(r);
-   return byAdapter && formatRung(byAdapter);
- }
+ export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
+-  ["grok-4.7", "grok-4.6", "grok-4.5"].flatMap((m) => [
+-    ...["low", "medium", "high", "xhigh"].map((e) => [`grok:${m}#${e}`, `cursor:${m}#default`]),
+-    [`cursor:${m}#default`, `grok:${m}#high`],
+-  ]),
++  (
++    [
++      ["grok", ["grok-4.7", "grok-4.6", "grok-4.5"], ["low", "medium", "high", "xhigh"]],
++      [
++        "antigravity",
++        ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
++        ["low", "medium", "high"],
++      ],
++      ["antigravity", ["gemini-3.1-pro"], ["low", "high"]],
++    ] as const
++  ).flatMap(([backend, models, efforts]) =>
++    models.flatMap((m) => [
++      ...efforts.map((e) => [`${backend}:${m}#${e}`, `cursor:${m}#default`]),
++      [`cursor:${m}#default`, `${backend}:${m}#high`],
++    ]),
++  ),
+ );
+
+ /** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */
 ````
 
 Modify `src/services/source-derive.ts` (re-find each hunk by its context):
@@ -1588,8 +1566,8 @@ Expected: PASS, 0 fail.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add catalog/models.json docs/tui-frames.md src/domain/failover.ts src/services/backends.ts src/services/catalog-refresh.ts src/services/source-derive.ts test/domain/catalog.test.ts test/domain/failover.test.ts test/entry/tui/__snapshots__/frames.test.tsx.snap test/services/adapter-hooks.test.ts test/services/source-derive.test.ts test/services/source-sync.test.ts
-git commit -m "feat(catalog): gemini on antigravity, a bare slug's default rung, and the gemini failover pairs" -m "Spec 1.3 §6.6, §7.1, §7.3. Gemini fails over between antigravity and cursor" -m "at the vendor's default effort." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add catalog/models.json docs/tui-frames.md src/domain/profile.ts src/services/catalog-refresh.ts src/services/source-derive.ts test/domain/catalog.test.ts test/domain/failover.test.ts test/entry/tui/__snapshots__/frames.test.tsx.snap test/services/adapter-hooks.test.ts test/services/source-derive.test.ts test/services/source-sync.test.ts
+git commit -m "feat(catalog): gemini on antigravity, a bare slug's default rung, and the gemini failover pairs" -m "Spec 1.3 §6.6, §7.1, §7.3. Gemini fails over between antigravity and cursor" -m "through plan 16's PAIRED_FAILOVER." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git log --oneline -1   # a failed hook leaves the changes uncommitted
 ```
 
@@ -2498,7 +2476,7 @@ git log --oneline -1   # a failed hook leaves the changes uncommitted
 
 ### Task 6: Register the agy adapter, with doctor's quota, isolation and access rows (spec 1.3 §6.6, §8)
 
-`all.ts` registers `antigravityAdapter`. Every machine's doctor now shows `backend:antigravity` (`skip missing` where agy is not on PATH); a profile with a role on it adds `quota:antigravity`, `isolation:antigravity` and `access:antigravity skip not tested`. The harness lists (`profile show`, the dashboard's effects) gain `antigravity`. A dispatch test runs the simulator end to end.
+`all.ts` registers `antigravityAdapter`. Every machine's doctor now shows `backend:antigravity` (`skip missing` where agy is not on PATH); a profile with a role on it adds `quota:antigravity`, `isolation:antigravity` and `access:antigravity skip not tested`. The harness lists (`profile show`, the dashboard's effects) gain `antigravity` next to plan 16's `grok`. A dispatch test runs the simulator end to end. With every `ADAPTER_IDS` entry registered, the two in-process tests that used `antigravity` as the backend with no adapter take it away for the test and restore it after (Ruling X2, Ruling 22).
 
 **Files:**
 
@@ -2507,6 +2485,7 @@ git log --oneline -1   # a failed hook leaves the changes uncommitted
 - Test: `test/entry/tui/effects.test.ts`
 - Test (new): `test/services/antigravity-dispatch.test.ts`
 - Test: `test/services/doctor.test.ts`
+- Test: `test/services/admission.test.ts`, `test/services/budget-backends.test.ts` (Ruling X2)
 
 **Interfaces:**
 - Consumes: Task 5's adapter; `fakeDeps`, `freshRun`, `runRole`, `testView`, `writeLane` (`test/services/helpers.ts`); `machine()` in `test/services/doctor.test.ts` gains an `agy` scenario.
@@ -2741,15 +2720,15 @@ Modify `test/services/doctor.test.ts` (re-find each hunk by its context):
 Modify `test/entry/profile-command.test.ts` (re-find each hunk by its context):
 
 ````diff
-@@ -38,7 +38,9 @@ describe("catherd profile show", () => {
+@@ -38,9 +38,8 @@ describe("catherd profile show", () => {
        "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (scores borrowed from gpt-6-sol#medium)\n",
      );
      expect(r.out).not.toContain("treated like");
--    expect(r.out).toContain("harness codex native · claude-code native · opencode native · cursor native\n");
-+    expect(r.out).toContain(
-+      "harness codex native · claude-code native · opencode native · cursor native · antigravity native\n",
-+    );
-     expect(r.out).not.toContain("grok");
+     expect(r.out).toContain(
+-      "harness codex native · claude-code native · opencode native · cursor native · grok native\n",
++      "harness codex native · claude-code native · opencode native · cursor native · grok native · antigravity native\n",
+     );
+-    expect(r.out).not.toContain("antigravity");
    });
  
 ````
@@ -2757,12 +2736,19 @@ Modify `test/entry/profile-command.test.ts` (re-find each hunk by its context):
 Modify `test/entry/tui/effects.test.ts` (re-find each hunk by its context):
 
 ````diff
-@@ -216,7 +216,7 @@ describe("the live effects", () => {
+@@ -216,7 +216,14 @@ describe("the live effects", () => {
    it("names the harnesses, the native agents and each rung's enforcement", () => {
      withHome();
      const fx = liveEffects();
--    expect([...fx.harnesses].sort()).toEqual(["claude-code", "codex", "cursor", "opencode"]);
-+    expect([...fx.harnesses].sort()).toEqual(["antigravity", "claude-code", "codex", "cursor", "opencode"]);
+-    expect([...fx.harnesses].sort()).toEqual(["claude-code", "codex", "cursor", "grok", "opencode"]);
++    expect([...fx.harnesses].sort()).toEqual([
++      "antigravity",
++      "claude-code",
++      "codex",
++      "cursor",
++      "grok",
++      "opencode",
++    ]);
      const p = resolveProfile(defaultProfileDoc(), "default");
      expect(fx.agents(p)).toContain("catherd-default-architect-claude-opus-5-5-high");
      expect(fx.enforcement("codex:gpt-6-sol#high", "workspace-write")).toBe("enforced");
@@ -2772,6 +2758,71 @@ Modify `test/entry/tui/effects.test.ts` (re-find each hunk by its context):
 
 Run: `env -u FORCE_COLOR bun test test/services/antigravity-dispatch.test.ts test/services/doctor.test.ts test/entry/profile-command.test.ts test/entry/tui/effects.test.ts`
 Expected: FAIL: `antigravity:` rungs are refused `E_BACKEND_MISSING` (no adapter registered), and doctor has no `backend:antigravity` row.
+
+Then move the two tests that need a backend with no adapter (Ruling X2); they pass before registration and after it. Modify `test/services/admission.test.ts` (re-find each hunk by its context):
+
+````diff
+@@ -2,6 +2,8 @@ import { replyContract } from "../../src/domain/role-prompts.ts";
+ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+ import { readFileSync, statSync } from "node:fs";
+ import { join } from "node:path";
++import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
++import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
+ import { isCatherdError } from "../../src/domain/errors.ts";
+ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+ import { type AdmitInput, admit } from "../../src/services/admission.ts";
+@@ -13,6 +15,8 @@ import { simPath, withScenario } from "../sim/scenario.ts";
+ import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
+ 
+ afterEach(snapshotEnv());
++// a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
++afterEach(() => registerAdapter(antigravityAdapter));
+ beforeEach(() => {
+   resetReadiness();
+ });
+@@ -114,7 +118,7 @@ describe("admission", () => {
+       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
+     });
+     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
+-    // Antigravity has no adapter until plan 17.
++    unregisterAdapter("antigravity");
+     deps.view.roles.worker?.rungs.push("antigravity:gemini-3.8-flash#default");
+     expect(
+       await refusal(
+````
+
+Modify `test/services/budget-backends.test.ts` (re-find each hunk by its context):
+
+````diff
+@@ -1,6 +1,8 @@
+ import { afterEach, describe, expect, it } from "bun:test";
+ import { readFileSync } from "node:fs";
+ import { join } from "node:path";
++import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
++import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
+ import { isCatherdError } from "../../src/domain/errors.ts";
+ import { readyAdapter, resetReadiness } from "../../src/services/backends.ts";
+ import { budgetOf, liveTokens, spendOf } from "../../src/services/budget.ts";
+@@ -10,6 +12,8 @@ import { simPath, withScenario } from "../sim/scenario.ts";
+ import { fakeDispatch, freshRun, makeRecord } from "./helpers.ts";
+ 
+ afterEach(snapshotEnv());
++// a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
++afterEach(() => registerAdapter(antigravityAdapter));
+ 
+ const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
+ const agentRun = {
+@@ -75,7 +79,8 @@ describe("readyAdapter", () => {
+   it("refuses a backend with no adapter, and a CLI that is logged out or too old, with its fix", async () => {
+     resetReadiness();
+     process.env.PATH = simPath();
+-    expect((await code(readyAdapter("antigravity"))).code).toBe("E_BACKEND_MISSING"); // no adapter until plan 17
++    unregisterAdapter("antigravity");
++    expect((await code(readyAdapter("antigravity"))).code).toBe("E_BACKEND_MISSING");
+     Object.assign(process.env, withScenario({ loggedIn: false }).env);
+     expect(await code(readyAdapter("codex"))).toEqual({
+       code: "E_BACKEND_NOT_LOGGED_IN",
+````
 
 - [ ] **Step 3: Implement**
 
@@ -2792,13 +2843,13 @@ Modify `src/adapters/all.ts` (re-find each hunk by its context):
 
 - [ ] **Step 4: Run the tests and the checks**
 
-Run: `env -u FORCE_COLOR bun test test/services/antigravity-dispatch.test.ts test/services/doctor.test.ts test/entry/profile-command.test.ts test/entry/tui/effects.test.ts` then `bun run typecheck && bun run lint && bun run format:check`
+Run: `env -u FORCE_COLOR bun test test/services/antigravity-dispatch.test.ts test/services/doctor.test.ts test/entry/profile-command.test.ts test/entry/tui/effects.test.ts test/services/admission.test.ts test/services/budget-backends.test.ts` then `bun run typecheck && bun run lint && bun run format:check`
 Expected: PASS, 0 fail.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/adapters/all.ts test/entry/profile-command.test.ts test/entry/tui/effects.test.ts test/services/antigravity-dispatch.test.ts test/services/doctor.test.ts
+git add src/adapters/all.ts test/entry/profile-command.test.ts test/entry/tui/effects.test.ts test/services/antigravity-dispatch.test.ts test/services/doctor.test.ts test/services/admission.test.ts test/services/budget-backends.test.ts
 git commit -m "feat(antigravity): register the agy adapter, with doctor's quota, isolation and access rows" -m "Spec 1.3 §6.6, §8." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git log --oneline -1   # a failed hook leaves the changes uncommitted
 ```
@@ -2880,15 +2931,23 @@ Modify `test/services/capture.test.ts` (re-find each hunk by its context):
      process.env.PATH = simPath();
 ````
 
-Modify `test/entry/capture-fixtures-command.test.ts` (re-find each hunk by its context):
+Modify `test/entry/capture-fixtures-command.test.ts` (as on plan 16's head, where `antigravity` was the backend with no cases; Ruling X2: the spawned CLI names an id with no cases; re-find each hunk by its context):
 
 ````diff
-@@ -13,7 +13,7 @@ describe("catherd capture-fixtures", () => {
+@@ -6,13 +6,13 @@ const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
+ 
+ describe("catherd capture-fixtures", () => {
+   it("refuses a backend it has no cases for, with the fix, and exit 2", () => {
+-    const p = Bun.spawnSync([process.execPath, CLI, "capture-fixtures", "--backend", "antigravity"], {
++    const p = Bun.spawnSync([process.execPath, CLI, "capture-fixtures", "--backend", "nope"], {
+       env: process.env,
+       stdout: "pipe",
+       stderr: "pipe",
      });
      expect(p.exitCode).toBe(2);
      expect(p.stderr.toString()).toBe(
--      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode|cursor\n',
-+      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode|cursor|antigravity\n',
+-      'error E_INPUT_INVALID: no capture cases for backend "antigravity"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode|cursor|grok\n',
++      'error E_INPUT_INVALID: no capture cases for backend "nope"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode|cursor|grok|antigravity\n',
      );
    });
  
