@@ -15,7 +15,9 @@ export const resetReadiness = (): void => ready.clear();
 function execFormatError(e: unknown): string | null {
   if (!(e instanceof Error)) return null;
   if ((e as { code?: unknown }).code !== "ENOEXEC" && !/exec format error/i.test(e.message)) return null;
-  return /posix_spawn '([^']+)'/.exec(e.message)?.[1] ?? "exec format error";
+  // macOS names the path (posix_spawn '/…/grok'), Linux only the command (uv_spawn 'grok')
+  const bin = /spawn '([^']+)'/.exec(e.message)?.[1];
+  return bin ? (Bun.which(bin) ?? bin) : "exec format error";
 }
 
 /**
