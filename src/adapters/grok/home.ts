@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
@@ -118,7 +118,9 @@ export function withCatherdProfiles(
  * user's. Throws E_CONFIG_INVALID, touching nothing, when catherd must not write it.
  */
 export function writeGrokProfiles(home: string): void {
-  const file = join(home, "sandbox.toml");
+  const path = join(home, "sandbox.toml");
+  // a link (a dotfiles repo) stays a link: the atomic rename goes to the file it points at
+  const file = lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() ? realpathSync(path) : path;
   const was = existsSync(file) ? readFileSync(file, "utf8") : "";
   const next = withCatherdProfiles(was);
   if ("why" in next)

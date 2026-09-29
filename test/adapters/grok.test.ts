@@ -107,7 +107,9 @@ describe("grok plan (spec 1.3 §5.2, §5.3)", () => {
       cwd: "/repo",
       stdinPath: null,
     });
-    expect(grokAdapter.plan(req()).args.at(-1)).not.toBe(session); // a new session each run
+    // one id per dispatch, known without the stream: finalize records it for a run grok never ended
+    expect(grokAdapter.plan(req()).args.at(-1)).toBe(session);
+    expect(grokAdapter.plan(req({ dispatchDir: "/d2" })).args.at(-1)).not.toBe(session);
   });
 
   it("maps each access, runs #default with no --effort, and resumes with -r and no --sandbox", () => {
@@ -383,5 +385,18 @@ describe("grok models and prepare (spec 1.3 §5.2, §5.3, §5.6)", () => {
       "[profiles.catherd-ws]",
     );
     expect(existsSync(join(process.env.GROK_HOME, "sandbox.toml"))).toBe(false);
+  });
+});
+
+describe("grok thread of a run that never ended (plan 16 final review, Important 2)", () => {
+  it("keeps catherd's -s session id after a timeout, and records none when grok never started a session", () => {
+    const session = grokAdapter.plan(req()).args.at(-1) as string;
+    const timedOut = grokAdapter.finalize(
+      finished(lines("no-end.jsonl"), { exit: exit(null, "wall-timeout") }),
+    );
+    expect(timedOut.status).toBe("timeout");
+    expect(timedOut.thread).toBe(session);
+    const loggedOut = grokAdapter.finalize(finished(lines("not-signed-in.jsonl"), { exit: exit(1) }));
+    expect(loggedOut.thread).toBeNull();
   });
 });

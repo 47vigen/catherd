@@ -56,6 +56,26 @@ const NO_UPDATE = { GROK_DISABLE_AUTOUPDATER: "1" };
 /** How long a `grok` query (version, models, the sandbox check) may take before it counts as failed. */
 export const grokShell = { timeoutMs: 15_000 };
 
+/**
+ * A fresh run's session id (`-s`), derived from its dispatch dir so finalize knows it without the stream: a run
+ * killed before grok's `end` (a timeout, a cancel) still records the session grok saved (plan 16 final review).
+ */
+export function sessionFor(r: Pick<RunRequest, "dispatchDir">): string {
+  const h = new Bun.CryptoHasher("sha256").update(r.dispatchDir).digest("hex");
+  const variant = ((Number.parseInt(h[16] as string, 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Whether grok got as far as a session: any event but a lone terminal error (not signed in, a bad flag). */
+const sessionStarted = (lines: string[]): boolean =>
+  lines.some((l) => {
+    try {
+      return (JSON.parse(l) as { type?: unknown }).type !== "error";
+    } catch {
+      return false;
+    }
+  });
+
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a grok session id`, {
@@ -83,7 +103,7 @@ function plan(r: RunRequest): SpawnPlan {
       // a fresh session takes catherd's id; a resumed one keeps the profile it started with and refuses
       // another (research §3.5), while a tool filter is no profile: a read-only role keeps its read tools
       ...(r.thread === null
-        ? [...access, "-s", crypto.randomUUID()]
+        ? [...access, "-s", sessionFor(r)]
         : [...(access.includes("--tools") ? access.slice(-2) : []), "-r", r.thread]),
     ],
     env: { ...NO_UPDATE, ...(r.isolated ? grokHomeEnv() : {}) },
@@ -171,7 +191,10 @@ function finalize(run: FinishedRun): Outcome {
       : f.error || lastErr || `no end event (${stopped}, exit ${run.exit.code ?? run.exit.signal})`;
   return {
     status,
-    thread: f.end?.thread ?? run.request.thread,
+    thread:
+      f.end?.thread ??
+      run.request.thread ??
+      (sessionStarted(run.eventLines) ? sessionFor(run.request) : null),
     tokens: f.end?.tokens ?? f.used,
     costUsd: f.end?.costUsd ?? null,
     images: [],

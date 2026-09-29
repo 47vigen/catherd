@@ -142,10 +142,12 @@ describe("PAIRED_FAILOVER (spec 1.3 §7.3)", () => {
     expect(PAIRED_FAILOVER["grok:grok-4.7#low"]).toBe("cursor:grok-4.7#default");
     expect(PAIRED_FAILOVER["grok:grok-4.5#xhigh"]).toBe("cursor:grok-4.5#default");
     expect(PAIRED_FAILOVER["cursor:grok-4.6#default"]).toBe("grok:grok-4.6#high");
-    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(15);
+    expect(PAIRED_FAILOVER["grok:grok-4.7#default"]).toBe("cursor:grok-4.7#default"); // Codex, PR #31
+    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(18);
     const shippedRungs = new Set(Object.values(BUILTIN_ROLES).flatMap((r) => r.rungs));
     for (const [from, to] of Object.entries(PAIRED_FAILOVER)) {
-      expect(catalogRungs(c)).toContain(from);
+      // a `#default` rung runs with no effort flag on any backend, so it need not be a listed effort
+      if (!from.endsWith("#default")) expect(catalogRungs(c)).toContain(from);
       expect(catalogRungs(c)).toContain(to);
       expect(from.split(":")[0]).not.toBe(to.split(":")[0]);
       expect(shippedRungs.has(from)).toBe(false);

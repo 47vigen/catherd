@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { writableRoots } from "../../src/adapters/access.ts";
 import {
@@ -151,5 +159,20 @@ describe("catherd's tables in a sandbox.toml (spec 1.3 §5.3, §9 Q3)", () => {
       `fix ${file}, or isolate grok (catherd profile set harness.grok.isolated true)`,
     ]);
     expect(readFileSync(file, "utf8")).toBe("[profiles\n");
+  });
+});
+
+describe("a sandbox.toml that is a link (plan 16 final review, Important 1)", () => {
+  it("writes through the link, keeping it and the user's file it points at", () => {
+    const home = tempDir("catherd-grok-link-");
+    const dotfiles = tempDir("catherd-dotfiles-");
+    const target = join(dotfiles, "sandbox.toml");
+    writeFileSync(target, '[profiles.mine]\nextends = "workspace"\n');
+    symlinkSync(target, join(home, "sandbox.toml"));
+    writeGrokProfiles(home);
+    expect(lstatSync(join(home, "sandbox.toml")).isSymbolicLink()).toBe(true);
+    const text = readFileSync(target, "utf8");
+    expect(text).toContain("[profiles.mine]");
+    expect(text).toContain("catherd-ws");
   });
 });

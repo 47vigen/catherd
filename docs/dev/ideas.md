@@ -504,6 +504,17 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
   pool from every registered adapter. Fix: limit the pool to backends the profile already names. (Plan 15 final
   review, Minor 4.)
 
+- **Isolated grok discovery lists under the native identity.** With both a grok login and `XAI_API_KEY`, `listModels`
+  runs under the user's `GROK_HOME` (the login wins) while an isolated worker uses the key, so `prepare` can judge a
+  model by the wrong account's listing. Fix: list and cache per identity when isolated. (Codex, PR #31.)
+- **Doctor ignores implicit paired stand-ins.** `usedBackends` scans role rungs and `profile.failover`, not
+  `PAIRED_FAILOVER`, so a missing Cursor reads as an unused `skip` although a Grok rung would fail over to it. Fix:
+  count paired targets as failover use. (Codex, PR #31.)
+- **Doctor's `sandbox:grok` check keeps the real HOME and the compat features on** (it moves only `GROK_HOME`). Fix:
+  add the ten compat toggles and `GROK_MEMORY=0`, or a scratch HOME. (Plan 16 final review, Minor 2.)
+- **sandbox.toml: bare keys after catherd's block change tables** when the block moves to the end; and two catherd
+  homes on one machine rewrite each other's block. Both rare. (Plan 16 final review, Minors 3 and 5.)
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:

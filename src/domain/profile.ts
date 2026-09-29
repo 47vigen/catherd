@@ -177,7 +177,8 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
  */
 export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
   ["grok-4.7", "grok-4.6", "grok-4.5"].flatMap((m) => [
-    ...["low", "medium", "high", "xhigh"].map((e) => [`grok:${m}#${e}`, `cursor:${m}#default`]),
+    // `#default` too: grok runs it with no --effort (spec §5.2), and a limit on it must fail over the same way
+    ...["default", "low", "medium", "high", "xhigh"].map((e) => [`grok:${m}#${e}`, `cursor:${m}#default`]),
     [`cursor:${m}#default`, `grok:${m}#high`],
   ]),
 );

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { grokAdapter } from "../../src/adapters/grok/index.ts";
+import { grokAdapter, sessionFor } from "../../src/adapters/grok/index.ts";
 import { runAdapterContract } from "./contract.ts";
 
 const fx = (n: string) => join(import.meta.dir, "..", "fixtures", "adapters", "grok", n);
@@ -42,7 +42,12 @@ runAdapterContract(
       fixture: fx("max-turns.jsonl"),
       expect: { status: "failed", thread: "5e1c4f30-9d6f-4a0c-b182-3f4e5d6c7a81" },
     },
-    { name: "an error with no end", fixture: fx("no-end.jsonl"), expect: { status: "failed", thread: null } },
+    {
+      // grok saved a session under catherd's -s id before it failed: the record keeps it to resume
+      name: "an error with no end",
+      fixture: fx("no-end.jsonl"),
+      expect: { status: "failed", thread: sessionFor({ dispatchDir: "/d" }) },
+    },
     { name: "not signed in", fixture: fx("not-signed-in.jsonl"), expect: { status: "failed", thread: null } },
     { name: "a plan's rate limit", fixture: fx("rate-limit.jsonl"), expect: { status: "limit" } },
     { name: "the free usage limit", fixture: fx("free-limit.jsonl"), expect: { status: "limit" } },
