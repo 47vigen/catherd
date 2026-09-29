@@ -26,9 +26,11 @@ import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import {
   type CursorScenario,
+  type GrokScenario,
   type OpencodeScenario,
   withClaudeScenario,
   withCursorScenario,
+  withGrokScenario,
   withOpencodeScenario,
 } from "../sim/sim-scenarios.ts";
 
@@ -55,7 +57,13 @@ const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
 
 /** A machine with the simulated CLIs `bins` on PATH (all three by default), the codex sandbox allowing writes. */
 function machine(
-  o: { codex?: CodexScenario; opencode?: OpencodeScenario; cursor?: CursorScenario; bins?: string[] } = {},
+  o: {
+    codex?: CodexScenario;
+    opencode?: OpencodeScenario;
+    cursor?: CursorScenario;
+    grok?: GrokScenario;
+    bins?: string[];
+  } = {},
 ): string {
   const home = withHome();
   process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
@@ -72,8 +80,10 @@ function machine(
     withClaudeScenario({}).env,
     withOpencodeScenario({ models: fx("opencode/models.json").data, ...o.opencode }).env,
     withCursorScenario({ modelsFile: join(FX, "cursor", "models.txt"), ...o.cursor }).env,
+    withGrokScenario({ ...o.grok }).env,
   );
   delete process.env.CURSOR_API_KEY;
+  delete process.env.XAI_API_KEY;
   return home;
 }
 
@@ -115,6 +125,7 @@ describe("doctor", () => {
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
       "backend:cursor": "skip missing",
+      "backend:grok": "skip missing",
       jev: "warn no key",
       sources: "info not synced",
       plugin: "ok ready",
@@ -164,6 +175,50 @@ describe("doctor", () => {
       state: "fail",
       word: "not logged in",
       fix: "cursor-agent login, or export CURSOR_API_KEY=<key>",
+    });
+  });
+
+  it("shows grok with its login, listing and sandbox, its access not tested, and a login billed apart", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "grok"] });
+    installPlugin(VERSION);
+    // Grok is unscored in the shipped scores: its inferred stand-ins let the role run (spec 1.3 §7.2)
+    const saved = patchProfile("default", { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } });
+    expect(saved.saved).toBe(true);
+    const r = await run();
+    expect(check(r, "backend:grok")).toMatchObject({
+      state: "warn",
+      word: "billing",
+      detail:
+        "1.0.44 · Grok login · profile default bills grok as metered, but this login is subscription · 2 models",
+      fix: "catherd profile set billing.grok subscription --profile default",
+    });
+    expect(check(r, "sandbox:grok")).toMatchObject({
+      state: "info",
+      detail: "grok's read-only profile applies here; catherd runs a read-only role in it (enforced)",
+    });
+    expect(check(r, "access:grok")).toMatchObject({ state: "skip", word: "not tested" });
+    expect(check(r, "isolation:grok")).toMatchObject({ state: "warn", word: "weak" });
+  });
+
+  it("fails a logged-out grok a role runs on, and says a grok this OS cannot run is one", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "grok"], grok: { loggedIn: false } });
+    installPlugin(VERSION);
+    patchProfile("default", { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } });
+    expect(check(await run(), "backend:grok")).toMatchObject({
+      state: "fail",
+      word: "not logged in",
+      fix: "grok login, or grok login --device-code without a browser, or export XAI_API_KEY=<key>",
+    });
+    // research §3.1: the owner's grok was a Linux build on macOS
+    const bin = process.env.PATH?.split(":")[0] as string;
+    rmSync(join(bin, "grok"));
+    writeFileSync(join(bin, "grok"), Buffer.concat([Buffer.from("\x7fELF\x02\x01\x01"), Buffer.alloc(57)]));
+    chmodSync(join(bin, "grok"), 0o755);
+    expect(check(await run(), "backend:grok")).toMatchObject({
+      state: "fail",
+      word: "cannot run",
+      detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
+      fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
     });
   });
 

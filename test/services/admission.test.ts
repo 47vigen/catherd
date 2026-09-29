@@ -114,10 +114,12 @@ describe("admission", () => {
       view: testView({ failover: { "codex:gpt-6-sol#high": "codex:gpt-6-astra#high" } }),
     });
     expect(await refusal(admit(deps, run, input({ rung: "codex:gpt-6-astra#high" })))).toBe("admitted");
-    // Grok has no adapter until plan 16.
-    deps.view.roles.worker?.rungs.push("grok:grok-4.7#default");
+    // Antigravity has no adapter until plan 17.
+    deps.view.roles.worker?.rungs.push("antigravity:gemini-3.8-flash#default");
     expect(
-      await refusal(admit(deps, run, input({ name: "w2", lane: null, rung: "grok:grok-4.7#default" }))),
+      await refusal(
+        admit(deps, run, input({ name: "w2", lane: null, rung: "antigravity:gemini-3.8-flash#default" })),
+      ),
     ).toBe("E_BACKEND_MISSING");
   });
 

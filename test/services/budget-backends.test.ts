@@ -75,7 +75,7 @@ describe("readyAdapter", () => {
   it("refuses a backend with no adapter, and a CLI that is logged out or too old, with its fix", async () => {
     resetReadiness();
     process.env.PATH = simPath();
-    expect((await code(readyAdapter("grok"))).code).toBe("E_BACKEND_MISSING"); // no adapter until plan 16
+    expect((await code(readyAdapter("antigravity"))).code).toBe("E_BACKEND_MISSING"); // no adapter until plan 17
     Object.assign(process.env, withScenario({ loggedIn: false }).env);
     expect(await code(readyAdapter("codex"))).toEqual({
       code: "E_BACKEND_NOT_LOGGED_IN",
