@@ -162,6 +162,13 @@ export interface BackendAdapter {
    * the user's login (`CURSOR_API_KEY`); an isolated profile without it does not validate.
    */
   isolationKey?: string;
+  /**
+   * Spec 1.3 §9 Q2: the access modes this backend holds a role to only when isolated (agy has no read-only flag;
+   * its deny rules live in the settings catherd writes in its own home). A native role at one does not validate.
+   */
+  isolatedOnly?: Access[];
+  /** Spec 1.3 §6.6: the plan quota left, in the CLI's words, read without spending a model turn (doctor's row). */
+  quota?(): Promise<string | null>;
   graceAfterFinalMs: number | null;
 }
 
