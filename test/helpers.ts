@@ -11,6 +11,9 @@ import { join, relative } from "node:path";
 export function withHome(): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
   process.env.CATHERD_HOME = home;
+  // they win over CATHERD_HOME, and an isolated worker running this suite inherits them (movedHomeEnv)
+  delete process.env.CATHERD_DATA_DIR;
+  delete process.env.CATHERD_CONFIG_DIR;
   process.env.XDG_CONFIG_HOME = join(home, "xdg-config");
   // saving a profile links agents into ~/.claude/agents; a test must never touch the real one
   process.env.CATHERD_CLAUDE_AGENTS_DIR = join(home, "claude-agents");
