@@ -13,6 +13,8 @@ interface Recorded {
   home?: string | null;
   /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR; grok: GROK_*) */
   vars?: Record<string, string>;
+  /** agy: the settings.json under the HOME it ran with, null when there is none */
+  settings?: unknown;
   envKeys: string[];
 }
 
@@ -126,6 +128,28 @@ export interface GrokScenario extends Common {
   stderr?: string;
 }
 
+export interface AgyScenario extends Common {
+  /** a Google login answers (default true); GEMINI_API_KEY with modelProvider "gemini" in HOME's settings does too */
+  loggedIn?: boolean;
+  /** what `agy models` prints after its first line: this file's text */
+  modelsFile?: string;
+  /** the exit code of a logged-in `agy models` (default 0) */
+  modelsExit?: number;
+  /** flags this "older" agy does not know (`--disable-slash-commands`) */
+  unknownFlags?: string[];
+  /** written to stderr after the events */
+  stderr?: string;
+  /** each time a logged-out `-p` would open the browser, a line is appended here */
+  browserTo?: string;
+  /** what `agy -p /usage --output-format json` prints (default: a weekly quota line) */
+  usage?: unknown;
+  /** `-p /usage` fails with this exit code */
+  usageExit?: number;
+  /** `-p /usage` appends its arguments here, one JSON line per call */
+  usageTo?: string;
+}
+
+export const withAgyScenario = (s: AgyScenario) => write("CATHERD_SIM_AGY", s);
 export const withClaudeScenario = (s: ClaudeScenario) => write("CATHERD_SIM_CLAUDE", s);
 export const withCursorScenario = (s: CursorScenario) => write("CATHERD_SIM_CURSOR", s);
 /**
