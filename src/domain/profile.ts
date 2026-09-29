@@ -169,6 +169,19 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
   [SOL("medium")]: "opencode:opencode-go/kimi-k3#max",
 };
 
+/**
+ * Spec 1.3 §7.3: the same Grok model through grok or Cursor bills two pools, so each stands in for the other
+ * on a limit: grok at any effort for Cursor's slug (which has none), Cursor's for grok at the families' default
+ * effort, `high`. Consulted after the profile's own failover and never written into a profile, where a pair whose
+ * rung is on no ladder would warn "never runs"; never a stand-in for a shipped Codex, Claude or opencode rung.
+ */
+export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
+  ["grok-4.7", "grok-4.6", "grok-4.5"].flatMap((m) => [
+    ...["low", "medium", "high", "xhigh"].map((e) => [`grok:${m}#${e}`, `cursor:${m}#default`]),
+    [`cursor:${m}#default`, `grok:${m}#high`],
+  ]),
+);
+
 /** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */
 const WRITTEN_BILLING: BillingKey[] = ["codex", "claude", "claude-code", "opencode-go", "opencode"];
 

@@ -3,6 +3,7 @@ import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { formatRung, tryParseRung } from "../domain/ids.ts";
+import { PAIRED_FAILOVER } from "../domain/profile.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -66,11 +67,11 @@ export async function readyAdapter(backend: string): Promise<{ adapter: BackendA
 }
 
 /**
- * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default (for `repo`,
- * when given), else none.
+ * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else the same model on its paired backend
+ * (spec 1.3 §7.3), else its backend's default (for `repo`, when given), else none.
  */
 export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
-  const own = failover[rung];
+  const own = failover[rung] ?? PAIRED_FAILOVER[rung];
   if (own) return own;
   const r = tryParseRung(rung);
   if (!r) return null;
