@@ -24,10 +24,10 @@ claude plugin marketplace update catherd && claude plugin update catherd@catherd
   environment catherd runs in: a profile that isolates one without it no longer validates.
 - A read-only role (architect, reviewer, researcher by default) cannot run on native Antigravity, which has no
   read-only mode: isolate it, or put the role on another backend.
-- A thread resumed under another access than it started with is refused on a backend that keeps a thread's access
+- A thread resumed under another access or network grant than it started with is refused on a backend that keeps a thread's access
   (Grok, Antigravity), with the fix "dispatch a fresh thread".
-- After the next sync, Gemini, Grok and Composer rungs have scores of their own. Gemini rungs fail over between
-  Antigravity and Cursor on a usage limit unless your profile names another stand-in.
+- After the next sync, Gemini, Grok and Composer rungs have scores of their own. Grok and Gemini rungs fail over
+  between Grok Build or Antigravity and Cursor on a usage limit unless your profile names another stand-in.
 
 ## From 1.1 to 1.2
 
