@@ -260,7 +260,7 @@ async function probe(): Promise<Probe> {
     version,
     versionOk,
     loggedIn,
-    ...(loggedIn ? { login: apiKey ? "API key" : "Cursor login" } : {}),
+    ...(loggedIn ? { login: apiKey ? "API key" : "Cursor" } : {}),
     // an API key bills at API rates; a Cursor login's billing is the profile's (spec 1.3 §9 Q4)
     ...(loggedIn && apiKey ? { billing: "metered" as const } : {}),
     problems,

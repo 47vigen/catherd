@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter, Outcome } from "../../src/adapters/backend.ts";
+import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
 import { adapterFor, registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -28,7 +29,8 @@ import { deadProcess, fakeDeps, fakeDispatch, freshRun, makeRecord, testView, wa
 
 afterEach(snapshotEnv());
 afterEach(() => {
-  unregisterAdapter("cursor");
+  // the fake adapter stands under Cursor's id: put the real one back
+  registerAdapter(cursorAdapter);
   claimSeams.beforeTakeover = async () => {};
   settleLimits.timeoutMs = 20_000;
   settleLimits.claimMarginMs = 10_000;

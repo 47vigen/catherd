@@ -103,6 +103,9 @@ export async function backendChecks(
       ],
     }));
     if (probe.installed) installed?.add(id);
+    // spec 1.3 §4.7: what the probe found worth knowing, nothing to fix (an `agent` on PATH that is not Cursor)
+    for (const i of probe.info ?? [])
+      checks.push({ id: i.id, label: i.label, state: "info", word: "info", detail: i.detail });
     const problem = probe.problems[0];
     const use = used.get(id);
     if (!problem) {

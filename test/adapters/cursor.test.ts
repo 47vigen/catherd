@@ -251,7 +251,7 @@ describe("cursor probe (spec 1.3 §4.1, §3.3)", () => {
       version: "2026.09.28",
       versionOk: true,
       loggedIn: true,
-      login: "Cursor login",
+      login: "Cursor",
       problems: [],
     });
     process.env.CURSOR_API_KEY = "key-for-test";

@@ -107,6 +107,9 @@ describe("catalogRungs", () => {
     expect(all).toContain("opencode:opencode-go/gpt-6-luna#high");
     expect(all).toContain("opencode:opencode/claude-opus-5-5#high");
     expect(all).toContain("opencode:opencode-go/glm-5.3#high");
+    // a model with no effort has one rung, #default (spec 1.3 §7.1)
+    expect(all).toContain("cursor:composer-2.5#default");
+    expect(all).toContain("claude-code:claude-haiku-4-5-20251001#default");
     expect(all).toContain(KIMI);
     expect(all.some((r) => r.startsWith("opencode:claude-opus-5-5#"))).toBe(false);
     expect(all).toEqual([...new Set(all)].sort());
