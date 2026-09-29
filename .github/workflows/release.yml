@@ -15,6 +15,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
+  checks: read
   id-token: write
 
 jobs:
@@ -57,6 +58,8 @@ jobs:
       - name: Publish a beta snapshot under the beta dist-tag
         id: beta
         if: github.ref_name == 'beta'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           bunx changeset version --snapshot beta
           version=$(node -p 'require("./package.json").version')
@@ -64,6 +67,20 @@ jobs:
             *-beta.*) ;;
             *) echo "::notice::no changesets on beta, nothing to publish"; exit 0 ;;
           esac
+          # the tests ran on the PR, not here: publish only a commit that a PR into beta merged with ci green
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            -q '[.[] | select(.merged_at != null and .base.ref == "beta")][0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "::error::$GITHUB_SHA reached beta without a pull request, so ci never tested it; nothing published"
+            exit 1
+          fi
+          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" -q .head.sha)
+          green=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=ci" \
+            -q '[.check_runs[] | select(.conclusion == "success")] | length')
+          if [ "$green" = 0 ]; then
+            echo "::error::the ci check of #$pr is not green; nothing published"
+            exit 1
+          fi
           bun scripts/stamp-plugin-version.mjs
           bun test/pack-smoke.ts
           bunx changeset publish --tag beta --no-git-tag

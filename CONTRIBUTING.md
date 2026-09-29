@@ -107,7 +107,9 @@ bunx changeset                      # the bump the stable release will get
 git push -u origin my-change        # open the pull request against beta; merge it when ci is green
 ```
 
-Or push straight to `beta`. After the publish, `npm view catherd-cli dist-tags` shows it.
+Only a pull request reaches npm: the release workflow publishes a `beta` commit only when a pull request into
+`beta` merged it with its `ci` check green. A direct push to `beta` publishes nothing and fails the run. After the
+publish, `npm view catherd-cli dist-tags` shows it.
 
 Use a beta:
 
@@ -132,7 +134,7 @@ Promote beta to stable:
 3. Bring `beta` up to date: `git push origin origin/main:beta` (a fast-forward). It publishes nothing, because the
    release consumed the changesets.
 
-A fix that lands on `main` while a beta is open reaches `beta` by merging `main` into it.
+A fix that lands on `main` while a beta is open reaches `beta` through a pull request from `main` to `beta`.
 
 ## Live tests and fixture capture
 
