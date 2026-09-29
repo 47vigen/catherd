@@ -9,7 +9,7 @@
         "source": "git-subdir",
         "url": "https://github.com/47vigen/catherd.git",
         "path": "plugin",
-        "ref": "v1.2.0"
+        "ref": "v1.2.1"
       },
       "description": "Herds coding agents: Claude plans and verifies, Codex, opencode or headless Claude Code workers write the code, and Jev picks the model and effort for each piece.",
       "license": "MIT",

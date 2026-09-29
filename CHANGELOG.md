@@ -1,5 +1,12 @@
 # catherd-cli
 
+## 1.2.1
+
+### Patch Changes
+
+- b1d20e5: Claude Sonnet 5.5 (`claude-sonnet-5-5`) is listed for the claude, claude-code and opencode backends, and Claude Code's
+  `sonnet` alias now resolves to it.
+
 ## 1.2.0
 
 ### Minor Changes
