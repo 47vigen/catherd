@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BackendAdapter, FinishedRun } from "../adapters/backend.ts";
+import type { BackendAdapter, FinishedRun, Outcome, RunRequest } from "../adapters/backend.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import type { Access } from "../domain/record.ts";
@@ -21,6 +21,8 @@ interface CaptureCase {
   rung: string;
   access: Access;
   brief: string;
+  /** a second brief that resumes the first run's thread in the same repo; the resumed run is captured */
+  resume?: string;
 }
 
 const SAY_HELLO =
@@ -79,12 +81,71 @@ function cleanStrings(v: unknown, clean: (s: string) => string): unknown {
   return v;
 }
 
+/** One run as an isolated dispatch would start it (plan, the worker env), without the supervisor. */
+async function runOnce(
+  adapter: BackendAdapter,
+  request: RunRequest,
+  timeoutMs: number,
+): Promise<{ run: FinishedRun; events: string; stderr: string; o: Outcome }> {
+  const plan = adapter.plan(request);
+  const startedAtMs = Date.now();
+  const p = Bun.spawn([plan.cmd, ...plan.args], {
+    cwd: plan.cwd,
+    env: workerEnv(process.env, plan.env, plan.cwd),
+    // spec 1.3 §3.3: the brief goes on stdin only to a CLI whose plan reads it there (grok reads a file)
+    stdin: plan.stdinPath ? Bun.file(plan.stdinPath) : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    // its own group, so a timeout stops whatever the CLI started too, as the supervisor does
+    detached: true,
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup(p.pid, "SIGKILL");
+  }, timeoutMs);
+  // as preflight does: a process the CLI left behind (in its own session) may hold the pipes open
+  const out = collect(p.stdout);
+  const err = collect(p.stderr);
+  const code = await p.exited;
+  clearTimeout(timer);
+  const drained = await Promise.race([
+    Promise.all([out.done, err.done]).then(() => true),
+    Bun.sleep(DRAIN_MS).then(() => false),
+  ]);
+  if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
+  out.stop();
+  err.stop();
+  const events = out.text();
+  const stderr = err.text();
+  const run: FinishedRun = {
+    request,
+    eventLines: events.split("\n").filter((l) => l.trim()),
+    reply: "",
+    stderr,
+    exit: {
+      code: p.signalCode ? null : code,
+      signal: p.signalCode ?? null,
+      reason: timedOut ? "wall-timeout" : "exited",
+      endedAt: new Date().toISOString(),
+    },
+    startedAtMs,
+  };
+  // as a dispatch records it: the backend's own totals and limits, on a fresh thread (nothing prior)
+  const o = await settled(adapter, adapter.finalize(run), run, () => ({
+    tokens: { input: 0, cached: 0, output: 0 },
+    costUsd: 0,
+  }));
+  return { run, events, stderr, o };
+}
+
 /**
  * Runs one case the way an isolated dispatch would (prepare, plan, the worker env), without the
  * supervisor. Isolated, so the stream names none of the owner's own hooks, plugins, MCP servers or config:
- * the fixtures are committed.
+ * the fixtures are committed. A case with `resume` runs its brief, then resumes that thread in the same
+ * scratch repo with `resume`, and captures the resumed run.
  */
-async function captureOne(
+export async function captureOne(
   adapter: BackendAdapter,
   version: string,
   c: CaptureCase,
@@ -97,7 +158,7 @@ async function captureOne(
     writeFileSync(briefPath, c.brief);
     const rung = parseRung(c.rung);
     await adapter.prepare?.({ rung, access: c.access, isolated: true, repo });
-    const request = {
+    const request: RunRequest = {
       rung,
       access: c.access,
       thread: null,
@@ -107,54 +168,20 @@ async function captureOne(
       replyPath: join(work, "reply.md"),
       dispatchDir: work,
     };
-    const plan = adapter.plan(request);
-    const startedAtMs = Date.now();
-    const p = Bun.spawn([plan.cmd, ...plan.args], {
-      cwd: plan.cwd,
-      env: workerEnv(process.env, plan.env, plan.cwd),
-      stdin: Bun.file(briefPath),
-      stdout: "pipe",
-      stderr: "pipe",
-      // its own group, so a timeout stops whatever the CLI started too, as the supervisor does
-      detached: true,
-    });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup(p.pid, "SIGKILL");
-    }, timeoutMs);
-    // as preflight does: a process the CLI left behind (in its own session) may hold the pipes open
-    const out = collect(p.stdout);
-    const err = collect(p.stderr);
-    const code = await p.exited;
-    clearTimeout(timer);
-    const drained = await Promise.race([
-      Promise.all([out.done, err.done]).then(() => true),
-      Bun.sleep(DRAIN_MS).then(() => false),
-    ]);
-    if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the CLI's group
-    out.stop();
-    err.stop();
-    const events = out.text();
-    const stderr = err.text();
-    const run: FinishedRun = {
-      request,
-      eventLines: events.split("\n").filter((l) => l.trim()),
-      reply: "",
-      stderr,
-      exit: {
-        code: p.signalCode ? null : code,
-        signal: p.signalCode ?? null,
-        reason: timedOut ? "wall-timeout" : "exited",
-        endedAt: new Date().toISOString(),
-      },
-      startedAtMs,
-    };
-    // as a dispatch records it: the backend's own totals and limits, on a fresh thread (nothing prior)
-    const o = await settled(adapter, adapter.finalize(run), run, () => ({
-      tokens: { input: 0, cached: 0, output: 0 },
-      costUsd: 0,
-    }));
+    let captured = await runOnce(adapter, request, timeoutMs);
+    const resumed = c.resume === undefined ? null : captured.o.thread;
+    if (c.resume !== undefined) {
+      if (!resumed)
+        return {
+          backend: c.backend,
+          name: c.name,
+          status: "skipped",
+          reason: `the first run left no thread to resume (${captured.o.error?.message ?? captured.o.status})`,
+        };
+      writeFileSync(briefPath, c.resume);
+      captured = await runOnce(adapter, { ...request, thread: resumed }, timeoutMs);
+    }
+    const { run, events, stderr, o } = captured;
     const scrub: Scrub = {
       secrets: secretEnvValues(process.env),
       paths: [
@@ -180,7 +207,8 @@ async function captureOne(
           rung: c.rung,
           access: c.access,
           isolated: true,
-          brief: c.brief,
+          brief: c.resume ?? c.brief,
+          ...(resumed ? { resumed } : {}),
           exitCode: run.exit.code,
           reason: run.exit.reason,
           capturedAt: new Date().toISOString(),
