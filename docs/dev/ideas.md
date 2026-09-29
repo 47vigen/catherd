@@ -483,6 +483,14 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **`land` accepted inexact verifier names.** M2 landed with verifier records named `verifier-M2-pre`, `-gate1` and `-gate3`, with no exact `verifier-M2` row. Its ledger minutes (1689) counted the whole paused night. Fix: match the name exactly, and subtract the pauses.
 - **`knowledge.md` is keyed by worktree path.** Every worktree (`dev-registry`, `auth-verification`, `auth-kit-cleanup`) is a new repo, so `read_knowledge` for M3 was empty although M1 and M2 wrote `learned`. Fix: key by the git origin.
 
+**Resume (2026-09-29)**
+
+- **A "foreground" verifier is still a background agent.** On the resume, the orchestrator briefed the verifier to stay in the foreground, and the Agent tool launched it async anyway ("Async agent launched successfully"). The verifier can block inside its own turn, but the main thread only learns the verdict from a notification. Fix: the skill says so plainly, and `protocol.next` treats the verifier as a dispatched role whose result arrives as a message, not as a call that returns.
+- **`status` shows a stale verifier step as live.** After the round-2 verifier was gone, `status` and `peek` still reported `verifier: {item: "acceptance notification", at: 10:04:03Z}`, with no process running. They also listed the previous owner session as `live: true` after a new session had taken the run. `gate_check` records a step, but nothing ends one. Fix: close the step on `gate_pass`, on `record_agent_run(role: verifier)`, or when the owning session is gone, and show its age.
+- **`state.md`'s Next outlives the step.** It still read "dispatch M3.L1 at codex:gpt-6-sol#medium on a fresh thread" ten hours after that dispatch ended ok (L1 attempt 3, 23:55). Fix: `result()` of the named dispatch clears or advances Next.
+- **The profile is not pinned per run either.** The active profile changed from the codex one to `just-claude` while M3 was paused, so the run's verifier rung changed (`catherd-default-verifier-*` is gone and `catherd-just-claude-verifier-claude-opus-5-5-low` took over), and any re-dispatched lane would route on Sonnet instead of the Codex rungs it started on. Nothing in the run records the switch. Fix: same as the sandbox item: pin the profile at `run_start`, or log the change in `state.md`.
+- **A host probe needs to run twice.** Right after the AnyConnect VPN was disconnected, the first unsigned Go probe to `203.0.113.20` still got `no route to host`. The next seven, including one from a freshly built binary on a fresh network, answered 200. A single probe would have stopped the run for nothing. Fix: when catherd ships a host probe, it retries once after a few seconds before calling the host blocked.
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
