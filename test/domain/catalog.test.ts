@@ -33,6 +33,14 @@ describe("catalog/models.json", () => {
       "claude-sonnet-5-5",
       "claude-sonnet-5",
       "claude-haiku-4-5",
+      "grok-4-7",
+      "grok-4-6",
+      "grok-4-5",
+      "composer-2-5",
+      "gemini-3-8-flash",
+      "gemini-3-7-flash",
+      "gemini-3-6-flash",
+      "gemini-3-1-pro",
     ]);
     const sol = shippedModels().families.find((f) => f.id === "gpt-6-sol");
     expect(sol?.on.codex).toEqual({
@@ -121,6 +129,35 @@ describe("catalog/scores.json", () => {
       confidence: "adjacent",
       note: "Terminal-Bench has it at xhigh; carried to this effort",
     });
+  });
+});
+
+describe("Cursor's families (spec 1.3 §7.1)", () => {
+  const fam = (id: string) => shippedModels().families.find((f) => f.id === id);
+
+  it("gives the Grok, Composer and Gemini families a Cursor id, a keyless price and a release date", () => {
+    expect(fam("grok-4-7")).toMatchObject({
+      price: { input: 2, cached: 0.5, output: 6 },
+      releaseDate: "2026-09-21",
+      on: { cursor: { id: "grok-4.7", efforts: [], context: 200000 } },
+    });
+    expect(fam("gemini-3-1-pro")?.price).toEqual({ input: 2, cached: 0.2, output: 12 });
+    expect(fam("gemini-3-8-flash")?.on.cursor?.id).toBe("gemini-3.8-flash");
+    // no keyless source prices Composer: Grok 4.7's, the same Cursor pool, stands in
+    expect(fam("composer-2-5")?.price).toEqual(fam("grok-4-7")?.price);
+    expect(fam("composer-2-5")?.on.cursor).toEqual({ id: "composer-2.5", efforts: [], context: 200000 });
+  });
+
+  it("reads a Cursor slug as its family's canonical rung, the shipped families included", () => {
+    const c = shipped();
+    expect(rungInfo(c, "cursor:gpt-6-sol#xhigh")).toMatchObject({
+      key: "cursor",
+      canonical: "gpt-6-sol#xhigh",
+      efforts: ["low", "high", "xhigh"],
+    });
+    expect(rungInfo(c, "cursor:claude-opus-5-5-thinking#high").canonical).toBe("claude-opus-5-5#high");
+    expect(rungInfo(c, "cursor:composer-2.5#default").canonical).toBe("composer-2-5#default");
+    expect(rungInfo(c, "cursor:grok-4.7#default").family?.id).toBe("grok-4-7");
   });
 });
 

@@ -12,15 +12,7 @@ const find = (d: ReturnType<typeof derive>, rung: string, dim: string, confidenc
 describe("id and effort mapping (spec 1.2 §3.4)", () => {
   it("lists every source id no family matched, never guessing one", () => {
     expect(keyless().unmatched).toEqual({
-      arena: [
-        "Claude Opus 5",
-        "Gemini 3.8 Flash",
-        "Kimi K3",
-        "claude-opus-5",
-        "glm-5.3",
-        "kimi-k3",
-        "muse-spark-1.3",
-      ],
+      arena: ["Claude Opus 5", "Kimi K3", "claude-opus-5", "glm-5.3", "kimi-k3", "muse-spark-1.3"],
       vectara: ["antgroup/finix_s1_32b", "google/gemini-2.5-pro", "openai/gpt-5.5"],
       epoch: ["claude-opus-5", "glm-5.3", "gpt-5.5", "kimi-k3"],
     });
@@ -39,6 +31,24 @@ describe("id and effort mapping (spec 1.2 §3.4)", () => {
         effortAssumed: true,
       }),
     ]);
+  });
+});
+
+describe("a family with no effort (spec 1.3 §7.1)", () => {
+  it("keys every source value of an effortless family at #default, whatever effort the source names", () => {
+    const raw = rawAnswers(AT);
+    const arena = raw.arena?.data as Record<string, { rows: { row: Record<string, unknown> }[] }>;
+    const webdev = arena.webdev as { rows: { row: Record<string, unknown> }[] };
+    const like = webdev.rows[0]?.row as Record<string, unknown>;
+    webdev.rows.push({ row: { ...like, model_name: "Composer 2.5 (None)", rating: 1500 } });
+    const d = derive(raw, shippedContext(NOW));
+    expect(find(d, "composer-2-5#default", "frontend", "measured")).toEqual([
+      expect.objectContaining({ value: 1500, source: "arena" }),
+    ]);
+    expect(
+      d.scores.filter((s) => s.rung.startsWith("composer-2-5#") && s.rung !== "composer-2-5#default"),
+    ).toEqual([]);
+    expect(d.unmatched.arena).not.toContain("Composer 2.5");
   });
 });
 
@@ -186,6 +196,22 @@ describe("catalog facts (spec 1.2 §3.5)", () => {
       releaseDate: "2026-09-22",
       speed: { "openrouter.uptime_last_30m": (99.87737584304108 + 99.97978535724786) / 2 },
     });
+  });
+
+  it("finds a family under the vendor's own dotted or aliased id (spec 1.3 §7.1)", () => {
+    const raw = rawAnswers(AT);
+    const md = raw["models-dev"]?.data as Record<string, { models: Record<string, unknown> }>;
+    const model = (input: number, output: number) => ({
+      reasoning: true,
+      tool_call: true,
+      release_date: "2026-09-02",
+      modalities: { input: ["text", "image"] },
+      cost: { input, output, cache_read: input / 10 },
+    });
+    md.google = { models: { "gemini-3.8-flash": model(0.75, 3.75), "gemini-3.1-pro-preview": model(2, 12) } };
+    const d = derive(raw, shippedContext(NOW));
+    expect(d.facts["gemini-3-8-flash"]?.price).toEqual({ input: 0.75, cached: 0.075, output: 3.75 });
+    expect(d.facts["gemini-3-1-pro"]?.price).toEqual({ input: 2, cached: 0.2, output: 12 });
   });
 
   it("keeps the shipped file as the floor when laying the facts over the families", () => {

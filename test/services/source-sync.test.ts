@@ -96,7 +96,8 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
     const c = clock();
     // GPT-6 Luna has no Arena agent row in the recorded answers: this one gives Luna high its first agentic value
     const r = await syncSources({ transport: c.transport(withLunaAgent()), now: c.now, aaKey: null });
-    expect(r.newlyScored).toEqual([]);
+    // Gemini 3.8 Flash's family is new in 1.3: the weekly refresh ships its values, the recorded file has none
+    expect(r.newlyScored).toEqual(["gemini-3-8-flash#default"]);
     expect(loadCatalog({ timings: false }).scores["gpt-6-luna#high"]?.agentic).toMatchObject({
       value: 0.03,
       confidence: "measured",
