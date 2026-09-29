@@ -13,16 +13,19 @@ every model-turn behaviour is a Ruling plus a live-verification step.
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | written, pre-validated on a scratch branch; **not executed (owner: hold)** |
-| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch; **not executed** |
-| 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch; **not executed** |
+| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | written, pre-validated (14 tasks, gate green); **not executed (owner: hold)** |
+| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | written on plan 15's scratch (8 tasks, gate green); **not executed** |
+| 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | written on plan 15's scratch (9 tasks, gate green, carries the changeset); **not executed** |
 
 **Implementation stays on hold until the owner says go.** The owner first reviews the spec's §9 open questions
 (one release or three, read-only on native agy, writing into vendor config, billing modes, doctor probes that spend a
 turn, isolation keys, agy plan terms, hidden flags, the owner's machine). Before any live step the owner's machine
 needs `grok login` plus a grok reinstall (the installed grok is a Linux ELF), `cursor-agent update && cursor-agent
 login`, and `agy` installed and signed in once (research §0, §8). Plans 16 and 17 depend on plan 15's groundwork;
-execute 15 first, then 16 and 17 in parallel. Only the last of the three to merge carries the 1.3.0 changeset.
+execute them in order 15 → 16 → 17 (16 and 17 were written in parallel on plan 15's scratch and conflict in shared
+files; plan 17's header carries the cross-plan rulings X1–X3). Plan 17 carries the 1.3.0 changeset. Pre-validation:
+plan 15 1620 → 1698 pass on `a444e1b`; plan 16 1698 → 1763; plan 17 1698 → 1761 (each on its own scratch branch,
+kept locally: `plan15-scratch`, `plan16-scratch`, `plan17-scratch`).
 
 ## catherd 1.2 (session 6, autopilot)
 

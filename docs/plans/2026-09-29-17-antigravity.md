@@ -14,6 +14,18 @@
 
 **Pre-validated on scratch branch `plan17-scratch`, built on `plan15-scratch` at `194c6d4` (main `a444e1b` plus plan 15, gate green): every task below is that branch's commit, in order, each built test-first; the full gate is green on the head (counts under "Verified facts").** `git show <task commit>` on `plan17-scratch` reproduces any file.
 
+> **Cross-plan rulings (controller, 2026-09-29), binding over this plan's text.** Plans 16 and 17 were written in
+> parallel on `plan15-scratch`; execute 15 → 16 → 17 in order, and replay this plan onto plan 16's merged head.
+> - Ruling X1: this plan's same-model stand-in table (`sameModelStandIn` / `SAME_MODEL`, Rulings 18 and Task 4) is
+>   merged into plan 16's `PAIRED_FAILOVER` (Ruling 15 there): add the Gemini ↔ Cursor rows to that table and keep
+>   `standInFor` reading one table — two tables for one idea is a second place to forget — cost if wrong: a rename.
+> - Ruling X2: tests that need "a backend with no adapter" (plan 15 Ruling 23, plan 16 Ruling 18, this plan's
+>   Ruling 22) register a test-only id through the registry helpers instead of borrowing a real backend, since after
+>   plan 17 every `ADAPTER_IDS` entry has an adapter — cost if wrong: those tests fail loudly at replay.
+> - Ruling X3: resolve the known conflicts plan 16 lists (`all.ts`, `sim-scenarios.ts`, `doctor.test.ts`, capture
+>   cases, README, setup skill, live-verification) by keeping both sides; regenerate the TUI frames snapshot; check
+>   the changeset's and MIGRATION's Grok bullets against plan 16 as merged (this plan's Ruling 23).
+
 ## Global Constraints
 
 - Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`). agy's code stays in `src/adapters/antigravity/`; the generic changes stay in the service that owns each concern. ProfileService stays the single writer of profiles, config, bindings and agent links.
