@@ -494,6 +494,65 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **An isolated headless worker cannot read its lane file.** worker-M4.L1 (`claude-code`, `isolated: true`) was told "your lane file is lanes/M4.L1.md in the run" and replied "I couldn't find `lanes/M4.L1.md` on disk, so I worked from your summary". It guessed its Owns from the brief and edited four files the lane file did not list, which came back as violations (`directory.go`, `internal_test.go`, two Dokploy READMEs). All four were right to edit, but only because the brief happened to be detailed. Fix: `dispatch` inlines the lane file (Owns, Fast check, body) into the brief, or passes its absolute path and grants read access to the run folder.
 - **`preflight` reruns every past milestone's lanes.** Called for M4, which had one new lane, it ran all seven M3 lane checks too (Go testcontainers and four panels), took about 2 min behind the lock while the M4 worker was already running, and reported a failure on an M3 lane (`TestSeedWritesEveryStateThePanelShows`) that has nothing to do with M4. Fix: preflight only lanes that have not landed, or take a `milestone` argument.
 
+## From the payment run (2026-09-29)
+
+catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That is eleven runs, one per plan and its worktree, from `20260929-113331` (plan 1) to `20260929-145705` (plan 11). The run ended with eleven MRs merged to staging (!59–!62, !64–!70). Evidence lives in each run folder: `runs.jsonl`, `agents.jsonl`, the lane files and the role records.
+
+**Programs span runs**
+
+- **One run per worktree, and nothing links them.** Each plan had its own worktree, so it needed its own run with a lone `M1`. The program's order lived only in the orchestrator's head:
+  - 1, 2 and 4 in parallel;
+  - 3 after 2;
+  - the chain 5→11.
+
+  Nothing models "M1 of run B needs M1 of run A merged", and after each merge the stack had to be rebased by hand. Fix: a program or run group with cross-run `After:` edges.
+- **One environment blocker took three parks.** A VPN took the default route and blocked every run. `park` is per run and per milestone, so it took three parks and three pushes. Fix: a machine-level or group-level "paused: environment" state.
+- **Two verifiers at once starve each other.** Plan 2's and plan 4's verifiers ran side by side. Plan 4's vitest ran next to a `task check` and hit six 5000 ms timeouts in files the diff does not touch. The lock's heavy slots let the two overlap, and catherd has no view of the machine across runs.
+
+**Routing and dispatch**
+
+- **`route` bloats the orchestrator.** Every call returns the full provenance block, about 3k tokens per lane, into the most expensive context of the run. Fix: return rung, ladder, backend and agent, and write provenance to `R/routes.jsonl`.
+- **Ladders were inverted on just-claude.** `Difficulty: build` lanes got the ladder [sonnet#high] with no room to climb (source `jev-kind`). `logic` lanes started lower, at sonnet#medium. Every claude-code value in provenance was `inferred` from a gpt-6-sol benchmark. Evidence: the first four routes of runs `-113331`, `-113334` and `-113338`.
+- **`dispatch` needs a rung it then overrides.** `rung` is required, even when the lane is not routed yet. The orchestrator guessed a rung, and dispatch overrode it with a hint. Fix: make `rung` optional on a lane dispatch.
+- **The catherd message does not carry the thread id.** Passing the dispatchId gave `E_ADMIT_THREAD`. Every fix round needed `jq … runs.jsonl`. Fix: put `thread:` in the message's first line, or accept `thread: "latest"`.
+- **Lane values are refused only at preflight.** `Difficulty: medium` (the word plans use) was refused as `E_LANE_INVALID` at preflight, not when `write_run_file` wrote the lane. Evidence: run `-135414`.
+- **There is no `lane_set`.** Fixing one header line (a fast check without `pnpm check`, or an Owns path) meant `sed` on the run folder. Evidence: runs `-113331` and `-143512`.
+
+**Preflight**
+
+- **Environment failures are classed as expected.** A testcontainers check without `DOCKER_HOST` failed with "rootless Docker not found", and preflight called it `fails-as-expected`. This happened on plan 1 and again on plan 3. An environment error should be `cannot-start`.
+- **A filter that matches nothing passes.** `pnpm --filter checkout …` passed before `apps/checkout` existed, because pnpm exits 0 on an empty filter. It should be `skipped`. Evidence: run `-135414`, M1.L4.
+- **A broken check is called expected.** A compose file that is valid only layered on another failed `config -q`, and preflight called that `fails-as-expected`. Evidence: run `-143512`, M1.L5.
+
+**Workers**
+
+- **"Do not commit" conflicts with acceptance built from HEAD.** `tooling/acceptance.sh` builds from `git archive HEAD`, so a lane told not to commit cannot run the acceptance it owns. One worker skipped it (plan 5). Another made an unreferenced commit and a detached worktree (plan 10). Fix: a per-lane WIP-commit escape, or acceptance belongs to the verifier by default.
+- **There is no "flaky" outcome.** Three cases needed a judgement with no record:
+  - an input-otp timer error that the worker never reproduced;
+  - a notification timing test that failed once in turbo and passed 3/3 alone;
+  - vitest timeouts under load.
+
+  Climb, accept or rerun is left to the orchestrator.
+- **An environment block is not tagged.** A worker replied `STATUS: blocked` with `ENV: vpn` on its own line, but the hints did not flag it. Climb-by-default would have spent a rung. Evidence: run `-113338`, worker-M1.L4.
+- **Lanes share the testcontainers reaper.** Parallel lanes on one daemon failed with "reaper container name already in use". Evidence: run `-135414`, worker-M1.L1.
+- **A final reply can overwrite the report.** worker-M1.L3 of plan 9 sent a second, short reply ("the notification is just my wait loop…"), and `result` showed that one. The real report with its deviations survived only in `events.jsonl`. Fix: keep the report reply, or concatenate.
+
+**Reviewers and verifiers**
+
+- **The low-effort reviewer stops at "partial".** On plans 4, 5, 9, 10 and 11, reviewer-M1 at claude-opus#low read the core and replied `STATUS: partial`. `record_agent_run` counts it `ok`, and `land` accepts it. Second passes scoped to the unread files found real issues:
+  - a vacuous property walk (plan 10);
+  - two bugs in plan 11's review actions, found on its first scoped pass.
+
+  Fix: size the reviewer to the diff, or refuse a partial review as the milestone's review.
+- **The verifier runs in the background even when told not to.** The Agent call returned "Async agent launched" and an interim "waiting for the gate" message. The verdict came as a second notification. Evidence: runs `-113331` and `-133255`.
+- **The verifier sets up the environment by hand.** Every verifier's first `task check` or turbo hit govulncheck's 403, because `HTTPS_PROXY` was missing. Every first testcontainers run needed `DOCKER_HOST`. Fix: carry a per-repo gate environment in the profile or the knowledge file, and inject it into verifier briefs.
+- **Nothing cleans up Docker.** After about 30 image and acceptance builds, Docker hit "no space left on device", and even `builder prune` failed until dangling images were removed. About 20 GB was freed. Evidence: plan 11 verifier, 15:42.
+- **The verifier caught what review could not, and it paid off.** The hardened property walk, run `-count=3` by the verifier, found a real cross-payment ledger bug in refund. The plan 8 and plan 11 reviewers found real bugs as well. The loop earned its cost on this run.
+
+**Outside catherd, noted for the orchestrator**
+
+- **Branch pipelines held the runner.** Pushing five stacked branches started five branch pipelines on the single runner, and plan 5's MR pipeline sat pending for about 30 min. Stacked pushes need `-o ci.skip`.
+
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 
 - **Discovery runs a non-Cursor `agent`.** `refreshDiscovery` calls `listModels()` without a probe, so with only
