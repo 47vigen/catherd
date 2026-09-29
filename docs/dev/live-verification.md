@@ -3,7 +3,7 @@
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
 access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10). Run it on your own machine before a
+§11, section 10); since 1.3 the Cursor adapter (spec 1.3 §10, section 11). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -466,3 +466,123 @@ changeset, whose body lists the rungs newly scored, the values moved by more tha
 (each as a table), and no Artificial Analysis value; when nothing changed, the run's log ends with `no change`
 and no PR opens.
 
+## 11. Cursor (1.3, plan 15)
+
+Spec 1.3 §4 and §10, research 2026-09-29 §8 (Cursor). Every behaviour below that needs a model turn was read from
+the binary or the docs and never seen live: plan 15's rulings name what each step confirms. Write down every
+difference, with the step's number; a step that fails its "look for" is a ruling to revisit before the release.
+
+**Setup.** `cursor-agent update` (catherd needs 2026.09.28 or newer), then `cursor-agent login`. For steps 7 and 8
+also create an API key in the Cursor dashboard and `export CURSOR_API_KEY=<key>` in that shell only.
+
+```sh
+cursor-agent --version                 # 2026.09.28-<hash> or newer
+catherd doctor --json | jq -r '.checks[] | select(.id | test("cursor|agent")) | "\(.id) \(.state) \(.word): \(.detail)"'
+```
+
+Look for: `backend:cursor ok ready: 2026.09.28 · Cursor login · <n> models`; with `agent` on PATH from another
+installer, `name:agent info` (catherd runs `cursor-agent` and never the other `agent`).
+
+**1. A headless run with the brief on stdin (plan 15 Rulings on stdin and `result.usage`).**
+
+```sh
+catherd capture-fixtures --backend cursor --out /tmp/cursor-fixtures
+ls /tmp/cursor-fixtures/cursor/*/
+```
+
+Needs `CURSOR_API_KEY` (capture runs isolated). Look for three cases captured: `ok`, `resume`, `read-only-write`.
+In `ok.jsonl`: a `system/init` with a `session_id`, `tool_call` events for the write, the read and the shell call,
+and a final `result` with `usage` (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`). In
+`ok.json`: `outcome.status` `ok`, non-zero tokens, and the reply is the text after the last tool call. Copy the
+three streams over `test/fixtures/adapters/cursor/` (keeping the synthetic ones' names) and run
+`bun test test/adapters/cursor*.test.ts`; a failure there is a parser ruling to revisit.
+
+**2. Plain edits without `--force` (Ruling C-edit), a sandboxed test run and the registry.**
+
+```sh
+scratch="$(mktemp -d)" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
+echo 'Create a.txt containing hi, then run `bun --version`, then run `curl -sI https://registry.npmjs.org | head -1`. Report each result.' \
+  | cursor-agent -p --output-format stream-json --trust --workspace "$scratch" --model auto --disable-auto-update --sandbox enabled \
+  | tail -3; ls "$scratch"
+```
+
+Look for: `a.txt` exists (plain edits apply under `--sandbox enabled` without `--force`), a Bun version, and an
+HTTP status line. If `a.txt` is missing, Ruling C-edit fails: `workspace-write` must become `--force --sandbox
+enabled` with a `permissions.deny` list, and its enforcement `advisory` (spec 1.3 §4.3).
+
+**3. `full` writes outside the repo.** Repeat step 2's command with `--force --sandbox disabled --approve-mcps` in
+place of `--sandbox enabled` and the brief `Create /tmp/catherd-outside.txt containing hi.`. Look for the file;
+then `rm /tmp/catherd-outside.txt`. With `--sandbox enabled` instead, the same brief must fail to write it.
+
+**4. `--mode ask` refuses writes and shell calls, and does not stall.**
+
+```sh
+echo 'Create b.txt containing hi and run `touch c.txt`. If you cannot, say why.' \
+  | timeout 300 cursor-agent -p --output-format stream-json --trust --workspace "$scratch" --model auto --disable-auto-update --mode ask --sandbox enabled \
+  | tail -2; ls "$scratch"
+```
+
+Look for: the run ends by itself with a `result`, and neither `b.txt` nor `c.txt` exists.
+
+**5. Resume keeps the chat from the same cwd (the per-access isolated homes share one `chats` dir).**
+
+```sh
+CATHERD_LIVE=1 bun test test/live/cursor.live.test.ts
+```
+
+Look for: all tests pass (the isolated one only with `CURSOR_API_KEY` set). The first test resumes the chat it
+started and the reply names `out.txt`. By hand, resume a chat id from another directory: Cursor silently starts an
+empty chat (research §2.5); note if it errors instead.
+
+**6. The model listing (plan 15's catalog rulings on Cursor ids, efforts and context).**
+
+```sh
+cursor-agent models
+catherd catalog refresh && catherd catalog list --backend cursor
+```
+
+Look for: the slugs of the shipped families in `catalog/models.json` `on.cursor`: `gpt-6-sol` with `-low`,
+`-high`, `-xhigh` suffixes, `gpt-6-luna-high`, `claude-opus-5-5-thinking-high`, `grok-4.7`, `grok-4.6`,
+`grok-4.5`, `composer-2.5`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`. Write down
+every slug that differs, every other shipped family Cursor lists (Fable, Sonnet, Astra, GPT-5.6), and whether Grok
+and Gemini have effort-suffixed slugs; each fixes `on.cursor` in the catalog. Look up each model's context window in
+Cursor's model docs (catherd assumes 200K for all).
+
+**7. An isolated HOME with the API key loads none of your Claude Code hooks.**
+
+```sh
+home="$(mktemp -d)"; echo 'List the hooks, skills and MCP servers you have loaded. Reply briefly.' \
+  | HOME="$home" cursor-agent -p --output-format stream-json --trust --workspace "$scratch" --model auto --disable-auto-update --sandbox enabled \
+  | tail -2
+```
+
+Look for: the run works on the key alone and names none of your `~/.claude` hooks or skills.
+
+**8. `sandbox.json` in an isolated home is honoured.** Step 5's isolated test wrote the read-only home. For
+workspace-write, `catherd profile set harness.cursor.isolated true` in a scratch profile and run one worker lane
+(`/catherd` in a scratch repo) whose brief also runs `catherd lock -- true`, then:
+
+```sh
+cat ~/.local/share/catherd/cursor-home/read-only/.cursor/sandbox.json        # type workspace_readonly
+cat ~/.local/share/catherd/cursor-home/workspace-write/.cursor/sandbox.json  # workspace_readwrite + catherd's roots
+```
+
+Look for: the read-only run wrote nothing; the worker wrote in the repo and took the lock (a path from
+`additionalReadwritePaths`). Set `harness.cursor.isolated false` again after.
+
+**9. Doctor's access probes through the hidden `sandbox run`.**
+
+```sh
+cursor-agent sandbox run -- sh -c 'echo ok > "$TMPDIR/catherd-probe" && cat "$TMPDIR/catherd-probe"'
+catherd doctor --json | jq -r '.checks[] | select(.id == "access:cursor") | "\(.state) \(.word): \(.detail)"'
+```
+
+Look for: `ok`, and the access row naming which of the five probes pass under your `~/.cursor/sandbox.json`. If
+`sandbox run` is gone (a string instead of a row), the hidden command was removed: the row then says not tested.
+
+**10. A real usage-limit stderr**, if one can be hit: save the stderr and the last events, and check that
+`catherd runs show <id>` records the role as `limit` (the patterns are `usage limit`, `rate limit`,
+`ActionRequiredError`, `USAGE_LIMIT`). A team policy ("administrator has disabled") must record `failed`.
+
+**11. Auto-update stays off during a run.** During step 5, `ls -l ~/.local/bin/cursor-agent` before and after:
+the link does not change mid-run (`--disable-auto-update` is hidden, spec 1.3 §9 Q8).
