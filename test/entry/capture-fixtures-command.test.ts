@@ -13,7 +13,7 @@ describe("catherd capture-fixtures", () => {
     });
     expect(p.exitCode).toBe(2);
     expect(p.stderr.toString()).toBe(
-      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode\n',
+      'error E_INPUT_INVALID: no capture cases for backend "grok"\nfix: catherd capture-fixtures --backend codex|claude-code|opencode|cursor\n',
     );
   });
 

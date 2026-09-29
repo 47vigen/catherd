@@ -29,7 +29,13 @@ const SAY_HELLO =
   "Reply with the single word hello. The last line of your reply is exactly: STATUS: complete — said hello";
 const TRY_WRITE =
   "Create a file named out.txt containing the word hi. If you cannot, say why. The last line of your reply is: STATUS: complete|blocked — <one line why>";
+const WORK =
+  "Create a file named notes.txt containing hi, read it back, then run the shell command `git status --short`. The last line of your reply is exactly: STATUS: complete — wrote notes.txt";
+const RECALL =
+  "Which single word did you reply with earlier in this chat? Reply with it. The last line of your reply is exactly: STATUS: complete — recalled";
 const HAIKU = "claude-code:claude-haiku-4-5-20251001#default";
+/** spec 1.3 §4.6: `auto` has no family; only the live kit and the capture run it */
+const AUTO = "cursor:auto#default";
 const BUNNY = "opencode:opencode/space-bunny-free#default";
 
 /** Spec §11.7–8: one cheap run per backend, plus a read-only role trying to write where enforcement is advisory. */
@@ -39,6 +45,10 @@ const CAPTURE_CASES: CaptureCase[] = [
   { backend: "claude-code", name: "read-only-write", rung: HAIKU, access: "read-only", brief: TRY_WRITE },
   { backend: "opencode", name: "ok", rung: BUNNY, access: "read-only", brief: SAY_HELLO },
   { backend: "opencode", name: "read-only-write", rung: BUNNY, access: "read-only", brief: TRY_WRITE },
+  // spec 1.3 §4.7: a read, a write and a shell call; a resumed chat (research §2.5); ask mode trying to write
+  { backend: "cursor", name: "ok", rung: AUTO, access: "workspace-write", brief: WORK },
+  { backend: "cursor", name: "resume", rung: AUTO, access: "read-only", brief: SAY_HELLO, resume: RECALL },
+  { backend: "cursor", name: "read-only-write", rung: AUTO, access: "read-only", brief: TRY_WRITE },
 ];
 export const CAPTURE_BACKENDS = [...new Set(CAPTURE_CASES.map((c) => c.backend))];
 
