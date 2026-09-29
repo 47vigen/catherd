@@ -210,6 +210,26 @@
       "notes": { "effort": "the API default effort is medium" }
     },
     {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "vendor": "anthropic",
+      "releaseDate": "2026-09-28",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "price": { "input": 2, "cached": 0.2, "output": 10 },
+      "on": {
+        "claude-code": {
+          "id": "claude-sonnet-5-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        },
+        "opencode": {
+          "id": "opencode/claude-sonnet-5-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 1000000
+        }
+      }
+    },
+    {
       "id": "claude-sonnet-5",
       "name": "Claude Sonnet 5",
       "vendor": "anthropic",

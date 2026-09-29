@@ -21,6 +21,7 @@ describe("listClaudeModels", () => {
     expect(ms.map((m) => m.id)).toEqual([
       "claude-fable-5-1",
       "claude-opus-5-5",
+      "claude-sonnet-5-5",
       "claude-sonnet-5",
       "claude-haiku-4-5-20251001",
     ]);
@@ -57,6 +58,7 @@ describe("listClaudeModels", () => {
       "claude-haiku-4-5-20251001",
       "claude-opus-6",
       "claude-fable-5-1",
+      "claude-sonnet-5-5",
       "claude-sonnet-5",
     ]);
     expect(ms.find((m) => m.id === "claude-opus-6")).toEqual({
@@ -75,7 +77,7 @@ describe("listClaudeModels", () => {
   it("keeps the shipped list when the API refuses the key or cannot be reached", async () => {
     for (const reply of [{ status: 401, body: {} }, new TypeError("fetch failed")]) {
       const ms = await listClaudeModels({ key: "bad", fetchImpl: fakeFetch(reply).impl });
-      expect(ms).toHaveLength(4);
+      expect(ms).toHaveLength(5);
     }
   });
 });

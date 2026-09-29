@@ -51,11 +51,11 @@ stories (`src/entry/tui/stories.ts`) on the fixtures; do not edit by hand.
        ▸ claude-haiku-4-5-20251001  0 of 1
        ▸ claude-opus-5-5            0 of 5
        ▸ claude-sonnet-5            0 of 5
+       ▸ claude-sonnet-5-5          0 of 5
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-       ▸ claude-opus-5-5            0 of 5
-  ↓ 50 more
+  ↓ 53 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -81,11 +81,11 @@ space turns the role on or off; enter opens its access, default rung and models
        ▸ claude-haiku-4-5-20251001  0 of 1
        ▸ claude-opus-5-5            0 of 5
        ▸ claude-sonnet-5            0 of 5
+       ▸ claude-sonnet-5-5          0 of 5
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-       ▸ claude-opus-5-5            0 of 5
-  ↓ 50 more
+  ↓ 53 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
