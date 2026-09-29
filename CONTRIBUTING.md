@@ -90,9 +90,10 @@ diff (a docs-only push runs only the format check).
 
 ## Beta channel
 
-`beta` is a long-lived branch. Every push to it publishes a snapshot, `x.y.z-beta.<datetime>` (for example
+`beta` is a long-lived branch. A push to it publishes a snapshot, `x.y.z-beta.<datetime>` (for example
 `1.3.0-beta.20260929095202`), under npm's `beta` dist-tag, in a few minutes. There is no release pull request, and
-`latest` never moves. `x.y.z` is the version the branch's changesets would release, so a beta needs at least one
+`latest` never moves. Publishing is latest-only: pushes that land while a beta publish runs collapse into one
+snapshot of the newest commit. `x.y.z` is the version the branch's changesets would release, so a beta needs at least one
 changeset; a push with none publishes nothing.
 
 Why snapshots and not changesets pre mode: pre mode needs a version pull request on `beta` and a `changeset pre

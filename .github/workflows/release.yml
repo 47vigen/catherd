@@ -2,7 +2,9 @@ name: Release
 
 # npm's trusted publisher for catherd-cli is bound to this file name, so both channels publish from here.
 #   main: opens or updates the "chore: release catherd" PR; merging that PR publishes `latest`.
-#   beta: every push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR.
+#   beta: a push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR. Latest
+#   only: GitHub keeps one pending run per group, so pushes that land during a run collapse into the newest one,
+#   whose snapshot holds all of them.
 # A commit that a PR merged with its `ci` check green is not tested again: ci.yml already ran on that PR. Any other
 # commit (a direct push) runs ci.yml here first, sized by its diff, so a direct docs push costs only the format
 # check. The npm pack smoke runs right before a publish, because it tests the exact version about to ship.

@@ -35,7 +35,7 @@ jobs:
       # only when it is this repository's own changeset-release/main (a fork can take the name) and it touches only
       # what `bun run version-packages` writes: version stamps, CHANGELOG and removed changesets. Its package job
       # still packs and runs the new version. A failed file listing fails the job, so the gate never passes on a
-      # guess.
+      # guess. A rename counts under both of its paths.
       - id: diff
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,10 +46,10 @@ jobs:
         run: |
           code=true release=false files=
           if [ -n "$PR" ]; then
-            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[].filename')
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[] | .filename, .previous_filename // empty')
           elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "${BEFORE//0/}" ]; then
             files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" \
-              -q 'if (.files | length) >= 300 then "src/" else .files[].filename end')
+              -q 'if (.files | length) >= 300 then "src/" else .files[] | .filename, .previous_filename // empty end')
           fi
           if [ -n "$files" ]; then
             stamped='^(\.changeset/[^/]+\.md|CHANGELOG\.md|package\.json|\.claude-plugin/marketplace\.json|plugin/\.claude-plugin/plugin\.json|plugin/bin/catherd-mcp|plugin/skills/catherd/SKILL\.md)$'
