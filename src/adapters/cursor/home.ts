@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, readlinkSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Access } from "../../domain/record.ts";
 import { dataDir } from "../../infra/paths.ts";
@@ -53,8 +53,20 @@ export function prepareCursorHome(access: Access, network = true): string {
   ensurePrivateDir(dot);
   const chats = join(isolatedCursorRoot(), "chats");
   mkdirSync(chats, { recursive: true, mode: 0o700 });
-  if (!lstatSync(join(dot, "chats"), { throwIfNoEntry: false })) symlinkSync(chats, join(dot, "chats"));
+  ensureLink(chats, join(dot, "chats"));
   const policy = cursorSandboxPolicy(access, network);
   if (policy) writeJsonAtomic(join(dot, "sandbox.json"), policy);
   return home;
+}
+
+/**
+ * Links `path` to `target` in one step: two catherd processes preparing the same home race here, and the one that
+ * loses finds the winner's link (EEXIST). That link is kept when it points at `target`; anything else throws.
+ */
+export function ensureLink(target: string, path: string): void {
+  try {
+    symlinkSync(target, path);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST" || readlinkSync(path) !== target) throw e;
+  }
 }

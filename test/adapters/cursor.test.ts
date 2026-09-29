@@ -4,6 +4,7 @@ import {
   existsSync,
   lstatSync,
   mkdtempSync,
+  rmSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -22,6 +23,7 @@ import {
   isolatedCursorHome,
   isolatedCursorRoot,
 } from "../../src/adapters/cursor/index.ts";
+import { ensureLink } from "../../src/adapters/cursor/home.ts";
 import { readDiscovery } from "../../src/adapters/discovery.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
@@ -417,5 +419,23 @@ describe("cursor access probes (spec 1.3 §4.7, §3.4)", () => {
     expect(await cursorAdapter.accessShell?.({ network: true })).toBe(
       "no Cursor sandbox runner here: cursor-agent sandbox run (hidden) did not run `true`",
     );
+  });
+});
+
+describe("cursor isolated home, two catherd processes at once (Codex, PR #30)", () => {
+  it("accepts a chats link another process made first, and refuses one pointing elsewhere", () => {
+    const dir = mkdtempSync(join(tmpdir(), "catherd-link-"));
+    try {
+      const target = join(dir, "chats");
+      const link = join(dir, "home-chats");
+      symlinkSync(target, link); // the other process won the race
+      expect(() => ensureLink(target, link)).not.toThrow();
+      expect(readlinkSync(link)).toBe(target);
+      const other = join(dir, "other");
+      symlinkSync(join(dir, "elsewhere"), other);
+      expect(() => ensureLink(target, other)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
