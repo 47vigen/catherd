@@ -216,7 +216,8 @@ export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
       const back = ["default", ...efforts].map(
         (e) => [`${backend}:${m}#${e}`, `cursor:${cursor.id}#${cursorPairEffort(m, e)}`] as const,
       );
-      const fore = (cursor.efforts.length ? cursor.efforts : ["default"]).map((e) => {
+      // `#default` too, as on the other side: a Cursor rung with no effort flag fails over the same way
+      const fore = [...new Set(["default", ...cursor.efforts])].map((e) => {
         const there = e !== "default" && (efforts as readonly string[]).includes(e) ? e : "high";
         return [`cursor:${cursor.id}#${e}`, `${backend}:${m}#${there}`] as const;
       });

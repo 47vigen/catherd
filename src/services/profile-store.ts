@@ -196,8 +196,8 @@ export function budgetUsdWarnings(p: Profile): Issue[] {
     if (!rc.enabled) continue;
     for (const rung of rc.rungs) {
       note(rung, role);
-      // a quota failover runs the role on its stand-in, whose spend the cap must see too
-      const standIn = p.failover[rung];
+      // a quota failover runs the role on its stand-in (its own, paired or the backend's), which the cap must see
+      const standIn = standInFor(p.failover, rung);
       if (standIn) note(standIn, role);
     }
   }
