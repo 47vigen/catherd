@@ -228,7 +228,11 @@
           "efforts": ["low", "medium", "high", "xhigh", "max"],
           "context": 1000000
         },
-        "cursor": { "id": "claude-opus-5-5-thinking", "efforts": ["high"], "context": 200000 }
+        "cursor": {
+          "id": "claude-opus-5-5",
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "context": 200000
+        }
       },
       "notes": { "effort": "the API default effort is medium" }
     },
@@ -294,7 +298,7 @@
       "price": { "input": 2, "cached": 0.5, "output": 6 },
       "on": {
         "grok": { "id": "grok-4.7", "efforts": ["low", "medium", "high", "xhigh"], "context": 500000 },
-        "cursor": { "id": "grok-4.7", "efforts": [], "context": 200000 }
+        "cursor": { "id": "grok-4.7", "efforts": ["low", "medium", "high", "xhigh"], "context": 200000 }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)",
@@ -310,7 +314,11 @@
       "price": { "input": 2, "cached": 0.5, "output": 6 },
       "on": {
         "grok": { "id": "grok-4.6", "efforts": ["low", "medium", "high", "xhigh"], "context": 500000 },
-        "cursor": { "id": "grok-4.6", "efforts": [], "context": 200000 }
+        "cursor": {
+          "id": "cursor-grok-4.6",
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "context": 200000
+        }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)",
@@ -326,7 +334,7 @@
       "price": { "input": 2, "cached": 0.3, "output": 6 },
       "on": {
         "grok": { "id": "grok-4.5", "efforts": ["low", "medium", "high", "xhigh"], "context": 500000 },
-        "cursor": { "id": "grok-4.5", "efforts": [], "context": 200000 }
+        "cursor": { "id": "cursor-grok-4.5", "efforts": ["low", "medium", "high"], "context": 200000 }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)",
@@ -353,7 +361,7 @@
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": { "id": "gemini-3.8-flash", "efforts": [], "context": 200000 },
+        "cursor": { "id": "gemini-3.8-flash", "efforts": ["low", "medium", "high"], "context": 200000 },
         "antigravity": { "id": "gemini-3.8-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
       }
     },
@@ -365,7 +373,7 @@
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": { "id": "gemini-3.7-flash", "efforts": [], "context": 200000 },
+        "cursor": { "id": "gemini-3.7-flash", "efforts": ["low", "medium", "high"], "context": 200000 },
         "antigravity": { "id": "gemini-3.7-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
       }
     },
@@ -377,7 +385,11 @@
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": { "id": "gemini-3.6-flash", "efforts": [], "context": 200000 },
+        "cursor": {
+          "id": "gemini-3.6-flash",
+          "efforts": ["minimal", "low", "medium", "high"],
+          "context": 200000
+        },
         "antigravity": { "id": "gemini-3.6-flash", "efforts": ["low", "medium", "high"], "context": 1048576 }
       }
     },

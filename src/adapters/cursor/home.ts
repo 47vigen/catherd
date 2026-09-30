@@ -19,12 +19,19 @@ export const isolatedCursorHome = (access: Access, network = true): string =>
 /**
  * The env of an isolated run: the moved HOME (the only thing that stops Cursor's hard-coded `~/.claude`,
  * `~/.codex`, `~/.grok` and `~/.agents` reads, research §2.8), and Cursor's config and data dirs inside it, so a
- * CURSOR_CONFIG_DIR or XDG_CONFIG_HOME of the user's cannot point it back.
+ * CURSOR_CONFIG_DIR or XDG_CONFIG_HOME of the user's cannot point it back. Its credentials stay in memory: on
+ * macOS Cursor otherwise saves the CURSOR_API_KEY login to the moved HOME's keychain, which does not exist, and
+ * the failed `security` call raises a "Keychain Not Found" dialog.
  */
 export function cursorHomeEnv(access: Access, network = true): Record<string, string> {
   const home = isolatedCursorHome(access, network);
   const dot = join(home, ".cursor");
-  return { ...movedHomeEnv(home), CURSOR_CONFIG_DIR: dot, CURSOR_DATA_DIR: dot };
+  return {
+    ...movedHomeEnv(home),
+    CURSOR_CONFIG_DIR: dot,
+    CURSOR_DATA_DIR: dot,
+    AGENT_CLI_CREDENTIAL_STORE: "memory",
+  };
 }
 
 /**

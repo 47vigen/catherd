@@ -541,9 +541,9 @@ cursor-agent models
 catherd catalog refresh && catherd catalog list --backend cursor
 ```
 
-Look for: the slugs of the shipped families in `catalog/models.json` `on.cursor`: `gpt-6-sol` with `-low`,
-`-high`, `-xhigh` suffixes, `gpt-6-luna-high`, `claude-opus-5-5-thinking-high`, `grok-4.7`, `grok-4.6`,
-`grok-4.5`, `composer-2.5`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`. Write down
+Look for: the slugs of the shipped families in `catalog/models.json` `on.cursor`: `gpt-6-sol`, `gpt-6-luna`,
+`claude-opus-5-5`, `grok-4.7`, `cursor-grok-4.6`, `cursor-grok-4.5`, `composer-2.5`, `gemini-3.8-flash`,
+`gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`. Write down
 every slug that differs, every other shipped family Cursor lists (Fable, Sonnet, Astra, GPT-5.6), and whether Grok
 and Gemini have effort-suffixed slugs; each fixes `on.cursor` in the catalog. Look up each model's context window in
 Cursor's model docs (catherd assumes 200K for all).
@@ -570,10 +570,11 @@ cat ~/.local/share/catherd/cursor-home/workspace-write/.cursor/sandbox.json  # w
 Look for: the read-only run wrote nothing; the worker wrote in the repo and took the lock (a path from
 `additionalReadwritePaths`). Set `harness.cursor.isolated false` again after.
 
-**9. Doctor's access probes through the hidden `sandbox run`.**
+**9. Doctor's access probes through the hidden `sandbox run`.** It joins its arguments with spaces and runs the
+result in a shell, so the command goes in as one quoted string.
 
 ```sh
-cursor-agent sandbox run -- sh -c 'echo ok > "$TMPDIR/catherd-probe" && cat "$TMPDIR/catherd-probe"'
+cursor-agent sandbox run -- 'echo ok > "$TMPDIR/catherd-probe" && cat "$TMPDIR/catherd-probe"'
 catherd doctor --json | jq -r '.checks[] | select(.id == "access:cursor") | "\(.state) \(.word): \(.detail)"'
 ```
 

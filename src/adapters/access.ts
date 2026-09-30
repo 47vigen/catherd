@@ -8,18 +8,28 @@ import { runCli } from "./cli.ts";
 /** How long one access probe may run: an HTTPS fetch through a slow proxy included. */
 export const probeShell = { timeoutMs: 20_000 };
 
+/** `argv` as one POSIX shell command line: each piece single-quoted, an embedded `'` as `'\''`. */
+export const shellLine = (argv: string[]): string =>
+  argv.map((a) => `'${a.replaceAll("'", "'\\''")}'`).join(" ");
+
 /**
  * A probe shell from a fresh scratch dir: `prefix` is the argv before `sh -c <script> _ <args…>` (empty for
- * a backend whose worker shell runs unsandboxed).
+ * a backend whose worker shell runs unsandboxed). `oneLine`: the runner joins its args with spaces and runs
+ * them in a shell, so `sh -c …` goes after `prefix` as one quoted command line.
  */
-export function scratchShell(how: string, prefix: string[]): AccessShell {
+export function scratchShell(how: string, prefix: string[], o: { oneLine?: boolean } = {}): AccessShell {
   const cwd = mkdtempSync(join(realTmpdir(), "catherd-probe-"));
   const [bin, ...rest] = prefix.length ? prefix : ["sh"];
   const sh = prefix.length ? ["sh"] : [];
   return {
     how,
-    run: (script, args) =>
-      runCli(bin as string, [...rest, ...sh, "-c", script, "_", ...args], { ...probeShell, cwd }),
+    run: (script, args) => {
+      const cmd = [...sh, "-c", script, "_", ...args];
+      return runCli(bin as string, [...rest, ...(o.oneLine ? [shellLine(cmd)] : cmd)], {
+        ...probeShell,
+        cwd,
+      });
+    },
     close: () => rmSync(cwd, { recursive: true, force: true }),
   };
 }

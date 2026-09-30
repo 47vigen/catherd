@@ -140,7 +140,7 @@ describe("Cursor's families (spec 1.3 §7.1)", () => {
     expect(fam("grok-4-7")).toMatchObject({
       price: { input: 2, cached: 0.5, output: 6 },
       releaseDate: "2026-09-21",
-      on: { cursor: { id: "grok-4.7", efforts: [], context: 200000 } },
+      on: { cursor: { id: "grok-4.7", efforts: ["low", "medium", "high", "xhigh"], context: 200000 } },
     });
     expect(fam("gemini-3-1-pro")?.price).toEqual({ input: 2, cached: 0.2, output: 12 });
     expect(fam("gemini-3-8-flash")?.on.cursor?.id).toBe("gemini-3.8-flash");
@@ -156,9 +156,9 @@ describe("Cursor's families (spec 1.3 §7.1)", () => {
       canonical: "gpt-6-sol#xhigh",
       efforts: ["low", "high", "xhigh"],
     });
-    expect(rungInfo(c, "cursor:claude-opus-5-5-thinking#high").canonical).toBe("claude-opus-5-5#high");
+    expect(rungInfo(c, "cursor:claude-opus-5-5#high").canonical).toBe("claude-opus-5-5#high");
     expect(rungInfo(c, "cursor:composer-2.5#default").canonical).toBe("composer-2-5#default");
-    expect(rungInfo(c, "cursor:grok-4.7#default").family?.id).toBe("grok-4-7");
+    expect(rungInfo(c, "cursor:grok-4.7#high").family?.id).toBe("grok-4-7");
   });
 });
 
@@ -184,7 +184,7 @@ describe("Antigravity's families (spec 1.3 §6.6, §7.1)", () => {
     // Cursor keeps its own ids, efforts and window
     expect(fam("gemini-3-8-flash")?.on.cursor).toEqual({
       id: "gemini-3.8-flash",
-      efforts: [],
+      efforts: ["low", "medium", "high"],
       context: 200000,
     });
   });

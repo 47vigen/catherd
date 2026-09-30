@@ -297,7 +297,10 @@ const SANDBOX_FIXES: AccessShell["fixes"] = {
  */
 async function accessShell(): Promise<AccessShell | string> {
   const bin = cursorBin();
-  const shell = scratchShell(`Cursor's sandbox (${bin} sandbox run)`, [bin, "sandbox", "run", "--"]);
+  // `sandbox run` joins its args with spaces and runs the result in a shell
+  const shell = scratchShell(`Cursor's sandbox (${bin} sandbox run)`, [bin, "sandbox", "run", "--"], {
+    oneLine: true,
+  });
   if ((await shell.run("true", []))?.ok) return { ...shell, fixes: SANDBOX_FIXES };
   shell.close();
   return `no Cursor sandbox runner here: ${bin} sandbox run (hidden) did not run \`true\``;

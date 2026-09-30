@@ -568,12 +568,39 @@ describe("doctor", () => {
       .map((l) => JSON.parse(l) as string[]);
     // `true` first, then lock, temp, loopback and HTTPS (docker is not installed here)
     expect(calls).toHaveLength(5);
+    // Codex's runner takes an argv, so the probe goes split, not as one quoted line
+    expect(calls[1]?.slice(calls[1].indexOf("--") + 1)).toEqual([
+      "sh",
+      "-c",
+      'f="$1/.catherd-doctor-$$" && touch "$f" && rm -f "$f"',
+      "_",
+      locksDir(),
+    ]);
     for (const c of calls) {
       expect(c).toContain("sandbox_workspace_write.network_access=true");
       expect(
         c.some((a) => a.startsWith("sandbox_workspace_write.writable_roots=") && a.includes(locksDir())),
       ).toBe(true);
     }
+  });
+
+  it("runs the five access probes through `cursor-agent sandbox run`, which re-shells its args (spec 1.3 §4.7)", async () => {
+    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"] });
+    installPlugin(VERSION);
+    const bin = process.env.PATH?.split(":")[0] as string;
+    const ran = join(bin, "docker-ran");
+    writeFileSync(join(bin, "fake-docker"), `#!/bin/sh\necho "$@" > '${ran}'\n`);
+    chmodSync(join(bin, "fake-docker"), 0o755);
+    process.env.CATHERD_PROBE_DOCKER = join(bin, "fake-docker");
+    patchProfile("default", { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } });
+    const r = await run();
+    expect(check(r, "access:cursor")).toMatchObject({
+      state: "ok",
+      detail:
+        "lock-dir write, temp write, loopback bind, outbound HTTPS, docker version in Cursor's sandbox (cursor-agent sandbox run)",
+    });
+    // docker really ran, not an empty `sh -c` that exits 0
+    expect(readFileSync(ran, "utf8")).toBe("version\n");
   });
 
   it("warns with a fix per probe the Codex sandbox blocks", async () => {

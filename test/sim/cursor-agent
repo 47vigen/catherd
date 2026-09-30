@@ -26,13 +26,13 @@ if (args[0] === "models" || args[0] === "--list-models") {
   process.exit(s.modelsExit ?? 0);
 }
 if (args[0] === "sandbox") {
-  // the hidden `agent sandbox run [flags] -- <cmd…>` (research §2.6)
+  // the hidden `agent sandbox run [flags] -- <cmd…>` (research §2.6): like the real one, it joins <cmd…> with
+  // spaces and runs that line in a shell
   if (s.sandbox === "missing") fail("error: unknown command 'sandbox'");
   if (s.sandboxArgsTo) appendFileSync(s.sandboxArgsTo, `${JSON.stringify(args)}\n`);
-  const cmd = args.slice(args.indexOf("--") + 1);
-  if ((s.sandboxDeny ?? []).some((d: string) => cmd.join(" ").includes(d)))
-    fail("sandbox: Operation not permitted");
-  const r = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
+  const line = args.slice(args.indexOf("--") + 1).join(" ");
+  if ((s.sandboxDeny ?? []).some((d: string) => line.includes(d))) fail("sandbox: Operation not permitted");
+  const r = Bun.spawnSync(["sh", "-c", line], { stdout: "inherit", stderr: "inherit" });
   process.exit(r.exitCode ?? 1);
 }
 

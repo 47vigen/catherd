@@ -7,6 +7,7 @@ import {
   dockerSocketCandidates,
   movedHomeEnv,
   realTmpdir,
+  shellLine,
   toolchainCaches,
   writableRoots,
 } from "../../src/adapters/access.ts";
@@ -38,6 +39,17 @@ const req = (over: Partial<RunRequest> = {}): RunRequest => ({
 });
 const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1] as string;
 const cValues = (args: string[]) => args.flatMap((a, i) => (args[i - 1] === "-c" ? [a] : []));
+
+describe("shellLine", () => {
+  it("single-quotes each piece, a quote inside as '\\'', an empty piece as ''", () => {
+    const argv = ["printf", "[%s]", "it's", "", "$HOME `x` \\n", "a b"];
+    const line = shellLine(argv);
+    expect(line).toBe(`'printf' '[%s]' 'it'\\''s' '' '$HOME \`x\` \\n' 'a b'`);
+    const r = Bun.spawnSync(["sh", "-c", line], { env: { PATH: "/usr/bin:/bin" } });
+    expect(r.stdout.toString()).toBe("[it's][][$HOME `x` \\n][a b]");
+    expect(shellLine([])).toBe("");
+  });
+});
 
 describe("worker access grants (spec §5)", () => {
   it("names the lock dir, the real temp dir and the toolchain caches as the extra writable roots", () => {

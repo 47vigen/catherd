@@ -110,10 +110,11 @@ describe("catalogRungs", () => {
     // a model with no effort has one rung, #default (spec 1.3 §7.1)
     expect(all).toContain("cursor:composer-2.5#default");
     expect(all).toContain("claude-code:claude-haiku-4-5-20251001#default");
-    // spec 1.3 §5.2: grok's efforts are the catalog's (grok lists none); Cursor's Grok slugs have none
+    // spec 1.3 §5.2: grok's efforts are the catalog's (grok lists none); Cursor lists grok-4.7 and
+    // cursor-grok-4.6 at low through xhigh, and cursor-grok-4.5 at low through high
     expect(all).toContain("grok:grok-4.7#low");
     expect(all).toContain("grok:grok-4.5#xhigh");
-    expect(all).toContain("cursor:grok-4.7#default");
+    expect(all).toContain("cursor:grok-4.7#high");
     expect(all).toContain(KIMI);
     expect(all.some((r) => r.startsWith("opencode:claude-opus-5-5#"))).toBe(false);
     expect(all).toEqual([...new Set(all)].sort());
@@ -139,19 +140,19 @@ describe("DEFAULT_FAILOVER (spec 1.1 §11)", () => {
 describe("PAIRED_FAILOVER (spec 1.3 §7.3)", () => {
   it("pairs each Grok and Gemini rung with the same model on Cursor, both ways, and nothing a shipped role runs", () => {
     const c = shipped();
-    expect(PAIRED_FAILOVER["grok:grok-4.7#low"]).toBe("cursor:grok-4.7#default");
-    expect(PAIRED_FAILOVER["grok:grok-4.5#xhigh"]).toBe("cursor:grok-4.5#default");
-    expect(PAIRED_FAILOVER["cursor:grok-4.6#default"]).toBe("grok:grok-4.6#high");
-    expect(PAIRED_FAILOVER["grok:grok-4.7#default"]).toBe("cursor:grok-4.7#default"); // Codex, PR #31
+    expect(PAIRED_FAILOVER["grok:grok-4.7#low"]).toBe("cursor:grok-4.7#low");
+    expect(PAIRED_FAILOVER["grok:grok-4.5#xhigh"]).toBe("cursor:cursor-grok-4.5#high");
+    expect(PAIRED_FAILOVER["cursor:cursor-grok-4.6#high"]).toBe("grok:grok-4.6#high");
+    expect(PAIRED_FAILOVER["grok:grok-4.7#default"]).toBe("cursor:grok-4.7#high");
     expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#default"]).toBe("cursor:gemini-3.1-pro#default");
-    expect(PAIRED_FAILOVER["antigravity:gemini-3.8-flash#high"]).toBe("cursor:gemini-3.8-flash#default");
+    expect(PAIRED_FAILOVER["antigravity:gemini-3.8-flash#high"]).toBe("cursor:gemini-3.8-flash#high");
     expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#low"]).toBe("cursor:gemini-3.1-pro#default");
-    expect(PAIRED_FAILOVER["cursor:gemini-3.6-flash#default"]).toBe("antigravity:gemini-3.6-flash#high");
+    expect(PAIRED_FAILOVER["cursor:gemini-3.6-flash#minimal"]).toBe("antigravity:gemini-3.6-flash#high");
     // Cursor serves no other Gemini, and no Gemini through opencode pairs
     expect(PAIRED_FAILOVER["cursor:gpt-6-sol#high"]).toBeUndefined();
     expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#medium"]).toBeUndefined();
     expect(PAIRED_FAILOVER["opencode:opencode/gemini-3.8-flash#high"]).toBeUndefined();
-    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(37);
+    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(52);
     const shippedRungs = new Set(Object.values(BUILTIN_ROLES).flatMap((r) => r.rungs));
     for (const [from, to] of Object.entries(PAIRED_FAILOVER)) {
       // a `#default` rung runs with no effort flag on any backend, so it need not be a listed effort

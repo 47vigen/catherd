@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { shellLine } from "../../src/adapters/access.ts";
 import { tempDir } from "../helpers.ts";
 import { simPath } from "./scenario.ts";
 import { withCursorScenario } from "./sim-scenarios.ts";
@@ -80,8 +81,13 @@ describe("cursor-agent simulator (research §2)", () => {
   it("runs a command in its sandbox with no model turn, refusing what the scenario denies", () => {
     const argsTo = join(mkdtempSync(join(tmpdir(), "catherd-sbx-")), "args.jsonl");
     const s = withCursorScenario({ sandboxDeny: ["/locks"], sandboxArgsTo: argsTo });
-    expect(agent(["sandbox", "run", "--", "sh", "-c", 'echo "$1"', "_", "hi"], s.env).out).toBe("hi\n");
-    const denied = agent(["sandbox", "run", "--", "sh", "-c", 'touch "$1"', "_", "/x/locks"], s.env);
+    // the live runner joins argv and re-shells it, so the probe is one quoted command line
+    const line = shellLine(["sh", "-c", 'echo "$1"', "_", "hi"]);
+    expect(agent(["sandbox", "run", "--", line], s.env).out).toBe("hi\n");
+    const denied = agent(
+      ["sandbox", "run", "--", shellLine(["sh", "-c", 'touch "$1"', "_", "/x/locks"])],
+      s.env,
+    );
     expect([denied.code, denied.err]).toEqual([1, "sandbox: Operation not permitted\n"]);
     expect(readFileSync(argsTo, "utf8").trim().split("\n").length).toBe(2);
     const old = withCursorScenario({ sandbox: "missing" });
