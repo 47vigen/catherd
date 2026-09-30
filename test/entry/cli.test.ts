@@ -121,6 +121,7 @@ describe("catherd (spec §8)", () => {
     const help = catherd(["--help"], { NO_COLOR: "1" });
     expect(help.code).toBe(0);
     expect(help.out).toContain("capture-fixtures");
+    expect(help.out).toContain("knowledge");
     expect(help.out).not.toContain("_supervise");
     const passed = catherd(
       ["lock", "--slots", "1", "--", "sh", "-c", 'echo "$@"', "sh", "--help", "--verbose"],

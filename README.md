@@ -160,6 +160,7 @@ In a terminal:
 | `catherd catalog sync [--force] [--unmatched]`                                            | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched     |
 | `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                             |
 | `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                    | The three nearest stand-ins for a rung; removes one or every mapping of yours                       |
+| `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                              | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"       |
 | `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
 | `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                                    |
 | `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                  |

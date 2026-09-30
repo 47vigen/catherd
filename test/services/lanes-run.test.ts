@@ -8,6 +8,7 @@ import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { ask, climb, land, route } from "../../src/services/lane-service.ts";
 import {
+  addKnowledge,
   readKnowledge,
   readRunFile,
   recordAgentRun,
@@ -19,6 +20,7 @@ import {
 import {
   appendRecord,
   findRun,
+  knowledgeFile,
   listRuns,
   readAgentRuns,
   readRoutes,
@@ -418,5 +420,34 @@ describe("run files, result and agent runs", () => {
         }),
       ),
     ).toBe("E_ADMIT_RUNG");
+  });
+});
+
+describe("addKnowledge and land's learned (spec §4.7)", () => {
+  it("writes the same line as land's learned, marked by hand", async () => {
+    const { repo, run } = freshRun("pay");
+    mkdirSync(join(repo, "docs"));
+    writeFileSync(join(repo, "docs", "a.md"), "a\n");
+    const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+    git("add", "-A");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "docs");
+    const commit = git("rev-parse", "--short", "HEAD").trim();
+    const at = Date.parse("2026-10-01T09:00:00Z");
+    await land(fakeDeps({ now: () => at }), {
+      run: run.id,
+      milestone: "M1",
+      what: "w",
+      commit,
+      evidence: "ok",
+      next: "M2",
+      learned: "the fast check | is\n instant",
+      skip: "docs-only",
+    });
+    expect(await addKnowledge(repo, "the fast check | is\n instant", new Date(at))).toBe(
+      "- 2026-10-01 by hand: the fast check / is/ instant",
+    );
+    expect(readFileSync(knowledgeFile(repo), "utf8")).toBe(
+      "- 2026-10-01 pay M1: the fast check / is/ instant\n- 2026-10-01 by hand: the fast check / is/ instant\n",
+    );
   });
 });

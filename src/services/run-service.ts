@@ -18,6 +18,7 @@ import type { Deps } from "./ports.ts";
 import {
   type AgentRun,
   appendAgentRun,
+  appendKnowledge,
   createRun,
   findRun,
   knowledgeFile,
@@ -182,13 +183,45 @@ export function recordAgentRun(
   return row;
 }
 
-/** What past runs of the repo learned; `repo` may be any path inside it. */
-export async function readKnowledge(repo: string): Promise<string> {
+/** The git toplevel of `repo`, any path inside it; refused outside a repository. */
+async function repoTop(repo: string): Promise<string> {
   const top = await gitToplevel(repo);
   if (!top)
     throw new CatherdError("E_IO_PATH", `${repo} is not inside a git repository`, {
       fix: "pass the path of the repository",
     });
-  const file = knowledgeFile(top);
-  return existsSync(file) ? readFileSync(file, "utf8") : "catherd: no knowledge recorded yet for this repo";
+  return top;
+}
+
+/** What past runs of the repo learned; `repo` may be any path inside it. */
+export async function readKnowledge(repo: string): Promise<string> {
+  const file = knowledgeFile(await repoTop(repo));
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  return text.trim() ? text : "catherd: no knowledge recorded yet for this repo";
+}
+
+/** Where the repo's knowledge.md is (it may not exist yet); `repo` may be any path inside it. */
+export async function knowledgePath(repo: string): Promise<{ repo: string; path: string }> {
+  const top = await repoTop(repo);
+  return { repo: top, path: knowledgeFile(top) };
+}
+
+/** The repo's knowledge.md as its lines, none when it is missing or blank; `repo` may be any path inside it. */
+export async function knowledgeLines(repo: string): Promise<{ repo: string; path: string; lines: string[] }> {
+  const at = await knowledgePath(repo);
+  const text = existsSync(at.path) ? readFileSync(at.path, "utf8") : "";
+  return { ...at, lines: text.split("\n").filter((l) => l.trim()) };
+}
+
+/** The source a line added by hand carries, where a landing puts its run's title and milestone. */
+const BY_HAND = "by hand";
+
+/** Appends one line of the user's own to the repo's knowledge.md, as `land`'s `learned` does; returns it. */
+export async function addKnowledge(repo: string, text: string, now: Date = new Date()): Promise<string> {
+  const top = await repoTop(repo);
+  if (!text.trim())
+    throw new CatherdError("E_INPUT_INVALID", "the knowledge line is empty", {
+      fix: 'pass one line of text, e.g. catherd knowledge add "the targeted test is bun test <file>"',
+    });
+  return appendKnowledge(top, now, BY_HAND, text);
 }
