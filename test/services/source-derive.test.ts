@@ -52,18 +52,11 @@ describe("a family with no effort (spec 1.3 §7.1)", () => {
   });
 });
 
-describe("a family one backend runs without an effort (spec 1.3 §7.1)", () => {
-  it("carries the value at the family's default effort to #default, which Cursor and agy's bare model run", () => {
+describe("a family whose backends all name an effort (spec 1.3 §7.1)", () => {
+  it("does not invent #default once Cursor's Gemini Flash lists the same efforts as Antigravity", () => {
     const d = keyless();
-    const high = d.scores.filter((s) => s.rung === "gemini-3-8-flash#high");
-    expect(high.length).toBeGreaterThan(0);
-    const bare = d.scores.filter((s) => s.rung === "gemini-3-8-flash#default");
-    // one value per dimension #high has, the best of its values there
-    expect(new Set(bare.map((s) => s.dim))).toEqual(new Set(high.map((s) => s.dim)));
-    for (const s of bare) {
-      expect(s).toMatchObject({ confidence: "adjacent", note: expect.stringContaining("has it at high;") });
-      expect(high.some((h) => h.dim === s.dim && h.value === s.value)).toBe(true);
-    }
+    expect(d.scores.some((s) => s.rung === "gemini-3-8-flash#high")).toBe(true);
+    expect(d.scores.some((s) => s.rung === "gemini-3-8-flash#default")).toBe(false);
     // every backend of GPT-6 Sol names an effort: no #default
     expect(d.scores.some((s) => s.rung === "gpt-6-sol#default")).toBe(false);
   });

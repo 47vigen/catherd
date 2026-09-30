@@ -109,13 +109,13 @@ describe("the adapter's default stand-in (spec §4.5)", () => {
   });
 
   it("pairs the same Grok or Gemini model on Cursor unless the profile names its own (spec 1.3 §7.3)", () => {
-    expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#default");
-    expect(standInFor({}, "cursor:grok-4.7#default")).toBe("grok:grok-4.7#high");
+    expect(standInFor({}, "grok:grok-4.7#low")).toBe("cursor:grok-4.7#low");
+    expect(standInFor({}, "cursor:grok-4.7#high")).toBe("grok:grok-4.7#high");
     expect(standInFor({ "grok:grok-4.7#low": "codex:gpt-6-sol#high" }, "grok:grok-4.7#low")).toBe(
       "codex:gpt-6-sol#high",
     );
-    expect(standInFor({}, "antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#default");
-    expect(standInFor({}, "cursor:gemini-3.8-flash#default")).toBe("antigravity:gemini-3.8-flash#high");
+    expect(standInFor({}, "antigravity:gemini-3.8-flash#high")).toBe("cursor:gemini-3.8-flash#high");
+    expect(standInFor({}, "cursor:gemini-3.8-flash#high")).toBe("antigravity:gemini-3.8-flash#high");
     const own = { "antigravity:gemini-3.8-flash#high": "codex:gpt-6-luna#high" };
     expect(standInFor(own, "antigravity:gemini-3.8-flash#high")).toBe("codex:gpt-6-luna#high");
   });
@@ -413,18 +413,18 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
 
   it("counts a paired stand-in the profile does not name (Codex, PR #32)", () => {
     const p = resolveProfile(
-      { schema: 1, roles: { reviewer: { rungs: ["cursor:gemini-3.8-flash#default"] } } },
+      { schema: 1, roles: { reviewer: { rungs: ["cursor:gemini-3.8-flash#high"] } } },
       "p",
     );
     expect(isolatedOnlyErrors(p)).toEqual([
       {
         path: "roles.reviewer.rungs",
         message:
-          "antigravity:gemini-3.8-flash#high, the automatic stand-in of cursor:gemini-3.8-flash#default: native antigravity cannot hold the reviewer role to read-only",
-        fix: "isolate antigravity (catherd profile set harness.antigravity.isolated true), or name another stand-in (catherd profile set failover.cursor:gemini-3.8-flash#default <rung>)",
+          "antigravity:gemini-3.8-flash#high, the automatic stand-in of cursor:gemini-3.8-flash#high: native antigravity cannot hold the reviewer role to read-only",
+        fix: "isolate antigravity (catherd profile set harness.antigravity.isolated true), or name another stand-in (catherd profile set failover.cursor:gemini-3.8-flash#high <rung>)",
       },
     ]);
-    const named = { ...p, failover: { "cursor:gemini-3.8-flash#default": "codex:gpt-6-sol#high" } };
+    const named = { ...p, failover: { "cursor:gemini-3.8-flash#high": "codex:gpt-6-sol#high" } };
     expect(isolatedOnlyErrors(named)).toEqual([]);
   });
 
