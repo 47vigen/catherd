@@ -1,6 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
+import type { Profile } from "../domain/profile.ts";
 import { claudeHome, locksDir } from "../infra/paths.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 import { agentLinkState } from "./agent-links.ts";
@@ -145,4 +146,28 @@ export function agentsCheck(): Check {
   return links.ok.length
     ? { ...base, state: "ok", word: "ready", detail: `${links.ok.length} linked` }
     : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
+}
+
+/** The browser CLI the ui-reviewer's prompt takes its screenshots with. */
+const UI_BROWSER = "agent-browser";
+
+/**
+ * The ui-reviewer takes screenshots with agent-browser: a profile that turns it on, on a machine without it,
+ * dispatches a role that cannot do its job. Nothing to say when it is on PATH or no profile turns the role on.
+ */
+export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => string | null): Check | null {
+  const on = profiles.filter((p) => p.roles["ui-reviewer"].enabled).map((p) => p.name);
+  if (!on.length || onPath(UI_BROWSER)) return null;
+  return {
+    id: "ui-browser",
+    label: UI_BROWSER,
+    state: "warn",
+    word: "missing",
+    detail: `${UI_BROWSER} is not on PATH, so ui-reviewer (${on.join(", ")}) cannot take screenshots`,
+    fix: [
+      `npm i -g ${UI_BROWSER}`,
+      "or turn the role off:",
+      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}`),
+    ].join("\n"),
+  };
 }
