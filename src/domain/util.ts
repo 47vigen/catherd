@@ -5,6 +5,9 @@ export const slug = (s: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+/** One table cell or one line of text: `|` and newlines become `/`, whitespace runs one space, trimmed. */
+export const cell = (s: string): string => s.replace(/[|\n]/g, "/").replace(/\s+/g, " ").trim();
+
 /** The middle value, or the mean of the two middle values for an even count; null when there are none. */
 export function median(xs: readonly number[]): number | null {
   if (xs.length === 0) return null;

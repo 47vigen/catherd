@@ -5,7 +5,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type { OutcomeRow, RouteRow } from "../domain/route.ts";
-import { slug } from "../domain/util.ts";
+import { cell, slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
@@ -272,6 +272,16 @@ export function appendLedger(run: Run, row: string): void {
 
 /** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel. */
 export const knowledgeFile = (toplevel: string): string => join(repoDir(toplevel), "knowledge.md");
+
+/**
+ * Appends one line to the repo's knowledge.md, `- <date> <source>: <text>` with `text` on one line, and returns
+ * it. The single writer of knowledge.md: `land`'s `learned` and `catherd knowledge add` both come through here.
+ */
+export function appendKnowledge(toplevel: string, at: Date, source: string, text: string): string {
+  const line = `- ${at.toISOString().slice(0, 10)} ${source}: ${cell(text)}`;
+  appendPrivate(knowledgeFile(toplevel), `${line}\n`);
+  return line;
+}
 
 const SERVER_OWNED = new Set([
   "meta.json",

@@ -4,6 +4,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, type Difficulty, type Kind } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
+import { cell } from "../domain/util.ts";
 import {
   type ClimbReason,
   currentRoute,
@@ -28,11 +29,11 @@ import {
 } from "./milestones.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
+  appendKnowledge,
   appendLedger,
   appendOutcome,
   appendRoute,
   findRun,
-  knowledgeFile,
   readRoutes,
   type Run,
   runFile,
@@ -41,7 +42,6 @@ import {
 import { writeDigest } from "./protocol.ts";
 import { openQuestions } from "./questions.ts";
 import { type Notes, type NotesPatch, refreshState } from "./state.ts";
-import { appendPrivate } from "../infra/store.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
@@ -212,8 +212,6 @@ export async function climb(
   };
 }
 
-const cell = (s: string) => s.replace(/[|\n]/g, "/").replace(/\s+/g, " ").trim();
-
 export const LAND_SKIPS = ["docs-only", "no-code"] as const;
 export type LandSkip = (typeof LAND_SKIPS)[number];
 
@@ -348,12 +346,7 @@ export async function land(
     hints.push(
       `land: no routed lane is in milestone "${i.milestone}" (routed: ${routed.slice(0, 5).join(", ")}${routed.length > 5 ? ", …" : ""}); check its name: no lane outcome was recorded`,
     );
-  if (i.learned) {
-    appendPrivate(
-      knowledgeFile(run.meta.repo),
-      `- ${now.toISOString().slice(0, 10)} ${run.meta.title} ${i.milestone}: ${cell(i.learned)}\n`,
-    );
-  }
+  if (i.learned) appendKnowledge(run.meta.repo, now, `${run.meta.title} ${i.milestone}`, i.learned);
   // spec 1.1 §10: the milestone's digest, which the milestone push links
   const digest = writeDigest(run, {
     milestone: i.milestone,
