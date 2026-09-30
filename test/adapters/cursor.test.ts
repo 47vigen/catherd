@@ -139,6 +139,8 @@ describe("cursor plan (spec 1.3 §4.2, §4.3)", () => {
       CATHERD_CONFIG_DIR: configDir(),
       CATHERD_DATA_DIR: dataDir(),
     });
+    expect(env.AGENT_CLI_CREDENTIAL_STORE).toBe("memory"); // no keychain save under the moved HOME
+    expect(cursorAdapter.plan(req()).env).not.toHaveProperty("AGENT_CLI_CREDENTIAL_STORE");
     expect(cursorAdapter.plan(req({ isolated: true, network: false })).env.HOME).toBe(
       join(isolatedCursorRoot(), "workspace-write-offline"),
     );
