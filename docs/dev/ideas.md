@@ -587,6 +587,11 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
   window still reaches a native `-p` (which opens a browser). Document it, or re-run `agy models` in native
   `prepare` (~10 s a dispatch). (Plan 17 final review, Minor 3.)
 
+- **A sparse rung borrows its nearest stand-in's honesty.** Shipping GPT-6.1 Sol's one honesty value (97.92, a
+  Broken Search Tool figure) would have become the honesty stand-in for 18 unrelated rungs, e.g.
+  `opencode/claude-haiku-4-5#high` 22.5 → 97.92: the similarity ranking seems to favour rungs with few values of their
+  own. Check the nearest-stand-in distance before shipping any single-dimension row. (PR #36.)
+
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
