@@ -125,6 +125,8 @@ export function runAdapterContract(
       if (c.expect.reply !== undefined) expect(o.reply).toBe(c.expect.reply);
       expect(o.tokens.input).toBeGreaterThanOrEqual(o.tokens.cached);
       expect(o.error === null).toBe(o.status === "ok");
+      // budget.usd's warning trusts this flag: a backend that says it reports no cost never does
+      if (!adapter.reportsCost) expect(o.costUsd).toBeNull();
     });
 
     it("parses every fixture line without throwing", () => {

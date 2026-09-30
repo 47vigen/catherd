@@ -57,7 +57,10 @@ const FX = join(import.meta.dir, "..", "fixtures", "adapters");
 const SIM = join(import.meta.dir, "..", "sim");
 const fx = (p: string) => JSON.parse(readFileSync(join(FX, p), "utf8"));
 
-/** A machine with the simulated CLIs `bins` on PATH (all three by default), the codex sandbox allowing writes. */
+/**
+ * A machine with the simulated CLIs `bins` on PATH (all three by default) and a stub agent-browser (unless
+ * `agentBrowser` is false), the codex sandbox allowing writes.
+ */
 function machine(
   o: {
     codex?: CodexScenario;
@@ -66,6 +69,7 @@ function machine(
     grok?: GrokScenario;
     agy?: AgyScenario;
     bins?: string[];
+    agentBrowser?: boolean;
   } = {},
 ): string {
   const home = withHome();
@@ -74,6 +78,7 @@ function machine(
   delete process.env.ANTHROPIC_API_KEY;
   const bin = binDir();
   for (const b of o.bins ?? ["codex", "claude", "opencode"]) symlinkSync(join(SIM, b), join(bin, b));
+  if (o.agentBrowser !== false) writeFileSync(join(bin, "agent-browser"), "#!/bin/sh\n", { mode: 0o755 });
   process.env.PATH = `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`;
   process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${ping.port}/-/ping`;
   process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
@@ -790,6 +795,38 @@ describe("doctor", () => {
     writeFileSync(file, JSON.stringify({ ...doc, jev: { use: "off" } }));
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
     // three whole doctor runs, each probing every simulated CLI: a slow macOS runner outlasts the 5 s default
+  }, 30_000);
+
+  it("warns when ui-reviewer is on but agent-browser is not on PATH, naming each profile that turns it on", async () => {
+    machine({ agentBrowser: false });
+    installPlugin(VERSION);
+    patchProfile("default", {});
+    createProfile("team");
+    activate("team", tempRepo());
+    const r = await run();
+    expect(r.ready).toBe(true);
+    expect(check(r, "ui-browser")).toEqual({
+      id: "ui-browser",
+      label: "agent-browser",
+      state: "warn",
+      word: "missing",
+      detail: "agent-browser is not on PATH, so ui-reviewer (default, team) cannot take screenshots",
+      fix: [
+        "npm i -g agent-browser",
+        "or turn the role off:",
+        "catherd profile set roles.ui-reviewer.enabled false --profile default",
+        "catherd profile set roles.ui-reviewer.enabled false --profile team",
+      ].join("\n"),
+    });
+  }, 30_000);
+
+  it("says nothing about agent-browser when it is on PATH or no profile turns ui-reviewer on", async () => {
+    ready();
+    expect(check(await run(), "ui-browser")).toBeUndefined();
+    machine({ agentBrowser: false });
+    installPlugin(VERSION);
+    patchProfile("default", { roles: { "ui-reviewer": { enabled: false } } });
+    expect(check(await run(), "ui-browser")).toBeUndefined();
   }, 30_000);
 
   it("fails on a repo bound to a profile that no longer exists", async () => {

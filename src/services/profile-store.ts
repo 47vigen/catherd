@@ -177,12 +177,47 @@ export function isolatedOnlyErrors(p: Profile): Issue[] {
 }
 
 /**
- * Spec §7.1 validation on this machine: the backends catherd can run here, the keys isolation needs, and the
- * accesses a backend holds only when isolated.
+ * Spec §4.6: with `budget.usd` set, one warning per backend an enabled role runs on whose adapter reports no
+ * dollar cost, since that cap never sees what the backend spends. Never an error: the cap still counts the rest.
+ */
+export function budgetUsdWarnings(p: Profile): Issue[] {
+  if (p.budget.usd === undefined) return [];
+  const blind = new Map<string, Role[]>();
+  const note = (rung: string, role: Role) => {
+    const b = tryParseRung(rung)?.backend;
+    // no adapter (native `claude`, whose subagents report their own cost): nothing to warn about
+    if (!b || adapterFor(b)?.reportsCost !== false) return;
+    const roles = blind.get(b) ?? [];
+    if (!roles.includes(role)) roles.push(role);
+    blind.set(b, roles);
+  };
+  for (const role of ROLES) {
+    const rc = p.roles[role];
+    if (!rc.enabled) continue;
+    for (const rung of rc.rungs) {
+      note(rung, role);
+      // a quota failover runs the role on its stand-in, whose spend the cap must see too
+      const standIn = p.failover[rung];
+      if (standIn) note(standIn, role);
+    }
+  }
+  return [...blind].map(([b, roles]) => ({
+    path: "budget.usd",
+    message: `budget.usd will not see ${b}'s spend: ${b} reports no dollar cost (${roles.join(", ")} run on it)`,
+    fix: "cap it with budget.tokens or budget.minutes: catherd profile set budget.tokens <n>",
+  }));
+}
+
+/**
+ * Spec §7.1 validation on this machine: the backends catherd can run here, the keys isolation needs, the
+ * accesses a backend holds only when isolated, and the backends a dollar budget cannot see.
  */
 export function validateHere(p: Profile, c: Catalog, doc?: ProfileDoc): Validation {
   const v = validateProfile(p, c, runnableBackends(), doc);
-  return { ...v, errors: [...v.errors, ...isolationKeyErrors(p), ...isolatedOnlyErrors(p)] };
+  return {
+    errors: [...v.errors, ...isolationKeyErrors(p), ...isolatedOnlyErrors(p)],
+    warnings: [...v.warnings, ...budgetUsdWarnings(p)],
+  };
 }
 
 /** `repo`: the git toplevel whose listing route reads (opencode lists its models per repository). */

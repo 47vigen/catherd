@@ -324,4 +324,5 @@ export const cursorAdapter: BackendAdapter = {
   isolationKey: "CURSOR_API_KEY",
   // Cursor waits for background shells after its last turn, with no limit (research §2.10)
   graceAfterFinalMs: 30_000,
+  reportsCost: false,
 };

@@ -329,6 +329,7 @@ export const opencodeAdapter: BackendAdapter = {
   isBusy: (thread, _cwd, sinceMs) => isBusy(thread, sinceMs),
   failoverFor,
   graceAfterFinalMs: null,
+  reportsCost: true,
   // research 2026-09-25 §2.6: opencode has no OS sandbox; its shell runs with the user's own authority
   accessShell: async () => scratchShell("an unsandboxed shell (opencode has no sandbox)", []),
 };

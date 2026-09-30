@@ -316,4 +316,5 @@ export const antigravityAdapter: BackendAdapter = {
   quota,
   // agy leaves daemon background tasks (dev servers) running after its result (research §4.4)
   graceAfterFinalMs: 30_000,
+  reportsCost: false,
 };

@@ -335,4 +335,5 @@ export const grokAdapter: BackendAdapter = {
   isolationKey: "XAI_API_KEY",
   // a one-shot run may drain uploads for ~150 s after end (research §3.3); the record is complete at end
   graceAfterFinalMs: 30_000,
+  reportsCost: true,
 };
