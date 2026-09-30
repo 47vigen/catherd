@@ -553,6 +553,15 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 
 - **Branch pipelines held the runner.** Pushing five stacked branches started five branch pipelines on the single runner, and plan 5's MR pipeline sat pending for about 30 min. Stacked pushes need `-o ci.skip`.
 
+## From the platform review-fix run (2026-09-30)
+
+catherd 1.2.1, sanitell/platform review-fix plans 1–7, one run per plan and its worktree, seven MRs merged to staging (!73–!79) in about 13 h 20 min. Already listed above and seen again: one run per worktree (`dispatch` takes no cwd), and a "foreground" verifier that runs in the background anyway.
+
+- **A resumed worker exits 143.** A worker that left a command running in the background in its previous turn gets exit 143 when its thread is resumed. Fix: the worker contract forbids leaving background processes behind, and `dispatch` kills the thread's process group before a resume.
+- **`protocol.next` offers the verifier before the fix round.** After a reviewer returns findings, the next step it names is the verifier, not the fix round. Fix: `protocol.next` reads the reviewer record, and with open BLOCKER or BUG lines it names the fix round.
+- **A verifier resumed with SendMessage hangs.** More than once, the resumed verifier never returned. The workaround was a fresh verifier with a 10-minute cap on each command. Fix: re-checks go to a fresh verifier by default, with the failed items named and a per-command timeout in its brief; `gate_check` already carries over what passed.
+- **`preflight` times out at 300 s behind the lock.** With testcontainers suites from other lanes holding the lock slots, preflight waited past its own timeout. Fix: preflight takes a lock slot per check with its own wait budget, or reports `lock-busy` instead of a timeout.
+
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 
 - **Discovery runs a non-Cursor `agent`.** `refreshDiscovery` calls `listModels()` without a probe, so with only
