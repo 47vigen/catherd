@@ -43,7 +43,8 @@ describe.skipIf(!process.env.CATHERD_LIVE)("live cursor-agent", () => {
       brief: `Which file did you create earlier in this chat? Name it. ${STATUS}`,
     });
     expect(again.record.thread).toBe(first.record.thread);
-    expect(readFileSync(again.record.replyPath, "utf8")).toContain("out.txt");
+    // records store replyPath relative to the run dir (finalize); the test process cwd is the suite's
+    expect(readFileSync(join(run.dir, again.record.replyPath), "utf8")).toContain("out.txt");
   }, 600_000);
 
   it("keeps a read-only role from writing: ask mode (advisory)", async () => {
