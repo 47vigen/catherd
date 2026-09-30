@@ -159,14 +159,14 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
 
   it("creates, copies, lists, diffs and deletes profiles", () => {
     withHome();
-    catherd(["set", "budget.usd", "5"]);
+    catherd(["set", "budget.minutes", "5"]);
     expect(catherd(["copy", "default", "team"]).out).toBe("✓ copied default to team\n");
     expect(catherd(["new", "fast"]).code).toBe(0);
     expect(catherd(["use", "team"]).out).toBe(
       "✓ team is active\nnew Claude Code session needed for: catherd-default-architect-claude-opus-5-5-high, catherd-default-verifier-claude-opus-5-5-low, catherd-team-architect-claude-opus-5-5-high, catherd-team-verifier-claude-opus-5-5-low\n",
     );
     expect(catherd(["list"]).out).toBe("  default\n  fast\n* team\n");
-    expect(catherd(["diff", "fast"]).out).toBe("budget.usd: 5 → none\n");
+    expect(catherd(["diff", "fast"]).out).toBe("budget.minutes: 5 → none\n");
     expect(catherd(["diff", "team", "default"]).out).toBe("no differences\n");
     const busy = catherd(["rm", "team"]);
     expect([busy.code, busy.err.split("\n")[0]]).toEqual([
@@ -212,10 +212,10 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     const repo = tempRepo();
     catherd(["new", "fast"]);
     catherd(["use", "fast", "--repo"], repo);
-    expect(catherd(["set", "budget.usd", "7"], repo).out).toStartWith("✓ budget.usd: none → 7\n");
-    expect(getProfile("fast").budget.usd).toBe(7);
-    expect(getProfile("default").budget.usd).toBeUndefined();
-    expect(catherd(["diff", "default"], repo).out).toBe("budget.usd: 7 → none\n");
+    expect(catherd(["set", "budget.minutes", "7"], repo).out).toStartWith("✓ budget.minutes: none → 7\n");
+    expect(getProfile("fast").budget.minutes).toBe(7);
+    expect(getProfile("default").budget.minutes).toBeUndefined();
+    expect(catherd(["diff", "default"], repo).out).toBe("budget.minutes: 7 → none\n");
     expect(catherd(["validate"], repo).out).toBe("✓ valid\n");
   });
 });

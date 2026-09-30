@@ -170,6 +170,11 @@ export interface BackendAdapter {
   /** Spec 1.3 §6.6: the plan quota left, in the CLI's words, read without spending a model turn (doctor's row). */
   quota?(): Promise<string | null>;
   graceAfterFinalMs: number | null;
+  /**
+   * Spec §4.6: whether `finalize` reports a run's dollar cost (`costUsd`). A backend that never does leaves
+   * its spend out of `budget.usd`, and `profile validate` warns a profile that caps dollars and runs on it.
+   */
+  reportsCost: boolean;
 }
 
 export function extractVersion(s: string): string | null {

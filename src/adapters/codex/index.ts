@@ -279,5 +279,6 @@ export const codexAdapter: BackendAdapter = {
   errors: { limit: CODEX_LIMIT, tooOld: CODEX_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   graceAfterFinalMs: null,
+  reportsCost: false,
   accessShell,
 };

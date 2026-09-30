@@ -246,6 +246,7 @@ function shellBackend(seen: string, stdin: boolean): BackendAdapter {
     errors: { limit: [], tooOld: [] },
     resume: { supported: true, sameAccessOnly: false, threadPattern: /^th-\d+$/ },
     graceAfterFinalMs: null,
+    reportsCost: false,
   };
 }
 

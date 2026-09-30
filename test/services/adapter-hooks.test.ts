@@ -12,7 +12,12 @@ import { accessChecks } from "../../src/services/doctor-access.ts";
 import { backendChecks } from "../../src/services/doctor-backends.ts";
 import { resolveProfile } from "../../src/domain/profile.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
-import { isolatedOnlyErrors, isolationKeyErrors } from "../../src/services/profile-store.ts";
+import {
+  budgetUsdWarnings,
+  isolatedOnlyErrors,
+  isolationKeyErrors,
+  validateNamed,
+} from "../../src/services/profile-store.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { listDispatches, roleDir } from "../../src/services/dispatches.ts";
 import {
@@ -64,6 +69,7 @@ function fake(over: Partial<BackendAdapter> = {}): BackendAdapter {
     resume: { supported: true, sameAccessOnly: false, threadPattern: /^th-\d+$/ },
     failoverFor: (r) => (r.model.startsWith("go-") ? { ...r, model: r.model.replace("go-", "zen-") } : null),
     graceAfterFinalMs: null,
+    reportsCost: false,
     ...over,
   };
   registerAdapter(a);
@@ -370,6 +376,89 @@ describe("an isolated backend's API key (spec 1.3 §8)", () => {
     expect(r.errors).toContainEqual(MISSING);
     process.env.CURSOR_API_KEY = "key-for-test";
     expect(patchProfile("default", { harness: { cursor: { isolated: true } } }).saved).toBe(true);
+  });
+});
+
+describe("a dollar budget a backend cannot see (spec §4.6)", () => {
+  const GO = "cursor:go-m1#default";
+  const blind = (b: string, roles: string) => ({
+    path: "budget.usd",
+    message: `budget.usd will not see ${b}'s spend: ${b} reports no dollar cost (${roles} run on it)`,
+    fix: "cap it with budget.tokens or budget.minutes: catherd profile set budget.tokens <n>",
+  });
+  // the worker and reviewer on the fake backend; the codex roles off, or on (the built-in ladders)
+  const onFake = (budget: { usd?: number; tokens?: number }, codexRoles = false) =>
+    resolveProfile(
+      {
+        schema: 1,
+        budget,
+        roles: {
+          worker: { rungs: [GO] },
+          reviewer: { rungs: [GO] },
+          ...(codexRoles
+            ? {}
+            : Object.fromEntries(
+                ["ui-reviewer", "artist", "writer", "researcher"].map((r) => [r, { enabled: false }]),
+              )),
+        },
+      },
+      "p",
+    );
+
+  it("warns once per backend that reports no cost, naming the enabled roles on it", () => {
+    fake();
+    expect(budgetUsdWarnings(onFake({ usd: 5 }))).toEqual([blind("cursor", "worker, reviewer")]);
+    // codex, the real adapter, reports no dollars either
+    expect(budgetUsdWarnings(onFake({ usd: 5 }, true))).toEqual([
+      blind("cursor", "worker, reviewer"),
+      blind("codex", "ui-reviewer, artist, writer, researcher"),
+    ]);
+  });
+
+  it("says nothing without budget.usd, for a backend that reports its cost, or for a disabled role", () => {
+    fake();
+    expect(budgetUsdWarnings(onFake({ tokens: 1000 }, true))).toEqual([]);
+    fake({ reportsCost: true });
+    expect(budgetUsdWarnings(onFake({ usd: 5 }))).toEqual([]);
+    fake();
+    const off = resolveProfile(
+      { schema: 1, budget: { usd: 5 }, roles: { reviewer: { enabled: false, rungs: [GO] } } },
+      "p",
+    );
+    expect(budgetUsdWarnings(off).map((w) => w.message)).not.toContainEqual(
+      expect.stringContaining("cursor"),
+    );
+  });
+
+  it("warns for a failover stand-in on a backend that reports no cost", () => {
+    fake();
+    const SONNET = "claude-code:claude-sonnet-5-5#high";
+    const standIn = resolveProfile(
+      {
+        schema: 1,
+        budget: { usd: 5 },
+        failover: { [SONNET]: GO },
+        roles: Object.fromEntries([
+          ["worker", { rungs: [SONNET] }],
+          ...["reviewer", "ui-reviewer", "artist", "writer", "researcher"].map((r) => [
+            r,
+            { enabled: false },
+          ]),
+        ]),
+      },
+      "p",
+    );
+    expect(budgetUsdWarnings(standIn)).toEqual([blind("cursor", "worker")]);
+  });
+
+  it("never blocks a save, and the save carries the warning", () => {
+    withHome();
+    const r = patchProfile("default", { budget: { usd: 5 } });
+    expect([r.saved, r.errors]).toEqual([true, []]);
+    const codex = blind("codex", "worker, reviewer, ui-reviewer, artist, writer, researcher");
+    expect(r.warnings).toContainEqual(codex);
+    // what `profile validate` and doctor's profile row read
+    expect(validateNamed("default").warnings).toContainEqual(codex);
   });
 });
 

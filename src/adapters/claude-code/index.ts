@@ -315,4 +315,5 @@ export const claudeCodeAdapter: BackendAdapter = {
   accessShell,
   // the `result` event is the last thing claude prints; a CLI still running 30 s later is stuck
   graceAfterFinalMs: 30_000,
+  reportsCost: true,
 };
