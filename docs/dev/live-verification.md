@@ -570,10 +570,11 @@ cat ~/.local/share/catherd/cursor-home/workspace-write/.cursor/sandbox.json  # w
 Look for: the read-only run wrote nothing; the worker wrote in the repo and took the lock (a path from
 `additionalReadwritePaths`). Set `harness.cursor.isolated false` again after.
 
-**9. Doctor's access probes through the hidden `sandbox run`.**
+**9. Doctor's access probes through the hidden `sandbox run`.** It joins its arguments with spaces and runs the
+result in a shell, so the command goes in as one quoted string.
 
 ```sh
-cursor-agent sandbox run -- sh -c 'echo ok > "$TMPDIR/catherd-probe" && cat "$TMPDIR/catherd-probe"'
+cursor-agent sandbox run -- 'echo ok > "$TMPDIR/catherd-probe" && cat "$TMPDIR/catherd-probe"'
 catherd doctor --json | jq -r '.checks[] | select(.id == "access:cursor") | "\(.state) \(.word): \(.detail)"'
 ```
 

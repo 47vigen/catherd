@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { writableRoots } from "../../src/adapters/access.ts";
+import { scratchShell, writableRoots } from "../../src/adapters/access.ts";
 import type { AccessShell, FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import {
   CURSOR_ACCESS,
@@ -397,20 +397,46 @@ describe("cursor access probes (spec 1.3 §4.7, §3.4)", () => {
     Object.assign(process.env, withCursorScenario({ sandboxArgsTo: argsTo }).env);
     const shell = (await cursorAdapter.accessShell?.({ network: true })) as AccessShell;
     expect(shell.how).toBe("Cursor's sandbox (cursor-agent sandbox run)");
-    expect((await shell.run('echo "$1"', ["hi"]))?.out).toBe("hi\n");
+    // the runner joins its args and re-shells them: quotes, spaces, `$` and empty args survive
+    expect(
+      (await shell.run(`printf "[%s]" "$#" "$@"; echo "it's"`, ["it's a $HOME", "(x) && y", ""]))?.out,
+    ).toBe("[3][it's a $HOME][(x) && y][]it's\n");
     shell.close();
-    expect(JSON.parse(readFileSync(argsTo, "utf8").trim().split("\n").at(-1) as string)).toEqual([
-      "sandbox",
-      "run",
-      "--",
-      "sh",
-      "-c",
-      'echo "$1"',
-      "_",
-      "hi",
+    const calls = readFileSync(argsTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as string[]);
+    expect(calls).toEqual([
+      ["sandbox", "run", "--", "'sh' '-c' 'true' '_'"],
+      [
+        "sandbox",
+        "run",
+        "--",
+        `'sh' '-c' 'printf "[%s]" "$#" "$@"; echo "it'\\''s"' '_' 'it'\\''s a $HOME' '(x) && y' ''`,
+      ],
     ]);
     expect(shell.fixes?.lock).toContain("additionalReadwritePaths");
     expect(shell.fixes?.https).toContain("networkPolicy");
+  });
+
+  it("breaks a split argv the way the real runner does, which is why the probes go as one line", async () => {
+    process.env.PATH = SIMS;
+    Object.assign(process.env, withCursorScenario({}).env);
+    const dir = mkdtempSync(join(tmpdir(), "catherd-sbx-"));
+    const ran = join(dir, "ran");
+    writeFileSync(join(dir, "fake-docker"), `#!/bin/sh\necho "$@" > '${ran}'\n`);
+    chmodSync(join(dir, "fake-docker"), 0o755);
+    const split = scratchShell("split", ["cursor-agent", "sandbox", "run", "--"]);
+    try {
+      expect((await split.run("true", []))?.ok).toBe(true);
+      expect((await split.run('f="$1/x" && touch "$f" && rm -f "$f"', [dir]))?.ok).toBe(false);
+      // `sh -c "$1" version _ <docker>` re-shelled: an empty script that exits 0 and runs nothing
+      expect((await split.run('"$1" version', [join(dir, "fake-docker")]))?.ok).toBe(true);
+      expect(existsSync(ran)).toBe(false);
+    } finally {
+      split.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("says why when this Cursor has no sandbox runner", async () => {
