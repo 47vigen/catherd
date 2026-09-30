@@ -3053,6 +3053,30 @@
     "gpt-6-luna#max": {
       "like": "gpt-5.6-luna#max",
       "note": "no Arena agent score is published for GPT-6 Luna; GPT-5.6 Luna at the same effort stands in for agentic and steer (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#low": {
+      "like": "gpt-6-sol#low",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#medium": {
+      "like": "gpt-6-sol#medium",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#high": {
+      "like": "gpt-6-sol#high",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#xhigh": {
+      "like": "gpt-6-sol#xhigh",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#max": {
+      "like": "gpt-6-sol#max",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
+    },
+    "gpt-6.1-sol#ultra": {
+      "like": "gpt-6-sol#ultra",
+      "note": "no DeepSWE 1.1 or Arena score is published for GPT-6.1 Sol yet, and its only Terminal-Bench 4.0 value (vals.ai, 55.05 ± 1.82 at max) comes from a harness not comparable with GPT-6 Sol's Artificial Analysis one; the addendum's Broken Search Tool figure (2.08 % failure, https://deploymentsafety.openai.com/gpt-6-1-sol) is left out because a shipped honesty row would become the nearest honesty stand-in for unrelated sparse rungs; GPT-6 Sol at the same effort stands in for every dimension (the nearest stand-in, spec 1.2 §6.3)"
     }
   },
   "bars": {

@@ -232,7 +232,7 @@ exports[`frames profiles 80x24 1`] = `
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-  ↓ 74 more
+  ↓ 75 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ exports[`frames profiles 80x24 plain 1`] = `
      claude-code (headless)  claude-plan
        > claude-fable-5-1           0 of 5
        > claude-haiku-4-5-20251001  0 of 1
-  v 74 more
+  v 75 more
 space turns the role on or off; enter opens its access, default rung and models
 
 --------------------------------------------------------------------------------
@@ -294,7 +294,7 @@ exports[`frames profiles 100x30 1`] = `
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
        ▸ gpt-5.6-sol             0 of 6
-  ↓ 68 more
+  ↓ 69 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ exports[`frames profiles 100x30 plain 1`] = `
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
        > gpt-5.6-sol             0 of 6
-  v 68 more
+  v 69 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ----------------------------------------------------------------------------------------------------
@@ -366,13 +366,13 @@ exports[`frames profiles 120x40 1`] = `
        ▸ gpt-6-astra             0 of 6
        ▸ gpt-6-luna              1 of 5
        ▸ gpt-6-sol               3 of 6
+       ▸ gpt-6.1-sol             0 of 6
      opencode-go  subscription
        ▸ opencode-go/gpt-5.6-luna  0 of 6
        ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1   0 of 5
-       ▸ opencode/claude-haiku-4-5   0 of 2
-  ↓ 58 more
+  ↓ 59 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -410,13 +410,13 @@ exports[`frames profiles 120x40 plain 1`] = `
        > gpt-6-astra             0 of 6
        > gpt-6-luna              1 of 5
        > gpt-6-sol               3 of 6
+       > gpt-6.1-sol             0 of 6
      opencode-go  subscription
        > opencode-go/gpt-5.6-luna  0 of 6
        > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1   0 of 5
-       > opencode/claude-haiku-4-5   0 of 2
-  v 58 more
+  v 59 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -444,7 +444,7 @@ exports[`frames profiles-dirty 80x24 1`] = `
      claude-code (headless)  claude-plan
        ▸ claude-fable-5-1           0 of 5
        ▸ claude-haiku-4-5-20251001  0 of 1
-  ↓ 74 more
+  ↓ 75 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ exports[`frames profiles-dirty 80x24 plain 1`] = `
      claude-code (headless)  claude-plan
        > claude-fable-5-1           0 of 5
        > claude-haiku-4-5-20251001  0 of 1
-  v 74 more
+  v 75 more
 space turns the role on or off; enter opens its access, default rung and models
 
 --------------------------------------------------------------------------------
@@ -506,7 +506,7 @@ exports[`frames profiles-dirty 100x30 1`] = `
      codex  chatgpt-plan
        ▸ gpt-5.6-luna            0 of 5
        ▸ gpt-5.6-sol             0 of 6
-  ↓ 68 more
+  ↓ 69 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -540,7 +540,7 @@ exports[`frames profiles-dirty 100x30 plain 1`] = `
      codex  chatgpt-plan
        > gpt-5.6-luna            0 of 5
        > gpt-5.6-sol             0 of 6
-  v 68 more
+  v 69 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ----------------------------------------------------------------------------------------------------
@@ -578,13 +578,13 @@ exports[`frames profiles-dirty 120x40 1`] = `
        ▸ gpt-6-astra             0 of 6
        ▸ gpt-6-luna              1 of 5
        ▸ gpt-6-sol               3 of 6
+       ▸ gpt-6.1-sol             0 of 6
      opencode-go  subscription
        ▸ opencode-go/gpt-5.6-luna  0 of 6
        ▸ opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        ▸ opencode/claude-fable-5-1   0 of 5
-       ▸ opencode/claude-haiku-4-5   0 of 2
-  ↓ 58 more
+  ↓ 59 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -622,13 +622,13 @@ exports[`frames profiles-dirty 120x40 plain 1`] = `
        > gpt-6-astra             0 of 6
        > gpt-6-luna              1 of 5
        > gpt-6-sol               3 of 6
+       > gpt-6.1-sol             0 of 6
      opencode-go  subscription
        > opencode-go/gpt-5.6-luna  0 of 6
        > opencode-go/gpt-6-luna    0 of 6
      opencode  metered
        > opencode/claude-fable-5-1   0 of 5
-       > opencode/claude-haiku-4-5   0 of 2
-  v 58 more
+  v 59 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ------------------------------------------------------------------------------------------------------------------------
