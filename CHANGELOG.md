@@ -1,5 +1,34 @@
 # catherd-cli
 
+## 1.3.0
+
+### Minor Changes
+
+- cc72c97: catherd 1.3: three new worker backends, Cursor, Grok Build and Antigravity, each off until a profile puts a rung on it. Nothing to migrate: upgrade, run `catherd doctor`, and start a new Claude Code session (see MIGRATION.md, "From 1.2 to 1.3").
+
+  - **Cursor (`cursor:`).** `cursor-agent` 2026.09.28 or newer, briefs on stdin, the effort as the slug's suffix (`cursor:gpt-6-sol#xhigh`). `workspace-write` runs in Cursor's sandbox without `--force`; doctor runs the five access probes through its sandbox runner. Isolated runs need `CURSOR_API_KEY` and get their own `sandbox.json`.
+  - **Grok Build (`grok:`).** xAI's `grok` CLI on a Grok login or `XAI_API_KEY`; see the README's Grok section for its access modes and isolation.
+  - **Antigravity (`antigravity:`).** Google's `agy` 1.2.13 or newer, on a Google login (plan quota) or `GEMINI_API_KEY` (the Gemini API project). catherd never runs `agy -p` while agy is signed out, since it would open a browser. agy has no read-only mode: a read-only role runs on it only isolated, where catherd's own settings deny writes and commands; `profile validate` refuses it natively. Doctor shows the plan quota left (`quota:antigravity`).
+  - **Generic groundwork.** Admission refuses to resume a thread under another access or network grant on a backend that keeps a thread's access. A CLI the OS cannot execute is "installed but cannot run", with the reinstall command. A logged-out backend never reaches a dispatch. An isolated backend that needs an API key does not validate without it, and the dashboard's harness row says so. Doctor's access row says "not tested" where a backend has no sandbox runner.
+  - **Catalog.** Grok 4.7, 4.6 and 4.5, Composer 2.5, and Gemini 3.8, 3.7 and 3.6 Flash and 3.1 Pro join the families, so the public sources score them; a model a backend runs with no effort is scored at `#default`. Gemini fails over between Antigravity and Cursor (and Grok between Grok Build and Cursor) when neither the profile nor the backend names another stand-in; the new backends never stand in for the shipped ones.
+
+- 7e8354d: `catherd knowledge show|add|path [--repo <path>]` shows a repo's knowledge.md and where it lives, and adds facts you already know (the targeted test command, a suite that needs a database) before a run learns them. An added line looks like one `land` records, marked "by hand".
+
+### Patch Changes
+
+- 8d0bc57: The catalog's Cursor ids and efforts now match Cursor's live model listing, so `cursor:` rungs read differently (for
+  example `cursor:cursor-grok-4.6#high` and `cursor:claude-opus-5-5#high`), and Grok and Gemini fail over to Cursor at
+  the same effort where both list it.
+- e6a400f: Isolated Cursor runs keep the API key in memory, so `cursor-agent` no longer touches the macOS keychain.
+- bb37224: Doctor's Cursor access probes now test what they name: `cursor-agent sandbox run` joins its arguments into one shell
+  line, so catherd sends each probe as one quoted command, and a lock, temp, loopback, HTTPS or Docker check no longer
+  fails, or passes without running, because of the split.
+- bd98159: Ship GPT-6.1 Sol (`codex:gpt-6.1-sol`) in the catalog with its price and efforts. No DeepSWE, comparable Terminal-Bench or Arena score is published for it yet, so GPT-6 Sol at the same effort stands in until one is.
+- 4c53547: Warn about settings that cannot work on this machine: `profile validate` and `catherd doctor` flag a `budget.usd` cap
+  when a role or its failover stand-in runs on a backend that reports no dollar cost (Codex, Cursor, Antigravity), and
+  `catherd doctor` flags a profile that turns the ui-reviewer on while `agent-browser`, which takes its screenshots, is
+  not on PATH. Each warning names the fix.
+
 ## 1.2.1
 
 ### Patch Changes

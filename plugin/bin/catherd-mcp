@@ -1,7 +1,7 @@
 #!/bin/sh
 # catherd's MCP launcher (spec 1.1 §12): the plugin's .mcp.json runs it. The release stamps VERSION
 # (scripts/stamp-plugin-version.mjs), so the plugin always starts the server it was released with.
-VERSION="1.2.1"
+VERSION="1.3.0"
 
 # a global catherd at this version (catherd init installs one): start it, no resolve at all
 if command -v catherd >/dev/null 2>&1 && [ "$(catherd --version 2>/dev/null)" = "$VERSION" ]; then
