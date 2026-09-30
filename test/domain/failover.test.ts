@@ -148,11 +148,13 @@ describe("PAIRED_FAILOVER (spec 1.3 §7.3)", () => {
     expect(PAIRED_FAILOVER["antigravity:gemini-3.8-flash#high"]).toBe("cursor:gemini-3.8-flash#high");
     expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#low"]).toBe("cursor:gemini-3.1-pro#default");
     expect(PAIRED_FAILOVER["cursor:gemini-3.6-flash#minimal"]).toBe("antigravity:gemini-3.6-flash#high");
+    expect(PAIRED_FAILOVER["cursor:grok-4.7#default"]).toBe("grok:grok-4.7#high");
+    expect(PAIRED_FAILOVER["cursor:gemini-3.1-pro#default"]).toBe("antigravity:gemini-3.1-pro#high");
     // Cursor serves no other Gemini, and no Gemini through opencode pairs
     expect(PAIRED_FAILOVER["cursor:gpt-6-sol#high"]).toBeUndefined();
     expect(PAIRED_FAILOVER["antigravity:gemini-3.1-pro#medium"]).toBeUndefined();
     expect(PAIRED_FAILOVER["opencode:opencode/gemini-3.8-flash#high"]).toBeUndefined();
-    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(52);
+    expect(Object.keys(PAIRED_FAILOVER)).toHaveLength(58);
     const shippedRungs = new Set(Object.values(BUILTIN_ROLES).flatMap((r) => r.rungs));
     for (const [from, to] of Object.entries(PAIRED_FAILOVER)) {
       // a `#default` rung runs with no effort flag on any backend, so it need not be a listed effort
