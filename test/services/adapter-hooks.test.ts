@@ -451,6 +451,25 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
     expect(budgetUsdWarnings(standIn)).toEqual([blind("cursor", "worker")]);
   });
 
+  it("warns for a paired stand-in the profile never names (Grok on a limit runs on Cursor)", () => {
+    fake();
+    const grok = resolveProfile(
+      {
+        schema: 1,
+        budget: { usd: 5 },
+        roles: Object.fromEntries([
+          ["worker", { rungs: ["grok:grok-4.7#high"] }],
+          ...["reviewer", "ui-reviewer", "artist", "writer", "researcher"].map((r) => [
+            r,
+            { enabled: false },
+          ]),
+        ]),
+      },
+      "p",
+    );
+    expect(budgetUsdWarnings(grok)).toEqual([blind("cursor", "worker")]);
+  });
+
   it("never blocks a save, and the save carries the warning", () => {
     withHome();
     const r = patchProfile("default", { budget: { usd: 5 } });
