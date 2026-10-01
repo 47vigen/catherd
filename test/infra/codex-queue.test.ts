@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { runCli } from "../../src/adapters/cli.ts";
 import type { HostSessionRef } from "../../src/domain/host.ts";
-import { queueCapability, sendToCodexQueue } from "../../src/infra/codex-queue.ts";
+import {
+  knownQueueCapability,
+  queueCapability,
+  queueProbeSettled,
+  resetQueueProbe,
+  sendToCodexQueue,
+} from "../../src/infra/codex-queue.ts";
 import { log, logFile } from "../../src/infra/log.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 
@@ -19,6 +25,7 @@ const help = {
 const receipt = { ok: true, out: `Queued message ${msgId} for thread ${thread}.\n`, err: "" };
 
 afterEach(snapshotEnv());
+afterEach(resetQueueProbe);
 
 function runner(result: Awaited<ReturnType<typeof runCli>>) {
   const calls: Parameters<typeof runCli>[] = [];
@@ -28,6 +35,33 @@ function runner(result: Awaited<ReturnType<typeof runCli>>) {
   };
   return { run, calls };
 }
+
+describe("the queue capability peek and status read", () => {
+  it("never waits on the CLI: answers unchecked, then the cached probe, refreshed in the background", async () => {
+    // the cache is per process: another file's peek may have filled it
+    await resetQueueProbe();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let probes = 0;
+    const run: typeof runCli = async () => {
+      probes++;
+      await gate;
+      return help;
+    };
+    expect(knownQueueCapability({}, run, 0)).toMatchObject({ cli: false, server: "unverified" });
+    expect(knownQueueCapability({}, run, 1).reason).toContain("being checked");
+    expect(probes).toBe(1);
+    release();
+    await queueProbeSettled();
+    expect(knownQueueCapability({}, run, 2)).toMatchObject({ cli: true });
+    expect(probes).toBe(1);
+    // a stale answer is still returned at once while one fresh probe runs behind it
+    expect(knownQueueCapability({}, run, 60_000)).toMatchObject({ cli: true });
+    expect(probes).toBe(2);
+  });
+});
 
 describe("native Codex queue", () => {
   it("queue_payload_logging: delivers literal content without retaining it in debug rows", async () => {

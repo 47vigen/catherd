@@ -139,11 +139,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // every linked profile: the active one (row `profile`) and each repo-bound one (row `profile:<name>`).
   // Each fix names its profile: without one, the CLI acts on the profile of the repo doctor runs in.
   const names = active ? [active.name, ...linked.filter((n) => n !== active?.name)] : [];
+  // and the host it was validated for: a fix run elsewhere (a plain terminal) must judge it on that host too
+  const onHost = d.host.host === "unknown" ? "" : ` --host ${d.host.host}`;
   for (const name of names) {
     const id = name === active?.name ? "profile" : `profile:${name}`;
-    const validate = `catherd profile validate ${name}`;
+    const validate = `catherd profile validate ${name}${onHost}`;
     const named = (fix: string) =>
-      fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name} `);
+      fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name}${onHost} `);
     const row = guarded(id, `profile ${name}`, validate, () => {
       const v = validateNamed(name, d.repo, d.host.host);
       const first = v.errors[0] ?? v.warnings[0];

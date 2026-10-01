@@ -1,7 +1,7 @@
 import type { HostContext, HostSessionRef, KnownHost } from "../domain/host.ts";
 import { assertId } from "../domain/ids.ts";
 import { noticeHeader } from "../domain/notice.ts";
-import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
+import { knownQueueCapability, type QueueCapability } from "../infra/codex-queue.ts";
 import type { DeliveryState } from "../infra/delivery.ts";
 import { inspectionHost, inspectDelivery, inspectDeliveries, type DeliveryInspection } from "./run-debug.ts";
 import { awaitsCollect } from "../infra/dispatch-dir.ts";
@@ -135,6 +135,6 @@ export async function peek(
     runs: runs.map((r) => peekRun(deps, r, i.name)),
     hints,
     host: inspectionHost(deps.host),
-    queue: deps.host.host === "codex" && !deps.host.conflict ? await queueCapability(process.env) : null,
+    queue: deps.host.host === "codex" && !deps.host.conflict ? knownQueueCapability(process.env) : null,
   };
 }

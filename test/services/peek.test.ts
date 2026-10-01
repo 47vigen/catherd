@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
+import { resetQueueProbe } from "../../src/infra/codex-queue.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import { sessionKey } from "../../src/domain/host.ts";
 import { result } from "../../src/services/run-service.ts";
@@ -18,6 +19,8 @@ import { fakeDeps, fakeDispatch, freshRun } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
+// a codex-host peek probes the queue in the background: it settles inside its test
+afterEach(resetQueueProbe);
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const OK_LINES = readFileSync(join(FX, "ok-with-reconnect.jsonl"), "utf8").split("\n").filter(Boolean);

@@ -50,6 +50,47 @@ export async function queueCapability(
   }
 }
 
+const PROBE_TTL_MS = 60_000;
+let known: { at: number; capability: QueueCapability } | null = null;
+let probing: Promise<void> | null = null;
+
+/**
+ * The last known queue capability, without waiting on the Codex CLI: peek and status never wait (spec §3.7).
+ * A missing or stale answer starts one probe in the background; until it lands the capability reads unchecked.
+ */
+export function knownQueueCapability(
+  env: Record<string, string | undefined>,
+  run: typeof runCli = runCli,
+  now: number = Date.now(),
+): QueueCapability {
+  if (!probing && (!known || now - known.at >= PROBE_TTL_MS))
+    probing = queueCapability(env, run)
+      .then((capability) => {
+        known = { at: now, capability };
+      })
+      .finally(() => {
+        probing = null;
+      });
+  return (
+    known?.capability ?? {
+      cli: false,
+      server: "unverified",
+      reason: "Native codex queue is being checked; peek again for the result.",
+    }
+  );
+}
+
+/** Settles the background probe knownQueueCapability started, if any (a test seam). */
+export async function queueProbeSettled(): Promise<void> {
+  await probing;
+}
+
+/** Settles any background probe and forgets its answer (a test seam). */
+export async function resetQueueProbe(): Promise<void> {
+  await probing;
+  known = null;
+}
+
 export async function sendToCodexQueue(
   target: HostSessionRef,
   content: string,

@@ -877,7 +877,7 @@ describe("doctor", () => {
       state: "warn",
       word: "invalid",
       label: "profile team",
-      fix: "catherd profile set --profile team roles.worker.enabled true",
+      fix: "catherd profile set --profile team --host claude-code roles.worker.enabled true",
     });
     patchProfile("default", { jev: { use: "off" } }, { host: "claude-code" });
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
