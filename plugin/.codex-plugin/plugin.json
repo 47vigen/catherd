@@ -1,0 +1,11 @@
+{
+  "name": "catherd",
+  "version": "1.3.0",
+  "description": "Shared catherd orchestration, profiles and durable role results through the versioned MCP core.",
+  "author": { "name": "47vigen", "url": "https://github.com/47vigen" },
+  "homepage": "https://github.com/47vigen/catherd",
+  "repository": "https://github.com/47vigen/catherd",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp-codex.json"
+}
