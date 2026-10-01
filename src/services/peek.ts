@@ -1,6 +1,9 @@
-import type { KnownHost } from "../domain/host.ts";
+import type { HostContext, HostSessionRef, KnownHost } from "../domain/host.ts";
 import { assertId } from "../domain/ids.ts";
 import { noticeHeader } from "../domain/notice.ts";
+import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
+import type { DeliveryState } from "../infra/delivery.ts";
+import { inspectionHost, inspectDelivery, inspectDeliveries, type DeliveryInspection } from "./run-debug.ts";
 import { awaitsCollect } from "../infra/dispatch-dir.ts";
 import { claim } from "./dispatch-service.ts";
 import { type Dispatch, type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
@@ -31,8 +34,17 @@ export interface PeekRun extends Reentry {
   owner: string | null;
   ownerHost: KnownHost | null;
   live: PeekRole[];
+  /** Stalled notices are separate from unread finished role results. */
+  delivery: (DeliveryInspection & { name: string; dispatchId: string })[];
   /** each finished record not yet read, as the first line of its message */
-  unread: { name: string; dispatchId: string; header: string }[];
+  unread: {
+    name: string;
+    dispatchId: string;
+    header: string;
+    eventId: string;
+    delivery: Exclude<DeliveryState, "collected">;
+    receipt: { msgId: string; target: HostSessionRef; at: string } | null;
+  }[];
   /** the latest native Claude run recorded with record_agent_run */
   native: { name: string; role: string; rung: string; status: string; at: string } | null;
   /** the run's next step (state.md's last line) */
@@ -62,13 +74,31 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
         secs: Math.max(0, Math.round((now - Date.parse(d.admit.admittedAt)) / 1000)),
         lastEvent: lastActivity(d),
       })),
+    delivery: listDispatches(run)
+      .filter(mine)
+      .flatMap((d) =>
+        inspectDeliveries(run, d, false).map((inspection) => ({
+          name: d.admit.name,
+          dispatchId: d.admit.dispatchId,
+          ...inspection,
+        })),
+      ),
     unread: listDispatches(run)
       .filter(mine)
       .flatMap((d) => {
         const r = records.get(d.admit.dispatchId);
-        return r && awaitsCollect(d.dir)
-          ? [{ name: r.name, dispatchId: r.dispatchId, header: noticeHeader(finishedNotice(run, d, r)) }]
-          : [];
+        if (!r || !awaitsCollect(d.dir)) return [];
+        const delivery = inspectDelivery(run, d, true);
+        if (delivery.delivery === "collected") return [];
+        return [
+          {
+            ...delivery,
+            delivery: delivery.delivery,
+            name: r.name,
+            dispatchId: r.dispatchId,
+            header: noticeHeader(finishedNotice(run, d, r)),
+          },
+        ];
       }),
     native: native
       ? { name: native.name, role: native.role, rung: native.rung, status: native.status, at: native.at }
@@ -87,7 +117,7 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
 export async function peek(
   deps: Deps,
   i: { run?: string; name?: string },
-): Promise<{ runs: PeekRun[]; hints: string[] }> {
+): Promise<{ runs: PeekRun[]; hints: string[]; host: HostContext; queue: QueueCapability | null }> {
   if (i.name !== undefined) assertId("role name", i.name);
   let runs: Run[];
   if (i.run) {
@@ -101,5 +131,10 @@ export async function peek(
     runs = owned.length ? owned : all.slice(0, 1);
   }
   const hints = runs.length === 0 ? ["no runs yet: run_start(repo, title, a_lines) starts one"] : [];
-  return { runs: runs.map((r) => peekRun(deps, r, i.name)), hints };
+  return {
+    runs: runs.map((r) => peekRun(deps, r, i.name)),
+    hints,
+    host: inspectionHost(deps.host),
+    queue: deps.host.host === "codex" && !deps.host.conflict ? await queueCapability(process.env) : null,
+  };
 }

@@ -1,3 +1,4 @@
+import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
 import type { HostContext } from "../domain/host.ts";
 import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
@@ -9,7 +10,7 @@ import type { JevTransport } from "../infra/jev-client.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
-import { type PushProbe, pushCheck } from "./doctor-push.ts";
+import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
 import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
 import {
   agentsCheck,
@@ -32,9 +33,13 @@ import {
   readProjects,
   validateNamed,
 } from "./profile-store.ts";
+import { inspectionHost } from "./run-debug.ts";
 import { listRuns } from "./run-store.ts";
 
 export interface DoctorReport {
+  host: HostContext;
+  queue: QueueCapability | null;
+  push: PushProbe | null;
   /** false when any check failed: `catherd doctor` exits 3 */
   ready: boolean;
   version: string;
@@ -57,8 +62,10 @@ export interface DoctorDeps {
   version: string;
   /** starts the MCP server as the plugin does (its launcher) over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
-  /** spec §3.9: sends this Claude Code session a test message; without it (the dashboard) there is no `push` row */
+  /** Explicit smoke test injection; default doctor never invokes it. */
   push?: () => Promise<PushProbe>;
+  testPush?: boolean;
+  env?: Record<string, string | undefined>;
   jev?: JevTransport;
 }
 
@@ -244,10 +251,31 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     .catch((e: unknown): Handshake => ({ ok: false, tools: [], error: errText(e) }));
   checks.push(mcpCheck(h, d.version));
 
-  if (d.push)
-    checks.push(
-      pushCheck(await d.push().catch((e: unknown): PushProbe => ({ outcome: "failed", detail: errText(e) }))),
-    );
+  const queue =
+    d.host.host === "codex" && !d.host.conflict ? await queueCapability(d.env ?? process.env) : null;
+  if (queue)
+    checks.push({
+      id: "push-capability",
+      label: "native Codex queue",
+      state:
+        !queue.cli || queue.server === "unsupported" ? "fail" : queue.server === "unverified" ? "warn" : "ok",
+      word: !queue.cli ? "unavailable" : queue.server,
+      detail: queue.reason ?? "Native server advertises queue support",
+      ...(!queue.cli || queue.server === "unsupported"
+        ? { fix: "Update native Codex/server; use peek/result while push is unavailable." }
+        : {}),
+    });
+  let push: PushProbe | null = null;
+  if (d.testPush) {
+    push = await (d.push ?? (() => probePush(d.host, d.env ?? process.env)))().catch((): PushProbe => ({
+      outcome: "failed",
+      enqueue: "ambiguous",
+      processing: "unconfirmed",
+      msgId: null,
+      detail: "Smoke has no verified receipt; retry may duplicate input. Use peek/result.",
+    }));
+    checks.push(pushCheck(push));
+  }
 
   checks.push(locksCheck());
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
@@ -371,5 +399,12 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       fix: `fix or delete ${corrupt[0]?.dir}`,
     });
 
-  return { ready: !checks.some((c) => c.state === "fail"), version: d.version, checks };
+  return {
+    host: inspectionHost(d.host),
+    queue,
+    push,
+    ready: !checks.some((c) => c.state === "fail"),
+    version: d.version,
+    checks,
+  };
 }

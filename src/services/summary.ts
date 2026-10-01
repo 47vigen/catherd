@@ -1,3 +1,6 @@
+import type { HostContext } from "../domain/host.ts";
+import type { QueueCapability } from "../infra/codex-queue.ts";
+import { inspectionHost, inspectDeliveries, type DeliveryInspection } from "./run-debug.ts";
 import { resolve } from "node:path";
 import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
 import { isCatherdError } from "../domain/errors.ts";
@@ -7,7 +10,7 @@ import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { latestVerifierStep, type VerifierStep } from "./gate-service.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
-import { type DispatchState, liveDispatches } from "./dispatches.ts";
+import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
 import {
@@ -21,6 +24,7 @@ import {
 } from "./run-store.ts";
 
 export interface RunSummary {
+  delivery: (DeliveryInspection & { name: string; dispatchId: string })[];
   id: string;
   /** spec 1.1 §8: the owner questions not answered yet, listed first */
   questions: OpenQuestion[];
@@ -51,6 +55,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const now = deps.now();
   const { records, corrupt } = readRecords(run);
   const live = liveDispatches(run, now);
+  const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
   const sum = (f: (t: Tokens) => number) => records.reduce((n, r) => n + f(r.tokens), 0);
@@ -65,6 +70,13 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     warnings.push(`budget: ${isCatherdError(e) ? e.message : String(e)}`);
   }
   return {
+    delivery: listDispatches(run).flatMap((d) =>
+      inspectDeliveries(run, d, recorded.has(d.admit.dispatchId)).map((inspection) => ({
+        name: d.admit.name,
+        dispatchId: d.admit.dispatchId,
+        ...inspection,
+      })),
+    ),
     id: run.id,
     questions: openQuestions(run),
     title: run.meta.title,
@@ -113,13 +125,33 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
 export function status(
   deps: Deps,
   runId?: string,
-): { version: string; runs: RunSummary[]; warnings: string[] } {
-  if (runId) return { version: deps.version, runs: [summarizeRun(deps, findRun(runId))], warnings: [] };
+  queue: QueueCapability | null = null,
+): {
+  version: string;
+  runs: RunSummary[];
+  warnings: string[];
+  host: HostContext;
+  queue: QueueCapability | null;
+} {
+  if (runId)
+    return {
+      host: inspectionHost(deps.host),
+      queue,
+      version: deps.version,
+      runs: [summarizeRun(deps, findRun(runId))],
+      warnings: [],
+    };
   const { runs, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
   const all = runs.map((r) => summarizeRun(deps, r));
   const live = all.filter((s) => s.live.length > 0);
-  return { version: deps.version, runs: live.length ? live : all.slice(0, 1), warnings };
+  return {
+    host: inspectionHost(deps.host),
+    queue,
+    version: deps.version,
+    runs: live.length ? live : all.slice(0, 1),
+    warnings,
+  };
 }
 
 export interface RungStats {

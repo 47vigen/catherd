@@ -32,6 +32,9 @@ import { withStaged } from "./profile-tree.ts";
  * the catalog is the shipped one, read through the catalog service.
  */
 export const FIXTURE_REPORT: DoctorReport = {
+  host: { host: "unknown", session: null, conflict: null },
+  queue: null,
+  push: null,
   ready: false,
   version: "1.0.0",
   checks: [
@@ -81,6 +84,7 @@ export const FIXTURE_REPORT: DoctorReport = {
 };
 
 const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): RunSummary => ({
+  delivery: [],
   repo: "/home/me/app",
   createdAt: "2026-09-26T11:48:00.000Z",
   session: null,

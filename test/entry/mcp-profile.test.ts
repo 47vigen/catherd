@@ -230,3 +230,18 @@ it("request-local profile callback sees invalid request host rather than initial
   expect(raw.isError).not.toBe(true);
   expect((await call(c, "profile_get")).isError).toBe(false);
 });
+
+it("status reports request-scoped unknown/conflicting host without adopting an owner", async () => {
+  withHome();
+  const repo = tempRepo();
+  const run = createRun({ repo, title: "status", aLines: [], version: "test" });
+  const c = await mcpClient(undefined, "codex-mcp-client");
+  const r = await c.callTool({ name: "status", arguments: { run: run.id }, _meta: { threadId: "invalid" } });
+  expect(r.isError).not.toBe(true);
+  expect(JSON.parse((r.content as { text: string }[])[0]!.text)).toMatchObject({
+    host: { host: "unknown", session: null, conflict: expect.any(String) },
+    queue: null,
+  });
+  const { runOwner } = await import("../../src/services/sessions.ts");
+  expect(runOwner(run)).toBeNull();
+});

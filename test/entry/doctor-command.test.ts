@@ -104,6 +104,9 @@ describe("an info row (spec 1.1 §13)", () => {
 describe("formatReport (Ruling R4)", () => {
   it("says ready when the only rows beside ok are info: info is not a warning", () => {
     const lines = formatReport({
+      host: { host: "unknown", session: null, conflict: null },
+      queue: null,
+      push: null,
       ready: true,
       version: VERSION,
       checks: [
@@ -210,3 +213,43 @@ describe("catherd doctor", () => {
     });
   }, 60_000);
 });
+
+it("default CLI doctor sends nothing; explicit smoke preserves receipt-only reporting", async () => {
+  machine();
+  const envTo = join(process.env.CATHERD_HOME!, "queue-calls");
+  const s = withScenario({ models: fx("codex/models.json"), sandbox: "allow", queue: "accepted", envTo });
+  Object.assign(process.env, s.env, {
+    CODEX_THREAD_ID: "01a0f53b-a47d-7350-83a4-c3430e453404",
+    CATHERD_ORCHESTRATION_HOST: "codex",
+  });
+  const runCodex = (...args: string[]) => {
+    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "doctor", "--json", ...args], {
+      env: { ...process.env, ANTHROPIC_API_KEY: "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return JSON.parse(p.stdout.toString());
+  };
+  runCodex();
+  let calls = readFileSync(envTo, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(calls.some((c) => c.args.includes("--message"))).toBe(false);
+  const explicit = runCodex("--test-push");
+  expect(explicit.push).toMatchObject({ enqueue: "accepted", processing: "unconfirmed" });
+  calls = readFileSync(envTo, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(calls.filter((c) => c.args.includes("--message"))).toHaveLength(1);
+  const terminal = runCodex("--host", "codex", "--test-push");
+  expect(terminal.push.enqueue).toBe("no-session");
+  expect(
+    readFileSync(envTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter((c) => c.args.includes("--message")),
+  ).toHaveLength(1);
+}, 60_000);

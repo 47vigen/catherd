@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -22,6 +22,7 @@ function catherd(args: string[], env: Record<string, string> = {}) {
 }
 
 const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
+  delivery: [],
   id: "20260925-1200-app",
   title: "app",
   repo: "/r/app",
@@ -266,4 +267,83 @@ describe("catherd runs", () => {
       "error E_RUN_NOT_LIVE: worker-M1.L1 has no live dispatch",
     ]);
   });
+});
+
+import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
+import { awaitsCollect } from "../../src/infra/dispatch-dir.ts";
+import { claimRun, runOwner } from "../../src/services/sessions.ts";
+import { fakeDeps } from "../services/helpers.ts";
+import { simPath, withScenario } from "../sim/scenario.ts";
+
+it("retry_requires_explicit_decision, canonical stored event and validated current owner", async () => {
+  const { run } = freshRun();
+  const target = {
+    host: "codex" as const,
+    sessionId: "01a0f53b-a47d-7350-83a4-c3430e453404",
+    hostSessionId: null,
+    name: null,
+  };
+  const deps = fakeDeps({ host: { host: "codex", session: target, conflict: null } });
+  await claimRun(deps, run);
+  const before = runOwner(run);
+  const d = await fakeDispatch(run, {}, { collect: true });
+  await appendRecord(run, makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId }));
+  const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+  writeDeliveryAttempt(d.dir, {
+    attemptId: "one",
+    target,
+    eventIds: [eventId],
+    at: "2026-10-01T12:00:00.000Z",
+    status: "ambiguous",
+    msgId: null,
+    reason: "unknown",
+  });
+  const envTo = join(process.env.CATHERD_HOME!, "retry-calls");
+  const s = withScenario({ queue: "accepted", envTo });
+  const env = {
+    ...s.env,
+    PATH: simPath(),
+    CODEX_THREAD_ID: target.sessionId,
+    CATHERD_ORCHESTRATION_HOST: "codex",
+  };
+  const args = ["runs", "retry-push", run.id, d.admit.name, "--event", eventId];
+  expect(catherd(args, env).code).toBe(2);
+  expect(catherd([...args, "--acknowledge-possible-duplicate"], { ...env, CODEX_THREAD_ID: "" }).code).toBe(
+    2,
+  );
+  expect(
+    catherd(
+      [
+        "runs",
+        "retry-push",
+        run.id,
+        d.admit.name,
+        "--event",
+        JSON.stringify(["other", d.admit.dispatchId, "finished"]),
+        "--acknowledge-possible-duplicate",
+      ],
+      env,
+    ).code,
+  ).toBe(2);
+  const retry = catherd([...args, "--acknowledge-possible-duplicate", "--json"], env);
+  expect(retry.code).toBe(0);
+  expect(JSON.parse(retry.out)).toMatchObject({ eventId, delivery: "enqueue-accepted" });
+  const sent = () =>
+    readFileSync(envTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((s) => JSON.parse(s))
+      .filter((c) => c.args.includes("--message"));
+  expect(sent()).toHaveLength(1);
+  expect(catherd([...args, "--acknowledge-possible-duplicate"], env).code).toBe(0);
+  expect(sent()).toHaveLength(1);
+  expect(awaitsCollect(d.dir)).toBe(true);
+  expect(runOwner(run)).toEqual(before);
+  const status = JSON.parse(catherd(["status", run.id, "--json"], env).out);
+  expect(status.runs[0].delivery[0]).toMatchObject({ eventId, delivery: "enqueue-accepted" });
+  expect(status.host.host).toBe("codex");
+  expect(status.queue.server).toBe("unverified");
+  const textStatus = catherd(["status", run.id], env).out;
+  expect(textStatus).toContain("host codex");
+  expect(textStatus).toContain("queue CLI supported · server unverified");
 });

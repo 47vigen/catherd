@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
+import { queueCapability } from "../../infra/codex-queue.ts";
 import { redact } from "../../infra/log.ts";
 import { registerSavedSecrets } from "../../services/jev-service.ts";
 import type { Deps } from "../../services/ports.ts";
@@ -59,9 +60,11 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
       inputSchema: { run: z.string().optional() },
     },
     (a) =>
-      handle(() => {
+      handle(async () => {
         registerSavedSecrets();
-        return redact(status(deps, a.run));
+        const queue =
+          deps.host.host === "codex" && !deps.host.conflict ? await queueCapability(process.env) : null;
+        return redact(status(deps, a.run, queue));
       }),
   );
 

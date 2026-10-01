@@ -1020,7 +1020,7 @@ describe("doctor", () => {
 it("codex_ready_other_profile_broken keeps readiness selected and does no Claude writes", async () => {
   const models = fx("codex/models.json");
   models.models.push({ ...models.models[1], slug: "gpt-6.1-sol" });
-  machine({ bins: ["codex"], codex: { models } });
+  machine({ bins: ["codex"], codex: { models, queue: "accepted" } });
   const repo = tempRepo();
   expect(createProfile("team", undefined, "codex").saved).toBe(true);
   activate("team", repo, "codex");
@@ -1090,4 +1090,24 @@ it("native failover-only missing managed links warn while the Claude host still 
   expect(r.ready).toBe(true);
   rmSync(join(process.env.CLAUDE_CONFIG_DIR!, "plugins"), { recursive: true, force: true });
   expect(check(await run(), "plugin")?.state).toBe("fail");
+});
+
+it("default_doctor_sends_nothing even when a smoke callback is available", async () => {
+  ready();
+  let sent = 0;
+  const push = async () => {
+    sent++;
+    return {
+      outcome: "ok" as const,
+      detail: "enqueue accepted",
+      enqueue: "accepted" as const,
+      processing: "unconfirmed" as const,
+      msgId: "receipt",
+    };
+  };
+  await run({ push });
+  expect(sent).toBe(0);
+  const explicit = await run({ testPush: true, push });
+  expect(sent).toBe(1);
+  expect(explicit.push).toMatchObject({ enqueue: "accepted", processing: "unconfirmed" });
 });
