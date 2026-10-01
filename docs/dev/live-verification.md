@@ -890,6 +890,8 @@ The daemon's PATH can differ from the installing shell's PATH. Prove the running
 
 Native MCP starts in the plugin root. Every repo-aware profile/setup/catalog call must pass the scratch project's explicit `repo`; `run_start(repo, ...)` already does. Tool names and deferred discovery vary: use exposed host capabilities. Codex must never call invented Claude `ToolSearch`, `PushNotification` or `Agent`. Profile notification moments use whatever host facility exists, without a fabricated scheduled-wake promise.
 
+Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog discovery and validation. If spelling differs, record the mismatch and resolve it explicitly with the owner before continuing; never silently normalize or substitute a model. Retain architect high and verifier low effort.
+
 Run the following cases through the installed shared skills in a scratch git repository. Use deterministic tool/lifecycle barriers to establish busy state, not a fixed correctness sleep. Save run/dispatch/event IDs, owner journal, actual stored records, receipt/message IDs and timestamps, observed native user-message processing/assistant continuation, and the separate `result` collection marker. Redact secrets from outward evidence.
 
 | Case | Required observation |

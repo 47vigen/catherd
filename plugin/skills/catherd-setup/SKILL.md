@@ -34,6 +34,8 @@ In one message, call:
 - `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line, for claude-code and opencode only: Codex reports no per-request input, so it has no harness figure;
 - `profile_get({ repo })`: where they stand now, with each role's `access` and `enforcement`. Pass the user's repo: without a name, the profile tools act on the profile this repo runs on (the one bound to it, else the active one), which `here` names; `active` is the global active profile.
 
+Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog discovery and validation. If its spelling differs, report the mismatch and resolve it explicitly with the owner; never silently normalize or substitute a model. Retain architect high and verifier low effort.
+
 ## 3. Propose one decision at a time
 
 Go through these in order, and skip any the user does not care about:

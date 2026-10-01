@@ -162,7 +162,7 @@ In either supported host, use the installed shared skills through that host's sk
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
   use, cost or speed, isolation, budget and failover.
 
-`route` chooses the backend for every role. Native `claude:` uses Claude Code's `Agent` and `record_agent_run` only on Claude Code; process backends, including Codex architect/verifier, use `dispatch` followed by `result`. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing native defaults. Explicit ladders and materialized profiles are preserved, without silently converting `claude:` to `claude-code:`. To opt into host defaults, review and save the narrow reset:
+`route` chooses the backend for every role. Native `claude:` uses Claude Code's `Agent` and `record_agent_run` only on Claude Code; process backends, including Codex architect/verifier, use `dispatch` followed by `result`. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing native defaults. Verify that exact model ID against native catalog discovery and validation; if spelling differs, resolve the mismatch explicitly with the owner, never silently normalize or substitute, and retain high/low efforts. Explicit ladders and materialized profiles are preserved, without silently converting `claude:` to `claude-code:`. To opt into host defaults, review and save the narrow reset:
 
 ```sh
 catherd profile reset-host-defaults <profile> --host codex --preview --json > /tmp/catherd-host-defaults-review.json
