@@ -61,8 +61,10 @@ ProfileService remains the sole writer of Claude agent links. It creates or upda
 The [native Codex messaging research](../research/2026-10-01-codex-messaging.md) supports the persistent queue as the minimum Codex transport. Preserve Claude's peer-inbox transport and its priority semantics. Codex delivery invokes the native command with an argument array:
 
 ```text
-codex queue --thread <validated original thread UUID> --message <completion text>
+codex queue --remote unix:// --thread <validated original thread UUID> --message <completion text>
 ```
+
+Bind the supported `--remote unix://` endpoint explicitly: native Codex resolves its existing control socket using preserved CODEX_HOME. Unqualified queue invocation can fall back to an embedded app-server when discovery fails; the sender must refuse unavailable existing-server delivery rather than permitting that fallback. Feature-detect the remote option alongside queue support.
 
 The orchestrator's MCP server is the sender. Preserve the user's `CODEX_HOME`, credentials and native configuration so the command reaches the same native queue/store. Check the installed command and server queue capability, rather than relying on a version threshold. Do not start remote-control infrastructure, start a second app-server, resume the original rollout under a competing writer, write SQLite directly, spoof host identity, automate the UI, or strip HOME/configuration to force delivery.
 
