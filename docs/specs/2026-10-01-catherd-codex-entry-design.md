@@ -1,6 +1,6 @@
 # catherd entry from Codex and Claude Code
 
-Date: 2026-10-01. Status: written design for owner review; approval of this document precedes implementation planning.
+Date: 2026-10-01. Status: owner-approved for implementation planning, including the requested `gpt-6-1-sol` defaults. Written plans require owner review before execution.
 
 ## Intent and scope
 
