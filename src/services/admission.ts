@@ -207,8 +207,6 @@ export async function admit(
   });
 
   await finalizeFinished(run, deps.now(), onRecorded);
-  const session = currentSession(deps);
-  const sessionId = i.sessionId !== undefined ? i.sessionId : (session?.sessionId ?? null);
   return withFileLock(runPaths(run.dir).admission, async () => {
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
@@ -248,6 +246,9 @@ export async function admit(
       throw new CatherdError("E_RUN_BUDGET", `the run budget is spent: ${formatBudget(budget)}`, {
         fix: "ask the user to raise profile.budget, or finish the run with what landed",
       });
+    const before = await statusSnapshot(run.meta.repo);
+    const session = currentSession(deps);
+    const sessionId = i.sessionId !== undefined ? i.sessionId : (session?.sessionId ?? null);
     const admitted: Admit = {
       schema: 1,
       runId: run.id,
@@ -268,7 +269,7 @@ export async function admit(
       cliVersion: probe.version,
       admittedAt: new Date(deps.now()).toISOString(),
       repo: run.meta.repo,
-      before: await statusSnapshot(run.meta.repo),
+      before,
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);

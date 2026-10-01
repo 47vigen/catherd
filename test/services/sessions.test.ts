@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
-import { lockHeld } from "../../src/infra/filelock.ts";
+import { lockHeld, tryLock } from "../../src/infra/filelock.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
 import * as store from "../../src/infra/store.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
@@ -265,4 +265,23 @@ it("new Codex origins survive another host taking ownership", async () => {
   expect(runOwner(run)).toMatchObject({ host: "claude-code", sessionId: "same" });
   expect(listDispatches(run)[0]?.admit).toMatchObject({ host: "codex", sessionId: "same" });
   expect(readRecords(run).records[0]).toMatchObject({ host: "codex", sessionId: "same" });
+});
+
+it("revalidates host identity after waiting for the state lock", async () => {
+  const { run } = freshRun();
+  const deps = fakeDeps({
+    host: {
+      host: "codex",
+      session: { host: "codex", sessionId: "old", hostSessionId: null, name: null },
+      conflict: null,
+    },
+  });
+  const release = tryLock(runPaths(run.dir).stateJson)!;
+  expect(release).toBeTruthy();
+  const pending = claimRun(deps, run);
+  deps.host = { host: "unknown", session: null, conflict: null };
+  release();
+  expect(await pending).toBe(false);
+  expect(runOwner(run)).toBeNull();
+  expect(readSessionRows(run)).toEqual([]);
 });

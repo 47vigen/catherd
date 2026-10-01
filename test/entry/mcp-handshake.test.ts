@@ -228,3 +228,35 @@ it("reinitialization invalidates an awaited request before it can claim ownershi
     await client.close();
   }
 });
+
+it("conflicts when explicit request threadId contradicts a validated connection target", async () => {
+  const { repo } = freshRun();
+  const first = "0199c011-1234-7000-8000-000000000001";
+  const second = "0199c011-1234-7000-8000-000000000002";
+  process.env.CODEX_THREAD_ID = first;
+  const deps = fakeDeps();
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const server = buildServer(deps);
+  await server.connect(serverSide);
+  const client = new Client({ name: "codex-mcp-client", version: "0" });
+  try {
+    await client.connect(clientSide);
+    await client.listTools();
+    expect(deps.host.session?.sessionId).toBe(first);
+    const start = (threadId: string) =>
+      client.callTool({
+        name: "run_start",
+        arguments: { repo, title: threadId, a_lines: ["A1"] },
+        _meta: { threadId, sessionId: second },
+      });
+    const conflicting = await start(second);
+    const run = findRun(JSON.parse((conflicting.content as { text: string }[])[0]!.text).run);
+    expect(run.meta.startedBy).toBeUndefined();
+    expect(runOwner(run)).toBeNull();
+    const matching = await start(first);
+    const owned = findRun(JSON.parse((matching.content as { text: string }[])[0]!.text).run);
+    expect(runOwner(owned)).toMatchObject({ host: "codex", sessionId: first });
+  } finally {
+    await client.close();
+  }
+});

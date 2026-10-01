@@ -88,6 +88,8 @@ export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   };
   // the trail row goes in under the same lock: the trail's last row is the owner (session-view reads it so)
   return withFileLock(p.stateJson, () => {
+    const live = currentSession(deps);
+    if (!live || sessionKey(live) !== sessionKey(me)) return false;
     const notes = readNotes(run);
     const owner = runOwner(run);
     if (owner && sessionKey(owner) === sessionKey(me)) {

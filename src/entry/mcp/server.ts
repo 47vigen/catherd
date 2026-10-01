@@ -43,7 +43,10 @@ function logToolCalls(
         const threadId = extra._meta.threadId;
         host =
           typeof threadId === "string"
-            ? resolveHost({ clientName: "codex-mcp-client", env: { CODEX_THREAD_ID: threadId } })
+            ? resolveHost({
+                clientName: "codex-mcp-client",
+                env: { CODEX_THREAD_ID: threadId, CODEX_SESSION_ID: host.session?.sessionId },
+              })
             : { host: "unknown", session: null, conflict: "Codex _meta.threadId must be a UUID string" };
       }
       const r = await scope.run(
