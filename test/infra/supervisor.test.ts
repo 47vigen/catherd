@@ -107,8 +107,10 @@ describe("supervise reports a stall (spec §3.6)", () => {
   });
 
   it("writes it once per dispatch, however many quiet stretches follow", async () => {
-    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again
-    const s = spec(`sleep 0.4; echo '{"type":"a"}'; sleep 0.4; echo '{"type":"b"}'`, { idleMs: 600 });
+    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again. Each
+    // stretch is half a second past the stall point and half a second short of the idle timeout, so a
+    // slow runner still sees both
+    const s = spec(`sleep 1.5; echo '{"type":"a"}'; sleep 1.5; echo '{"type":"b"}'`, { idleMs: 2000 });
     let first: string | null = null;
     const exit = await supervise(s, {
       isBusy: async () => false,
