@@ -218,7 +218,7 @@ describe("doctor", () => {
       word: "billing",
       detail:
         "1.0.44 · Grok login · profile default bills grok as metered, but this login is subscription · 2 models",
-      fix: "catherd profile set billing.grok subscription --profile default",
+      fix: "catherd profile set billing.grok subscription --profile default --host claude-code",
     });
     expect(check(r, "sandbox:grok")).toMatchObject({
       state: "info",
@@ -273,7 +273,7 @@ describe("doctor", () => {
       word: "billing",
       detail:
         "1.2.13 · Google login · profile default bills antigravity as metered, but this login is subscription · 6 models",
-      fix: "catherd profile set billing.antigravity subscription --profile default",
+      fix: "catherd profile set billing.antigravity subscription --profile default --host claude-code",
     });
     expect(check(r, "quota:antigravity")).toMatchObject({
       state: "info",
@@ -327,15 +327,15 @@ describe("doctor", () => {
     installPlugin(VERSION);
     patchProfile("default", {}, { host: "claude-code" });
     const to = (role: string) =>
-      `catherd profile set roles.${role}.rungs 'claude-code:claude-opus-5-5#medium' --profile default`;
+      `catherd profile set roles.${role}.rungs 'claude-code:claude-opus-5-5#medium' --profile default --host claude-code`;
     expect(check(await run(), "backend:codex")?.fix?.split("\n")).toEqual([
       "npm i -g @openai/codex",
       "or move its roles to claude-code: /catherd-setup in Claude Code, or run (artist needs codex, so it is turned off)",
-      "catherd profile set roles.worker.defaultRung null --profile default",
+      "catherd profile set roles.worker.defaultRung null --profile default --host claude-code",
       to("worker"),
       to("reviewer"),
       to("ui-reviewer"),
-      "catherd profile set roles.artist.enabled false --profile default",
+      "catherd profile set roles.artist.enabled false --profile default --host claude-code",
       to("writer"),
       to("researcher"),
     ]);
@@ -387,7 +387,9 @@ describe("doctor", () => {
     expect(saved.saved).toBe(true);
     const fix = check(await run(), "backend:codex")?.fix ?? "";
     const commands = fix.split("\n").filter((l) => l.startsWith("catherd "));
-    expect(commands).toContain("catherd profile set roles.worker.defaultRung null --profile default");
+    expect(commands).toContain(
+      "catherd profile set roles.worker.defaultRung null --profile default --host claude-code",
+    );
     const bin = binDir();
     const cli = join(import.meta.dir, "..", "..", "src", "cli.ts");
     writeFileSync(join(bin, "catherd"), `#!/bin/sh\nexec '${process.execPath}' '${cli}' "$@"\n`);
@@ -412,7 +414,7 @@ describe("doctor", () => {
     const fix = check(await run(), "backend:codex")?.fix ?? "";
     expect(fix).toContain("or move its roles to opencode: /catherd-setup in Claude Code, or run");
     expect(fix).toContain(
-      "\ncatherd profile set roles.worker.rungs 'opencode:opencode-go/gpt-6-luna#high' --profile default\n",
+      "\ncatherd profile set roles.worker.rungs 'opencode:opencode-go/gpt-6-luna#high' --profile default --host claude-code\n",
     );
   });
 
@@ -445,7 +447,7 @@ describe("doctor", () => {
       detail: expect.stringMatching(
         /^0\.157\.0 · API key login · profile default bills codex as chatgpt-plan, but this login is metered/,
       ),
-      fix: "catherd profile set billing.codex metered --profile default",
+      fix: "catherd profile set billing.codex metered --profile default --host claude-code",
     });
     expect(JSON.stringify(r)).not.toContain("sk-proj");
     patchProfile("default", { billing: { codex: "metered" } }, { host: "claude-code" });
@@ -917,8 +919,8 @@ describe("doctor", () => {
       fix: [
         "npm i -g agent-browser",
         "or turn the role off:",
-        "catherd profile set roles.ui-reviewer.enabled false --profile default",
-        "catherd profile set roles.ui-reviewer.enabled false --profile team",
+        "catherd profile set roles.ui-reviewer.enabled false --profile default --host claude-code",
+        "catherd profile set roles.ui-reviewer.enabled false --profile team --host claude-code",
       ].join("\n"),
     });
   }, 30_000);

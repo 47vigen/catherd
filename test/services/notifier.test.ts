@@ -264,42 +264,59 @@ describe("native owner-scoped receipts", () => {
     }
   });
 
-  it("a claim that cannot be persisted sends nothing, keeps the batch's other notices deliverable", async () => {
-    const { run } = freshRun();
-    const deps = nativeDeps();
-    await claimRun(deps, run);
-    const good = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
-    const bad = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
-    for (const d of [good, bad])
-      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
-    const real = delivery.writeDeliveryAttempt;
-    const spy = spyOn(delivery, "writeDeliveryAttempt").mockImplementation((dir, attempt) => {
-      if (dir === bad.dir) throw new Error("disk full");
-      real(dir, attempt);
-    });
-    const sent: string[] = [];
-    const n = nativeNotifier(deps, async (_target, content) => {
-      sent.push(content);
-      return { outcome: "accepted", msgId: `m${sent.length}` };
-    });
-    try {
-      await n.scan();
-      await n.idle();
+  for (const [failures, label] of [
+    [1, "a passing fault: the notice is retried and goes out"],
+    [Infinity, "a damaged file: the notice is given up after five passes"],
+  ] as const)
+    it(`a claim that cannot be persisted sends the batch's others at once; ${label}`, async () => {
+      const { run } = freshRun();
+      const deps = nativeDeps();
+      await claimRun(deps, run);
+      const good = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+      const bad = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+      for (const d of [good, bad])
+        store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+      const real = delivery.writeDeliveryAttempt;
+      let refused = 0;
+      const spy = spyOn(delivery, "writeDeliveryAttempt").mockImplementation((dir, attempt) => {
+        if (dir === bad.dir && attempt.status === "submitting" && refused < failures) {
+          refused++;
+          throw new Error("disk full");
+        }
+        real(dir, attempt);
+      });
+      const sent: string[] = [];
+      const n = nativeNotifier(deps, async (_target, content) => {
+        sent.push(content);
+        return { outcome: "accepted", msgId: `m${sent.length}` };
+      });
       const goodId = JSON.stringify([run.id, good.admit.dispatchId, "stalled"]);
-      expect(sent).toHaveLength(1);
-      expect(sent[0]).toContain(goodId);
-      expect(sent[0]).not.toContain(JSON.stringify([run.id, bad.admit.dispatchId, "stalled"]));
-      // the first batch's claim was rolled back as never submitted, then the requeued notice went out
-      expect(readDelivery(good.dir).map((a) => [a.status, a.eventIds])).toEqual([
-        ["failed", [goodId, JSON.stringify([run.id, bad.admit.dispatchId, "stalled"])]],
-        ["accepted", [goodId]],
-      ]);
-    } finally {
-      spy.mockRestore();
-      writeJsonAtomicForExit(good.dir);
-      writeJsonAtomicForExit(bad.dir);
-    }
-  });
+      const badId = JSON.stringify([run.id, bad.admit.dispatchId, "stalled"]);
+      try {
+        await n.scan();
+        await n.idle();
+        expect(sent[0]).toContain(goodId);
+        expect(sent[0]).not.toContain(badId);
+        // the first claim was rolled back as never submitted, then the healthy notice went out alone
+        expect(readDelivery(good.dir).map((a) => [a.status, a.eventIds])).toEqual([
+          ["failed", [goodId, badId]],
+          ["accepted", [goodId]],
+        ]);
+        if (failures === 1) {
+          expect(sent).toHaveLength(2);
+          expect(sent[1]).toContain(badId);
+          expect(readDelivery(bad.dir).map((a) => a.status)).toEqual(["accepted"]);
+        } else {
+          expect(sent).toHaveLength(1);
+          expect(refused).toBe(5);
+          expect(readDelivery(bad.dir)).toEqual([]);
+        }
+      } finally {
+        spy.mockRestore();
+        writeJsonAtomicForExit(good.dir);
+        writeJsonAtomicForExit(bad.dir);
+      }
+    });
 
   it("a receipt that cannot be persisted for one notice is still recorded for the batch's others", async () => {
     const { run } = freshRun();

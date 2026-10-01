@@ -153,6 +153,12 @@ export function agentsCheck(
     : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
 }
 
+/**
+ * ` --host <host>` for a fix doctor prints, when it judged on a known host: run from a plain terminal, the fix
+ * must judge the profile the same way (omitted architect/verifier rungs resolve per host).
+ */
+export const hostFlag = (host: OrchestrationHost): string => (host === "unknown" ? "" : ` --host ${host}`);
+
 /** The browser CLI the ui-reviewer's prompt takes its screenshots with. */
 const UI_BROWSER = "agent-browser";
 
@@ -160,7 +166,11 @@ const UI_BROWSER = "agent-browser";
  * The ui-reviewer takes screenshots with agent-browser: a profile that turns it on, on a machine without it,
  * dispatches a role that cannot do its job. Nothing to say when it is on PATH or no profile turns the role on.
  */
-export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => string | null): Check | null {
+export function uiBrowserCheck(
+  profiles: Profile[],
+  onPath: (bin: string) => string | null,
+  host: OrchestrationHost = "unknown",
+): Check | null {
   const on = profiles.filter((p) => p.roles["ui-reviewer"].enabled).map((p) => p.name);
   if (!on.length || onPath(UI_BROWSER)) return null;
   return {
@@ -172,7 +182,7 @@ export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => str
     fix: [
       `npm i -g ${UI_BROWSER}`,
       "or turn the role off:",
-      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}`),
+      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}${hostFlag(host)}`),
     ].join("\n"),
   };
 }

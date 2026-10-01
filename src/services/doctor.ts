@@ -14,6 +14,7 @@ import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
 import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
 import {
   agentsCheck,
+  hostFlag,
   type Check,
   errText,
   fixOf,
@@ -89,7 +90,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   );
 
   // every fix names the host doctor judged with: run elsewhere (a plain terminal), it must judge the same way
-  const onHost = d.host.host === "unknown" ? "" : ` --host ${d.host.host}`;
+  const onHost = hostFlag(d.host.host);
   let profiles: Profile[] = [];
   let linked: string[] = [];
   let active: Profile | null = null;
@@ -386,7 +387,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       detail: "the plugin's MCP launcher runs bunx when no global catherd is installed",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
-  const browser = uiBrowserCheck(mine, onPath);
+  const browser = uiBrowserCheck(mine, onPath, d.host.host);
   if (browser) checks.push(browser);
   let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];
   try {

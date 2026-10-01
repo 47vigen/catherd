@@ -161,7 +161,12 @@ interface Queued {
   mark: string;
   /** whether it is still news when the message goes */
   due: () => boolean;
+  /** how many passes could not write its delivery claim */
+  claimFailures?: number;
 }
+
+/** Passes a notice whose delivery claim cannot be written is kept for before it is given up (and logged). */
+const MAX_CLAIM_FAILURES = 5;
 
 /** Starts the notifier for this process's session and hooks it to every settled dispatch. */
 export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
@@ -232,46 +237,55 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
           log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
         }
       }
-      if (!due.length) return;
-      const notices = due.map((q) => q.notice);
-      const attempt: DeliveryAttempt = {
-        attemptId: crypto.randomUUID(),
-        target: {
-          host: target.host,
-          sessionId: target.sessionId,
-          hostSessionId: target.hostSessionId,
-          name: target.name,
-        },
-        eventIds: notices.map((n) => n.eventId),
-        at: new Date(deps.now()).toISOString(),
-        status: "submitting",
-        msgId: null,
-        reason: null,
-      };
-      const claimed: Queued[] = [];
-      for (const q of due) {
-        try {
-          writeDeliveryAttempt(q.dir, attempt);
-          claimed.push(q);
-        } catch (e) {
-          // nothing is sent unless every notice's claim is on disk: the claims already written are marked
-          // failed (provably not submitted, so still deliverable) and the others go back in the queue
-          log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
-          const undone: DeliveryAttempt = {
-            ...attempt,
-            status: "failed",
-            reason: "A claim in this batch was not persisted; nothing was submitted.",
-          };
-          for (const c of claimed)
-            try {
-              writeDeliveryAttempt(c.dir, undone);
-            } catch (u) {
-              log("warn", "notify", { error: errorMessage(u), dispatch: c.notice.dispatchId });
-            }
-          busy.push(...due.filter((x) => x !== q));
-          return;
-        }
+      // nothing is sent unless every notice's claim is on disk. A claim that cannot be written rolls the batch's
+      // written claims back to failed (provably not submitted, so still deliverable), keeps that notice for a
+      // later pass, and claims the rest again at once: one bad file never holds back the others
+      let attempt: DeliveryAttempt;
+      for (;;) {
+        if (!due.length) return;
+        attempt = {
+          attemptId: crypto.randomUUID(),
+          target: {
+            host: target.host,
+            sessionId: target.sessionId,
+            hostSessionId: target.hostSessionId,
+            name: target.name,
+          },
+          eventIds: due.map((q) => q.notice.eventId),
+          at: new Date(deps.now()).toISOString(),
+          status: "submitting",
+          msgId: null,
+          reason: null,
+        };
+        const claimed: Queued[] = [];
+        const broken = due.find((q) => {
+          try {
+            writeDeliveryAttempt(q.dir, attempt);
+            claimed.push(q);
+            return false;
+          } catch (e) {
+            log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
+            return true;
+          }
+        });
+        if (!broken) break;
+        const undone: DeliveryAttempt = {
+          ...attempt,
+          status: "failed",
+          reason: "A claim in this batch was not persisted; nothing was submitted.",
+        };
+        for (const c of claimed)
+          try {
+            writeDeliveryAttempt(c.dir, undone);
+          } catch (u) {
+            log("warn", "notify", { error: errorMessage(u), dispatch: c.notice.dispatchId });
+          }
+        // a claim that fails again and again is a damaged file, not a passing fault: it is given up then
+        broken.claimFailures = (broken.claimFailures ?? 0) + 1;
+        if (broken.claimFailures < MAX_CLAIM_FAILURES) busy.push(broken);
+        due.splice(due.indexOf(broken), 1);
       }
+      const notices = due.map((q) => q.notice);
       let outcome: QueueSendResult;
       const content = envelope(formatNotices(notices));
       try {
