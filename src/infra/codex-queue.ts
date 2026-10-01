@@ -6,6 +6,8 @@ export interface QueueCapability {
   cli: boolean;
   server: "supported" | "unsupported" | "unverified";
   reason: string | null;
+  /** false when nothing was probed yet: `cli` then says nothing about the CLI */
+  checked?: false;
 }
 export type QueueSendResult =
   | { outcome: "accepted"; msgId: string }
@@ -54,6 +56,14 @@ const PROBE_TTL_MS = 60_000;
 let known: { at: number; capability: QueueCapability } | null = null;
 let probing: Promise<void> | null = null;
 
+/** The capability a one-shot command reports without probing: it never waits, and doctor checks it. */
+export const UNCHECKED_QUEUE: QueueCapability = {
+  cli: false,
+  server: "unverified",
+  reason: "Native codex queue is not checked by this command; catherd doctor checks it.",
+  checked: false,
+};
+
 /**
  * The last known queue capability, without waiting on the Codex CLI: peek and status never wait (spec §3.7).
  * A missing or stale answer starts one probe in the background; until it lands the capability reads unchecked.
@@ -76,6 +86,7 @@ export function knownQueueCapability(
       cli: false,
       server: "unverified",
       reason: "Native codex queue is being checked; peek again for the result.",
+      checked: false,
     }
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -345,5 +345,25 @@ it("retry_requires_explicit_decision, canonical stored event and validated curre
   expect(status.queue.server).toBe("unverified");
   const textStatus = catherd(["status", run.id], env).out;
   expect(textStatus).toContain("host codex");
-  expect(textStatus).toContain("queue CLI supported · server unverified");
+  // a one-shot status never waits on the Codex CLI: doctor reports the queue capability
+  expect(textStatus).toContain("queue unchecked · Native codex queue is not checked by this command");
+});
+
+it("a one-shot status on codex never runs the Codex CLI for the queue capability", async () => {
+  const { run } = freshRun();
+  const envTo = join(process.env.CATHERD_HOME!, "status-calls");
+  const s = withScenario({ queue: "accepted", envTo });
+  const env = {
+    ...s.env,
+    PATH: simPath(),
+    CODEX_THREAD_ID: "01a0f53b-a47d-7350-83a4-c3430e453404",
+    CATHERD_ORCHESTRATION_HOST: "codex",
+  };
+  const r = catherd(["status", run.id, "--json"], env);
+  expect(r.code).toBe(0);
+  expect(JSON.parse(r.out).queue).toMatchObject({
+    cli: false,
+    reason: expect.stringContaining("catherd doctor"),
+  });
+  expect(existsSync(envTo)).toBe(false);
 });

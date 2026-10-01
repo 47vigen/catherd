@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { defineCommand } from "citty";
 import { assertId } from "../domain/ids.ts";
-import { queueCapability } from "../infra/codex-queue.ts";
+import { knownQueueCapability, UNCHECKED_QUEUE } from "../infra/codex-queue.ts";
 import { listDispatches } from "../services/dispatches.ts";
 import { retryDelivery } from "../services/notifier.ts";
 import { inspectDelivery } from "../services/run-debug.ts";
@@ -67,11 +67,20 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
   return lines;
 }
 
-async function printStatus(runId: string | undefined, asJson: boolean): Promise<void> {
+/**
+ * `live`: a long-lived watch, which reads the queue capability a background probe keeps fresh. A one-shot
+ * status never probes it: a slow Codex CLI must not delay the stored run state, nor hold the process open.
+ */
+async function printStatus(runId: string | undefined, asJson: boolean, live = false): Promise<void> {
   // redacted as `runs show` is: the state.md tail can quote a secret, and status goes to shared terminals
   registerSavedSecrets();
   const host = terminalHost(undefined);
-  const queue = host.host === "codex" && !host.conflict ? await queueCapability(process.env) : null;
+  const queue =
+    host.host === "codex" && !host.conflict
+      ? live
+        ? knownQueueCapability(process.env)
+        : UNCHECKED_QUEUE
+      : null;
   const r = redact(status(defaultDeps(host), runId, queue));
   if (asJson) return printJson(r);
   if (r.runs.length === 0) console.log("no runs yet");
@@ -99,7 +108,9 @@ async function printStatus(runId: string | undefined, asJson: boolean): Promise<
   console.log(`host ${r.host.host}${r.host.conflict ? ` · conflict: ${r.host.conflict}` : ""}`);
   if (r.queue)
     console.log(
-      `queue CLI ${r.queue.cli ? "supported" : "unavailable"} · server ${r.queue.server}${r.queue.reason ? ` · ${r.queue.reason}` : ""}`,
+      r.queue.checked === false
+        ? `queue unchecked · ${r.queue.reason}`
+        : `queue CLI ${r.queue.cli ? "supported" : "unavailable"} · server ${r.queue.server}${r.queue.reason ? ` · ${r.queue.reason}` : ""}`,
     );
   for (const w of r.warnings) console.log(`${mark("warn")} ${w}`);
 }
@@ -159,7 +170,7 @@ export const watchCommand = defineCommand({
     }
     for (;;) {
       if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
-      await printStatus(undefined, false);
+      await printStatus(undefined, false, true);
       console.log(`updated ${new Date().toLocaleTimeString()} · Ctrl-C to stop`);
       await Bun.sleep(every);
     }
