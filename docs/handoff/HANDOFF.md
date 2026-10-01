@@ -12,13 +12,13 @@ the live native catalog confirmed that spelling and both efforts on 2026-10-01. 
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Owner-approved; Tasks 1–2 implemented and personally verified; Tasks 3–4 in progress |
-| 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | Owner-approved; depends on plan 18; not executed |
+| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Implemented and personally verified; source head50468a7; see plan18-ledger.md |
+| 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | Owner-approved; implementation starts from verified plan18 head |
 | 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Owner-approved; depends on 18/19; not executed |
 
 Execute in order 18 → 19 → 20 on the dependent managed feature head. Owner approved all plans. The shared release remains held for actual packaged acceptance on Claude Code, Codex CLI and Codex Desktop; no push, release or CI checks are authorized. Native implementation uses the configured Codex model at low/medium effort, and the controller personally verifies implementation.
 
-Tasks 1–2 commits: `433a6c7`, `ebe0700`, review fixes `8055fb8`. Host resolution runs at actual MCP initialization; native request thread metadata stays request-scoped. Ownership/origins/session views use host plus session ID and preserve legacy decoding without read rewrites. Controller's focused checks passed 108/0, then review-fix covering tests 33/0 and typecheck. Worker full gate had one unchanged preflight deadline failure under load, which passed focused retry; details remain in the execution ledger. Tasks 3–4 are ongoing; this is not packaged acceptance.
+Tasks 1–2 commits: `433a6c7`, `ebe0700`, review fixes `8055fb8`. Host resolution runs at actual MCP initialization; native request thread metadata stays request-scoped. Ownership/origins/session views use host plus session ID and preserve legacy decoding without read rewrites. Controller's focused checks passed108/0, then review-fix covering tests33/0 and typecheck. Tasks3–4 commits9e37156/50468a7 implement exact host defaults, reviewed narrow reset, selected-profile dependencies, conditional Claude links and child identity scrubbing. Controller personally reviewed source and ran347pass1skip0fail plus stdio6/0 and all static checks. The worker full gate had ten migration failures; all failed files and amended paths passed focused corrections. Exact evidence/limits are in plan18-ledger.md. This remains unreleased and is not packaged acceptance.
 
 Docs ruling `04b074a`: native queue must bind supported `--remote unix://` so absent or failed daemon discovery cannot start an embedded app-server. Installed help/source validate the flag; actual explicit-endpoint acceptance is still Plan 19/20 work.
 
