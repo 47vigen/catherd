@@ -1,3 +1,4 @@
+import { sessionKey } from "../../domain/host.ts";
 import { isDeepStrictEqual } from "node:util";
 import {
   applyPatch,
@@ -112,7 +113,13 @@ const FIXTURE_RUNS: RunSummary[] = [
   summary({
     id: JOBS,
     title: "Jobs screen",
-    session: { sessionId: "s-jobs", hostSessionId: null, name: "jobs screen", live: true },
+    session: {
+      host: "claude-code",
+      sessionId: "s-jobs",
+      hostSessionId: null,
+      name: "jobs screen",
+      live: true,
+    },
     stateTail: ["M1 in review", "Next: fix round for M1.L2"],
     live: [
       {
@@ -141,7 +148,13 @@ const FIXTURE_RUNS: RunSummary[] = [
     title: "Auth refactor",
     repo: "/home/me/api",
     createdAt: "2026-09-25T09:00:00.000Z",
-    session: { sessionId: "s-auth", hostSessionId: null, name: "auth build", live: false },
+    session: {
+      host: "claude-code",
+      sessionId: "s-auth",
+      hostSessionId: null,
+      name: "auth build",
+      live: false,
+    },
     continuedIn: "kit follow-up",
     stateTail: ["Next: done"],
     totals: {
@@ -200,7 +213,7 @@ const auth = (continued: SessionRun["continued"]): SessionRun => ({
 export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   {
     row: {
-      key: "s-jobs",
+      key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }),
       name: "jobs screen",
       live: true,
       runs: 1,
@@ -267,7 +280,7 @@ export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   },
   {
     row: {
-      key: "s-kit",
+      key: sessionKey({ host: "claude-code", sessionId: "s-kit" }),
       name: "kit follow-up",
       live: false,
       runs: 1,
@@ -279,7 +292,7 @@ export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   },
   {
     row: {
-      key: "s-auth",
+      key: sessionKey({ host: "claude-code", sessionId: "s-auth" }),
       name: "auth build",
       live: false,
       runs: 2,

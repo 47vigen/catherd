@@ -1,3 +1,4 @@
+import type { KnownHost } from "../domain/host.ts";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
@@ -45,6 +46,7 @@ export interface AdmitInput {
   failoverOf?: string;
   /** the dispatching session (spec §3.3); absent means the session this process serves */
   sessionId?: string | null;
+  host?: KnownHost;
 }
 
 /** Spec §3.3: SIGTERM, then SIGKILL this long after. */
@@ -205,7 +207,8 @@ export async function admit(
   });
 
   await finalizeFinished(run, deps.now(), onRecorded);
-  const sessionId = i.sessionId !== undefined ? i.sessionId : (currentSession(deps)?.sessionId ?? null);
+  const session = currentSession(deps);
+  const sessionId = i.sessionId !== undefined ? i.sessionId : (session?.sessionId ?? null);
   return withFileLock(runPaths(run.dir).admission, async () => {
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
@@ -266,7 +269,7 @@ export async function admit(
       admittedAt: new Date(deps.now()).toISOString(),
       repo: run.meta.repo,
       before: await statusSnapshot(run.meta.repo),
-      ...(sessionId ? { sessionId } : {}),
+      ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included

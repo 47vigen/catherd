@@ -5,7 +5,9 @@ import { appendRecord, readRecords, runPaths } from "../../src/services/run-stor
 import { claimRun, runOwner } from "../../src/services/sessions.ts";
 import { call } from "../mcp-helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, makeRecord, waitFor } from "../services/helpers.ts";
-import { afterEach, describe, expect, it } from "bun:test";
+import * as git from "../../src/infra/git.ts";
+import { findRun } from "../../src/services/run-store.ts";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,4 +117,114 @@ describe("MCP initialization ownership boundary", () => {
       }
     }
   });
+});
+
+describe("native Codex request identity", () => {
+  it("keeps two thread IDs scoped across overlapping awaited calls and ignores transport sessionId", async () => {
+    const { repo } = freshRun();
+    const deps = fakeDeps();
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    const server = buildServer(deps);
+    await server.connect(serverSide);
+    const client = new Client({ name: "codex-mcp-client", version: "0" });
+    await client.connect(clientSide);
+    await client.listTools();
+    const first = "0199c011-1234-7000-8000-000000000001";
+    const second = "0199c011-1234-7000-8000-000000000002";
+    let entered!: () => void;
+    const bothEntered = new Promise<void>((r) => {
+      entered = r;
+    });
+    const releases: (() => void)[] = [];
+    const original = git.gitToplevel;
+    const mocked = spyOn(git, "gitToplevel").mockImplementation(async (path) => {
+      if (path === repo && releases.length < 2) {
+        await new Promise<void>((r) => {
+          releases.push(r);
+          if (releases.length === 2) entered();
+        });
+        return repo;
+      }
+      return original(path);
+    });
+    const start = (threadId: string, title: string) =>
+      client.callTool({
+        name: "run_start",
+        arguments: { repo, title, a_lines: ["A1"] },
+        _meta: { threadId, sessionId: "transport-session-is-not-the-thread" },
+      });
+    try {
+      const a = start(first, "first");
+      const b = start(second, "second");
+      await bothEntered;
+      releases[1]!();
+      const rb = await b;
+      releases[0]!();
+      const ra = await a;
+      const runOf = (r: typeof ra) => findRun(JSON.parse((r.content as { text: string }[])[0]!.text).run);
+      expect(runOf(ra).meta.startedBy).toMatchObject({ host: "codex", sessionId: first });
+      expect(runOf(rb).meta.startedBy).toMatchObject({ host: "codex", sessionId: second });
+      expect(runOwner(runOf(ra))).toMatchObject({ host: "codex", sessionId: first });
+      expect(runOwner(runOf(rb))).toMatchObject({ host: "codex", sessionId: second });
+      expect(deps.host).toEqual({ host: "codex", session: null, conflict: null });
+      await client.callTool({
+        name: "peek",
+        arguments: { run: runOf(ra).id },
+        _meta: { threadId: "invalid" },
+      });
+      expect(runOwner(runOf(ra))?.sessionId).toBe(first);
+    } finally {
+      for (const release of releases) release();
+      mocked.mockRestore();
+      await client.close();
+    }
+  });
+});
+
+it("reinitialization invalidates an awaited request before it can claim ownership", async () => {
+  const { repo } = freshRun();
+  const deps = fakeDeps();
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const server = buildServer(deps);
+  await server.connect(serverSide);
+  const client = new Client({ name: "codex-mcp-client", version: "0" });
+  await client.connect(clientSide);
+  await client.listTools();
+  let entered!: () => void;
+  const waiting = new Promise<void>((r) => {
+    entered = r;
+  });
+  let release!: () => void;
+  const barrier = new Promise<void>((r) => {
+    release = r;
+  });
+  const original = git.gitToplevel;
+  const mocked = spyOn(git, "gitToplevel").mockImplementation(async (path) => {
+    if (path === repo) {
+      entered();
+      await barrier;
+      return repo;
+    }
+    return original(path);
+  });
+  try {
+    const pending = client.callTool({
+      name: "run_start",
+      arguments: { repo, title: "interrupted", a_lines: ["A1"] },
+      _meta: { threadId: "0199c011-1234-7000-8000-000000000001" },
+    });
+    await waiting;
+    process.env.CLAUDE_CODE_SESSION_ID = "contradiction";
+    server.server.oninitialized!();
+    expect(deps.host.conflict).toBeTruthy();
+    release();
+    const result = await pending;
+    const run = findRun(JSON.parse((result.content as { text: string }[])[0]!.text).run);
+    expect(run.meta.startedBy).toBeUndefined();
+    expect(runOwner(run)).toBeNull();
+  } finally {
+    release();
+    mocked.mockRestore();
+    await client.close();
+  }
 });

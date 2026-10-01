@@ -39,10 +39,21 @@ describe("session identity and run ownership (spec §3.3)", () => {
     const deps = fakeDeps({ session: session(101, "s-a", "auth build", "desktop-1") });
     const { run } = await startRun(deps, { repo, title: "t", aLines: ["A1"] });
     const r = findRun(run);
-    expect(r.meta.startedBy).toEqual({ sessionId: "s-a", hostSessionId: "desktop-1", name: "auth build" });
-    expect(runOwner(r)).toEqual({ sessionId: "s-a", since: expect.any(String) });
+    expect(r.meta.startedBy).toEqual({
+      host: "claude-code",
+      sessionId: "s-a",
+      hostSessionId: "desktop-1",
+      name: "auth build",
+    });
+    expect(runOwner(r)).toEqual({ host: "claude-code", sessionId: "s-a", since: expect.any(String) });
     expect(readSessionRows(r)).toEqual([
-      { sessionId: "s-a", hostSessionId: "desktop-1", name: "auth build", at: expect.any(String) },
+      {
+        host: "claude-code",
+        sessionId: "s-a",
+        hostSessionId: "desktop-1",
+        name: "auth build",
+        at: expect.any(String),
+      },
     ]);
   });
 
@@ -60,10 +71,16 @@ describe("session identity and run ownership (spec §3.3)", () => {
     withHome();
     const env = session(102, "after-clear", "renamed");
     const deps = fakeDeps({ session: { ...env, sessionId: "before-clear" } });
-    expect(currentSession(deps)).toEqual({ sessionId: "after-clear", hostSessionId: null, name: "renamed" });
+    expect(currentSession(deps)).toEqual({
+      host: "claude-code",
+      sessionId: "after-clear",
+      hostSessionId: null,
+      name: "renamed",
+    });
     // no registry file: the environment's id, no name
     expect(currentSession(fakeDeps({ session: { ...env, socketPath: "/nowhere", sessionId: "x" } }))).toEqual(
       {
+        host: "claude-code",
         sessionId: "x",
         hostSessionId: null,
         name: null,
@@ -173,4 +190,79 @@ describe("session identity and run ownership (spec §3.3)", () => {
     const stand = listDispatches(run).find((x) => x.admit.dispatchId === s.started?.dispatchId);
     expect(stand?.admit.sessionId).toBe("s-owner");
   });
+});
+
+describe("host namespaces", () => {
+  it("same_id_different_hosts and cross_host_claim keep ownership distinct", async () => {
+    const { run } = freshRun();
+    const claude = fakeDeps({
+      host: {
+        host: "claude-code",
+        session: { host: "claude-code", sessionId: "same", hostSessionId: null, name: null },
+        conflict: null,
+      },
+    });
+    const codex = fakeDeps({
+      host: {
+        host: "codex",
+        session: { host: "codex", sessionId: "same", hostSessionId: null, name: null },
+        conflict: null,
+      },
+    });
+    expect(await claimRun(claude, run)).toBe(true);
+    expect(await claimRun(codex, run)).toBe(true);
+    expect(runOwner(run)).toMatchObject({ host: "codex", sessionId: "same" });
+    expect(readSessionRows(run).map((s) => s.host)).toEqual(["claude-code", "codex"]);
+    expect(await claimRun(fakeDeps(), run)).toBe(false);
+  });
+});
+
+it("legacy_host_decode: reads legacy owner, trail and origin without rewriting files", async () => {
+  const { run } = freshRun();
+  const paths = runPaths(run.dir);
+  writeFileSync(
+    paths.stateJson,
+    JSON.stringify({
+      schema: 1,
+      next: "",
+      lastCheck: null,
+      lastLandedAt: null,
+      owner: { sessionId: "legacy", since: "then", future: 3 },
+    }),
+  );
+  writeFileSync(
+    paths.sessions,
+    '{"kind":"sessions","schema":1}\n{"sessionId":"legacy","hostSessionId":null,"name":null,"at":"then","future":3}\n',
+  );
+  const state = readFileSync(paths.stateJson, "utf8");
+  const trail = readFileSync(paths.sessions, "utf8");
+  expect(runOwner(run)).toMatchObject({ host: "claude-code", sessionId: "legacy", future: 3 });
+  expect(readSessionRows(run)[0]).toMatchObject({ host: "claude-code", future: 3 });
+  expect(readFileSync(paths.stateJson, "utf8")).toBe(state);
+  expect(readFileSync(paths.sessions, "utf8")).toBe(trail);
+});
+
+it("new Codex origins survive another host taking ownership", async () => {
+  const { repo } = freshRun();
+  process.env.PATH = simPath();
+  Object.assign(process.env, withScenario({ reply: "ok\nSTATUS: complete — ok" }).env);
+  const deps = fakeDeps({
+    host: {
+      host: "codex",
+      session: { host: "codex", sessionId: "same", hostSessionId: null, name: "Codex" },
+      conflict: null,
+    },
+  });
+  const started = await startRun(deps, { repo, title: "Codex", aLines: ["A1"] });
+  const run = findRun(started.run);
+  expect(run.meta.startedBy).toMatchObject({ host: "codex", sessionId: "same" });
+  await dispatch(deps, { run: run.id, role: "worker", name: "w", brief: "b", rung: "codex:gpt-6-luna#high" });
+  await watchersSettled();
+  await claimRun(
+    fakeDeps({ session: { sessionId: "same", hostSessionId: null, socketPath: null, token: null } }),
+    run,
+  );
+  expect(runOwner(run)).toMatchObject({ host: "claude-code", sessionId: "same" });
+  expect(listDispatches(run)[0]?.admit).toMatchObject({ host: "codex", sessionId: "same" });
+  expect(readRecords(run).records[0]).toMatchObject({ host: "codex", sessionId: "same" });
 });

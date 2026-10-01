@@ -1,3 +1,4 @@
+import type { KnownHost } from "../domain/host.ts";
 import { assertId } from "../domain/ids.ts";
 import { noticeHeader } from "../domain/notice.ts";
 import { awaitsCollect } from "../infra/dispatch-dir.ts";
@@ -8,7 +9,7 @@ import { finishedNotice } from "./notifier.ts";
 import type { Deps } from "./ports.ts";
 import { type Reentry, reentry } from "./reentry.ts";
 import { findRun, listRuns, readAgentRuns, readRecords, type Run } from "./run-store.ts";
-import { currentSession, runOwner } from "./sessions.ts";
+import { ownsRun, runOwner } from "./sessions.ts";
 import { readNotes } from "./state.ts";
 
 export interface PeekRole {
@@ -28,6 +29,7 @@ export interface PeekRun extends Reentry {
   title: string;
   /** the session that owns the run now, null when none has */
   owner: string | null;
+  ownerHost: KnownHost | null;
   live: PeekRole[];
   /** each finished record not yet read, as the first line of its message */
   unread: { name: string; dispatchId: string; header: string }[];
@@ -49,6 +51,7 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
     run: run.id,
     title: run.meta.title,
     owner: runOwner(run)?.sessionId ?? null,
+    ownerHost: runOwner(run)?.host ?? null,
     live: liveDispatches(run, now)
       .filter(mine)
       .map((d) => ({
@@ -94,8 +97,7 @@ export async function peek(
     runs = [run];
   } else {
     const all = listRuns().runs;
-    const me = currentSession(deps);
-    const owned = me ? all.filter((r) => runOwner(r)?.sessionId === me.sessionId) : [];
+    const owned = all.filter((r) => ownsRun(deps, r));
     runs = owned.length ? owned : all.slice(0, 1);
   }
   const hints = runs.length === 0 ? ["no runs yet: run_start(repo, title, a_lines) starts one"] : [];

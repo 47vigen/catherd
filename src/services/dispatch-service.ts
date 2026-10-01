@@ -517,6 +517,7 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       failoverOf: d.admit.dispatchId,
       // the stand-in answers to the session that dispatched the limited role, whoever fails it over
       sessionId: d.admit.sessionId ?? null,
+      host: d.admit.host,
     });
   } catch (e) {
     if (!isCatherdError(e)) throw e;

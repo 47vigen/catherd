@@ -85,6 +85,7 @@ describe("runs grouped by session (spec §4)", () => {
     const r = run(repo, "Auth", "s-live", 5);
     registry(process.pid, "s-live", "renamed in Desktop");
     expect(sessionFacts(r).session).toEqual({
+      host: "claude-code",
       sessionId: "s-live",
       hostSessionId: null,
       name: "renamed in Desktop",
@@ -143,5 +144,64 @@ describe("runs grouped by session (spec §4)", () => {
     expect(sessionFacts(r).continuedIn).toBeNull();
     await claimRun(fakeDeps({ session: registry(4_000_002, "s-c", "third") }), r);
     expect(sessionFacts(r)).toMatchObject({ session: { sessionId: "s-a" }, continuedIn: "third" });
+  });
+});
+
+it("same_id_different_hosts: groups and live registry names use the host namespace", async () => {
+  withHome();
+  const repo = tempRepo();
+  const make = (host: "claude-code" | "codex") =>
+    createRun({
+      repo,
+      title: host,
+      aLines: ["A1"],
+      version: "0",
+      startedBy: { host, sessionId: "same", hostSessionId: null, name: host },
+    });
+  const claude = make("claude-code");
+  const codex = make("codex");
+  const groups = groupRuns(
+    [claude, codex],
+    [
+      {
+        pid: process.pid,
+        sessionId: "same",
+        name: "Claude registry",
+        hostSessionId: "outer",
+        messagingSocketPath: null,
+        status: "idle",
+      },
+    ],
+  );
+  expect(groups).toHaveLength(2);
+  expect(groups.find((g) => g.session?.host === "codex")?.session).toMatchObject({
+    host: "codex",
+    name: "codex",
+    live: false,
+    hostSessionId: null,
+  });
+  expect(groups.find((g) => g.session?.host === "claude-code")?.session).toMatchObject({
+    host: "claude-code",
+    name: "Claude registry",
+    live: true,
+  });
+  await claimRun(
+    fakeDeps({
+      host: {
+        host: "codex",
+        session: { host: "codex", sessionId: "same", hostSessionId: null, name: "continued" },
+        conflict: null,
+      },
+    }),
+    claude,
+  );
+  const moved = groupRuns([claude]);
+  expect(moved.find((g) => g.session?.host === "claude-code")?.runs[0]).toMatchObject({
+    continued: "elsewhere",
+    current: false,
+  });
+  expect(moved.find((g) => g.session?.host === "codex")?.runs[0]).toMatchObject({
+    continued: "here",
+    current: true,
   });
 });

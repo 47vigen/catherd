@@ -1,3 +1,4 @@
+import { sessionKey } from "../../domain/host.ts";
 import { realpathSync, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
@@ -247,7 +248,7 @@ export function rowOf(s: RunSummary): RunRow {
     roleRuns: s.totals.runs,
     landed: s.milestones.length,
     budget: s.budget?.fraction ?? null,
-    session: s.session?.sessionId ?? null,
+    session: s.session ? sessionKey(s.session) : null,
   };
 }
 

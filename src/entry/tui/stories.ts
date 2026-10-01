@@ -1,3 +1,4 @@
+import { sessionKey } from "../../domain/host.ts";
 import type { ProfilePatch } from "../../domain/profile.ts";
 import type { CommandId } from "./commands.ts";
 import type { FixtureOptions } from "./fixtures.ts";
@@ -58,19 +59,25 @@ export const STORIES: Story[] = [
   {
     name: "session",
     title: "Runs: one session with two runs, one continued elsewhere",
-    steps: [{ command: "tab.runs" }, { action: { type: "session", key: "s-auth" } }],
+    steps: [
+      { command: "tab.runs" },
+      { action: { type: "session", key: sessionKey({ host: "claude-code", sessionId: "s-auth" }) } },
+    ],
   },
   {
     name: "session-live",
     title: "Runs: a live session with three live roles",
-    steps: [{ command: "tab.runs" }, { action: { type: "session", key: "s-jobs" } }],
+    steps: [
+      { command: "tab.runs" },
+      { action: { type: "session", key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }) } },
+    ],
   },
   {
     name: "role",
     title: "Runs: a role opened",
     steps: [
       { command: "tab.runs" },
-      { action: { type: "session", key: "s-jobs" } },
+      { action: { type: "session", key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }) } },
       { action: { type: "role", run: "20260926-114800-jobs-screen", dispatchId: "d1" } },
     ],
   },
@@ -79,7 +86,7 @@ export const STORIES: Story[] = [
     title: "Runs: a milestone opened on its digest",
     steps: [
       { command: "tab.runs" },
-      { action: { type: "session", key: "s-jobs" } },
+      { action: { type: "session", key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }) } },
       { action: { type: "milestone", run: "20260926-114800-jobs-screen", name: "M0" } },
     ],
   },

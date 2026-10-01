@@ -1,3 +1,4 @@
+import { sessionKey, type HostSessionRef } from "../domain/host.ts";
 import { z } from "zod";
 import { sessionFileFor } from "../infra/claude-session.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -6,29 +7,34 @@ import type { Deps } from "./ports.ts";
 import { type Run, runPaths } from "./run-store.ts";
 import { readNotes } from "./state.ts";
 
-/** Spec §4: a Claude Code session as catherd records it. */
-export interface SessionRef {
-  sessionId: string;
-  hostSessionId: string | null;
-  name: string | null;
-}
+/** Spec §4: a host session as catherd records it. */
+export type SessionRef = HostSessionRef;
 
 /**
  * The session this process serves (spec §3.3), read live: its registry file's id and name when it has one (the
- * id in the environment goes stale after /clear), else the environment's. Null outside Claude Code.
+ * id in the environment goes stale after /clear), else the environment's. Null without known, consistent host identity.
  */
 export function currentSession(deps: Deps): SessionRef | null {
   if (deps.host.host === "unknown" || deps.host.conflict) return null;
   if (deps.host.host === "codex") return deps.host.session;
   const env = deps.session;
-  if (!env) return null;
+  if (!env) return deps.host.session;
   const file = sessionFileFor(env);
   const sessionId = file?.sessionId ?? env.sessionId;
   if (!sessionId) return null;
-  return { sessionId, hostSessionId: file?.hostSessionId ?? env.hostSessionId, name: file?.name ?? null };
+  return {
+    host: "claude-code",
+    sessionId,
+    hostSessionId: file?.hostSessionId ?? env.hostSessionId,
+    name: file?.name ?? null,
+  };
 }
 
-const OwnerSchema = z.object({ sessionId: z.string(), since: z.string() });
+const OwnerSchema = z.looseObject({
+  host: z.enum(["claude-code", "codex"]).default("claude-code"),
+  sessionId: z.string(),
+  since: z.string(),
+});
 export type Owner = z.infer<typeof OwnerSchema>;
 
 /** The run's owner session (state.json `owner`), or null for a run no session has owned (1.0, a terminal). */
@@ -40,10 +46,12 @@ export function runOwner(run: Run): Owner | null {
 /** Whether this process serves a session and that session owns the run now. */
 export function ownsRun(deps: Deps, run: Run): boolean {
   const me = currentSession(deps);
-  return me !== null && runOwner(run)?.sessionId === me.sessionId;
+  const owner = runOwner(run);
+  return me !== null && owner !== null && sessionKey(owner) === sessionKey(me);
 }
 
 const SessionRowSchema = z.looseObject({
+  host: z.enum(["claude-code", "codex"]).default("claude-code"),
   sessionId: z.string(),
   hostSessionId: z.string().nullable(),
   name: z.string().nullable(),
@@ -61,8 +69,7 @@ export function readSessionRows(run: Run): SessionRow[] {
 
 /**
  * Spec §3.3: `run_start`, `dispatch` and `peek` make the calling session the run's owner when it is not, and
- * append it to `R/sessions.jsonl`: that is how a run moves when it is continued from another session. Outside
- * Claude Code it changes nothing. Returns whether the owner changed.
+ * append it to `R/sessions.jsonl`: that is how a run moves when it is continued from another session. Without host session identity it changes nothing. Returns whether the owner changed.
  */
 export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   const me = currentSession(deps);
@@ -72,6 +79,7 @@ export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   const row = (since: string): void => {
     ensureJsonlHeader(p.sessions, "sessions");
     appendJsonl(p.sessions, {
+      host: me.host,
       sessionId: me.sessionId,
       hostSessionId: me.hostSessionId,
       name: me.name,
@@ -82,12 +90,16 @@ export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
   return withFileLock(p.stateJson, () => {
     const notes = readNotes(run);
     const owner = runOwner(run);
-    if (owner?.sessionId === me.sessionId) {
+    if (owner && sessionKey(owner) === sessionKey(me)) {
       // a crash between the state.json write and the append left the trail without its owner: repaired here
-      if (readSessionRows(run).at(-1)?.sessionId !== me.sessionId) row(owner.since);
+      const last = readSessionRows(run).at(-1);
+      if (!last || sessionKey(last) !== sessionKey(me)) row(owner.since);
       return false;
     }
-    writeJsonAtomic(p.stateJson, { ...notes, owner: { sessionId: me.sessionId, since: at } });
+    writeJsonAtomic(p.stateJson, {
+      ...notes,
+      owner: { ...owner, host: me.host, sessionId: me.sessionId, since: at },
+    });
     row(at);
     return true;
   });

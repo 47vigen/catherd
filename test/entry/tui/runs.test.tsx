@@ -1,3 +1,4 @@
+import { sessionKey } from "../../../src/domain/host.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { TextAttributes } from "@opentui/core";
 import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
@@ -229,7 +230,9 @@ describe("the Runs tab (spec §4)", () => {
     await h.advance(2 * RUNS_EVERY_MS);
     expect(reads).toBe(3);
     // a session open hides the list: no read until esc shows it again, and then one at once
-    await h.run(() => h!.app().dispatch({ type: "session", key: "s-jobs" }));
+    await h.run(() =>
+      h!.app().dispatch({ type: "session", key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }) }),
+    );
     await h.advance(5 * RUNS_EVERY_MS);
     expect(reads).toBe(3);
     await h.run(() => h!.app().dispatch({ type: "up" }));
@@ -333,6 +336,8 @@ describe("the Runs tab (spec §4)", () => {
   });
 
   it("keeps a fixture of every shape the frames need", () => {
-    expect(FIXTURE_SESSIONS.map((s) => s.row.key)).toEqual(["s-jobs", "s-kit", "s-auth"]);
+    expect(FIXTURE_SESSIONS.map((s) => s.row.key)).toEqual(
+      ["s-jobs", "s-kit", "s-auth"].map((sessionId) => sessionKey({ host: "claude-code", sessionId })),
+    );
   });
 });
