@@ -106,6 +106,23 @@ describe("dispatch routes an unrouted lane first (spec 1.1 §6)", () => {
     expect(s.hints).toContain(`codex:gpt-6-luna#low is not on M1.L1's routed ladder: dispatched at ${L1}`);
   });
 
+  it("on codex, routes an off-ladder native Claude rung to a runnable one instead of refusing it", async () => {
+    const { run, deps } = setup();
+    deps.host = { host: "codex", session: null, conflict: null };
+    const s = await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "b",
+      rung: "claude:claude-opus-5-5#high",
+      lane: "M1.L1",
+    });
+    expect(s.dispatched.rung).toBe(L0);
+    expect(s.hints).toContain(
+      `claude:claude-opus-5-5#high is not on M1.L1's routed ladder: dispatched at ${L0}`,
+    );
+  });
+
   it("does not route a lane again, nor a role without a lane", async () => {
     const { run, deps } = setup();
     await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });

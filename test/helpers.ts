@@ -26,6 +26,9 @@ export function withHome(): string {
   // grok's home, whose sandbox.toml a native workspace-write prepare edits: never the developer's own
   process.env.GROK_HOME = join(home, "grok-home");
   for (const k of [
+    "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
+    "CATHERD_ORCHESTRATION_HOST",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_HOST_SESSION_ID",
     "CLAUDE_CODE_MESSAGING_SOCKET",

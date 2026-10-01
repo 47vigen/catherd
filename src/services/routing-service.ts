@@ -1,3 +1,4 @@
+import { assertNativeHost } from "./backends.ts";
 import { BUDGET_CHEAP_AT } from "../domain/budget.ts";
 import { errorMessage } from "../domain/errors.ts";
 import {
@@ -171,7 +172,11 @@ async function verdict<T extends string>(
 /** The routing port over the 1.0 catalog and Jev (spec §5); `o` lets tests inject Jev's transport. */
 export function routingService(o: RoutingOpts = {}): RoutingPort {
   return {
-    route: (req) => route(req, o),
+    route: async (req) => {
+      const result = await route(req, o);
+      assertNativeHost(result.rung, req.host ?? "unknown");
+      return result;
+    },
     finding: (runDir, laneText, finding, use) =>
       verdict(
         runDir,

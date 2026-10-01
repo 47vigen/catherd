@@ -20,6 +20,10 @@ writeFileSync(
   path("plugin/.claude-plugin/plugin.json"),
   read("plugin/.claude-plugin/plugin.json").replace(/"version": "[^"]+"/, `"version": "${version}"`),
 );
+writeFileSync(
+  path("plugin/.codex-plugin/plugin.json"),
+  read("plugin/.codex-plugin/plugin.json").replace(/"version": "[^"]+"/, `"version": "${version}"`),
+);
 
 // the marketplace serves the plugin from its release tag, so `main` never ships skills ahead of the server
 writeFileSync(

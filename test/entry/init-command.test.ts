@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
 import {
@@ -15,18 +15,21 @@ import { VERSION } from "../../src/infra/version.ts";
 import { aaKey, saveAaKey } from "../../src/services/credentials.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import type { SyncReport } from "../../src/services/source-sync.ts";
-import { patchProfile } from "../../src/services/profile-service.ts";
+import { activate, patchProfile } from "../../src/services/profile-service.ts";
+import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
+import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
-import { noPosixModes, openModes, snapshotEnv, withHome } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
 
-function init(args: string[], stdin = "") {
+function init(args: string[], stdin = "", cwd?: string) {
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "init", ...args], {
     // no backend CLI, no Jev key and no Anthropic key: nothing reaches the network or the user's own CLIs
     env: {
       ...process.env,
+      CATHERD_ORCHESTRATION_HOST: args.includes("--host") ? "" : "claude-code",
       // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
       PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
       // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
@@ -36,6 +39,7 @@ function init(args: string[], stdin = "") {
       ANTHROPIC_API_KEY: "",
     },
     stdin: new TextEncoder().encode(stdin),
+    cwd,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -134,6 +138,23 @@ describe("globalStep (spec 1.1 §12)", () => {
 });
 
 describe("catherd init", () => {
+  it("Codex --no-input uses the effective repo profile and leaves the native global default unlinked", () => {
+    withHome();
+    const repo = tempRepo();
+    patchProfile("default", { roles: structuredClone(BUILTIN_ROLES) }, { host: "claude-code" });
+    // Remove existing links to expose any unwanted setup linking of the global profile.
+    rmSync(claudeAgentsDir(), { recursive: true, force: true });
+    patchProfile("repo-codex", { budget: { usd: 9 } }, { host: "codex" });
+    activate("repo-codex", repo, "codex");
+    const r = init(["--host", "codex", "--no-input", "--no-global"], "", repo);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain("profile repo-codex kept as it was, and active");
+    expect(activeName()).toBe("default");
+    expect(activeName(repo)).toBe("repo-codex");
+    expect(existsSync(claudeAgentsDir())).toBe(false);
+    expect(getProfile("repo-codex", "codex").budget).toEqual({ usd: 9 });
+  }, 60_000);
+
   it("--no-input writes and activates the default profile, reports readiness, and ends with the plugin steps", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
@@ -196,15 +217,15 @@ describe("catherd init", () => {
   it("--no-input keeps a profile it finds", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    patchProfile("default", { budget: { usd: 9 } });
+    patchProfile("default", { budget: { usd: 9 } }, { host: "claude-code" });
     expect(init(["--no-input"]).out).toContain("✓ profile default kept as it was, and active\n");
-    expect(getProfile("default").budget).toEqual({ usd: 9 });
+    expect(getProfile("default", "claude-code").budget).toEqual({ usd: 9 });
   }, 60_000);
 
   it("reads piped answers: empty keys skip Jev and Artificial Analysis, a name picks the profile, y replaces it", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    patchProfile("team", { budget: { usd: 9 } });
+    patchProfile("team", { budget: { usd: 9 } }, { host: "claude-code" });
     const r = init([], "\n\nteam\ny\n");
     expect(r.code).toBe(0);
     expect(r.out).toContain("TypeSafe API key for Jev (optional; Enter skips): \n- Jev: no key;");
@@ -214,7 +235,7 @@ describe("catherd init", () => {
     // the suite sets CATHERD_NO_SYNC=1 (test/preload.ts): init says so instead of reaching the network
     expect(r.out).toContain("- sources: not synced (CATHERD_NO_SYNC=1); catherd catalog sync fetches them\n");
     expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
-    expect([activeName(), getProfile("team").budget]).toEqual(["team", {}]);
+    expect([activeName(), getProfile("team", "claude-code").budget]).toEqual(["team", {}]);
   }, 60_000);
 
   it("keeps piped answers in place when a saved key skips the key question", () => {

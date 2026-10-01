@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 export interface CodexScenario {
   version?: string;
+  /** Native queue support and response; unset keeps the command unavailable. */
+  queue?: "accepted" | "malformed" | "unsupported" | "no-remote";
   loggedIn?: boolean;
   /** how `codex login status` says it is logged in (default ChatGPT) */
   login?: "chatgpt" | "api-key";

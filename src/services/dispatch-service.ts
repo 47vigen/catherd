@@ -1,3 +1,4 @@
+import { assertNativeHost } from "./backends.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
@@ -34,7 +35,7 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
 import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
-import { claimRun, ownsRun } from "./sessions.ts";
+import { claimRun, ownsRun, runOwner } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -101,17 +102,21 @@ export interface Stalled {
 export const stallHooks = new Set<(s: Stalled) => void>();
 
 /** A watcher's poll: the first time the dispatch's stall.json is there, every stall hook hears of it. */
+/** A stall's quiet time; 0 when stall.json is being written or damaged, so one bad file never blocks a notice. */
+export function readStallQuietMs(dir: string): number {
+  try {
+    return Number(JSON.parse(readFileSync(dispatchPaths(dir).stall, "utf8")).quietMs) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function stallPoll(run: Run, d: Dispatch): () => void {
   let seen = false;
   return () => {
     if (seen || !existsSync(dispatchPaths(d.dir).stall)) return;
     seen = true;
-    let quietMs = 0;
-    try {
-      quietMs = Number(JSON.parse(readFileSync(dispatchPaths(d.dir).stall, "utf8")).quietMs) || 0;
-    } catch {
-      // being written: the stall is reported without its length
-    }
+    const quietMs = readStallQuietMs(d.dir);
     for (const hook of stallHooks) {
       try {
         hook({ run, d, quietMs });
@@ -294,6 +299,8 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
       hints.push(`${i.rung} is not on ${i.lane}'s routed ladder: dispatched at ${routed.rung}`);
     }
   }
+  // the rung that runs, after routing: an off-ladder native rung routing replaced is never launched
+  assertNativeHost(rung, deps.host.host);
   const { d, specPath } = await admit(
     deps,
     run,
@@ -493,6 +500,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
   // else that stand-in never ran and is over (recorded as lost, or past its start grace): admit a new one
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { hints, started: null, pause: paused };
+  // the stand-in answers to whoever owns the run now, which a claim from another host may have changed
+  assertNativeHost(standIn, runOwner(run)?.host ?? deps.host.host);
   if (parseRung(standIn).backend === "claude") {
     const agent = deps.profiles.agentFor(run.meta.repo, d.admit.role, standIn);
     return {
@@ -517,6 +526,7 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
       failoverOf: d.admit.dispatchId,
       // the stand-in answers to the session that dispatched the limited role, whoever fails it over
       sessionId: d.admit.sessionId ?? null,
+      host: d.admit.host,
     });
   } catch (e) {
     if (!isCatherdError(e)) throw e;

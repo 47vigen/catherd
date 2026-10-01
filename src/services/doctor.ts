@@ -1,3 +1,5 @@
+import { queueCapability, type QueueCapability } from "../infra/codex-queue.ts";
+import type { HostContext } from "../domain/host.ts";
 import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -8,10 +10,11 @@ import type { JevTransport } from "../infra/jev-client.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
-import { type PushProbe, pushCheck } from "./doctor-push.ts";
+import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
 import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
 import {
   agentsCheck,
+  hostFlag,
   type Check,
   errText,
   fixOf,
@@ -31,9 +34,13 @@ import {
   readProjects,
   validateNamed,
 } from "./profile-store.ts";
+import { inspectionHost } from "./run-debug.ts";
 import { listRuns } from "./run-store.ts";
 
 export interface DoctorReport {
+  host: HostContext;
+  queue: QueueCapability | null;
+  push: PushProbe | null;
   /** false when any check failed: `catherd doctor` exits 3 */
   ready: boolean;
   version: string;
@@ -49,13 +56,17 @@ export interface Handshake {
 }
 
 export interface DoctorDeps {
+  host: HostContext;
+  repo: string | null;
   bunVersion: string;
   /** the package version, which the Claude Code plugin must pin */
   version: string;
   /** starts the MCP server as the plugin does (its launcher) over stdio and asks it for tools/list */
   handshake: () => Promise<Handshake>;
-  /** spec §3.9: sends this Claude Code session a test message; without it (the dashboard) there is no `push` row */
+  /** Explicit smoke test injection; default doctor never invokes it. */
   push?: () => Promise<PushProbe>;
+  testPush?: boolean;
+  env?: Record<string, string | undefined>;
   jev?: JevTransport;
 }
 
@@ -78,13 +89,15 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       : { id: "bun", label: "Bun", state: "ok", word: "ready", detail: d.bunVersion },
   );
 
+  // every fix names the host doctor judged with: run elsewhere (a plain terminal), it must judge the same way
+  const onHost = hostFlag(d.host.host);
   let profiles: Profile[] = [];
   let linked: string[] = [];
   let active: Profile | null = null;
   try {
     readConfig();
     readProjects();
-    active = getProfile(activeName());
+    active = getProfile(activeName(d.repo), d.host.host);
     linked = linkedProfiles();
     checks.push({
       id: "config",
@@ -106,7 +119,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // one unreadable linked profile must not hide the others' backends: its own row below reports it
   profiles = linked.flatMap((n) => {
     try {
-      return [getProfile(n)];
+      return [getProfile(n, d.host.host)];
     } catch {
       return [];
     }
@@ -118,7 +131,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
         checks.push({
           id: `binding:${repo}`,
           label: `binding ${repo}`,
-          state: "fail",
+          state: repo === d.repo ? "fail" : "warn",
           word: "missing",
           detail: `bound to profile ${name}, which does not exist`,
           fix: `cd ${repo} && catherd profile use --repo --clear`,
@@ -131,30 +144,32 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const names = active ? [active.name, ...linked.filter((n) => n !== active?.name)] : [];
   for (const name of names) {
     const id = name === active?.name ? "profile" : `profile:${name}`;
-    const validate = `catherd profile validate ${name}`;
+    const validate = `catherd profile validate ${name}${onHost}`;
     const named = (fix: string) =>
-      fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name} `);
-    checks.push(
-      guarded(id, `profile ${name}`, validate, () => {
-        const v = validateNamed(name);
-        const first = v.errors[0] ?? v.warnings[0];
-        return {
-          id,
-          label: `profile ${name}`,
-          state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
-          word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
-          detail: first
-            ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
-            : "valid",
-          ...(first ? { fix: first.fix ? named(first.fix) : validate } : {}),
-        };
-      }),
-    );
+      fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name}${onHost} `);
+    const row = guarded(id, `profile ${name}`, validate, () => {
+      const v = validateNamed(name, d.repo, d.host.host);
+      const first = v.errors[0] ?? v.warnings[0];
+      return {
+        id,
+        label: `profile ${name}`,
+        state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
+        word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
+        detail: first
+          ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
+          : "valid",
+        ...(first ? { fix: first.fix ? named(first.fix) : validate } : {}),
+      };
+    });
+    if (name !== active?.name && row.state === "fail") row.state = "warn";
+    checks.push(row);
   }
 
+  const diagnostics = profiles;
+  profiles = active ? [active] : [];
   const used = usedBackends(profiles);
   const installed = new Set<string>();
-  checks.push(...(await backendChecks(used, profiles, installed)));
+  checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({
@@ -194,18 +209,44 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
 
   // spec 1.2 §9: the public sources' ages and errors, the Artificial Analysis key, and the active and linked
   // profiles' stand-ins to confirm
-  const mine = [...(active ? [active] : []), ...profiles.filter((p) => p.name !== active?.name)];
+  const mine = [...(active ? [active] : []), ...diagnostics.filter((p) => p.name !== active?.name)];
   checks.push(
     guarded("sources", "sources", "catherd catalog sync --force", () =>
       sourcesCheck(Date.now(), standInsToConfirmIn(mine)),
     ),
   );
 
-  checks.push(pluginCheck(d.version));
+  const native = used.get("claude");
+  const plugin = pluginCheck(d.version);
+  if (d.host.host !== "claude-code" && native !== "role") {
+    plugin.state = native === "failover" ? "warn" : "skip";
+    plugin.word = native === "failover" ? "optional" : "not required";
+  }
+  checks.push(plugin);
 
+  // relinks the profile doctor checked: this repo's binding when it has one, else the active profile
+  let bound = false;
+  try {
+    bound = d.repo !== null && readProjects().bindings[d.repo] === active?.name;
+  } catch {
+    // the config row above already reports an unreadable projects.json
+  }
+  const relink = active
+    ? `${bound ? `cd ${d.repo} && ` : ""}catherd profile use ${active.name}${bound ? " --repo" : ""}${onHost}`
+    : "";
   checks.push(
     active
-      ? guarded("agents", "Claude agents", `catherd profile use ${activeName()}`, agentsCheck)
+      ? guarded("agents", "Claude agents", relink, () =>
+          native
+            ? agentsCheck(d.host.host, [active!.name], relink)
+            : {
+                id: "agents",
+                label: "Claude agents",
+                state: "skip",
+                word: "not required",
+                detail: "selected profile has no native Claude roles",
+              },
+        )
       : {
           id: "agents",
           label: "Claude agents",
@@ -215,15 +256,39 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
         },
   );
 
+  const agents = checks.find((c) => c.id === "agents");
+  if (native === "failover" && agents?.state === "fail") agents.state = "warn";
+
   const h = await d
     .handshake()
     .catch((e: unknown): Handshake => ({ ok: false, tools: [], error: errText(e) }));
   checks.push(mcpCheck(h, d.version));
 
-  if (d.push)
-    checks.push(
-      pushCheck(await d.push().catch((e: unknown): PushProbe => ({ outcome: "failed", detail: errText(e) }))),
-    );
+  const queue =
+    d.host.host === "codex" && !d.host.conflict ? await queueCapability(d.env ?? process.env) : null;
+  if (queue)
+    checks.push({
+      id: "push-capability",
+      label: "native Codex queue",
+      state:
+        !queue.cli || queue.server === "unsupported" ? "fail" : queue.server === "unverified" ? "warn" : "ok",
+      word: !queue.cli ? "unavailable" : queue.server,
+      detail: queue.reason ?? "Native server advertises queue support",
+      ...(!queue.cli || queue.server === "unsupported"
+        ? { fix: "Update native Codex/server; use peek/result while push is unavailable." }
+        : {}),
+    });
+  let push: PushProbe | null = null;
+  if (d.testPush) {
+    push = await (d.push ?? (() => probePush(d.host, d.env ?? process.env)))().catch((): PushProbe => ({
+      outcome: "failed",
+      enqueue: "ambiguous",
+      processing: "unconfirmed",
+      msgId: null,
+      detail: "Smoke has no verified receipt; retry may duplicate input. Use peek/result.",
+    }));
+    checks.push(pushCheck(push));
+  }
 
   checks.push(locksCheck());
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
@@ -322,7 +387,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       detail: "the plugin's MCP launcher runs bunx when no global catherd is installed",
       fix: "put Bun's bin folder (~/.bun/bin) on PATH",
     });
-  const browser = uiBrowserCheck(mine, onPath);
+  const browser = uiBrowserCheck(mine, onPath, d.host.host);
   if (browser) checks.push(browser);
   let corrupt: ReturnType<typeof listRuns>["corrupt"] = [];
   try {
@@ -347,5 +412,12 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       fix: `fix or delete ${corrupt[0]?.dir}`,
     });
 
-  return { ready: !checks.some((c) => c.state === "fail"), version: d.version, checks };
+  return {
+    host: inspectionHost(d.host),
+    queue,
+    push,
+    ready: !checks.some((c) => c.state === "fail"),
+    version: d.version,
+    checks,
+  };
 }

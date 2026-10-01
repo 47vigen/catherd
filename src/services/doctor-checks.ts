@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
@@ -131,9 +132,13 @@ export function locksCheck(): Check {
   }
 }
 
-export function agentsCheck(): Check {
+export function agentsCheck(
+  host: OrchestrationHost,
+  selected?: string[],
+  relink = `catherd profile use ${activeName()}`,
+): Check {
   const base = { id: "agents", label: "Claude agents" };
-  const links = agentLinkState();
+  const links = agentLinkState(host, selected);
   const broken = [...links.missing, ...links.stale];
   if (broken.length)
     return {
@@ -141,12 +146,18 @@ export function agentsCheck(): Check {
       state: "fail",
       word: links.missing.length ? "missing" : "stale",
       detail: broken.join(", "),
-      fix: `catherd profile use ${activeName()}`,
+      fix: relink,
     };
   return links.ok.length
     ? { ...base, state: "ok", word: "ready", detail: `${links.ok.length} linked` }
     : { ...base, state: "skip", word: "none", detail: "no profile uses a native Claude rung" };
 }
+
+/**
+ * ` --host <host>` for a fix doctor prints, when it judged on a known host: run from a plain terminal, the fix
+ * must judge the profile the same way (omitted architect/verifier rungs resolve per host).
+ */
+export const hostFlag = (host: OrchestrationHost): string => (host === "unknown" ? "" : ` --host ${host}`);
 
 /** The browser CLI the ui-reviewer's prompt takes its screenshots with. */
 const UI_BROWSER = "agent-browser";
@@ -155,7 +166,11 @@ const UI_BROWSER = "agent-browser";
  * The ui-reviewer takes screenshots with agent-browser: a profile that turns it on, on a machine without it,
  * dispatches a role that cannot do its job. Nothing to say when it is on PATH or no profile turns the role on.
  */
-export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => string | null): Check | null {
+export function uiBrowserCheck(
+  profiles: Profile[],
+  onPath: (bin: string) => string | null,
+  host: OrchestrationHost = "unknown",
+): Check | null {
   const on = profiles.filter((p) => p.roles["ui-reviewer"].enabled).map((p) => p.name);
   if (!on.length || onPath(UI_BROWSER)) return null;
   return {
@@ -167,7 +182,7 @@ export function uiBrowserCheck(profiles: Profile[], onPath: (bin: string) => str
     fix: [
       `npm i -g ${UI_BROWSER}`,
       "or turn the role off:",
-      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}`),
+      ...on.map((n) => `catherd profile set roles.ui-reviewer.enabled false --profile ${n}${hostFlag(host)}`),
     ].join("\n"),
   };
 }

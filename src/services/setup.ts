@@ -1,3 +1,6 @@
+import { ADAPTER_IDS } from "../domain/ids.ts";
+import { usedBackends } from "./doctor-backends.ts";
+import type { HostContext } from "../domain/host.ts";
 import { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Issue } from "../domain/profile-rules.ts";
@@ -5,7 +8,14 @@ import { configDir } from "../infra/paths.ts";
 import { type Refreshed, refreshDiscovery } from "./catalog-service.ts";
 import type { Synced } from "./agent-links.ts";
 import { activate, resetProfile, withProfilesLock } from "./profile-service.ts";
-import { configFile, profilesDir, projectsFile } from "./profile-store.ts";
+import {
+  activeName,
+  configFile,
+  getProfile,
+  profilesDir,
+  projectsFile,
+  readProjects,
+} from "./profile-store.ts";
 import { ensurePrivateDir } from "../infra/store.ts";
 
 /** True when profile `name` has a file (`default` exists as a name even before it has one). */
@@ -65,23 +75,34 @@ export interface InitResult {
 /**
  * Spec §8 `catherd init`, the setup half: moves 0.x files aside, writes the default profile (spec §7.2)
  * unless a 1.0 one exists and `overwrite` is not set, makes it active and links its agents, and lists
- * every backend's models. It never throws for a default profile that does not validate here: it writes
- * nothing, returns the errors, and activates the profile only when it has a file.
+ * backend models, skipping unused headless Claude on a Codex host. Defaults that do not validate return
+ * errors without a write; the profile becomes active only when it has a file.
  */
-export async function initSetup(
-  o: { profile?: string; overwrite?: boolean; now?: Date } = {},
-): Promise<InitResult> {
+export async function initSetup(o: {
+  profile?: string;
+  repo?: string | null;
+  overwrite?: boolean;
+  now?: Date;
+  host: HostContext;
+}): Promise<InitResult> {
   const moved = moveLegacy(o.now);
-  const profile = o.profile ?? "default";
+  const profile = o.profile ?? activeName(o.repo);
   let created = false;
   let errors: Issue[] = [];
   if (!hasProfileFile(profile) || o.overwrite === true) {
-    const saved = resetProfile(profile);
+    const saved = resetProfile(profile, o.host.host);
     created = saved.saved;
     errors = saved.errors;
   }
   const active = hasProfileFile(profile);
-  const synced = active ? activate(profile) : null;
-  const refreshed = await refreshDiscovery();
+  const repo =
+    o.profile === undefined && o.repo && readProjects().bindings[o.repo] !== undefined ? o.repo : null;
+  const synced = active ? activate(profile, repo, o.host.host) : null;
+  const used = usedBackends(active ? [getProfile(profile, o.host.host)] : []);
+  const backends =
+    o.host.host === "codex" && !used.has("claude-code")
+      ? ADAPTER_IDS.filter((id) => id !== "claude-code")
+      : undefined;
+  const refreshed = await refreshDiscovery({ backends });
   return { moved, profile, created, errors, active, synced, refreshed };
 }

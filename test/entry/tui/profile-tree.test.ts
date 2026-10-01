@@ -53,7 +53,7 @@ const GLM: CatalogModel = {
 
 function input(o: Partial<TreeInput> & { profile?: Profile } = {}): TreeInput {
   withHome();
-  const profile = o.profile ?? resolveProfile(defaultProfileDoc(), "default");
+  const profile = o.profile ?? resolveProfile(defaultProfileDoc(), "default", "claude-code");
   const staged = o.staged ?? {};
   const catalog = withStaged(loadCatalog({ timings: false }), staged);
   return {
@@ -64,7 +64,7 @@ function input(o: Partial<TreeInput> & { profile?: Profile } = {}): TreeInput {
     expanded: new Set(),
     harnesses: ["codex", "claude-code", "opencode"],
     enforcement: (rung) => (rung.startsWith("codex:") ? "enforced" : "advisory"),
-    validation: validateProfile(profile, catalog, BACKENDS),
+    validation: validateProfile(profile, catalog, BACKENDS, undefined, "claude-code"),
     ...o,
   };
 }
@@ -147,6 +147,7 @@ describe("the Profiles tree (spec §9.1)", () => {
     const profile = resolveProfile(
       applyPatch(defaultProfileDoc(), { roles: { worker: { enabled: false } } }),
       "x",
+      "claude-code",
     );
     const rows = buildRows(input({ profile }));
     expect(row(rows, "role:worker")).toMatchObject({ value: "off", issue: { level: "error" } });
@@ -164,7 +165,7 @@ describe("the Profiles tree (spec §9.1)", () => {
 });
 
 describe("edits", () => {
-  const p = resolveProfile(defaultProfileDoc(), "default");
+  const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
 
   it("toggles a role and cycles its access", () => {
     expect(patchFor(p, { type: "role", role: "writer" })).toEqual({ roles: { writer: { enabled: false } } });
@@ -198,7 +199,7 @@ describe("edits", () => {
     expect(patchFor(p, { type: "isolated", harness: "codex" })).toEqual({
       harness: { codex: { isolated: true } },
     });
-    const q = resolveProfile(applyPatch(defaultProfileDoc(), { notify: ["blocked"] }), "q");
+    const q = resolveProfile(applyPatch(defaultProfileDoc(), { notify: ["blocked"] }), "q", "claude-code");
     expect(patchFor(q, { type: "notify", moment: "milestone" })).toEqual({
       notify: ["milestone", "blocked"],
     });

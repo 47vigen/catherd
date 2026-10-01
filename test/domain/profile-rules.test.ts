@@ -19,7 +19,13 @@ const BACKENDS = ["codex", "claude-code", "opencode", "claude"];
 /** The catalog as loadCatalog serves it: the shipped files, with each rung's inferred stand-ins. */
 const catalog = (o: Parameters<typeof shipped>[0] = {}) => withStandIns(shipped(o));
 const check = (patch: ProfilePatch = {}, c = catalog()) =>
-  validateProfile(resolveProfile(applyPatch(defaultProfileDoc(), patch), "p"), c, BACKENDS);
+  validateProfile(
+    resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+    c,
+    BACKENDS,
+    undefined,
+    "claude-code",
+  );
 const messages = (issues: { message: string }[]) => issues.map((i) => i.message);
 
 describe("validateProfile", () => {
@@ -85,7 +91,11 @@ describe("validateProfile", () => {
     // a role with one rung runs it whatever the bars say: nothing to confirm there
     expect(
       standInsToConfirm(
-        resolveProfile(applyPatch(defaultProfileDoc(), { roles: { reviewer: { rungs: [terra] } } }), "p"),
+        resolveProfile(
+          applyPatch(defaultProfileDoc(), { roles: { reviewer: { rungs: [terra] } } }),
+          "p",
+          "claude-code",
+        ),
         c,
         BACKENDS,
       ),
@@ -308,4 +318,20 @@ describe("profile repair (spec 1.2 §6.2)", () => {
     // a profile that does not exist yet has no errors to repair
     expect(repairs(null, { errors: [e("a", "one")], warnings: [] })).toBe(false);
   });
+});
+
+it("rejects native Claude on Codex including reachable failover without converting backend IDs", () => {
+  const rung = "codex:gpt-6-sol#high";
+  const doc = applyPatch(defaultProfileDoc(), {
+    roles: { reviewer: { rungs: [rung] } },
+    failover: { [rung]: "claude:claude-opus-5-5#low" },
+  });
+  const p = resolveProfile(doc, "default", "codex");
+  const v = validateProfile(p, catalog(), BACKENDS, doc, "codex");
+  expect(v.errors).toContainEqual({
+    path: `failover.${rung}`,
+    message: "claude:claude-opus-5-5#low: native Claude subagents require the claude-code orchestration host",
+    fix: "use claude-code:claude-opus-5-5#low for headless execution, or --host claude-code",
+  });
+  expect(p.failover[rung]).toBe("claude:claude-opus-5-5#low");
 });

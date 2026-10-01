@@ -54,6 +54,23 @@ if (args[0] === "sandbox" && s.sandbox) {
   const r = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
   process.exit(r.exitCode ?? 1);
 }
+if (args[0] === "queue" && s.queue) {
+  if (args.includes("--help")) {
+    say(`Usage: codex queue --thread <THREAD> --message <MESSAGE>${s.queue === "no-remote" ? "" : "\n  --remote <URL>"}`);
+    process.exit(0);
+  }
+  if (args[1] !== "--remote" || args[2] !== "unix://") {
+    process.stderr.write("error: simulator queue requires explicit --remote unix://\n");
+    process.exit(2);
+  }
+  if (s.queue === "unsupported") {
+    process.stderr.write("Error: the remote app server does not support thread/queue/add; update or restart the remote app server\n");
+    process.exit(1);
+  }
+  const thread = args[args.indexOf("--thread") + 1];
+  say(s.queue === "malformed" ? "Queued message." : `Queued message 01a0f547-7947-7972-90a0-a7ad547170e0 for thread ${thread}.`);
+  process.exit(0);
+}
 if (args[0] !== "exec") {
   process.stderr.write(`error: unrecognized subcommand '${args[0]}'\n`);
   process.exit(2);

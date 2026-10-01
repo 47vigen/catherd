@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs";
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { assertProfileName } from "../domain/profile.ts";
 import { defineCommand } from "citty";
 import type { Catalog } from "../domain/catalog.ts";
 import { rungInfo } from "../domain/catalog.ts";
 import { CatherdError } from "../domain/errors.ts";
-import { type Change, patchAt, type Profile } from "../domain/profile.ts";
+import type { OrchestrationHost } from "../domain/host.ts";
+import { ProfileDocSchema, type Change, patchAt, type Profile } from "../domain/profile.ts";
 import { inferredScores, type Issue } from "../domain/profile-rules.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { gitToplevel } from "../infra/git.ts";
@@ -15,6 +18,7 @@ import {
   deleteProfile,
   diffNamed,
   patchProfile,
+  resetHostDefaults,
   unbind,
 } from "../services/profile-service.ts";
 import {
@@ -24,6 +28,7 @@ import {
   listProfiles,
   profileExists,
   readProjects,
+  readProfileDoc,
   requireProfile,
   roleEnforcement,
   runnableBackends,
@@ -139,7 +144,10 @@ const list = defineCommand({
     name: "list",
     description: "Every profile, the one this repo runs on (*), and the repos bound to each",
   },
-  args: json,
+  args: {
+    ...HOST_ARG,
+    ...json,
+  },
   async run({ args }) {
     const active = await activeHere();
     const bindings = Object.entries(readProjects().bindings);
@@ -161,11 +169,20 @@ const show = defineCommand({
     name: "show",
     description: "A profile with every default filled in (without a name: the one this repo runs on)",
   },
-  args: { name: { type: "positional", required: false, description: "profile name" }, ...json },
+  args: {
+    ...HOST_ARG,
+    name: { type: "positional", required: false, description: "profile name" },
+    raw: { type: "boolean", description: "stored document without effective defaults" },
+    ...json,
+  },
   async run({ args }) {
     const here = await activeHere();
     const name = args.name === undefined ? here : requireProfile(args.name);
-    const p = getProfile(name);
+    if (args.raw)
+      return args.json
+        ? printJson(readProfileDoc(name))
+        : console.log(JSON.stringify(readProfileDoc(name), null, 2));
+    const p = getProfile(name, terminalHost(args.host).host);
     const o = {
       active: name === here,
       enforcement: roleEnforcement(p),
@@ -183,6 +200,7 @@ const use = defineCommand({
       "Make a profile active, bind it to this repo with --repo, or unbind this repo with --repo --clear",
   },
   args: {
+    ...HOST_ARG,
     name: { type: "positional", required: false, description: "profile name" },
     repo: { type: "boolean", description: "bind it to the git repo you are in, instead of making it active" },
     clear: { type: "boolean", description: "with --repo and no name: unbind the git repo you are in" },
@@ -193,7 +211,7 @@ const use = defineCommand({
         throw new CatherdError("E_INPUT_INVALID", "--clear goes with --repo and no profile name", {
           fix: "catherd profile use --repo --clear, inside the repo to unbind",
         });
-      const r = unbind(await repoHere());
+      const r = unbind(await repoHere(), terminalHost(args.host).host);
       console.log(`${mark("ok")} ${r.repo} is unbound`);
       printSynced(r);
       return;
@@ -202,7 +220,7 @@ const use = defineCommand({
       throw new CatherdError("E_INPUT_INVALID", "which profile? name one", {
         fix: "catherd profile use <name> [--repo], or catherd profile use --repo --clear",
       });
-    const r = activate(args.name, args.repo ? await repoHere() : null);
+    const r = activate(args.name, args.repo ? await repoHere() : null, terminalHost(args.host).host);
     console.log(`${mark("ok")} ${r.active} ${r.repo ? `is bound to ${r.repo}` : "is active"}`);
     printSynced(r);
   },
@@ -211,11 +229,12 @@ const use = defineCommand({
 const create = defineCommand({
   meta: { name: "new", description: "A new profile from the default one, or from --from <profile>" },
   args: {
+    ...HOST_ARG,
     name: { type: "positional", required: true, description: "new profile name" },
     from: { type: "string", description: "copy this profile instead of the default one" },
   },
   run({ args }) {
-    const r = createProfile(args.name, args.from);
+    const r = createProfile(args.name, args.from, terminalHost(args.host).host);
     if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} created ${args.name}${args.from ? ` from ${args.from}` : ""}`);
     printIssues([], r.warnings);
@@ -225,11 +244,12 @@ const create = defineCommand({
 const copy = defineCommand({
   meta: { name: "copy", description: "Copy a profile under a new name" },
   args: {
+    ...HOST_ARG,
     from: { type: "positional", required: true, description: "profile to copy" },
     to: { type: "positional", required: true, description: "new profile name" },
   },
   run({ args }) {
-    const r = createProfile(args.to, args.from);
+    const r = createProfile(args.to, args.from, terminalHost(args.host).host);
     if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} copied ${args.from} to ${args.to}`);
     printIssues([], r.warnings);
@@ -238,7 +258,10 @@ const copy = defineCommand({
 
 const rm = defineCommand({
   meta: { name: "rm", description: "Delete a profile and its agent files (never the active or a bound one)" },
-  args: { name: { type: "positional", required: true, description: "profile name" } },
+  args: {
+    ...HOST_ARG,
+    name: { type: "positional", required: true, description: "profile name" },
+  },
   run({ args }) {
     deleteProfile(args.name);
     console.log(`${mark("ok")} deleted ${args.name}`);
@@ -252,6 +275,7 @@ const set = defineCommand({
       "Set one field: e.g. roles.worker.access read-only, budget.usd 20, failover.<rung> <rung>, roles.worker.rungs a,b; null removes",
   },
   args: {
+    ...HOST_ARG,
     path: { type: "positional", required: true, description: "dotted path, e.g. roles.verifier.access" },
     value: { type: "positional", required: true, description: "JSON, or a plain word; null removes the key" },
     profile: { type: "string", description: "the profile to change (default: the one this repo runs on)" },
@@ -262,7 +286,9 @@ const set = defineCommand({
       throw new CatherdError("E_INPUT_INVALID", `no profile named "${args.profile}"`, {
         fix: `catherd profile new ${args.profile}`,
       });
-    const r = patchProfile(args.profile ?? (await activeHere()), patchAt(args.path, args.value));
+    const r = patchProfile(args.profile ?? (await activeHere()), patchAt(args.path, args.value), {
+      host: terminalHost(args.host).host,
+    });
     if (!r.saved) throw refused(r.errors);
     if (r.diff.length === 0) console.log("no change");
     for (const c of r.diff) console.log(`${mark("ok")} ${formatChange(c)}`);
@@ -282,6 +308,7 @@ const diff = defineCommand({
     description: "What differs between two profiles (the second defaults to the one this repo runs on)",
   },
   args: {
+    ...HOST_ARG,
     a: { type: "positional", required: true, description: "profile" },
     b: { type: "positional", required: false, description: "profile (default: the one this repo runs on)" },
     ...json,
@@ -290,6 +317,7 @@ const diff = defineCommand({
     const changes = diffNamed(
       args.b === undefined ? await activeHere() : requireProfile(args.b),
       requireProfile(args.a),
+      terminalHost(args.host).host,
     );
     if (args.json) return printJson(changes);
     if (changes.length === 0) console.log("no differences");
@@ -300,6 +328,7 @@ const diff = defineCommand({
 const validate = defineCommand({
   meta: { name: "validate", description: "Errors that block a save, and warnings that do not" },
   args: {
+    ...HOST_ARG,
     name: {
       type: "positional",
       required: false,
@@ -309,7 +338,11 @@ const validate = defineCommand({
   },
   async run({ args }) {
     const repo = await gitToplevel(process.cwd());
-    const v = validateNamed(args.name === undefined ? activeName(repo) : requireProfile(args.name), repo);
+    const v = validateNamed(
+      args.name === undefined ? activeName(repo) : requireProfile(args.name),
+      repo,
+      terminalHost(args.host).host,
+    );
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);
     else printIssues(v.errors, v.warnings);
@@ -317,8 +350,71 @@ const validate = defineCommand({
   },
 });
 
+const HOSTS: readonly OrchestrationHost[] = ["claude-code", "codex", "unknown"];
+
+const resetDefaults = defineCommand({
+  meta: {
+    name: "reset-host-defaults",
+    description: "Review and explicitly reset only architect/verifier host defaults",
+  },
+  args: {
+    ...HOST_ARG,
+    ...JSON_ARG,
+    name: { type: "positional", required: false },
+    preview: { type: "boolean" },
+    expect: { type: "string", description: "reviewed preview JSON file" },
+  },
+  async run({ args }) {
+    const name = args.name === undefined ? await activeHere() : requireProfile(args.name);
+    const host = terminalHost(args.host).host;
+    let r;
+    if (args.preview) r = resetHostDefaults(name, host, { preview: true });
+    else {
+      if (!args.expect)
+        throw new CatherdError(
+          "E_INPUT_INVALID",
+          "saving host defaults requires --expect <reviewed-preview.json>",
+          { fix: "run reset-host-defaults --preview --json and review the output first" },
+        );
+      let expected, reviewed;
+      try {
+        const raw = JSON.parse(readFileSync(args.expect, "utf8")) as Record<string, unknown> | null;
+        expected = ProfileDocSchema.parse(raw?.expect);
+        const { profile, host: previewed } = raw ?? {};
+        if (typeof profile !== "string" || !HOSTS.includes(previewed as OrchestrationHost))
+          throw new Error("unbound preview");
+        reviewed = { profile, host: previewed as OrchestrationHost };
+      } catch {
+        throw new CatherdError("E_INPUT_INVALID", "invalid reviewed preview file", {
+          fix: "pass the JSON output of reset-host-defaults --preview --json",
+        });
+      }
+      r = resetHostDefaults(name, host, { preview: false, expect: expected, reviewed });
+    }
+    if (args.json) printJson(r);
+    else {
+      for (const c of r.diff) console.log(formatChange(c));
+      printIssues(r.errors, r.warnings);
+      printSynced(r);
+    }
+    if (r.errors.length) process.exitCode = EXIT.error;
+  },
+});
+
 /** Spec §8: `catherd profile list|show|use [--repo [--clear]]|new|copy|rm|set <path> <value>|diff|validate`. */
 export const profileCommand = defineCommand({
   meta: { name: "profile", description: "Profiles: which models each role runs, and how" },
-  subCommands: { list, show, use, new: create, copy, rm, set, diff, validate },
+  args: HOST_ARG,
+  subCommands: {
+    "reset-host-defaults": resetDefaults,
+    list,
+    show,
+    use,
+    new: create,
+    copy,
+    rm,
+    set,
+    diff,
+    validate,
+  },
 });

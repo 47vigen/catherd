@@ -76,9 +76,14 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     {
       description:
         "A profile (without a name: the profile this repo runs on, i.e. the one bound to `repo`, default this server's directory, else the active one) as the run engine reads it, with every default filled in: per role its access mode, rungs and default rung, and whether its backend enforces the access (enforcement); billing, jev, harness isolation, failover, budget, timeouts, preflight, lock and notify. Also `active` (the global active profile), `here` (the profile this repo runs on) and every name.",
-      inputSchema: { name: PROFILE, repo: REPO },
+      inputSchema: { name: PROFILE, repo: REPO, raw: z.boolean().optional() },
     },
-    (a) => handle(async () => deps.profiles.get(a.name, await toplevel(a.repo))),
+    (a) =>
+      handle(async () =>
+        a.raw && deps.profiles.raw
+          ? deps.profiles.raw(a.name, await toplevel(a.repo))
+          : deps.profiles.get(a.name, await toplevel(a.repo)),
+      ),
   );
 
   server.registerTool(

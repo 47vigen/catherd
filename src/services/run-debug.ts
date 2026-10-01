@@ -1,15 +1,107 @@
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { sessionKey, type HostContext, type HostSessionRef } from "../domain/host.ts";
+import { deliveryState, readDelivery, type DeliveryState } from "../infra/delivery.ts";
 import type { ExitInfo, RunRecord } from "../domain/record.ts";
-import { dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths, readExit } from "../infra/dispatch-dir.ts";
 import { redact } from "../infra/log.ts";
-import { listDispatches } from "./dispatches.ts";
+import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { registerSavedSecrets } from "./jev-service.ts";
+import { runOwner } from "./sessions.ts";
 import { readRecords, type Run } from "./run-store.ts";
 
 /** How many trailing lines of stderr, events and the supervisor log `runs show --debug` prints. */
 export const TAIL_LINES = 20;
 
-export interface DispatchDebug {
+export function inspectionHost(host: HostContext): HostContext {
+  const target = host.session;
+  return {
+    host: host.host,
+    conflict: host.conflict,
+    session: target
+      ? {
+          host: target.host,
+          sessionId: target.sessionId,
+          hostSessionId: target.hostSessionId,
+          name: target.name,
+        }
+      : null,
+  };
+}
+
+export interface DeliveryInspection {
+  eventId: string;
+  delivery: DeliveryState;
+  receipt: { msgId: string; target: HostSessionRef; at: string } | null;
+}
+
+export function inspectDelivery(
+  run: Run,
+  d: Dispatch,
+  recorded: boolean,
+  eventId = JSON.stringify([
+    run.id,
+    d.admit.dispatchId,
+    !recorded && existsSync(dispatchPaths(d.dir).stall) ? "stalled" : "finished",
+  ]),
+): DeliveryInspection {
+  const owner = runOwner(run);
+  const target = owner
+    ? { host: owner.host, sessionId: owner.sessionId, hostSessionId: null, name: null }
+    : null;
+  const finished = eventId === JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+  const collected = finished && recorded && !awaitsCollect(d.dir);
+  try {
+    const receipt = target
+      ? readDelivery(d.dir).findLast(
+          (a) =>
+            a.status === "accepted" &&
+            a.eventIds.includes(eventId) &&
+            sessionKey(a.target) === sessionKey(target),
+        )
+      : undefined;
+    return {
+      eventId,
+      delivery: collected
+        ? "collected"
+        : (recorded || !finished) && target
+          ? deliveryState(d.dir, target, eventId)
+          : "pending",
+      receipt: receipt?.msgId
+        ? {
+            msgId: receipt.msgId,
+            at: receipt.at,
+            target: {
+              host: receipt.target.host,
+              sessionId: receipt.target.sessionId,
+              hostSessionId: receipt.target.hostSessionId,
+              name: receipt.target.name,
+            },
+          }
+        : null,
+    };
+  } catch {
+    return { eventId, delivery: collected ? "collected" : "ambiguous", receipt: null };
+  }
+}
+
+/**
+ * Stored stalled and finished events are separate; only finished records can be collected. A stall the role
+ * outlived that is still pending for the current owner can never go out (the notifier drops it and retry
+ * refuses it), so it is not shown; one with an outcome for this owner (accepted, ambiguous) still is.
+ */
+export function inspectDeliveries(run: Run, d: Dispatch, recorded: boolean): DeliveryInspection[] {
+  const exited = existsSync(dispatchPaths(d.dir).exit);
+  return [...(recorded ? ["finished"] : []), ...(existsSync(dispatchPaths(d.dir).stall) ? ["stalled"] : [])]
+    .map((kind) => ({
+      kind,
+      ...inspectDelivery(run, d, recorded, JSON.stringify([run.id, d.admit.dispatchId, kind])),
+    }))
+    .filter((e) => !(e.kind === "stalled" && exited && e.delivery === "pending"))
+    .map(({ kind: _kind, ...e }) => e);
+}
+
+export interface DispatchDebug extends DeliveryInspection {
+  deliveries: DeliveryInspection[];
   name: string;
   dispatchId: string;
   rung: string;
@@ -65,6 +157,8 @@ export function runDebug(run: Run, name?: string): DispatchDebug[] {
     .map((d) => {
       const p = dispatchPaths(d.dir);
       return redact({
+        ...inspectDelivery(run, d, records.has(d.admit.dispatchId)),
+        deliveries: inspectDeliveries(run, d, records.has(d.admit.dispatchId)),
         name: d.admit.name,
         dispatchId: d.admit.dispatchId,
         rung: d.admit.rung,

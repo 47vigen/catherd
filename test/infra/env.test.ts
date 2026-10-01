@@ -101,3 +101,20 @@ describe("checkEnv", () => {
     });
   });
 });
+
+it("scrub_every_boundary prevents override identity and preserves native configuration", () => {
+  const identity = {
+    CODEX_THREAD_ID: "parent",
+    CODEX_SESSION_ID: "parent",
+    CATHERD_ORCHESTRATION_HOST: "codex",
+    CLAUDE_CODE_SESSION_ID: "parent",
+    CLAUDE_CODE_MESSAGING_TOKEN: "secret",
+  };
+  const base = { ...identity, HOME: "/native", CODEX_HOME: "/codex", OPENAI_API_KEY: "credential" };
+  for (const clean of [scrubSecrets(base), workerEnv(base, identity, "/repo")]) {
+    for (const key of Object.keys(identity)) expect(clean[key]).toBeUndefined();
+    expect(clean.CODEX_HOME).toBe("/codex");
+    expect(clean.OPENAI_API_KEY).toBe("credential");
+  }
+  for (const key of Object.keys(identity)) expect(checkEnv(base, "/repo")[key]).toBeUndefined();
+});

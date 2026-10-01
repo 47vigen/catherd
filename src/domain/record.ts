@@ -75,6 +75,7 @@ export const RunRecordSchema = z.looseObject({
   replyPath: z.string(),
   /** the Claude Code session that dispatched it, copied from admit.json (spec §3.3); absent before 1.1 */
   sessionId: z.string().optional(),
+  host: z.enum(["claude-code", "codex"]).optional(),
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 

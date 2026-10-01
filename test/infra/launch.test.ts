@@ -85,3 +85,25 @@ describe("launchSupervisor", () => {
     expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
   });
 });
+
+it("scrub_every_boundary removes parent identities through actual detached supervisor and worker", async () => {
+  const keys = [
+    "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
+    "CATHERD_ORCHESTRATION_HOST",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+  ];
+  for (const k of keys) process.env[k] = "parent-identity";
+  process.env.OPENAI_API_KEY = "native-credential";
+  const { dir, spec } = writeSpec("env");
+  const doc = JSON.parse(readFileSync(spec, "utf8"));
+  for (const k of keys) doc.env[k] = "override-identity";
+  writeJsonAtomic(spec, doc);
+  launchSupervisor(spec);
+  expect(await waitFor(() => readExit(dir))).toMatchObject({ code: 0 });
+  const out = readFileSync(dispatchPaths(dir).events, "utf8");
+  for (const k of keys) expect(out).not.toContain(`${k}=`);
+  expect(out).toContain(`CODEX_HOME=${process.env.CODEX_HOME}`);
+  expect(out).toContain("OPENAI_API_KEY=native-credential");
+});

@@ -1,3 +1,4 @@
+import type { HostContext } from "../domain/host.ts";
 import type { Provenance } from "./provenance.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
@@ -6,7 +7,7 @@ import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import type { Change, ProfilePatch } from "../domain/profile.ts";
+import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
 import type { SyncReport } from "./source-sync.ts";
@@ -46,6 +47,9 @@ export interface ProfileSaved {
 }
 
 export interface ProfilePort {
+  withHost?(host: () => HostContext): ProfilePort;
+  budgetFor?(repo: string | null): Budget;
+  raw?(name?: string, repo?: string | null): ProfileDoc;
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;
   /** Without a name (get, validate, set): the profile `repo`, a repository's toplevel, runs on. */
@@ -69,6 +73,7 @@ export interface ProfilePort {
 }
 
 export interface RouteRequest {
+  host?: HostContext["host"];
   runDir: string;
   repo: string;
   profile: ProfileView;
@@ -128,12 +133,13 @@ export interface RoutingPort {
 
 /** Everything a service needs from outside it; the entry layer builds one, tests build fakes. */
 export interface Deps {
+  host: HostContext;
   profiles: ProfilePort;
   routing: RoutingPort;
   version: string;
   /** how often the supervisor and the dispatch watchers poll, in ms */
   pollMs: number;
-  /** the Claude Code session this process serves (spec §3.3), from its environment; null outside one */
+  /** Claude transport credentials and registry refresh; host identity lives in `host`. */
   session: SessionEnv | null;
   now: () => number;
   /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */

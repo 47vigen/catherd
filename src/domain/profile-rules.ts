@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "./host.ts";
 import {
   type Catalog,
   type Dim,
@@ -145,6 +146,7 @@ export function validateProfile(
   c: Catalog,
   backends: readonly string[],
   doc?: ProfileDoc,
+  host: OrchestrationHost = "unknown",
 ): Validation {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
@@ -171,6 +173,8 @@ export function validateProfile(
       });
     if (!rc.enabled) continue;
     for (const rung of rc.rungs) {
+      const native = nativeClaudeIssue(rung, host, `${at}.rungs`);
+      if (native) errors.push(native);
       const r = tryParseRung(rung);
       if (!r) {
         errors.push({
@@ -274,6 +278,8 @@ export function validateProfile(
   });
   for (const [from, to] of Object.entries(p.failover)) {
     const at = `failover.${from}`;
+    const native = ladders.has(from) ? nativeClaudeIssue(to, host, at) : null;
+    if (native) errors.push(native);
     const a = tryParseRung(from);
     const b = tryParseRung(to);
     if (!a || !b) {
@@ -326,4 +332,15 @@ export function validateProfile(
   for (const x of standInsToConfirm(p, c, backends))
     warnings.push({ path: x.path, message: standInMessage(x), fix: SUGGEST_FIX(x.rungs[0] as string) });
   return { errors, warnings };
+}
+
+export function nativeClaudeIssue(rung: string, host: OrchestrationHost, path: string): Issue | null {
+  const r = tryParseRung(rung);
+  return host !== "claude-code" && r?.backend === "claude"
+    ? {
+        path,
+        message: `${rung}: native Claude subagents require the claude-code orchestration host`,
+        fix: `use claude-code:${r.model}#${r.effort} for headless execution, or --host claude-code`,
+      }
+    : null;
 }

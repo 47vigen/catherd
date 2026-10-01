@@ -1,3 +1,4 @@
+import { sessionKey } from "../domain/host.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { budgetStatus } from "../domain/budget.ts";
@@ -98,7 +99,7 @@ export interface MilestoneDetail {
   digest: string | null;
 }
 
-const keyOf = (g: SessionGroup): string | null => g.session?.sessionId ?? null;
+const keyOf = (g: SessionGroup): string | null => (g.session ? sessionKey(g.session) : null);
 
 /** The runs that live on in a session now (it owns them): each run's live roles and landings count once. */
 const ownRuns = (g: SessionGroup): Run[] => g.runs.filter((x) => x.current).map((x) => x.run);
@@ -174,7 +175,7 @@ function sessionRun(deps: Deps, x: SessionGroup["runs"][number]): SessionRun {
   try {
     const b = budgetStatus(
       spendOf(run, readRecords(run).records, liveDispatches(run, deps.now()), deps.now()),
-      deps.profiles.forRepo(run.meta.repo).budget,
+      deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
     );
     budget = b?.fraction ?? null;
   } catch {

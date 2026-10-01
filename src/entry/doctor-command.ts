@@ -1,7 +1,8 @@
+import { gitToplevel } from "../infra/git.ts";
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
 import { type DoctorReport, doctor } from "../services/doctor.ts";
-import { probePush } from "../services/doctor-push.ts";
 import type { Check } from "../services/doctor-checks.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
@@ -34,15 +35,23 @@ export const doctorCommand = defineCommand({
     description: "Readiness report: Bun, backends, Jev, the plugin, agents, the MCP server, locks",
   },
   args: {
+    ...HOST_ARG,
     ...JSON_ARG,
+    "test-push": {
+      type: "boolean",
+      description:
+        "send one labeled smoke to the validated original session (receipt does not prove processing)",
+    },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
     const r = await doctor({
+      host: terminalHost(args.host),
+      repo: await gitToplevel(process.cwd()),
       bunVersion: Bun.version,
       version: VERSION,
       handshake: () => mcpHandshake(),
-      push: () => probePush(),
+      testPush: args["test-push"] === true,
     });
     if (args.json) printJson(r);
     else for (const l of formatReport(r, args.plain === true)) console.log(l);

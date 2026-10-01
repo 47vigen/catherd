@@ -21,7 +21,8 @@ import {
 } from "../infra/store.ts";
 
 /** Spec §3.3: the Claude Code session that started a run; absent on 1.0 runs and outside Claude Code. */
-const StartedBySchema = z.object({
+const StartedBySchema = z.looseObject({
+  host: z.enum(["claude-code", "codex"]).default("claude-code"),
   sessionId: z.string(),
   hostSessionId: z.string().nullable(),
   name: z.string().nullable(),
@@ -82,7 +83,12 @@ export function createRun(o: {
   aLines: string[];
   version: string;
   now?: Date;
-  startedBy?: StartedBy | null;
+  startedBy?: {
+    host?: StartedBy["host"];
+    sessionId: string;
+    hostSessionId: string | null;
+    name: string | null;
+  } | null;
 }): Run {
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
@@ -123,7 +129,7 @@ export function createRun(o: {
     aLines: o.aLines,
     createdAt: now.toISOString(),
     catherdVersion: o.version,
-    ...(o.startedBy ? { startedBy: o.startedBy } : {}),
+    ...(o.startedBy ? { startedBy: StartedBySchema.parse(o.startedBy) } : {}),
   };
   writeJsonAtomic(p.meta, meta);
   return { id, dir, meta };
@@ -196,7 +202,7 @@ export function readRecords(run: Run): { records: RunRecord[]; corrupt: number }
     if (!r.success) bad++;
     else if (!seen.has(r.data.dispatchId)) {
       seen.add(r.data.dispatchId);
-      records.push(r.data);
+      records.push(r.data.sessionId && !r.data.host ? { ...r.data, host: "claude-code" } : r.data);
     }
   }
   return { records, corrupt: bad };

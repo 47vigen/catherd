@@ -307,10 +307,10 @@ describe("the shipped values after a sync (plan 13 R7, R18)", () => {
 describe("the shipped defaults after a sync (plan 13 R-A)", () => {
   it("leave the default profile valid, with no warning, before and after a sync of the recorded answers", async () => {
     withHome();
-    expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
+    expect(validateNamed("default", null, "claude-code")).toEqual({ errors: [], warnings: [] });
     const c = clock();
     await syncSources({ transport: c.transport(recordedFetch().impl), now: c.now, aaKey: null });
-    expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
+    expect(validateNamed("default", null, "claude-code")).toEqual({ errors: [], warnings: [] });
   });
 
   it("keep every shipped capability when models.dev denies one (spec 1.2 §3.5: the shipped file is the floor)", async () => {
@@ -332,7 +332,7 @@ describe("the shipped defaults after a sync (plan 13 R-A)", () => {
     expect(readDerived()?.facts["gpt-6-sol"]?.capabilities?.imageIn).toBe(false);
     const fam = loadCatalog({ timings: false }).families.find((f) => f.id === "gpt-6-sol");
     expect(fam?.capabilities).toEqual({ toolUse: true, imageIn: true, reasoning: true });
-    expect(validateNamed("default")).toEqual({ errors: [], warnings: [] });
+    expect(validateNamed("default", null, "claude-code")).toEqual({ errors: [], warnings: [] });
   });
 });
 

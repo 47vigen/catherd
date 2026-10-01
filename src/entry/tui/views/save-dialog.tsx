@@ -51,8 +51,8 @@ function previewSave(
   fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
   now: ProfileDoc = fx.readProfile(d.name),
 ): SavePreview {
-  const before = resolveProfile(now, d.name);
-  const after = resolveProfile(applyPatch(now, patchBetween(d.base, d.doc)), d.name);
+  const before = resolveProfile(now, d.name, d.host);
+  const after = resolveProfile(applyPatch(now, patchBetween(d.base, d.doc)), d.name, d.host);
   const { catalog } = fx.catalog(after.billing);
   const a = new Set(fx.agents(before));
   const b = new Set(fx.agents(after));

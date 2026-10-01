@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "catherd": {
+      "command": "sh",
+      "args": ["./bin/catherd-mcp"],
+      "cwd": ".",
+      "env": { "CATHERD_ORCHESTRATION_HOST": "codex" }
+    }
+  }
+}

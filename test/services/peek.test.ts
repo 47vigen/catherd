@@ -3,7 +3,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
-import { awaitsCollect } from "../../src/infra/dispatch-dir.ts";
+import { resetQueueProbe } from "../../src/infra/codex-queue.ts";
+import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
+import { sessionKey } from "../../src/domain/host.ts";
+import { result } from "../../src/services/run-service.ts";
+import { dispatchPaths, awaitsCollect } from "../../src/infra/dispatch-dir.ts";
 import { watchersSettled } from "../../src/services/dispatch-service.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { lastActivity } from "../../src/services/finalize.ts";
@@ -15,6 +19,8 @@ import { fakeDeps, fakeDispatch, freshRun } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
+// a codex-host peek probes the queue in the background: it settles inside its test
+afterEach(resetQueueProbe);
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
 const OK_LINES = readFileSync(join(FX, "ok-with-reconnect.jsonl"), "utf8").split("\n").filter(Boolean);
@@ -82,6 +88,9 @@ describe("peek (spec §3.7)", () => {
       {
         name: "worker-M1.L1",
         dispatchId: d.admit.dispatchId,
+        eventId: JSON.stringify([run.id, d.admit.dispatchId, "finished"]),
+        delivery: "pending",
+        receipt: null,
         header: expect.stringMatching(
           /^catherd · Jobs screen · worker-M1\.L1 worker · codex:gpt-6-sol#medium · \w+ · /,
         ),
@@ -145,9 +154,83 @@ describe("peek (spec §3.7)", () => {
 
   it("says how to start when there is no run", async () => {
     withHome();
-    expect(await peek(fakeDeps(), {})).toEqual({
+    expect(await peek(fakeDeps(), {})).toMatchObject({
       runs: [],
       hints: ["no runs yet: run_start(repo, title, a_lines) starts one"],
     });
   });
+});
+
+it("queued and ambiguous remain unread; only result collects, and old owner receipt is excluded", async () => {
+  const { run } = freshRun();
+  const { simPath, withScenario } = await import("../sim/scenario.ts");
+  process.env.PATH = simPath();
+  Object.assign(process.env, withScenario({ queue: "accepted" }).env);
+  const deps = fakeDeps({
+    host: {
+      host: "codex",
+      session: {
+        host: "codex",
+        sessionId: "01a0f53b-a47d-7350-83a4-c3430e453404",
+        hostSessionId: null,
+        name: null,
+      },
+      conflict: null,
+    },
+  });
+  await claimRun(deps, run);
+  const d = await fakeDispatch(
+    run,
+    {},
+    { proc: "dead", exit, reply: "ok\nSTATUS: complete — ok", collect: true },
+  );
+  await finalizeDispatch(run, d);
+  const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+  const at = "2026-10-01T12:00:00.000Z";
+  const target = deps.host.session!;
+  writeDeliveryAttempt(d.dir, {
+    attemptId: "one",
+    target,
+    eventIds: [eventId],
+    at,
+    status: "ambiguous",
+    msgId: null,
+    reason: "no receipt",
+  });
+  const first = await peek(deps, {});
+  expect(first.runs[0]?.unread[0]).toMatchObject({ eventId, delivery: "ambiguous", receipt: null });
+  writeDeliveryAttempt(d.dir, {
+    attemptId: "one",
+    target,
+    eventIds: [eventId],
+    at,
+    status: "accepted",
+    msgId: "queue-receipt",
+    reason: null,
+    messagingToken: "never-report",
+  });
+  const accepted = await peek(deps, {});
+  expect(accepted.runs[0]?.unread[0]).toMatchObject({
+    delivery: "enqueue-accepted",
+    receipt: { msgId: "queue-receipt", target, at },
+  });
+  expect(JSON.stringify(accepted)).not.toContain("never-report");
+  expect(awaitsCollect(d.dir)).toBe(true);
+  const other = fakeDeps({
+    host: {
+      host: "codex",
+      session: { ...target, sessionId: "01a0f547-7947-7972-90a0-a7ad547170e0" },
+      conflict: null,
+    },
+  });
+  await claimRun(other, run);
+  expect(sessionKey(runOwner(run)!)).toBe(sessionKey(other.host.session!));
+  expect((await peek(other, {})).runs[0]?.unread[0]).toMatchObject({ delivery: "pending", receipt: null });
+  writeFileSync(
+    dispatchPaths(d.dir).events,
+    JSON.stringify({ type: "assistant", content: `enqueue ${eventId} queue-receipt` }) + "\n",
+  );
+  expect(awaitsCollect(d.dir)).toBe(true);
+  await result(other, { run: run.id, name: d.admit.name });
+  expect((await peek(other, {})).runs[0]?.unread).toEqual([]);
 });

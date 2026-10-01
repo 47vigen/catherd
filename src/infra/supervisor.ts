@@ -1,3 +1,4 @@
+import { scrubSecrets } from "./env.ts";
 import type { Subprocess } from "bun";
 import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { z } from "zod";
@@ -139,7 +140,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     fds.push(stderr);
     child = Bun.spawn([spec.cmd, ...spec.args], {
       cwd: spec.cwd,
-      env: spec.env,
+      env: scrubSecrets(spec.env),
       stdin,
       stdout,
       stderr,
@@ -149,7 +150,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
       backend: spec.backend,
       dispatch: spec.dispatchDir,
       argv: [spec.cmd, ...spec.args],
-      env: spec.env,
+      env: scrubSecrets(spec.env),
       cwd: spec.cwd,
       pid: child.pid,
     });

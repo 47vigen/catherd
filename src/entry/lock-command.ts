@@ -1,10 +1,11 @@
+import { HOST_ARG } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
-import { profileFor } from "../services/profile-store.ts";
+import { activeName, readProfileDoc } from "../services/profile-store.ts";
 import { printError } from "./cli-kit.ts";
 
 /**
@@ -71,6 +72,7 @@ export async function runForwarding(argv: string[]): Promise<number> {
   const watchdog = Bun.spawn(
     ["sh", "-c", 'read _ || kill -s KILL -- "-$1" 2>/dev/null', "sh", String(child.pid)],
     {
+      env: scrubSecrets(process.env),
       stdin: "pipe",
       stdout: "ignore",
       stderr: "ignore",
@@ -95,6 +97,7 @@ export const lockCommand = defineCommand({
       "Run a heavy command behind the machine-wide semaphore, in its own process group and session: it gets no /dev/tty and no job control",
   },
   args: {
+    ...HOST_ARG,
     slots: {
       type: "string",
       description: "Slots (default: CATHERD_LOCK_SLOTS, else the profile's lock.heavy, else half the cores)",
@@ -115,7 +118,9 @@ export const lockCommand = defineCommand({
     const repo = await gitToplevel(process.cwd());
     const slots = resolveSlots(
       args.slots,
-      () => profileFor(repo).lock.heavy,
+      // lock.heavy is host-independent: read it stored, so a worker (whose host identity is scrubbed) and an
+      // unknown terminal host still get the profile's value instead of the cpus/2 fallback
+      () => readProfileDoc(activeName(repo)).lock?.heavy ?? "cpus/2",
       (m) => console.error(m),
     );
     process.exitCode = await withHeavySlot(slots, () => runForwarding(argv));

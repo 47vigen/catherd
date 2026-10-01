@@ -1,3 +1,5 @@
+import type { OrchestrationHost } from "../../domain/host.ts";
+import { sessionKey } from "../../domain/host.ts";
 import { isDeepStrictEqual } from "node:util";
 import {
   applyPatch,
@@ -30,6 +32,9 @@ import { withStaged } from "./profile-tree.ts";
  * the catalog is the shipped one, read through the catalog service.
  */
 export const FIXTURE_REPORT: DoctorReport = {
+  host: { host: "unknown", session: null, conflict: null },
+  queue: null,
+  push: null,
   ready: false,
   version: "1.0.0",
   checks: [
@@ -79,6 +84,7 @@ export const FIXTURE_REPORT: DoctorReport = {
 };
 
 const summary = (o: Partial<RunSummary> & Pick<RunSummary, "id" | "title">): RunSummary => ({
+  delivery: [],
   repo: "/home/me/app",
   createdAt: "2026-09-26T11:48:00.000Z",
   session: null,
@@ -112,7 +118,13 @@ const FIXTURE_RUNS: RunSummary[] = [
   summary({
     id: JOBS,
     title: "Jobs screen",
-    session: { sessionId: "s-jobs", hostSessionId: null, name: "jobs screen", live: true },
+    session: {
+      host: "claude-code",
+      sessionId: "s-jobs",
+      hostSessionId: null,
+      name: "jobs screen",
+      live: true,
+    },
     stateTail: ["M1 in review", "Next: fix round for M1.L2"],
     live: [
       {
@@ -141,7 +153,13 @@ const FIXTURE_RUNS: RunSummary[] = [
     title: "Auth refactor",
     repo: "/home/me/api",
     createdAt: "2026-09-25T09:00:00.000Z",
-    session: { sessionId: "s-auth", hostSessionId: null, name: "auth build", live: false },
+    session: {
+      host: "claude-code",
+      sessionId: "s-auth",
+      hostSessionId: null,
+      name: "auth build",
+      live: false,
+    },
     continuedIn: "kit follow-up",
     stateTail: ["Next: done"],
     totals: {
@@ -200,7 +218,7 @@ const auth = (continued: SessionRun["continued"]): SessionRun => ({
 export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   {
     row: {
-      key: "s-jobs",
+      key: sessionKey({ host: "claude-code", sessionId: "s-jobs" }),
       name: "jobs screen",
       live: true,
       runs: 1,
@@ -267,7 +285,7 @@ export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   },
   {
     row: {
-      key: "s-kit",
+      key: sessionKey({ host: "claude-code", sessionId: "s-kit" }),
       name: "kit follow-up",
       live: false,
       runs: 1,
@@ -279,7 +297,7 @@ export const FIXTURE_SESSIONS: { row: SessionRow; runs: SessionRun[] }[] = [
   },
   {
     row: {
-      key: "s-auth",
+      key: sessionKey({ host: "claude-code", sessionId: "s-auth" }),
       name: "auth build",
       live: false,
       runs: 2,
@@ -394,6 +412,7 @@ const BACKENDS = ["claude", "codex", "claude-code", "opencode"];
  * directory the TUI stands in and `bindings` the repo bindings, as `liveEffects(repo)` reads them.
  */
 export interface FixtureOptions {
+  host?: OrchestrationHost;
   runs?: RunSummary[];
   sessions?: { row: SessionRow; runs: SessionRun[] }[];
   report?: DoctorReport;
@@ -418,6 +437,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
   /** the run folders watched now */
   watched: string[][];
 } {
+  const host = o.host ?? "claude-code";
   const runs = o.runs ?? FIXTURE_RUNS;
   const sessions = o.sessions ?? FIXTURE_SESSIONS;
   const listeners = new Set<() => void>();
@@ -434,15 +454,17 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     after: ProfileDoc,
     staged: Record<string, string> = {},
   ) => {
-    const p = resolveProfile(after, name);
+    const p = resolveProfile(after, name, host);
     const c = withStaged(loadCatalog({ timings: false }), staged);
-    const v = validateProfile(p, c, BACKENDS);
+    const v = validateProfile(p, c, BACKENDS, undefined, host);
     // spec 1.2 §6.2, as the ProfileService rules: a save that repairs part of an invalid profile goes through
-    const was = docs.has(name) ? validateProfile(resolveProfile(before, name), c, BACKENDS) : null;
+    const was = docs.has(name)
+      ? validateProfile(resolveProfile(before, name, host), c, BACKENDS, undefined, host)
+      : null;
     return {
       saved: repairs(was, v),
       ...v,
-      diff: diffProfiles(resolveProfile(before, name), p),
+      diff: diffProfiles(resolveProfile(before, name, host), p),
       linked: [],
       pruned: [],
       newSessionNeededFor: [],
@@ -454,6 +476,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     touch: () => {
       for (const l of listeners) l();
     },
+    host: { host, session: null, conflict: null },
     version: "1.0.0",
     doctor: async () => o.report ?? FIXTURE_REPORT,
     runs: () => ({ rows: runs.map(rowOf), warnings: [] }),
@@ -520,7 +543,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
       catalog: loadCatalog({ timings: false }),
       models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
     }),
-    validate: (p, c) => validateProfile(p, c, BACKENDS),
+    validate: (p, c) => validateProfile(p, c, BACKENDS, undefined, host),
     enforcement: (rung) => (rung.startsWith("codex:") ? "enforced" : "advisory"),
     harnesses: ["codex", "claude-code", "opencode"],
     isolation: () => ({}),

@@ -9,7 +9,7 @@ import {
 import { rolePrompt } from "../../src/domain/role-prompts.ts";
 
 const profile = (patch: ProfilePatch = {}, name = "default") =>
-  resolveProfile(applyPatch(defaultProfileDoc(name), patch), name);
+  resolveProfile(applyPatch(defaultProfileDoc(name), patch), name, "claude-code");
 
 describe("agentFiles", () => {
   it("writes one file per enabled role and native rung of the default profile", () => {

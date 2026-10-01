@@ -12,6 +12,9 @@ describe("doctor's MCP handshake", () => {
   it("starts the server with no session identity, so it never takes itself for the doctor's session", () => {
     const env = handshakeEnv({
       CLAUDE_CODE_SESSION_ID: "s",
+      CODEX_THREAD_ID: "0199c011-1234-7000-8000-000000000001",
+      CODEX_SESSION_ID: "0199c011-1234-7000-8000-000000000001",
+      CATHERD_ORCHESTRATION_HOST: "codex",
       CLAUDE_CODE_HOST_SESSION_ID: "h",
       CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc-socks/1.sock",
       CLAUDE_CODE_MESSAGING_TOKEN: "t",

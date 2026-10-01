@@ -15,7 +15,8 @@ import {
 } from "../../../src/entry/tui/state.ts";
 
 const run = (s: AppState, ...actions: Action[]) => actions.reduce(reduce, s);
-const shown = () => run(initialState(), { type: "show", name: "default", doc: defaultProfileDoc() });
+const shown = () =>
+  run(initialState("status", "claude-code"), { type: "show", name: "default", doc: defaultProfileDoc() });
 const confirm: Dialog = {
   kind: "confirm",
   purpose: { type: "quit" },
@@ -126,7 +127,7 @@ describe("drafts (spec §9.2: edits are staged)", () => {
     const doc = defaultProfileDoc();
     const bogus = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, rungs: ["bogus"] } } };
     const theirs = { ...bogus, objective: "speed" as const };
-    let s = run(initialState(), { type: "show", name: "default", doc: bogus });
+    let s = run(initialState("status", "claude-code"), { type: "show", name: "default", doc: bogus });
     s = run(s, { type: "edit", patch: { roles: { worker: { rungs: ["bogus", "codex:gpt-6-sol#high"] } } } });
     s = run(s, { type: "revert", name: "default", doc: theirs });
     expect(currentDraft(s)?.doc.objective).toBe("speed");
@@ -155,7 +156,7 @@ describe("drafts (spec §9.2: edits are staged)", () => {
   });
 
   it("ignores edits with no profile shown", () => {
-    const s = initialState();
+    const s = initialState("status", "claude-code");
     expect(run(s, { type: "edit", patch: { objective: "speed" } }, { type: "undo" })).toBe(s);
   });
 });
@@ -170,7 +171,11 @@ describe("dialogs and armed keys", () => {
       value: "",
       error: null,
     };
-    let s = run(initialState(), { type: "open", dialog: confirm }, { type: "open", dialog: prompt });
+    let s = run(
+      initialState("status", "claude-code"),
+      { type: "open", dialog: confirm },
+      { type: "open", dialog: prompt },
+    );
     s = run(s, { type: "input", value: "Fast" }, { type: "invalid", error: "lowercase only" });
     expect(s.dialogs.at(-1)).toMatchObject({ value: "Fast", error: "lowercase only" });
     s = run(s, { type: "input", value: "fast" });
@@ -184,7 +189,7 @@ describe("dialogs and armed keys", () => {
   it("does not close a save dialog while its save writes, and closes it once the write settles", () => {
     const save: Dialog = { kind: "save", purpose: { type: "save", name: "default" }, error: null };
     let s = run(
-      initialState(),
+      initialState("status", "claude-code"),
       { type: "open", dialog: save },
       { type: "saving", name: "default", on: true },
     );
@@ -196,12 +201,22 @@ describe("dialogs and armed keys", () => {
   });
 
   it("arms a double press for its window only, on its own target", () => {
-    const s = run(initialState(), { type: "arm", what: "delete", target: "fast", at: 1_000 });
+    const s = run(initialState("status", "claude-code"), {
+      type: "arm",
+      what: "delete",
+      target: "fast",
+      at: 1_000,
+    });
     expect(isArmed(s, "delete", "fast", 5_999)).toBe(true);
     expect(isArmed(s, "delete", "fast", 6_001)).toBe(false);
     expect(isArmed(s, "delete", "cheap", 2_000)).toBe(false);
     expect(isArmed(s, "cancel", "fast", 2_000)).toBe(false);
-    const i = run(initialState(), { type: "arm", what: "interrupt", target: "app", at: 0 });
+    const i = run(initialState("status", "claude-code"), {
+      type: "arm",
+      what: "interrupt",
+      target: "app",
+      at: 0,
+    });
     expect([isArmed(i, "interrupt", "app", 1_500), isArmed(i, "interrupt", "app", 1_501)]).toEqual([
       true,
       false,
@@ -212,7 +227,7 @@ describe("dialogs and armed keys", () => {
 
   it("opens a session, then a role, goes back one level at a time, and pauses (spec §4)", () => {
     const s = run(
-      initialState("runs"),
+      initialState("runs", "claude-code"),
       { type: "session", key: "s1" },
       { type: "role", run: "r1", dispatchId: "d1" },
       { type: "pause" },
@@ -226,12 +241,14 @@ describe("dialogs and armed keys", () => {
       paused: false,
     });
     // "earlier runs" is a session too, with no key
-    expect(run(initialState("runs"), { type: "session", key: null }).session).toEqual({ key: null });
+    expect(run(initialState("runs", "claude-code"), { type: "session", key: null }).session).toEqual({
+      key: null,
+    });
   });
 
   it("opens a milestone of the session; up goes back to the session, and another session closes it", () => {
     const s = run(
-      initialState("runs"),
+      initialState("runs", "claude-code"),
       { type: "session", key: "s1" },
       { type: "role", run: "r1", dispatchId: "d1" },
       { type: "arm", what: "cancel", target: "r1/x", at: 0 },
@@ -246,6 +263,17 @@ describe("dialogs and armed keys", () => {
     const up = run(s, { type: "up" });
     expect([up.session, up.milestone]).toEqual([{ key: "s1" }, null]);
     expect(run(s, { type: "session", key: "s2" }).milestone).toBeNull();
-    expect(initialState("runs").milestone).toBeNull();
+    expect(initialState("runs", "claude-code").milestone).toBeNull();
   });
+});
+
+it("tui_host_preview_save counts draft changes under one pinned host with no unknown fallback", () => {
+  const doc = defaultProfileDoc();
+  let s = reduce(initialState("profiles", "codex"), { type: "show", name: "default", doc });
+  s = reduce(s, { type: "edit", patch: { roles: { architect: { rungs: ["codex:gpt-6.1-sol#high"] } } } });
+  expect(dirtyCount(currentDraft(s)!)).toBe(0);
+  s = reduce(s, { type: "edit", patch: { budget: { usd: 8 } } });
+  expect(dirtyCount(currentDraft(s)!)).toBe(1);
+  const unknown = reduce(initialState("profiles", "unknown"), { type: "show", name: "default", doc });
+  expect(() => dirtyCount(currentDraft(unknown)!)).toThrow("host");
 });

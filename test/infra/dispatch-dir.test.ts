@@ -9,6 +9,10 @@ import { writeJsonAtomic } from "../../src/infra/store.ts";
 const d = () => mkdtempSync(join(tmpdir(), "catherd-dispatch-"));
 
 describe("dispatch folder", () => {
+  it("stores all owner/event attempts in one dispatch delivery file", () => {
+    const dir = d();
+    expect(dispatchPaths(dir).delivery).toBe(join(dir, "delivery.json"));
+  });
   it("lets exactly one finalizer claim a dispatch", () => {
     const dir = d();
     const results = [tryClaim(dir), tryClaim(dir), tryClaim(dir)];

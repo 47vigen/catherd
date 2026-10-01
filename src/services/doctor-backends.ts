@@ -1,12 +1,13 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import type { Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
-import { probeBackend } from "./backends.ts";
+import { standInFor, probeBackend } from "./backends.ts";
 import { refreshDiscovery } from "./catalog-service.ts";
-import { type Check, errText, fixOf } from "./doctor-checks.ts";
+import { type Check, errText, fixOf, hostFlag } from "./doctor-checks.ts";
 
 // The backend rows of `catherd doctor` (spec §10.3) and the backends the linked profiles use.
 
@@ -22,7 +23,12 @@ export function usedBackends(profiles: Profile[]): Map<string, "role" | "failove
   };
   for (const p of profiles) {
     for (const role of ROLES) if (p.roles[role].enabled) for (const r of p.roles[role].rungs) note(r, "role");
-    for (const to of Object.values(p.failover)) note(to, "failover");
+    for (const role of ROLES)
+      if (p.roles[role].enabled)
+        for (const r of p.roles[role].rungs) {
+          const to = standInFor(p.failover, r);
+          if (to) note(to, "failover");
+        }
   }
   return used;
 }
@@ -52,10 +58,16 @@ const shellWord = (w: string): string => (/^[\w./:=@,+-]+$/.test(w) ? w : `'${w.
  * each linked profile, any default rung the new ladder would not hold reset first. The artist draws, which only Codex does, so
  * off Codex it is turned off instead.
  */
-export function moveRolesFix(install: string, id: string, to: string, profiles: Profile[]): string {
+export function moveRolesFix(
+  install: string,
+  id: string,
+  to: string,
+  profiles: Profile[],
+  host: OrchestrationHost = "unknown",
+): string {
   const onIt = (r: string | undefined) => r !== undefined && backendOf(r) === id;
   const set = (p: Profile, path: string, v: string) =>
-    `catherd profile set ${path} ${shellWord(v)} --profile ${shellWord(p.name)}`;
+    `catherd profile set ${path} ${shellWord(v)} --profile ${shellWord(p.name)}${hostFlag(host)}`;
   const stuck = new Set<Role>();
   const commands: string[] = [];
   for (const p of profiles)
@@ -87,10 +99,21 @@ export async function backendChecks(
   used: Map<string, "role" | "failover">,
   profiles: Profile[],
   installed?: Set<string>,
+  host: OrchestrationHost = "unknown",
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
   for (const id of ADAPTER_IDS) {
+    if (host === "codex" && id === "claude-code" && !used.has(id)) {
+      checks.push({
+        id: `backend:${id}`,
+        label: id,
+        state: "skip",
+        word: "not required",
+        detail: "not probed: the selected profile has no headless Claude role or reachable failover",
+      });
+      continue;
+    }
     const a = adapterFor(id);
     if (!a) continue;
     const probe: Probe = await probeBackend(a).catch((e: unknown) => ({
@@ -124,7 +147,7 @@ export async function backendChecks(
               state: "warn",
               word: "billing",
               detail: `${detail} · profile ${billed.name} bills ${id} as ${billed.billing[id]}, but this login is ${probe.billing}`,
-              fix: `catherd profile set billing.${id} ${probe.billing} --profile ${billed.name}`,
+              fix: `catherd profile set billing.${id} ${probe.billing} --profile ${billed.name}${hostFlag(host)}`,
             }
           : { id: `backend:${id}`, label: id, state: "ok", word: "ready", detail },
       );
@@ -147,7 +170,7 @@ export async function backendChecks(
   for (const c of checks) {
     const id = c.id.slice("backend:".length);
     if (to && c.state === "fail" && c.word === PROBLEM_WORD.E_BACKEND_MISSING && c.fix && id !== to)
-      c.fix = moveRolesFix(c.fix, id, to, profiles);
+      c.fix = moveRolesFix(c.fix, id, to, profiles, host);
   }
   // spec §5.2: doctor refreshes discovery; a listing that fails keeps the last one
   let refreshed: Awaited<ReturnType<typeof refreshDiscovery>> = [];

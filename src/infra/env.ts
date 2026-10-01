@@ -5,6 +5,9 @@
  * runs, a headless claude-code worker would inherit it): no process catherd starts gets them.
  */
 const SECRET_ENV = new Set([
+  "CODEX_THREAD_ID",
+  "CODEX_SESSION_ID",
+  "CATHERD_ORCHESTRATION_HOST",
   "TYPESAFE_API_KEY",
   // spec 1.2 §9: the user's Artificial Analysis key reads scores for catherd alone
   "ARTIFICIAL_ANALYSIS_API_KEY",
@@ -39,7 +42,7 @@ export function workerEnv(
   overrides: Record<string, string>,
   cwd: string,
 ): Record<string, string> {
-  return { ...scrubSecrets(base), ...overrides, PWD: cwd };
+  return { ...scrubSecrets({ ...base, ...overrides }), PWD: cwd };
 }
 
 /** What a preflight check may see; everything else, credentials included, stays out (spec §4.7). */

@@ -117,7 +117,7 @@ describe("MCP server", () => {
 
   it("drives the run tools over the real server", async () => {
     const { run } = freshRun();
-    const c = await mcpClient(fakeDeps());
+    const c = await mcpClient(fakeDeps(), "claude-code");
     expect(
       (
         await call(c, "write_run_file", {

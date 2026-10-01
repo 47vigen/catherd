@@ -1,3 +1,5 @@
+import type { HostContext } from "../../domain/host.ts";
+import { sessionKey } from "../../domain/host.ts";
 import { realpathSync, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
@@ -88,6 +90,7 @@ export interface RunRow {
  * The live set calls the services; tests and the storybook pass fakes.
  */
 export interface Effects {
+  host: HostContext;
   version: string;
   doctor(): Promise<DoctorReport>;
   runs(): { rows: RunRow[]; warnings: string[] };
@@ -247,7 +250,7 @@ export function rowOf(s: RunSummary): RunRow {
     roleRuns: s.totals.runs,
     landed: s.milestones.length,
     budget: s.budget?.fraction ?? null,
-    session: s.session?.sessionId ?? null,
+    session: s.session ? sessionKey(s.session) : null,
   };
 }
 
@@ -314,14 +317,19 @@ export function watchDirs(
  * The live effects. `repo` is the git toplevel the TUI was opened in (null outside one): inside a repo
  * bound to a profile, `here` is that profile and activating binds the repo instead of the global profile.
  */
-export function liveEffects(repo: string | null = null): Effects {
-  const deps = defaultDeps();
+export function liveEffects(
+  repo: string | null = null,
+  host: HostContext = { host: "unknown", session: null, conflict: null },
+): Effects {
+  const deps = defaultDeps(host);
   const rows = memoRuns((r) => rowOf(summarizeRun(deps, r)));
   const harnesses = HARNESS_KEYS.filter((h) => adapterFor(h));
   const bound = () => (repo !== null && readProjects().bindings[repo] !== undefined ? repo : null);
   return {
+    host,
     version: VERSION,
-    doctor: () => doctor({ bunVersion: Bun.version, version: VERSION, handshake: () => mcpHandshake() }),
+    doctor: () =>
+      doctor({ host, repo, bunVersion: Bun.version, version: VERSION, handshake: () => mcpHandshake() }),
     runs() {
       const { runs, corrupt } = listRuns();
       return { rows: rows(runs), warnings: corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`) };
@@ -343,7 +351,7 @@ export function liveEffects(repo: string | null = null): Effects {
         models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
       };
     },
-    validate: (p, c) => validateHere(p, c),
+    validate: (p, c) => validateHere(p, c, undefined, host.host),
     enforcement: enforcementOf,
     harnesses,
     isolation(h) {
@@ -356,10 +364,13 @@ export function liveEffects(repo: string | null = null): Effects {
     agents: (p) => agentFiles(p, VERSION).map((f) => f.name),
     async save(name, patch, treatLikes, shown) {
       for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
-      return patchProfile(name, patch, shown === undefined ? {} : { expect: shown });
+      return patchProfile(name, patch, {
+        host: host.host,
+        ...(shown === undefined ? {} : { expect: shown }),
+      });
     },
-    activate: (name, scope) => activate(name, scope),
-    create: createProfile,
+    activate: (name, scope) => activate(name, scope, host.host),
+    create: (name, from) => createProfile(name, from, host.host),
     remove: deleteProfile,
     refreshCatalog: () => refreshDiscovery(),
     syncSources: () => syncSources(),

@@ -10,6 +10,7 @@ import {
 
 const notice = (o: Partial<Notice> = {}): Notice => ({
   kind: "finished",
+  eventId: '["20260928-100000-auth","d1","finished"]',
   runId: "20260928-100000-auth",
   runTitle: "Auth plan 5 MR B",
   dispatchId: "d1",
@@ -43,6 +44,7 @@ describe("the push message (spec §3.5)", () => {
         "Done: added the kit.",
         "STATUS: complete — kit in place",
         'Record: result(run: "20260928-100000-auth", name: "worker-M1.L1")',
+        'Event: ["20260928-100000-auth","d1","finished"]',
       ].join("\n"),
     );
   });
@@ -90,6 +92,7 @@ describe("the push message (spec §3.5)", () => {
       [
         "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · stalled: no output for 7 min · running 900s",
         'Peek: peek(run: "20260928-100000-auth", name: "worker-M1.L1")',
+        'Event: ["20260928-100000-auth","d1","finished"]',
       ].join("\n"),
     );
   });

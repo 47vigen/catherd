@@ -4,9 +4,11 @@
  * tools/list handshake against the installed server. Not a `bun test` file: CI's package job runs it with
  * `bun test/pack-smoke.ts`. It needs the npm registry, to install the package's dependencies.
  */
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { scrubSecrets } from "../src/infra/env.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { name: string; version: string };
@@ -27,11 +29,20 @@ const SHIPPED = [
   "catalog/ATTRIBUTION.md",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
+  "plugin/.codex-plugin/plugin.json",
+  "plugin/.mcp-codex.json",
+  "plugin/skills/catherd/SKILL.md",
+  "plugin/skills/catherd-setup/SKILL.md",
   "plugin/bin/catherd-mcp",
 ];
 
 function run(cmd: string[], cwd: string, env: Record<string, string> = {}) {
-  const p = Bun.spawnSync(cmd, { cwd, env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawnSync(cmd, {
+    cwd,
+    env: scrubSecrets({ ...process.env, ...env }),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   return { code: p.exitCode ?? 1, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
@@ -67,7 +78,10 @@ const home = join(work, "home");
 // the installed bin on PATH, as after `bun add -g`: doctor's `mcp` row starts the server through the
 // plugin's launcher, which runs this catherd because it prints the launcher's version
 const env = {
-  PATH: `${join(app, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
+  // No provider CLI is needed for this offline handshake; isolate their native configuration too.
+  PATH: `${join(app, "node_modules", ".bin")}:${dirname(process.execPath)}:/usr/bin:/bin`,
+  HOME: home,
+  CODEX_HOME: join(home, "codex"),
   CATHERD_HOME: home,
   CLAUDE_CONFIG_DIR: join(home, "claude"),
   CATHERD_CLAUDE_AGENTS_DIR: join(home, "claude-agents"),
@@ -76,10 +90,7 @@ const env = {
   ANTHROPIC_API_KEY: "",
   // the server doctor starts would sync the public sources in the background (spec 1.2 §3.2): not here
   CATHERD_NO_SYNC: "1",
-  // never the Claude Code session this may run in: doctor's push row would message it
-  CLAUDE_CODE_SESSION_ID: "",
-  CLAUDE_CODE_MESSAGING_SOCKET: "",
-  CLAUDE_CODE_MESSAGING_TOKEN: "",
+  // run() scrubs all parent host/session identity before every child, including overrides.
 };
 const version = run([bin, "--version"], app, env);
 must(
@@ -87,9 +98,33 @@ must(
   `catherd --version prints ${pkg.version}`,
   version.out + version.err,
 );
-const doctor = run([bin, "doctor", "--json"], app, env);
-must(doctor.code === 0 || doctor.code === 3, "catherd doctor --json exits 0 or 3 (not ready)", doctor.err);
+const doctor = run([bin, "doctor", "--host", "codex", "--json"], app, env);
+must(
+  doctor.code === 0 || doctor.code === 3,
+  "catherd doctor --host codex --json exits 0 or 3 (not ready)",
+  doctor.err,
+);
 const report = JSON.parse(doctor.out) as { version: string; checks: { id: string; state: string }[] };
 must(report.version === pkg.version, "doctor reports the installed version");
 const mcp = report.checks.find((c) => c.id === "mcp");
 must(mcp?.state === "ok", "the installed MCP server answers initialize and tools/list", JSON.stringify(mcp));
+
+must(
+  !existsSync(join(home, ".claude")) &&
+    !existsSync(env.CLAUDE_CONFIG_DIR) &&
+    !existsSync(env.CATHERD_CLAUDE_AGENTS_DIR),
+  "Codex-only pack smoke creates no Claude configuration or agent files",
+);
+console.log(
+  JSON.stringify({
+    packageVersion: pkg.version,
+    tarball: tgz,
+    tarballSha256: createHash("sha256").update(readFileSync(tgz)).digest("hex"),
+    core: realpathSync(bin),
+    coreSha256: createHash("sha256")
+      .update(readFileSync(realpathSync(bin)))
+      .digest("hex"),
+    host: "codex",
+    session: null,
+  }),
+);

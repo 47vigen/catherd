@@ -1,3 +1,5 @@
+import { gitToplevel } from "../infra/git.ts";
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { assertProfileName } from "../domain/profile.ts";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
@@ -11,6 +13,7 @@ import { type SyncReport, syncSources } from "../services/source-sync.ts";
 import { reinstallCommand } from "../services/doctor-checks.ts";
 import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../services/global-install.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
+import { activeName } from "../services/profile-store.ts";
 import { formatRefreshed, syncLines } from "./catalog-command.ts";
 import { mark as markOf } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
@@ -195,6 +198,7 @@ export const initCommand = defineCommand({
       "First run: the global catherd command, the Jev key, the Artificial Analysis key, a sync of the public model sources, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the Artificial Analysis key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
+    ...HOST_ARG,
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
     "no-input": { type: "boolean", description: "ask nothing: keep what exists, else write the defaults" },
     // read as global: false, like no-input above
@@ -202,7 +206,10 @@ export const initCommand = defineCommand({
       type: "boolean",
       description: "do not install the global catherd command (bun add -g catherd-cli@<this version>)",
     },
-    profile: { type: "string", description: "the profile to set up and make active (default: default)" },
+    profile: {
+      type: "string",
+      description: "the profile to set up and make active (default: current repo profile)",
+    },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
@@ -218,19 +225,21 @@ export const initCommand = defineCommand({
       await jevStep(ask, {}, plain);
       await aaStep(ask, {}, plain);
       await syncStep({ plain });
-      if (args.profile !== undefined) ask?.skip?.();
-      const name = assertProfileName(
-        args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
-      );
+      const repo = await gitToplevel(process.cwd());
       // 0.x files go first, so a legacy profile about to be moved aside is never asked about
       const moved = moveLegacy();
+      const current = activeName(repo);
+      if (args.profile !== undefined) ask?.skip?.();
+      const selected =
+        args.profile ?? (ask ? (await ask.ask(`Profile to set up [${current}]: `)) || undefined : undefined);
+      const name = assertProfileName(selected ?? current);
       const exists = hasProfileFile(name);
       if (!exists) ask?.skip?.();
       const overwrite =
         ask !== null &&
         exists &&
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
-      const r = await initSetup({ profile: name, overwrite });
+      const r = await initSetup({ profile: selected, repo, overwrite, host: terminalHost(args.host) });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
       for (const l of profileLines(r, plain)) console.log(l);
       if (r.synced?.linked.length)
@@ -238,13 +247,15 @@ export const initCommand = defineCommand({
       for (const x of r.refreshed) console.log(formatRefreshed(x, plain));
       console.log("");
       const report = await doctor({
+        host: terminalHost(args.host),
+        repo,
         bunVersion: Bun.version,
         version: VERSION,
         handshake: () => mcpHandshake(),
       });
       for (const l of formatReport(report, plain)) console.log(l);
       console.log("");
-      for (const l of PLUGIN_STEPS) console.log(l);
+      for (const l of terminalHost(args.host).host === "claude-code" ? PLUGIN_STEPS : []) console.log(l);
     } finally {
       ask?.close();
     }

@@ -53,13 +53,14 @@ export async function harness(
   const copied: string[] = [];
   let api!: AppApi;
   let keymap!: AppKeymap;
+  const effects = o.effects ?? fixtureEffects();
   const s = await mount(
     <Providers
       ui={o.ui ?? UI}
       keybinds={o.keybinds ?? DEFAULT_KEYS}
-      effects={o.effects ?? fixtureEffects()}
+      effects={effects}
       clock={clock}
-      initial={o.state ?? initialState()}
+      initial={o.state ?? initialState("status", effects.host.host)}
       copy={(t) => {
         copied.push(t);
         return true;

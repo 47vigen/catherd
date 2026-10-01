@@ -11,7 +11,7 @@ afterEach(snapshotEnv());
 
 function catherd(args: string[], cwd?: string) {
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "profile", ...args], {
-    env: { ...process.env, NO_COLOR: "1", ANTHROPIC_API_KEY: "" },
+    env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "claude-code", NO_COLOR: "1", ANTHROPIC_API_KEY: "" },
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -80,7 +80,7 @@ describe("catherd profile set", () => {
         "",
       ].join("\n"),
     );
-    expect(getProfile("default").roles.verifier.access).toBe("read-only");
+    expect(getProfile("default", "claude-code").roles.verifier.access).toBe("read-only");
     expect(existsSync(join(claudeAgentsDir(), "catherd-default-verifier-claude-opus-5-5-low.md"))).toBe(true);
   });
 
@@ -113,7 +113,7 @@ describe("catherd profile set", () => {
         "✗ failover.codex:gpt-6-sol#high: stand-in codex:gpt-6-luna#high draws on the same quota as codex:gpt-6-sol#high, which is out when codex:gpt-6-sol#high hits its limit",
       ].join("\n"),
     );
-    expect(getProfile("default").roles.worker.enabled).toBe(true);
+    expect(getProfile("default", "claude-code").roles.worker.enabled).toBe(true);
   });
 
   it("refuses an unknown path with exit 2", () => {
@@ -130,11 +130,11 @@ describe("catherd profile set", () => {
     expect(
       catherd(["set", "failover.codex:gpt-5.6-sol#high", "opencode:opencode-go/gpt-5.6-luna#max"]).code,
     ).toBe(0);
-    expect(getProfile("default").failover["codex:gpt-5.6-sol#high"]).toBe(
+    expect(getProfile("default", "claude-code").failover["codex:gpt-5.6-sol#high"]).toBe(
       "opencode:opencode-go/gpt-5.6-luna#max",
     );
     expect(catherd(["set", "failover.codex:gpt-5.6-sol#high", "null"]).code).toBe(0);
-    expect(getProfile("default").failover["codex:gpt-5.6-sol#high"]).toBeUndefined();
+    expect(getProfile("default", "claude-code").failover["codex:gpt-5.6-sol#high"]).toBeUndefined();
   });
 });
 
@@ -213,8 +213,8 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     catherd(["new", "fast"]);
     catherd(["use", "fast", "--repo"], repo);
     expect(catherd(["set", "budget.minutes", "7"], repo).out).toStartWith("✓ budget.minutes: none → 7\n");
-    expect(getProfile("fast").budget.minutes).toBe(7);
-    expect(getProfile("default").budget.minutes).toBeUndefined();
+    expect(getProfile("fast", "claude-code").budget.minutes).toBe(7);
+    expect(getProfile("default", "claude-code").budget.minutes).toBeUndefined();
     expect(catherd(["diff", "default"], repo).out).toBe("budget.minutes: 7 → none\n");
     expect(catherd(["validate"], repo).out).toBe("✓ valid\n");
   });
@@ -279,4 +279,52 @@ describe("catherd profile validate", () => {
       "! roles.verifier.access: verifier runs read-only; catherd's default for it is full\n",
     );
   });
+});
+
+it("reviews a narrow Codex reset and refuses a stale reviewed file without changing stored bytes", () => {
+  withHome();
+  mkdirSync(profilesDir(), { recursive: true });
+  const path = join(profilesDir(), "default.json");
+  const doc = {
+    ...defaultProfileDoc(),
+    future: { keep: true },
+    roles: {
+      ...defaultProfileDoc().roles,
+      architect: {
+        rungs: ["claude:claude-opus-5-5#high"],
+        defaultRung: "claude:claude-opus-5-5#high",
+        future: "keep",
+      },
+      verifier: { rungs: ["claude:claude-opus-5-5#low"] },
+    },
+  };
+  writeFileSync(path, JSON.stringify(doc));
+  const before = readFileSync(path, "utf8");
+  const run = (args: string[], host = "codex") => {
+    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "profile", ...args, "--host", host], {
+      env: { ...process.env, CATHERD_ORCHESTRATION_HOST: host, NO_COLOR: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  };
+  const preview = run(["reset-host-defaults", "--preview", "--json"]);
+  expect(preview.code).toBe(0);
+  expect(readFileSync(path, "utf8")).toBe(before);
+  const reviewed = join(profilesDir(), "reviewed.json");
+  writeFileSync(reviewed, preview.out);
+  writeFileSync(path, JSON.stringify({ ...doc, budget: { usd: 3 } }));
+  const changed = readFileSync(path, "utf8");
+  expect(run(["reset-host-defaults", "--expect", reviewed]).code).toBe(1);
+  expect(readFileSync(path, "utf8")).toBe(changed);
+  writeFileSync(reviewed, run(["reset-host-defaults", "--preview", "--json"]).out);
+  // a codex preview never approves the claude-code reset
+  expect(run(["reset-host-defaults", "--expect", reviewed], "claude-code").code).toBe(1);
+  expect(readFileSync(path, "utf8")).toBe(changed);
+  expect(run(["reset-host-defaults", "--expect", reviewed]).code).toBe(0);
+  const stored = JSON.parse(readFileSync(path, "utf8"));
+  expect(stored.roles.architect).toEqual({ future: "keep" });
+  expect(stored.future).toEqual({ keep: true });
+  expect(stored.budget).toEqual({ usd: 3 });
+  expect(existsSync(claudeAgentsDir())).toBe(false);
 });

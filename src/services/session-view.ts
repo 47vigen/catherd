@@ -1,3 +1,4 @@
+import { sessionKey, type KnownHost } from "../domain/host.ts";
 import { statSync } from "node:fs";
 import { liveSessionFile, readSessionFiles, type SessionFile } from "../infra/claude-session.ts";
 import { type Run, runPaths } from "./run-store.ts";
@@ -14,6 +15,7 @@ import { readSessionRows } from "./sessions.ts";
 
 /** A session as the runs page shows it: its name read live while it runs, else the last one recorded. */
 export interface RunSession {
+  host: KnownHost;
   sessionId: string;
   hostSessionId: string | null;
   name: string;
@@ -56,10 +58,11 @@ export function runActivity(run: Run): number {
 /** The sessions each run has had, oldest first: its starter, then each one that took it over. */
 function trailOf(
   run: Run,
-): { sessionId: string; hostSessionId: string | null; name: string | null; at: string }[] {
+): { host: KnownHost; sessionId: string; hostSessionId: string | null; name: string | null; at: string }[] {
   const rows = readSessionRows(run);
   const s = run.meta.startedBy;
-  if (s && !rows.some((r) => r.sessionId === s.sessionId)) return [{ ...s, at: run.meta.createdAt }, ...rows];
+  if (s && !rows.some((r) => sessionKey(r) === sessionKey(s)))
+    return [{ ...s, at: run.meta.createdAt }, ...rows];
   return rows;
 }
 
@@ -70,21 +73,23 @@ export function groupRuns(runs: Run[], files: SessionFile[] = readSessionFiles()
   const trails = new Map(runs.map((r) => [r.id, trailOf(r)]));
   for (const t of trails.values())
     for (const row of t) {
-      const was = recorded.get(row.sessionId);
+      const was = recorded.get(sessionKey(row));
       if (!was || row.at >= was.at)
-        recorded.set(row.sessionId, {
+        recorded.set(sessionKey(row), {
           name: row.name ?? was?.name ?? null,
           host: row.hostSessionId ?? was?.host ?? null,
           at: row.at,
         });
     }
   const sessionOf = (id: string): RunSession => {
-    const live = liveSessionFile(id, files);
+    const [host, sessionId] = JSON.parse(id) as [KnownHost, string];
+    const live = host === "claude-code" ? liveSessionFile(sessionId, files) : null;
     const rec = recorded.get(id);
     return {
-      sessionId: id,
+      host,
+      sessionId,
       hostSessionId: live?.hostSessionId ?? rec?.host ?? null,
-      name: live?.name ?? rec?.name ?? `session ${id.slice(0, 8)}`,
+      name: live?.name ?? rec?.name ?? `session ${sessionId.slice(0, 8)}`,
       live: live !== null,
     };
   };
@@ -101,13 +106,13 @@ export function groupRuns(runs: Run[], files: SessionFile[] = readSessionFiles()
   for (const run of runs) {
     const at = runActivity(run);
     const trail = trails.get(run.id) ?? [];
-    const starter = run.meta.startedBy?.sessionId ?? null;
+    const starter = run.meta.startedBy ? sessionKey(run.meta.startedBy) : null;
     // the run lives on in its current owner: the last session that took it (a run can come back to its starter)
-    const owner = trail.at(-1)?.sessionId ?? starter;
+    const owner = trail.at(-1) ? sessionKey(trail.at(-1)!) : starter;
     const moved = owner !== starter && owner !== null;
     // a run that lives on elsewhere counts, in a session it left, from when that session last took it
     const tookAt = (id: string | null): number =>
-      Date.parse(trail.findLast((t) => t.sessionId === id)?.at ?? run.meta.createdAt) || 0;
+      Date.parse(trail.findLast((t) => sessionKey(t) === id)?.at ?? run.meta.createdAt) || 0;
     add(
       starter,
       {
@@ -118,7 +123,7 @@ export function groupRuns(runs: Run[], files: SessionFile[] = readSessionFiles()
       },
       moved ? tookAt(starter) : at,
     );
-    for (const id of new Set(trail.map((t) => t.sessionId)))
+    for (const id of new Set(trail.map(sessionKey)))
       if (id !== starter)
         add(
           id,
@@ -146,7 +151,7 @@ export function sessionFacts(
   run: Run,
   files: SessionFile[] = readSessionFiles(),
 ): { session: RunSession | null; continuedIn: string | null } {
-  const starter = run.meta.startedBy?.sessionId ?? null;
-  const own = groupRuns([run], files).find((g) => (g.session?.sessionId ?? null) === starter);
+  const starter = run.meta.startedBy ? sessionKey(run.meta.startedBy) : null;
+  const own = groupRuns([run], files).find((g) => (g.session ? sessionKey(g.session) : null) === starter);
   return { session: own?.session ?? null, continuedIn: own?.runs[0]?.continuedIn ?? null };
 }

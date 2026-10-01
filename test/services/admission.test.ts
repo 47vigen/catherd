@@ -1,5 +1,6 @@
+import * as git from "../../src/infra/git.ts";
 import { replyContract } from "../../src/domain/role-prompts.ts";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
@@ -230,4 +231,49 @@ describe("admission", () => {
     expect(await refusal(admit(fakeDeps(), run, input()))).toBe("E_IO_UNEXPECTED");
     expect(latestDispatch(run, "worker-M1.L1")).toBeNull();
   });
+});
+
+it("does not journal stale ordinary origin after awaited snapshot, but preserves explicit failover origin", async () => {
+  const { run } = freshRun();
+  process.env.PATH = simPath();
+  Object.assign(process.env, withScenario({ reply: "ok" }).env);
+  const deps = fakeDeps({
+    host: {
+      host: "codex",
+      session: { host: "codex", sessionId: "old", hostSessionId: null, name: null },
+      conflict: null,
+    },
+  });
+  let entered!: () => void;
+  const waiting = new Promise<void>((r) => {
+    entered = r;
+  });
+  let release!: () => void;
+  const barrier = new Promise<void>((r) => {
+    release = r;
+  });
+  const original = git.statusSnapshot;
+  const mocked = spyOn(git, "statusSnapshot").mockImplementation(async (repo) => {
+    entered();
+    await barrier;
+    return original(repo);
+  });
+  try {
+    const pending = admit(deps, run, input({ lane: null, name: "ordinary" }));
+    await waiting;
+    deps.host = { host: "unknown", session: null, conflict: null };
+    release();
+    const ordinary = await pending;
+    expect(ordinary.d.admit.sessionId).toBeUndefined();
+    expect(ordinary.d.admit.host).toBeUndefined();
+    const explicit = await admit(
+      deps,
+      run,
+      input({ lane: null, name: "failover", sessionId: "origin", host: "codex" }),
+    );
+    expect(explicit.d.admit).toMatchObject({ sessionId: "origin", host: "codex" });
+  } finally {
+    release();
+    mocked.mockRestore();
+  }
 });

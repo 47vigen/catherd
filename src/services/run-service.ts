@@ -15,6 +15,7 @@ import {
   recordHints,
 } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
+import { assertNativeHost } from "./backends.ts";
 import {
   type AgentRun,
   appendAgentRun,
@@ -167,6 +168,7 @@ export function recordAgentRun(
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is not a native Claude rung`, {
       fix: "record_agent_run is for Agent subagents; dispatch records every other run itself",
     });
+  assertNativeHost(i.rung, deps.host.conflict ? "unknown" : deps.host.host);
   const row: AgentRun = {
     at: new Date(deps.now()).toISOString(),
     name: i.name,

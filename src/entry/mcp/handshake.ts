@@ -15,7 +15,9 @@ const STDERR_TAIL = 4_000;
 /** The env the doctor's MCP server starts with: catherd's own secrets scrubbed, as for every process it starts. */
 export const handshakeEnv = (
   base: Record<string, string | undefined> = process.env,
-): Record<string, string> => scrubSecrets(base);
+): Record<string, string> => {
+  return scrubSecrets(base);
+};
 
 /**
  * Spec §10.3 and 1.1 §12: starts the MCP server the way the plugin does, `sh <launcher>` over stdio, and

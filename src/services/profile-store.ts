@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -94,7 +95,8 @@ export function readProfileDoc(name: string): ProfileDoc {
   throw new CatherdError("E_CONFIG_INVALID", `no profile named "${name}"`, { fix: "catherd profile list" });
 }
 
-export const getProfile = (name: string): Profile => resolveProfile(readProfileDoc(name), name);
+export const getProfile = (name: string, host: OrchestrationHost): Profile =>
+  resolveProfile(readProfileDoc(name), name, host);
 
 /** A profile name the user typed: refused as bad input (exit 2) when no such profile exists. */
 export function requireProfile(name: string): string {
@@ -109,7 +111,8 @@ export function activeName(repo: string | null = null): string {
   return bound ?? readConfig().activeProfile ?? "default";
 }
 
-export const profileFor = (repo: string | null): Profile => getProfile(activeName(repo));
+export const profileFor = (repo: string | null, host: OrchestrationHost): Profile =>
+  getProfile(activeName(repo), host);
 
 /** The backends catherd can run: every registered adapter, and the native `claude` path. */
 export const runnableBackends = (): string[] => ["claude", ...ADAPTER_IDS.filter((id) => adapterFor(id))];
@@ -212,8 +215,13 @@ export function budgetUsdWarnings(p: Profile): Issue[] {
  * Spec §7.1 validation on this machine: the backends catherd can run here, the keys isolation needs, the
  * accesses a backend holds only when isolated, and the backends a dollar budget cannot see.
  */
-export function validateHere(p: Profile, c: Catalog, doc?: ProfileDoc): Validation {
-  const v = validateProfile(p, c, runnableBackends(), doc);
+export function validateHere(
+  p: Profile,
+  c: Catalog,
+  doc?: ProfileDoc,
+  host: OrchestrationHost = "unknown",
+): Validation {
+  const v = validateProfile(p, c, runnableBackends(), doc, host);
   return {
     errors: [...v.errors, ...isolationKeyErrors(p), ...isolatedOnlyErrors(p)],
     warnings: [...v.warnings, ...budgetUsdWarnings(p)],
@@ -221,11 +229,20 @@ export function validateHere(p: Profile, c: Catalog, doc?: ProfileDoc): Validati
 }
 
 /** `repo`: the git toplevel whose listing route reads (opencode lists its models per repository). */
-export function validateNamed(name?: string, repo: string | null = null): Validation {
+export function validateNamed(
+  name: string | undefined,
+  repo: string | null,
+  host: OrchestrationHost,
+): Validation {
   const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
   const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
-  return validateHere(resolveProfile(doc, n), catalog, doc);
+  try {
+    return validateHere(resolveProfile(doc, n, host), catalog, doc, host);
+  } catch (e) {
+    if (!(e instanceof CatherdError)) throw e;
+    return { errors: [{ path: "roles", message: e.message, fix: e.fix }], warnings: [] };
+  }
 }
 
 /** Spec D10: how strongly the backend holds a role to its access mode. */

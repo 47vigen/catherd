@@ -7,7 +7,9 @@ description: Use when the user wants to tune catherd — which models and effort
 
 You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode); whether routing favours cost or speed; how each backend is billed; whether Jev picks the rung; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
 
-**You never edit a file by hand.** `profile_set` is the only writer, so this conversation, the `catherd profile` commands and the TUI cannot drift apart.
+**You never edit a file by hand.** Use `profile_set` for patches and the existing reviewed CLI reset below; both go through ProfileService, as do the `catherd profile` commands and the TUI.
+
+**Discover the host first with `status()`.** Use the host's available MCP discovery facility; names and deferred tools differ. Claude Code may use `ToolSearch`; Codex never needs invented Claude tools or native Claude agents. Pass the actual project `repo` explicitly to profile, setup and catalog calls that accept it: native Codex starts the MCP server in the installed plugin root, not the project. An unknown terminal can use `catherd init --host codex` or `--host claude-code` for setup; this does not create a conversation owner. Conflicting identity must be resolved before ownership or push.
 
 ## Rules
 
@@ -21,16 +23,18 @@ You tune the user's catherd profile in conversation. A profile says, per role, w
 Ask these, one at a time, each with its recommended answer:
 
 1. **Their order of speed, cost and quality.** Recommend cost first, the default `objective`: catherd climbs a rung when a cheap one cannot do the work, so the lanes that need speed get it anyway, and the reviewer and the verifier hold quality either way.
-2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`, `grok`, `antigravity`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend, and on Claude last among the workers, since it spends the same quota as this conversation.
+2. **The subscriptions they hold:** a ChatGPT plan (Codex), a Claude plan, OpenCode Go, Zen credit or API keys. They set `billing` per key (`codex`, `claude`, `claude-code`, `opencode-go`, `opencode`, `cursor`, `grok`, `antigravity`): `chatgpt-plan`, `claude-plan`, `subscription` or `metered`. Recommend leaning on subscriptions before metered spend. Explain which workers share this conversation's quota from the actual host and billing facts.
 3. **The kind of work they orchestrate:** front-end screens, back-end services, terminal and ops work, docs. Recommend from their own runs when `runs_summary` has any.
 
 ## 2. Read the facts before proposing
 
 In one message, call:
 
-- `catalog_query({ role: "<role>" })` for each role you will discuss: the models that can fill it, their scored rungs, any "treat like", each rung's cost under their billing, and whether their backend's last listing offers it (`listed: false` means their account does not);
+- `catalog_query({ repo, role: "<role>" })` for each role you will discuss: the models that can fill it, their scored rungs, any "treat like", each rung's cost under their billing, and whether their backend's last listing offers it (`listed: false` means their account does not);
 - `runs_summary({})`: how each rung has done on their own runs (runs, refusals, climbs, time) and the harness cost line, for claude-code and opencode only: Codex reports no per-request input, so it has no harness figure;
 - `profile_get({ repo })`: where they stand now, with each role's `access` and `enforcement`. Pass the user's repo: without a name, the profile tools act on the profile this repo runs on (the one bound to it, else the active one), which `here` names; `active` is the global active profile.
+
+Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog discovery and validation. If its spelling differs, report the mismatch and resolve it explicitly with the owner; never silently normalize or substitute a model. Retain architect high and verifier low effort.
 
 ## 3. Propose one decision at a time
 
@@ -40,13 +44,23 @@ Go through these in order, and skip any the user does not care about:
 2. `billing`, from step 1;
 3. the worker's `rungs` and its `defaultRung`;
 4. the reviewer and the UI reviewer;
-5. the architect and the verifier, which spend Claude quota. A `claude:` rung runs as a native subagent in this session; a `claude-code:` rung runs headless through `dispatch`. Recommend native for these two;
+5. the architect and the verifier. Recommend omitted host defaults: on Codex, exactly `codex:gpt-6.1-sol#high` and `codex:gpt-6.1-sol#low`; on Claude Code, the existing native Claude defaults. A `claude:` rung requires a Claude Code host and its native `Agent`; `claude-code:` runs headless through `dispatch` on either host. Codex architect/verifier use process `dispatch`/`result`. Preserve explicit model IDs, efforts, ladder order and all other fields. Never silently convert `claude:` into `claude-code:`;
 6. the writer, the researcher and the artist;
 7. each role's `access` (below);
 8. `failover` (below);
 9. `budget`, `timeouts` and `preflight.confirm`;
 10. harness isolation, per harness (below);
 11. `lock.heavy` and `notify`.
+
+Existing materialized profiles remain unchanged on read, init, upgrade or host switch. To deliberately opt into host defaults, use the existing CLI from the project directory, naming the profile returned by `profile_get`:
+
+```sh
+catherd profile reset-host-defaults <profile> --host codex --preview --json > /tmp/catherd-host-defaults-review.json
+# Read the complete diff, effective defaults, errors and warnings before saving.
+catherd profile reset-host-defaults <profile> --host codex --expect /tmp/catherd-host-defaults-review.json --json
+```
+
+Use `--host claude-code` for that host. This reviewed reset removes only architect/verifier `rungs` and `defaultRung`, preserving access, enabled state, network, budget, isolation, billing, routing and failover. The `--expect` file guards against a profile changing after review. There is no MCP reset tool. Offer the exact headless model/effort equivalent as a separate explicit choice when a native Claude rung is incompatible with Codex.
 
 Each proposal has three parts: the change, a worked example from their facts, and the tradeoff in their terms. For instance: "Luna high on build lanes: about 5 min slower than Sol medium, no Claude quota, climbs on 1 in 5 of your runs so far."
 
@@ -58,6 +72,8 @@ Each proposal has three parts: the change, a worked example from their facts, an
 **Failover.** `failover` maps a rung to its stand-in when that rung's backend hits a usage limit. A stand-in must be scored and on another quota (Go and Zen bill apart; native `claude` and `claude-code` share the Claude plan). The default profile fails a Codex rung over only to a stand-in that clears the same bars at least as well: Go's GPT-6 Luna for Luna high, and Kimi K3 (its scores borrowed from Sol medium) for Sol medium. Sol high and xhigh have none, so a limit there pauses the lane rather than dropping it a tier. Say so, and offer to change it when they have no Go subscription. `null` removes an entry.
 
 **Budget and timeouts.** `budget` (`minutes`, `tokens`, `usd`) is a soft cap: from 80 % routing starts at the cheapest rung that clears the bar, and at 100 % no new role starts. `timeouts.idleMin` (15) stops a role that has gone quiet, `timeouts.wallMin` (90) one that runs too long. `preflight.confirm: true` makes `preflight` show its commands for the user to approve first.
+
+**Notifications and readiness.** `notify` controls milestone, finish and blocked moments through whatever notification facility the host actually exposes; Claude Code may have `PushNotification`. Do not invent a Codex tool or a scheduling promise. Completion uses Claude's peer inbox or Codex's existing native queue (`--remote unix://`); a Codex busy session receives ordered next input after its active turn, not urgent next-tool-round delivery. Queue acceptance proves neither processing nor `result` collection; unloaded/interrupted sessions may retain input. `catherd doctor --host codex` checks capability without sending; only explicit `--test-push` sends a labeled smoke input. Use the orchestration skill's `peek`/`result` recovery and current-owner, exact-event `runs retry-push` decision for ambiguity.
 
 **Harness isolation.** For each harness they use (`codex`, `claude-code`, `opencode`, `cursor`, `grok`, `antigravity`), offer `harness.<name>.isolated` with its harness line from `runs_summary` (Codex has none: it reports no per-request input, so say there is no figure for it instead of offering one) and this tradeoff: "native keeps your hooks, skills and AGENTS.md; isolated saves ~N tokens per run, but the role loses them." Recommend native. When they have no isolated runs yet, the number is the median first-turn input of their native runs: say that isolation would save some part of it, not all of it. When there are no runs at all, say there is no number yet, and recommend native until there is.
 
@@ -71,5 +87,5 @@ Each proposal has three parts: the change, a worked example from their facts, an
 ## 5. Say what applies when
 
 - Codex, claude-code, opencode, Cursor, grok and Antigravity changes, access and isolation included, apply at the next dispatch, even in a run already under way. Isolating Cursor needs `CURSOR_API_KEY` in the environment catherd runs in, isolating grok `XAI_API_KEY`, and isolating Antigravity `GEMINI_API_KEY`; `profile_validate` refuses each without. A read-only role (reviewer, architect, researcher) can run on Antigravity only isolated: agy has no read-only mode.
-- An agent listed in `newSessionNeededFor` applies from the next Claude Code session: Claude Code reads agent files when a session starts. Other Claude changes apply now.
-- Editing a profile that is not the active one writes its agent files but links none; they apply once it becomes active (`catherd profile use <name>`), or in a repo it is bound to (`catherd profile use <name> --repo`).
+- For native Claude roles, an agent listed in `newSessionNeededFor` applies from the next Claude Code session: Claude Code reads agent files when a session starts. Other Claude changes apply now. `record_agent_run` accounts only for native Claude Agent results on Claude Code; process records are automatic.
+- ProfileService manages Claude agent files/links only when native Claude roles are used. Codex-only setup and profile operations do not write under `~/.claude`; Claude CLI/login is needed only by an enabled selected role or reachable failover that uses it. Editing an inactive Claude-dependent profile writes its managed files but links none; they apply once active or repo-bound. Keep role-disabled, access, isolation, budget and failover choices intact.

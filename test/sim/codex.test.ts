@@ -92,3 +92,24 @@ describe("codex simulator scenarios", () => {
     expect(run(exec("gpt-6-sol", "high"), s.env, "", repo).code).toBe(5);
   });
 });
+
+describe("codex simulator queue", () => {
+  it("answers no-send help and native exact acceptance or failure fixtures", () => {
+    const thread = "01a0f53b-a47d-7350-83a4-c3430e453404";
+    const args = ["queue", "--remote", "unix://", "--thread", thread, "--message", "completion"];
+    expect(run(["queue", "--help"], withScenario({ queue: "accepted" }).env).out).toContain("--remote");
+    expect(run(args, withScenario({ queue: "accepted" }).env)).toMatchObject({
+      code: 0,
+      out: `Queued message 01a0f547-7947-7972-90a0-a7ad547170e0 for thread ${thread}.\n`,
+    });
+    expect(run(args, withScenario({ queue: "malformed" }).env)).toMatchObject({
+      code: 0,
+      out: "Queued message.\n",
+    });
+    expect(run(args, withScenario({ queue: "unsupported" }).env).err).toContain(
+      "does not support thread/queue/add",
+    );
+    expect(run(["queue", "--help"], withScenario({}).env).code).toBe(2);
+    expect(run(["queue", "--help"], withScenario({ queue: "no-remote" }).env).out).not.toContain("--remote");
+  });
+});

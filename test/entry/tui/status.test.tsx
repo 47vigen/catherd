@@ -1,3 +1,4 @@
+import { sessionKey } from "../../../src/domain/host.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { CatherdError } from "../../../src/domain/errors.ts";
 import { FIXTURE_REPORT, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
@@ -111,7 +112,10 @@ describe("the Status tab (spec §9.1)", () => {
     await h!.s.press("shift+g", "k", "k", "return");
     expect(h!.app().getState()).toMatchObject({ tab: "profiles", profile: "default" });
     await h!.s.press("shift+g", "return");
-    expect(h!.app().getState()).toMatchObject({ tab: "runs", session: { key: "s-auth" } });
+    expect(h!.app().getState()).toMatchObject({
+      tab: "runs",
+      session: { key: sessionKey({ host: "claude-code", sessionId: "s-auth" }) },
+    });
   });
 
   it("shows and opens the profile this repo runs on", async () => {

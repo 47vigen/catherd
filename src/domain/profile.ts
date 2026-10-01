@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
@@ -229,7 +230,7 @@ export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
 /** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */
 const WRITTEN_BILLING: BillingKey[] = ["codex", "claude", "claude-code", "opencode-go", "opencode"];
 
-/** The full default profile document, every field written out: what `init` and `profile new` save. */
+/** Stored defaults for init/new; architect/verifier rungs resolve from the current host. */
 export function defaultProfileDoc(name = "default"): ProfileDoc {
   return {
     schema: PROFILE_SCHEMA,
@@ -237,7 +238,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
     objective: "cost",
     jev: { use: "auto" },
     billing: Object.fromEntries(WRITTEN_BILLING.map((k) => [k, DEFAULT_BILLING[k]])),
-    roles: structuredClone(BUILTIN_ROLES),
+    roles: hostDefaultsDoc({ schema: PROFILE_SCHEMA, roles: structuredClone(BUILTIN_ROLES) }).roles,
     harness: {
       codex: { isolated: false },
       "claude-code": { isolated: false },
@@ -252,12 +253,38 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
   };
 }
 
-/** Spec §7.1: every field a document leaves out takes its default; a missing role takes the built-in one. */
-export function resolveProfile(doc: ProfileDoc, name: string): Profile {
+/** Remove only the four architect/verifier execution choices, preserving other stored fields. */
+export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
+  const next = structuredClone(doc);
+  for (const role of ["architect", "verifier"] as const) {
+    const r = next.roles?.[role];
+    if (r) {
+      delete r.rungs;
+      delete r.defaultRung;
+    }
+  }
+  return next;
+}
+
+/** Resolve omitted role execution choices from the explicit orchestration host. */
+export function resolveProfile(doc: ProfileDoc, name: string, host: OrchestrationHost): Profile {
   const roles = {} as Record<Role, RoleConfig>;
   for (const role of ROLES) {
     const d = doc.roles?.[role];
     const b = BUILTIN_ROLES[role];
+    let omitted = b.rungs;
+    if ((role === "architect" || role === "verifier") && d?.rungs === undefined) {
+      if (host === "unknown" && (d?.enabled ?? b.enabled))
+        throw new CatherdError("E_CONFIG_INVALID", `roles.${role}.rungs needs an orchestration host`, {
+          fix: "pass --host codex or --host claude-code, or set explicit role rungs",
+        });
+      omitted =
+        host === "codex"
+          ? [`codex:gpt-6.1-sol#${role === "architect" ? "high" : "low"}`]
+          : host === "unknown"
+            ? []
+            : b.rungs;
+    }
     // a role that lists its own rungs never inherits the built-in default rung, which may not be among them
     const defaultRung = d?.defaultRung ?? (d?.rungs === undefined ? b.defaultRung : undefined);
     roles[role] = {
@@ -268,7 +295,7 @@ export function resolveProfile(doc: ProfileDoc, name: string): Profile {
           : known(ACCESS, d.access)
             ? d.access
             : STORED_FALLBACK.access,
-      rungs: [...(d?.rungs ?? b.rungs)],
+      rungs: [...(d?.rungs ?? omitted)],
       ...(defaultRung ? { defaultRung } : {}),
       ...(d?.network === false ? { network: false as const } : {}),
     };

@@ -1,3 +1,4 @@
+import { terminalHost } from "../host-arg.ts";
 import { type CliRenderer, createCliRenderer, SystemClock } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { gitToplevel } from "../../infra/git.ts";
@@ -26,6 +27,7 @@ import { App } from "./views/app.tsx";
 
 export interface TuiOptions {
   rawArgs: string[];
+  host?: string;
   tab?: Tab;
   env?: Record<string, string | undefined>;
   /** Whether stdin and stdout are a terminal; tests pass it so none reads the real one. */
@@ -59,8 +61,9 @@ export async function openTui(o: TuiOptions): Promise<number> {
   }
   const keybinds = keybindsFromConfig();
   const story = Boolean(env.CATHERD_STORY);
+  const host = terminalHost(o.host, env);
   // the repo this directory is in, resolved once at start (the repo ruling)
-  const effects: Effects = story ? fixtureEffects() : liveEffects(await gitToplevel(process.cwd()));
+  const effects: Effects = story ? fixtureEffects() : liveEffects(await gitToplevel(process.cwd()), host);
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     useMouse: false,
@@ -83,7 +86,7 @@ export async function openTui(o: TuiOptions): Promise<number> {
         keymap={createAppKeymap(renderer)}
         effects={effects}
         clock={new WallClock()}
-        initial={initialState(o.tab ?? "status")}
+        initial={initialState(o.tab ?? "status", effects.host.host)}
         copy={(text) => renderer.copyToClipboardOSC52(text)}
         onExit={(code, kept) => {
           result = { code, kept };
@@ -103,6 +106,9 @@ export async function openTui(o: TuiOptions): Promise<number> {
 }
 
 /** Bare `catherd`: `cli.ts` imports this only when no subcommand was named, so no subcommand loads OpenTUI. */
-export async function tuiRun(ctx: { rawArgs: string[] }): Promise<void> {
-  process.exitCode = await openTui({ rawArgs: ctx.rawArgs });
+export async function tuiRun(ctx: { rawArgs: string[]; args?: Record<string, unknown> }): Promise<void> {
+  process.exitCode = await openTui({
+    rawArgs: ctx.rawArgs,
+    host: typeof ctx.args?.host === "string" ? ctx.args.host : undefined,
+  });
 }

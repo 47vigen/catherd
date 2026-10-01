@@ -93,7 +93,7 @@ async function start(args: string) {
 
 describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
   it("stages an edit, saves it from the dialog, quits 0, and prints what to keep after exit", async () => {
-    const t = await start("");
+    const t = await start("--host claude-code");
     await until("the status tab", () => t.screen().includes("SETUP"));
     await t.keys("2");
     await until("the profiles tab", () => t.screen().includes("ROLES"));
@@ -123,7 +123,7 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
   }, 60_000);
 
   it("exits 130 when unsaved changes are discarded with ctrl+c twice", async () => {
-    const t = await start("");
+    const t = await start("--host claude-code");
     await until("the status tab", () => t.screen().includes("SETUP"));
     await t.keys("2");
     await until("the profiles tab", () => t.screen().includes("ROLES"));
@@ -134,3 +134,22 @@ describe.skipIf(!TMUX)("the TUI in a real terminal", () => {
     expect(existsSync(join(t.home, "config", "profiles", "default.json"))).toBe(false);
   }, 60_000);
 });
+
+it.skipIf(!TMUX)(
+  "unknown TUI host shows an actionable Profiles error and can return to Status without writes",
+  async () => {
+    const t = await start("");
+    await until("the status tab", () => t.screen().includes("SETUP"));
+    await t.keys("2");
+    await until("host-required profile error", () => t.screen().includes("orchestration host"));
+    expect(t.screen()).toContain("--host codex");
+    expect(t.screen()).not.toContain("claude-opus");
+    await t.keys("1");
+    await until("status after error", () => t.screen().includes("SETUP"));
+    await t.keys("q");
+    expect(await exitCode(t.home)).toBe("0");
+    expect(existsSync(join(t.home, "config", "profiles", "default.json"))).toBe(false);
+    expect(existsSync(join(t.home, "agents"))).toBe(false);
+  },
+  60_000,
+);

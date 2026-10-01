@@ -26,6 +26,8 @@ import { readNotes } from "../../src/services/state.ts";
 import { noPosixModes, openModes, snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
+import { startNotifier } from "../../src/services/notifier.ts";
+import { deliveryState } from "../../src/infra/delivery.ts";
 import {
   deadProcess,
   fakeDeps,
@@ -378,6 +380,45 @@ describe("dispatch returns at launch; its watcher settles it; result reads it (p
     writeFileSync(release, "");
     await watchersSettled();
     expect(readRecords(run).records).toHaveLength(1);
+  });
+
+  it("duplicate completion input and repeated result reads never admit a second dispatch", async () => {
+    const { run } = setup(OK);
+    const target = {
+      host: "codex" as const,
+      sessionId: "0199c011-1234-7000-8000-000000000001",
+      hostSessionId: null,
+      name: null,
+    };
+    const deps = fakeDeps({ host: { host: "codex", session: target, conflict: null } });
+    let sends = 0;
+    const n = startNotifier(deps, {
+      coalesceMs: 0,
+      sendCodex: async () => {
+        sends++;
+        return { outcome: "accepted", msgId: "receipt" };
+      },
+    });
+    try {
+      await dispatch(deps, input(run.id));
+      await watchersSettled();
+      await n.idle();
+      const d = listDispatches(run)[0]!;
+      const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+      expect(deliveryState(d.dir, target, eventId)).toBe("enqueue-accepted");
+      await n.scan();
+      await n.scan();
+      await n.idle();
+      const a = await read(deps, run.id),
+        b = await read(deps, run.id);
+      expect(a.record).toEqual(b.record);
+      expect(deliveryState(d.dir, target, eventId)).toBe("collected");
+      expect(sends).toBe(1);
+      expect(listDispatches(run)).toHaveLength(1);
+      expect(readRecords(run).records).toHaveLength(1);
+    } finally {
+      n.stop();
+    }
   });
 });
 

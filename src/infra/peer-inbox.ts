@@ -51,10 +51,12 @@ export function sendToInbox(
   const socketPath = target.socketPath;
   return new Promise<SendResult>((resolve) => {
     let settled = false;
+    // once the frame is being written a failure may still have delivered it: such a result carries its msg_id
+    let writing = false;
     const done = (r: SendResult) => {
       if (settled) return;
       settled = true;
-      resolve(r);
+      resolve(writing && r.outcome === "error" ? { ...r, msgId } : r);
     };
     let s: ReturnType<typeof createConnection>;
     try {
@@ -77,6 +79,7 @@ export function sendToInbox(
     });
     s.on("connect", () => {
       clearTimeout(timer);
+      writing = true;
       s.write(frameText(content, priority, target.token, msgId), (err) => {
         if (err) {
           s.destroy();

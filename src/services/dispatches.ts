@@ -36,6 +36,7 @@ const AdmitSchema = z.looseObject({
   before: z.record(z.string(), z.string()),
   /** the Claude Code session that dispatched it (spec §3.3); absent on 1.0 dispatches and outside Claude Code */
   sessionId: z.string().optional(),
+  host: z.enum(["claude-code", "codex"]).optional(),
 });
 export type Admit = z.infer<typeof AdmitSchema>;
 
@@ -65,7 +66,7 @@ export function listDispatches(run: Run): Dispatch[] {
       if (!id.isDirectory()) continue;
       const dir = join(roles, name.name, id.name);
       try {
-        out.push({ dir, admit: readVersioned(admitPath(dir), AdmitSchema, 1) });
+        out.push({ dir, admit: decodeAdmit(readVersioned(admitPath(dir), AdmitSchema, 1)) });
       } catch {
         // admission never finished writing this folder
       }
@@ -173,4 +174,8 @@ export function readFailover(dir: string): FailoverFile | null {
 /** Spec §4.4: what to do next about one finished record; for a usage limit, the failover's own hints. */
 export function recordHints(run: Run, d: Dispatch, r: RunRecord): string[] {
   return readFailover(d.dir)?.hints ?? dispatchHints(r, d.admit.owns, relative(run.dir, d.dir));
+}
+
+function decodeAdmit(a: Admit): Admit {
+  return a.sessionId && !a.host ? { ...a, host: "claude-code" } : a;
 }

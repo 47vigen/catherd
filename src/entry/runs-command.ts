@@ -1,5 +1,11 @@
 import { resolve } from "node:path";
 import { defineCommand } from "citty";
+import { assertId } from "../domain/ids.ts";
+import { knownQueueCapability, UNCHECKED_QUEUE } from "../infra/codex-queue.ts";
+import { listDispatches } from "../services/dispatches.ts";
+import { retryDelivery } from "../services/notifier.ts";
+import { inspectDelivery } from "../services/run-debug.ts";
+import { terminalHost } from "./host-arg.ts";
 import { formatBudget } from "../domain/budget.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { gitToplevel } from "../infra/git.ts";
@@ -52,15 +58,30 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
     lines.push(
       `  verifier step ${s.verifier.item}${s.verifier.carried ? " (carried over)" : ""} at ${s.verifier.at.slice(11, 16)}`,
     );
+  for (const d of s.delivery)
+    lines.push(
+      `  ${JSON.parse(d.eventId)[2] === "stalled" ? "stalled notice" : d.delivery === "collected" ? "collected" : "unread"} ${d.name} · delivery ${d.delivery}${d.receipt ? ` · queue receipt ${d.receipt.msgId}` : ""}`,
+    );
   for (const l of s.stateTail) lines.push(`  | ${l}`);
   for (const w of s.warnings) lines.push(`  ${mark("warn")} ${w}`);
   return lines;
 }
 
-function printStatus(runId: string | undefined, asJson: boolean): void {
+/**
+ * `live`: a long-lived watch, which reads the queue capability a background probe keeps fresh. A one-shot
+ * status never probes it: a slow Codex CLI must not delay the stored run state, nor hold the process open.
+ */
+async function printStatus(runId: string | undefined, asJson: boolean, live = false): Promise<void> {
   // redacted as `runs show` is: the state.md tail can quote a secret, and status goes to shared terminals
   registerSavedSecrets();
-  const r = redact(status(defaultDeps(), runId));
+  const host = terminalHost(undefined);
+  const queue =
+    host.host === "codex" && !host.conflict
+      ? live
+        ? knownQueueCapability(process.env)
+        : UNCHECKED_QUEUE
+      : null;
+  const r = redact(status(defaultDeps(host), runId, queue));
   if (asJson) return printJson(r);
   if (r.runs.length === 0) console.log("no runs yet");
   // grouped by session, as the runs page is (spec §4); a run shows once, under the session that started it
@@ -84,6 +105,13 @@ function printStatus(runId: string | undefined, asJson: boolean): void {
       for (const l of rest) console.log(l);
     }
   }
+  console.log(`host ${r.host.host}${r.host.conflict ? ` · conflict: ${r.host.conflict}` : ""}`);
+  if (r.queue)
+    console.log(
+      r.queue.checked === false
+        ? `queue unchecked · ${r.queue.reason}`
+        : `queue CLI ${r.queue.cli ? "supported" : "unavailable"} · server ${r.queue.server}${r.queue.reason ? ` · ${r.queue.reason}` : ""}`,
+    );
   for (const w of r.warnings) console.log(`${mark("warn")} ${w}`);
 }
 
@@ -95,7 +123,7 @@ export const statusCommand = defineCommand({
   },
   args: { run: { type: "positional", required: false, description: "run id" }, ...json },
   run({ args }) {
-    printStatus(args.run, args.json === true);
+    return printStatus(args.run, args.json === true);
   },
 });
 
@@ -142,7 +170,7 @@ export const watchCommand = defineCommand({
     }
     for (;;) {
       if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
-      printStatus(undefined, false);
+      await printStatus(undefined, false, true);
       console.log(`updated ${new Date().toLocaleTimeString()} · Ctrl-C to stop`);
       await Bun.sleep(every);
     }
@@ -223,6 +251,10 @@ const show = defineCommand({
     for (const d of debug ?? []) {
       console.log(`\n--- ${d.name} ${d.dispatchId} (${d.rung}, admitted ${d.admittedAt})`);
       console.log(`record: ${d.record ? JSON.stringify(d.record) : "none yet"}`);
+      for (const e of d.deliveries.length ? d.deliveries : [d])
+        console.log(
+          `delivery: ${e.delivery}; event ${e.eventId}; receipt ${e.receipt ? JSON.stringify(e.receipt) : "none"}`,
+        );
       console.log(`exit.json: ${d.exit ? JSON.stringify(d.exit) : "none yet"}`);
       for (const [label, lines] of [
         ["stderr", d.stderrTail],
@@ -252,9 +284,53 @@ const cancelCmd = defineCommand({
   },
 });
 
+const retryPush = defineCommand({
+  meta: {
+    name: "retry-push",
+    description: "Retry a stored event for its current owner, acknowledging possible duplicate input",
+  },
+  args: {
+    run: { type: "positional", required: true, description: "stored run id" },
+    name: { type: "positional", required: true, description: "stored role name" },
+    event: { type: "string", required: true, description: "exact event ID shown by peek/status" },
+    "acknowledge-possible-duplicate": {
+      type: "boolean",
+      description: "explicitly acknowledge possible duplicate native input",
+    },
+    ...json,
+  },
+  async run({ args }) {
+    if (args["acknowledge-possible-duplicate"] !== true)
+      throw new CatherdError("E_INPUT_INVALID", "Retry requires --acknowledge-possible-duplicate");
+    assertId("role name", args.name);
+    const run = findRun(args.run);
+    const d = listDispatches(run).find(
+      (d) =>
+        d.admit.name === args.name &&
+        ["finished", "stalled"].some(
+          (kind) => args.event === JSON.stringify([run.id, d.admit.dispatchId, kind]),
+        ),
+    );
+    if (!d) throw new CatherdError("E_INPUT_INVALID", "Event does not belong to this stored run and role");
+    const deps = defaultDeps(terminalHost(undefined));
+    await retryDelivery(deps, d.dir, args.event, { allowPossibleDuplicate: true });
+    const inspection = inspectDelivery(
+      run,
+      d,
+      readRecords(run).records.some((r) => r.dispatchId === d.admit.dispatchId),
+      args.event,
+    );
+    if (args.json) printJson({ ...inspection, processing: "unconfirmed" });
+    else
+      console.log(
+        `retry inspected: ${inspection.delivery}; event ${args.event}${inspection.receipt ? `; queue receipt ${inspection.receipt.msgId}` : ""}; processing unconfirmed; use peek/result`,
+      );
+  },
+});
+
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
   meta: { name: "runs", description: "Runs: list them (the default), show one, cancel a live role" },
-  subCommands: { list, show, cancel: cancelCmd },
+  subCommands: { list, show, cancel: cancelCmd, "retry-push": retryPush },
   default: "list",
 });

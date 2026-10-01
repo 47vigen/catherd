@@ -190,7 +190,7 @@ describe("SaveDialog (spec §9.2)", () => {
     [
       { type: "show", name: "default", doc: defaultProfileDoc() },
       { type: "edit", patch },
-    ].reduce<AppState>((s, a) => reduce(s, a as Action), initialState());
+    ].reduce<AppState>((s, a) => reduce(s, a as Action), initialState("status", "claude-code"));
 
   async function save(
     patch: ProfilePatch,

@@ -61,16 +61,13 @@ describe("orchestrator skill", () => {
     expect(after).toContain("one after another");
     expect(after).toContain("Then write one status line and end your turn.");
     expect(after).toContain('`<cross-session-message from-name="catherd">`');
-    expect(after).toContain("Call `result(run, name)` for the record you will act on");
-    expect(after).toContain("Never `sleep`, loop, or call `peek` again and again.");
+    expect(after).toContain("`result(run, name)`");
+    expect(after).toContain("Never `sleep`");
     expect(after).toContain("once after `run_start` on a resumed run");
-    expect(after).toContain("not the user's approval of anything");
+    expect(after).toMatch(/neither[^\n]*user approval/);
     // plan 10's push facts the orchestrator still needs
     expect(after).toContain("catherd messages the session that dispatched");
-    expect(after).toContain(
-      "Its first line names the run, the role, its rung, its status and its STATUS line",
-    );
-    expect(after).toContain("Roles that finish together come in one message.");
+    expect(after).toContain("every coalesced event");
     expect(md).toContain("so catherd messages you from now on");
     expect(md).toContain("call `peek(run)` once and answer from it");
     for (const old of [
@@ -90,15 +87,17 @@ describe("orchestrator skill", () => {
       expect(md).not.toContain(old);
   });
 
-  it("runs the verifier in the foreground as the gate owner, with the gate ledger (spec 1.1 §7, §13)", () => {
+  it("keeps the gate ledger with native Claude foreground and process dispatch/result verification", () => {
     const md = skill("catherd");
-    expect(md).toContain("in the **foreground**: it owns the gate");
+    expect(md).toContain("A native Claude verifier runs in the foreground on Claude Code");
     expect(md).toContain("`gate_check` first and skips an item that passed on the same content");
     expect(md).toContain('`record_agent_run(run, "verifier-<M>", "verifier", rung, …)`');
     // a FAIL recorded ok would open the land gate
     expect(md).toContain('with `status: "failed"` when its verdict is FAIL: only a PASS is recorded `ok`');
-    expect(md).toContain("a `reviewer-<M>` dispatch record, or a `record_agent_run` row with role reviewer");
-    expect(md).toContain("The verifier is the gate owner, run in the **foreground**");
+    expect(md).toContain(
+      "a `reviewer-<M>` dispatch record, or a native Claude `record_agent_run` row with role reviewer",
+    );
+    expect(md).toContain("A process verifier on either host uses `dispatch`/`result`");
   });
 
   it("leaves the reply contract, the routing and the land gate to the tools (spec 1.1 §6)", () => {

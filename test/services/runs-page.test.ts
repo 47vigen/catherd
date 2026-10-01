@@ -1,3 +1,4 @@
+import { sessionKey } from "../../src/domain/host.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -77,7 +78,11 @@ describe("the runs page (spec §4)", () => {
     const counts = Object.fromEntries(
       sessionRows(fakeDeps()).rows.map((r) => [r.key, [r.liveRoles, r.landed]]),
     );
-    expect(counts).toEqual({ "s-auth": [0, 0], "s-kit": [0, 0], "s-rev": [1, 1] });
+    expect(counts).toEqual({
+      [sessionKey({ host: "claude-code", sessionId: "s-auth" })]: [0, 0],
+      [sessionKey({ host: "claude-code", sessionId: "s-kit" })]: [0, 0],
+      [sessionKey({ host: "claude-code", sessionId: "s-rev" })]: [1, 1],
+    });
   });
 
   it("lists the sessions, newest activity first, with their runs, live roles and landings", async () => {
@@ -85,7 +90,7 @@ describe("the runs page (spec §4)", () => {
     const { rows } = sessionRows(fakeDeps());
     expect(rows).toEqual([
       {
-        key: "s-auth",
+        key: sessionKey({ host: "claude-code", sessionId: "s-auth" }),
         name: "auth build",
         live: true,
         runs: 2,
@@ -94,7 +99,7 @@ describe("the runs page (spec §4)", () => {
         lastActivity: expect.any(String),
       },
       {
-        key: "s-kit",
+        key: sessionKey({ host: "claude-code", sessionId: "s-kit" }),
         name: "kit follow-up",
         live: false,
         runs: 1,
@@ -107,7 +112,7 @@ describe("the runs page (spec §4)", () => {
 
   it("opens a session: its runs newest first, their milestones, every role, live ones first", async () => {
     const { jobs, moved, live, done } = await twoRuns();
-    const s = sessionDetail(fakeDeps(), "s-auth");
+    const s = sessionDetail(fakeDeps(), sessionKey({ host: "claude-code", sessionId: "s-auth" }));
     expect(s.runs.map((r) => [r.title, r.continued, r.continuedIn])).toEqual([
       ["Jobs screen", null, null],
       ["Auth refactor", "elsewhere", "kit follow-up"],
