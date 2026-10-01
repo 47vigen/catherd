@@ -300,9 +300,9 @@ it("reviews a narrow Codex reset and refuses a stale reviewed file without chang
   };
   writeFileSync(path, JSON.stringify(doc));
   const before = readFileSync(path, "utf8");
-  const run = (args: string[]) => {
-    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "profile", ...args, "--host", "codex"], {
-      env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "codex", NO_COLOR: "1" },
+  const run = (args: string[], host = "codex") => {
+    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "profile", ...args, "--host", host], {
+      env: { ...process.env, CATHERD_ORCHESTRATION_HOST: host, NO_COLOR: "1" },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -318,6 +318,9 @@ it("reviews a narrow Codex reset and refuses a stale reviewed file without chang
   expect(run(["reset-host-defaults", "--expect", reviewed]).code).toBe(1);
   expect(readFileSync(path, "utf8")).toBe(changed);
   writeFileSync(reviewed, run(["reset-host-defaults", "--preview", "--json"]).out);
+  // a codex preview never approves the claude-code reset
+  expect(run(["reset-host-defaults", "--expect", reviewed], "claude-code").code).toBe(1);
+  expect(readFileSync(path, "utf8")).toBe(changed);
   expect(run(["reset-host-defaults", "--expect", reviewed]).code).toBe(0);
   const stored = JSON.parse(readFileSync(path, "utf8"));
   expect(stored.roles.architect).toEqual({ future: "keep" });

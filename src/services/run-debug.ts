@@ -84,12 +84,25 @@ export function inspectDelivery(
   }
 }
 
-/** Stored stalled and finished events are separate; only finished records can be collected. */
+/**
+ * Stored stalled and finished events are separate; only finished records can be collected. A stall the
+ * role outlived before any send is obsolete: the notifier drops it and retry refuses it, so it is not shown.
+ */
 export function inspectDeliveries(run: Run, d: Dispatch, recorded: boolean): DeliveryInspection[] {
+  const id = (kind: string) => JSON.stringify([run.id, d.admit.dispatchId, kind]);
+  const p = dispatchPaths(d.dir);
   return [
     ...(recorded ? ["finished"] : []),
-    ...(existsSync(dispatchPaths(d.dir).stall) ? ["stalled"] : []),
-  ].map((kind) => inspectDelivery(run, d, recorded, JSON.stringify([run.id, d.admit.dispatchId, kind])));
+    ...(existsSync(p.stall) && (!existsSync(p.exit) || attempted(d.dir, id("stalled"))) ? ["stalled"] : []),
+  ].map((kind) => inspectDelivery(run, d, recorded, id(kind)));
+}
+
+function attempted(dir: string, eventId: string): boolean {
+  try {
+    return readDelivery(dir).some((a) => a.eventIds.includes(eventId));
+  } catch {
+    return true; // damaged evidence is shown, as ambiguous, rather than hidden
+  }
 }
 
 export interface DispatchDebug extends DeliveryInspection {

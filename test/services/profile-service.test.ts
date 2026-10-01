@@ -534,9 +534,27 @@ describe("host-specific profiles", () => {
     ]);
     expect(readFileSync(file, "utf8")).toBe(before);
     writeFileSync(file, JSON.stringify({ ...doc, objective: "speed" }));
-    expect(resetHostDefaults("default", "codex", { preview: false, expect: p.expect }).saved).toBe(false);
+    const reviewed = { profile: p.profile, host: p.host };
+    expect(p).toMatchObject({ profile: "default", host: "codex" });
+    expect(resetHostDefaults("default", "codex", { preview: false, expect: p.expect, reviewed }).saved).toBe(
+      false,
+    );
     const fresh = resetHostDefaults("default", "codex", { preview: true });
-    expect(resetHostDefaults("default", "codex", { preview: false, expect: fresh.expect }).saved).toBe(true);
+    const ok = { profile: fresh.profile, host: fresh.host };
+    // a preview approves one profile on one host: reusing it elsewhere is refused without a write
+    const elsewhere = readFileSync(file, "utf8");
+    for (const [n, h] of [
+      ["default", "claude-code"],
+      ["other", "codex"],
+    ] as const) {
+      const r = resetHostDefaults(n, h, { preview: false, expect: fresh.expect, reviewed: ok });
+      expect(r.saved).toBe(false);
+      expect(r.errors[0]?.message).toContain('the preview was for profile "default" on host codex');
+    }
+    expect(readFileSync(file, "utf8")).toBe(elsewhere);
+    expect(
+      resetHostDefaults("default", "codex", { preview: false, expect: fresh.expect, reviewed: ok }).saved,
+    ).toBe(true);
     expect(readProfileDoc("default")).toEqual({
       ...hostDefaultsDoc(doc),
       objective: "speed",

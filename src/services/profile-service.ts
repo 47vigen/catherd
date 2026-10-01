@@ -336,30 +336,35 @@ export function profileService(host: () => HostContext): ProfilePort {
 export function resetHostDefaults(
   name: string,
   host: OrchestrationHost,
-  opts: { preview: true; expect?: ProfileDoc } | { preview: false; expect: ProfileDoc },
-): Saved & { expect: ProfileDoc } {
+  opts:
+    | { preview: true; expect?: ProfileDoc }
+    | { preview: false; expect: ProfileDoc; reviewed: { profile: string; host: OrchestrationHost } },
+): Saved & { expect: ProfileDoc; profile: string; host: OrchestrationHost } {
   return locked(() => {
+    const refuse = (message: string, expect: ProfileDoc) => ({
+      ...unsaved({
+        errors: [{ path: CHANGED_ON_DISK, message, fix: "preview again and review the changes" }],
+        warnings: [],
+      }),
+      expect,
+      profile: name,
+      host,
+    });
+    // the reset is host-specific: a preview approves one profile on one host, never another
+    if (!opts.preview && (opts.reviewed.profile !== name || opts.reviewed.host !== host))
+      return refuse(
+        `the preview was for profile "${opts.reviewed.profile}" on host ${opts.reviewed.host}, not "${name}" on ${host}`,
+        opts.expect,
+      );
     const before = readProfileDoc(name);
     if (!opts.preview && !isDeepStrictEqual(before, opts.expect))
-      return {
-        ...unsaved({
-          errors: [
-            {
-              path: CHANGED_ON_DISK,
-              message: `profile "${name}" changed on disk since it was shown`,
-              fix: "preview again and review the changes",
-            },
-          ],
-          warnings: [],
-        }),
-        expect: before,
-      };
+      return refuse(`profile "${name}" changed on disk since it was shown`, before);
     const after = hostDefaultsDoc(before);
     const v = validate(after, name, host);
-    if (v.errors.length) return { ...unsaved(v), expect: before };
+    if (v.errors.length) return { ...unsaved(v), expect: before, profile: name, host };
     const diff = diffProfiles(resolveProfile(before, name, host), resolveProfile(after, name, host));
     return opts.preview
-      ? { ...unsaved(v), diff, expect: before }
-      : { saved: true, ...v, diff, ...saveAndLink(name, after, host), expect: before };
+      ? { ...unsaved(v), diff, expect: before, profile: name, host }
+      : { saved: true, ...v, diff, ...saveAndLink(name, after, host), expect: before, profile: name, host };
   });
 }

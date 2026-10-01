@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 import type { Catalog } from "../domain/catalog.ts";
 import { rungInfo } from "../domain/catalog.ts";
 import { CatherdError } from "../domain/errors.ts";
+import type { OrchestrationHost } from "../domain/host.ts";
 import { ProfileDocSchema, type Change, patchAt, type Profile } from "../domain/profile.ts";
 import { inferredScores, type Issue } from "../domain/profile-rules.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
@@ -349,6 +350,8 @@ const validate = defineCommand({
   },
 });
 
+const HOSTS: readonly OrchestrationHost[] = ["claude-code", "codex", "unknown"];
+
 const resetDefaults = defineCommand({
   meta: {
     name: "reset-host-defaults",
@@ -373,16 +376,20 @@ const resetDefaults = defineCommand({
           "saving host defaults requires --expect <reviewed-preview.json>",
           { fix: "run reset-host-defaults --preview --json and review the output first" },
         );
-      let expected;
+      let expected, reviewed;
       try {
-        const raw: unknown = JSON.parse(readFileSync(args.expect, "utf8"));
-        expected = ProfileDocSchema.parse((raw as { expect?: unknown })?.expect);
+        const raw = JSON.parse(readFileSync(args.expect, "utf8")) as Record<string, unknown> | null;
+        expected = ProfileDocSchema.parse(raw?.expect);
+        const { profile, host: previewed } = raw ?? {};
+        if (typeof profile !== "string" || !HOSTS.includes(previewed as OrchestrationHost))
+          throw new Error("unbound preview");
+        reviewed = { profile, host: previewed as OrchestrationHost };
       } catch {
         throw new CatherdError("E_INPUT_INVALID", "invalid reviewed preview file", {
           fix: "pass the JSON output of reset-host-defaults --preview --json",
         });
       }
-      r = resetHostDefaults(name, host, { preview: false, expect: expected });
+      r = resetHostDefaults(name, host, { preview: false, expect: expected, reviewed });
     }
     if (args.json) printJson(r);
     else {

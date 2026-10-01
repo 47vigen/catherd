@@ -75,6 +75,40 @@ it("full debug distinguishes accepted unread from collected without claiming own
 import { peek } from "../../src/services/peek.ts";
 import { status } from "../../src/services/summary.ts";
 
+it("drops a stall the role outlived before any send, but keeps one that was sent", async () => {
+  const { run } = freshRun();
+  const target = {
+    host: "codex" as const,
+    sessionId: "01a0f53b-a47d-7350-83a4-c3430e453404",
+    hostSessionId: null,
+    name: null,
+  };
+  const deps = fakeDeps({ host: { host: "codex", session: target, conflict: null } });
+  await claimRun(deps, run);
+  const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: "2026-10-01T12:05:00.000Z" };
+  const unsent = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead", exit, collect: true });
+  const sent = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "dead", exit, collect: true });
+  for (const d of [unsent, sent]) writeFileSync(dispatchPaths(d.dir).stall, "{}");
+  const sentId = JSON.stringify([run.id, sent.admit.dispatchId, "stalled"]);
+  writeDeliveryAttempt(sent.dir, {
+    attemptId: "stall-sent",
+    target,
+    eventIds: [sentId],
+    at: "2026-10-01T12:00:00.000Z",
+    status: "accepted",
+    msgId: "stall-id",
+    reason: null,
+  });
+  const kinds = (name: string) =>
+    runDebug(run)
+      .find((x) => x.name === name)!
+      .deliveries.map((e) => JSON.parse(e.eventId)[2]);
+  expect(kinds("worker-M1.L1")).toEqual([]);
+  expect(kinds("worker-M1.L2")).toEqual(["stalled"]);
+  expect(status(deps, run.id).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);
+  expect((await peek(fakeDeps(), {})).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);
+});
+
 it("shows accepted stalled delivery while live without treating it as an unread result", async () => {
   const { run } = freshRun();
   const target = {
