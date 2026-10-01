@@ -7,7 +7,7 @@ import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
-import type { Change, ProfilePatch } from "../domain/profile.ts";
+import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
 import type { SyncReport } from "./source-sync.ts";
@@ -47,6 +47,9 @@ export interface ProfileSaved {
 }
 
 export interface ProfilePort {
+  withHost?(host: () => HostContext): ProfilePort;
+  budgetFor?(repo: string | null): Budget;
+  raw?(name?: string, repo?: string | null): ProfileDoc;
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;
   /** Without a name (get, validate, set): the profile `repo`, a repository's toplevel, runs on. */
@@ -70,6 +73,7 @@ export interface ProfilePort {
 }
 
 export interface RouteRequest {
+  host?: HostContext["host"];
   runDir: string;
   repo: string;
   profile: ProfileView;

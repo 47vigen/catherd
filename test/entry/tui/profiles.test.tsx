@@ -360,7 +360,7 @@ describe("the Profiles tab", () => {
       const read = f.readProfile;
       f.readProfile = (n) => {
         const doc = read(n);
-        const rungs = resolveProfile(doc, n).roles.worker.rungs;
+        const rungs = resolveProfile(doc, n, "claude-code").roles.worker.rungs;
         return applyPatch(doc, { roles: { worker: { rungs: [...rungs, glm] } } });
       };
     });
@@ -376,7 +376,7 @@ describe("the Profiles tab", () => {
     const fx = await profiles((f) => {
       // the profile already ticks glm, saved while it was treated like a rung (the fixture's save is
       // synchronous up to its write), and reads back as a new object, as a file read does
-      const rungs = resolveProfile(defaultProfileDoc(), "default").roles.worker.rungs;
+      const rungs = resolveProfile(defaultProfileDoc(), "default", "claude-code").roles.worker.rungs;
       void f.save("default", { roles: { worker: { rungs: [...rungs, glm] } } }, { [glm]: "gpt-6-sol#xhigh" });
       f.writes.length = 0;
       const read = f.readProfile;
@@ -808,4 +808,22 @@ describe("the harness row's line (spec 1.3 §8)", () => {
       "space runs the backend with catherd's own config instead of yours (it needs X_API_KEY); native X loads your Y",
     );
   });
+});
+
+it("tui_host_preview_save renders Codex defaults and saves the same effective dirty draft", async () => {
+  const fx = await profiles(undefined, fixtureEffects({ host: "codex" }));
+  expect(h!.app().getState().host).toBe("codex");
+  const draft = h!.app().getState().drafts.default!;
+  expect(resolveProfile(draft.doc, draft.name, draft.host).roles.architect.rungs).toEqual([
+    "codex:gpt-6.1-sol#high",
+  ]);
+  await find("worker access");
+  await h!.s.press("return", "ctrl+s");
+  expect(h!.s.frame()).not.toContain("Claude Code session needed");
+  await h!.s.press("return");
+  expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
+  expect(resolveProfile(fx.readProfile("default"), "default", "codex").roles.verifier.rungs).toEqual([
+    "codex:gpt-6.1-sol#low",
+  ]);
+  expect(fx.readProfile("default").roles?.architect?.rungs).toBeUndefined();
 });

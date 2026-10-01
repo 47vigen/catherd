@@ -26,7 +26,11 @@ const DEFAULT_WORKER = [
 /** GPT-5.6 Terra, which no source scores on repo_code, terminal or honesty, on the default worker's ladder. */
 async function terraOnTheLadder(): Promise<void> {
   withHome();
-  patchProfile("default", { roles: { worker: { rungs: [...DEFAULT_WORKER, TERRA] } } });
+  patchProfile(
+    "default",
+    { roles: { worker: { rungs: [...DEFAULT_WORKER, TERRA] } } },
+    { host: "claude-code" },
+  );
   await saveTreatLike(TERRA, "gpt-6-sol#high");
 }
 
@@ -47,10 +51,10 @@ describe("treat-like --suggest (spec 1.2 §6.4)", () => {
 describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
   it("removes the user's mapping, naming first the profile rungs it leaves on an inferred stand-in", async () => {
     await terraOnTheLadder();
-    expect(leftOnStandIns(["gpt-5.6-terra#high"])).toEqual([
+    expect(leftOnStandIns(["gpt-5.6-terra#high"], "claude-code")).toEqual([
       { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
     ]);
-    const r = await clearTreatLike(TERRA);
+    const r = await clearTreatLike(TERRA, "claude-code");
     expect(r).toEqual({
       rung: "gpt-5.6-terra#high",
       like: "gpt-6-sol#high",
@@ -64,7 +68,7 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
 
   it("refuses to clear a treat-like that is not the user's", async () => {
     withHome();
-    const e = await clearTreatLike("opencode:opencode-go/kimi-k3#max").then(
+    const e = await clearTreatLike("opencode:opencode-go/kimi-k3#max", "claude-code").then(
       () => null,
       (x: unknown) => x,
     );
@@ -91,7 +95,7 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
     };
     mkdirSync(dirname(overridePath()), { recursive: true });
     writeFileSync(overridePath(), JSON.stringify({ ...cur, scores: [mine] }));
-    const r = await resetTreatLikes();
+    const r = await resetTreatLikes("claude-code");
     expect(r.removed).toEqual([
       ["gpt-5.6-terra#high", "gpt-6-sol#high"],
       ["opencode-go/glm-5.3#high", "gpt-6-sol#medium"],
@@ -106,11 +110,11 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
 
   it("leaves the profile valid, with warnings, when every user mapping is cleared (spec 1.2 §11)", async () => {
     await terraOnTheLadder();
-    const mapped = validateNamed("default");
+    const mapped = validateNamed("default", null, "claude-code");
     expect(mapped.errors).toEqual([]);
     expect(mapped.warnings.some((w) => w.message.startsWith("stand-in to confirm"))).toBe(false);
-    await resetTreatLikes();
-    const v = validateNamed("default");
+    await resetTreatLikes("claude-code");
+    const v = validateNamed("default", null, "claude-code");
     expect(v.errors).toEqual([]);
     expect(
       v.warnings.some((w) =>
@@ -125,17 +129,21 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
     withHome();
     // a model no family knows: its only feature is its effort, too few for a stand-in
     const foo = "opencode:acme/foo-9#high";
-    patchProfile("default", { roles: { worker: { rungs: [...DEFAULT_WORKER, foo] } } });
+    patchProfile(
+      "default",
+      { roles: { worker: { rungs: [...DEFAULT_WORKER, foo] } } },
+      { host: "claude-code" },
+    );
     await saveTreatLike(foo, "gpt-6-sol#high");
     const left = [{ profile: "default", rung: foo, dims: [], unscored: true }];
-    expect(leftOnStandIns(["acme/foo-9#high"])).toEqual(left);
-    expect((await clearTreatLike(foo)).left).toEqual(left);
+    expect(leftOnStandIns(["acme/foo-9#high"], "claude-code")).toEqual(left);
+    expect((await clearTreatLike(foo, "claude-code")).left).toEqual(left);
     await saveTreatLike(foo, "gpt-6-sol#high");
-    expect((await resetTreatLikes()).left).toEqual(left);
+    expect((await resetTreatLikes("claude-code")).left).toEqual(left);
   });
 
   it("says there is nothing to remove", async () => {
     withHome();
-    expect(await resetTreatLikes()).toEqual({ removed: [], left: [] });
+    expect(await resetTreatLikes("claude-code")).toEqual({ removed: [], left: [] });
   });
 });

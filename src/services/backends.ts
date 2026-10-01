@@ -1,3 +1,5 @@
+import type { OrchestrationHost } from "../domain/host.ts";
+import { nativeClaudeIssue } from "../domain/profile-rules.ts";
 import type { BackendAdapter, Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -79,4 +81,9 @@ export function standInFor(failover: Record<string, string>, rung: string, repo?
   if (!r) return null;
   const byAdapter = adapterFor(r.backend)?.failoverFor?.(r, repo) ?? null;
   return byAdapter && formatRung(byAdapter);
+}
+
+export function assertNativeHost(rung: string, host: OrchestrationHost): void {
+  const issue = nativeClaudeIssue(rung, host, "rung");
+  if (issue) throw new CatherdError("E_CONFIG_INVALID", `${issue.message}; ${issue.fix}`, { fix: issue.fix });
 }

@@ -64,6 +64,7 @@ const runDir = () => mkdtempSync(join(process.env.CATHERD_HOME as string, "run-"
 function req(laneText: string | null, over: Partial<RouteRequest> = {}): RouteRequest {
   return {
     runDir: runDir(),
+    host: "claude-code",
     repo: "/nowhere",
     profile: view(),
     role: "worker",
@@ -362,7 +363,9 @@ describe("route and the profile", () => {
   });
 
   it("keeps the approved ladder through the default profile the profile service serves", async () => {
-    const profile = profileService().forRepo(null);
+    const profile = profileService(() => ({ host: "claude-code", session: null, conflict: null })).forRepo(
+      null,
+    );
     const r = routingService();
     expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(COPY);
     expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_B);
@@ -448,5 +451,22 @@ describe("finding and same-defect", () => {
     expect(await r.sameDefect(dir, "a", "a", "off")).toMatchObject({ value: "no", source: "default" });
     expect(asked).toEqual([]);
     expect(jevRows(dir)).toEqual([]);
+  });
+});
+
+it("refuses a selected native Claude rung from Codex and names exact headless alternative", async () => {
+  const r = req(null, { host: "codex", role: "architect" });
+  await expect(routingService().route(r)).rejects.toMatchObject({
+    code: "E_CONFIG_INVALID",
+    fix: expect.stringContaining("claude-code:claude-opus-5-5#high"),
+  });
+});
+
+it("refuses native dispatch without host evidence while explicit profile stays inspectable", async () => {
+  const r = req(null, { host: "unknown", role: "architect" });
+  expect(r.profile.roles.architect?.rungs).toEqual(["claude:claude-opus-5-5#high"]);
+  await expect(routingService().route(r)).rejects.toMatchObject({
+    code: "E_CONFIG_INVALID",
+    fix: expect.stringContaining("claude-code:claude-opus-5-5#high"),
   });
 });

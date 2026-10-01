@@ -1,3 +1,4 @@
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
@@ -194,6 +195,7 @@ const treatLike = defineCommand({
       "Score an unscored rung as a scored one; --suggest ranks stand-ins, --clear and --reset remove your mappings",
   },
   args: {
+    ...HOST_ARG,
     rung: {
       type: "positional",
       required: false,
@@ -228,14 +230,14 @@ const treatLike = defineCommand({
         return;
       }
       if (args.clear !== undefined) {
-        const r = await clearTreatLike(args.clear);
+        const r = await clearTreatLike(args.clear, terminalHost(args.host).host);
         if (args.json) return console.log(JSON.stringify(r, null, 2));
         for (const l of leftLines(r.left)) console.log(l);
         console.log(`${mark("ok")} ${r.rung} is no longer treated like ${r.like}`);
         return;
       }
       if (args.reset) {
-        const r = await resetTreatLikes();
+        const r = await resetTreatLikes(terminalHost(args.host).host);
         if (args.json) return console.log(JSON.stringify(r, null, 2));
         for (const l of leftLines(r.left)) console.log(l);
         console.log(

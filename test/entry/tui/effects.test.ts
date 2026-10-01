@@ -66,7 +66,7 @@ describe("the live effects", () => {
   it("lists a run, and its session, and opens the session and a role (spec §4)", async () => {
     const { run } = freshRun("Jobs screen");
     const d = await fakeDispatch(run, {}, { proc: "self" });
-    const fx = liveEffects();
+    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     expect(fx.runs().rows).toEqual([
       expect.objectContaining({
         id: run.id,
@@ -163,7 +163,7 @@ describe("the live effects", () => {
 
   it("saves the staged treat-likes and the patch through the services", async () => {
     withHome();
-    const fx = liveEffects();
+    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     const rung = "opencode:opencode/claude-haiku-4-5#high";
     const r = await fx.save(
       "default",
@@ -182,9 +182,9 @@ describe("the live effects", () => {
 
   it("saves a draft's patch over a profile that changed on disk since, keeping that change", async () => {
     withHome();
-    const fx = liveEffects();
+    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     const base = fx.readProfile("default");
-    patchProfile("default", { budget: { minutes: 30 } });
+    patchProfile("default", { budget: { minutes: 30 } }, { host: "claude-code" });
     const mine = applyPatch(base, { objective: "speed" });
     expect((await fx.save("default", patchBetween(base, mine), {})).saved).toBe(true);
     expect([fx.readProfile("default").objective, fx.readProfile("default").budget]).toEqual([
@@ -195,10 +195,10 @@ describe("the live effects", () => {
 
   it("writes no patch over a profile changed on disk since the preview read it (shown)", async () => {
     withHome();
-    const fx = liveEffects();
+    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     const shown = fx.readProfile("default");
     // another process, while the save's treat-like waits for the catalog lock
-    patchProfile("default", { budget: { minutes: 30 } });
+    patchProfile("default", { budget: { minutes: 30 } }, { host: "claude-code" });
     const rung = "opencode:opencode/claude-haiku-4-5#high";
     const r = await fx.save(
       "default",
@@ -215,7 +215,7 @@ describe("the live effects", () => {
 
   it("names the harnesses, the native agents and each rung's enforcement", () => {
     withHome();
-    const fx = liveEffects();
+    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     expect([...fx.harnesses].sort()).toEqual([
       "antigravity",
       "claude-code",
@@ -224,7 +224,7 @@ describe("the live effects", () => {
       "grok",
       "opencode",
     ]);
-    const p = resolveProfile(defaultProfileDoc(), "default");
+    const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
     expect(fx.agents(p)).toContain("catherd-default-architect-claude-opus-5-5-high");
     expect(fx.enforcement("codex:gpt-6-sol#high", "workspace-write")).toBe("enforced");
     expect(fx.enforcement("opencode:opencode-go/kimi-k3#max", "workspace-write")).toBe("advisory");
@@ -233,10 +233,10 @@ describe("the live effects", () => {
   it("inside a repo bound to another profile, names it here and activates the scope it is given", () => {
     withHome();
     const repo = tempRepo();
-    createProfile("cheap");
-    createProfile("other");
-    activate("cheap", repo);
-    const fx = liveEffects(repo);
+    createProfile("cheap", undefined, "claude-code");
+    createProfile("other", undefined, "claude-code");
+    activate("cheap", repo, "claude-code");
+    const fx = liveEffects(repo, { host: "claude-code", session: null, conflict: null });
     expect(fx.profiles()).toMatchObject({ active: "default", here: "cheap", repo });
     fx.activate("other", repo);
     expect([activeName(repo), activeName()]).toEqual(["other", "default"]);
@@ -248,12 +248,12 @@ describe("the live effects", () => {
   it("stamps a run again when a profile is saved or another profile is made active", () => {
     withHome();
     const { run } = freshRun();
-    createProfile("cheap");
+    createProfile("cheap", undefined, "claude-code");
     const before = stampOf(run.dir);
-    activate("cheap");
+    activate("cheap", null, "claude-code");
     const afterActivate = stampOf(run.dir);
     expect(afterActivate).not.toBe(before);
-    patchProfile("cheap", { objective: "speed" });
+    patchProfile("cheap", { objective: "speed" }, { host: "claude-code" });
     expect(stampOf(run.dir)).not.toBe(afterActivate);
   });
 });

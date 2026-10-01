@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../../domain/host.ts";
 import { sessionKey } from "../../domain/host.ts";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -407,6 +408,7 @@ const BACKENDS = ["claude", "codex", "claude-code", "opencode"];
  * directory the TUI stands in and `bindings` the repo bindings, as `liveEffects(repo)` reads them.
  */
 export interface FixtureOptions {
+  host?: OrchestrationHost;
   runs?: RunSummary[];
   sessions?: { row: SessionRow; runs: SessionRun[] }[];
   report?: DoctorReport;
@@ -431,6 +433,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
   /** the run folders watched now */
   watched: string[][];
 } {
+  const host = o.host ?? "claude-code";
   const runs = o.runs ?? FIXTURE_RUNS;
   const sessions = o.sessions ?? FIXTURE_SESSIONS;
   const listeners = new Set<() => void>();
@@ -447,15 +450,17 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     after: ProfileDoc,
     staged: Record<string, string> = {},
   ) => {
-    const p = resolveProfile(after, name);
+    const p = resolveProfile(after, name, host);
     const c = withStaged(loadCatalog({ timings: false }), staged);
-    const v = validateProfile(p, c, BACKENDS);
+    const v = validateProfile(p, c, BACKENDS, undefined, host);
     // spec 1.2 §6.2, as the ProfileService rules: a save that repairs part of an invalid profile goes through
-    const was = docs.has(name) ? validateProfile(resolveProfile(before, name), c, BACKENDS) : null;
+    const was = docs.has(name)
+      ? validateProfile(resolveProfile(before, name, host), c, BACKENDS, undefined, host)
+      : null;
     return {
       saved: repairs(was, v),
       ...v,
-      diff: diffProfiles(resolveProfile(before, name), p),
+      diff: diffProfiles(resolveProfile(before, name, host), p),
       linked: [],
       pruned: [],
       newSessionNeededFor: [],
@@ -467,6 +472,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     touch: () => {
       for (const l of listeners) l();
     },
+    host: { host, session: null, conflict: null },
     version: "1.0.0",
     doctor: async () => o.report ?? FIXTURE_REPORT,
     runs: () => ({ rows: runs.map(rowOf), warnings: [] }),
@@ -533,7 +539,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
       catalog: loadCatalog({ timings: false }),
       models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
     }),
-    validate: (p, c) => validateProfile(p, c, BACKENDS),
+    validate: (p, c) => validateProfile(p, c, BACKENDS, undefined, host),
     enforcement: (rung) => (rung.startsWith("codex:") ? "enforced" : "advisory"),
     harnesses: ["codex", "claude-code", "opencode"],
     isolation: () => ({}),

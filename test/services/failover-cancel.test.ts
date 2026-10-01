@@ -271,6 +271,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
 
   it("names the agent when the stand-in is a native Claude rung, without pausing", async () => {
     const { run, deps } = setup(LIMIT, { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" });
+    deps.host = { host: "claude-code", session: null, conflict: null };
     const { record, hints } = await runRole(deps, input(run.id));
     expect(record.status).toBe("limit");
     expect(hints.at(-1)).toBe(
@@ -568,3 +569,16 @@ describe("cancel", () => {
     expect(isCatherdError(e) && e.code).toBe("E_RUN_NOT_LIVE");
   });
 });
+
+it.each(["codex", "unknown"] as const)(
+  "refuses a selected native Claude failover from %s with the same model and effort alternative",
+  async (host) => {
+    const { run, deps } = setup(LIMIT, { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" });
+    deps.host = { host, session: null, conflict: null };
+    const { record, hints } = await runRole(deps, input(run.id));
+    expect(record.status).toBe("limit");
+    expect(hints.join("\n")).toContain("native Claude subagents require the claude-code orchestration host");
+    expect(hints.join("\n")).toContain("claude-code:claude-opus-5-5#high");
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("paused");
+  },
+);

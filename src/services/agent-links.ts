@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import {
   existsSync,
   lstatSync,
@@ -44,10 +45,10 @@ export interface Planned {
   links: Map<string, string>;
 }
 
-export function plan(extra: string[] = []): Planned {
+export function plan(host: OrchestrationHost, extra: string[] = [], selected?: string[]): Planned {
   const files = new Map<string, AgentFile[]>();
-  for (const name of new Set([...linkedProfiles(), ...extra.filter(profileExists)]))
-    files.set(name, agentFiles(getProfile(name), VERSION));
+  for (const name of new Set(selected ?? [...linkedProfiles(), ...extra.filter(profileExists)]))
+    files.set(name, agentFiles(getProfile(name, host), VERSION));
   const links = new Map<string, string>();
   for (const name of linkedProfiles())
     for (const f of files.get(name) ?? [])
@@ -122,8 +123,12 @@ export function apply(p: Planned, removed: string[] = []): Synced {
 }
 
 /** What `doctor` compares: each link that should exist, and whether it and its file are current. */
-export function agentLinkState(): { missing: string[]; stale: string[]; ok: string[] } {
-  const p = plan();
+export function agentLinkState(
+  host: OrchestrationHost,
+  selected?: string[],
+): { missing: string[]; stale: string[]; ok: string[] } {
+  const p = plan(host, [], selected);
+  if (selected) for (const name of p.files.keys()) if (!selected.includes(name)) p.files.delete(name);
   const out = { missing: [] as string[], stale: [] as string[], ok: [] as string[] };
   for (const [name, files] of p.files)
     for (const f of files) {

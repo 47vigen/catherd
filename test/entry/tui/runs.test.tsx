@@ -34,7 +34,7 @@ async function runs(effects = fixtureEffects()) {
     <Shell width={100} height={19}>
       <RunsView width={100} height={19} />
     </Shell>,
-    { effects, width: 100, height: 19, state: initialState("runs") },
+    { effects, width: 100, height: 19, state: initialState("runs", "claude-code") },
   );
   await h.advance(0);
   return effects;

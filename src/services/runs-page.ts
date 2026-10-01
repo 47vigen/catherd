@@ -175,7 +175,7 @@ function sessionRun(deps: Deps, x: SessionGroup["runs"][number]): SessionRun {
   try {
     const b = budgetStatus(
       spendOf(run, readRecords(run).records, liveDispatches(run, deps.now()), deps.now()),
-      deps.profiles.forRepo(run.meta.repo).budget,
+      deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
     );
     budget = b?.fraction ?? null;
   } catch {

@@ -1,8 +1,10 @@
+import { fakeDispatch } from "../services/helpers.ts";
+import { createRun } from "../../src/services/run-store.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
-import { activate, createProfile, profileService } from "../../src/services/profile-service.ts";
+import { activate, createProfile, profileService, patchProfile } from "../../src/services/profile-service.ts";
 import { getProfile, profilesDir } from "../../src/services/profile-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
@@ -108,9 +110,11 @@ describe("the profile tools on the profile service", () => {
   it("catalog_query prices rungs with the billing of the profile bound to `repo`", async () => {
     withHome();
     const repo = realpathSync(tempRepo());
-    createProfile("metered");
-    profileService().set("metered", { billing: { codex: "metered" } });
-    activate("metered", repo);
+    createProfile("metered", undefined, "claude-code");
+    profileService(() => ({ host: "claude-code", session: null, conflict: null })).set("metered", {
+      billing: { codex: "metered" },
+    });
+    activate("metered", repo, "claude-code");
     const c = await mcpClient();
     const cost = async (args: object) =>
       (
@@ -124,12 +128,15 @@ describe("the profile tools without a name use the profile the repo runs on", ()
   it("profile_set and profile_get edit and read the profile bound to `repo`; a path outside a repo is refused", async () => {
     withHome();
     const repo = realpathSync(tempRepo());
-    createProfile("fast");
-    activate("fast", repo);
+    createProfile("fast", undefined, "claude-code");
+    activate("fast", repo, "claude-code");
     const c = await mcpClient();
     const set = await call(c, "profile_set", { repo, patch: { budget: { usd: 9 } } });
     expect(set.data.saved).toBe(true);
-    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, undefined]);
+    expect([
+      getProfile("fast", "claude-code").budget.usd,
+      getProfile("default", "claude-code").budget.usd,
+    ]).toEqual([9, undefined]);
     const got = await call(c, "profile_get", { repo });
     expect([got.data.active, got.data.here, got.data.profile.name, got.data.profile.budget.usd]).toEqual([
       "default",
@@ -143,7 +150,10 @@ describe("the profile tools without a name use the profile the repo runs on", ()
       const r = await call(c, tool, { repo: "/", patch: { budget: { usd: 3 } } });
       expect(r.error?.code).toBe("E_IO_PATH");
     }
-    expect([getProfile("fast").budget.usd, getProfile("default").budget.usd]).toEqual([9, undefined]);
+    expect([
+      getProfile("fast", "claude-code").budget.usd,
+      getProfile("default", "claude-code").budget.usd,
+    ]).toEqual([9, undefined]);
   });
 
   it("refuses a profile name that does not exist as E_INPUT_INVALID, and profile_set still creates one", async () => {
@@ -161,9 +171,9 @@ describe("the profile tools without a name use the profile the repo runs on", ()
 describe("profileService().agentFor", () => {
   it("names the agent after the profile the repo runs on", () => {
     withHome();
-    createProfile("fast");
-    activate("fast", "/r/app");
-    const p = profileService();
+    createProfile("fast", undefined, "claude-code");
+    activate("fast", "/r/app", "claude-code");
+    const p = profileService(() => ({ host: "claude-code", session: null, conflict: null }));
     expect(p.agentFor("/r/app", "architect", "claude:claude-opus-5-5#high")).toBe(
       "catherd-fast-architect-claude-opus-5-5-high",
     );
@@ -175,11 +185,48 @@ describe("profileService().agentFor", () => {
 
   it("serves failover keys exactly as the profile stores them (plan-3 T9)", () => {
     withHome();
-    profileService().set(undefined, {
+    profileService(() => ({ host: "claude-code", session: null, conflict: null })).set(undefined, {
       failover: { "claude-code:claude-opus-5-5#high": "codex:gpt-6-sol#high" },
     });
-    expect(profileService().forRepo(null).failover["claude-code:claude-opus-5-5#high"]).toBe(
-      "codex:gpt-6-sol#high",
-    );
+    expect(
+      profileService(() => ({ host: "claude-code", session: null, conflict: null })).forRepo(null).failover[
+        "claude-code:claude-opus-5-5#high"
+      ],
+    ).toBe("codex:gpt-6-sol#high");
   });
+});
+
+it("unknown status/result reads remain available for newly omitted Codex defaults without ownership", async () => {
+  withHome();
+  expect(patchProfile("default", { budget: { usd: 8 } }, { host: "codex" }).saved).toBe(true);
+  const repo = tempRepo();
+  const run = createRun({ repo, title: "codex omitted", aLines: [], version: "test" });
+  const d = await fakeDispatch(run, {}, { reply: "finished reply" });
+  const c = await mcpClient(undefined, "catherd-unknown");
+  const status = await call(c, "status", { run: run.id });
+  expect(status.isError).toBe(false);
+  expect(status.data.runs[0].warnings).toEqual([]);
+  expect(status.data.runs[0].budget).not.toBeNull();
+  expect((await call(c, "result", { run: run.id, name: d.admit.name })).isError).toBe(false);
+  expect((await call(c, "profile_get")).isError).toBe(true);
+  expect((await call(c, "profile_get", { raw: true })).data.roles.architect.rungs).toBeUndefined();
+  expect(run.meta.startedBy ?? null).toBeNull();
+});
+
+it("request-local profile callback sees invalid request host rather than initialized connection host", async () => {
+  withHome();
+  const c = await mcpClient(undefined, "codex-mcp-client");
+  expect((await call(c, "profile_get")).data.profile.roles.architect.rungs).toEqual([
+    "codex:gpt-6.1-sol#high",
+  ]);
+  const r = await c.callTool({ name: "profile_get", arguments: {}, _meta: { threadId: "invalid" } });
+  expect(r.isError).toBe(true);
+  expect((r.structuredContent as { message: string }).message).toContain("host");
+  const raw = await c.callTool({
+    name: "profile_get",
+    arguments: { raw: true },
+    _meta: { threadId: "invalid" },
+  });
+  expect(raw.isError).not.toBe(true);
+  expect((await call(c, "profile_get")).isError).toBe(false);
 });

@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { errorMessage, isCatherdError } from "../../../domain/errors.ts";
-import { PROFILE_NAME, patchBetween, type ProfileDoc } from "../../../domain/profile.ts";
+import { PROFILE_NAME, patchBetween, resolveProfile, type ProfileDoc } from "../../../domain/profile.ts";
 import { CHANGED_ON_DISK } from "../effects.ts";
 import { type AppApi, useApp, useDialogHandler } from "../providers/app.tsx";
 import { type Data, useData } from "../providers/data.tsx";
@@ -16,7 +16,9 @@ const fail = (app: AppApi, e: unknown) => app.toast(errorToast(e));
  */
 export function showProfile(app: AppApi, name: string, o: { quiet?: boolean } = {}): unknown {
   try {
-    app.dispatch({ type: "show", name, doc: app.effects.readProfile(name) });
+    const doc = app.effects.readProfile(name);
+    resolveProfile(doc, name, app.getState().host);
+    app.dispatch({ type: "show", name, doc });
     return null;
   } catch (e) {
     if (!o.quiet) fail(app, e);

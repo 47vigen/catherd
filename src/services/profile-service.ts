@@ -1,3 +1,5 @@
+import type { HostContext, OrchestrationHost } from "../domain/host.ts";
+import { agentFiles } from "../domain/agents.ts";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -9,6 +11,7 @@ import {
   assertProfileName,
   type Change,
   defaultProfileDoc,
+  hostDefaultsDoc,
   diffProfiles,
   type Profile,
   type ProfileDoc,
@@ -54,11 +57,11 @@ const locked = withProfilesLock;
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
 
 /** Writes `doc` as profile `name` and relinks; when the relink refuses, puts the profile back as it was. */
-function saveAndLink(name: string, doc: ProfileDoc): Synced {
+function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost): Synced {
   const before = existsSync(profileFile(name)) ? readFileSync(profileFile(name), "utf8") : null;
   writeDoc(name, doc);
   try {
-    return apply(plan([name]));
+    return syncFor(name, host, [name]);
   } catch (e) {
     if (before === null) rmSync(profileFile(name), { force: true });
     else writeTextAtomic(profileFile(name), before);
@@ -66,8 +69,18 @@ function saveAndLink(name: string, doc: ProfileDoc): Synced {
   }
 }
 
-const validate = (doc: ProfileDoc, name: string): Validation =>
-  validateHere(resolveProfile(doc, name), loadCatalog({ timings: false }), doc);
+const validate = (doc: ProfileDoc, name: string, host: OrchestrationHost): Validation => {
+  try {
+    return validateHere(resolveProfile(doc, name, host), loadCatalog({ timings: false }), doc, host);
+  } catch (e) {
+    if (!(e instanceof CatherdError)) throw e;
+    return { errors: [{ path: "roles", message: e.message, fix: e.fix }], warnings: [] };
+  }
+};
+const emptySync = (): Synced => ({ linked: [], pruned: [], newSessionNeededFor: [] });
+function syncFor(name: string, host: OrchestrationHost, extra: string[] = []): Synced {
+  return agentFiles(getProfile(name, host), "").length ? apply(plan(host, extra)) : emptySync();
+}
 
 /** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
 export type Saved = ProfileSaved;
@@ -95,7 +108,7 @@ export const CHANGED_ON_DISK = "profile";
 export function patchProfile(
   name: string | undefined,
   patch: ProfilePatch,
-  opts: { expect?: ProfileDoc } = {},
+  opts: { host: OrchestrationHost; expect?: ProfileDoc },
 ): Saved {
   return locked(() => {
     const n = assertProfileName(name ?? activeName());
@@ -111,17 +124,18 @@ export function patchProfile(
         ],
         warnings: [],
       });
+    const host = opts.host;
     const after = applyPatch(before, patch);
-    const resolved = resolveProfile(after, n);
-    const v = validate(after, n);
-    if (v.errors.length && !repairs(profileExists(n) ? validate(before, n) : null, v)) return unsaved(v);
-    const diff = diffProfiles(resolveProfile(before, n), resolved);
-    return { saved: true, ...v, diff, ...saveAndLink(n, after) };
+    const v = validate(after, n, host);
+    if (v.errors.length && !repairs(profileExists(n) ? validate(before, n, host) : null, v))
+      return unsaved(v);
+    const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
+    return { saved: true, ...v, diff, ...saveAndLink(n, after, host) };
   });
 }
 
 /** Spec §7.3 `create` and `copy`: a new profile from `from` (default: the default profile). */
-export function createProfile(name: string, from?: string): Saved {
+export function createProfile(name: string, from: string | undefined, host: OrchestrationHost): Saved {
   return locked(() => {
     // `default` exists without a file: resetProfile is the only way to write it
     if (profileExists(assertProfileName(name)))
@@ -133,20 +147,20 @@ export function createProfile(name: string, from?: string): Saved {
         fix: "catherd profile list",
       });
     const doc = from === undefined ? defaultProfileDoc(name) : readProfileDoc(from);
-    const v = validate(doc, name);
+    const v = validate(doc, name, host);
     if (v.errors.length) return unsaved(v);
-    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc) };
+    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc, host) };
   });
 }
 
 /** Writes the default profile under `name`, replacing what is there (`catherd init` when asked to). */
-export function resetProfile(name: string): Saved {
+export function resetProfile(name: string, host: OrchestrationHost): Saved {
   return locked(() => {
     assertProfileName(name);
     const doc = defaultProfileDoc(name);
-    const v = validate(doc, name);
+    const v = validate(doc, name, host);
     if (v.errors.length) return unsaved(v);
-    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc) };
+    return { saved: true, ...v, diff: [], ...saveAndLink(name, doc, host) };
   });
 }
 
@@ -154,7 +168,7 @@ export function resetProfile(name: string): Saved {
  * Spec §7.3 `delete`: never the active profile or a repo-bound one; its agent files go with it. A binding
  * whose repo no longer exists does not count: it is pruned with the profile.
  */
-export function deleteProfile(name: string): Synced {
+export function deleteProfile(name: string, host: OrchestrationHost): Synced {
   return locked(() => {
     assertProfileName(name);
     if (!existsSync(profileFile(name)))
@@ -172,6 +186,7 @@ export function deleteProfile(name: string): Synced {
       throw new CatherdError("E_INPUT_INVALID", `"${name}" is bound to ${bound.join(", ")}`, {
         fix: "run catherd profile use --repo --clear (or use <name> --repo) inside each of those repos",
       });
+    const native = agentFiles(getProfile(name, host), "").length > 0;
     const text = readFileSync(profileFile(name), "utf8");
     rmSync(profileFile(name), { force: true });
     const gone = new Set(mine);
@@ -181,7 +196,7 @@ export function deleteProfile(name: string): Synced {
         bindings: Object.fromEntries(Object.entries(projects.bindings).filter(([r]) => !gone.has(r))),
       });
     try {
-      return apply(plan(), [name]);
+      return native ? apply(plan(host), [name]) : emptySync();
     } catch (e) {
       writeTextAtomic(profileFile(name), text);
       if (gone.size) writeJsonAtomic(projectsFile(), projects);
@@ -193,7 +208,8 @@ export function deleteProfile(name: string): Synced {
 /** Spec §7.3 `activate(name, repo?)`: the active profile, or the one bound to a repo; relinks the agents. */
 export function activate(
   name: string,
-  repo: string | null = null,
+  repo: string | null,
+  host: OrchestrationHost,
 ): Synced & { active: string; repo: string | null } {
   return locked(() => {
     assertProfileName(name);
@@ -213,7 +229,7 @@ export function activate(
           });
     write();
     try {
-      return { active: name, repo, ...apply(plan([name])) };
+      return { active: name, repo, ...syncFor(name, host, [name]) };
     } catch (e) {
       if (repo === null) writeJsonAtomic(configFile(), config);
       else writeJsonAtomic(projectsFile(), projects);
@@ -223,7 +239,7 @@ export function activate(
 }
 
 /** `catherd profile use --repo --clear`: removes `repo`'s binding, so it runs on the active profile again. */
-export function unbind(repo: string): Synced & { repo: string; was: string } {
+export function unbind(repo: string, host: OrchestrationHost): Synced & { repo: string; was: string } {
   return locked(() => {
     const projects = readProjects();
     const was = projects.bindings[repo];
@@ -235,7 +251,7 @@ export function unbind(repo: string): Synced & { repo: string; was: string } {
     delete bindings[repo];
     writeJsonAtomic(projectsFile(), { ...projects, schema: 1, bindings });
     try {
-      return { repo, was, ...apply(plan()) };
+      return { repo, was, ...syncFor(was, host) };
     } catch (e) {
       writeJsonAtomic(projectsFile(), projects);
       throw e;
@@ -243,8 +259,8 @@ export function unbind(repo: string): Synced & { repo: string; was: string } {
   });
 }
 
-export function diffNamed(a: string, b: string): Change[] {
-  return diffProfiles(getProfile(a), getProfile(b));
+export function diffNamed(a: string, b: string, host: OrchestrationHost): Change[] {
+  return diffProfiles(getProfile(a, host), getProfile(b, host));
 }
 
 function viewOf(p: Profile): ProfileView {
@@ -267,13 +283,16 @@ function viewOf(p: Profile): ProfileView {
 }
 
 /** The ProfilePort the run engine and the MCP tools use (spec §7.3: the single writer). */
-export function profileService(): ProfilePort {
+export function profileService(host: () => HostContext): ProfilePort {
   // without a name, each tool acts on the profile `repo` runs on (the active one outside a repo)
   return {
-    forRepo: (repo) => viewOf(profileFor(repo)),
+    withHost: profileService,
+    raw: (name, repo = null) => readProfileDoc(name ?? activeName(repo)),
+    budgetFor: (repo) => readProfileDoc(activeName(repo)).budget ?? {},
+    forRepo: (repo) => viewOf(profileFor(repo, host().host)),
     get(name, repo = null) {
       const here = activeName(repo);
-      const p = getProfile(name === undefined ? here : requireProfile(name));
+      const p = getProfile(name === undefined ? here : requireProfile(name), host().host);
       return {
         active: activeName(),
         here,
@@ -283,12 +302,47 @@ export function profileService(): ProfilePort {
       };
     },
     validate(name, repo = null) {
-      const v = validateNamed(name === undefined ? activeName(repo) : requireProfile(name), repo);
+      const v = validateNamed(
+        name === undefined ? activeName(repo) : requireProfile(name),
+        repo,
+        host().host,
+      );
       return { valid: v.errors.length === 0, ...v };
     },
     // a name that does not exist yet starts from the default profile
-    set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch),
+    set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch, { host: host().host }),
     agentFor: (repo, role, rung) =>
       parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
   };
+}
+
+export function resetHostDefaults(
+  name: string,
+  host: OrchestrationHost,
+  opts: { preview: true; expect?: ProfileDoc } | { preview: false; expect: ProfileDoc },
+): Saved & { expect: ProfileDoc } {
+  return locked(() => {
+    const before = readProfileDoc(name);
+    if (!opts.preview && !isDeepStrictEqual(before, opts.expect))
+      return {
+        ...unsaved({
+          errors: [
+            {
+              path: CHANGED_ON_DISK,
+              message: `profile "${name}" changed on disk since it was shown`,
+              fix: "preview again and review the changes",
+            },
+          ],
+          warnings: [],
+        }),
+        expect: before,
+      };
+    const after = hostDefaultsDoc(before);
+    const v = validate(after, name, host);
+    if (v.errors.length) return { ...unsaved(v), expect: before };
+    const diff = diffProfiles(resolveProfile(before, name, host), resolveProfile(after, name, host));
+    return opts.preview
+      ? { ...unsaved(v), diff, expect: before }
+      : { saved: true, ...v, diff, ...saveAndLink(name, after, host), expect: before };
+  });
 }

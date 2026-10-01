@@ -72,7 +72,10 @@ function logToolCalls(
 export function buildServer(deps: Deps = defaultDeps()): McpServer {
   const server = new McpServer({ name: "catherd", version: deps.version });
   const scope = new AsyncLocalStorage<Deps>();
-  const scoped = new Proxy(deps, { get: (target, key) => Reflect.get(scope.getStore() ?? target, key) });
+  const scoped: Deps = new Proxy(deps, {
+    get: (target, key) => (key === "profiles" ? profiles : Reflect.get(scope.getStore() ?? target, key)),
+  });
+  const profiles = deps.profiles.withHost?.(() => scoped.host) ?? deps.profiles;
   let generation = 0;
   const invalidate = () => {
     generation++;

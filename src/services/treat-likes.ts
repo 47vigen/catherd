@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import { type Dim, scoresOf, rungInfo } from "../domain/catalog.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { tryParseRung } from "../domain/ids.ts";
@@ -21,7 +22,10 @@ export interface LeftOnStandIn {
  * inferred stand-in, or be left with no value at all, once the user's treat-likes for `removed` (canonical
  * rungs, or all of them) are gone. Never removed silently.
  */
-export function leftOnStandIns(removed: string[] | "all"): LeftOnStandIn[] {
+export function leftOnStandIns(
+  removed: string[] | "all",
+  host: OrchestrationHost = "unknown",
+): LeftOnStandIn[] {
   const cur = readOverride();
   const treatLike = Object.fromEntries(
     Object.entries(cur.treatLike).filter(([r]) => removed !== "all" && !removed.includes(r)),
@@ -30,7 +34,7 @@ export function leftOnStandIns(removed: string[] | "all"): LeftOnStandIn[] {
   const c = loadCatalog({ timings: false, override: { ...cur, treatLike } });
   const out: LeftOnStandIn[] = [];
   for (const profile of listProfiles()) {
-    const p = getProfile(profile);
+    const p = getProfile(profile, host);
     const rungs = new Set([
       ...ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs),
       ...Object.values(p.failover),
@@ -65,6 +69,7 @@ export function suggestFor(rung: string): { canonical: string; lacking: Dim[]; s
  */
 export async function clearTreatLike(
   rung: string,
+  host: OrchestrationHost = "unknown",
 ): Promise<{ rung: string; like: string; left: LeftOnStandIn[] }> {
   const canonical = canonicalRung(rung);
   const like = readOverride().treatLike[canonical];
@@ -72,13 +77,15 @@ export async function clearTreatLike(
     throw new CatherdError("E_INPUT_INVALID", `${canonical} has no treat-like of yours to clear`, {
       fix: "catherd catalog list shows each rung's treat-like; a shipped one is not yours to clear",
     });
-  const left = leftOnStandIns([canonical]);
+  const left = leftOnStandIns([canonical], host);
   await removeTreatLikes([canonical]);
   return { rung: canonical, like, left };
 }
 
 /** Spec 1.2 §6.4 `--reset`: removes every treat-like of the user's, naming first the rungs left on a stand-in. */
-export async function resetTreatLikes(): Promise<{ removed: [string, string][]; left: LeftOnStandIn[] }> {
-  const left = leftOnStandIns("all");
+export async function resetTreatLikes(
+  host: OrchestrationHost = "unknown",
+): Promise<{ removed: [string, string][]; left: LeftOnStandIn[] }> {
+  const left = leftOnStandIns("all", host);
   return { removed: await removeTreatLikes("all"), left };
 }

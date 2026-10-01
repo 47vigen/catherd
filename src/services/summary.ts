@@ -57,7 +57,10 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   let budget: BudgetStatus | null = null;
   const warnings = corrupt ? [`runs.jsonl: skipped ${corrupt} unreadable row(s)`] : [];
   try {
-    budget = budgetStatus(spendOf(run, records, live, now), deps.profiles.forRepo(run.meta.repo).budget);
+    budget = budgetStatus(
+      spendOf(run, records, live, now),
+      deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
+    );
   } catch (e) {
     warnings.push(`budget: ${isCatherdError(e) ? e.message : String(e)}`);
   }

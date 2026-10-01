@@ -4,10 +4,10 @@ import { buildServer } from "../src/entry/mcp/server.ts";
 import type { Deps } from "../src/services/ports.ts";
 
 /** An SDK client on an in-memory server; the default deps are the real services. */
-export async function mcpClient(deps?: Deps): Promise<Client> {
+export async function mcpClient(deps?: Deps, name = deps ? "catherd-test" : "claude-code"): Promise<Client> {
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
   await buildServer(deps).connect(serverSide);
-  const client = new Client({ name: "catherd-test", version: "0.0.0" });
+  const client = new Client({ name, version: "0.0.0" });
   await client.connect(clientSide);
   return client;
 }

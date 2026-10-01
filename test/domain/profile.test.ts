@@ -17,7 +17,7 @@ import {
 import { ROLES } from "../../src/domain/roles.ts";
 
 describe("the default profile (spec §7.2)", () => {
-  const p = resolveProfile(defaultProfileDoc(), "default");
+  const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
 
   it("places every role as the owner's setup does", () => {
     expect(Object.fromEntries(ROLES.map((r) => [r, p.roles[r].rungs]))).toEqual({
@@ -81,7 +81,7 @@ describe("the default profile (spec §7.2)", () => {
 
 describe("resolveProfile", () => {
   it("fills a bare document from the built-in roles and the spec defaults", () => {
-    const p = resolveProfile({ schema: 1 }, "bare");
+    const p = resolveProfile({ schema: 1 }, "bare", "claude-code");
     expect(p.roles).toEqual(BUILTIN_ROLES);
     expect([p.objective, p.jev.use, p.timeouts, p.preflight, p.lock, p.failover]).toEqual([
       "cost",
@@ -96,7 +96,7 @@ describe("resolveProfile", () => {
   });
 
   it("gives antigravity a billing mode and a harness toggle, off and metered until the user says (spec 1.3 §3.3)", () => {
-    const p = resolveProfile({ schema: 1 }, "bare");
+    const p = resolveProfile({ schema: 1 }, "bare", "claude-code");
     expect(p.billing.antigravity).toBe("metered");
     expect(p.harness.antigravity).toEqual({ isolated: false });
     const patch = { billing: { antigravity: "subscription" }, harness: { antigravity: { isolated: true } } };
@@ -113,6 +113,7 @@ describe("resolveProfile", () => {
         roles: { verifier: { access: "read-only" }, worker: { rungs: ["codex:gpt-6-sol#high"] } },
       },
       "x",
+      "claude-code",
     );
     expect(p.roles.verifier).toEqual({ ...BUILTIN_ROLES.verifier, access: "read-only" });
     expect(p.roles.worker).toEqual({
@@ -129,7 +130,7 @@ describe("resolveProfile", () => {
       roles: { tester: { enabled: true }, worker: { enabled: true, color: "red" } },
       timeouts: { idleMin: 5, graceSec: 3 },
     });
-    expect(resolveProfile(doc, "x").timeouts).toEqual({ idleMin: 5, wallMin: 90 });
+    expect(resolveProfile(doc, "x", "claude-code").timeouts).toEqual({ idleMin: 5, wallMin: 90 });
     const after = applyPatch(doc, { timeouts: { wallMin: 60 }, roles: { worker: { access: "full" } } });
     expect(after).toEqual({
       schema: 1,
@@ -151,7 +152,7 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
   });
 
   it("reads each one the cautious way instead of refusing the profile", () => {
-    const p = resolveProfile(newer, "x");
+    const p = resolveProfile(newer, "x", "claude-code");
     expect(p.objective).toBe("cost");
     expect(p.jev.use).toBe("off");
     expect(p.billing).toMatchObject({ codex: "chatgpt-plan", grok: "metered" });
@@ -290,10 +291,11 @@ describe("names", () => {
 
 describe("diffProfiles", () => {
   it("lists each changed leaf with its before and after", () => {
-    const a = resolveProfile(defaultProfileDoc(), "a");
+    const a = resolveProfile(defaultProfileDoc(), "a", "claude-code");
     const b = resolveProfile(
       applyPatch(defaultProfileDoc(), { budget: { usd: 5 }, roles: { verifier: { access: "read-only" } } }),
       "b",
+      "claude-code",
     );
     expect(diffProfiles(a, b)).toEqual([
       { path: "budget.usd", before: null, after: 5 },
@@ -334,5 +336,18 @@ describe("patchBetween", () => {
     const base = defaultProfileDoc();
     const bad = { ...base, roles: { ...base.roles, worker: { enabled: true, rungs: ["not a rung"] } } };
     expect(() => patchBetween(base, bad)).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+  });
+});
+
+describe("host defaults", () => {
+  it("uses exact native host defaults without materializing rungs", () => {
+    const doc = defaultProfileDoc();
+    expect(doc.roles?.architect?.rungs).toBeUndefined();
+    expect(resolveProfile(doc, "default", "codex").roles.architect.rungs).toEqual(["codex:gpt-6.1-sol#high"]);
+    expect(resolveProfile(doc, "default", "codex").roles.verifier.rungs).toEqual(["codex:gpt-6.1-sol#low"]);
+    expect(resolveProfile(doc, "default", "claude-code").roles.verifier.rungs).toEqual([
+      "claude:claude-opus-5-5#low",
+    ]);
+    expect(() => resolveProfile(doc, "default", "unknown")).toThrow("host");
   });
 });

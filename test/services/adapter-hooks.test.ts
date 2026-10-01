@@ -307,7 +307,9 @@ describe("a backend that cannot run or is logged out (spec 1.3 §3.3)", () => {
 });
 
 describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
-  const onIt = [resolveProfile({ schema: 1, roles: { worker: { rungs: ["cursor:go-m1#default"] } } }, "p")];
+  const onIt = [
+    resolveProfile({ schema: 1, roles: { worker: { rungs: ["cursor:go-m1#default"] } } }, "p", "claude-code"),
+  ];
 
   it("says a backend with no sandbox runner is not tested, and why, without spending a model turn", async () => {
     fake();
@@ -350,7 +352,7 @@ describe("doctor's access probes on a new backend (spec 1.3 §3.4)", () => {
 });
 
 describe("an isolated backend's API key (spec 1.3 §8)", () => {
-  const isolated = resolveProfile({ schema: 1, harness: { cursor: { isolated: true } } }, "p");
+  const isolated = resolveProfile({ schema: 1, harness: { cursor: { isolated: true } } }, "p", "claude-code");
   const MISSING = {
     path: "harness.cursor.isolated",
     message: "an isolated cursor run needs CURSOR_API_KEY, which catherd's environment does not have",
@@ -361,7 +363,7 @@ describe("an isolated backend's API key (spec 1.3 §8)", () => {
     fake({ isolationKey: "CURSOR_API_KEY" });
     expect(isolationKeyErrors(isolated, {})).toEqual([MISSING]);
     expect(isolationKeyErrors(isolated, { CURSOR_API_KEY: "k" })).toEqual([]);
-    expect(isolationKeyErrors(resolveProfile({ schema: 1 }, "p"), {})).toEqual([]);
+    expect(isolationKeyErrors(resolveProfile({ schema: 1 }, "p", "claude-code"), {})).toEqual([]);
     // a backend that isolates without a key of its own
     fake();
     expect(isolationKeyErrors(isolated, {})).toEqual([]);
@@ -371,11 +373,13 @@ describe("an isolated backend's API key (spec 1.3 §8)", () => {
     withHome();
     fake({ isolationKey: "CURSOR_API_KEY" });
     delete process.env.CURSOR_API_KEY;
-    const r = patchProfile("default", { harness: { cursor: { isolated: true } } });
+    const r = patchProfile("default", { harness: { cursor: { isolated: true } } }, { host: "claude-code" });
     expect(r.saved).toBe(false);
     expect(r.errors).toContainEqual(MISSING);
     process.env.CURSOR_API_KEY = "key-for-test";
-    expect(patchProfile("default", { harness: { cursor: { isolated: true } } }).saved).toBe(true);
+    expect(
+      patchProfile("default", { harness: { cursor: { isolated: true } } }, { host: "claude-code" }).saved,
+    ).toBe(true);
   });
 });
 
@@ -403,6 +407,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
         },
       },
       "p",
+      "claude-code",
     );
 
   it("warns once per backend that reports no cost, naming the enabled roles on it", () => {
@@ -424,6 +429,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
     const off = resolveProfile(
       { schema: 1, budget: { usd: 5 }, roles: { reviewer: { enabled: false, rungs: [GO] } } },
       "p",
+      "claude-code",
     );
     expect(budgetUsdWarnings(off).map((w) => w.message)).not.toContainEqual(
       expect.stringContaining("cursor"),
@@ -447,6 +453,7 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
         ]),
       },
       "p",
+      "claude-code",
     );
     expect(budgetUsdWarnings(standIn)).toEqual([blind("cursor", "worker")]);
   });
@@ -466,18 +473,19 @@ describe("a dollar budget a backend cannot see (spec §4.6)", () => {
         ]),
       },
       "p",
+      "claude-code",
     );
     expect(budgetUsdWarnings(grok)).toEqual([blind("cursor", "worker")]);
   });
 
   it("never blocks a save, and the save carries the warning", () => {
     withHome();
-    const r = patchProfile("default", { budget: { usd: 5 } });
+    const r = patchProfile("default", { budget: { usd: 5 } }, { host: "claude-code" });
     expect([r.saved, r.errors]).toEqual([true, []]);
     const codex = blind("codex", "worker, reviewer, ui-reviewer, artist, writer, researcher");
     expect(r.warnings).toContainEqual(codex);
     // what `profile validate` and doctor's profile row read
-    expect(validateNamed("default").warnings).toContainEqual(codex);
+    expect(validateNamed("default", null, "claude-code").warnings).toContainEqual(codex);
   });
 });
 
@@ -494,6 +502,7 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
         failover,
       },
       "p",
+      "claude-code",
     );
   const NATIVE = {
     path: "failover.codex:gpt-6-sol#high",
@@ -513,7 +522,11 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
         reviewerOn({ cursor: { isolated: true } }, { "codex:gpt-6-sol#high": "cursor:go-m1#default" }),
       ),
     ).toEqual([]);
-    const onIt = resolveProfile({ schema: 1, roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } }, "p");
+    const onIt = resolveProfile(
+      { schema: 1, roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } },
+      "p",
+      "claude-code",
+    );
     expect(isolatedOnlyErrors(onIt)).toEqual([{ ...NATIVE, path: "roles.reviewer.rungs" }]);
     fake();
     expect(isolatedOnlyErrors(onIt)).toEqual([]);
@@ -523,6 +536,7 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
     const p = resolveProfile(
       { schema: 1, roles: { reviewer: { rungs: ["cursor:gemini-3.8-flash#high"] } } },
       "p",
+      "claude-code",
     );
     expect(isolatedOnlyErrors(p)).toEqual([
       {
@@ -539,7 +553,11 @@ describe("a backend that holds an access only when isolated (spec 1.3 §9 Q2)", 
   it("refuses a save that puts a read-only role on the backend's native harness", () => {
     withHome();
     fake({ isolatedOnly: ["read-only"] });
-    const r = patchProfile("default", { roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } });
+    const r = patchProfile(
+      "default",
+      { roles: { reviewer: { rungs: ["cursor:go-m1#default"] } } },
+      { host: "claude-code" },
+    );
     expect(r.saved).toBe(false);
     expect(r.errors).toContainEqual({ ...NATIVE, path: "roles.reviewer.rungs" });
   });

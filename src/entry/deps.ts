@@ -7,13 +7,14 @@ import { routingService } from "../services/routing-service.ts";
 
 /** The services every entry point (MCP server, CLI commands) runs on. */
 export function defaultDeps(host: HostContext = { host: "unknown", session: null, conflict: null }): Deps {
-  return {
+  const deps: Deps = {
     host,
-    profiles: profileService(),
+    profiles: profileService(() => deps.host),
     routing: routingService(),
     version: VERSION,
     pollMs: 250,
     session: readSessionEnv(process.env),
     now: Date.now,
   };
+  return deps;
 }

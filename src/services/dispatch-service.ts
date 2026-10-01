@@ -1,3 +1,4 @@
+import { assertNativeHost } from "./backends.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
@@ -285,6 +286,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   await claim(deps, run);
   const hints: string[] = [];
   let rung = i.rung;
+  assertNativeHost(rung, deps.host.host);
   // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
   if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {
     assertId("lane", i.lane);
@@ -493,6 +495,7 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
   // else that stand-in never ran and is over (recorded as lost, or past its start grace): admit a new one
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { hints, started: null, pause: paused };
+  assertNativeHost(standIn, deps.host.host);
   if (parseRung(standIn).backend === "claude") {
     const agent = deps.profiles.agentFor(run.meta.repo, d.admit.role, standIn);
     return {

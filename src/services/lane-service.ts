@@ -88,6 +88,7 @@ export async function route(
   const lane = i.laneFile === undefined ? null : readLaneFile(run, i.laneFile);
   const profile = deps.profiles.forRepo(run.meta.repo);
   const a = await deps.routing.route({
+    host: deps.host.host,
     runDir: run.dir,
     repo: run.meta.repo,
     profile,

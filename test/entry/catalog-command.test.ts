@@ -24,7 +24,7 @@ function catherdIn(cwd: string | undefined, path: string, ...args: string[]) {
   const p = Bun.spawnSync([process.execPath, CLI, "catalog", ...args], {
     cwd,
     // no backend CLI on PATH: refresh lists nothing, and never touches the user's own
-    env: { ...process.env, PATH: path, ANTHROPIC_API_KEY: "" },
+    env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "claude-code", PATH: path, ANTHROPIC_API_KEY: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -196,7 +196,12 @@ describe("catherd catalog", () => {
     const set = Bun.spawnSync(
       [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
       {
-        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        env: {
+          ...process.env,
+          CATHERD_ORCHESTRATION_HOST: "claude-code",
+          PATH: "/nonexistent",
+          ANTHROPIC_API_KEY: "",
+        },
         stdout: "pipe",
         stderr: "pipe",
       },
@@ -219,7 +224,12 @@ describe("catherd catalog", () => {
     const set = Bun.spawnSync(
       [process.execPath, CLI, "profile", "set", "roles.worker.rungs", worker.join(",")],
       {
-        env: { ...process.env, PATH: "/nonexistent", ANTHROPIC_API_KEY: "" },
+        env: {
+          ...process.env,
+          CATHERD_ORCHESTRATION_HOST: "claude-code",
+          PATH: "/nonexistent",
+          ANTHROPIC_API_KEY: "",
+        },
         stdout: "pipe",
         stderr: "pipe",
       },
@@ -338,4 +348,19 @@ describe("catherd catalog sync (spec 1.2 §9)", () => {
       "- sources: another sync is running; its results apply when it ends",
     ]);
   });
+});
+
+it("forwards an explicit root host through catalog clear and reset without session evidence", () => {
+  withHome();
+  const env = { ...process.env, CATHERD_ORCHESTRATION_HOST: "", PATH: "/nonexistent", ANTHROPIC_API_KEY: "" };
+  const run = (...args: string[]) =>
+    Bun.spawnSync([process.execPath, CLI, "--host", "codex", "catalog", "treat-like", ...args], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  expect(run("codex:gpt-5.6-terra#high", "gpt-6-sol#high").exitCode).toBe(0);
+  expect(run("--clear", "codex:gpt-5.6-terra#high").exitCode).toBe(0);
+  expect(run("codex:gpt-5.6-terra#high", "gpt-6-sol#high").exitCode).toBe(0);
+  expect(run("--reset").exitCode).toBe(0);
 });

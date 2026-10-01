@@ -100,7 +100,7 @@ export function ProfilesView(props: { width: number; height: number }) {
           },
     );
   }, [app.state.profile, here, app, polledAt, openTries]);
-  const profile = useMemo(() => (draft ? resolveProfile(draft.doc, draft.name) : null), [draft]);
+  const profile = useMemo(() => (draft ? resolveProfile(draft.doc, draft.name, draft.host) : null), [draft]);
   const billingKey = JSON.stringify(profile?.billing ?? {});
   // read again after every save too, by the identity of the base it reads back (the same bytes when only
   // treat-likes changed): a save writes the staged treat-likes to the catalog override and clears them
@@ -185,7 +185,7 @@ export function ProfilesView(props: { width: number; height: number }) {
   /** the draft as it is now: two keys in one tick must not both edit the profile this render drew */
   const current = () => {
     const d = currentDraft(app.getState());
-    return d ? resolveProfile(d.doc, d.name) : null;
+    return d ? resolveProfile(d.doc, d.name, d.host) : null;
   };
   const edit = (patch: ReturnType<typeof patchFor>) => patch && app.dispatch({ type: "edit", patch });
   const toggleOpen = (r: Row, open?: boolean) =>

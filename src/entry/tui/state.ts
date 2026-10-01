@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../../domain/host.ts";
 import {
   applyPatch,
   diffProfiles,
@@ -21,6 +22,7 @@ interface Snapshot {
 
 /** Spec §9.2: edits are staged per profile and touch nothing on disk until a save. */
 export interface Draft extends Snapshot {
+  host: OrchestrationHost;
   name: string;
   /** the document as it was read, which a save diffs against */
   base: ProfileDoc;
@@ -118,6 +120,7 @@ export const ARM_MS: Record<Armed["what"], number> = { interrupt: 1_500, delete:
 export const HISTORY_LIMIT = 100;
 
 export interface AppState {
+  host: OrchestrationHost;
   tab: Tab;
   /** the profile the Profiles tab shows; null until one is read */
   profile: string | null;
@@ -165,7 +168,8 @@ export type Action =
   | { type: "arm"; what: Armed["what"]; target: string; at: number }
   | { type: "disarm" };
 
-export const initialState = (tab: Tab = "status"): AppState => ({
+export const initialState = (tab: Tab = "status", host: OrchestrationHost = "unknown"): AppState => ({
+  host,
   tab,
   profile: null,
   drafts: {},
@@ -177,7 +181,8 @@ export const initialState = (tab: Tab = "status"): AppState => ({
   armed: null,
 });
 
-const fresh = (name: string, doc: ProfileDoc): Draft => ({
+const fresh = (name: string, doc: ProfileDoc, host: OrchestrationHost): Draft => ({
+  host,
   name,
   base: doc,
   doc,
@@ -195,7 +200,10 @@ export const currentDraft = (s: AppState): Draft | null => (s.profile ? (s.draft
 const isStaged = (d: Draft | undefined): boolean => d !== undefined && dirtyCount(d) > 0;
 
 export function dirtyCount(d: Draft): number {
-  const fields = diffProfiles(resolveProfile(d.base, d.name), resolveProfile(d.doc, d.name)).length;
+  const fields = diffProfiles(
+    resolveProfile(d.base, d.name, d.host),
+    resolveProfile(d.doc, d.name, d.host),
+  ).length;
   return fields + Object.keys(d.treatLikes).length;
 }
 
@@ -239,7 +247,9 @@ export function reduce(s: AppState, a: Action): AppState {
         tab: "profiles",
         profile: a.name,
         // Keep only a draft with staged changes; a clean one restarts from the file just read.
-        drafts: isStaged(s.drafts[a.name]) ? s.drafts : { ...s.drafts, [a.name]: fresh(a.name, a.doc) },
+        drafts: isStaged(s.drafts[a.name])
+          ? s.drafts
+          : { ...s.drafts, [a.name]: fresh(a.name, a.doc, s.host) },
       };
     case "edit":
       return withDraft(s, s.profile, (d) =>
@@ -302,13 +312,16 @@ export function reduce(s: AppState, a: Action): AppState {
       const d = s.drafts[a.name];
       const from = a.from;
       if (!from || !d || (same(d.doc, from.doc) && same(d.treatLikes, from.treatLikes)))
-        return { ...s, drafts: { ...s.drafts, [a.name]: fresh(a.name, a.doc) } };
+        return { ...s, drafts: { ...s.drafts, [a.name]: fresh(a.name, a.doc, s.host) } };
       // edited while the save wrote: the saved file is the new base, and the newer edits stay staged over it
       const treatLikes = Object.fromEntries(
         Object.entries(d.treatLikes).filter(([rung, like]) => from.treatLikes[rung] !== like),
       );
       const doc = applyPatch(a.doc, patchBetween(from.doc, d.doc));
-      return { ...s, drafts: { ...s.drafts, [a.name]: { ...fresh(a.name, a.doc), doc, treatLikes } } };
+      return {
+        ...s,
+        drafts: { ...s.drafts, [a.name]: { ...fresh(a.name, a.doc, s.host), doc, treatLikes } },
+      };
     }
     case "forget": {
       const { [a.name]: _gone, ...drafts } = s.drafts;

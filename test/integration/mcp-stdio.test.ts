@@ -51,7 +51,7 @@ function serverEnv(home: string, scenarioFile: string): Record<string, string> {
 const servers = new Map<Client, StdioClientTransport>();
 
 async function connect(env: Record<string, string>): Promise<Client> {
-  const client = new Client({ name: "catherd-it", version: "0" });
+  const client = new Client({ name: "claude-code", version: "0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [CLI, "mcp"],
