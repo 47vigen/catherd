@@ -14,7 +14,7 @@
 
 - **Source-validated only, not built.** Owner reviews all three plans before any implementation, installation, execution or scratch build. Execute 18 → 19 → 20 on the dependent feature head.
 - Preserve `domain → infra → adapters → services → entry`, ProfileService single-writer, existing Claude manifest/macros, locked atomic stores, detached supervision and reviewer/verifier landing gate.
-- Exact omitted Codex defaults are `codex:gpt-6-1-sol#high` and `codex:gpt-6-1-sol#low`. A catalog spelling mismatch needs explicit resolution; never silently normalize or substitute.
+- Exact omitted Codex defaults are `codex:gpt-6.1-sol#high` and `codex:gpt-6.1-sol#low`. A catalog spelling mismatch needs explicit resolution; never silently normalize or substitute.
 - Native packaging must prove MCP path expansion in the actual native schema/runtime. Hook `PLUGIN_ROOT` expansion and Claude compatibility alone are insufficient evidence.
 - Preserve HOME, CODEX_HOME, vendor configuration and credentials; scrub parent host/session identity at subprocess boundaries. Codex-only operations write nothing under `~/.claude`.
 - No provider auto-install, hosted MCP server, public plugin submission, private IPC fallback, second app-server, competing rollout writer, direct SQLite writes or model polling.

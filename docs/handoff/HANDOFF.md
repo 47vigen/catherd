@@ -7,8 +7,8 @@ Read it after the spec, before touching any plan.
 
 Owner-approved spec: `docs/specs/2026-10-01-catherd-codex-entry-design.md`. It extends the existing shared core
 with host-aware sessions/defaults, optional Claude dependencies and native Codex queue completion delivery.
-The owner selected `codex:gpt-6-1-sol#high` for architect and `codex:gpt-6-1-sol#low` for verifier defaults;
-validate that exact spelling against the native catalog before implementation. Explicit profiles remain authoritative.
+The owner selected `codex:gpt-6.1-sol#high` for architect and `codex:gpt-6.1-sol#low` for verifier defaults;
+the live native catalog confirmed that spelling and both efforts on 2026-10-01. Execution is owner-approved. Explicit profiles remain authoritative.
 
 | Plan | File | State |
 | ---- | ---- | ----- |

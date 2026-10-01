@@ -1,6 +1,6 @@
 # catherd entry from Codex and Claude Code
 
-Date: 2026-10-01. Status: owner-approved for implementation planning, including the requested `gpt-6-1-sol` defaults. Written plans require owner review before execution.
+Date: 2026-10-01. Status: spec and plans owner-approved for execution. The owner explicitly confirmed the live model spelling `gpt-6.1-sol` with architect high/verifier low effort.
 
 ## Intent and scope
 
@@ -14,7 +14,7 @@ There is no second orchestration engine, native Codex subagent subsystem, new me
 
 An orchestration host is `claude-code`, `codex`, or `unknown`. It is independent of a role's backend: a Codex orchestrator may dispatch `claude-code:` workers, and a Claude Code orchestrator may dispatch `codex:` workers.
 
-The MCP entry identifies the connected host from initialization client metadata, validated session environment and, where necessary, a host discriminator supplied by the host's launcher. Installed binaries on `PATH` are dependencies, never host evidence. Codex identity uses the actual thread/session identifiers exposed by the running native host; a target thread UUID is validated before sending. Claude retains its existing live registry lookup, including the session change after `/clear`.
+The MCP entry identifies the connected host from initialization client metadata, validated session environment and, where necessary, a host discriminator supplied by the host's launcher. Installed binaries on `PATH` are dependencies, never host evidence. Codex initialization advertises `clientInfo.name = "codex-mcp-client"`. Native tool calls expose `_meta.threadId` and a separate `_meta.sessionId`; the validated thread UUID identifies the owner and queue target, while the runtime session ID may differ. Resolve tool-call identity per request without mutating shared connection context, so concurrent calls cannot overwrite another thread's identity. Validated launcher environment remains evidence where supplied; shell-tool environment alone does not prove MCP launcher inheritance. Claude retains its existing live registry lookup, including the session change after `/clear`.
 
 Consistent evidence selects a host. Contradictory host or session evidence produces an actionable conflict and disables ownership and push until resolved; it must not arbitrarily pick a vendor. Insufficient evidence selects `unknown`. An explicit launcher discriminator identifies the integration, but cannot invent a session or override contradictory validated evidence. Host resolution completes before host-dependent profile resolution, ownership claims and notification scans; connecting MCP does not wait for network discovery or a live smoke test.
 
@@ -33,10 +33,10 @@ Only omitted architect/verifier rung choices follow the resolved host:
 | Host | Architect | Verifier |
 | --- | --- | --- |
 | Claude Code | Existing native Claude Opus default at high effort | Existing native Claude Opus default at low effort |
-| Codex | `codex:gpt-6-1-sol#high` | `codex:gpt-6-1-sol#low` |
+| Codex | `codex:gpt-6.1-sol#high` | `codex:gpt-6.1-sol#low` |
 | Unknown | Requires a host for host-dependent role resolution | Requires a host for host-dependent role resolution |
 
-The owner selected `gpt-6-1-sol` for the omitted Codex architect/verifier defaults. Verify that exact model ID through existing catalog discovery and validation during implementation, retaining existing treat-like alias behavior. If the native catalog uses a different spelling, report the mismatch and resolve it explicitly rather than silently substituting a model. Other role defaults and explicit backend model IDs remain unchanged.
+The owner confirmed the live-catalog spelling `gpt-6.1-sol` for the omitted Codex architect/verifier defaults on 2026-10-01, retaining high/low effort. Verify that exact model ID through existing catalog discovery and validation during implementation, retaining existing treat-like alias behavior. If the native catalog uses a different spelling, report the mismatch and resolve it explicitly rather than silently substituting a model. Other role defaults and explicit backend model IDs remain unchanged.
 
 `defaultProfileDoc` currently materializes `BUILTIN_ROLES`; new documents omit `rungs` and `defaultRung` only for architect and verifier, retaining their other defaults. `resolveProfile` supplies their defaults from explicit host context. Other role defaults are unchanged. An explicit rung ladder is preserved in order, and the existing rule that an explicit ladder never inherits an unrelated built-in `defaultRung` remains intact. Explicit access, enabled state, network settings, routing, budgets, harness isolation, billing and failover keep their current semantics.
 
