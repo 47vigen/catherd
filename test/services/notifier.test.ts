@@ -13,6 +13,7 @@ import {
   settle,
   settledHooks,
   stallHooks,
+  watching,
   watch,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
@@ -123,6 +124,115 @@ function nativeNotifier(
 }
 
 describe("native owner-scoped receipts", () => {
+  it("persisted_stall_scan: owner scan recovers a stall consumed by threadless startup, once", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 7 * 60_000 });
+    const eventId = JSON.stringify([run.id, d.admit.dispatchId, "stalled"]);
+    let calls = 0;
+    const sender: NonNullable<import("../../src/services/notifier.ts").NotifierOptions["sendCodex"]> = async (
+      target,
+      content,
+    ) => {
+      calls++;
+      expect(target).toEqual(nativeTarget());
+      expect(content).toContain(eventId);
+      expect(content).toContain("stalled: no output for 7 min");
+      return { outcome: "accepted", msgId: "recovered-stall" };
+    };
+    const startup = nativeNotifier(
+      fakeDeps({ host: { host: "codex", session: null, conflict: null } }),
+      sender,
+    );
+    const observed = barrier();
+    const hook = () => observed.release();
+    stallHooks.add(hook);
+    const report = await reconcileAll(fakeDeps({ host: { host: "codex", session: null, conflict: null } }));
+    try {
+      await observed.promise;
+      await startup.idle();
+      expect(calls).toBe(0);
+      expect(watching.has(d.admit.dispatchId)).toBe(true);
+      const owner = nativeNotifier(deps, sender);
+      adopt(deps, run);
+      await owner.scan();
+      await owner.scan();
+      await owner.idle();
+      expect(calls).toBe(1);
+      expect(readDelivery(d.dir).at(-1)).toMatchObject({
+        status: "accepted",
+        msgId: "recovered-stall",
+        eventIds: [eventId],
+      });
+      owner.stop();
+      const restart = nativeNotifier(deps, sender);
+      await restart.scan();
+      await restart.idle();
+      expect(calls).toBe(1);
+      expect(readRecords(run).records).toEqual([]);
+      expect(awaitsCollect(d.dir)).toBe(true);
+    } finally {
+      stallHooks.delete(hook);
+      for (const n of notifiers) n.stop();
+      writeJsonAtomicForExit(d.dir);
+      await report.done;
+    }
+  });
+
+  it("persisted_stall_scan: accepted, ambiguous and orphan submitting stalls never blindly resend", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const ds = [];
+    for (const [i, status] of (["accepted", "ambiguous", "submitting"] as const).entries()) {
+      const d = await fakeDispatch(run, { name: `worker-M1.L${i + 1}` }, { proc: "self", collect: true });
+      ds.push(d);
+      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+      writeDeliveryAttempt(d.dir, {
+        attemptId: `stall-${i}`,
+        target: nativeTarget(),
+        eventIds: [JSON.stringify([run.id, d.admit.dispatchId, "stalled"])],
+        at: new Date().toISOString(),
+        status,
+        msgId: status === "accepted" ? "receipt" : null,
+        reason: null,
+      });
+    }
+    let calls = 0;
+    const n = nativeNotifier(deps, async () => {
+      calls++;
+      return { outcome: "accepted", msgId: "duplicate" };
+    });
+    await n.scan();
+    await n.scan();
+    await n.idle();
+    expect(calls).toBe(0);
+    expect(ds.map((d) => readDelivery(d.dir).at(-1)?.status)).toEqual(["accepted", "ambiguous", "ambiguous"]);
+  });
+
+  it("persisted_stall_scan: exited stalls are dropped on scan and again before delivery", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const done = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const live = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    for (const d of [done, live])
+      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+    writeJsonAtomicForExit(done.dir);
+    let calls = 0;
+    const n = nativeNotifier(deps, async () => {
+      calls++;
+      return { outcome: "accepted", msgId: "stale-stall" };
+    });
+    await n.scan();
+    writeJsonAtomicForExit(live.dir);
+    await n.idle();
+    expect(calls).toBe(0);
+    expect([readDelivery(done.dir), readDelivery(live.dir)]).toEqual([[], []]);
+  });
+
   it("explicit retry cannot subscribe to unrelated completion/stall hooks", async () => {
     const { run } = freshRun();
     const deps = nativeDeps();

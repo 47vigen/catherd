@@ -387,6 +387,10 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
             const r = records.get(d.admit.dispatchId);
             // a limit not yet failed over is reconcile's to settle first: its hook announces it then
             if (r && !(r.status === "limit" && !readFailover(d.dir))) enqueue(run, d, r);
+            if (existsSync(p.stall) && !existsSync(p.exit)) {
+              const quietMs = Number(JSON.parse(readFileSync(p.stall, "utf8")).quietMs) || 0;
+              onStall({ run, d, quietMs });
+            }
           }
         } catch (e) {
           log("warn", "notify", { run: run.id, error: errorMessage(e) });
