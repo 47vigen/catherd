@@ -18,6 +18,8 @@ export interface SessionRef {
  * id in the environment goes stale after /clear), else the environment's. Null outside Claude Code.
  */
 export function currentSession(deps: Deps): SessionRef | null {
+  if (deps.host.host === "unknown" || deps.host.conflict) return null;
+  if (deps.host.host === "codex") return deps.host.session;
   const env = deps.session;
   if (!env) return null;
   const file = sessionFileFor(env);

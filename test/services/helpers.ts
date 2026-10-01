@@ -1,3 +1,4 @@
+import type { HostContext } from "../../src/domain/host.ts";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +52,7 @@ export function testView(over: Partial<ProfileView> = {}): ProfileView {
 
 /** Deps with a fixed profile view (mutate `view` to change it mid-test) and a routing fake. */
 export function fakeDeps(
-  o: { view?: ProfileView; now?: () => number; session?: SessionEnv | null } = {},
+  o: { view?: ProfileView; now?: () => number; session?: SessionEnv | null; host?: HostContext } = {},
 ): Deps & { view: ProfileView } {
   const view = o.view ?? testView();
   const routing: RoutingPort = {
@@ -100,6 +101,7 @@ export function fakeDeps(
     },
   };
   return {
+    host: o.host ?? { host: o.session ? "claude-code" : "unknown", session: null, conflict: null },
     profiles,
     routing,
     version: "0.0.0-test",

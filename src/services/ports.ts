@@ -1,3 +1,4 @@
+import type { HostContext } from "../domain/host.ts";
 import type { Provenance } from "./provenance.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
@@ -128,12 +129,13 @@ export interface RoutingPort {
 
 /** Everything a service needs from outside it; the entry layer builds one, tests build fakes. */
 export interface Deps {
+  host: HostContext;
   profiles: ProfilePort;
   routing: RoutingPort;
   version: string;
   /** how often the supervisor and the dispatch watchers poll, in ms */
   pollMs: number;
-  /** the Claude Code session this process serves (spec §3.3), from its environment; null outside one */
+  /** Claude transport credentials and registry refresh; host identity lives in `host`. */
   session: SessionEnv | null;
   now: () => number;
   /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
