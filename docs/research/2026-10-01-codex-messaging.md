@@ -56,7 +56,7 @@ The markers were read from that disposable thread's native history, not inferred
 
 The coordinator submitted a labeled completion marker to the current conversation using native `codex queue`, with its actual `CODEX_THREAD_ID`. The command exited 0 and returned receipt `01a0f547-7947-7972-90a0-a7ad547170e0`. Queue/history inspection did not establish a native user-message acknowledgement. The owner then explicitly confirmed that the original Desktop conversation woke and that they personally cancelled its test turn. Record this as owner-witnessed same-session wake success, with intentional interruption, rather than an assistant-history proof.
 
-The owner authorized a repeat. Marker `CATHERD_DESKTOP_RETEST_20261001` was accepted for the same original thread `01a0f53b-a47d-7350-83a4-c3430e453404`, with receipt `01a0f54c-cf5d-7e22-9c63-39d867803eb5`. Repeat processing is pending the current active turn ending; its receipt is acceptance evidence only.
+The owner authorized a repeat. Marker `CATHERD_DESKTOP_RETEST_20261001` was accepted for the same original thread `01a0f53b-a47d-7350-83a4-c3430e453404`, with receipt `01a0f54c-cf5d-7e22-9c63-39d867803eb5`. After the sending turn ended, that exact queued message arrived as the next user input in this original Desktop conversation and started an assistant turn. The coordinator received and acknowledged it here. This directly observes cross-process same-session Desktop wake and ordered follow-up after an active turn, beyond the earlier receipt and owner testimony. It remains a transport probe, not packaged catherd integration acceptance.
 
 ## Unverified behavior and excluded shortcuts
 
