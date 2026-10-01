@@ -23,7 +23,7 @@ Your job:
 
 The catherd server keeps `state.md` true: it rewrites it on every dispatch, climb and landing.
 
-**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@1.3.0`. If it differs, stop and tell the user to restart their host session so the plugin and its server match. Read its host and capability diagnostics; unknown or conflicting identity never authorizes ownership or push.
+**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@1.4.0`. If it differs, stop and tell the user to restart their host session so the plugin and its server match. Read its host and capability diagnostics; unknown or conflicting identity never authorizes ownership or push.
 
 **You never edit product files.** Every line of code, tests or docs comes from a role, including a one-line fix.
 
@@ -280,7 +280,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 4. For a worker:
    - "Read `<R>/lanes/Mx.Ly.md`": decisions, signatures, data shapes;
    - its fast check (targeted tests, lint and type check), to run until it passes;
-   - "Run the full suite only if this brief says so", and "Wrap any full build or full test suite in `bunx catherd-cli@1.3.0 lock -- <command>`": other lanes share the machine.
+   - "Run the full suite only if this brief says so", and "Wrap any full build or full test suite in `bunx catherd-cli@1.4.0 lock -- <command>`": other lanes share the machine.
 5. For a reviewer: the A-lines and the changed files, with new files read in full. It reports every finding as `BLOCKER|BUG|NIT file:line — problem — fix`, covering:
    - unmet A-lines and edge cases;
    - code or abstractions nobody needs;
