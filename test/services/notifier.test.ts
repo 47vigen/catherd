@@ -30,6 +30,7 @@ import * as finalize from "../../src/services/finalize.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
 import { finishedNotice, stalledNotice, retryDelivery } from "../../src/services/notifier.ts";
+import * as delivery from "../../src/infra/delivery.ts";
 import { readDelivery, deliveryState, writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import type { HostSessionRef } from "../../src/domain/host.ts";
 import * as codexQueue from "../../src/infra/codex-queue.ts";
@@ -260,6 +261,43 @@ describe("native owner-scoped receipts", () => {
     } finally {
       writeJsonAtomicForExit(bad.dir);
       writeJsonAtomicForExit(good.dir);
+    }
+  });
+
+  it("a claim that cannot be persisted sends nothing, keeps the batch's other notices deliverable", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const good = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const bad = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    for (const d of [good, bad])
+      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+    const real = delivery.writeDeliveryAttempt;
+    const spy = spyOn(delivery, "writeDeliveryAttempt").mockImplementation((dir, attempt) => {
+      if (dir === bad.dir) throw new Error("disk full");
+      real(dir, attempt);
+    });
+    const sent: string[] = [];
+    const n = nativeNotifier(deps, async (_target, content) => {
+      sent.push(content);
+      return { outcome: "accepted", msgId: `m${sent.length}` };
+    });
+    try {
+      await n.scan();
+      await n.idle();
+      const goodId = JSON.stringify([run.id, good.admit.dispatchId, "stalled"]);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain(goodId);
+      expect(sent[0]).not.toContain(JSON.stringify([run.id, bad.admit.dispatchId, "stalled"]));
+      // the first batch's claim was rolled back as never submitted, then the requeued notice went out
+      expect(readDelivery(good.dir).map((a) => [a.status, a.eventIds])).toEqual([
+        ["failed", [goodId, JSON.stringify([run.id, bad.admit.dispatchId, "stalled"])]],
+        ["accepted", [goodId]],
+      ]);
+    } finally {
+      spy.mockRestore();
+      writeJsonAtomicForExit(good.dir);
+      writeJsonAtomicForExit(bad.dir);
     }
   });
 

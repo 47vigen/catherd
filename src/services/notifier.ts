@@ -215,17 +215,22 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
     const busy: Queued[] = [];
     try {
       for (const q of batch) {
-        if (!q.due() || !owned(q.run)) continue;
-        const release = tryLock(q.mark);
-        if (!release) {
-          busy.push(q);
-          continue;
+        // one notice's damaged evidence drops that notice alone, never the rest of the batch
+        try {
+          if (!q.due() || !owned(q.run)) continue;
+          const release = tryLock(q.mark);
+          if (!release) {
+            busy.push(q);
+            continue;
+          }
+          claims.push(release);
+          const live = currentSession(deps);
+          if (stopped || !live || sessionKey(live) !== sessionKey(target) || !owned(q.run)) continue;
+          recoverSubmission(q.dir, q.notice.eventId);
+          if (pending(q, target)) due.push(q);
+        } catch (e) {
+          log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
         }
-        claims.push(release);
-        const live = currentSession(deps);
-        if (stopped || !live || sessionKey(live) !== sessionKey(target) || !owned(q.run)) continue;
-        recoverSubmission(q.dir, q.notice.eventId);
-        if (pending(q, target)) due.push(q);
       }
       if (!due.length) return;
       const notices = due.map((q) => q.notice);
@@ -243,7 +248,30 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
         msgId: null,
         reason: null,
       };
-      for (const q of due) writeDeliveryAttempt(q.dir, attempt);
+      const claimed: Queued[] = [];
+      for (const q of due) {
+        try {
+          writeDeliveryAttempt(q.dir, attempt);
+          claimed.push(q);
+        } catch (e) {
+          // nothing is sent unless every notice's claim is on disk: the claims already written are marked
+          // failed (provably not submitted, so still deliverable) and the others go back in the queue
+          log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
+          const undone: DeliveryAttempt = {
+            ...attempt,
+            status: "failed",
+            reason: "A claim in this batch was not persisted; nothing was submitted.",
+          };
+          for (const c of claimed)
+            try {
+              writeDeliveryAttempt(c.dir, undone);
+            } catch (u) {
+              log("warn", "notify", { error: errorMessage(u), dispatch: c.notice.dispatchId });
+            }
+          busy.push(...due.filter((x) => x !== q));
+          return;
+        }
+      }
       let outcome: QueueSendResult;
       const content = envelope(formatNotices(notices));
       try {
@@ -311,7 +339,10 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
     }
   }
 
-  /** Queues again the notices another server held the claim on; the next pass drops those no longer due or owned. */
+  /**
+   * Queues again the notices another server held the claim on, or whose batch could not claim them all; the
+   * next pass drops those no longer due or owned.
+   */
   function requeue(busy: Queued[]): void {
     if (stopped || busy.length === 0) return;
     for (const q of busy) if (!queue.has(q.key)) queue.set(q.key, q);
