@@ -674,6 +674,26 @@ for (const host of ["claude-code", "codex"] as const)
     expect(existsSync(join(agentsRoot(), "default"))).toBe(false);
   });
 
+it("prunes omitted-default Claude artifacts once a codex edit stores explicit codex rungs", () => {
+  withHome();
+  expect(resetProfile("default", "claude-code").saved).toBe(true);
+  writeFileSync(join(claudeAgentsDir(), "mine.md"), "user agent");
+  const r = patchProfile(
+    "default",
+    {
+      roles: {
+        architect: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null },
+        verifier: { rungs: ["codex:gpt-6-sol#low"], defaultRung: null },
+      },
+    },
+    { host: "codex" },
+  );
+  expect(r.saved).toBe(true);
+  expect(r.pruned).toEqual(DEFAULT_AGENTS.map((name) => `${name}.md`));
+  expect(links()).toEqual(["mine.md"]);
+  expect(existsSync(join(agentsRoot(), "default"))).toBe(false);
+});
+
 it("Codex deletion cleans a removed profile's owned artifacts without touching other profiles or user agents", () => {
   withHome();
   createProfile("team", undefined, "claude-code");

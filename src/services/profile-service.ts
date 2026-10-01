@@ -60,10 +60,15 @@ const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(
 /** `repairing`: a saved repair with errors still open, whose remaining native roles are among those errors. */
 function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost, repairing = false): Synced {
   const before = existsSync(profileFile(name)) ? readFileSync(profileFile(name), "utf8") : null;
-  const hadNative = before !== null && agentFiles(getProfile(name, host), "").length > 0;
+  const nativeOn = (h: OrchestrationHost) => agentFiles(getProfile(name, h), "").length > 0;
+  const hadNative = before !== null && nativeOn(host);
+  // omitted defaults are native only on claude-code: the artifacts that resolution made count too
+  const hadClaudeNative = before !== null && host !== "claude-code" && nativeOn("claude-code");
   writeDoc(name, doc);
   try {
-    return syncFor(name, host, [name], host === "claude-code" || hadNative, repairing);
+    // a profile left with no native role on any host owns no agents; one still native there keeps them
+    const allowPrune = host === "claude-code" || hadNative || (hadClaudeNative && !nativeOn("claude-code"));
+    return syncFor(name, host, [name], allowPrune, repairing);
   } catch (e) {
     if (before === null) rmSync(profileFile(name), { force: true });
     else writeTextAtomic(profileFile(name), before);
