@@ -12,9 +12,9 @@ import {
   reviewerPassed,
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
-import { appendAgentRun, appendRecord } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendRecord, readAgentRuns } from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
-import { result } from "../../src/services/run-service.ts";
+import { result, recordAgentRun } from "../../src/services/run-service.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
 
@@ -54,6 +54,30 @@ const landing = (run: string, commit: string, over: Record<string, unknown> = {}
 });
 
 describe("the land gate (spec 1.1 §6)", () => {
+  it("non-Claude and conflicted callers cannot fabricate native verifier accounting or land authority", async () => {
+    const { repo, run } = freshRun();
+    const commit = commitFiles(repo, ["src/a.ts"]);
+    for (const host of [
+      { host: "codex" as const, session: null, conflict: null },
+      { host: "unknown" as const, session: null, conflict: null },
+      { host: "claude-code" as const, session: null, conflict: "Conflicting host identities" },
+    ]) {
+      for (const role of ["reviewer", "verifier"] as const) {
+        expect(() =>
+          recordAgentRun(fakeDeps({ host }), {
+            run: run.id,
+            name: `${role}-M1`,
+            role,
+            rung: "claude:claude-opus-5-5#high",
+            totalTokens: 1,
+            status: "ok",
+          }),
+        ).toThrow("native Claude subagents require");
+        expect(readAgentRuns(run)).toEqual([]);
+      }
+      expect((await refusal(land(fakeDeps({ host }), landing(run.id, commit)))).code).toBe("E_LAND_GATE");
+    }
+  });
   it("accepted/ambiguous queue inputs and repeated result reads cannot supply reviewer or verifier authority", async () => {
     const { repo, run } = freshRun();
     const d = await fakeDispatch(run, { name: "worker-M1.L1" }, { collect: true });

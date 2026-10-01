@@ -310,15 +310,21 @@ describe("measuredSecs", () => {
       difficulty: "logic",
     });
     for (const [i, s] of [50, 10, 30, 20, 40].entries()) {
-      const row = recordAgentRun(fakeDeps({ now: () => Date.parse(`2026-09-25T10:1${i}:00.000Z`) }), {
-        run: run.id,
-        name: "w",
-        role: "worker",
-        rung: "claude:claude-opus-5-5#high",
-        totalTokens: 100,
-        durationMs: s * 1000,
-        lane: "M1.L1",
-      });
+      const row = recordAgentRun(
+        fakeDeps({
+          host: { host: "claude-code", session: null, conflict: null },
+          now: () => Date.parse(`2026-09-25T10:1${i}:00.000Z`),
+        }),
+        {
+          run: run.id,
+          name: "w",
+          role: "worker",
+          rung: "claude:claude-opus-5-5#high",
+          totalTokens: 100,
+          durationMs: s * 1000,
+          lane: "M1.L1",
+        },
+      );
       expect(row.lane).toBe("M1.L1");
     }
     expect(readAgentRuns(run).every((a) => a.lane === "M1.L1")).toBe(true);

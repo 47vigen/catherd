@@ -392,7 +392,7 @@ describe("run files, result and agent runs", () => {
 
   it("records a native subagent run, and only for a claude rung", async () => {
     const { run } = freshRun();
-    const deps = fakeDeps();
+    const deps = fakeDeps({ host: { host: "claude-code", session: null, conflict: null } });
     const row = recordAgentRun(deps, {
       run: run.id,
       name: "architect",
