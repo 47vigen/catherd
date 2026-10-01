@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
@@ -131,9 +132,9 @@ export function locksCheck(): Check {
   }
 }
 
-export function agentsCheck(): Check {
+export function agentsCheck(host: OrchestrationHost, selected?: string[]): Check {
   const base = { id: "agents", label: "Claude agents" };
-  const links = agentLinkState();
+  const links = agentLinkState(host, selected);
   const broken = [...links.missing, ...links.stale];
   if (broken.length)
     return {

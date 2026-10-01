@@ -1,3 +1,4 @@
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
@@ -71,6 +72,7 @@ export async function runForwarding(argv: string[]): Promise<number> {
   const watchdog = Bun.spawn(
     ["sh", "-c", 'read _ || kill -s KILL -- "-$1" 2>/dev/null', "sh", String(child.pid)],
     {
+      env: scrubSecrets(process.env),
       stdin: "pipe",
       stdout: "ignore",
       stderr: "ignore",
@@ -95,6 +97,7 @@ export const lockCommand = defineCommand({
       "Run a heavy command behind the machine-wide semaphore, in its own process group and session: it gets no /dev/tty and no job control",
   },
   args: {
+    ...HOST_ARG,
     slots: {
       type: "string",
       description: "Slots (default: CATHERD_LOCK_SLOTS, else the profile's lock.heavy, else half the cores)",
@@ -115,7 +118,7 @@ export const lockCommand = defineCommand({
     const repo = await gitToplevel(process.cwd());
     const slots = resolveSlots(
       args.slots,
-      () => profileFor(repo).lock.heavy,
+      () => profileFor(repo, terminalHost(args.host).host).lock.heavy,
       (m) => console.error(m),
     );
     process.exitCode = await withHeavySlot(slots, () => runForwarding(argv));

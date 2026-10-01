@@ -50,7 +50,7 @@ describe("initSetup", () => {
     // with a key the claude-code listing is an HTTP call, and a test never reaches the network
     delete process.env.ANTHROPIC_API_KEY;
     legacyFiles();
-    const r = await initSetup();
+    const r = await initSetup({ host: { host: "claude-code", session: null, conflict: null } });
     expect([r.profile, r.created, r.moved.length]).toEqual(["default", true, 3]);
     expect(r.synced?.linked).toEqual([
       "catherd-default-architect-claude-opus-5-5-high",
@@ -74,7 +74,7 @@ describe("initSetup", () => {
     symlinkSync(old, join(claudeAgentsDir(), "catherd-architect-claude-opus-5-5-high.md"));
     writeFileSync(join(claudeAgentsDir(), "mine.md"), "the user's own agent");
     writeFileSync(credentialsPath(), JSON.stringify({ typesafeApiKey: "tsk-0x-key" }));
-    await initSetup();
+    await initSetup({ host: { host: "claude-code", session: null, conflict: null } });
     expect(readdirSync(claudeAgentsDir()).sort()).toEqual([
       "catherd-default-architect-claude-opus-5-5-high.md",
       "catherd-default-verifier-claude-opus-5-5-low.md",
@@ -89,7 +89,10 @@ describe("initSetup", () => {
     delete process.env.ANTHROPIC_API_KEY;
     // codex's last listing offers gpt-6-sol at low only: the default rungs' efforts are not there
     writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: ["low"], context: null, imageIn: true }]);
-    const r = await initSetup({ profile: "team" });
+    const r = await initSetup({
+      host: { host: "claude-code", session: null, conflict: null },
+      profile: "team",
+    });
     expect([r.created, r.active, r.synced]).toEqual([false, false, null]);
     expect(r.errors.map((e) => e.message)).toContain(
       'gpt-6-sol has no effort "medium" on codex (it has low)',
@@ -101,11 +104,33 @@ describe("initSetup", () => {
     withHome();
     process.env.PATH = "/nonexistent";
     delete process.env.ANTHROPIC_API_KEY;
-    patchProfile("team", { budget: { usd: 3 } });
-    expect((await initSetup({ profile: "team" })).created).toBe(false);
-    expect(getProfile("team").budget).toEqual({ usd: 3 });
-    expect((await initSetup({ profile: "team", overwrite: true })).created).toBe(true);
-    expect(getProfile("team").budget).toEqual({});
+    patchProfile("team", { budget: { usd: 3 } }, { host: "claude-code" });
+    expect(
+      (await initSetup({ host: { host: "claude-code", session: null, conflict: null }, profile: "team" }))
+        .created,
+    ).toBe(false);
+    expect(getProfile("team", "claude-code").budget).toEqual({ usd: 3 });
+    expect(
+      (
+        await initSetup({
+          host: { host: "claude-code", session: null, conflict: null },
+          profile: "team",
+          overwrite: true,
+        })
+      ).created,
+    ).toBe(true);
+    expect(getProfile("team", "claude-code").budget).toEqual({});
     expect(basename(join(profilesDir(), "team.json"))).toBe("team.json");
   });
+});
+
+it("initializes Codex omitted defaults without creating Claude files", async () => {
+  withHome();
+  process.env.PATH = "/nonexistent";
+  delete process.env.ANTHROPIC_API_KEY;
+  const r = await initSetup({ host: { host: "codex", session: null, conflict: null } });
+  expect(r.created).toBe(true);
+  expect(r.synced?.linked).toEqual([]);
+  expect(getProfile("default", "codex").roles.verifier.rungs).toEqual(["codex:gpt-6.1-sol#low"]);
+  expect(existsSync(claudeAgentsDir())).toBe(false);
 });

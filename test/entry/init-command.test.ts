@@ -27,6 +27,7 @@ function init(args: string[], stdin = "") {
     // no backend CLI, no Jev key and no Anthropic key: nothing reaches the network or the user's own CLIs
     env: {
       ...process.env,
+      CATHERD_ORCHESTRATION_HOST: "claude-code",
       // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
       PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
       // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
@@ -196,15 +197,15 @@ describe("catherd init", () => {
   it("--no-input keeps a profile it finds", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    patchProfile("default", { budget: { usd: 9 } });
+    patchProfile("default", { budget: { usd: 9 } }, { host: "claude-code" });
     expect(init(["--no-input"]).out).toContain("✓ profile default kept as it was, and active\n");
-    expect(getProfile("default").budget).toEqual({ usd: 9 });
+    expect(getProfile("default", "claude-code").budget).toEqual({ usd: 9 });
   }, 60_000);
 
   it("reads piped answers: empty keys skip Jev and Artificial Analysis, a name picks the profile, y replaces it", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    patchProfile("team", { budget: { usd: 9 } });
+    patchProfile("team", { budget: { usd: 9 } }, { host: "claude-code" });
     const r = init([], "\n\nteam\ny\n");
     expect(r.code).toBe(0);
     expect(r.out).toContain("TypeSafe API key for Jev (optional; Enter skips): \n- Jev: no key;");
@@ -214,7 +215,7 @@ describe("catherd init", () => {
     // the suite sets CATHERD_NO_SYNC=1 (test/preload.ts): init says so instead of reaching the network
     expect(r.out).toContain("- sources: not synced (CATHERD_NO_SYNC=1); catherd catalog sync fetches them\n");
     expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
-    expect([activeName(), getProfile("team").budget]).toEqual(["team", {}]);
+    expect([activeName(), getProfile("team", "claude-code").budget]).toEqual(["team", {}]);
   }, 60_000);
 
   it("keeps piped answers in place when a saved key skips the key question", () => {

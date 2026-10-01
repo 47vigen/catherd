@@ -87,12 +87,13 @@ describe("doctor's stand-ins to confirm (spec 1.2 §6.1, §9)", () => {
   it("lists the rungs that lean on an inferred stand-in, once each, and nothing for the default profile", () => {
     withHome();
     delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    const def = resolveProfile(defaultProfileDoc(), "default");
+    const def = resolveProfile(defaultProfileDoc(), "default", "claude-code");
     expect(standInsToConfirmIn([def])).toEqual([]);
     const worker = [...def.roles.worker.rungs, "codex:gpt-5.6-terra#high"];
     const terra = resolveProfile(
       applyPatch(defaultProfileDoc(), { roles: { worker: { rungs: worker } } }),
       "t",
+      "claude-code",
     );
     const confirm = standInsToConfirmIn([terra, terra]);
     expect(confirm.map((x) => [x.canonical, x.dims.map((d) => d.dim)])).toEqual([

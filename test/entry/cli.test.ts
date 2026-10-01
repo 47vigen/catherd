@@ -201,3 +201,14 @@ describe("catherd (spec §8)", () => {
     }
   });
 });
+
+it("bare --host codex reaches TUI startup and invalid host is a usage error", () => {
+  withHome();
+  const r = catherd(["--host", "codex"]);
+  expect(r.code).toBe(2);
+  expect(r.err).toContain("dashboard needs an interactive terminal");
+  const bad = catherd(["--host", "not-a-host"]);
+  expect(bad.code).toBe(2);
+  expect(bad.err).not.toContain("dashboard needs");
+  expect(catherd(["--host", "codex", "profile", "show", "--json"]).out).toContain("codex:gpt-6.1-sol#high");
+});

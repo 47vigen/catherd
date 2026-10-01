@@ -32,10 +32,10 @@ export async function runCli(
   o: { timeoutMs: number; env?: Record<string, string>; cwd?: string },
 ): Promise<CliResult | null> {
   if (!Bun.which(bin, { PATH: process.env.PATH ?? "" })) return null;
-  log("debug", "spawn", { argv: [bin, ...args], env: o.env ?? {} });
+  log("debug", "spawn", { argv: [bin, ...args], env: scrubSecrets(o.env ?? {}) });
   const p = Bun.spawn([bin, ...args], {
     cwd: o.cwd,
-    env: { ...scrubSecrets(process.env), ...o.env },
+    env: scrubSecrets({ ...process.env, ...o.env }),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",

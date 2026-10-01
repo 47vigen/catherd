@@ -16,9 +16,7 @@ const STDERR_TAIL = 4_000;
 export const handshakeEnv = (
   base: Record<string, string | undefined> = process.env,
 ): Record<string, string> => {
-  const env = scrubSecrets(base);
-  for (const key of ["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CATHERD_ORCHESTRATION_HOST"]) delete env[key];
-  return env;
+  return scrubSecrets(base);
 };
 
 /**

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { terminalHost } from "../../src/entry/host-arg.ts";
 import { resolveHost } from "../../src/infra/host-context.ts";
 
 const id = "0199c011-1234-7000-8000-000000000001";
@@ -64,4 +65,15 @@ describe("orchestration host evidence", () => {
     ).toBeTruthy();
     expect(resolveHost({ env: {}, clientName: "codex-mcp-client" }).session).toBeNull();
   });
+});
+
+it("terminal host selection retains contradictory evidence but never acquires an owner", () => {
+  expect(terminalHost("codex", { CODEX_THREAD_ID: id })).toEqual({
+    host: "codex",
+    session: null,
+    conflict: null,
+  });
+  expect(terminalHost("codex", { CLAUDE_CODE_SESSION_ID: "s" }).conflict).toBeTruthy();
+  expect(terminalHost("codex", { CODEX_THREAD_ID: "invalid" }).conflict).toBeTruthy();
+  expect(terminalHost("auto", { CODEX_THREAD_ID: id }).session?.sessionId).toBe(id);
 });

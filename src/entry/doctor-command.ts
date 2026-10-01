@@ -1,3 +1,5 @@
+import { gitToplevel } from "../infra/git.ts";
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
 import { type DoctorReport, doctor } from "../services/doctor.ts";
@@ -34,11 +36,14 @@ export const doctorCommand = defineCommand({
     description: "Readiness report: Bun, backends, Jev, the plugin, agents, the MCP server, locks",
   },
   args: {
+    ...HOST_ARG,
     ...JSON_ARG,
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
     const r = await doctor({
+      host: terminalHost(args.host),
+      repo: await gitToplevel(process.cwd()),
       bunVersion: Bun.version,
       version: VERSION,
       handshake: () => mcpHandshake(),

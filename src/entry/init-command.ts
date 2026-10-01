@@ -1,3 +1,5 @@
+import { gitToplevel } from "../infra/git.ts";
+import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { assertProfileName } from "../domain/profile.ts";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
@@ -195,6 +197,7 @@ export const initCommand = defineCommand({
       "First run: the global catherd command, the Jev key, the Artificial Analysis key, a sync of the public model sources, the default profile, its agents, and a readiness report. Piped, it reads the answers from stdin one per line, a line per question even when this machine skips it (the Jev key, the Artificial Analysis key, the profile, whether to replace it), and waits for stdin to close; --no-input asks nothing",
   },
   args: {
+    ...HOST_ARG,
     // citty reads --no-input as input: false, whatever the flag is named; naming it no-input shows it as is
     "no-input": { type: "boolean", description: "ask nothing: keep what exists, else write the defaults" },
     // read as global: false, like no-input above
@@ -230,7 +233,7 @@ export const initCommand = defineCommand({
         ask !== null &&
         exists &&
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
-      const r = await initSetup({ profile: name, overwrite });
+      const r = await initSetup({ profile: name, overwrite, host: terminalHost(args.host) });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
       for (const l of profileLines(r, plain)) console.log(l);
       if (r.synced?.linked.length)
@@ -238,13 +241,15 @@ export const initCommand = defineCommand({
       for (const x of r.refreshed) console.log(formatRefreshed(x, plain));
       console.log("");
       const report = await doctor({
+        host: terminalHost(args.host),
+        repo: await gitToplevel(process.cwd()),
         bunVersion: Bun.version,
         version: VERSION,
         handshake: () => mcpHandshake(),
       });
       for (const l of formatReport(report, plain)) console.log(l);
       console.log("");
-      for (const l of PLUGIN_STEPS) console.log(l);
+      for (const l of terminalHost(args.host).host === "claude-code" ? PLUGIN_STEPS : []) console.log(l);
     } finally {
       ask?.close();
     }

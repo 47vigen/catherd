@@ -4,7 +4,7 @@ import "../adapters/all.ts";
 import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import type { Profile } from "../domain/profile.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
-import { probeBackend } from "./backends.ts";
+import { standInFor, probeBackend } from "./backends.ts";
 import { refreshDiscovery } from "./catalog-service.ts";
 import { type Check, errText, fixOf } from "./doctor-checks.ts";
 
@@ -22,7 +22,12 @@ export function usedBackends(profiles: Profile[]): Map<string, "role" | "failove
   };
   for (const p of profiles) {
     for (const role of ROLES) if (p.roles[role].enabled) for (const r of p.roles[role].rungs) note(r, "role");
-    for (const to of Object.values(p.failover)) note(to, "failover");
+    for (const role of ROLES)
+      if (p.roles[role].enabled)
+        for (const r of p.roles[role].rungs) {
+          const to = standInFor(p.failover, r);
+          if (to) note(to, "failover");
+        }
   }
   return used;
 }

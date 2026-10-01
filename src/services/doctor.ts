@@ -1,3 +1,4 @@
+import type { HostContext } from "../domain/host.ts";
 import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -49,6 +50,8 @@ export interface Handshake {
 }
 
 export interface DoctorDeps {
+  host: HostContext;
+  repo: string | null;
   bunVersion: string;
   /** the package version, which the Claude Code plugin must pin */
   version: string;
@@ -84,7 +87,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   try {
     readConfig();
     readProjects();
-    active = getProfile(activeName());
+    active = getProfile(activeName(d.repo), d.host.host);
     linked = linkedProfiles();
     checks.push({
       id: "config",
@@ -106,7 +109,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // one unreadable linked profile must not hide the others' backends: its own row below reports it
   profiles = linked.flatMap((n) => {
     try {
-      return [getProfile(n)];
+      return [getProfile(n, d.host.host)];
     } catch {
       return [];
     }
@@ -118,7 +121,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
         checks.push({
           id: `binding:${repo}`,
           label: `binding ${repo}`,
-          state: "fail",
+          state: repo === d.repo ? "fail" : "warn",
           word: "missing",
           detail: `bound to profile ${name}, which does not exist`,
           fix: `cd ${repo} && catherd profile use --repo --clear`,
@@ -134,24 +137,26 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     const validate = `catherd profile validate ${name}`;
     const named = (fix: string) =>
       fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name} `);
-    checks.push(
-      guarded(id, `profile ${name}`, validate, () => {
-        const v = validateNamed(name);
-        const first = v.errors[0] ?? v.warnings[0];
-        return {
-          id,
-          label: `profile ${name}`,
-          state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
-          word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
-          detail: first
-            ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
-            : "valid",
-          ...(first ? { fix: first.fix ? named(first.fix) : validate } : {}),
-        };
-      }),
-    );
+    const row = guarded(id, `profile ${name}`, validate, () => {
+      const v = validateNamed(name, d.repo, d.host.host);
+      const first = v.errors[0] ?? v.warnings[0];
+      return {
+        id,
+        label: `profile ${name}`,
+        state: v.errors.length ? "fail" : v.warnings.length ? "warn" : "ok",
+        word: v.errors.length ? "invalid" : v.warnings.length ? "warning" : "ready",
+        detail: first
+          ? `${first.path}: ${first.message}${v.errors.length + v.warnings.length > 1 ? " (and more)" : ""}`
+          : "valid",
+        ...(first ? { fix: first.fix ? named(first.fix) : validate } : {}),
+      };
+    });
+    if (name !== active?.name && row.state === "fail") row.state = "warn";
+    checks.push(row);
   }
 
+  const diagnostics = profiles;
+  profiles = active ? [active] : [];
   const used = usedBackends(profiles);
   const installed = new Set<string>();
   checks.push(...(await backendChecks(used, profiles, installed)));
@@ -194,18 +199,34 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
 
   // spec 1.2 §9: the public sources' ages and errors, the Artificial Analysis key, and the active and linked
   // profiles' stand-ins to confirm
-  const mine = [...(active ? [active] : []), ...profiles.filter((p) => p.name !== active?.name)];
+  const mine = [...(active ? [active] : []), ...diagnostics.filter((p) => p.name !== active?.name)];
   checks.push(
     guarded("sources", "sources", "catherd catalog sync --force", () =>
       sourcesCheck(Date.now(), standInsToConfirmIn(mine)),
     ),
   );
 
-  checks.push(pluginCheck(d.version));
+  const native = used.get("claude");
+  const plugin = pluginCheck(d.version);
+  if (d.host.host !== "claude-code" && native !== "role") {
+    plugin.state = native === "failover" ? "warn" : "skip";
+    plugin.word = native === "failover" ? "optional" : "not required";
+  }
+  checks.push(plugin);
 
   checks.push(
     active
-      ? guarded("agents", "Claude agents", `catherd profile use ${activeName()}`, agentsCheck)
+      ? guarded("agents", "Claude agents", `catherd profile use ${active.name}`, () =>
+          native
+            ? agentsCheck(d.host.host, [active!.name])
+            : {
+                id: "agents",
+                label: "Claude agents",
+                state: "skip",
+                word: "not required",
+                detail: "selected profile has no native Claude roles",
+              },
+        )
       : {
           id: "agents",
           label: "Claude agents",
@@ -214,6 +235,9 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
           detail: "the config cannot be read",
         },
   );
+
+  const agents = checks.find((c) => c.id === "agents");
+  if (native === "failover" && agents?.state === "fail") agents.state = "warn";
 
   const h = await d
     .handshake()

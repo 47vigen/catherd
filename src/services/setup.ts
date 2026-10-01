@@ -1,3 +1,4 @@
+import type { HostContext } from "../domain/host.ts";
 import { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Issue } from "../domain/profile-rules.ts";
@@ -68,20 +69,23 @@ export interface InitResult {
  * every backend's models. It never throws for a default profile that does not validate here: it writes
  * nothing, returns the errors, and activates the profile only when it has a file.
  */
-export async function initSetup(
-  o: { profile?: string; overwrite?: boolean; now?: Date } = {},
-): Promise<InitResult> {
+export async function initSetup(o: {
+  profile?: string;
+  overwrite?: boolean;
+  now?: Date;
+  host: HostContext;
+}): Promise<InitResult> {
   const moved = moveLegacy(o.now);
   const profile = o.profile ?? "default";
   let created = false;
   let errors: Issue[] = [];
   if (!hasProfileFile(profile) || o.overwrite === true) {
-    const saved = resetProfile(profile);
+    const saved = resetProfile(profile, o.host.host);
     created = saved.saved;
     errors = saved.errors;
   }
   const active = hasProfileFile(profile);
-  const synced = active ? activate(profile) : null;
+  const synced = active ? activate(profile, null, o.host.host) : null;
   const refreshed = await refreshDiscovery();
   return { moved, profile, created, errors, active, synced, refreshed };
 }

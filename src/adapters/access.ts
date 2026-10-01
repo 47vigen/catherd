@@ -1,3 +1,4 @@
+import { scrubSecrets } from "../infra/env.ts";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,7 +54,12 @@ export type ToolQuery = (bin: string, args: string[]) => string[];
 
 const queryTool: ToolQuery = (bin, args) => {
   try {
-    const r = Bun.spawnSync([bin, ...args], { stdout: "pipe", stderr: "ignore", timeout: 5_000 });
+    const r = Bun.spawnSync([bin, ...args], {
+      env: scrubSecrets(process.env),
+      stdout: "pipe",
+      stderr: "ignore",
+      timeout: 5_000,
+    });
     return r.exitCode === 0
       ? r.stdout
           .toString()

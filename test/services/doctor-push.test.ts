@@ -147,9 +147,17 @@ describe("doctor's push row (spec §3.9)", () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.TYPESAFE_API_KEY;
     const handshake = async () => ({ ok: true, tools: ["status"] });
-    const without = await doctor({ bunVersion: Bun.version, version: "0.0.0", handshake });
+    const without = await doctor({
+      host: { host: "claude-code", session: null, conflict: null },
+      repo: null,
+      bunVersion: Bun.version,
+      version: "0.0.0",
+      handshake,
+    });
     expect(without.checks.some((c) => c.id === "push")).toBe(false);
     const withIt = await doctor({
+      host: { host: "claude-code", session: null, conflict: null },
+      repo: null,
       bunVersion: Bun.version,
       version: "0.0.0",
       handshake,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { HOST_ARG } from "./entry/host-arg.ts";
 import type { ArgsDef } from "citty";
 import { errorMessage } from "./domain/errors.ts";
 import { runtimeRefusal } from "./domain/runtime.ts";
@@ -12,7 +13,7 @@ if (refusal) {
 
 const { realpathSync } = await import("node:fs");
 const { fileURLToPath } = await import("node:url");
-const { defineCommand, renderUsage, runCommand } = await import("citty");
+const { defineCommand, renderUsage, runCommand, parseArgs } = await import("citty");
 const { CatherdError, isCatherdError } = await import("./domain/errors.ts");
 const { EXIT, exitCodeOf, printError, stripAnsi } = await import("./entry/cli-kit.ts");
 const { VERSION } = await import("./infra/version.ts");
@@ -21,6 +22,7 @@ type Command = ReturnType<typeof defineCommand>;
 
 /** The dashboard's flags, typed as any command's args so `main` stays a plain `Command`. */
 const dashboardArgs: ArgsDef = {
+  ...HOST_ARG,
   plain: {
     type: "boolean",
     description: "the dashboard in ASCII without colour (NO_COLOR also drops colour)",
@@ -56,7 +58,7 @@ export const main: Command = defineCommand({
   },
   // citty runs this after any subcommand too; only a bare `catherd` loads and opens the dashboard
   async run(ctx) {
-    if (!ctx.rawArgs.every((a) => a.startsWith("-"))) return;
+    if (ctx.args._.length > 0) return;
     await (await import("./entry/tui/run.tsx")).tuiRun(ctx);
   },
 });
@@ -69,14 +71,24 @@ async function commandFor(argv: string[]): Promise<[Command, Command | undefined
   let cmd = main;
   let parent: Command | undefined;
   const path: string[] = [];
-  for (const a of argv) {
-    if (a.startsWith("-")) continue;
+  let remaining = argv;
+  while (true) {
+    const defs = await resolve(cmd.args ?? {});
+    const navigationArgs: ArgsDef = Object.fromEntries(
+      Object.entries(defs).map(([key, def]) => [
+        key,
+        { ...def, required: false, ...(def.type === "enum" ? { type: "string" as const } : {}) },
+      ]),
+    ) as ArgsDef;
+    const a = parseArgs(remaining, navigationArgs)._[0];
+    if (!a) break;
     const subs = cmd.subCommands ? await resolve(cmd.subCommands) : undefined;
     const next = subs?.[a];
     if (!next) break;
     parent = cmd;
     cmd = (await resolve(next)) as Command;
     path.push(a);
+    remaining = remaining.slice(remaining.indexOf(a) + 1);
   }
   return [cmd, parent, path];
 }
@@ -123,22 +135,39 @@ export async function runCli(argv: string[]): Promise<number> {
     console.log(`${await helpText(cmd, path)}\n`);
     return EXIT.ok;
   }
-  const command = own.find((a) => !a.startsWith("-"));
-  // a bare `catherd` opens the dashboard, which takes only its own flags: a typo is not a terminal problem
-  const flag = (a: string) => (a.startsWith("--") ? (a.slice(2).split("=")[0] ?? "") : "");
-  // citty negates a boolean as `--no-<name>`
-  const known = (name: string) =>
-    Object.hasOwn(dashboardArgs, name) ||
-    (name.startsWith("no-") && dashboardArgs[name.slice(3)]?.type === "boolean");
-  const unknown = command === undefined ? own.find((a) => !known(flag(a))) : undefined;
-  if (unknown !== undefined) {
-    printError(new CatherdError("E_INPUT_INVALID", `unknown option ${unknown}`, { fix: "catherd --help" }));
-    return EXIT.usage;
-  }
-  // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
-  // the first word that is not a flag: `catherd --plain lock -- …` is `lock` too.
-  if (command !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
   try {
+    const command = parseArgs(own, dashboardArgs)._[0];
+    // a bare `catherd` opens the dashboard, which takes only its own flags: a typo is not a terminal problem
+    const flag = (a: string) => (a.startsWith("--") ? (a.slice(2).split("=")[0] ?? "") : "");
+    // citty negates a boolean as `--no-<name>`
+    const known = (name: string) =>
+      Object.hasOwn(dashboardArgs, name) ||
+      (name.startsWith("no-") && dashboardArgs[name.slice(3)]?.type === "boolean");
+    const unknown =
+      command === undefined
+        ? own.find((a, i) => a.startsWith("-") && !known(flag(a)) && own[i - 1] !== "--host")
+        : undefined;
+    if (unknown !== undefined) {
+      printError(new CatherdError("E_INPUT_INVALID", `unknown option ${unknown}`, { fix: "catherd --help" }));
+      return EXIT.usage;
+    }
+    // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
+    // the first word that is not a flag: `catherd --plain lock -- …` is `lock` too.
+    if (command !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
+    const parsed = parseArgs(own, dashboardArgs);
+    if (parsed.host !== undefined) {
+      const forwarded = own.filter(
+        (a, i) => a !== "--host" && own[i - 1] !== "--host" && !a.startsWith("--host="),
+      );
+      rawArgs.splice(
+        0,
+        rawArgs.length,
+        ...forwarded,
+        "--host",
+        String(parsed.host),
+        ...(dashdash < 0 ? [] : argv.slice(dashdash)),
+      );
+    }
     await runCommand(main, { rawArgs });
     return Number(process.exitCode ?? EXIT.ok);
   } catch (e) {

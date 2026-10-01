@@ -403,3 +403,29 @@ describe("one supervisor per dispatch (codex P2: a relaunch between spawn and la
     expect(await supervise(s)).toMatchObject({ reason: "exited", code: 0 });
   });
 });
+
+it("scrubs identity even when direct supervisor callers supply a merged environment", async () => {
+  const s = spec("env", {
+    env: {
+      PATH: process.env.PATH!,
+      CODEX_THREAD_ID: "parent",
+      CODEX_SESSION_ID: "parent",
+      CATHERD_ORCHESTRATION_HOST: "codex",
+      CLAUDE_CODE_SESSION_ID: "parent",
+      HOME: "/native",
+      CODEX_HOME: "/codex",
+      OPENAI_API_KEY: "credential",
+    },
+  });
+  expect(await supervise(s)).toMatchObject({ code: 0 });
+  const out = readFileSync(dispatchPaths(s.dispatchDir).events, "utf8");
+  for (const key of [
+    "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
+    "CATHERD_ORCHESTRATION_HOST",
+    "CLAUDE_CODE_SESSION_ID",
+  ])
+    expect(out).not.toContain(`${key}=`);
+  expect(out).toContain("CODEX_HOME=/codex");
+  expect(out).toContain("OPENAI_API_KEY=credential");
+});

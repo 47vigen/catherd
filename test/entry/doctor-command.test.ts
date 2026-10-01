@@ -51,7 +51,7 @@ function doctor(...args: string[]) {
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "doctor", ...args], {
     // Bun hands a child its own start-up env unless told otherwise; the test's CATHERD_HOME must reach it
     // blank: the claude-code listing is an HTTP call when the key is set, and tests never reach the network
-    env: { ...process.env, ANTHROPIC_API_KEY: "" },
+    env: { ...process.env, CATHERD_ORCHESTRATION_HOST: "claude-code", ANTHROPIC_API_KEY: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -183,7 +183,7 @@ describe("catherd doctor", () => {
       join(plugins, "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ version: VERSION }] } }),
     );
-    patchProfile("default", {});
+    patchProfile("default", {}, { host: "claude-code" });
     const r = doctor("--plain");
     expect(r.code).toBe(0);
     expect(r.out.trim().split("\n").at(-1)).toBe("+ ready");
@@ -200,7 +200,7 @@ describe("catherd doctor", () => {
       join(plugins, "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ version: VERSION }] } }),
     );
-    patchProfile("default", {});
+    patchProfile("default", {}, { host: "claude-code" });
     writeFileSync(overridePath(), "{ not json");
     const r = doctor("--json");
     expect(r.code).toBe(3);
