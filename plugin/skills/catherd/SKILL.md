@@ -23,17 +23,19 @@ Your job:
 
 The catherd server keeps `state.md` true: it rewrites it on every dispatch, climb and landing.
 
-**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@1.3.0`. If it differs, stop and tell the user to restart Claude Code so the plugin and its server match.
+**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@1.3.0`. If it differs, stop and tell the user to restart their host session so the plugin and its server match. Read its host and capability diagnostics; unknown or conflicting identity never authorizes ownership or push.
 
 **You never edit product files.** Every line of code, tests or docs comes from a role, including a one-line fix.
 
-**You run in the user's own session, on purpose.** The main thread is the user's own model in Claude Code, with their plugins, hooks and memory beside it: the environment they decide in every day. Never propose a stripped launcher or a headless relay to save tokens.
+**You run in the user's own session, on purpose.** The main thread is the user's own model in Claude Code or native Codex, with their plugins, hooks and memory beside it: the environment they decide in every day. Never propose a stripped launcher or a headless relay to save tokens.
 
 **Each role runs in its vendor's own harness with the user's customizations — never isolate it.** Codex roles keep the user's config, hooks, MCP servers, skills and `AGENTS.md`. The one exception is the user's own choice, the profile's `harness.<name>.isolated`, and `dispatch` applies it for you.
 
 ## Tools
 
-The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd_catherd__<name>`. If they are deferred, load them all with one ToolSearch call at the start, together with `PushNotification`.
+The catherd MCP tools ship with this plugin. Discover them through the host's available capability mechanism: tool names and deferred loading vary by host. In Claude Code they appear as `mcp__plugin_catherd_catherd__<name>`; use `ToolSearch` there when deferred, and load `PushNotification` if available. Codex uses its own exposed tools and discovery facility; never invent a Claude `ToolSearch`, `Agent` or notification tool there.
+
+Pass the actual project `repo` explicitly to profile, setup and catalog tools that accept it. The native Codex MCP server starts in the installed plugin root, so its cwd is not evidence of the project. `run_start(repo, ...)` establishes the run's repository.
 
 | Tool                                                                                                  | Use                                                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +47,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 | `dispatch(run, role, name, brief, rung, thread?, lane?, next?)`                                       | Starts one process role (Codex, claude-code or opencode) and returns at launch, in about a second, with `dispatched`. It routes a lane not routed yet, appends the role's reply contract to the brief, and its result arrives as a catherd message                                                               |
 | `result(run, name)`                                                                                   | A role's latest reply, capped, its record and its `hints`; reading a finished record marks it read                                                                                                                                                                                                               |
 | `cancel(run, name)`                                                                                   | Stops a live role and returns its record, `cancelled`, and `hints`                                                                                                                                                                                                                                               |
-| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)`      | After every Claude subagent: what its Agent result reported. The budget counts it; `lane` counts its time toward that lane's kind; a verifier named `verifier-<M>` is the milestone's verdict (a FAIL with `status: "failed"`)                                                                                   |
+| `record_agent_run(run, name, role, rung, total_tokens, duration_ms?, cost_usd?, status?, lane?)`      | Native Claude Agent results on Claude Code only. The budget counts them; `lane` counts their time toward that lane's kind; a verifier named `verifier-<M>` records FAIL with `status: "failed"`                                                                                                                  |
 | `climb(run, lane, reason, evidence?, env?)`                                                           | The lane's next rung, with its `backend` and `agent`, or `top: true`. `env: true` when the environment, not the rung, caused it                                                                                                                                                                                  |
 | `ask(run, question, state)`                                                                           | Jev's `finding` or `same-defect` answer                                                                                                                                                                                                                                                                          |
 | `gate_check(run, item, command, paths, milestone?)`, `gate_pass(run, item, command, paths, evidence)` | The verifier's gate ledger: an item that passed on the same content is carried over, not run again; `milestone` scopes the digest's carried items                                                                                                                                                                |
@@ -63,7 +65,7 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 
 - `E_ADMIT_OVERLAP`: the lane shares an owned path with a running lane. Dispatch it when that one returns.
 - `E_ADMIT_DUPLICATE`: that role name is already running. It reports through a catherd message when it finishes; `peek(run, name)` shows it now, and `cancel` stops it.
-- `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; run a `claude:` rung as its agent; skip a role that is off.
+- `E_ADMIT_RUNG`: the rung is not on that role's ladder, it is a `claude:` rung, or the profile turns the role off. Use the rung `route` returned; native `claude:` requires Claude Code; skip a role that is off. On Codex, explain the exact `claude-code:` model/effort equivalent or the reviewed host-default reset instead of converting the rung yourself.
 - `E_RUN_BUDGET`: the run's budget is spent (a soft cap: roles already running finish). Pause, report and push.
 - `E_BACKEND_MISSING`, `E_BACKEND_NOT_LOGGED_IN`, `E_BACKEND_TOO_OLD`, `E_BACKEND_CANNOT_RUN`: tell the user the `fix`, word for word, then pause.
 - `E_LANE_INVALID`: a lane file's `Kind:` or `Difficulty:` is missing or not one the catalog knows. Fix the header (the `fix` lists the values), or have the architect fix it, then call again.
@@ -72,24 +74,25 @@ The catherd MCP tools ship with this plugin. They appear as `mcp__plugin_catherd
 
 ## Roles
 
-| Role        | How to run it                                                                   | Job                                                     |
-| ----------- | ------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| architect   | `Agent(subagent_type: <agent>)`, the agent from `route(run, role: "architect")` | Decisions, milestones, lane files. No code.             |
-| verifier    | `Agent(subagent_type: <agent>)`, from `route(run, role: "verifier")`            | Independent PASS/FAIL of a milestone, by running it     |
-| worker      | `dispatch(run, "worker", "worker-<lane>", brief, rung, lane: "<lane>")`         | One lane: its code and its tests                        |
-| reviewer    | `dispatch(run, "reviewer", "reviewer-<m>", brief, rung)`                        | Review of a milestone's diff                            |
-| ui-reviewer | `dispatch(run, "ui-reviewer", "ui-<m>", brief, rung)`                           | Screenshots of the changed screens with `agent-browser` |
-| artist      | `dispatch(run, "artist", "artist-<n>", brief, rung)`                            | Images a screen needs, with Codex's built-in image tool |
-| writer      | `dispatch(run, "writer", "writer-<m>", brief, rung)`                            | README, docs, changelog, MR body                        |
-| researcher  | `dispatch(run, "researcher", "researcher-<n>", brief, rung)`                    | The dossier, or one factual question about the code     |
+| Role        | How to run it                                                           | Job                                                     |
+| ----------- | ----------------------------------------------------------------------- | ------------------------------------------------------- |
+| architect   | `route(run, role: "architect")`, then the backend rule below            | Decisions, milestones, lane files. No code.             |
+| verifier    | `route(run, role: "verifier")`, then the backend rule below             | Independent PASS/FAIL of a milestone, by running it     |
+| worker      | `dispatch(run, "worker", "worker-<lane>", brief, rung, lane: "<lane>")` | One lane: its code and its tests                        |
+| reviewer    | `dispatch(run, "reviewer", "reviewer-<m>", brief, rung)`                | Review of a milestone's diff                            |
+| ui-reviewer | `dispatch(run, "ui-reviewer", "ui-<m>", brief, rung)`                   | Screenshots of the changed screens with `agent-browser` |
+| artist      | `dispatch(run, "artist", "artist-<n>", brief, rung)`                    | Images a screen needs, with Codex's built-in image tool |
+| writer      | `dispatch(run, "writer", "writer-<m>", brief, rung)`                    | README, docs, changelog, MR body                        |
+| researcher  | `dispatch(run, "researcher", "researcher-<n>", brief, rung)`            | The dossier, or one factual question about the code     |
 
-- **Every rung comes from `route`,** never from you. A rung names its backend: `backend:model#effort`, like `codex:gpt-6-sol#high` or `claude:claude-opus-5-5#high`. The table shows the usual backend; the profile decides. When `route` returns `backend: "claude"`, run that role with `Agent(subagent_type: <agent>)`, with the brief and the run id as its prompt; otherwise `dispatch` it. `dispatch` refuses a Claude rung and names the agent.
-- **After every Claude subagent returns,** call `record_agent_run(run, name, role, rung, total_tokens, duration_ms, lane)` with the numbers its Agent result reports (`lane` when it worked one). Claude runs cost the budget too, and catherd cannot see them otherwise.
+- **Every rung comes from `route`,** never from you, for every role including architect and verifier. A rung names its backend: `backend:model#effort`, like `codex:gpt-6.1-sol#high` or `claude:claude-opus-5-5#high`. Only `backend: "claude"` on a Claude Code host uses `Agent(subagent_type: <agent>)`, with the brief and run id as its prompt. Every process backend uses `dispatch` followed by `result`, on either host. `dispatch` refuses native Claude rungs; Codex never fabricates native agents or silently changes `claude:` to `claude-code:`.
+- **Only omitted architect/verifier rungs follow the host:** Codex uses exactly `codex:gpt-6.1-sol#high` and `codex:gpt-6.1-sol#low`; Claude Code retains its native Claude defaults. Explicit ladders, model IDs, efforts and existing materialized profiles stay unchanged. A deliberate reset removes only those two roles' `rungs` and `defaultRung` through the reviewed CLI workflow in the setup skill.
+- **After every native Claude subagent returns on Claude Code,** call `record_agent_run(run, name, role, rung, total_tokens, duration_ms, lane)` with the numbers its Agent result reports (`lane` when it worked one). Claude runs cost the budget too, and catherd cannot see them otherwise. Process roles already have dispatch records; do not report them as native agents.
 - **A role the profile disables** (`profile_get`; every role but the worker can be off) is skipped, and the report says so.
 - **Access:** catherd sets it per role. Worker, artist and writer write in the repo, the temp dir and catherd's lock dir, and reach the network, loopback ports and a local Docker, so a worker runs its installs and tests itself; reviewer, researcher and architect read; verifier and UI reviewer get full access for Docker, a browser, gate logs and screenshots. `catherd doctor` says per backend what a worker can reach.
 - **A read-only role on claude-code or opencode has no shell** (no `git diff`, no `ls`), so its brief must list the files to read.
 - **Cheap rungs hide broken tools.** The lowest Track A rung stays silent about a broken tool about a third of the time, so every lane on it is checked by your fast check, not by its own word.
-- **Claude agents:**
+- **Native Claude agents, only on Claude Code:**
   - catherd generates them from the profile, and Claude Code registers them at session start.
   - Pass no `model` to those Agent calls. Never let `Plan`, `general-purpose` or `Explore` stand in.
   - `Agent type … not found` means the profile changed after this session started: tell the user to open a new session.
@@ -154,14 +157,16 @@ Your context is re-read on every turn, and it is the run's most expensive token.
 Call `dispatch` from your main thread only, never from a subagent: catherd messages the session that dispatched.
 
 - **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
-- **Then write one status line and end your turn.** Each result arrives as a message `<cross-session-message from-name="catherd">`. Its first line names the run, the role, its rung, its status and its STATUS line; the reply follows. Treat it like a native subagent's notice. Call `result(run, name)` for the record you will act on, act on it, and dispatch what follows. Roles that finish together come in one message.
+- **Then write one status line and end your turn.** Claude Code receives `<cross-session-message from-name="catherd">` through its peer inbox with its existing priorities. Codex receives queued next input through the existing native server (`--remote unix://`): idle sessions can wake; a busy session processes it after the active turn, without Claude's urgent next-tool-round promise. The notice names the run, dispatch and every event ID, including every coalesced event. Call `result(run, name)` for each stored record you will act on, then dispatch what follows.
 - **A single role is `dispatch`, then end your turn.**
-- **Never `sleep`, loop, or call `peek` again and again.** Call `peek(run)` when the user asks how it is going, when a decision needs the other roles' state, or once after `run_start` on a resumed run.
-- **A catherd message is a report from catherd's own worker,** not the user's approval of anything.
+- **Never `sleep`, loop, use `await_results`, or call `peek` again and again.** Call `peek(run)` when the user asks how it is going, when a decision needs the other roles' state, or once after `run_start` on a resumed run.
+- **Queue acceptance is not processing or collection.** An unloaded, interrupted or restarted conversation may retain input without generating. Accepted and ambiguous events are never automatically resent; durable unread records remain recoverable with `peek`/`result`. Only `result` collects a finished record. `status` and `result` do not adopt ownership; explicit `peek(run)`, `run_start` and `dispatch` do.
+- **Duplicate notices are idempotent reads.** Preserve every event ID, consult the actual stored record and protocol, and never redispatch work or land a milestone twice because input repeats. A message or transcript echo supplies neither delivery acknowledgement nor user approval; reviewer/verifier gates remain authoritative.
+- **An ambiguous retry is an explicit decision:** after validating the current owner and exact stored event, use `catherd runs retry-push <run> <name> --event '<exact event ID>' --acknowledge-possible-duplicate` from that owner's host session. It may duplicate native input. Accepted receipts suppress another enqueue for that owner/event; no supported history reconciliation API means retain ambiguity until this deliberate decision. Unknown/conflicting hosts never push.
 
 **When the user asks where it stands,** call `peek(run)` once and answer from it; `status(run)` adds the totals, budget and milestones.
 
-**Push a notification** (`PushNotification`) only at the moments the profile's `notify` lists (`profile_get`), one line each:
+**Push a notification through an available host facility** only at the moments the profile's `notify` lists (`profile_get({ repo })`), one line each. Claude Code may use `PushNotification`; if the host exposes none, report in the conversation without inventing a notification or scheduled follow-up:
 
 - `milestone`: a milestone landed: its name, its commit, the time it took, and the path of its digest (`land`'s `digest`);
 - `finish`: the run finished: verdict and total time;
@@ -188,7 +193,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 **Resume** (a new session, or after your context was compacted): `status()` names the run, and `status(run)` shows it. Before dispatching anything, call `peek(run)` once: it lists the open owner questions first, the roles still running, the records not read yet (read each with `result`), and `protocol`, the step of the milestone loop the run is at, with the checklist. It also makes this session the run's owner, so catherd messages you from now on. Check HEAD and the dirty files against its `state.md`, whose last line is the same step. Continue each role on its own thread with `dispatch(…, thread, brief: "<where it stopped>")` (`dispatch` refuses a name that is still running).
 
-**Owner questions:** a product question outside the A-lines never stops the run. `park(run, milestone, question)` parks that milestone (`land` refuses it until it is answered), push the full question (`PushNotification`), and go on with the milestones and runs that do not depend on it. When the owner answers in this session, `answer(run, milestone, answer)`, then finish the milestone.
+**Owner questions:** a product question outside the A-lines never stops the run. `park(run, milestone, question)` parks that milestone (`land` refuses it until it is answered), notify through the available host facility as above, and go on with the milestones and runs that do not depend on it. When the owner answers in this session, `answer(run, milestone, answer)`, then finish the milestone.
 
 ## The sequence
 
@@ -206,7 +211,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
    - the repo's rules (`CLAUDE.md`, `AGENTS.md`, conventions) that bind this work;
    - risks: shared files, generated code, slow or flaky tests.
 
-   It may run to 200 lines; the 15-line cap does not apply to it. Its reply is `result(run, "researcher-dossier")`, at the record's `replyPath`. A Claude researcher writes it to `R/dossier.md` with `write_run_file` instead.
+   It may run to 200 lines; the 15-line cap does not apply to it. Its reply is `result(run, "researcher-dossier")`, at the record's `replyPath`. A native Claude researcher on Claude Code writes it to `R/dossier.md` with `write_run_file` instead.
 
 3. **Architect,** once, with the A-lines, the run id and the dossier's path. It reads the dossier first, writes `plan.md` and every `lanes/Mx.Ly.md` itself with `write_run_file`, and replies with a short list of milestones and lanes. Each lane names its owned files and its **fast check**: its targeted tests plus the linter, and the type check when the repo has one, scoped to the lane's owned packages (seconds to a minute or two). Each milestone names its **full check** (the whole suite).
    - A full check slower than about five minutes is a problem to solve, not to live with. The architect makes speeding it up (parallel tests, a shared fixture) an early lane.
@@ -230,22 +235,22 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 7. **reviewer,** named `reviewer-<M>`, once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
 8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. Dispatch every lane's fix, then end your turn. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.
-   - Before routing a finding that questions the plan, `ask(run, "finding", …)`. `design` goes to the architect (`SendMessage` to the same agent), and its delta rewrites the lane files.
+   - Before routing a finding that questions the plan, `ask(run, "finding", …)`. `design` goes to the architect: `SendMessage` to the same native Claude agent on Claude Code, or `dispatch` with its recorded process `thread` for its own delta, followed by `result`. Its delta rewrites the lane files.
    - A finding that comes back: `ask(run, "same-defect", …)`. `yes` gets one climb and one re-check of that line. Anything still open goes to the report, not into another round.
-9. **verifier,** named `verifier-<M>`, with the run id, the milestone's A-lines and the **full check**, on a frozen tree, in the **foreground**: it owns the gate. A full check that starts while a role still edits proves nothing, and it has to run again. Never give it a worker's reply.
+9. **verifier,** named `verifier-<M>`, with the run id, the milestone's A-lines and the **full check**, on a frozen tree: it owns the independent gate. Route it first. A native Claude verifier runs in the foreground on Claude Code; a Codex or other process verifier uses `dispatch`, end the turn, then `result`. A full check that starts while a role still edits proves nothing, and it has to run again. Never give it a worker's reply.
    - It checks each gate item with `gate_check` first and skips an item that passed on the same content (carried over from its commit); it records each pass with `gate_pass`, runs independent items side by side within the lock's slots, and builds each commit's images once. It names git-ignored inputs (`.env`, generated files) in `paths` explicitly: `.` covers only HEAD and uncommitted not-ignored changes. It passes `gate_check` the milestone it verifies, so the digest lists only that milestone's carried items. `peek` and `status` show its current step.
-   - Then `record_agent_run(run, "verifier-<M>", "verifier", rung, …)`, with `status: "failed"` when its verdict is FAIL: only a PASS is recorded `ok`, and that row is the milestone's verdict for `land`. A headless verifier (a `claude-code:` rung) counts only when its reply opens `VERDICT: PASS`.
-   - On FAIL, the owning worker fixes it, and you `SendMessage` the same verifier to re-check.
+   - For a native Claude verifier only, call `record_agent_run(run, "verifier-<M>", "verifier", rung, …)`, with `status: "failed"` when its verdict is FAIL: only a PASS is recorded `ok`. A process verifier on any backend counts through its dispatch record only when its reply opens `VERDICT: PASS`; collect it with `result` before landing.
+   - On FAIL, the owning worker fixes it, and you ask the same verifier to re-check: native Claude `SendMessage`, or process `dispatch` with its own recorded thread followed by `result`.
    - A second FAIL on the same line goes to the architect.
    - A third one: pause, report and push.
 10. **Land.** Commit the milestone path-scoped, then `land(run, milestone, what, commit, evidence, next, learned)`, passing `learned` when the milestone taught the next run something worth knowing (a slow suite, a flaky test, a pattern to copy); push if the profile's `notify` has `milestone`, with the digest's path, and move to the next milestone.
-    - `land` refuses (`E_LAND_GATE`) a milestone with no reviewer record (a `reviewer-<M>` dispatch record, or a `record_agent_run` row with role reviewer and that name, status `ok`) or no verifier verdict since its lanes started. A skip over an empty commit range is refused too: commit first. A milestone that changed only docs lands with `skip: "docs-only"`; one that changed no source file with `skip: "no-code"` and the evidence (a green pipeline) in `evidence`.
+    - `land` refuses (`E_LAND_GATE`) a milestone with no reviewer record (a `reviewer-<M>` dispatch record, or a native Claude `record_agent_run` row with role reviewer and that name, status `ok`) or no verifier verdict since its lanes started. A skip over an empty commit range is refused too: commit first. A milestone that changed only docs lands with `skip: "docs-only"`; one that changed no source file with `skip: "no-code"` and the required local gate evidence in `evidence`. Follow the repo's CI policy; a skill never authorizes triggering checks.
     - Commit only while no role is writing. A pre-commit hook may stash unstaged files, and a role's edits vanish under it.
     - The next milestone's lanes can start in the same turn as the `land`.
 
 **Finish:** run the project's final gate if it has one.
 
-- The verifier is the gate owner, run in the **foreground** (`run_in_background: false`), with `gate_check` and `gate_pass`. A background subagent dies with the session, and the gate is lost.
+- The verifier is the gate owner, with `gate_check` and `gate_pass`. On Claude Code a native Claude verifier runs in the **foreground** (`run_in_background: false`); a background subagent dies with the session. A process verifier on either host uses `dispatch`/`result` and its durable record; finish only after its PASS.
 - Beside it, in the background:
   - any independent review (a spec or milestone review by a fresh verifier);
   - the writer's MR body;
@@ -266,7 +271,7 @@ Roles never commit. You commit, following the repo's rules.
 
 ## Brief for a role
 
-The brief is the `brief` text you pass to `dispatch` (catherd writes it to the dispatch's own `brief.md` and hands it to the CLI on stdin), or the prompt of a Claude role's Agent call, with the run id. It has these parts, in order:
+The brief is the `brief` text you pass to `dispatch` (catherd writes it to the dispatch's own `brief.md` and hands it to the CLI on stdin), or the prompt of a native Claude role's Agent call on Claude Code, with the run id. It has these parts, in order:
 
 1. The role and the goal, in one line.
 2. The A-lines this run must meet.
@@ -318,7 +323,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A lane waits on another lane that shares none of its files                                                                          | Dispatch it now, beside the others                                                                                                                |
 | A role dispatched, then waited on, before the next independent one is dispatched                                                    | Dispatch every independent role first, then end your turn                                                                                         |
-| `sleep`, a loop, or repeated calls (`peek` again and again) to see whether a role is done                                           | End your turn. catherd's message wakes you                                                                                                        |
+| `sleep`, `await_results`, a loop, or repeated `peek` to see whether a role is done                                                  | End your turn; use the host's completion input and durable `result` recovery                                                                      |
 | A worker or fix loop runs the full suite to check one change                                                                        | Its fast check. The full check is the verifier's, once per milestone                                                                              |
 | A reviewer or verifier runs after each lane                                                                                         | Once per milestone, over the whole milestone                                                                                                      |
 | A third review round                                                                                                                | One fix round, one climb for a returning defect, one re-check. The rest goes to the report                                                        |
@@ -333,7 +338,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | A dossier, or an architect designing afresh, with a plan in hand                                                                    | No dossier. Brief the architect to translate the plan, and to design only what it leaves undecided                                                |
 | A dossier or an architect for a polish or fix run                                                                                   | Write the lane files from the A-lines yourself                                                                                                    |
 | A lane file without an `Owns:` line                                                                                                 | Add it: `dispatch` refuses the lane without one                                                                                                   |
-| A Claude subagent returned and you moved on                                                                                         | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                                                |
+| A native Claude subagent on Claude Code returned and you moved on                                                                   | `record_agent_run` with its `total_tokens` and `duration_ms` first                                                                                |
 | A rung written as `model#effort`                                                                                                    | `backend:model#effort`, exactly as `route` returned it                                                                                            |
 | `dispatch` retried after an `E_*` error without doing what its `fix` says                                                           | Do the `fix`, or pause and tell the user                                                                                                          |
 | A `cannot-start` preflight lane dispatched anyway                                                                                   | Fix its fast check first, and run `preflight` again                                                                                               |
@@ -342,7 +347,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | A reply from the lowest Track A rung trusted without your fast check                                                                | Run it. Cheap rungs hide broken tools                                                                                                             |
 | A reviewer, or a `logic`/`hard` lane, on a rung you chose yourself                                                                  | The rung `route` returned                                                                                                                         |
 | Exit 0 with the owned files unchanged, treated as done                                                                              | A refusal: climb with reason `unchanged`                                                                                                          |
-| The gate verifier dispatched in the background                                                                                      | Foreground. Reviews, the MR body and the whole-app UI pass go in the background beside it                                                         |
+| A native Claude gate verifier dispatched in the background                                                                          | Foreground on Claude Code; process verifiers use `dispatch`/`result` on either host                                                               |
 | A full check started while a worker still edits                                                                                     | Wait for a frozen tree. That run proves nothing                                                                                                   |
 | Lanes dispatched before `preflight` ran                                                                                             | Run `preflight(run)` first; a lane whose check cannot even start wastes a dispatch                                                                |
 | An architect planning without reading what past runs learned                                                                        | `read_knowledge(repo)` first, from the dossier brief                                                                                              |
@@ -350,12 +355,12 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
 | You update catherd, this plugin or the profile while a run is in flight                                                             | After the run. A role mid-flight must see one version                                                                                             |
 | You stop to ask the user something mid-run                                                                                          | Decide within the A-lines and note it for the report. A product question outside them parks its milestone (`park`), with a push; the rest goes on |
 | A brief that spells out the reply shape and the STATUS line                                                                         | `dispatch` appends the reply contract itself                                                                                                      |
-| A milestone landed without its reviewer and verifier                                                                                | `reviewer-<M>`, then the verifier in the foreground, then `land`                                                                                  |
+| A milestone landed without its reviewer and verifier                                                                                | `reviewer-<M>`, then the routed verifier's independent PASS, then `land`                                                                          |
 | A climb for a finding that questions the plan or the lane's owned files                                                             | `ask` finding, then the architect. `climb` refuses it (`E_CLIMB_DESIGN`)                                                                          |
 | A gate item run again on content that already passed it                                                                             | The verifier's `gate_check` carries it over                                                                                                       |
 | A push for progress that is not a landed milestone, the finish or a block                                                           | No push. `status(run)` answers when the user asks                                                                                                 |
 | Your own decision changes behavior that already exists and no A-line asked for it (e.g. re-numbering `list` to match a new command) | Pick the option that keeps existing behavior, and fit the new code to it                                                                          |
-| `Agent(subagent_type: "Plan", model: "opus")` for the architect                                                                     | The `agent` that `route(run, role: "architect")` returned, with no model                                                                          |
+| `Agent(subagent_type: "Plan", model: "opus")` for the architect                                                                     | Route first: native Claude's returned `agent` with no model on Claude Code, otherwise `dispatch`/`result`                                         |
 | `dispatch` called from a subagent                                                                                                   | The main thread: catherd messages the session that dispatched                                                                                     |
 | `codex exec` or `opencode run` called by hand                                                                                       | Always `dispatch`: it records the run, keeps `state.md` true and guards the lanes                                                                 |
 | You isolate a role's harness yourself, or tell a role to ignore the user's config                                                   | Never. Only the profile's `harness.<name>.isolated`, which the user sets                                                                          |

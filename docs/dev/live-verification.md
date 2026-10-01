@@ -1,5 +1,7 @@
 # Live verification
 
+The native Codex candidate is unreleased and held. Its current acceptance is local only: do not request, trigger or re-enable CI, publish, push or change the remote release tag. Sections 1–13 retain historical backend/release procedures; their CI and publication examples are not instructions for this feature. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
+
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
 access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
@@ -253,14 +255,7 @@ From a plain terminal first, then from inside a Claude Code session (ask Claude 
 bun src/cli.ts doctor
 ```
 
-Look for: from the terminal, the `push` row `- no session` with "run catherd doctor from a Claude Code session
-to test push". From the session, `✓ ready` on `push`, and the message `catherd doctor: push test <id>, no action
-needed` (`<id>` is 8 characters, new on every run) showing up in the session once its turn ends. `! held` means
-a `crossSessionInbound` setting (or, on Linux, a permission-mode mismatch) holds the message: apply the row's fix
-and run it again. `! not confirmed` means the message was sent but catherd found no transcript of this session to
-confirm it arrived: check by eye that the test message showed up in the session; if it did, push works (catherd
-looks for the transcript under `$CLAUDE_CONFIG_DIR/projects/`, by default `~/.claude/projects/`). `✗ failed` means this
-Claude Code changed the protocol: record the Claude Code version (`claude --version`); `peek` still works.
+Look for: the terminal has no owner session; the host reports its resolved capability without sending a marker. Ordinary doctor sends nothing. For the explicit smoke, run `bun src/cli.ts doctor --test-push` from the validated Claude session and record the labeled message actually arriving. Record acceptance and observed processing separately; a command/tool transcript echo is not acknowledgement. A held peer inbox or protocol failure keeps unread role results accessible through `peek`/`result`; record the exact diagnostic and Claude Code version. Keep Claude's existing priorities and live registry lookup, including a changed session after `/clear`.
 
 Then a run: in the session, ask `/catherd` for two changes to files that share nothing, and once it has
 dispatched both, ask it something unrelated ("what is 17 × 23?"). Look for: the answer comes at once, while the
@@ -829,3 +824,101 @@ points automation at the API-key route.
 
 **10. Auto-update stays off during a run.** During step 5, `agy --version` before and after is the same, with
 `AGY_CLI_DISABLE_AUTO_UPDATE=true` in the worker's env (spec 1.3 §3.3).
+
+## 14. Native Codex packaging and completion acceptance
+
+Binding: [Codex entry design](../specs/2026-10-01-catherd-codex-entry-design.md), plans 18–20 and [Plan 20 ledger](../handoff/plan20-ledger.md). The installed native CLI 0.159.2 has proved local marketplace installation, relative plugin-root cwd (including spaces), initialize/tools-list and exact omitted SOL defaults. Native daemon research proved idle wake and ordered busy input. Neither proves that the installed catherd skills/core complete the conversation flow. Record CLI, Desktop and legacy Claude cases separately, with actual evidence or an unverified reason.
+
+### Local packaged candidate, without publication
+
+The remote marketplace still serves stable `v1.3.0`, and an existing global 1.3.0 command may be that stable core. Never treat equal version strings as a feature fingerprint. Build from the candidate checkout and install into a temporary prefix:
+
+```sh
+candidate_repo="$PWD"                     # candidate checkout root
+acceptance_root="$(mktemp -d)/catherd acceptance with spaces"
+mkdir -p "$acceptance_root/core" "$acceptance_root/marketplace/.claude-plugin" \
+  "$acceptance_root/home" "$acceptance_root/native config"
+bun pm pack --destination "$acceptance_root"
+candidate_version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+candidate_tarball="$acceptance_root/catherd-cli-$candidate_version.tgz"
+printf '%s\n' '{"name":"catherd-local-acceptance","private":true}' > "$acceptance_root/core/package.json"
+bun add --cwd "$acceptance_root/core" "$candidate_tarball"
+feature_core="$acceptance_root/core/node_modules/catherd-cli"
+cp -R "$feature_core/plugin" "$acceptance_root/marketplace/plugin"
+cp .claude-plugin/marketplace.json "$acceptance_root/marketplace/.claude-plugin/marketplace.json"
+bun -e 'const p=process.argv[1]; const m=await Bun.file(p).json(); m.name="catherd-local-acceptance"; m.plugins[0].source="./plugin"; await Bun.write(p,JSON.stringify(m,null,2)+"\n")' \
+  "$acceptance_root/marketplace/.claude-plugin/marketplace.json"
+bun -e 'import {createHash} from "node:crypto"; for(const p of process.argv.slice(1)) console.log(createHash("sha256").update(await Bun.file(p).arrayBuffer()).digest("hex"),p)' \
+  "$candidate_tarball" "$feature_core/src/cli.ts" "$feature_core/plugin/bin/catherd-mcp"
+"$acceptance_root/core/node_modules/.bin/catherd" --version
+```
+
+Record the full tarball hash, actual installed executable/core path, shared launcher hash and package inventory containing both host manifests/configs and both skills. CLI file hash alone does not fingerprint all core modules. This edits only the disposable marketplace source, never the checkout's release tag or version. The supported published marketplace uses `.claude-plugin/marketplace.json` and git-subdir; native CLI accepts local paths or `owner/repo[@ref]`. Remote install instructions in the README apply only after the feature release.
+
+For isolated native parser/config evidence, preserve the real native CLI path but remove inherited conversation identity. This is a temporary native configuration, not a live queue environment:
+
+```sh
+native_cli="$(command -v codex)"
+isolated_native() {
+  env -u CODEX_THREAD_ID -u CODEX_SESSION_ID -u CATHERD_ORCHESTRATION_HOST \
+    -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_HOST_SESSION_ID \
+    -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN \
+    HOME="$acceptance_root/home" CODEX_HOME="$acceptance_root/native config" \
+    CATHERD_HOME="$acceptance_root/catherd home" CATHERD_NO_SYNC=1 \
+    CLAUDE_CONFIG_DIR="$acceptance_root/claude config" \
+    CATHERD_CLAUDE_AGENTS_DIR="$acceptance_root/claude agents" \
+    PATH="$acceptance_root/core/node_modules/.bin:$PATH" "$native_cli" "$@"
+}
+isolated_native plugin marketplace add "$acceptance_root/marketplace" --json
+isolated_native plugin add catherd@catherd-local-acceptance --json
+isolated_native mcp list --json
+```
+
+Look for one effective `catherd` server with `command: "sh"`, `args: ["./bin/catherd-mcp"]`, `cwd` equal to its installed plugin root and `env.CATHERD_ORCHESTRATION_HOST: "codex"`. The native manifest declares `skills: "./skills/"` and `mcpServers: "./.mcp-codex.json"`; there is no `${CLAUDE_PLUGIN_ROOT}` or synthetic thread/session ID. Check the resolved launcher's hash against the packaged launcher. A no-model SDK client launching exactly this resolved configuration can prove initialize/tools-list. The existing reproducible feasibility test is:
+
+```sh
+CATHERD_TEST_NATIVE_PLUGIN=1 bun test test/entry/plugin-packaging.test.ts
+```
+
+It uses a controlled checkout core wrapper, so its result is parser/launcher feasibility, not actual packaged conversation acceptance. A skipped case is no proof. `bun test/pack-smoke.ts` separately installs a real tarball, fingerprints it, inventories both integrations and checks no Claude configuration/agent writes; it starts no model turn and sends no queue input. Ordinary `doctor --host codex` sends nothing and skips unused Claude probing; selected explicit headless Claude/reachable failover still receives its required dependency checks.
+
+### Installed CLI and Desktop flow
+
+For actual conversation acceptance, use the user's existing native configuration, credentials and CODEX_HOME so the queue reaches the same existing server/thread. Install the candidate local marketplace/core under the maintainer's controlled acceptance setup and inspect effective configuration before starting either host. Replace any obsolete compatibility declaration containing a literal Claude root macro and avoid duplicate `catherd` precedence. Restore the previous configuration after acceptance. Do not strip configuration to force messaging, invent a socket, start a second app-server or fall back to direct history/SQLite writes.
+
+The daemon's PATH can differ from the installing shell's PATH. Prove the running MCP process actually executes the installed feature core, retaining the package/hash/path evidence above; a same-version stable global command or a published `bunx` fallback invalidates the candidate proof. The shared launcher selects a matching global command or its exact pinned package, so verify that selection in the actual host. Both manifests, launcher and shared skills must come from the same candidate package/version. Read both installed skills end to end before the flow and record their actual paths/fingerprints. Generic handshake success is insufficient.
+
+Native MCP starts in the plugin root. Every repo-aware profile/setup/catalog call must pass the scratch project's explicit `repo`; `run_start(repo, ...)` already does. Tool names and deferred discovery vary: use exposed host capabilities. Codex must never call invented Claude `ToolSearch`, `PushNotification` or `Agent`. Profile notification moments use whatever host facility exists, without a fabricated scheduled-wake promise.
+
+Run the following cases through the installed shared skills in a scratch git repository. Use deterministic tool/lifecycle barriers to establish busy state, not a fixed correctness sleep. Save run/dispatch/event IDs, owner journal, actual stored records, receipt/message IDs and timestamps, observed native user-message processing/assistant continuation, and the separate `result` collection marker. Redact secrets from outward evidence.
+
+| Case | Required observation |
+| --- | --- |
+| Codex CLI, idle | Codex-only initialize/setup succeeds with no Claude config/agent writes. Omitted architect/verifier route exactly to `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low` and execute through `dispatch`/`result`. A real detached role finishes while the original thread is idle; completion input wakes that same thread; `result` reads and collects its actual record. |
+| Codex CLI, busy | With a tool barrier proving an active turn, a detached role finishes; receipt proves enqueue only. After releasing the turn, native processing delivers completion as ordered next input to the same thread. No urgent next-tool-round claim. |
+| Codex Desktop, idle and busy | Repeat both cases in the original Desktop conversation with the installed plugin/core. Observe actual user-message processing and assistant continuation, not just a receipt, transcript text echo, separate CLI rollout or owner recollection. Record idle and busy evidence separately. |
+| Explicit profiles | Existing materialized fields remain unchanged. Preview `profile reset-host-defaults <profile> --host codex --preview --json`, review the diff/effective defaults and save only with `--expect <reviewed file>`; only architect/verifier `rungs` and `defaultRung` disappear. Explicit model/effort, access, enabled state, network, routing, budget, billing, isolation and failover are preserved. |
+| Claude choices from Codex | Explicit `claude-code:` uses its exact model/effort through `dispatch` and checks that dependency only when selected/reachable. Explicit native `claude:` clearly rejects without modifying the profile, offering the exact headless equivalent or deliberate host-default reset; never silently converts. |
+| Independent landing gate | Route every role; reviewer and verifier remain independent. A process verifier on any backend counts only through its actual record and a reply opening `VERDICT: PASS`. Missing reviewer/verifier cannot land. Native Claude Agent accounting occurs only on a Claude Code host with route backend `claude`. |
+| Cross-host continuation | Explicit `peek(run)` adopts the run in the new host/session; origin and journal remain. `status`, debug inspection, `result` and profile reads do not adopt. Old-owner receipts do not suppress new-owner events, including owner change during send. |
+| Coalescing and duplicates | Each coalesced event retains its run/dispatch/event identity; stalled and finished kinds are distinct. Concurrent servers serialize attempts. Repeated completion input reads existing records idempotently and never redispatches or lands twice. |
+| Startup, restart, unloaded/interrupted | Durable unread results survive. Accepted or ambiguous events are never blindly resent. Queue input can remain without generation; diagnostics distinguish acceptance, observed processing and collection honestly. |
+| Unknown/conflicting host | No owner claim, arbitrary vendor choice or send. Diagnostics remain actionable and durable records remain readable without adopting ownership. Explicit terminal host selection supports setup without fabricating a conversation. |
+| Unavailable queue or rejected target | Capability/refusal diagnostics remain actionable and `peek`/`result` recovers durable work. Existing-server invocation requires queue remote support; never starts a competing server or model polling fallback. |
+| Legacy Claude Code | Existing native defaults, conditional Agent/accounting, peer inbox priorities, live registry after `/clear`, recovery and `result` collection remain intact. Repeat a real milestone with its reviewer/verifier gate. |
+
+Ordinary doctor sends no live marker. Only explicitly run `catherd doctor --test-push` from the validated owner session for a labeled smoke input. A terminal `--host codex` selects setup without creating a thread identity. Record CLI queue support and server capability separately; `server: unverified` is uncertainty, not fabricated failure or success. Codex transport invokes `codex queue --remote unix:// --thread <validated original thread UUID> --message <completion text>` with an argument array and the preserved native configuration.
+
+### Delivery recovery and release decision
+
+A native receipt is acceptance only; it never proves the model consumed input, woke, verified or collected work. Only `result(run, name)` performs collection. Recover actual records with `peek`/`result` instead of `await_results`, loops or model polling. Explicit `peek(run)` is an ownership transition, so use it deliberately; status/result inspection is read-only for ownership.
+
+Persisted accepted attempts suppress another enqueue for the same owner/event, including explicit retry. Ambiguous attempts are retained and never automatically retried. No supported queue/history reconciliation API currently exists; arbitrary matching command, tool or assistant text is not delivery acknowledgement. After validating the current owner and exact event shown by peek/status, an explicit possible-duplicate decision uses the existing command from that owner's host session:
+
+```sh
+catherd runs retry-push <run> <name> --event '<exact event ID>' --acknowledge-possible-duplicate
+```
+
+Preserve all event IDs through retry/coalescing; duplicate input remains an idempotent record read. The actual catherd record and reviewer/verifier gate, not a forged or echoed envelope, determine what can land. Record accepted, ambiguous, failed and collected states separately, and retain unread work on failures.
+
+The controller records exact commands, hashes, actual host observations, deviations and unverified cases in the acceptance report. Release stays held until the real packaged flow passes in both Codex surfaces and Claude Code, including busy ordering and the unchanged gate. No daemon research, fixture, skipped test, source-only skill read or isolated handshake marks an installed skill flow passed. Keep the existing Changesets/stamp/release tooling; this section authorizes neither CI nor publication.

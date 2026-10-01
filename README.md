@@ -6,19 +6,18 @@
  (")(")
 ```
 
-Autopilot builds from your own Claude Code session. Claude plans and verifies, Codex, opencode, Cursor, Grok Build,
-Antigravity or headless Claude Code workers write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
+Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode, Cursor, Grok Build,
+Antigravity or headless Claude Code processes write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
 of work, climbing a ladder only when a cheaper rung falls short.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
   you'd rather save the tokens your customizations cost.
-- **Claude roles stay native.** `claude:` rungs run as ordinary Claude Code subagents; Codex,
+- **Claude roles stay native on Claude Code.** `claude:` rungs require that host and run as ordinary Claude Code subagents; Codex,
   opencode, Cursor, Grok Build, Antigravity and headless `claude-code:` rungs run through catherd's MCP server.
 - **Survives restarts.** Workers are detached processes writing straight to disk, so a dropped
   MCP server never loses a run.
-- **Results come to you.** Roles run side by side while you keep talking to Claude; each one that finishes
-  arrives in the session as a message, like a native subagent's notice, and `peek` shows how a run stands.
+- **Results come to you.** Roles run side by side while you keep talking. Claude Code uses its peer inbox; Codex uses queued next input through its existing native server. A busy Codex conversation processes it after the active turn. Queue acceptance and result collection are separate; `peek` shows how a run stands.
 - **A protocol the tools enforce.** Every lane is routed, every brief ends with the reply contract, and a
   milestone lands only after a reviewer and a verifier passed it. Workers can run their own checks (network,
   loopback, Docker, the lock dir); an owner question parks one milestone, not the run.
@@ -28,7 +27,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
 ## Requirements
 
 - [Bun](https://bun.sh) ≥ 1.4
-- [Claude Code](https://claude.com/claude-code) (desktop app or CLI)
+- An orchestration host: [Claude Code](https://claude.com/claude-code), or native [Codex](https://github.com/openai/codex) CLI/Desktop with plugin support and the existing native queue endpoint (installed CLI 0.159.2 verified for packaging; queue support is feature-detected)
 - At least one worker backend, logged in:
   - [Codex CLI](https://github.com/openai/codex) 0.157.0 or newer
   - [opencode](https://opencode.ai) **v2**, 2.0.16 or newer: `curl -fsSL https://opencode.ai/v2/install | bash`
@@ -47,7 +46,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
 
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
-you have (`/catherd-setup` in Claude Code, or `catherd profile set roles.<role>.rungs <rung>`).
+you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session.
 
 ### Cursor
 
@@ -111,6 +110,10 @@ route is the one meant for automation; check the terms before you rely on a plan
 
 ## Install
 
+The published `v1.3.0` marketplace and global `catherd-cli@1.3.0` remain the stable Claude integration. The native Codex feature in this checkout is unreleased and held pending actual packaged CLI/Desktop/Claude acceptance. A matching version alone does not prove that the feature core ran. Use the [local packaged acceptance procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance) for this candidate; do not publish or update the remote tag to test it.
+
+### Claude Code
+
 ```sh
 bun add -g catherd-cli
 catherd init
@@ -132,41 +135,76 @@ claude plugin install catherd@catherd
 ```
 
 Start a new Claude Code session so the plugin, its MCP server and the agent files load, then check with
-`catherd doctor`. Run it once from inside that session too (ask Claude to run `catherd doctor`): its `push` row
-then checks that finished roles can reach the session.
+`catherd doctor --host claude-code`. From inside that session, explicit `catherd doctor --test-push` sends a labeled smoke notice; inspect actual processing separately from transport acceptance.
+
+### Native Codex — after the feature release
+
+These remote commands become feature installation guidance only after the held release is published:
+
+```sh
+bun add -g catherd-cli
+catherd init --host codex
+codex plugin marketplace add 47vigen/catherd
+codex plugin add catherd@catherd
+codex mcp list --json
+```
+
+Restart the Codex host to load the installed shared skills and server. Native CLI accepts `owner/repo[@ref]` and a local marketplace path. The supported marketplace uses `.claude-plugin/marketplace.json` with its plugin subdirectory; the native manifest is `plugin/.codex-plugin/plugin.json`, with `skills: "./skills/"` and `mcpServers: "./.mcp-codex.json"`. Installed native resolution supplies `command: "sh"`, `args: ["./bin/catherd-mcp"]`, `cwd: <installed plugin root>` and `CATHERD_ORCHESTRATION_HOST=codex`. No Claude root macro or synthetic session ID belongs in that declaration. The shared launcher/core remains versioned together with both manifests.
+
+Pass the actual project `repo` to repository-aware MCP profile/setup/catalog calls, because the server cwd is the plugin root. `run_start(repo, ...)` already requires it. Terminal `init` and `doctor` accept `--host codex|claude-code|auto`; selecting a terminal host chooses setup checks without inventing a conversation owner.
 
 ## Use
 
-In Claude Code:
+In either supported host, use the installed shared skills through that host's skill invocation and tool discovery:
 
 - `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run. While it runs, keep
-  talking: each finished role arrives as a message from catherd, and "how is it going?" gets a `peek`.
+  talking: completion arrives through the host's transport, and "how is it going?" gets a `peek`.
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
   use, cost or speed, isolation, budget and failover.
 
+`route` chooses the backend for every role. Native `claude:` uses Claude Code's `Agent` and `record_agent_run` only on Claude Code; process backends, including Codex architect/verifier, use `dispatch` followed by `result`. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing native defaults. Explicit ladders and materialized profiles are preserved, without silently converting `claude:` to `claude-code:`. To opt into host defaults, review and save the narrow reset:
+
+```sh
+catherd profile reset-host-defaults <profile> --host codex --preview --json > /tmp/catherd-host-defaults-review.json
+# Review the diff, effective defaults, errors and warnings.
+catherd profile reset-host-defaults <profile> --host codex --expect /tmp/catherd-host-defaults-review.json --json
+```
+
+It removes only architect/verifier `rungs` and `defaultRung`; every other setting stays intact. Run profile CLI commands from the project directory and choose the actual profile name. Use `--host claude-code` for Claude defaults.
+
+Completion never uses `await_results` or model polling. Codex sends through `codex queue --remote unix://` to the validated original thread: idle wake and ordered busy follow-up are the native semantics, without Claude's urgent tool-round priority. A receipt proves queue acceptance, not observed generation or collection; unloaded/interrupted hosts may retain input. Only `result` collects the actual stored record. Explicit `peek(run)` adopts the run for the current host/session; `status` and `result` do not. Unknown/conflicting identity never owns or pushes.
+
+Recover unread work with `peek` and `result`. Accepted or ambiguous attempts are not automatically resent. When ambiguity needs a deliberate retry, run from the current owner's validated host session:
+
+```sh
+catherd runs retry-push <run> <name> --event '<exact event ID from peek/status>' --acknowledge-possible-duplicate
+```
+
+This acknowledges possible duplicate native input; an accepted receipt still suppresses a repeat for that owner/event. Without a supported history reconciliation API, retain ambiguity until an explicit decision. Notices preserve all event IDs, including coalesced events; repeated input means idempotent reads, never another dispatch or landing. Stored records and independent reviewer/verifier gates are authoritative. Profile notification moments use an available host facility, without inventing a Codex notification tool or scheduled wake.
+
 In a terminal:
 
-| Command                                                                                   | What it does                                                                                        |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `catherd`                                                                                 | The dashboard: Status, Profiles and Runs (below)                                                    |
-| `catherd init [--no-input] [--no-global] [--profile <p>]`                                 | First-run setup; installs the global `catherd` at its own version unless `--no-global`              |
-| `catherd doctor [--json]`                                                                 | Readiness report, one row per check with its fix; exits 3 when not ready                            |
-| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`    | Profiles; `use --repo` binds one to the repo you are in                                             |
-| `catherd profile use --repo --clear`                                                      | Unbinds the repo you are in; it runs on the active profile again                                    |
-| `catherd profile set <path> <value> [--profile <p>]`                                      | One field, e.g. `roles.verifier.access read-only`, `roles.worker.network false`, `budget.usd 20`    |
-| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                         | Where runs stand, grouped by the Claude Code session that drove them                                |
-| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>` | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's |
-| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`      | The models catherd can place, filtered                                                              |
-| `catherd catalog sync [--force] [--unmatched]`                                            | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched     |
-| `catherd catalog treat-like <rung> <like>`                                                | Scores an unscored rung as a scored one                                                             |
-| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                    | The three nearest stand-ins for a rung; removes one or every mapping of yours                       |
-| `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                              | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"       |
-| `catherd lock [--slots N] -- <cmd>`                                                       | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
-| `catherd mcp`                                                                             | The MCP server on stdio; the plugin starts it, you never need to                                    |
-| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                  | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                  |
+| Command                                                                                     | What it does                                                                                        |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `catherd`                                                                                   | The dashboard: Status, Profiles and Runs (below)                                                    |
+| `catherd init [--host codex\|claude-code\|auto] [--no-input] [--no-global] [--profile <p>]` | First-run setup; installs the global `catherd` at its own version unless `--no-global`              |
+| `catherd doctor [--host codex\|claude-code\|auto] [--test-push] [--json]`                   | Readiness and capability report; no send unless explicit smoke; exits 3 when not ready              |
+| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`      | Profiles; `use --repo` binds one to the repo you are in                                             |
+| `catherd profile use --repo --clear`                                                        | Unbinds the repo you are in; it runs on the active profile again                                    |
+| `catherd profile set <path> <value> [--profile <p>]`                                        | One field, e.g. `roles.verifier.access read-only`, `roles.worker.network false`, `budget.usd 20`    |
+| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                           | Where runs stand, grouped by host and session; read-only ownership                                  |
+| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>`   | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's |
+| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`        | The models catherd can place, filtered                                                              |
+| `catherd catalog sync [--force] [--unmatched]`                                              | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched     |
+| `catherd catalog treat-like <rung> <like>`                                                  | Scores an unscored rung as a scored one                                                             |
+| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                      | The three nearest stand-ins for a rung; removes one or every mapping of yours                       |
+| `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"       |
+| `catherd lock [--slots N] -- <cmd>`                                                         | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
+| `catherd mcp`                                                                               | The MCP server on stdio; the plugin starts it, you never need to                                    |
+| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                    | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                  |
 
 A profile command without a profile name (`show`, `set`, `diff`, `validate`), like the MCP profile tools, acts
-on the profile the repo you are in runs on: the one bound to it, else the active one. Run them as
+on the profile the repo you are in runs on: the one bound to it, else the active one. Pass `repo` explicitly to MCP tools; profile CLI commands accept `--host` for effective defaults. Run them as
 `bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes `--json`; a bare `catherd runs` is `catherd runs list`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
 `error E_CODE: message` and a `fix:` line. `--verbose` (or `CATHERD_LOG=debug`) logs more to
 `~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
@@ -174,7 +212,7 @@ and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too.
 
 Model facts and scores also come from public sources: models.dev, OpenRouter, LiteLLM, Arena (LMArena), Vectara's
 hallucination leaderboard and Epoch AI, plus Artificial Analysis when you give `catherd init` a free key. The MCP
-server syncs them in the background when a Claude Code session starts (each source at most every 12 hours, never
+server syncs them in the background when a host session starts (each source at most every 12 hours, never
 delaying the session), `init` syncs them, and `catherd catalog sync` (or the `catalog_sync` tool) does it on demand.
 Each answer is kept in `~/.local/share/catherd/sources/`; a source that fails keeps its last good answer, and with no
 network and no sync at all catherd routes on the scores it ships. Those are the keyless sources' values, refreshed
@@ -219,7 +257,7 @@ tests (CONTRIBUTING.md has the rest).
 
 `catherd` opens three tabs: **1 Status** (every check with its fix; `y` copies the fix, `r` checks again),
 **2 Profiles** (one tree per profile: roles with their access, default rung, models and efforts, then routing,
-harness, budget, failover, timeouts and notify) and **3 Runs** (the Claude Code sessions that drove your runs, newest
+harness, budget, failover, timeouts and notify) and **3 Runs** (the host sessions that drove your runs, newest
 first; a session opens on its runs, their milestones and every role with its rung, status, time and last event, live
 ones first; a milestone opens on its digest (what landed, lanes and climbs, reviewer and verifier, tokens); a role
 opens on its brief, reply and record; the open screen redraws as run files change; `esc` goes back,
@@ -278,8 +316,8 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the checks on Linux and macOS, on Bun 1.4.0 and the latest Bun;
-what CI cannot run is in [`docs/dev/live-verification.md`](docs/dev/live-verification.md). Report security issues
+See [CONTRIBUTING.md](CONTRIBUTING.md). This feature's checks and acceptance are local, with release held; do not request or re-enable CI for it. The documented historical CI matrix uses Linux/macOS and Bun 1.4.0/latest;
+live verification is in [`docs/dev/live-verification.md`](docs/dev/live-verification.md). Report security issues
 privately, as [SECURITY.md](SECURITY.md) describes. Everyone taking part follows the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
