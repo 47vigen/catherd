@@ -3,7 +3,7 @@
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 
-## Codex orchestration entry (2026-10-01, planning)
+## Codex orchestration entry (2026-10-01, execution)
 
 Owner-approved spec: `docs/specs/2026-10-01-catherd-codex-entry-design.md`. It extends the existing shared core
 with host-aware sessions/defaults, optional Claude dependencies and native Codex queue completion delivery.
@@ -12,15 +12,15 @@ the live native catalog confirmed that spelling and both efforts on 2026-10-01. 
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Written for owner review; not executed |
-| 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | Written for owner review; depends on 18; not executed |
-| 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Written for owner review; depends on 18 and 19; not executed |
+| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Owner-approved; Tasks 1–2 implemented and personally verified; Tasks 3–4 in progress |
+| 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | Owner-approved; depends on plan 18; not executed |
+| 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Owner-approved; depends on 18/19; not executed |
 
-Execute in order 18 → 19 → 20 after owner plan review. The shared release remains held for actual packaged acceptance
-on Claude Code, Codex CLI and Codex Desktop. This planning session is local and does not authorize a push, release
-or CI checks. Source validation is not scratch-build validation; the brainstorming gate requires review of the written
-plans before product implementation, including scratch builds. Native Codex implementation uses the configured Codex
-model at low/medium effort; the controller verifies implementation personally under the current shared memory rules.
+Execute in order 18 → 19 → 20 on the dependent managed feature head. Owner approved all plans. The shared release remains held for actual packaged acceptance on Claude Code, Codex CLI and Codex Desktop; no push, release or CI checks are authorized. Native implementation uses the configured Codex model at low/medium effort, and the controller personally verifies implementation.
+
+Tasks 1–2 commits: `433a6c7`, `ebe0700`, review fixes `8055fb8`. Host resolution runs at actual MCP initialization; native request thread metadata stays request-scoped. Ownership/origins/session views use host plus session ID and preserve legacy decoding without read rewrites. Controller's focused checks passed 108/0, then review-fix covering tests 33/0 and typecheck. Worker full gate had one unchanged preflight deadline failure under load, which passed focused retry; details remain in the execution ledger. Tasks 3–4 are ongoing; this is not packaged acceptance.
+
+Docs ruling `04b074a`: native queue must bind supported `--remote unix://` so absent or failed daemon discovery cannot start an embedded app-server. Installed help/source validate the flag; actual explicit-endpoint acceptance is still Plan 19/20 work.
 
 Research: `docs/research/2026-10-01-codex-messaging.md`. Native daemon idle and deterministic busy follow-up passed;
 the authorized queued marker also reached this original Desktop chat and started an assistant turn. These prove
