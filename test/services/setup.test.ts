@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { adapterFor } from "../../src/adapters/registry.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { credentialsPath, jevKey } from "../../src/services/jev-service.ts";
@@ -134,3 +135,51 @@ it("initializes Codex omitted defaults without creating Claude files", async () 
   expect(getProfile("default", "codex").roles.verifier.rungs).toEqual(["codex:gpt-6.1-sol#low"]);
   expect(existsSync(claudeAgentsDir())).toBe(false);
 });
+
+it("Codex-only setup skips unused Claude discovery, while selected headless and Claude host setup retain it", async () => {
+  withHome();
+  delete process.env.ANTHROPIC_API_KEY;
+  // An empty listing exercises discovery's probe fallback; it must remain unreachable for unused Claude.
+  const adapter = adapterFor("claude-code")!;
+  const listModels = adapter.listModels;
+  adapter.listModels = async () => [];
+  try {
+    const bin = join(process.env.CATHERD_HOME!, "sentinel-bin");
+    mkdirSync(bin);
+    const calls = join(process.env.CATHERD_HOME!, "claude-discovery-calls");
+    writeFileSync(
+      join(bin, "claude"),
+      '#!/bin/sh\nmkdir -p "$CLAUDE_CONFIG_DIR"\nprintf "%s\\n" "$*" >> "$CATHERD_HOME/claude-discovery-calls"\nprintf x > "$CLAUDE_CONFIG_DIR/discovery-sentinel"\nif [ "$1" = --version ]; then echo 2.1.0; else printf \'{"loggedIn":false}\\n\'; fi\n',
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:/usr/bin:/bin`;
+    const host = { host: "codex" as const, session: null, conflict: null };
+    const unused = await initSetup({ host });
+    expect(unused.created).toBe(true);
+    expect(unused.refreshed.some((r) => r.backend === "claude-code")).toBe(false);
+    expect(existsSync(calls)).toBe(false);
+    expect(existsSync(join(process.env.CLAUDE_CONFIG_DIR!, "discovery-sentinel"))).toBe(false);
+    expect(
+      patchProfile(
+        "default",
+        { roles: { architect: { rungs: ["claude-code:claude-opus-5-5#high"] } } },
+        { host: "codex" },
+      ).saved,
+    ).toBe(true);
+    expect((await initSetup({ host })).refreshed.some((r) => r.backend === "claude-code")).toBe(true);
+    expect(readFileSync(calls, "utf8")).toContain("auth status --json");
+    expect(
+      (await initSetup({ host: { host: "claude-code", session: null, conflict: null } })).refreshed.some(
+        (r) => r.backend === "claude-code",
+      ),
+    ).toBe(true);
+    const before = readFileSync(calls, "utf8");
+    writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: ["low"], context: null, imageIn: true }]);
+    const invalid = await initSetup({ host, profile: "invalid" });
+    expect(invalid.active).toBe(false);
+    expect(invalid.refreshed.some((r) => r.backend === "claude-code")).toBe(false);
+    expect(readFileSync(calls, "utf8")).toBe(before);
+  } finally {
+    adapter.listModels = listModels;
+  }
+}, 20_000);

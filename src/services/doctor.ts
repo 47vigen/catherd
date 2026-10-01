@@ -166,7 +166,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   profiles = active ? [active] : [];
   const used = usedBackends(profiles);
   const installed = new Set<string>();
-  checks.push(...(await backendChecks(used, profiles, installed)));
+  checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({

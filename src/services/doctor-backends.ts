@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../domain/host.ts";
 import type { Probe } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -92,10 +93,21 @@ export async function backendChecks(
   used: Map<string, "role" | "failover">,
   profiles: Profile[],
   installed?: Set<string>,
+  host: OrchestrationHost = "unknown",
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
   for (const id of ADAPTER_IDS) {
+    if (host === "codex" && id === "claude-code" && !used.has(id)) {
+      checks.push({
+        id: `backend:${id}`,
+        label: id,
+        state: "skip",
+        word: "not required",
+        detail: "not probed: the selected profile has no headless Claude role or reachable failover",
+      });
+      continue;
+    }
     const a = adapterFor(id);
     if (!a) continue;
     const probe: Probe = await probeBackend(a).catch((e: unknown) => ({

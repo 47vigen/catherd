@@ -1111,3 +1111,45 @@ it("default_doctor_sends_nothing even when a smoke callback is available", async
   expect(sent).toBe(1);
   expect(explicit.push).toMatchObject({ enqueue: "accepted", processing: "unconfirmed" });
 });
+
+it("Codex-only doctor never invokes an unused Claude CLI that writes configuration, but selected headless roles still probe", async () => {
+  const models = fx("codex/models.json");
+  models.models.push({ ...models.models[1], slug: "gpt-6.1-sol" });
+  machine({ bins: ["codex"], codex: { models } });
+  const bin = tempDir("claude-doctor-sentinel-");
+  const calls = join(process.env.CATHERD_HOME!, "claude-probe-calls");
+  writeFileSync(
+    join(bin, "claude"),
+    '#!/bin/sh\nmkdir -p "$CLAUDE_CONFIG_DIR"\nprintf "%s\\n" "$*" >> "$CATHERD_HOME/claude-probe-calls"\nprintf x > "$CLAUDE_CONFIG_DIR/probe-sentinel"\nif [ "$1" = --version ]; then echo 2.1.0; else printf \'{"loggedIn":false}\\n\'; fi\n',
+    { mode: 0o755 },
+  );
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  const ctx = { host: { host: "codex" as const, session: null, conflict: null } };
+  const unused = await run(ctx);
+  expect(check(unused, "backend:claude-code")).toMatchObject({ state: "skip", word: "not required" });
+  expect(existsSync(calls)).toBe(false);
+  expect(existsSync(join(process.env.CLAUDE_CONFIG_DIR!, "probe-sentinel"))).toBe(false);
+  expect(
+    patchProfile(
+      "default",
+      { roles: { architect: { rungs: ["claude-code:claude-opus-5-5#high"] } } },
+      { host: "codex" },
+    ).saved,
+  ).toBe(true);
+  const selected = await run(ctx);
+  expect(check(selected, "backend:claude-code")?.state).toBe("fail");
+  expect(readFileSync(calls, "utf8")).toContain("auth status --json");
+  rmSync(calls);
+  expect(
+    patchProfile(
+      "default",
+      {
+        roles: { architect: { rungs: ["codex:gpt-6.1-sol#high"] } },
+        failover: { "codex:gpt-6-luna#high": "claude-code:claude-opus-5-5#high" },
+      },
+      { host: "codex" },
+    ).saved,
+  ).toBe(true);
+  expect(check(await run(ctx), "backend:claude-code")?.state).toBe("warn");
+  expect(readFileSync(calls, "utf8")).toContain("auth status --json");
+});
