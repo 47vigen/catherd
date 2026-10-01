@@ -8,7 +8,7 @@ The same catherd installation can orchestrate from native Codex CLI, Codex Deskt
 
 Use the existing shared core and thin host integration. Keep the `domain → infra → adapters → services → entry` dependency direction, profile single-writer rule, detached worker supervisors, atomic locked stores, routing, failover and verifier gate. This design amends the existing specs only where host identity, default role resolution, packaging and completion delivery need to become host-aware.
 
-There is no second orchestration engine, native Codex subagent subsystem, new messaging daemon, model upgrade, provider auto-installation, speculative transport framework or model polling loop. This work introduces no CI check jobs.
+There is no second orchestration engine, native Codex subagent subsystem, new messaging daemon, unrelated model upgrade, provider auto-installation, speculative transport framework or model polling loop. This work introduces no CI check jobs.
 
 ## Host and session contract
 
@@ -33,10 +33,10 @@ Only omitted architect/verifier rung choices follow the resolved host:
 | Host | Architect | Verifier |
 | --- | --- | --- |
 | Claude Code | Existing native Claude Opus default at high effort | Existing native Claude Opus default at low effort |
-| Codex | `codex:gpt-6-sol#high` | `codex:gpt-6-sol#low` |
+| Codex | `codex:gpt-6-1-sol#high` | `codex:gpt-6-1-sol#low` |
 | Unknown | Requires a host for host-dependent role resolution | Requires a host for host-dependent role resolution |
 
-Codex uses the already shipped SOL model and the existing catalog discovery, validation and treat-like alias behavior. This feature does not change model generations or rewrite backend model IDs.
+The owner selected `gpt-6-1-sol` for the omitted Codex architect/verifier defaults. Verify that exact model ID through existing catalog discovery and validation during implementation, retaining existing treat-like alias behavior. If the native catalog uses a different spelling, report the mismatch and resolve it explicitly rather than silently substituting a model. Other role defaults and explicit backend model IDs remain unchanged.
 
 `defaultProfileDoc` currently materializes `BUILTIN_ROLES`; new documents omit `rungs` and `defaultRung` only for architect and verifier, retaining their other defaults. `resolveProfile` supplies their defaults from explicit host context. Other role defaults are unchanged. An explicit rung ladder is preserved in order, and the existing rule that an explicit ladder never inherits an unrelated built-in `defaultRung` remains intact. Explicit access, enabled state, network settings, routing, budgets, harness isolation, billing and failover keep their current semantics.
 
@@ -106,7 +106,7 @@ Run the repository's existing local gate when implementation is complete. No new
 
 | Live case | Acceptance evidence |
 | --- | --- |
-| Codex-only native CLI, idle and busy | Installed integration initializes without Claude, defaults route architect/verifier to shipped SOL, completion wakes the original idle thread and becomes an ordered busy follow-up; `result` collects the stored record |
+| Codex-only native CLI, idle and busy | Installed integration initializes without Claude, defaults route architect/verifier to the owner-selected SOL model at high/low effort, completion wakes the original idle thread and becomes an ordered busy follow-up; `result` collects the stored record |
 | Codex-only Desktop, idle and busy | Installed native plugin/launcher targets the original Desktop conversation; observed native user-message processing and assistant continuation, with separate queue receipt and collection evidence |
 | Explicit Claude headless roles from Codex | Same configured model/effort runs through `claude-code:`; optional dependency failures are specific and actionable |
 | Explicit native Claude role from Codex | Clear rejection with exact headless equivalent or host-default reset suggestion; profile is unchanged |
