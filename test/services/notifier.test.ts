@@ -336,7 +336,9 @@ describe("native owner-scoped receipts", () => {
       await n.scan();
       await n.idle();
       // a known non-submission stays retryable for the healthy notice, not ambiguous
-      expect(readDelivery(good.dir).map((a) => a.status)).toEqual(["failed"]);
+      // a known non-submission stays retryable for the healthy notice: retried, never left submitting
+      expect(readDelivery(good.dir).map((a) => a.status)).toEqual(Array(5).fill("failed"));
+      // the notice whose receipt was lost (this file refuses every later write) is never blindly resent
       expect(readDelivery(bad.dir).map((a) => a.status)).toEqual(["submitting"]);
     } finally {
       spy.mockRestore();
@@ -708,7 +710,7 @@ describe("native owner-scoped receipts", () => {
     expect(sends).toBe(1);
   });
 
-  it("a Claude error before any frame was written is not submitted and goes again on the next scan", async () => {
+  it("a Claude error before any frame was written is not submitted: retried a few times, then on the next scan", async () => {
     const { run, deps, n } = await owned();
     n.stop();
     const d = await finished(run, "worker-M1.L1");
@@ -723,10 +725,12 @@ describe("native owner-scoped receipts", () => {
     notifiers.push(again);
     await again.scan();
     await again.idle();
-    expect(readDelivery(d.dir).at(-1)?.status).toBe("failed");
+    // provably never submitted, so retried at once a bounded number of times
+    expect(sends).toBe(5);
+    expect(readDelivery(d.dir).map((a) => a.status)).toEqual(Array(5).fill("failed"));
     await again.scan();
     await again.idle();
-    expect(sends).toBe(2);
+    expect(sends).toBe(10);
   });
 
   it("corrupt metadata and unknown/conflicting owner contexts never invoke a sender", async () => {

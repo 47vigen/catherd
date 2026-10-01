@@ -163,10 +163,15 @@ interface Queued {
   due: () => boolean;
   /** how many passes could not write its delivery claim */
   claimFailures?: number;
+  /** how many sends the transport provably did not submit */
+  sendFailures?: number;
 }
 
 /** Passes a notice whose delivery claim cannot be written is kept for before it is given up (and logged). */
 const MAX_CLAIM_FAILURES = 5;
+
+/** Sends a notice the transport provably did not submit is tried, a coalescing window apart, before peek/result. */
+const MAX_SEND_FAILURES = 5;
 
 /** Starts the notifier for this process's session and hooks it to every settled dispatch. */
 export function startNotifier(deps: Deps, o: NotifierOptions = {}): Notifier {
@@ -342,6 +347,12 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
       const live = currentSession(deps);
       const stillHere = !stopped && live !== null && sessionKey(live) === sessionKey(target);
       const marked = due.filter((q) => stillHere && owned(q.run));
+      // provably not submitted, so a retry cannot duplicate input: tried again a window later, a few times
+      if (receipt.status === "failed")
+        for (const q of marked) {
+          q.sendFailures = (q.sendFailures ?? 0) + 1;
+          if (q.sendFailures < MAX_SEND_FAILURES) busy.push(q);
+        }
       if (receipt.status === "accepted" && target.host === "claude-code")
         for (const q of marked)
           try {
@@ -364,8 +375,8 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
   }
 
   /**
-   * Queues again the notices another server held the claim on, or whose batch could not claim them all; the
-   * next pass drops those no longer due or owned.
+   * Queues again the notices another server held the claim on, whose batch could not claim them all, or that
+   * the transport provably did not submit; the next pass drops those no longer due or owned.
    */
   function requeue(busy: Queued[]): void {
     if (stopped || busy.length === 0) return;
