@@ -15,8 +15,9 @@ export function resolveHost(e: {
   if (launcher === "codex" || launcher === "claude-code") hosts.add(launcher);
   const claude = readSessionEnv(e.env);
   if (claude) hosts.add("claude-code");
-  const thread = e.env.CODEX_THREAD_ID;
-  const session = e.env.CODEX_SESSION_ID;
+  // UUIDs are case-insensitive: one spelling, so the launcher's and a request's casing name the same thread
+  const thread = e.env.CODEX_THREAD_ID?.toLowerCase();
+  const session = e.env.CODEX_SESSION_ID?.toLowerCase();
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (thread !== undefined || session !== undefined) {
     hosts.add("codex");

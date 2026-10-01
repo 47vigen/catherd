@@ -12,5 +12,6 @@ export interface HostContext {
   conflict: string | null;
 }
 export function sessionKey(s: Pick<HostSessionRef, "host" | "sessionId">): string {
-  return JSON.stringify([s.host, s.sessionId]);
+  // a Codex thread is a UUID, whatever its casing: an owner stored before normalization still matches
+  return JSON.stringify([s.host, s.host === "codex" ? s.sessionId.toLowerCase() : s.sessionId]);
 }

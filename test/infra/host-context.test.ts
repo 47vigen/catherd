@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { sessionKey } from "../../src/domain/host.ts";
 import { terminalHost } from "../../src/entry/host-arg.ts";
 import { resolveHost } from "../../src/infra/host-context.ts";
 
@@ -76,4 +77,14 @@ it("terminal host selection retains contradictory evidence but never acquires an
   expect(terminalHost("codex", { CLAUDE_CODE_SESSION_ID: "s" }).conflict).toBeTruthy();
   expect(terminalHost("codex", { CODEX_THREAD_ID: "invalid" }).conflict).toBeTruthy();
   expect(terminalHost("auto", { CODEX_THREAD_ID: id }).session?.sessionId).toBe(id);
+});
+
+it("treats differently cased spellings of one Codex UUID as the same thread and owner", () => {
+  const upper = "01A0F53B-A47D-7350-83A4-C3430E453404";
+  const lower = upper.toLowerCase();
+  const r = resolveHost({ env: { CODEX_THREAD_ID: upper, CODEX_SESSION_ID: lower } });
+  expect(r).toMatchObject({ host: "codex", conflict: null, session: { sessionId: lower } });
+  expect(sessionKey({ host: "codex", sessionId: upper })).toBe(
+    sessionKey({ host: "codex", sessionId: lower }),
+  );
 });
