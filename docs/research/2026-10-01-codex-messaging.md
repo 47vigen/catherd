@@ -4,7 +4,7 @@ Research date: 2026-10-01. Scope: wake the same existing native CLI or Desktop c
 
 ## Conclusion
 
-The native persistent queue is the strongest candidate. Official source includes cross-process queue watching: the process owning a loaded thread can detect another process’s queue writes and wake that thread. Therefore absence from the CLI daemon’s loaded-thread list does not disqualify Desktop delivery. The Desktop process must share the queue store and run a compatible watcher; a receipt still does not prove generation.
+The native persistent queue satisfies the research feasibility question. Idle wake and ordered busy follow-up were personally verified on the native shared daemon. The owner also confirmed that the original Desktop conversation woke, then intentionally cancelled the test turn. Official source includes cross-process queue watching: the process owning a loaded thread can detect another process’s queue writes and wake that thread. A receipt alone still does not prove generation; packaged catherd integration acceptance remains required.
 
 ## Official documentation
 
@@ -54,11 +54,13 @@ The markers were read from that disposable thread's native history, not inferred
 
 ### Original Desktop conversation probe
 
-The coordinator submitted one labeled completion marker to the current conversation using native `codex queue`, with its actual `CODEX_THREAD_ID`. The command exited 0 and returned a queue receipt. Delivery to the original Desktop conversation is pending until its active turn ends; receipt alone is not recorded as a successful wakeup.
+The coordinator submitted a labeled completion marker to the current conversation using native `codex queue`, with its actual `CODEX_THREAD_ID`. The command exited 0 and returned receipt `01a0f547-7947-7972-90a0-a7ad547170e0`. Queue/history inspection did not establish a native user-message acknowledgement. The owner then explicitly confirmed that the original Desktop conversation woke and that they personally cancelled its test turn. Record this as owner-witnessed same-session wake success, with intentional interruption, rather than an assistant-history proof.
+
+The owner authorized a repeat. Marker `CATHERD_DESKTOP_RETEST_20261001` was accepted for the same original thread `01a0f53b-a47d-7350-83a4-c3430e453404`, with receipt `01a0f54c-cf5d-7e22-9c63-39d867803eb5`. Repeat processing is pending the current active turn ending; its receipt is acceptance evidence only.
 
 ## Unverified behavior and excluded shortcuts
 
-Persisted deduplication, unload/restart behavior, and same-Desktop-thread wakeup remain unverified. Idle auto-dispatch and ordered busy delivery are verified on the native shared daemon above. No duplicate retry guarantee is inferred from `clientUserMessageId`; catherd must retain its existing serialized delivery claims and distinguish acknowledged enqueue from reading a role result.
+Persisted deduplication, unload/restart behavior, and packaged catherd delivery remain unverified. Desktop same-session wake was witnessed by the owner; idle auto-dispatch and ordered busy delivery are verified on the native shared daemon above. No duplicate retry guarantee is inferred from `clientUserMessageId`; catherd must retain its existing serialized delivery claims and distinguish acknowledged enqueue from reading a role result.
 
 [Issue 44491](https://github.com/openai/codex/issues/44491) reports that unloaded threads retain queued input until resume in 0.154.0. [Issue 32188](https://github.com/openai/codex/issues/32188) includes a Linux 0.153.4 report of an idle Desktop wakeup through `codex queue`. Both are reporter evidence, not official guarantees or local reproduction.
 
