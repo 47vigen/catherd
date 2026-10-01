@@ -57,12 +57,13 @@ const locked = withProfilesLock;
 const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(name), { ...doc, name });
 
 /** Writes `doc` as profile `name` and relinks; when the relink refuses, puts the profile back as it was. */
-function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost): Synced {
+/** `repairing`: a saved repair with errors still open, whose remaining native roles are among those errors. */
+function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost, repairing = false): Synced {
   const before = existsSync(profileFile(name)) ? readFileSync(profileFile(name), "utf8") : null;
   const hadNative = before !== null && agentFiles(getProfile(name, host), "").length > 0;
   writeDoc(name, doc);
   try {
-    return syncFor(name, host, [name], host === "claude-code" || hadNative);
+    return syncFor(name, host, [name], host === "claude-code" || hadNative, repairing);
   } catch (e) {
     if (before === null) rmSync(profileFile(name), { force: true });
     else writeTextAtomic(profileFile(name), before);
@@ -90,7 +91,11 @@ function syncFor(
   host: OrchestrationHost,
   extra: string[] = [],
   allowPrune = host === "claude-code",
+  repairing = false,
 ): Synced {
+  // a partial repair keeps its open native-role errors: link and prune nothing until they are fixed
+  if (repairing && agentFiles(getProfile(name, host), "").some((f) => nativeClaudeIssue(f.rung, host, "")))
+    return { linked: [], pruned: [], newSessionNeededFor: [] };
   if (nativeAgents(name, host).length) return apply(plan(host, extra));
   return allowPrune ? pruneProfileAgents(name) : { linked: [], pruned: [], newSessionNeededFor: [] };
 }
@@ -143,7 +148,7 @@ export function patchProfile(
     if (v.errors.length && !repairs(profileExists(n) ? validate(before, n, host) : null, v))
       return unsaved(v);
     const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
-    return { saved: true, ...v, diff, ...saveAndLink(n, after, host) };
+    return { saved: true, ...v, diff, ...saveAndLink(n, after, host, v.errors.length > 0) };
   });
 }
 

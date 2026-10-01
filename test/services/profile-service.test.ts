@@ -508,6 +508,32 @@ describe("host-specific profiles", () => {
     expect(validateNamed("default", null, "codex").errors).toEqual([]);
   });
 
+  it("saves a one-role repair of native Claude roles under codex, keeping the other role's error open", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    writeFileSync(
+      file("default"),
+      JSON.stringify({ ...defaultProfileDoc(), roles: structuredClone(BUILTIN_ROLES) }),
+    );
+    expect(validateNamed("default", null, "codex").errors).toHaveLength(2);
+    const r = patchProfile(
+      "default",
+      { roles: { architect: { rungs: ["claude-code:claude-opus-5-5#high"] } } },
+      { host: "codex" },
+    );
+    expect(r).toMatchObject({ saved: true, linked: [], pruned: [] });
+    expect(r.errors.map((e) => e.path)).toEqual(["roles.verifier.rungs"]);
+    expect(readProfileDoc("default").roles?.architect?.rungs).toEqual(["claude-code:claude-opus-5-5#high"]);
+    expect(existsSync(claudeAgentsDir())).toBe(false);
+    const done = patchProfile(
+      "default",
+      { roles: { verifier: { rungs: ["claude-code:claude-opus-5-5#low"] } } },
+      { host: "codex" },
+    );
+    expect(done.saved).toBe(true);
+    expect(done.errors).toEqual([]);
+  });
+
   it("narrow_reset_and_stale_preview preserves future fields and refuses changed disk under the existing lock", () => {
     withHome();
     const doc = {
