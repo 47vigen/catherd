@@ -14,7 +14,7 @@ the live native catalog confirmed that spelling and both efforts on 2026-10-01. 
 | ---- | ---- | ----- |
 | 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Implemented and personally verified; source head50468a7; see plan18-ledger.md |
 | 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | All tasks implemented and personally verified atb14c5e6;311/0 combined gate; see plan19-ledger.md |
-| 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Owner-approved; Task1 native packaging evidence gate in progress |
+| 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Native packaging and portable skills implemented; final source head09f9561; full local gate1929/0; actual conversation acceptance and release remain held |
 
 Execute in order 18 → 19 → 20 on the dependent managed feature head. Owner approved all plans. The shared release remains held for actual packaged acceptance on Claude Code, Codex CLI and Codex Desktop; no push, release or CI checks are authorized. Native implementation uses the configured Codex model at low/medium effort, and the controller personally verifies implementation.
 
@@ -28,6 +28,8 @@ Research: `docs/research/2026-10-01-codex-messaging.md`. Native daemon idle and 
 the authorized queued marker also reached this original Desktop chat and started an assistant turn. These prove
 transport feasibility, not packaged catherd acceptance. Existing handoff entries below remain historical; confirm current
 Git/release state before acting on any older pending-release instruction.
+
+Plan20 native packaging1d6d140 and supplemental optional-Claude probe fix5b5d756 passed controller90/0. Portable skills345d257/catalog-resolution80d9483 were read end to end personally. Existing skill assertions09f9561 were aligned with the host-conditional protocol after the full gate exposed exactly two obsolete prose failures. Final complete local gate:1929pass23skip0fail across176files, plus typecheck/lint/format and actual tarball smoke. One minor Changeset covers plans18–20 without stamping or publishing. See `docs/dev/reports/2026-10-01-codex-entry-acceptance.md` and plan20-ledger.md for exact package/native proof and required unverified cases. Current Desktop tools do not expose the candidate catherd MCP; the live native config still contains the legacy literal Claude-root declaration. Source/packaging verification does not establish idle/busy original-thread processing. **Release held for owner packaged acceptance.** No push, CI or publication.
 
 
 ## catherd 1.3 design (session 7, docs only): Cursor, Grok Build, Antigravity
