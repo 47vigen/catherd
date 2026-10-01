@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -12,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realTmpdir } from "../../src/adapters/access.ts";
-import { locksDir } from "../../src/infra/paths.ts";
+import { claudeAgentsDir, locksDir } from "../../src/infra/paths.ts";
 import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
@@ -497,7 +498,20 @@ describe("doctor", () => {
     expect(check(await run(), "agents")).toMatchObject({
       state: "fail",
       word: "missing",
-      fix: "catherd profile use default",
+      fix: "catherd profile use default --host claude-code",
+    });
+  });
+
+  it("relinks the repo's bound profile, on doctor's host, when its agent links are missing", async () => {
+    machine();
+    installPlugin(VERSION);
+    createProfile("team", undefined, "claude-code");
+    const repo = tempRepo();
+    activate("team", repo, "claude-code");
+    for (const link of readdirSync(claudeAgentsDir())) rmSync(join(claudeAgentsDir(), link));
+    expect(check(await run({ repo }), "agents")).toMatchObject({
+      state: "fail",
+      fix: `cd ${repo} && catherd profile use team --repo --host claude-code`,
     });
   });
 

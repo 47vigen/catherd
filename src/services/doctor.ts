@@ -88,6 +88,8 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       : { id: "bun", label: "Bun", state: "ok", word: "ready", detail: d.bunVersion },
   );
 
+  // every fix names the host doctor judged with: run elsewhere (a plain terminal), it must judge the same way
+  const onHost = d.host.host === "unknown" ? "" : ` --host ${d.host.host}`;
   let profiles: Profile[] = [];
   let linked: string[] = [];
   let active: Profile | null = null;
@@ -139,8 +141,6 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // every linked profile: the active one (row `profile`) and each repo-bound one (row `profile:<name>`).
   // Each fix names its profile: without one, the CLI acts on the profile of the repo doctor runs in.
   const names = active ? [active.name, ...linked.filter((n) => n !== active?.name)] : [];
-  // and the host it was validated for: a fix run elsewhere (a plain terminal) must judge it on that host too
-  const onHost = d.host.host === "unknown" ? "" : ` --host ${d.host.host}`;
   for (const name of names) {
     const id = name === active?.name ? "profile" : `profile:${name}`;
     const validate = `catherd profile validate ${name}${onHost}`;
@@ -223,11 +223,21 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
   checks.push(plugin);
 
+  // relinks the profile doctor checked: this repo's binding when it has one, else the active profile
+  let bound = false;
+  try {
+    bound = d.repo !== null && readProjects().bindings[d.repo] === active?.name;
+  } catch {
+    // the config row above already reports an unreadable projects.json
+  }
+  const relink = active
+    ? `${bound ? `cd ${d.repo} && ` : ""}catherd profile use ${active.name}${bound ? " --repo" : ""}${onHost}`
+    : "";
   checks.push(
     active
-      ? guarded("agents", "Claude agents", `catherd profile use ${active.name}`, () =>
+      ? guarded("agents", "Claude agents", relink, () =>
           native
-            ? agentsCheck(d.host.host, [active!.name])
+            ? agentsCheck(d.host.host, [active!.name], relink)
             : {
                 id: "agents",
                 label: "Claude agents",

@@ -88,7 +88,23 @@ it("drops a stall the role outlived before any send, but keeps one that was sent
   const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: "2026-10-01T12:05:00.000Z" };
   const unsent = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "dead", exit, collect: true });
   const sent = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "dead", exit, collect: true });
-  for (const d of [unsent, sent]) writeFileSync(dispatchPaths(d.dir).stall, "{}");
+  const failed = await fakeDispatch(run, { name: "worker-M1.L3" }, { proc: "dead", exit, collect: true });
+  const elsewhere = await fakeDispatch(run, { name: "worker-M1.L4" }, { proc: "dead", exit, collect: true });
+  for (const d of [unsent, sent, failed, elsewhere]) writeFileSync(dispatchPaths(d.dir).stall, "{}");
+  // a non-submission, and an attempt for an earlier owner: neither can ever reach this owner now
+  for (const [d, to, status] of [
+    [failed, target, "failed"],
+    [elsewhere, { ...target, sessionId: "01a0f53b-a47d-7350-83a4-c3430e453405" }, "accepted"],
+  ] as const)
+    writeDeliveryAttempt(d.dir, {
+      attemptId: `stall-${d.admit.name}`,
+      target: to,
+      eventIds: [JSON.stringify([run.id, d.admit.dispatchId, "stalled"])],
+      at: "2026-10-01T12:00:00.000Z",
+      status,
+      msgId: status === "accepted" ? "old-owner" : null,
+      reason: status === "failed" ? "socket closed" : null,
+    });
   const sentId = JSON.stringify([run.id, sent.admit.dispatchId, "stalled"]);
   writeDeliveryAttempt(sent.dir, {
     attemptId: "stall-sent",
@@ -104,6 +120,8 @@ it("drops a stall the role outlived before any send, but keeps one that was sent
       .find((x) => x.name === name)!
       .deliveries.map((e) => JSON.parse(e.eventId)[2]);
   expect(kinds("worker-M1.L1")).toEqual([]);
+  expect(kinds("worker-M1.L3")).toEqual([]);
+  expect(kinds("worker-M1.L4")).toEqual([]);
   expect(kinds("worker-M1.L2")).toEqual(["stalled"]);
   expect(status(deps, run.id).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);
   expect((await peek(fakeDeps(), {})).runs[0]!.delivery.map((e) => e.eventId)).toEqual([sentId]);

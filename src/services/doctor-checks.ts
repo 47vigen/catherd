@@ -132,7 +132,11 @@ export function locksCheck(): Check {
   }
 }
 
-export function agentsCheck(host: OrchestrationHost, selected?: string[]): Check {
+export function agentsCheck(
+  host: OrchestrationHost,
+  selected?: string[],
+  relink = `catherd profile use ${activeName()}`,
+): Check {
   const base = { id: "agents", label: "Claude agents" };
   const links = agentLinkState(host, selected);
   const broken = [...links.missing, ...links.stale];
@@ -142,7 +146,7 @@ export function agentsCheck(host: OrchestrationHost, selected?: string[]): Check
       state: "fail",
       word: links.missing.length ? "missing" : "stale",
       detail: broken.join(", "),
-      fix: `catherd profile use ${activeName()}`,
+      fix: relink,
     };
   return links.ok.length
     ? { ...base, state: "ok", word: "ready", detail: `${links.ok.length} linked` }
