@@ -238,6 +238,31 @@ describe("native owner-scoped receipts", () => {
     }
   });
 
+  it("persisted_stall_scan: damaged delivery evidence on one dispatch does not abort the rest of the scan", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const bad = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const good = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    for (const d of [bad, good])
+      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+    writeFileSync(dispatchPaths(bad.dir).delivery, '{"schema":1,"attem');
+    const sent: string[] = [];
+    const n = nativeNotifier(deps, async (_target, content) => {
+      sent.push(content);
+      return { outcome: "accepted", msgId: `m${sent.length}` };
+    });
+    try {
+      await n.scan();
+      await n.idle();
+      expect(sent.join("\n")).toContain(JSON.stringify([run.id, good.admit.dispatchId, "stalled"]));
+      expect(readFileSync(dispatchPaths(bad.dir).delivery, "utf8")).toBe('{"schema":1,"attem');
+    } finally {
+      writeJsonAtomicForExit(bad.dir);
+      writeJsonAtomicForExit(good.dir);
+    }
+  });
+
   it("persisted_stall_scan: exited stalls are dropped on scan and again before delivery", async () => {
     const { run } = freshRun();
     const deps = nativeDeps();

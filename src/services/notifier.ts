@@ -382,24 +382,29 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
           if (!owned(run)) continue;
           const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
           for (const d of listDispatches(run)) {
-            const p = dispatchPaths(d.dir);
-            for (const [kind, mark] of [
-              ["finished", p.notified],
-              ["stalled", p.stallNotified],
-            ] as const) {
-              const release = tryLock(mark);
-              if (!release) continue;
-              try {
-                recoverSubmission(d.dir, JSON.stringify([run.id, d.admit.dispatchId, kind]));
-              } finally {
-                release();
+            // one dispatch's damaged evidence stays ambiguous for it alone: the rest of the run is still scanned
+            try {
+              const p = dispatchPaths(d.dir);
+              for (const [kind, mark] of [
+                ["finished", p.notified],
+                ["stalled", p.stallNotified],
+              ] as const) {
+                const release = tryLock(mark);
+                if (!release) continue;
+                try {
+                  recoverSubmission(d.dir, JSON.stringify([run.id, d.admit.dispatchId, kind]));
+                } finally {
+                  release();
+                }
               }
-            }
-            const r = records.get(d.admit.dispatchId);
-            // a limit not yet failed over is reconcile's to settle first: its hook announces it then
-            if (r && !(r.status === "limit" && !readFailover(d.dir))) enqueue(run, d, r);
-            if (existsSync(p.stall) && !existsSync(p.exit)) {
-              onStall({ run, d, quietMs: readStallQuietMs(d.dir) });
+              const r = records.get(d.admit.dispatchId);
+              // a limit not yet failed over is reconcile's to settle first: its hook announces it then
+              if (r && !(r.status === "limit" && !readFailover(d.dir))) enqueue(run, d, r);
+              if (existsSync(p.stall) && !existsSync(p.exit)) {
+                onStall({ run, d, quietMs: readStallQuietMs(d.dir) });
+              }
+            } catch (e) {
+              log("warn", "notify", { run: run.id, name: d.admit.name, error: errorMessage(e) });
             }
           }
         } catch (e) {

@@ -35,7 +35,7 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
 import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
-import { claimRun, ownsRun } from "./sessions.ts";
+import { claimRun, ownsRun, runOwner } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -290,7 +290,6 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   await claim(deps, run);
   const hints: string[] = [];
   let rung = i.rung;
-  assertNativeHost(rung, deps.host.host);
   // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
   if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {
     assertId("lane", i.lane);
@@ -300,6 +299,8 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
       hints.push(`${i.rung} is not on ${i.lane}'s routed ladder: dispatched at ${routed.rung}`);
     }
   }
+  // the rung that runs, after routing: an off-ladder native rung routing replaced is never launched
+  assertNativeHost(rung, deps.host.host);
   const { d, specPath } = await admit(
     deps,
     run,
@@ -499,7 +500,8 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
   // else that stand-in never ran and is over (recorded as lost, or past its start grace): admit a new one
   const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
   if (!standIn) return { hints, started: null, pause: paused };
-  assertNativeHost(standIn, deps.host.host);
+  // the stand-in answers to whoever owns the run now, which a claim from another host may have changed
+  assertNativeHost(standIn, runOwner(run)?.host ?? deps.host.host);
   if (parseRung(standIn).backend === "claude") {
     const agent = deps.profiles.agentFor(run.meta.repo, d.admit.role, standIn);
     return {

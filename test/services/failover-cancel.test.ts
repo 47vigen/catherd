@@ -570,6 +570,40 @@ describe("cancel", () => {
   });
 });
 
+describe("a native Claude stand-in is judged by the run's current owner, not the settling server", () => {
+  const owner = (host: "claude-code" | "codex") =>
+    fakeDeps({
+      host: {
+        host,
+        session: { host, sessionId: `owner-${host}`, hostSessionId: null, name: null },
+        conflict: null,
+      },
+      session: { sessionId: `owner-${host}`, hostSessionId: null, socketPath: null, token: null },
+    });
+
+  it("pauses on a claude-code watcher once a codex session owns the run", async () => {
+    const { run, deps } = setup(LIMIT, { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" });
+    await claimRun(owner("codex"), run);
+    deps.host = { host: "claude-code", session: null, conflict: null };
+    const { record, hints } = await runRole(deps, input(run.id));
+    expect(record.status).toBe("limit");
+    expect(hints.join("\n")).toContain("native Claude subagents require the claude-code orchestration host");
+    expect(hints.join("\n")).not.toContain("Agent(subagent_type");
+    expect(readFileSync(runPaths(run.dir).state, "utf8")).toContain("paused");
+  });
+
+  it("names the agent on a codex watcher once a claude-code session owns the run", async () => {
+    const { run, deps } = setup(LIMIT, { "codex:gpt-6-sol#medium": "claude:claude-opus-5-5#high" });
+    await claimRun(owner("claude-code"), run);
+    deps.host = { host: "codex", session: null, conflict: null };
+    const { record, hints } = await runRole(deps, input(run.id));
+    expect(record.status).toBe("limit");
+    expect(hints.at(-1)).toBe(
+      'failover: run worker-M1.L1 as Agent(subagent_type: "catherd-worker-claude-opus-5-5-high"), standing in for codex:gpt-6-sol#medium',
+    );
+  });
+});
+
 it.each(["codex", "unknown"] as const)(
   "refuses a selected native Claude failover from %s with the same model and effort alternative",
   async (host) => {
