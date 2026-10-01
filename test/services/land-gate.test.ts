@@ -13,8 +13,10 @@ import {
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
 import { appendAgentRun, appendRecord } from "../../src/services/run-store.ts";
+import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
+import { result } from "../../src/services/run-service.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -52,6 +54,36 @@ const landing = (run: string, commit: string, over: Record<string, unknown> = {}
 });
 
 describe("the land gate (spec 1.1 §6)", () => {
+  it("accepted/ambiguous queue inputs and repeated result reads cannot supply reviewer or verifier authority", async () => {
+    const { repo, run } = freshRun();
+    const d = await fakeDispatch(run, { name: "worker-M1.L1" }, { collect: true });
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: d.admit.name, role: "worker" }),
+    );
+    const target = {
+      host: "codex" as const,
+      sessionId: "0199c011-1234-7000-8000-000000000001",
+      hostSessionId: null,
+      name: null,
+    };
+    for (const status of ["accepted", "ambiguous"] as const)
+      writeDeliveryAttempt(d.dir, {
+        attemptId: status,
+        target,
+        eventIds: [JSON.stringify([run.id, d.admit.dispatchId, "finished"])],
+        at: new Date().toISOString(),
+        status,
+        msgId: status === "accepted" ? "queue-receipt" : null,
+        reason: null,
+      });
+    const commit = commitFiles(repo, ["src/a.ts"]);
+    for (let i = 0; i < 2; i++) {
+      await result(fakeDeps(), { run: run.id, name: d.admit.name });
+      expect((await refusal(land(fakeDeps(), landing(run.id, commit)))).code).toBe("E_LAND_GATE");
+    }
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
+  });
   it("refuses a milestone with no reviewer record and no verifier verdict, naming both", async () => {
     const { repo, run } = freshRun();
     const e = await refusal(land(fakeDeps(), landing(run.id, commitFiles(repo, ["src/a.ts"]))));

@@ -9,6 +9,7 @@ export type NoticePriority = "later" | "next";
 /** One role's news: it finished (`record`), or an event while it runs (`stall`). */
 export interface Notice {
   kind: "finished" | "stalled";
+  eventId: string;
   runId: string;
   runTitle: string;
   dispatchId: string;
@@ -62,9 +63,11 @@ const neutral = (s: string) => s.replace(/(cross)-(session)-(message)/gi, "$1 $2
 
 function block(n: Notice): string {
   const call = `run: "${n.runId}", name: "${n.name}"`;
-  if (n.kind === "stalled") return `${noticeHeader(n)}\nPeek: peek(${call})`;
+  if (n.kind === "stalled") return `${noticeHeader(n)}\nPeek: peek(${call})\nEvent: ${n.eventId}`;
   const reply = capNoticeReply(n.reply);
-  return [noticeHeader(n), ...(reply ? [reply] : []), `Record: result(${call})`].join("\n");
+  return [noticeHeader(n), ...(reply ? [reply] : []), `Record: result(${call})`, `Event: ${n.eventId}`].join(
+    "\n",
+  );
 }
 
 /** The preview line of a message that carries several roles: `catherd · <title> · 3 roles finished: …`. */

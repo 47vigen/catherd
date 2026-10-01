@@ -11,6 +11,8 @@ import {
   cancel,
   dispatch,
   settle,
+  settledHooks,
+  stallHooks,
   watch,
   watchersSettled,
 } from "../../src/services/dispatch-service.ts";
@@ -26,6 +28,10 @@ import {
 import * as finalize from "../../src/services/finalize.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { type Notifier, startNotifier } from "../../src/services/notifier.ts";
+import { finishedNotice, stalledNotice, retryDelivery } from "../../src/services/notifier.ts";
+import { readDelivery, deliveryState, writeDeliveryAttempt } from "../../src/infra/delivery.ts";
+import type { HostSessionRef } from "../../src/domain/host.ts";
+import * as codexQueue from "../../src/infra/codex-queue.ts";
 import { peek } from "../../src/services/peek.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { result } from "../../src/services/run-service.ts";
@@ -91,6 +97,404 @@ async function owned(o: { coalesceMs?: number } = {}) {
 }
 
 const recordOf = async (run: Run, d: Dispatch) => finalizeDispatch(run, d);
+
+const nativeTarget = (id = "0199c011-1234-7000-8000-000000000001"): HostSessionRef => ({
+  host: "codex",
+  sessionId: id,
+  hostSessionId: null,
+  name: null,
+});
+const nativeDeps = (target = nativeTarget()) =>
+  fakeDeps({ host: { host: target.host, session: target, conflict: null } });
+function barrier() {
+  let release!: () => void;
+  const promise = new Promise<void>((r) => {
+    release = r;
+  });
+  return { promise, release };
+}
+function nativeNotifier(
+  deps: ReturnType<typeof fakeDeps>,
+  sendCodex: NonNullable<import("../../src/services/notifier.ts").NotifierOptions["sendCodex"]>,
+) {
+  const n = startNotifier(deps, { coalesceMs: 0, sendCodex });
+  notifiers.push(n);
+  return n;
+}
+
+describe("native owner-scoped receipts", () => {
+  it("explicit retry cannot subscribe to unrelated completion/stall hooks", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await finished(run, "worker-M1.L1");
+    const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+    writeDeliveryAttempt(d.dir, {
+      attemptId: "ambiguous",
+      target: nativeTarget(),
+      eventIds: [eventId],
+      at: new Date().toISOString(),
+      status: "ambiguous",
+      msgId: null,
+      reason: null,
+    });
+    const entered = barrier(),
+      release = barrier();
+    const hookCounts = [settledHooks.size, stallHooks.size];
+    let calls = 0;
+    const send = spyOn(codexQueue, "sendToCodexQueue").mockImplementation(async () => {
+      calls++;
+      entered.release();
+      await release.promise;
+      return { outcome: "accepted", msgId: "retry" };
+    });
+    const pending = retryDelivery(deps, d.dir, eventId, { allowPossibleDuplicate: true });
+    try {
+      await entered.promise;
+      expect([settledHooks.size, stallHooks.size]).toEqual(hookCounts);
+      const unrelated = await finished(run, "worker-M1.L2");
+      await settle(deps, run, unrelated, await recordOf(run, unrelated));
+    } finally {
+      release.release();
+      await pending;
+      send.mockRestore();
+    }
+    expect(calls).toBe(1);
+  });
+
+  it("crash_after_submission: receipt-write failure leaves submitting, restart records ambiguity without another input", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await finished(run, "worker-M1.L1");
+    let sends = 0;
+    const n = nativeNotifier(deps, async () => {
+      sends++;
+      return { outcome: "accepted", msgId: "possibly-delivered" };
+    });
+    const write = store.writeJsonAtomic;
+    const fault = spyOn(store, "writeJsonAtomic").mockImplementation((file, data, options) => {
+      if (
+        file === dispatchPaths(d.dir).delivery &&
+        (data as { attempts: { status: string }[] }).attempts.some((a) => a.status === "accepted")
+      )
+        throw new Error("sender exited before durable receipt");
+      write(file, data, options);
+    });
+    try {
+      await n.scan();
+      await n.idle();
+    } finally {
+      fault.mockRestore();
+      n.stop();
+    }
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("submitting");
+    const restart = nativeNotifier(deps, async () => {
+      sends++;
+      return { outcome: "accepted", msgId: "duplicate" };
+    });
+    await restart.scan();
+    await restart.idle();
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("ambiguous");
+    expect(sends).toBe(1);
+  });
+  it("enqueue_not_collect: persists submitting before invocation, suppresses accepted repeats and result alone collects", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await finished(run, "worker-M1.L1");
+    const record = await recordOf(run, d);
+    const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+    let calls = 0;
+    const n = nativeNotifier(deps, async (target, content) => {
+      calls++;
+      expect(target).toEqual(nativeTarget());
+      expect(readDelivery(d.dir).at(-1)).toMatchObject({ status: "submitting", target, eventIds: [eventId] });
+      expect(content).toContain(eventId);
+      return { outcome: "accepted", msgId: "receipt" };
+    });
+    n.onSettled({ run, d, record, hints: [], started: null, pause: null, stateHints: [] });
+    await n.idle();
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("accepted");
+    expect(deliveryState(d.dir, nativeTarget(), eventId)).toBe("enqueue-accepted");
+    expect(awaitsCollect(d.dir)).toBe(true);
+    await n.scan();
+    n.onSettled({ run, d, record, hints: [], started: null, pause: null, stateHints: [] });
+    await n.idle();
+    expect(calls).toBe(1);
+    await result(deps, { run: run.id, name: d.admit.name });
+    await result(deps, { run: run.id, name: d.admit.name });
+    expect(awaitsCollect(d.dir)).toBe(false);
+    expect(readRecords(run).records).toHaveLength(1);
+    expect(listDispatches(run)).toHaveLength(1);
+  });
+
+  it("concurrent_coalesced_claims: every event shares a durable receipt and only one server sends", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const ds = [await finished(run, "worker-M1.L1"), await finished(run, "worker-M1.L2")];
+    const entered = barrier(),
+      release = barrier();
+    let calls = 0;
+    const sender: NonNullable<import("../../src/services/notifier.ts").NotifierOptions["sendCodex"]> = async (
+      _target,
+      content,
+    ) => {
+      calls++;
+      for (const d of ds) {
+        const id = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+        expect(content).toContain(id);
+        expect(readDelivery(d.dir).at(-1)?.eventIds).toContain(id);
+      }
+      entered.release();
+      await release.promise;
+      return { outcome: "accepted", msgId: "batch-receipt" };
+    };
+    const a = nativeNotifier(deps, sender),
+      b = nativeNotifier(deps, sender);
+    try {
+      await Promise.all([a.scan(), b.scan()]);
+      await entered.promise;
+      await b.scan();
+      expect(ds.map((d) => readDelivery(d.dir).at(-1)?.status)).toEqual(["submitting", "submitting"]);
+    } finally {
+      release.release();
+    }
+    await Promise.all([a.idle(), b.idle()]);
+    expect(calls).toBe(1);
+    for (const d of ds)
+      expect(readDelivery(d.dir).at(-1)).toMatchObject({
+        status: "accepted",
+        msgId: "batch-receipt",
+        eventIds: ds.map((x) => JSON.stringify([run.id, x.admit.dispatchId, "finished"])),
+      });
+  });
+
+  it("owner_changes_in_flight: an old receipt does not suppress the new owner, even across hosts with identical IDs", async () => {
+    const { run } = freshRun();
+    const old = nativeDeps();
+    await claimRun(old, run);
+    const d = await finished(run, "worker-M1.L1");
+    const entered = barrier(),
+      release = barrier();
+    const a = nativeNotifier(old, async () => {
+      entered.release();
+      await release.promise;
+      return { outcome: "accepted", msgId: "old" };
+    });
+    await a.scan();
+    await entered.promise;
+    const session = await sessionWithInbox(nativeTarget().sessionId);
+    const next = fakeDeps({ session });
+    const b = startNotifier(next, { coalesceMs: 0 });
+    notifiers.push(b);
+    try {
+      await claimRun(next, run);
+      await b.scan();
+    } finally {
+      release.release();
+    }
+    await Promise.all([a.idle(), b.idle()]);
+    await inbox!.received(1);
+    expect(inbox?.frames).toHaveLength(1);
+    expect(readDelivery(d.dir).map((x) => [x.target.host, x.status])).toEqual([
+      ["codex", "accepted"],
+      ["claude-code", "accepted"],
+    ]);
+  });
+
+  it("crash_after_submission / startup_accepted_ambiguous: orphan submitting becomes ambiguous, no automatic resend", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const ds = [
+      await finished(run, "worker-M1.L1"),
+      await finished(run, "worker-M1.L2"),
+      await finished(run, "worker-M1.L3"),
+    ];
+    for (const [i, d] of ds.entries())
+      writeDeliveryAttempt(d.dir, {
+        attemptId: `crashed-${i}`,
+        target: nativeTarget(),
+        eventIds: [JSON.stringify([run.id, d.admit.dispatchId, "finished"])],
+        at: new Date().toISOString(),
+        status: i === 0 ? "submitting" : i === 1 ? "accepted" : "ambiguous",
+        msgId: i === 1 ? "receipt" : null,
+        reason: null,
+      });
+    let sends = 0;
+    const n = nativeNotifier(deps, async () => {
+      sends++;
+      return { outcome: "accepted", msgId: "wrong" };
+    });
+    await n.scan();
+    await n.idle();
+    expect(sends).toBe(0);
+    expect(ds.map((d) => readDelivery(d.dir)[0]?.status)).toEqual(["ambiguous", "accepted", "ambiguous"]);
+    expect(ds.every((d) => awaitsCollect(d.dir))).toBe(true);
+  });
+
+  it("definite_failure_retry: failed can resend, ambiguous requires the explicit current-owner decision", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await finished(run, "worker-M1.L1");
+    let calls = 0;
+    const n = nativeNotifier(deps, async () =>
+      ++calls === 1
+        ? { outcome: "not-submitted", reason: "missing endpoint" }
+        : { outcome: "ambiguous", reason: "no receipt" },
+    );
+    await n.scan();
+    await n.idle();
+    expect(readDelivery(d.dir)[0]?.status).toBe("failed");
+    await n.scan();
+    await n.idle();
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("ambiguous");
+    await n.scan();
+    await n.idle();
+    expect(calls).toBe(2);
+    const eventId = JSON.stringify([run.id, d.admit.dispatchId, "finished"]);
+    const spy = spyOn(codexQueue, "sendToCodexQueue").mockResolvedValue({
+      outcome: "accepted",
+      msgId: "explicit",
+    });
+    try {
+      await expect(retryDelivery(deps, d.dir, "wrong", { allowPossibleDuplicate: true })).rejects.toThrow();
+      await expect(
+        retryDelivery(deps, d.dir, eventId, { allowPossibleDuplicate: false } as never),
+      ).rejects.toThrow();
+      await expect(
+        retryDelivery(nativeDeps(nativeTarget("0199c011-1234-7000-8000-000000000002")), d.dir, eventId, {
+          allowPossibleDuplicate: true,
+        }),
+      ).rejects.toThrow();
+      expect(spy).not.toHaveBeenCalled();
+      await retryDelivery(deps, d.dir, eventId, { allowPossibleDuplicate: true });
+      expect(readDelivery(d.dir).at(-1)).toMatchObject({ status: "accepted", msgId: "explicit" });
+      expect(awaitsCollect(d.dir)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("stall_finish_distinct: stalled send in flight and finished/new owner keep all attempts in one dispatch", async () => {
+    const { run } = freshRun();
+    const old = nativeDeps();
+    await claimRun(old, run);
+    const d = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const entered = barrier(),
+      release = barrier();
+    const a = nativeNotifier(old, async () => {
+      entered.release();
+      await release.promise;
+      return { outcome: "accepted", msgId: "stall" };
+    });
+    a.onStall({ run, d, quietMs: 60_000 });
+    await entered.promise;
+    const next = nativeDeps(nativeTarget("0199c011-1234-7000-8000-000000000002"));
+    const b = nativeNotifier(next, async () => ({ outcome: "accepted", msgId: "finish" }));
+    try {
+      writeJsonAtomicForExit(d.dir);
+      const record = await recordOf(run, d);
+      expect(finishedNotice(run, d, record).eventId).not.toBe(
+        stalledNotice(run, d, 60_000, Date.now()).eventId,
+      );
+      await claimRun(next, run);
+      b.onSettled({ run, d, record, hints: [], started: null, pause: null, stateHints: [] });
+      await b.idle();
+      expect(readDelivery(d.dir).map((x) => x.status)).toEqual(["submitting", "accepted"]);
+    } finally {
+      release.release();
+    }
+    await a.idle();
+    expect(readDelivery(d.dir).map((x) => [x.status, x.msgId])).toEqual([
+      ["accepted", "stall"],
+      ["accepted", "finish"],
+    ]);
+  });
+
+  it("legacy_marker_target: historical Claude mark suppresses only its timestamp owner without rewriting", async () => {
+    const { run } = freshRun();
+    const old = fakeDeps({
+      session: await sessionWithInbox("legacy"),
+      now: () => Date.parse("2026-09-30T00:00:00Z"),
+    });
+    await claimRun(old, run);
+    const d = await finished(run, "worker-M1.L1");
+    const marker = JSON.stringify({ schema: 1, msgId: "legacy", at: "2026-09-30T00:01:00Z" });
+    writeFileSync(dispatchPaths(d.dir).notified, marker);
+    const a = startNotifier(old, { coalesceMs: 0 });
+    notifiers.push(a);
+    await a.scan();
+    await a.idle();
+    expect(inbox?.frames).toHaveLength(0);
+    const next = nativeDeps();
+    await claimRun(next, run);
+    let sends = 0;
+    const b = nativeNotifier(next, async () => {
+      sends++;
+      return { outcome: "accepted", msgId: "new" };
+    });
+    await b.scan();
+    await b.idle();
+    expect(sends).toBe(1);
+    expect(readFileSync(dispatchPaths(d.dir).notified, "utf8")).toBe(marker);
+  });
+
+  it("a Claude error after a possible write remains ambiguous and its diagnostic cannot persist credentials", async () => {
+    const { run, deps, n } = await owned();
+    n.stop();
+    const d = await finished(run, "worker-M1.L1");
+    let sends = 0;
+    const again = startNotifier(deps, {
+      coalesceMs: 0,
+      send: async () => {
+        sends++;
+        return { outcome: "error", reason: "token=secret transport error" };
+      },
+    });
+    notifiers.push(again);
+    await again.scan();
+    await again.idle();
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("ambiguous");
+    expect(readFileSync(dispatchPaths(d.dir).delivery, "utf8")).not.toContain("secret");
+    await again.scan();
+    await again.idle();
+    expect(sends).toBe(1);
+  });
+
+  it("corrupt metadata and unknown/conflicting owner contexts never invoke a sender", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const d = await finished(run, "worker-M1.L1");
+    writeFileSync(dispatchPaths(d.dir).delivery, "{partial");
+    let sends = 0;
+    for (const host of [
+      deps.host,
+      { host: "unknown" as const, session: null, conflict: null },
+      { ...deps.host, conflict: "conflict" },
+    ]) {
+      const n = nativeNotifier(fakeDeps({ host }), async () => {
+        sends++;
+        return { outcome: "accepted", msgId: "wrong" };
+      });
+      await n.scan();
+      await n.idle();
+    }
+    expect(sends).toBe(0);
+    expect(
+      deliveryState(d.dir, nativeTarget(), JSON.stringify([run.id, d.admit.dispatchId, "finished"])),
+    ).toBe("ambiguous");
+    expect(readFileSync(dispatchPaths(d.dir).delivery, "utf8")).toBe("{partial");
+  });
+});
+
+function writeJsonAtomicForExit(dir: string) {
+  store.writeJsonAtomic(dispatchPaths(dir).exit, { schema: 1, ...exit() });
+}
 
 describe("the notifier (spec §3.4–§3.6)", () => {
   it("announces a finished role of a run this session owns, at later, and writes notified.json", async () => {
@@ -186,7 +590,7 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     n.stop();
     let fail = true;
     const flaky: typeof sendToInbox = (t, c, p) =>
-      fail ? Promise.resolve({ outcome: "error", reason: "socket gone" }) : sendToInbox(t, c, p);
+      fail ? Promise.resolve({ outcome: "no-session", reason: "socket gone" }) : sendToInbox(t, c, p);
     const again = startNotifier(deps, { coalesceMs: 20, send: flaky });
     notifiers.push(again);
     const d = await finished(run, "worker-M1.L1");

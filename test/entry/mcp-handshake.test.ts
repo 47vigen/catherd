@@ -13,8 +13,210 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LAUNCHER, mcpHandshake } from "../../src/entry/mcp/handshake.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
+import * as codexQueue from "../../src/infra/codex-queue.ts";
+import { type Notifier } from "../../src/services/notifier.ts";
+import * as notifier from "../../src/services/notifier.ts";
+import { settle } from "../../src/services/dispatch-service.ts";
+import { finalizeDispatch } from "../../src/services/finalize.ts";
+import { readDelivery } from "../../src/infra/delivery.ts";
 
 afterEach(snapshotEnv());
+
+it("observes both native request threads for future completion and invalidates membership on reinitialize/close", async () => {
+  const { run } = freshRun();
+  const deps = fakeDeps();
+  const first = "0199c011-1234-7000-8000-000000000001",
+    second = "0199c011-1234-7000-8000-000000000002";
+  const refs = [first, second].map((sessionId) => ({
+    host: "codex" as const,
+    sessionId,
+    hostSessionId: null,
+    name: null,
+  }));
+  const nextRun = (await import("../../src/services/run-store.ts")).createRun({
+    repo: run.meta.repo,
+    title: "second",
+    aLines: ["A1"],
+    version: "0",
+  });
+  await claimRun(fakeDeps({ host: { host: "codex", session: refs[0]!, conflict: null } }), run);
+  await claimRun(fakeDeps({ host: { host: "codex", session: refs[1]!, conflict: null } }), nextRun);
+  const contexts: import("../../src/services/ports.ts").Deps[] = [];
+  const active: Notifier[] = [];
+  const originalStart = notifier.startNotifier;
+  const start = spyOn(notifier, "startNotifier").mockImplementation((context) => {
+    contexts.push(context);
+    const n = originalStart(context, { coalesceMs: 0 });
+    active.push(n);
+    return n;
+  });
+  const send = spyOn(codexQueue, "sendToCodexQueue").mockResolvedValue({
+    outcome: "accepted",
+    msgId: "observed",
+  });
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "codex-mcp-client", version: "0" });
+  try {
+    await startMcpServer({ transport: serverSide, deps, sync: async () => {} });
+    await client.connect(clientSide);
+    await client.listTools();
+    for (const threadId of [first, second])
+      await client.callTool({ name: "status", arguments: {}, _meta: { threadId } });
+    expect(deps.host).toEqual({ host: "codex", session: null, conflict: null });
+    expect(contexts.flatMap((c) => (c.host.session ? [c.host.session.sessionId] : []))).toEqual([
+      first,
+      second,
+    ]);
+    for (const r of [run, nextRun]) {
+      const d = await fakeDispatch(
+        r,
+        { name: "worker-M1.L1" },
+        {
+          proc: "dead",
+          collect: true,
+          exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+        },
+      );
+      await settle(deps, r, d, await finalizeDispatch(r, d));
+      await Promise.all(active.map((n) => n.idle()));
+      expect(readDelivery(d.dir).at(-1)?.status).toBe("accepted");
+    }
+    expect(send.mock.calls.map((args) => args[0].sessionId)).toEqual([first, second]);
+    await client.notification({ method: "notifications/initialized" });
+    await client.listTools();
+    expect(contexts.slice(0, 3).every((c) => c.host.host === "unknown")).toBe(true);
+    const d = await fakeDispatch(
+      run,
+      { name: "worker-M1.L2" },
+      {
+        proc: "dead",
+        collect: true,
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+      },
+    );
+    await settle(deps, run, d, await finalizeDispatch(run, d));
+    await Promise.all(active.map((n) => n.idle()));
+    expect(send).toHaveBeenCalledTimes(2);
+    await client.callTool({ name: "status", arguments: {}, _meta: { threadId: "invalid" } });
+    await Promise.all(active.map((n) => n.idle()));
+    expect(send).toHaveBeenCalledTimes(2);
+    await client.callTool({ name: "status", arguments: {}, _meta: { threadId: first } });
+    await Promise.all(active.map((n) => n.idle()));
+    expect(send).toHaveBeenCalledTimes(3);
+    await client.close();
+    expect(contexts.every((c) => c.host.host === "unknown")).toBe(true);
+  } finally {
+    for (const n of active) n.stop();
+    await client.close();
+    start.mockRestore();
+    send.mockRestore();
+  }
+});
+
+it("close invalidates an observed thread and drops its pending coalesced completion", async () => {
+  const { run } = freshRun();
+  const deps = fakeDeps();
+  const threadId = "0199c011-1234-7000-8000-000000000001";
+  const target = { host: "codex" as const, sessionId: threadId, hostSessionId: null, name: null };
+  await claimRun(fakeDeps({ host: { host: "codex", session: target, conflict: null } }), run);
+  const original = notifier.startNotifier;
+  const active: Notifier[] = [];
+  const contexts: import("../../src/services/ports.ts").Deps[] = [];
+  const start = spyOn(notifier, "startNotifier").mockImplementation((context) => {
+    contexts.push(context);
+    const n = original(context, { coalesceMs: 60_000 });
+    active.push(n);
+    return n;
+  });
+  const send = spyOn(codexQueue, "sendToCodexQueue").mockResolvedValue({
+    outcome: "accepted",
+    msgId: "wrong",
+  });
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "codex-mcp-client", version: "0" });
+  try {
+    await startMcpServer({ transport: serverSide, deps, sync: async () => {} });
+    await client.connect(clientSide);
+    await client.listTools();
+    await client.callTool({ name: "status", arguments: {}, _meta: { threadId } });
+    const d = await fakeDispatch(
+      run,
+      {},
+      {
+        proc: "dead",
+        collect: true,
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+      },
+    );
+    await settle(deps, run, d, await finalizeDispatch(run, d));
+    await client.close();
+    await Promise.all(active.map((n) => n.idle()));
+    expect(contexts.every((c) => c.host.host === "unknown")).toBe(true);
+    expect(readDelivery(d.dir)).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+  } finally {
+    for (const n of active) n.stop();
+    await client.close();
+    start.mockRestore();
+    send.mockRestore();
+  }
+});
+
+it("a conflicting native request cannot become a future delivery target", async () => {
+  const { run } = freshRun();
+  const first = "0199c011-1234-7000-8000-000000000001",
+    second = "0199c011-1234-7000-8000-000000000002";
+  process.env.CODEX_THREAD_ID = first;
+  const deps = fakeDeps();
+  await claimRun(
+    fakeDeps({
+      host: {
+        host: "codex",
+        session: { host: "codex", sessionId: second, hostSessionId: null, name: null },
+        conflict: null,
+      },
+    }),
+    run,
+  );
+  const original = notifier.startNotifier;
+  const active: Notifier[] = [];
+  const start = spyOn(notifier, "startNotifier").mockImplementation((context) => {
+    const n = original(context, { coalesceMs: 0 });
+    active.push(n);
+    return n;
+  });
+  const send = spyOn(codexQueue, "sendToCodexQueue").mockResolvedValue({
+    outcome: "accepted",
+    msgId: "wrong",
+  });
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "codex-mcp-client", version: "0" });
+  try {
+    await startMcpServer({ transport: serverSide, deps, sync: async () => {} });
+    await client.connect(clientSide);
+    await client.listTools();
+    await client.callTool({ name: "status", arguments: {}, _meta: { threadId: second } });
+    const d = await fakeDispatch(
+      run,
+      {},
+      {
+        proc: "dead",
+        collect: true,
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+      },
+    );
+    await settle(deps, run, d, await finalizeDispatch(run, d));
+    await Promise.all(active.map((n) => n.idle()));
+    expect(readDelivery(d.dir)).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+    expect(deps.host.session?.sessionId).toBe(first);
+  } finally {
+    await client.close();
+    for (const n of active) n.stop();
+    start.mockRestore();
+    send.mockRestore();
+  }
+});
 
 const BIN = join(import.meta.dir, "..", "bin");
 

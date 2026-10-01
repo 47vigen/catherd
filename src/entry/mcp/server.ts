@@ -3,10 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { HostContext } from "../../domain/host.ts";
+import { sessionKey, type HostContext } from "../../domain/host.ts";
 import { errorMessage } from "../../domain/errors.ts";
 import { resolveHost } from "../../infra/host-context.ts";
 import { log } from "../../infra/log.ts";
+import { currentSession } from "../../services/sessions.ts";
 import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
 import { reconcileAll } from "../../services/reconcile.ts";
@@ -19,6 +20,8 @@ import { sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
 
+type ObserveSession = (context: Deps) => (() => void) | undefined;
+
 type Handler = (...args: unknown[]) => CallToolResult | Promise<CallToolResult>;
 
 /** Spec §10.2: every tool call is logged with its duration and outcome (the error code), never its input. */
@@ -27,6 +30,7 @@ function logToolCalls(
   deps: Deps,
   scope: AsyncLocalStorage<Deps>,
   generation: () => number,
+  observe?: ObserveSession,
 ): void {
   const register = server.registerTool.bind(server) as unknown as (
     n: string,
@@ -49,15 +53,15 @@ function logToolCalls(
               })
             : { host: "unknown", session: null, conflict: "Codex _meta.threadId must be a UUID string" };
       }
-      const r = await scope.run(
-        {
-          ...deps,
-          get host(): HostContext {
-            return epoch === generation() ? host : { host: "unknown", session: null, conflict: null };
-          },
+      const context: Deps = {
+        ...deps,
+        get host(): HostContext {
+          return epoch === generation() ? host : { host: "unknown", session: null, conflict: null };
         },
-        () => handler(...args),
-      );
+      };
+      const after = observe?.(context);
+      const r = await scope.run(context, () => handler(...args));
+      after?.();
       const code = r.isError ? (r.structuredContent as { code?: string } | undefined)?.code : undefined;
       log(r.isError ? "warn" : "info", "tool", {
         tool: name,
@@ -69,7 +73,7 @@ function logToolCalls(
     });
 }
 
-export function buildServer(deps: Deps = defaultDeps()): McpServer {
+export function buildServer(deps: Deps = defaultDeps(), observe?: ObserveSession): McpServer {
   const server = new McpServer({ name: "catherd", version: deps.version });
   const scope = new AsyncLocalStorage<Deps>();
   const scoped: Deps = new Proxy(deps, {
@@ -81,7 +85,7 @@ export function buildServer(deps: Deps = defaultDeps()): McpServer {
     generation++;
     deps.host = { host: "unknown", session: null, conflict: null };
   };
-  logToolCalls(server, deps, scope, () => generation);
+  logToolCalls(server, deps, scope, () => generation, observe);
   deps.host = { host: "unknown", session: null, conflict: null };
   server.server.oninitialized = () => {
     invalidate();
@@ -110,7 +114,21 @@ export async function startMcpServer(
   o: { transport?: Transport; sync?: () => Promise<unknown>; deps?: Deps } = {},
 ): Promise<void> {
   const deps = o.deps ?? defaultDeps();
-  const server = buildServer(deps);
+  const observed = new Map<string, ReturnType<typeof startNotifier>>();
+  const server = buildServer(deps, (context) => {
+    const target = currentSession(context);
+    if (!target) return;
+    const key = sessionKey(target);
+    let active = observed.get(key);
+    if (!active) {
+      active = startNotifier(context);
+      observed.set(key, active);
+    }
+    const n = active;
+    return () => {
+      if (observed.get(key) === n) void n.scan();
+    };
+  });
   const initialized = server.server.oninitialized!;
   const closed = server.server.onclose!;
   let generation = 0;
@@ -121,6 +139,8 @@ export async function startMcpServer(
     if (recovery) recovery.host = { host: "unknown", session: null, conflict: null };
     notifier?.stop();
     notifier = undefined;
+    for (const n of observed.values()) n.stop();
+    observed.clear();
     closed();
   };
   server.server.onclose = invalidate;
@@ -140,6 +160,8 @@ export async function startMcpServer(
     const context = recovery;
     notifier = startNotifier(context);
     const active = notifier;
+    const target = currentSession(context);
+    if (target) observed.set(sessionKey(target), active);
     void Promise.resolve()
       .then(() => {
         if (epoch === generation) return (o.sync ?? (() => backgroundSync()))();
