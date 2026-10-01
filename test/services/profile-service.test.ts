@@ -567,3 +567,88 @@ it("Codex-only saves and activation preserve existing Claude links byte for byte
     expect(readFileSync(join(claudeAgentsDir(), f.name), "utf8")).toBe(f.text);
   }
 });
+
+it("Codex host switches preserve the same profile's omitted-default Claude artifacts", () => {
+  withHome();
+  const repo = tempRepo();
+  resetProfile("default", "claude-code");
+  const before = DEFAULT_AGENTS.map((name) => ({
+    name,
+    target: readlinkSync(join(claudeAgentsDir(), `${name}.md`)),
+    text: readFileSync(join(claudeAgentsDir(), `${name}.md`), "utf8"),
+  }));
+  expect(patchProfile("default", { budget: { usd: 2 } }, { host: "codex" }).saved).toBe(true);
+  expect(activate("default", null, "codex").pruned).toEqual([]);
+  expect(activate("default", repo, "codex").pruned).toEqual([]);
+  expect(unbind(repo, "codex").pruned).toEqual([]);
+  expect(links()).toEqual(DEFAULT_AGENTS.map((name) => `${name}.md`));
+  for (const f of before) {
+    expect(readlinkSync(join(claudeAgentsDir(), `${f.name}.md`))).toBe(f.target);
+    expect(readFileSync(join(claudeAgentsDir(), `${f.name}.md`), "utf8")).toBe(f.text);
+  }
+});
+
+for (const host of ["claude-code", "codex"] as const)
+  it(`prunes owned agents when a profile loses its last native role on ${host}`, () => {
+    withHome();
+    expect(resetProfile("default", "claude-code").saved).toBe(true);
+    if (host === "codex")
+      writeFileSync(
+        file("default"),
+        JSON.stringify({ ...defaultProfileDoc(), roles: structuredClone(BUILTIN_ROLES) }),
+      );
+    writeFileSync(join(claudeAgentsDir(), "mine.md"), "user agent");
+    const r = patchProfile(
+      "default",
+      {
+        roles: {
+          architect: { rungs: ["codex:gpt-6-sol#high"], defaultRung: null },
+          verifier: { rungs: ["codex:gpt-6-sol#low"], defaultRung: null },
+        },
+      },
+      { host },
+    );
+    expect(r.saved).toBe(true);
+    expect(r.pruned).toEqual(DEFAULT_AGENTS.map((name) => `${name}.md`));
+    expect(r.newSessionNeededFor).toEqual(DEFAULT_AGENTS);
+    expect(links()).toEqual(["mine.md"]);
+    expect(readFileSync(join(claudeAgentsDir(), "mine.md"), "utf8")).toBe("user agent");
+    expect(existsSync(join(agentsRoot(), "default"))).toBe(false);
+  });
+
+it("Codex deletion cleans a removed profile's owned artifacts without touching other profiles or user agents", () => {
+  withHome();
+  createProfile("team", undefined, "claude-code");
+  createProfile("other", undefined, "claude-code");
+  const gone = tempRepo();
+  const kept = tempRepo();
+  activate("team", gone, "claude-code");
+  activate("other", kept, "claude-code");
+  writeFileSync(join(claudeAgentsDir(), "mine.md"), "user agent");
+  const other = links().filter((name) => !name.startsWith("catherd-team-"));
+  const before = other.map((name) => ({
+    name,
+    target: name === "mine.md" ? null : readlinkSync(join(claudeAgentsDir(), name)),
+    text: readFileSync(join(claudeAgentsDir(), name), "utf8"),
+  }));
+  const removed = links().filter((name) => name.startsWith("catherd-team-"));
+  rmSync(gone, { recursive: true, force: true });
+  const r = deleteProfile("team", "codex");
+  expect(r.pruned).toEqual(removed);
+  expect(r.newSessionNeededFor).toEqual(removed.map((name) => name.slice(0, -3)));
+  expect(existsSync(join(agentsRoot(), "team"))).toBe(false);
+  expect(readProjects().bindings).toEqual({ [kept]: "other" });
+  expect(links()).toEqual(other);
+  for (const f of before) {
+    if (f.target !== null) expect(readlinkSync(join(claudeAgentsDir(), f.name))).toBe(f.target);
+    expect(readFileSync(join(claudeAgentsDir(), f.name), "utf8")).toBe(f.text);
+  }
+});
+
+it("Codex deletion without owned artifacts creates no Claude files", () => {
+  withHome();
+  createProfile("unused", undefined, "codex");
+  expect(deleteProfile("unused", "codex")).toEqual({ linked: [], pruned: [], newSessionNeededFor: [] });
+  expect(existsSync(claudeAgentsDir())).toBe(false);
+  expect(existsSync(agentsRoot())).toBe(false);
+});

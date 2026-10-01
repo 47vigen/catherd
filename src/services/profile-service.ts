@@ -18,12 +18,12 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { repairs, type Validation } from "../domain/profile-rules.ts";
+import { nativeClaudeIssue, repairs, type Validation } from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
-import { apply, plan, type Synced } from "./agent-links.ts";
+import { apply, plan, pruneProfileAgents, type Synced } from "./agent-links.ts";
 import { loadCatalog } from "./catalog-service.ts";
 import type { ProfilePort, ProfileSaved, ProfileView } from "./ports.ts";
 import {
@@ -59,9 +59,10 @@ const writeDoc = (name: string, doc: ProfileDoc) => writeJsonAtomic(profileFile(
 /** Writes `doc` as profile `name` and relinks; when the relink refuses, puts the profile back as it was. */
 function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost): Synced {
   const before = existsSync(profileFile(name)) ? readFileSync(profileFile(name), "utf8") : null;
+  const hadNative = before !== null && agentFiles(getProfile(name, host), "").length > 0;
   writeDoc(name, doc);
   try {
-    return syncFor(name, host, [name]);
+    return syncFor(name, host, [name], host === "claude-code" || hadNative);
   } catch (e) {
     if (before === null) rmSync(profileFile(name), { force: true });
     else writeTextAtomic(profileFile(name), before);
@@ -77,9 +78,21 @@ const validate = (doc: ProfileDoc, name: string, host: OrchestrationHost): Valid
     return { errors: [{ path: "roles", message: e.message, fix: e.fix }], warnings: [] };
   }
 };
-const emptySync = (): Synced => ({ linked: [], pruned: [], newSessionNeededFor: [] });
-function syncFor(name: string, host: OrchestrationHost, extra: string[] = []): Synced {
-  return agentFiles(getProfile(name, host), "").length ? apply(plan(host, extra)) : emptySync();
+function nativeAgents(name: string, host: OrchestrationHost) {
+  const files = agentFiles(getProfile(name, host), "");
+  const first = files[0];
+  const issue = first && nativeClaudeIssue(first.rung, host, `roles.${first.role}.rungs`);
+  if (issue) throw new CatherdError("E_CONFIG_INVALID", issue.message, { fix: issue.fix });
+  return files;
+}
+function syncFor(
+  name: string,
+  host: OrchestrationHost,
+  extra: string[] = [],
+  allowPrune = host === "claude-code",
+): Synced {
+  if (nativeAgents(name, host).length) return apply(plan(host, extra));
+  return allowPrune ? pruneProfileAgents(name) : { linked: [], pruned: [], newSessionNeededFor: [] };
 }
 
 /** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
@@ -168,7 +181,7 @@ export function resetProfile(name: string, host: OrchestrationHost): Saved {
  * Spec §7.3 `delete`: never the active profile or a repo-bound one; its agent files go with it. A binding
  * whose repo no longer exists does not count: it is pruned with the profile.
  */
-export function deleteProfile(name: string, host: OrchestrationHost): Synced {
+export function deleteProfile(name: string, _host: OrchestrationHost): Synced {
   return locked(() => {
     assertProfileName(name);
     if (!existsSync(profileFile(name)))
@@ -186,7 +199,6 @@ export function deleteProfile(name: string, host: OrchestrationHost): Synced {
       throw new CatherdError("E_INPUT_INVALID", `"${name}" is bound to ${bound.join(", ")}`, {
         fix: "run catherd profile use --repo --clear (or use <name> --repo) inside each of those repos",
       });
-    const native = agentFiles(getProfile(name, host), "").length > 0;
     const text = readFileSync(profileFile(name), "utf8");
     rmSync(profileFile(name), { force: true });
     const gone = new Set(mine);
@@ -196,7 +208,7 @@ export function deleteProfile(name: string, host: OrchestrationHost): Synced {
         bindings: Object.fromEntries(Object.entries(projects.bindings).filter(([r]) => !gone.has(r))),
       });
     try {
-      return native ? apply(plan(host), [name]) : emptySync();
+      return pruneProfileAgents(name);
     } catch (e) {
       writeTextAtomic(profileFile(name), text);
       if (gone.size) writeJsonAtomic(projectsFile(), projects);
@@ -217,6 +229,7 @@ export function activate(
       throw new CatherdError("E_INPUT_INVALID", `no profile named "${name}"`, {
         fix: "catherd profile list",
       });
+    nativeAgents(name, host);
     const config = readConfig();
     const projects = readProjects();
     const write = () =>

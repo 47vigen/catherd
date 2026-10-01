@@ -29,10 +29,11 @@ function track(pid: number): void {
 export async function runCli(
   bin: string,
   args: string[],
-  o: { timeoutMs: number; env?: Record<string, string>; cwd?: string },
+  o: { timeoutMs: number; env?: Record<string, string>; cwd?: string; logArgs?: string[] },
 ): Promise<CliResult | null> {
   if (!Bun.which(bin, { PATH: process.env.PATH ?? "" })) return null;
-  log("debug", "spawn", { argv: [bin, ...args], env: scrubSecrets(o.env ?? {}) });
+  const logArgs = o.logArgs ?? args;
+  log("debug", "spawn", { argv: [bin, ...logArgs], env: scrubSecrets(o.env ?? {}) });
   const p = Bun.spawn([bin, ...args], {
     cwd: o.cwd,
     env: scrubSecrets({ ...process.env, ...o.env }),
@@ -53,7 +54,7 @@ export async function runCli(
     ]);
     if (!done) {
       killGroup(p.pid, "SIGKILL");
-      return { ok: false, out: "", err: `${bin} ${args.join(" ")} timed out after ${o.timeoutMs} ms` };
+      return { ok: false, out: "", err: `${bin} ${logArgs.join(" ")} timed out after ${o.timeoutMs} ms` };
     }
     const [code, out, err] = done;
     return { ok: code === 0, out, err };

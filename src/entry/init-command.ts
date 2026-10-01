@@ -13,6 +13,7 @@ import { type SyncReport, syncSources } from "../services/source-sync.ts";
 import { reinstallCommand } from "../services/doctor-checks.ts";
 import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../services/global-install.ts";
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
+import { activeName } from "../services/profile-store.ts";
 import { formatRefreshed, syncLines } from "./catalog-command.ts";
 import { mark as markOf } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
@@ -205,7 +206,10 @@ export const initCommand = defineCommand({
       type: "boolean",
       description: "do not install the global catherd command (bun add -g catherd-cli@<this version>)",
     },
-    profile: { type: "string", description: "the profile to set up and make active (default: default)" },
+    profile: {
+      type: "string",
+      description: "the profile to set up and make active (default: current repo profile)",
+    },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
@@ -221,19 +225,21 @@ export const initCommand = defineCommand({
       await jevStep(ask, {}, plain);
       await aaStep(ask, {}, plain);
       await syncStep({ plain });
-      if (args.profile !== undefined) ask?.skip?.();
-      const name = assertProfileName(
-        args.profile ?? (ask ? (await ask.ask("Profile to set up [default]: ")) || "default" : "default"),
-      );
+      const repo = await gitToplevel(process.cwd());
       // 0.x files go first, so a legacy profile about to be moved aside is never asked about
       const moved = moveLegacy();
+      const current = activeName(repo);
+      if (args.profile !== undefined) ask?.skip?.();
+      const selected =
+        args.profile ?? (ask ? (await ask.ask(`Profile to set up [${current}]: `)) || undefined : undefined);
+      const name = assertProfileName(selected ?? current);
       const exists = hasProfileFile(name);
       if (!exists) ask?.skip?.();
       const overwrite =
         ask !== null &&
         exists &&
         /^y(es)?$/i.test(await ask.ask(`Replace profile ${name} with the default profile? [y/N] `));
-      const r = await initSetup({ profile: name, overwrite, host: terminalHost(args.host) });
+      const r = await initSetup({ profile: selected, repo, overwrite, host: terminalHost(args.host) });
       for (const f of [...moved, ...r.moved]) console.log(`${mark("ok")} moved a 0.x file aside: ${f}`);
       for (const l of profileLines(r, plain)) console.log(l);
       if (r.synced?.linked.length)
@@ -242,7 +248,7 @@ export const initCommand = defineCommand({
       console.log("");
       const report = await doctor({
         host: terminalHost(args.host),
-        repo: await gitToplevel(process.cwd()),
+        repo,
         bunVersion: Bun.version,
         version: VERSION,
         handshake: () => mcpHandshake(),

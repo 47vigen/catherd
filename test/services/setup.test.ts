@@ -2,19 +2,21 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { adapterFor } from "../../src/adapters/registry.ts";
+import { BUILTIN_ROLES, defaultProfileDoc } from "../../src/domain/profile.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { credentialsPath, jevKey } from "../../src/services/jev-service.ts";
-import { patchProfile } from "../../src/services/profile-service.ts";
+import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import {
   agentsRoot,
+  activeName,
   configFile,
   getProfile,
   profilesDir,
   projectsFile,
 } from "../../src/services/profile-store.ts";
 import { initSetup, moveLegacy } from "../../src/services/setup.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -134,6 +136,48 @@ it("initializes Codex omitted defaults without creating Claude files", async () 
   expect(r.synced?.linked).toEqual([]);
   expect(getProfile("default", "codex").roles.verifier.rungs).toEqual(["codex:gpt-6.1-sol#low"]);
   expect(existsSync(claudeAgentsDir())).toBe(false);
+});
+
+it("setup selects the effective repo profile when its name is omitted", async () => {
+  withHome();
+  const repo = tempRepo();
+  process.env.PATH = "/nonexistent";
+  delete process.env.ANTHROPIC_API_KEY;
+  patchProfile("team", { budget: { usd: 7 } }, { host: "codex" });
+  activate("team", repo, "codex");
+  const r = await initSetup({ repo, host: { host: "codex", session: null, conflict: null } });
+  expect([r.profile, r.created, r.active]).toEqual(["team", false, true]);
+  expect(activeName()).toBe("default");
+  expect(activeName(repo)).toBe("team");
+  expect(existsSync(claudeAgentsDir())).toBe(false);
+  const explicit = await initSetup({
+    profile: "chosen",
+    repo,
+    host: { host: "codex", session: null, conflict: null },
+  });
+  expect(explicit.profile).toBe("chosen");
+  expect(activeName()).toBe("chosen");
+  expect(activeName(repo)).toBe("team");
+  expect(existsSync(claudeAgentsDir())).toBe(false);
+});
+
+it("Codex setup rejects selected explicit native Claude roles before linking", async () => {
+  withHome();
+  process.env.PATH = "/nonexistent";
+  delete process.env.ANTHROPIC_API_KEY;
+  mkdirSync(profilesDir(), { recursive: true });
+  const file = join(profilesDir(), "default.json");
+  const bytes = JSON.stringify({ ...defaultProfileDoc(), roles: structuredClone(BUILTIN_ROLES) });
+  writeFileSync(file, bytes);
+  await expect(initSetup({ host: { host: "codex", session: null, conflict: null } })).rejects.toThrow(
+    expect.objectContaining({
+      code: "E_CONFIG_INVALID",
+      fix: expect.stringContaining("claude-code:claude-opus-5-5#high"),
+    }),
+  );
+  expect(readFileSync(file, "utf8")).toBe(bytes);
+  expect(existsSync(claudeAgentsDir())).toBe(false);
+  expect(existsSync(configFile())).toBe(false);
 });
 
 it("Codex-only setup skips unused Claude discovery, while selected headless and Claude host setup retain it", async () => {

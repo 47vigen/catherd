@@ -8,7 +8,14 @@ import { configDir } from "../infra/paths.ts";
 import { type Refreshed, refreshDiscovery } from "./catalog-service.ts";
 import type { Synced } from "./agent-links.ts";
 import { activate, resetProfile, withProfilesLock } from "./profile-service.ts";
-import { configFile, getProfile, profilesDir, projectsFile } from "./profile-store.ts";
+import {
+  activeName,
+  configFile,
+  getProfile,
+  profilesDir,
+  projectsFile,
+  readProjects,
+} from "./profile-store.ts";
 import { ensurePrivateDir } from "../infra/store.ts";
 
 /** True when profile `name` has a file (`default` exists as a name even before it has one). */
@@ -73,12 +80,13 @@ export interface InitResult {
  */
 export async function initSetup(o: {
   profile?: string;
+  repo?: string | null;
   overwrite?: boolean;
   now?: Date;
   host: HostContext;
 }): Promise<InitResult> {
   const moved = moveLegacy(o.now);
-  const profile = o.profile ?? "default";
+  const profile = o.profile ?? activeName(o.repo);
   let created = false;
   let errors: Issue[] = [];
   if (!hasProfileFile(profile) || o.overwrite === true) {
@@ -87,7 +95,9 @@ export async function initSetup(o: {
     errors = saved.errors;
   }
   const active = hasProfileFile(profile);
-  const synced = active ? activate(profile, null, o.host.host) : null;
+  const repo =
+    o.profile === undefined && o.repo && readProjects().bindings[o.repo] !== undefined ? o.repo : null;
+  const synced = active ? activate(profile, repo, o.host.host) : null;
   const used = usedBackends(active ? [getProfile(profile, o.host.host)] : []);
   const backends =
     o.host.host === "codex" && !used.has("claude-code")

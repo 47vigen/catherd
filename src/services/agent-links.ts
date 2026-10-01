@@ -72,6 +72,27 @@ export interface Synced {
   newSessionNeededFor: string[];
 }
 
+export function pruneProfileAgents(name: string): Synced {
+  const dir = join(agentsRoot(), name);
+  const pruned: string[] = [];
+  const target = claudeAgentsDir();
+  if (existsSync(target))
+    for (const entry of readdirSync(target)) {
+      const link = join(target, entry);
+      if (isOurLink(link) && readlinkSync(link).startsWith(`${dir}${sep}`)) {
+        rmSync(link);
+        pruned.push(entry);
+      }
+    }
+  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  pruned.sort();
+  return {
+    linked: [],
+    pruned,
+    newSessionNeededFor: pruned.map((entry) => basename(entry, ".md")),
+  };
+}
+
 /**
  * Writes the planned agent files and links, prunes catherd's stale ones, and says what changed. The
  * ownership check runs before the first write, so no caller can replace a file catherd does not own.

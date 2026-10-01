@@ -1,10 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tempDir } from "../helpers.ts";
-import type { runCli } from "../../src/adapters/cli.ts";
+import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
+import { runCli } from "../../src/adapters/cli.ts";
 import type { HostSessionRef } from "../../src/domain/host.ts";
 import { queueCapability, sendToCodexQueue } from "../../src/infra/codex-queue.ts";
+import { log, logFile } from "../../src/infra/log.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 
 const thread = "01a0f53b-a47d-7350-83a4-c3430e453404";
@@ -17,6 +18,8 @@ const help = {
 };
 const receipt = { ok: true, out: `Queued message ${msgId} for thread ${thread}.\n`, err: "" };
 
+afterEach(snapshotEnv());
+
 function runner(result: Awaited<ReturnType<typeof runCli>>) {
   const calls: Parameters<typeof runCli>[] = [];
   const run: typeof runCli = async (...args) => {
@@ -27,6 +30,50 @@ function runner(result: Awaited<ReturnType<typeof runCli>>) {
 }
 
 describe("native Codex queue", () => {
+  it("queue_payload_logging: delivers literal content without retaining it in debug rows", async () => {
+    withHome();
+    process.env.CATHERD_LOG = "debug";
+    process.env.PATH = simPath();
+    const envTo = join(tempDir("catherd-queue-"), "calls.jsonl");
+    const s = withScenario({ queue: "accepted", envTo });
+    const content = `private-completion-sentinel ' " $(never-run)\nsource and user content`;
+    expect(
+      await sendToCodexQueue(target, content, { ...s.env, PATH: process.env.PATH, ANTHROPIC_API_KEY: "" }),
+    ).toEqual({ outcome: "accepted", msgId });
+    const calls = readFileSync(envTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(calls[1].args).toEqual(["queue", "--remote", "unix://", "--thread", thread, "--message", content]);
+    const rows = readFileSync(logFile(), "utf8");
+    expect(rows).toContain('"argv":["codex","queue","--help"]');
+    expect(rows).toContain('"--message"');
+    expect(rows).not.toContain("private-completion-sentinel");
+    expect(rows).not.toContain("source and user content");
+  });
+
+  it("queue_payload_logging: omits completion content from timeout diagnostics", async () => {
+    withHome();
+    process.env.CATHERD_LOG = "debug";
+    const content = "private-timeout-sentinel source and user content";
+    let diagnostic = "";
+    const run: typeof runCli = async (_bin, args, options) => {
+      if (args.includes("--help")) return help;
+      const result = await runCli(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", ...args], {
+        ...options,
+        timeoutMs: 100,
+        env: { ...options.env, ANTHROPIC_API_KEY: "" },
+      });
+      diagnostic = result?.err ?? "";
+      log("warn", "queue-timeout", { diagnostic });
+      return result;
+    };
+    expect((await sendToCodexQueue(target, content, {}, run)).outcome).toBe("ambiguous");
+    expect(diagnostic).toContain("timed out after 100 ms");
+    expect(diagnostic).not.toContain(content);
+    expect(readFileSync(logFile(), "utf8")).not.toContain("private-timeout-sentinel");
+  });
+
   it("validated_uuid_array: passes text literally and keeps original UUID", async () => {
     const r = runner(receipt);
     const content = `quotes ' " $(touch /tmp/never)\nsecond line`;

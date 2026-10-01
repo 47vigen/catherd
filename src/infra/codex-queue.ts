@@ -69,14 +69,12 @@ export async function sendToCodexQueue(
       reason: capability.reason ?? "Native queue is unavailable; use peek/result.",
     };
   try {
-    const result = await run(
-      "codex",
-      ["queue", "--remote", "unix://", "--thread", target.sessionId, "--message", content],
-      {
-        timeoutMs: TIMEOUT_MS,
-        env: scrubSecrets({ ...process.env, ...env }),
-      },
-    );
+    const args = ["queue", "--remote", "unix://", "--thread", target.sessionId, "--message", content];
+    const result = await run("codex", args, {
+      timeoutMs: TIMEOUT_MS,
+      env: scrubSecrets({ ...process.env, ...env }),
+      logArgs: [...args.slice(0, -1), "[redacted]"],
+    });
     if (result === null)
       return { outcome: "not-submitted", reason: "Codex executable is unavailable; use peek/result." };
     const match = result.ok ? receipt.exec(result.out.trim()) : null;
