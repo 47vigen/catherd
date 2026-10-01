@@ -318,14 +318,24 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
               ? "Transport did not submit input; check native transport and use peek/result."
               : "No verified receipt; retry may duplicate input. Use peek/result.",
       };
-      for (const q of due) writeDeliveryAttempt(q.dir, receipt);
+      // the outcome is known for every notice: one damaged delivery file never discards it for the others
+      for (const q of due)
+        try {
+          writeDeliveryAttempt(q.dir, receipt);
+        } catch (e) {
+          log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
+        }
       const live = currentSession(deps);
       const stillHere = !stopped && live !== null && sessionKey(live) === sessionKey(target);
       const marked = due.filter((q) => stillHere && owned(q.run));
       if (receipt.status === "accepted" && target.host === "claude-code")
         for (const q of marked)
-          if (!existsSync(q.mark))
-            writeJsonAtomic(q.mark, { schema: 1, msgId: receipt.msgId, at: receipt.at });
+          try {
+            if (!existsSync(q.mark))
+              writeJsonAtomic(q.mark, { schema: 1, msgId: receipt.msgId, at: receipt.at });
+          } catch (e) {
+            log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
+          }
       log(receipt.status === "accepted" ? "info" : "warn", "notify", {
         outcome: receipt.status,
         msgId: receipt.msgId,

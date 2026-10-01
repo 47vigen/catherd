@@ -301,6 +301,33 @@ describe("native owner-scoped receipts", () => {
     }
   });
 
+  it("a receipt that cannot be persisted for one notice is still recorded for the batch's others", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const bad = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const good = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    for (const d of [bad, good])
+      store.writeJsonAtomic(dispatchPaths(d.dir).stall, { schema: 1, quietMs: 60_000 });
+    const real = delivery.writeDeliveryAttempt;
+    const spy = spyOn(delivery, "writeDeliveryAttempt").mockImplementation((dir, attempt) => {
+      if (dir === bad.dir && attempt.status !== "submitting") throw new Error("disk full");
+      real(dir, attempt);
+    });
+    const n = nativeNotifier(deps, async () => ({ outcome: "not-submitted", reason: "socket closed" }));
+    try {
+      await n.scan();
+      await n.idle();
+      // a known non-submission stays retryable for the healthy notice, not ambiguous
+      expect(readDelivery(good.dir).map((a) => a.status)).toEqual(["failed"]);
+      expect(readDelivery(bad.dir).map((a) => a.status)).toEqual(["submitting"]);
+    } finally {
+      spy.mockRestore();
+      writeJsonAtomicForExit(bad.dir);
+      writeJsonAtomicForExit(good.dir);
+    }
+  });
+
   it("persisted_stall_scan: exited stalls are dropped on scan and again before delivery", async () => {
     const { run } = freshRun();
     const deps = nativeDeps();
