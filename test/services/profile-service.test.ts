@@ -32,11 +32,13 @@ import {
   listProfiles,
   profileFor,
   profilesDir,
+  projectsFile,
   readProfileDoc,
   readProjects,
   roleEnforcement,
   validateNamed,
 } from "../../src/services/profile-store.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -379,11 +381,9 @@ describe("create, delete, diff", () => {
     createProfile("team", undefined, "claude-code");
     const repo = tempRepo();
     activate("team", repo, "claude-code");
-    expect(() => deleteProfile("default", "claude-code")).toThrow(
-      expect.objectContaining({ code: "E_INPUT_INVALID" }),
-    );
-    expect(() => deleteProfile("team", "claude-code")).toThrow(`bound to ${repo}`);
-    deleteProfile("fast", "claude-code");
+    expect(() => deleteProfile("default")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+    expect(() => deleteProfile("team")).toThrow(`bound to ${repo}`);
+    deleteProfile("fast");
     expect(listProfiles()).toEqual(["default", "team"]);
     expect(existsSync(join(agentsRoot(), "fast"))).toBe(false);
   });
@@ -397,7 +397,7 @@ describe("create, delete, diff", () => {
     activate("team", gone, "claude-code");
     activate("other", kept, "claude-code");
     rmSync(gone, { recursive: true, force: true });
-    deleteProfile("team", "claude-code");
+    deleteProfile("team");
     expect(listProfiles()).toEqual(["default", "other"]);
     expect(readProjects().bindings).toEqual({ [kept]: "other" });
   });
@@ -412,6 +412,20 @@ describe("create, delete, diff", () => {
     expect([r.repo, r.was]).toEqual([repo, "team"]);
     expect([activeName(repo), linkedProfiles()]).toEqual(["default", ["default"]]);
     expect(() => unbind(repo, "claude-code")).toThrow(expect.objectContaining({ code: "E_INPUT_INVALID" }));
+  });
+
+  it("unbind clears a binding whose profile is gone (doctor's fix for it)", () => {
+    withHome();
+    const repo = tempRepo();
+    writeJsonAtomic(projectsFile(), { schema: 1, bindings: { [repo]: "gone" } });
+    expect(unbind(repo, "codex")).toEqual({
+      repo,
+      was: "gone",
+      linked: [],
+      pruned: [],
+      newSessionNeededFor: [],
+    });
+    expect(readProjects().bindings).toEqual({});
   });
 });
 
@@ -633,7 +647,7 @@ it("Codex deletion cleans a removed profile's owned artifacts without touching o
   }));
   const removed = links().filter((name) => name.startsWith("catherd-team-"));
   rmSync(gone, { recursive: true, force: true });
-  const r = deleteProfile("team", "codex");
+  const r = deleteProfile("team");
   expect(r.pruned).toEqual(removed);
   expect(r.newSessionNeededFor).toEqual(removed.map((name) => name.slice(0, -3)));
   expect(existsSync(join(agentsRoot(), "team"))).toBe(false);
@@ -648,7 +662,7 @@ it("Codex deletion cleans a removed profile's owned artifacts without touching o
 it("Codex deletion without owned artifacts creates no Claude files", () => {
   withHome();
   createProfile("unused", undefined, "codex");
-  expect(deleteProfile("unused", "codex")).toEqual({ linked: [], pruned: [], newSessionNeededFor: [] });
+  expect(deleteProfile("unused")).toEqual({ linked: [], pruned: [], newSessionNeededFor: [] });
   expect(existsSync(claudeAgentsDir())).toBe(false);
   expect(existsSync(agentsRoot())).toBe(false);
 });

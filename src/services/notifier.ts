@@ -16,7 +16,13 @@ import { tryLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { type SendResult, sendToInbox } from "../infra/peer-inbox.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { type Settled, settledHooks, type Stalled, stallHooks } from "./dispatch-service.ts";
+import {
+  readStallQuietMs,
+  type Settled,
+  settledHooks,
+  type Stalled,
+  stallHooks,
+} from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, readFailover } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
@@ -252,8 +258,13 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
             r.outcome === "sent" && r.msgId
               ? { outcome: "accepted", msgId: r.msgId }
               : {
+                  // an error before any frame was written (no msg_id) provably submitted nothing: retried later
                   outcome:
-                    r.outcome === "no-session" || r.outcome === "refused" ? "not-submitted" : "ambiguous",
+                    r.outcome === "no-session" ||
+                    r.outcome === "refused" ||
+                    (r.outcome === "error" && !r.msgId)
+                      ? "not-submitted"
+                      : "ambiguous",
                   reason: "Claude inbox has no verified receipt; use peek/result.",
                 };
         }
@@ -388,8 +399,7 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
             // a limit not yet failed over is reconcile's to settle first: its hook announces it then
             if (r && !(r.status === "limit" && !readFailover(d.dir))) enqueue(run, d, r);
             if (existsSync(p.stall) && !existsSync(p.exit)) {
-              const quietMs = Number(JSON.parse(readFileSync(p.stall, "utf8")).quietMs) || 0;
-              onStall({ run, d, quietMs });
+              onStall({ run, d, quietMs: readStallQuietMs(d.dir) });
             }
           }
         } catch (e) {
@@ -458,8 +468,7 @@ export async function retryDelivery(
     if (eventId === finished)
       n.onSettled({ run, d, record: record!, hints: [], started: null, pause: null, stateHints: [] });
     else {
-      const quietMs = Number(JSON.parse(readFileSync(dispatchPaths(dir).stall, "utf8")).quietMs) || 0;
-      n.onStall({ run, d, quietMs });
+      n.onStall({ run, d, quietMs: readStallQuietMs(dir) });
     }
     await n.idle();
   } finally {

@@ -116,10 +116,11 @@ The published `v1.3.0` marketplace and global `catherd-cli@1.3.0` remain the sta
 
 ```sh
 bun add -g catherd-cli
-catherd init
+catherd init --host claude-code
 ```
 
-The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init` works too: `init`
+The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init --host claude-code`
+works too (a terminal with no host evidence cannot pick the architect/verifier defaults, so name the host): `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the
 optional Jev key and the optional Artificial Analysis key, syncs the public model sources, writes the default

@@ -371,7 +371,7 @@ export function liveEffects(
     },
     activate: (name, scope) => activate(name, scope, host.host),
     create: (name, from) => createProfile(name, from, host.host),
-    remove: (name) => deleteProfile(name, host.host),
+    remove: deleteProfile,
     refreshCatalog: () => refreshDiscovery(),
     syncSources: () => syncSources(),
     sources: () => sourceRows(),

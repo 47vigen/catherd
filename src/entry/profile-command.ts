@@ -262,7 +262,7 @@ const rm = defineCommand({
     name: { type: "positional", required: true, description: "profile name" },
   },
   run({ args }) {
-    deleteProfile(args.name, terminalHost(args.host).host);
+    deleteProfile(args.name);
     console.log(`${mark("ok")} deleted ${args.name}`);
   },
 });

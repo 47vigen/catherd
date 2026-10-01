@@ -212,6 +212,32 @@ describe("native owner-scoped receipts", () => {
     expect(ds.map((d) => readDelivery(d.dir).at(-1)?.status)).toEqual(["accepted", "ambiguous", "ambiguous"]);
   });
 
+  it("persisted_stall_scan: a malformed stall.json does not abort later dispatches in the scan", async () => {
+    const { run } = freshRun();
+    const deps = nativeDeps();
+    await claimRun(deps, run);
+    const bad = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self", collect: true });
+    const good = await fakeDispatch(run, { name: "worker-M1.L2" }, { proc: "self", collect: true });
+    writeFileSync(dispatchPaths(bad.dir).stall, '{"schema":1,"quiet');
+    store.writeJsonAtomic(dispatchPaths(good.dir).stall, { schema: 1, quietMs: 7 * 60_000 });
+    const sent: string[] = [];
+    const n = nativeNotifier(deps, async (_target, content) => {
+      sent.push(content);
+      return { outcome: "accepted", msgId: `m${sent.length}` };
+    });
+    try {
+      await n.scan();
+      await n.idle();
+      const all = sent.join("\n");
+      expect(all).toContain(JSON.stringify([run.id, bad.admit.dispatchId, "stalled"]));
+      expect(all).toContain(JSON.stringify([run.id, good.admit.dispatchId, "stalled"]));
+      expect(all).toContain("stalled: no output for 7 min");
+    } finally {
+      writeJsonAtomicForExit(bad.dir);
+      writeJsonAtomicForExit(good.dir);
+    }
+  });
+
   it("persisted_stall_scan: exited stalls are dropped on scan and again before delivery", async () => {
     const { run } = freshRun();
     const deps = nativeDeps();
@@ -562,7 +588,7 @@ describe("native owner-scoped receipts", () => {
       coalesceMs: 0,
       send: async () => {
         sends++;
-        return { outcome: "error", reason: "token=secret transport error" };
+        return { outcome: "error", msgId: "written", reason: "token=secret transport error" };
       },
     });
     notifiers.push(again);
@@ -573,6 +599,27 @@ describe("native owner-scoped receipts", () => {
     await again.scan();
     await again.idle();
     expect(sends).toBe(1);
+  });
+
+  it("a Claude error before any frame was written is not submitted and goes again on the next scan", async () => {
+    const { run, deps, n } = await owned();
+    n.stop();
+    const d = await finished(run, "worker-M1.L1");
+    let sends = 0;
+    const again = startNotifier(deps, {
+      coalesceMs: 0,
+      send: async () => {
+        sends++;
+        return { outcome: "error", reason: "no connection within 1000 ms" };
+      },
+    });
+    notifiers.push(again);
+    await again.scan();
+    await again.idle();
+    expect(readDelivery(d.dir).at(-1)?.status).toBe("failed");
+    await again.scan();
+    await again.idle();
+    expect(sends).toBe(2);
   });
 
   it("corrupt metadata and unknown/conflicting owner contexts never invoke a sender", async () => {

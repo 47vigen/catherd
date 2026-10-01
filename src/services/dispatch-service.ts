@@ -102,17 +102,21 @@ export interface Stalled {
 export const stallHooks = new Set<(s: Stalled) => void>();
 
 /** A watcher's poll: the first time the dispatch's stall.json is there, every stall hook hears of it. */
+/** A stall's quiet time; 0 when stall.json is being written or damaged, so one bad file never blocks a notice. */
+export function readStallQuietMs(dir: string): number {
+  try {
+    return Number(JSON.parse(readFileSync(dispatchPaths(dir).stall, "utf8")).quietMs) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function stallPoll(run: Run, d: Dispatch): () => void {
   let seen = false;
   return () => {
     if (seen || !existsSync(dispatchPaths(d.dir).stall)) return;
     seen = true;
-    let quietMs = 0;
-    try {
-      quietMs = Number(JSON.parse(readFileSync(dispatchPaths(d.dir).stall, "utf8")).quietMs) || 0;
-    } catch {
-      // being written: the stall is reported without its length
-    }
+    const quietMs = readStallQuietMs(d.dir);
     for (const hook of stallHooks) {
       try {
         hook({ run, d, quietMs });

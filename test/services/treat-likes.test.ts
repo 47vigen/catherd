@@ -54,6 +54,10 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
     expect(leftOnStandIns(["gpt-5.6-terra#high"], "claude-code")).toEqual([
       { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
     ]);
+    // a terminal with no host evidence still names them: omitted host defaults do not block the listing
+    expect(leftOnStandIns(["gpt-5.6-terra#high"], "unknown")).toEqual([
+      { profile: "default", rung: TERRA, dims: ["repo_code", "terminal", "honesty"], unscored: false },
+    ]);
     const r = await clearTreatLike(TERRA, "claude-code");
     expect(r).toEqual({
       rung: "gpt-5.6-terra#high",

@@ -181,7 +181,7 @@ export function resetProfile(name: string, host: OrchestrationHost): Saved {
  * Spec §7.3 `delete`: never the active profile or a repo-bound one; its agent files go with it. A binding
  * whose repo no longer exists does not count: it is pruned with the profile.
  */
-export function deleteProfile(name: string, _host: OrchestrationHost): Synced {
+export function deleteProfile(name: string): Synced {
   return locked(() => {
     assertProfileName(name);
     if (!existsSync(profileFile(name)))
@@ -264,7 +264,11 @@ export function unbind(repo: string, host: OrchestrationHost): Synced & { repo: 
     delete bindings[repo];
     writeJsonAtomic(projectsFile(), { ...projects, schema: 1, bindings });
     try {
-      return { repo, was, ...syncFor(was, host) };
+      // a binding to a deleted profile is what doctor sends here to clear: there is nothing of it to relink
+      const synced = profileExists(was)
+        ? syncFor(was, host)
+        : { linked: [], pruned: [], newSessionNeededFor: [] };
+      return { repo, was, ...synced };
     } catch (e) {
       writeJsonAtomic(projectsFile(), projects);
       throw e;

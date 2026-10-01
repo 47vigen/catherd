@@ -33,12 +33,18 @@ export function leftOnStandIns(
   const gone = removed === "all" ? Object.keys(cur.treatLike) : removed;
   const c = loadCatalog({ timings: false, override: { ...cur, treatLike } });
   const out: LeftOnStandIn[] = [];
+  // an unknown host resolves no omitted architect/verifier rungs: name what either host would run
+  const hosts: OrchestrationHost[] = host === "unknown" ? ["claude-code", "codex"] : [host];
   for (const profile of listProfiles()) {
-    const p = getProfile(profile, host);
-    const rungs = new Set([
-      ...ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs),
-      ...Object.values(p.failover),
-    ]);
+    const rungs = new Set(
+      hosts.flatMap((h) => {
+        const p = getProfile(profile, h);
+        return [
+          ...ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs),
+          ...Object.values(p.failover),
+        ];
+      }),
+    );
     for (const rung of rungs) {
       if (!tryParseRung(rung)) continue;
       const canonical = rungInfo(c, rung).canonical;

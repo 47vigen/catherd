@@ -1,11 +1,11 @@
-import { HOST_ARG, terminalHost } from "./host-arg.ts";
+import { HOST_ARG } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { killGroup } from "../infra/proc.ts";
-import { profileFor } from "../services/profile-store.ts";
+import { activeName, readProfileDoc } from "../services/profile-store.ts";
 import { printError } from "./cli-kit.ts";
 
 /**
@@ -118,7 +118,9 @@ export const lockCommand = defineCommand({
     const repo = await gitToplevel(process.cwd());
     const slots = resolveSlots(
       args.slots,
-      () => profileFor(repo, terminalHost(args.host).host).lock.heavy,
+      // lock.heavy is host-independent: read it stored, so a worker (whose host identity is scrubbed) and an
+      // unknown terminal host still get the profile's value instead of the cpus/2 fallback
+      () => readProfileDoc(activeName(repo)).lock?.heavy ?? "cpus/2",
       (m) => console.error(m),
     );
     process.exitCode = await withHeavySlot(slots, () => runForwarding(argv));

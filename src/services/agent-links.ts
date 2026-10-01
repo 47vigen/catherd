@@ -149,7 +149,6 @@ export function agentLinkState(
   selected?: string[],
 ): { missing: string[]; stale: string[]; ok: string[] } {
   const p = plan(host, [], selected);
-  if (selected) for (const name of p.files.keys()) if (!selected.includes(name)) p.files.delete(name);
   const out = { missing: [] as string[], stale: [] as string[], ok: [] as string[] };
   for (const [name, files] of p.files)
     for (const f of files) {
