@@ -9,8 +9,8 @@ worker per plan; one final review, one fix wave, one Codex round, merge on green
 | Plan | File | State |
 | ---- | ---- | ----- |
 | 21 roles and ownership | `docs/plans/2026-10-02-21-roles-ownership.md` | **merged** (PR #46; final review 0 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan21-ledger.md`) |
-| 22 delivery and the loop | `docs/plans/2026-10-02-22-delivery-loop.md` | in PR |
-| 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | pending |
+| 22 delivery and the loop | `docs/plans/2026-10-02-22-delivery-loop.md` | **merged** (PR #47; final review 0 C / 2 I fixed; Codex 2 P1 fixed; ledger `plan22-ledger.md`) |
+| 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | in PR |
 | 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | pending |
 | 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | pending |
 | 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | pending |
