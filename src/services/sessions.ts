@@ -69,9 +69,11 @@ export function readSessionRows(run: Run): SessionRow[] {
 
 /**
  * Spec §3.3: `run_start`, `dispatch` and `peek` make the calling session the run's owner when it is not, and
- * append it to `R/sessions.jsonl`: that is how a run moves when it is continued from another session. Without host session identity it changes nothing. Returns whether the owner changed.
+ * append it to `R/sessions.jsonl`: that is how a run moves when it is continued from another session. Without host session identity it changes nothing, and neither does a role's process (`deps.role`, spec 1.5 plan 21). Returns whether the owner changed.
  */
 export async function claimRun(deps: Deps, run: Run): Promise<boolean> {
+  // spec 1.5 plan 21: a role's process never becomes the run's owner, whatever host identity it has
+  if (deps.role) return false;
   const me = currentSession(deps);
   if (!me) return false;
   const p = runPaths(run.dir);

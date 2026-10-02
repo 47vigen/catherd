@@ -55,6 +55,8 @@ export const startLimits = { graceMs: STARTING_GRACE_MS };
 export const admitPath = (dir: string): string => join(dir, "admit.json");
 export const launchPath = (dir: string): string => join(dir, "launch.json");
 export const roleDir = (run: Run, name: string): string => join(runPaths(run.dir).roles, name);
+/** Spec 1.5 plan 21: the role's TMPDIR, `<run>/scratch/<name>/`, removed with the run's scratch. */
+export const scratchDir = (run: Run, name: string): string => join(runPaths(run.dir).scratch, name);
 
 /** Every admitted dispatch of the run, oldest first; a folder whose admit.json cannot be read is skipped. */
 export function listDispatches(run: Run, strict = false): Dispatch[] {

@@ -90,6 +90,8 @@ writeFileSync(
     cwd: process.cwd(),
     pwd: process.env.PWD ?? null,
     codexHome: process.env.CODEX_HOME ?? null,
+    catherdRole: process.env.CATHERD_ROLE ?? null,
+    tmpdir: process.env.TMPDIR ?? null,
   }),
 );
 const out = args.includes("-o") ? args[args.indexOf("-o") + 1] : undefined;

@@ -7,6 +7,7 @@ import type { Verdict } from "../domain/jev.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import type { Access } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
+import type { RoleScope } from "../domain/role-scope.ts";
 import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
@@ -144,4 +145,9 @@ export interface Deps {
   now: () => number;
   /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
   sync?: (o: { force: boolean }) => Promise<SyncReport>;
+  /**
+   * Spec 1.5 plan 21: the role this process works for (CATHERD_ROLE, or a role's scratch TMPDIR); null or
+   * absent for the orchestrator's own server. A role never claims a run and never reaches a coordinator tool.
+   */
+  role?: RoleScope | null;
 }

@@ -5,6 +5,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { sessionKey, type HostContext } from "../../domain/host.ts";
 import { errorMessage } from "../../domain/errors.ts";
+import { isCoordinatorTool, refusedForRole, roleScopeError } from "../../domain/role-scope.ts";
 import { resolveHost } from "../../infra/host-context.ts";
 import { log } from "../../infra/log.ts";
 import { currentSession } from "../../services/sessions.ts";
@@ -16,12 +17,47 @@ import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
 import { registerProtocolTools } from "./protocol-tools.ts";
-import { sdkToolError, toolOf } from "./result.ts";
+import { handle, sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
 import { registerWorkspaceTools } from "./workspace-tools.ts";
 
 type ObserveSession = (context: Deps) => (() => void) | undefined;
+
+/** Spec 1.5 plan 21: a coordinator tool's description says, first, that only the orchestrator calls it. */
+function orchestratorOnly(name: string, config: unknown): unknown {
+  const c = config as { description?: string };
+  return isCoordinatorTool(name) && c.description
+    ? { ...c, description: `Orchestrator only (a role process gets E_ROLE_SCOPE). ${c.description}` }
+    : config;
+}
+
+type RequestHandler = (
+  request: { params?: { name?: unknown; arguments?: unknown } },
+  extra: unknown,
+) => unknown;
+
+/**
+ * Spec 1.5 plan 21: in a role's process (`deps.role`) a coordinator tool call is refused with E_ROLE_SCOPE
+ * before anything else, its input check included, so a role learns at once that the tool is not its own. The
+ * SDK keeps its request handlers in a private map; test/entry/role-scope-mcp.test.ts fails if it moves.
+ */
+function refuseCoordinatorTools(server: McpServer, deps: Deps): void {
+  const handlers = (server.server as unknown as { _requestHandlers: Map<string, RequestHandler> })
+    ._requestHandlers;
+  const callTool = handlers.get("tools/call");
+  if (!callTool) return;
+  handlers.set("tools/call", async (request, extra) => {
+    const role = deps.role;
+    const name = String(request.params?.name ?? "");
+    if (!role || !refusedForRole(name, request.params?.arguments, role)) return callTool(request, extra);
+    const r = await handle(() => {
+      throw roleScopeError(name, role);
+    });
+    log("warn", "tool", { tool: name, ok: false, code: "E_ROLE_SCOPE" });
+    return r;
+  });
+}
 
 type Handler = (...args: unknown[]) => CallToolResult | Promise<CallToolResult>;
 
@@ -39,7 +75,7 @@ function logToolCalls(
     h: Handler,
   ) => unknown;
   (server as unknown as { registerTool: typeof register }).registerTool = (name, config, handler) =>
-    register(name, config, async (...args: unknown[]) => {
+    register(name, orchestratorOnly(name, config), async (...args: unknown[]) => {
       const started = Date.now();
       const epoch = generation();
       const extra = args.at(-1) as { _meta?: Record<string, unknown> } | undefined;
@@ -108,6 +144,7 @@ export function buildServer(deps: Deps = defaultDeps(), observe?: ObserveSession
   registerDispatchTools(server, scoped);
   registerSetupTools(server, scoped);
   registerProtocolTools(server, scoped);
+  refuseCoordinatorTools(server, deps);
   return server;
 }
 

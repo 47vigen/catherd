@@ -28,6 +28,7 @@ export type ErrorCode =
   | "E_IO_PATH"
   | "E_IO_UNEXPECTED"
   | "E_INPUT_INVALID"
+  | "E_ROLE_SCOPE"
   | "E_RUNTIME_TOO_OLD";
 
 /**

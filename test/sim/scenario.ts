@@ -55,6 +55,8 @@ export function withScenario(s: CodexScenario) {
         cwd: string;
         pwd: string | null;
         codexHome: string | null;
+        catherdRole: string | null;
+        tmpdir: string | null;
       },
   };
 }

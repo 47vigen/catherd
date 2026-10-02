@@ -1,5 +1,5 @@
 import type { KnownHost } from "../domain/host.ts";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
@@ -9,6 +9,7 @@ import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { withReplyContract } from "../domain/role-prompts.ts";
 import type { Role } from "../domain/roles.ts";
+import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
 import { roleRequiresMcp } from "../domain/role-tools.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
@@ -28,6 +29,7 @@ import {
   listDispatches,
   pendingDispatches,
   roleDir,
+  scratchDir,
   setLatest,
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
@@ -55,6 +57,20 @@ export interface AdmitInput {
 export const KILL_GRACE_MS = 10_000;
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
+
+/**
+ * Spec 1.5 plan 21: the backends whose sandbox catherd grants the role's scratch, so they get it as TMPDIR.
+ * Cursor, Grok and agy write their grants once per isolated home, not per dispatch: they keep the inherited one.
+ */
+const SCRATCH_BACKENDS = new Set(["codex", "claude-code", "opencode"]);
+
+/** The role's scratch folder, created (0700) and by its real path, on a backend that grants it; else null. */
+function roleScratch(run: Run, name: string, backend: string): string | null {
+  if (!SCRATCH_BACKENDS.has(backend)) return null;
+  const dir = scratchDir(run, name);
+  ensurePrivateDir(dir);
+  return realpathSync(dir);
+}
 
 function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
@@ -198,6 +214,7 @@ export async function admit(
         fix: `set harness.${rung.backend}.isolated to false in profile ${profile.name}, then dispatch a fresh thread`,
       },
     );
+  const scratch = roleScratch(run, i.name, rung.backend);
   await prepared(adapter, {
     rung,
     access: rc.access,
@@ -216,6 +233,7 @@ export async function admit(
     replyPath: p.reply,
     dispatchDir: dir,
     ...(needsRoleMcp && !isolated ? { roleMcp: { run: run.id, role: i.role } } : {}),
+    ...(scratch ? { scratch } : {}),
   });
 
   await finalizeFinished(run, deps.now(), onRecorded);
@@ -297,7 +315,13 @@ export async function admit(
         dispatchDir: dir,
         cmd: plan.cmd,
         args: plan.args,
-        env: { ...plan.env, PWD: plan.cwd },
+        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR
+        env: {
+          ...plan.env,
+          [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
+          ...(scratch ? { TMPDIR: scratch } : {}),
+          PWD: plan.cwd,
+        },
         cwd: plan.cwd,
         stdinPath: plan.stdinPath,
         idleMs: profile.timeouts.idleMin * 60_000,

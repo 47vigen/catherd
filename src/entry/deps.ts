@@ -1,4 +1,5 @@
 import type { HostContext } from "../domain/host.ts";
+import { roleScopeFromEnv } from "../domain/role-scope.ts";
 import { readSessionEnv } from "../infra/claude-session.ts";
 import { VERSION } from "../infra/version.ts";
 import type { Deps } from "../services/ports.ts";
@@ -15,6 +16,7 @@ export function defaultDeps(host: HostContext = { host: "unknown", session: null
     pollMs: 250,
     session: readSessionEnv(process.env),
     now: Date.now,
+    role: roleScopeFromEnv(process.env),
   };
   return deps;
 }

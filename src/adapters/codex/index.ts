@@ -58,9 +58,14 @@ export function userWritableRoots(): string[] {
  * The same `-c` overrides go to `codex sandbox` in doctor's probes, so doctor tests exactly what a worker gets. `-c …writable_roots=` replaces the
  * user's own roots, so theirs go in too; an isolated run ignores the user's config, so it has none.
  */
-export function codexGrants(access: Access, network = true, isolated = false): string[] {
+export function codexGrants(
+  access: Access,
+  network = true,
+  isolated = false,
+  extra: string[] = [],
+): string[] {
   if (access !== "workspace-write") return [];
-  const roots = [...new Set([...(isolated ? [] : userWritableRoots()), ...writableRoots()])];
+  const roots = [...new Set([...(isolated ? [] : userWritableRoots()), ...writableRoots(), ...extra])];
   return [
     "-c",
     `sandbox_workspace_write.network_access=${network}`,
@@ -90,7 +95,7 @@ function plan(r: RunRequest): SpawnPlan {
     "--json",
     "-o",
     r.replyPath,
-    ...codexGrants(r.access, r.network, r.isolated),
+    ...codexGrants(r.access, r.network, r.isolated, r.scratch ? [r.scratch] : []),
     ...(r.roleMcp ? codexRoleMcpArgs(r.roleMcp) : []),
   ];
   const sandbox = SANDBOX[r.access];

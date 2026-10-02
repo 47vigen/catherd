@@ -78,13 +78,18 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
  * doctor says `network: false` is not enforced by claude-code's shell). With the user's sandbox on, `enabled: true`
  * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off.
  */
-export function claudeAccessArgs(access: Access, network = true, repo?: string): string[] {
+export function claudeAccessArgs(
+  access: Access,
+  network = true,
+  repo?: string,
+  extra: string[] = [],
+): string[] {
   const base = CLAUDE_ACCESS[access];
   if (access !== "workspace-write") return base;
   const sock = dockerSocket();
   const sandbox = {
     ...(claudeSandboxOn(repo) ? { enabled: true } : {}),
-    filesystem: { allowWrite: writableRoots() },
+    filesystem: { allowWrite: [...new Set([...writableRoots(), ...extra])] },
     ...(network
       ? {
           network: { allowLocalBinding: true, ...(sock ? { allowUnixSockets: [sock] } : {}) },
@@ -141,7 +146,7 @@ function plan(r: RunRequest): SpawnPlan {
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
       fix: "pass the thread from the earlier RunRecord",
     });
-  const accessArgs = [...claudeAccessArgs(r.access, r.network, r.repo)];
+  const accessArgs = [...claudeAccessArgs(r.access, r.network, r.repo, r.scratch ? [r.scratch] : [])];
   if (r.roleMcp) {
     const tools = roleMcpTools(r.roleMcp.role).map((tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`);
     const allowed = accessArgs.indexOf("--allowedTools");
