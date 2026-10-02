@@ -1,11 +1,13 @@
 import { scrubSecrets } from "./env.ts";
 import type { Subprocess } from "bun";
 import { appendFileSync, closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import type { ExitInfo, ExitReason } from "../domain/record.ts";
 import { dispatchPaths, supervisorLockTarget } from "./dispatch-dir.ts";
 import { tryLock } from "./filelock.ts";
+import { lastLockOutput } from "./lock-activity.ts";
 import { log } from "./log.ts";
 import { killGroup, processStartTime } from "./proc.ts";
 import { PRIVATE_FILE, writeJsonAtomic } from "./store.ts";
@@ -188,6 +190,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     });
 
     const started = Date.now();
+    const dispatchId = basename(spec.dispatchDir);
     let lastActivity = started;
     let finalAt: number | null = null;
     // spec §3.6: a quiet stretch of half the idle timeout, not busy, is a stall, reported once per dispatch
@@ -229,7 +232,9 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
       if (done) break;
       const now = Date.now();
       if (existsSync(p.cancel)) reason = "cancelled";
-      else if (now - started >= spec.wallMs) reason = "wall-timeout";
+      else if (now - started >= spec.wallMs && now - (lastLockOutput(dispatchId) ?? started) >= spec.wallMs)
+        // plan 23: while a `catherd lock` of the role is alive and writing, the wall counts from its last output
+        reason = "wall-timeout";
       else if (finalAt !== null && spec.graceAfterFinalMs !== null && now - finalAt >= spec.graceAfterFinalMs)
         reason = "after-final";
       else if (now - lastActivity >= spec.idleMs) {

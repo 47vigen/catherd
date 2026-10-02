@@ -106,10 +106,12 @@ describe("admission", () => {
     const text = readFileSync(specPath, "utf8");
     expect(text).not.toContain("s3cret");
     expect(text).not.toContain("TYPESAFE_API_KEY");
-    // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, and PWD
+    // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, the dispatch id
+    // for catherd lock, and PWD
     expect(JSON.parse(text).env).toEqual({
       CATHERD_ROLE: `${run.id}/worker-M1.L1`,
       TMPDIR: realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
+      CATHERD_DISPATCH_ID: expect.any(String),
       PWD: repo,
     });
     expect(statSync(specPath).mode & 0o777).toBe(0o600);

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { dispatchPaths, readExit, requestCancel } from "../../src/infra/dispatch-dir.ts";
+import { activityReporter } from "../../src/infra/lock-activity.ts";
 import * as store from "../../src/infra/store.ts";
 import { type SuperviseSpec, supervise } from "../../src/infra/supervisor.ts";
 import { exited, snapshotEnv, tempDir, withHome } from "../helpers.ts";
@@ -79,6 +80,30 @@ describe("supervise", () => {
     });
     expect(exit?.reason).toBe("wall-timeout");
     expect(interrupted).toBe(true);
+  });
+
+  it("counts the wall from a live catherd lock's last output while it writes (plan 23)", async () => {
+    const s = spec("sleep 30", { idleMs: 60_000, wallMs: 200 });
+    const lock = activityReporter(basename(s.dispatchDir), Date.now, 0);
+    if (!lock) throw new Error("no reporter");
+    const begun = Date.now();
+    // output for 600 ms, three times the wall; then silence, and the wall ends it 200 ms after the last line
+    const timer = setInterval(() => {
+      if (Date.now() - begun < 600) lock.tick();
+    }, 20);
+    try {
+      const exit = await supervise(s, { isBusy: async () => true });
+      expect(exit?.reason).toBe("wall-timeout");
+      expect(Date.now() - begun).toBeGreaterThanOrEqual(600);
+    } finally {
+      clearInterval(timer);
+      lock.done();
+    }
+    // with no live lock, the wall counts from the start
+    const plain = spec("sleep 30", { idleMs: 60_000, wallMs: 200 });
+    const at = Date.now();
+    expect((await supervise(plain, { isBusy: async () => true }))?.reason).toBe("wall-timeout");
+    expect(Date.now() - at).toBeLessThan(5_000);
   });
 
   it("kills a CLI that lingers after its final event", async () => {

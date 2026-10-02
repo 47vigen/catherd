@@ -17,6 +17,7 @@ import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
+import { DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { ensurePrivateDir, PRIVATE_FILE, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
@@ -321,11 +322,13 @@ export async function admit(
         dispatchDir: dir,
         cmd: plan.cmd,
         args: plan.args,
-        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR
+        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR;
+        // plan 23: a `catherd lock` in the role reports to this dispatch, so a long gate keeps its wall alive
         env: {
           ...plan.env,
           [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
           ...(scratch ? { TMPDIR: scratch } : {}),
+          [DISPATCH_ID_ENV]: id,
           PWD: plan.cwd,
         },
         cwd: plan.cwd,

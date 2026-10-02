@@ -4,6 +4,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
+import { activityReporter, DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { killGroup } from "../infra/proc.ts";
 import { activeName, readProfileDoc } from "../services/profile-store.ts";
 import { printError } from "./cli-kit.ts";
@@ -44,14 +45,23 @@ export const DOUBLE_INTERRUPT_MS = 2_000;
  * a terminal's Ctrl-C reaches catherd only, so the command sees it exactly once, and so does every
  * process it started. A second Ctrl-C within 2 s kills the group. Resolves to the command's exit code.
  */
-export async function runForwarding(argv: string[]): Promise<number> {
+export async function runForwarding(argv: string[], o: { onOutput?: () => void } = {}): Promise<number> {
+  // plan 23: inside a dispatch the output passes through catherd, which notes when the command last wrote
+  const piped = o.onOutput !== undefined;
   const child = Bun.spawn(argv, {
     stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: piped ? "pipe" : "inherit",
+    stderr: piped ? "pipe" : "inherit",
     env: scrubSecrets(process.env),
     detached: true,
   });
+  const pumps =
+    piped && o.onOutput
+      ? [
+          pump(child.stdout as ReadableStream<Uint8Array>, process.stdout, o.onOutput),
+          pump(child.stderr as ReadableStream<Uint8Array>, process.stderr, o.onOutput),
+        ]
+      : [];
   let lastInt = 0;
   const handlers: [NodeJS.Signals, () => void][] = [
     [
@@ -80,10 +90,32 @@ export async function runForwarding(argv: string[]): Promise<number> {
     },
   );
   try {
-    return await child.exited;
+    const code = await child.exited;
+    // a process the command left behind may hold the pipes open: what it wrote by then is passed on
+    await Promise.race([Promise.all(pumps), Bun.sleep(PIPE_DRAIN_MS)]);
+    return code;
   } finally {
     watchdog.kill("SIGKILL");
     for (const [sig, h] of handlers) process.off(sig, h);
+  }
+}
+
+/** How long the pipes may stay open after the command exits. */
+const PIPE_DRAIN_MS = 500;
+
+/** Copies a piped stream to `out`, calling `tick` for each chunk; a broken pipe ends the copy. */
+async function pump(
+  stream: ReadableStream<Uint8Array>,
+  out: NodeJS.WriteStream,
+  tick: () => void,
+): Promise<void> {
+  try {
+    for await (const chunk of stream) {
+      out.write(chunk);
+      tick();
+    }
+  } catch {
+    // the command's end closes the pipe
   }
 }
 
@@ -123,6 +155,14 @@ export const lockCommand = defineCommand({
       () => readProfileDoc(activeName(repo)).lock?.heavy ?? "cpus/2",
       (m) => console.error(m),
     );
-    process.exitCode = await withHeavySlot(slots, () => runForwarding(argv));
+    process.exitCode = await withHeavySlot(slots, async () => {
+      // plan 23: a role's lock reports its output, so the role's wall timeout counts from its last line
+      const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
+      try {
+        return await runForwarding(argv, activity ? { onOutput: activity.tick } : {});
+      } finally {
+        activity?.done();
+      }
+    });
   },
 });

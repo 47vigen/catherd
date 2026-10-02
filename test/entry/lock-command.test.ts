@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSlots } from "../../src/entry/lock-command.ts";
 import { heavySlots } from "../../src/infra/heavy-lock.ts";
+import { activityDir } from "../../src/infra/lock-activity.ts";
 import { killGroup } from "../../src/infra/proc.ts";
 import { exited, snapshotEnv, withHome } from "../helpers.ts";
 import { waitFor } from "../services/helpers.ts";
@@ -66,6 +67,34 @@ describe("catherd lock", () => {
     expect(warned).toEqual([
       `catherd lock: no profile to read lock.heavy from (config.json is from catherd 0.x); using ${slots} slots`,
     ]);
+  });
+
+  it("inside a dispatch, passes the output through and reports it while the command runs (plan 23)", () => {
+    withHome();
+    const dir = activityDir("01TESTDISPATCH");
+    const p = Bun.spawnSync(
+      [
+        process.execPath,
+        CLI,
+        "lock",
+        "--slots",
+        "1",
+        "--",
+        "sh",
+        "-c",
+        'echo out; echo err 1>&2; ls "$1"',
+        "_",
+        dir,
+      ],
+      { env: { ...process.env, CATHERD_DISPATCH_ID: "01TESTDISPATCH" }, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(p.exitCode).toBe(0);
+    const [first, listed] = p.stdout.toString().split("\n");
+    expect(first).toBe("out");
+    expect(listed).toMatch(/^\d+\.json$/);
+    expect(p.stderr.toString()).toBe("err\n");
+    // gone once the lock ends: a finished lock never keeps a role's wall alive
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it("refuses a bad --slots as a usage error", () => {
