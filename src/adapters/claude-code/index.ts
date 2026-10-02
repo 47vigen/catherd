@@ -146,8 +146,74 @@ async function accessShell(): Promise<AccessShell | string> {
  * log in; --safe-mode keeps auth, but drops every --mcp-config server too (Claude Code 2.1.287: "--mcp-config:
  * … ignored (safe mode)"). A run with the role server (spec 1.5 plan 21, #42 finding 1) gets the same isolation
  * piece by piece instead: only the --mcp-config servers, no settings file (so no hooks, no enabled plugins), no
- * skills, and CLAUDE.md off through the env.
+ * skills, CLAUDE.md and auto-memory off through the env, and the user's auth, provider, model, deny rules and
+ * allowed domains carried into --settings (carriedUserSettings).
  */
+/** The user settings keys --setting-sources "" would drop that a run needs: auth, provider and model. */
+const CARRIED_SETTINGS = [
+  "apiKeyHelper",
+  "env",
+  "awsAuthRefresh",
+  "awsCredentialExport",
+  "gcpAuthRefresh",
+  "model",
+] as const;
+
+/**
+ * What an isolated run with the role server keeps of the user's settings.json (plan 21 review, finding 1):
+ * --safe-mode keeps the settings files and drops only customizations, while `--setting-sources ""` drops the
+ * files, so a Bedrock, Vertex, gateway or apiKeyHelper login would fail. Carried: the auth and provider keys,
+ * `model`, `permissions.deny` and `sandbox.network`; never hooks, plugins, allow rules or the rest.
+ */
+function carriedUserSettings(): Record<string, unknown> {
+  let user: Record<string, any>;
+  try {
+    user = JSON.parse(readFileSync(join(claudeHome(), "settings.json"), "utf8"));
+  } catch {
+    return {};
+  }
+  if (!user || typeof user !== "object") return {};
+  const out: Record<string, unknown> = {};
+  for (const k of CARRIED_SETTINGS) if (user[k] !== undefined) out[k] = user[k];
+  const deny = user.permissions?.deny;
+  if (Array.isArray(deny) && deny.length) out.permissions = { deny };
+  const network = user.sandbox?.network;
+  if (network && typeof network === "object") out.sandbox = { network };
+  return out;
+}
+
+/** `--settings` with the user's carried keys merged under catherd's own: catherd's sandbox grants win. */
+function withCarriedSettings(args: string[]): string[] {
+  const carried = carriedUserSettings();
+  if (!Object.keys(carried).length) return args;
+  const at = args.indexOf("--settings");
+  const own: Record<string, any> = at >= 0 ? JSON.parse(args[at + 1] as string) : {};
+  const userNet: Record<string, unknown> = (carried.sandbox as any)?.network ?? {};
+  const ownNet: Record<string, unknown> = own.sandbox?.network ?? {};
+  const sockets = [
+    ...((userNet.allowUnixSockets as string[] | undefined) ?? []),
+    ...((ownNet.allowUnixSockets as string[] | undefined) ?? []),
+  ];
+  const sandbox =
+    carried.sandbox || own.sandbox
+      ? {
+          sandbox: {
+            ...own.sandbox,
+            network: {
+              ...userNet,
+              ...ownNet,
+              ...(sockets.length ? { allowUnixSockets: [...new Set(sockets)] } : {}),
+            },
+          },
+        }
+      : {};
+  const json = JSON.stringify({ ...carried, ...own, ...sandbox });
+  if (at < 0) return [...args, "--settings", json];
+  const out = [...args];
+  out[at + 1] = json;
+  return out;
+}
+
 function isolationArgs(r: RunRequest): string[] {
   if (!r.roleMcp) return ["--safe-mode"];
   return ["--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands"];
@@ -158,7 +224,8 @@ function plan(r: RunRequest): SpawnPlan {
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
       fix: "pass the thread from the earlier RunRecord",
     });
-  const accessArgs = [...claudeAccessArgs(r.access, r.network, r.repo, r.scratch ? [r.scratch] : [])];
+  const access = claudeAccessArgs(r.access, r.network, r.repo, r.scratch ? [r.scratch] : []);
+  const accessArgs = r.isolated && r.roleMcp ? withCarriedSettings(access) : [...access];
   if (r.roleMcp) {
     const tools = roleMcpTools(r.roleMcp.role).map((tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`);
     const allowed = accessArgs.indexOf("--allowedTools");
@@ -187,8 +254,11 @@ function plan(r: RunRequest): SpawnPlan {
       ...accessArgs,
       ...(r.isolated ? isolationArgs(r) : []),
     ],
-    // CLAUDE.md off, as --safe-mode turns it off (spec 1.5 plan 21)
-    env: r.isolated && r.roleMcp ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" } : {},
+    // CLAUDE.md and auto-memory off, as --safe-mode turns them off (spec 1.5 plan 21)
+    env:
+      r.isolated && r.roleMcp
+        ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }
+        : {},
     cwd: r.repo,
     stdinPath: r.briefPath,
   };

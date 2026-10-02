@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import {
@@ -11,7 +11,7 @@ import {
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import type { Access } from "../../src/domain/record.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempDir } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { withClaudeScenario } from "../sim/sim-scenarios.ts";
 
@@ -92,6 +92,57 @@ describe("claude-code plan", () => {
       thread,
     ]);
     expect(p.args.at(-1)).toBe("--safe-mode");
+  });
+
+  it("keeps the user's auth, provider, model, deny rules and allowed domains when isolated with the role server", () => {
+    // --setting-sources "" drops the user's settings file, which --safe-mode keeps (plan 21 review, finding 1)
+    const home = tempDir("catherd-claude-home-");
+    process.env.CLAUDE_CONFIG_DIR = home;
+    writeFileSync(
+      join(home, "settings.json"),
+      JSON.stringify({
+        apiKeyHelper: "/bin/key",
+        env: { CLAUDE_CODE_USE_BEDROCK: "1", ANTHROPIC_BASE_URL: "https://gw.example" },
+        awsAuthRefresh: "aws sso login",
+        awsCredentialExport: "/bin/creds",
+        gcpAuthRefresh: "gcloud auth login",
+        model: "claude-opus-5-5",
+        permissions: { deny: ["Bash(rm *)"], allow: ["Bash(curl *)"] },
+        hooks: { SessionStart: [] },
+        enabledPlugins: { "x@y": true },
+        sandbox: { network: { allowedDomains: ["registry.npmjs.org"], allowUnixSockets: ["/u.sock"] } },
+      }),
+    );
+    for (const access of ["workspace-write", "read-only", "full"] as const) {
+      const p = claudeCodeAdapter.plan(
+        req({ access, isolated: true, roleMcp: { run: "r1", role: "verifier" } }),
+      );
+      expect(p.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe("1");
+      expect(p.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe("1");
+      expect(p.args.filter((a) => a === "--settings")).toHaveLength(1);
+      const s = JSON.parse(p.args[p.args.indexOf("--settings") + 1] as string);
+      expect(s.apiKeyHelper).toBe("/bin/key");
+      expect(s.env).toEqual({ CLAUDE_CODE_USE_BEDROCK: "1", ANTHROPIC_BASE_URL: "https://gw.example" });
+      expect([s.awsAuthRefresh, s.awsCredentialExport, s.gcpAuthRefresh]).toEqual([
+        "aws sso login",
+        "/bin/creds",
+        "gcloud auth login",
+      ]);
+      expect(s.model).toBe("claude-opus-5-5");
+      expect(s.permissions).toEqual({ deny: ["Bash(rm *)"] });
+      expect(s.hooks).toBeUndefined();
+      expect(s.enabledPlugins).toBeUndefined();
+      expect(s.sandbox.network.allowedDomains).toEqual(["registry.npmjs.org"]);
+      if (access === "workspace-write") {
+        // catherd's own write roots and loopback grant stay
+        expect(s.sandbox.filesystem.allowWrite.length).toBeGreaterThan(0);
+        expect(s.sandbox.network.allowLocalBinding).toBe(true);
+        expect(s.sandbox.network.allowUnixSockets).toContain("/u.sock");
+      }
+    }
+    // not isolated, or isolated without the role server (--safe-mode keeps settings): nothing carried
+    const plain = claudeCodeAdapter.plan(req({ isolated: true })).args;
+    expect(JSON.parse(plain[plain.indexOf("--settings") + 1] as string).apiKeyHelper).toBeUndefined();
   });
 
   it.each([

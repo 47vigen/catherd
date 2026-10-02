@@ -946,7 +946,11 @@ Codex and headless Claude Code (`claude-code:` rungs).
    `mcp__catherd_role__gate_check`; no reply ends with BANANA; the hook's file is absent; the role's `events.jsonl`
    lists only `catherd_role` among its MCP servers. Then confirm the reason for the change once by hand:
    `claude -p --safe-mode --mcp-config '<the role server json>' --debug` logs "--mcp-config: 1 server ignored (safe
-   mode)" (Claude Code 2.1.287).
+   mode)" (Claude Code 2.1.287). Then the settings-file auth: on a machine that logs in through
+   `~/.claude/settings.json` (an `apiKeyHelper`, or `env` with `CLAUDE_CODE_USE_BEDROCK`/`ANTHROPIC_BASE_URL`),
+   dispatch the same isolated verifier. Look for: it authenticates and replies (catherd carries `apiKeyHelper`,
+   `env`, the aws/gcp auth helpers, `model`, `permissions.deny` and `sandbox.network` into `--settings`), and its
+   `--settings` in the dispatch's spawn spec holds those keys but no `hooks` or `enabledPlugins`.
 4. **A native Claude subagent cannot steer.** On Claude Code, ask a native verifier (`claude:` rung) to call
    `mcp__plugin_catherd_catherd__dispatch`. Look for: Claude Code refuses the tool (its agent file's
    `disallowedTools`), and the run is unchanged.
