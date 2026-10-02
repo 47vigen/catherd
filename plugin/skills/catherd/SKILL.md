@@ -74,6 +74,7 @@ Pass the actual project `repo` explicitly to profile, setup and catalog tools th
 - `E_LANE_INVALID`: a lane file's `Kind:` or `Difficulty:` is missing or not one the catalog knows. Fix the header (the `fix` lists the values), or have the architect fix it, then call again.
 - `E_LAND_GATE`: the milestone has no reviewer record or no verifier verdict since its lanes started, it is parked, or its `skip` does not hold. Run what the message names, then land again.
 - `E_CLIMB_DESIGN`: the evidence points at the plan, not the rung. Send it to the architect (an `ask` finding, then an architect delta), not up the ladder.
+- `E_CLIMB_ENV`: the lane's last reply named the environment (`ENV:`). A higher rung would stop the same way: fix the environment, or park the milestone.
 
 ## Workspaces with independent repositories
 
@@ -275,6 +276,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 
 5. **Lanes.** Dispatch every lane of the milestone, one after another, each at its rung, then end your turn: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
    - When a worker's message arrives, read it with `result`: check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
+   - A hint `environment: <what>` (the reply had an `ENV:` line) is the machine, not the rung: `climb` refuses it (`E_CLIMB_ENV`). Fix the environment, or `park` the milestone when only the owner can. `STATUS: flaky` (a check failed, then passed alone) is the worker's evidence: rerun that check alone, accept it, or climb; the call is yours.
    - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
 6. **writer,** when the milestone changes docs. It starts once the workers are done. Its brief names the files it may change on an `Owns:` line (default: `docs/**` and `*.md`), so its edits count as its own and never as a lane's violation.
 7. **reviewer,** named `reviewer-<M>`, once, over the whole milestone diff on a frozen tree.

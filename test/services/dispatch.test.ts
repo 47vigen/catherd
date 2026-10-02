@@ -138,6 +138,13 @@ describe("dispatch", () => {
     expect(existsSync(runPaths(run.dir).harness)).toBe(false);
   });
 
+  it("records a reply's ENV: line, and hints environment, not climb (plan 23)", async () => {
+    const { run, deps } = setup({ reply: "the suite needs the VPN down\nENV: vpn\nSTATUS: blocked — vpn" });
+    const { record, hints } = await runRole(deps, input(run.id));
+    expect(record).toMatchObject({ replyStatus: "blocked", environment: "vpn" });
+    expect(hints).toEqual(["environment: vpn"]);
+  });
+
   it("flags an ok run that left its owned files alone, and a write outside the lane", async () => {
     const { run, deps } = setup({
       reply: "x\nSTATUS: complete — ok",

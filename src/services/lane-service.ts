@@ -185,6 +185,18 @@ export async function climb(
     });
   // an unrouted lane is refused before Jev is asked about its evidence (no call, no jev.jsonl row)
   if (!currentRoute(readRoutes(run), i.lane)) throw unrouted();
+  // plan 23: a reply that named the environment (ENV: …) would stop a higher rung the same way
+  const last = readRecords(run)
+    .records.filter((r) => r.lane === i.lane)
+    .at(-1);
+  if (last?.environment)
+    throw new CatherdError(
+      "E_CLIMB_ENV",
+      `climb ${i.lane}: ${last.name} was stopped by the environment (${last.environment}), which a higher rung cannot fix`,
+      {
+        fix: `fix the environment (doctor; catherd knowledge env set for the gate environment) and dispatch ${i.lane} again at the same rung, or park the milestone when only the owner can fix it`,
+      },
+    );
   await refuseDesign(deps, run, i);
   const { cur, next } = await withFileLock(runPaths(run.dir).routes, () => {
     const cur = currentRoute(readRoutes(run), i.lane);

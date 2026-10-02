@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { climb, route } from "../../src/services/lane-service.ts";
-import { readRoutes } from "../../src/services/run-store.ts";
+import { newDispatchId } from "../../src/domain/ids.ts";
+import { appendRecord, readRoutes } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, freshRun, LADDER, testView, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, LADDER, makeRecord, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -46,6 +47,38 @@ describe("climb only for capability (spec 1.1 §9)", () => {
     );
     expect(asked).toEqual([evidence]);
     expect(readRoutes(run).filter((r) => r.source === "climb")).toEqual([]);
+  });
+
+  it("refuses to climb a lane whose last reply named the environment (plan 23)", async () => {
+    const { run, deps, asked } = await routed();
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        environment: "vpn",
+      }),
+    );
+    expect(await code(climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked" }))).toStartWith(
+      "E_CLIMB_ENV: fix the environment",
+    );
+    expect(asked).toEqual([]);
+    expect(readRoutes(run).filter((r) => r.source === "climb")).toEqual([]);
+    // a later reply without it climbs again
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+      }),
+    );
+    expect(await code(climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked" }))).toBe("climbed");
   });
 
   it("climbs when Jev calls it code, and without evidence asks nothing", async () => {

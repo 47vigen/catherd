@@ -7,7 +7,13 @@ export function dispatchHints(r: RunRecord, owns: string[], dir: string): string
   if (r.status === "cli-too-old") h.push(`cli-too-old: ${r.error?.message ?? `upgrade ${r.backend}`}`);
   if (r.status === "failed") h.push(`failed: read ${dir}/stderr`);
   if (r.gitUnavailable) h.push("git-unavailable: changed files unknown");
-  if (r.replyStatus === "refused" || r.replyStatus === "blocked") h.push(`climb: ${r.replyStatus}`);
+  // plan 23: the environment stopped it, and a higher rung would stop the same way: fix it or surface it
+  if (r.environment) h.push(`environment: ${r.environment}`);
+  else if (r.replyStatus === "flaky")
+    h.push(
+      `flaky: ${r.replyWhy || "a check failed, then passed alone"}; rerun it alone, accept it, or climb: your call`,
+    );
+  else if (r.replyStatus === "refused" || r.replyStatus === "blocked") h.push(`climb: ${r.replyStatus}`);
   else if (
     r.status === "ok" &&
     !r.gitUnavailable &&

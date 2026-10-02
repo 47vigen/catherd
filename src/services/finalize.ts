@@ -8,6 +8,7 @@ import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
   type ExitInfo,
+  parseReplyEnvironment,
   parseReplyStatus,
   type RunRecord,
   THREAD_HEAVY_INPUT,
@@ -193,6 +194,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
       )
     : { changedOwned: [], violations: [] };
   const reported = parseReplyStatus(replyText);
+  const environment = parseReplyEnvironment(replyText);
   return {
     schema: 1,
     runId: run.id,
@@ -219,6 +221,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     ...(after ? {} : { gitUnavailable: true }),
     replyStatus: reported.status,
     replyWhy: reported.why,
+    ...(environment ? { environment } : {}),
     threadHeavy: o.tokens.input >= THREAD_HEAVY_INPUT,
     access: a.access,
     isolated: a.isolated,

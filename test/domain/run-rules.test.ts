@@ -70,6 +70,29 @@ describe("dispatchHints", () => {
     expect(dispatchHints(makeRecord({ changedOwned: [] }), [], dir)).toEqual([]);
   });
 
+  it("says environment for an ENV: line and flaky for a flaky reply, never climb (plan 23)", () => {
+    expect(
+      dispatchHints(
+        makeRecord({ replyStatus: "blocked", environment: "vpn", changedOwned: [] }),
+        ["src/a.ts"],
+        dir,
+      ),
+    ).toEqual(["environment: vpn"]);
+    expect(
+      dispatchHints(
+        makeRecord({
+          replyStatus: "flaky",
+          replyWhy: "notify_test failed once in turbo, passed 3/3 alone",
+          changedOwned: [],
+        }),
+        ["src/a.ts"],
+        dir,
+      ),
+    ).toEqual([
+      "flaky: notify_test failed once in turbo, passed 3/3 alone; rerun it alone, accept it, or climb: your call",
+    ]);
+  });
+
   it("says the changes are unknown, not unchanged, when git could not see them", () => {
     const r = makeRecord({ changedOwned: [], gitUnavailable: true });
     expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual(["git-unavailable: changed files unknown"]);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { parseReplyStatus, type RunRecord, RunRecordSchema, ZERO_TOKENS } from "../../src/domain/record.ts";
+import {
+  parseReplyEnvironment,
+  parseReplyStatus,
+  type RunRecord,
+  RunRecordSchema,
+  ZERO_TOKENS,
+} from "../../src/domain/record.ts";
 
 export const sampleRecord = (over: Partial<RunRecord> = {}): RunRecord => ({
   schema: 1,
@@ -55,6 +61,16 @@ describe("parseReplyStatus", () => {
     expect(parseReplyStatus("STATUS: refused - no")).toEqual({ status: "refused", why: "no" });
     expect(parseReplyStatus("STATUS: complete — x\nmore text")).toEqual({ status: null, why: null });
     expect(parseReplyStatus("")).toEqual({ status: null, why: null });
+    expect(parseReplyStatus("STATUS: flaky — x failed once, passed 3/3 alone")).toEqual({
+      status: "flaky",
+      why: "x failed once, passed 3/3 alone",
+    });
+  });
+
+  it("reads an ENV: line anywhere in the reply (plan 23)", () => {
+    expect(parseReplyEnvironment("could not run the suite\nENV: vpn  \nSTATUS: blocked — vpn")).toBe("vpn");
+    expect(parseReplyEnvironment("no env here\nSTATUS: complete — ok")).toBeNull();
+    expect(parseReplyEnvironment("ENV:   \nSTATUS: blocked — x")).toBeNull();
   });
 });
 

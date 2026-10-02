@@ -104,7 +104,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
         status: z.enum(["ok", "failed", "cancelled"]).default("ok"),
         lane: z.string().regex(ID_PATTERN).optional(),
         verdict: z.string().min(1).optional(),
-        reply_status: z.enum(["complete", "partial", "blocked", "refused"]).optional(),
+        reply_status: z.enum(["complete", "partial", "blocked", "refused", "flaky"]).optional(),
       },
     },
     (a) =>

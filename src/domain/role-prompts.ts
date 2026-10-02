@@ -18,10 +18,13 @@ const REPLY =
   "Do not commit. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
 
 /**
- * Plan 22, resume hygiene: a worker's thread may be resumed for its fix round, and a command its last turn left
- * running in the background ends the resumed CLI (exit 143).
+ * The worker's reply contract. Plan 22, resume hygiene: a worker's thread may be resumed for its fix round, and a
+ * command its last turn left running in the background ends the resumed CLI (exit 143). Plan 23: acceptance that
+ * builds from HEAD is the verifier's, since a worker does not commit; an environment that stopped it goes on an ENV:
+ * line (climb refuses it); a check that failed, then passed alone, is STATUS: flaky with that evidence.
  */
-const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. ${REPLY}`;
+const WORKER_REPLY =
+  "Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each.";
 
 const architect = [
   "You are the architect of a catherd run. The orchestrator gave you the goal, the acceptance lines, the run id, and usually a dossier: a researcher's map of the code this work touches. Workers are other models that run in the project directory with no memory of this conversation. They will write every line of code from your plan.",

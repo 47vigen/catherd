@@ -270,7 +270,7 @@ const AgentRunSchema = z.looseObject({
   /** plan 23: a native verifier's verdict line (VERDICT: BLOCKED: environment — <probe>); rows before it lack it */
   verdict: z.string().optional(),
   /** plan 23: the STATUS word of the subagent's reply (a reviewer's partial is no review); rows before it lack it */
-  replyStatus: z.enum(["complete", "partial", "blocked", "refused"]).optional(),
+  replyStatus: z.enum(["complete", "partial", "blocked", "refused", "flaky"]).optional(),
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
