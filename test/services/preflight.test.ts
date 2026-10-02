@@ -167,6 +167,28 @@ describe("preflight", () => {
     );
   });
 
+  it("skips an empty pnpm filter only when nothing else in the check failed", () => {
+    const tail = [
+      'No projects matched the filters in "/repo"',
+      "Cannot connect to the Docker daemon at unix:///x",
+    ];
+    // a later command failed: what it says decides, never "skipped"
+    expect(classify({ code: 1, timedOut: false, tail })).toBe("cannot-start");
+    expect(classify({ code: 1, timedOut: false, tail: [tail[0] as string, "1 failing"] })).toBe(
+      "fails-as-expected",
+    );
+    expect(
+      classify(
+        { code: 1, timedOut: false, tail: [tail[0] as string, "1 failing"] },
+        "pnpm --filter new-package test; docker compose up",
+      ),
+    ).toBe("fails-as-expected");
+    // a single pnpm --filter invocation: the unmatched filter is its only failure, whatever pnpm exits with
+    expect(
+      classify({ code: 1, timedOut: false, tail: [tail[0] as string] }, "pnpm --filter new-package test"),
+    ).toBe("skipped");
+  });
+
   it("runs only the lanes of milestones not landed, or the milestone named (plan 23)", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"], "true");

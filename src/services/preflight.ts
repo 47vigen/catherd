@@ -180,9 +180,21 @@ const EMPTY_FILTER = /No projects matched the filters/i;
 export const environmentLine = (tail: string[]): string | null =>
   tail.find((l) => ENVIRONMENT.some((re) => re.test(l))) ?? null;
 
-export function classify(r: { code: number | null; timedOut: boolean; tail: string[] }): PreflightOutcome {
+/** One `pnpm … --filter …` command, nothing chained, piped or backgrounded beside it. */
+const SINGLE_PNPM_FILTER = /^\s*pnpm\s(?:[^;&|\n`$()<>]*\s)?(?:--filter|-F)(?:[\s=])[^;&|\n`$()<>]*$/;
+
+/**
+ * An unmatched pnpm filter is "skipped" only when it is provably the check's sole failure: the whole check
+ * exited 0, or the check is a single pnpm --filter command. In a compound check (`pnpm --filter new test;
+ * docker compose up`) a later command's failure decides.
+ */
+export function classify(
+  r: { code: number | null; timedOut: boolean; tail: string[] },
+  command?: string,
+): PreflightOutcome {
   if (r.timedOut || r.code === 126 || r.code === 127) return "cannot-start";
-  if (r.tail.some((l) => EMPTY_FILTER.test(l))) return "skipped";
+  const soleFailure = r.code === 0 || (command !== undefined && SINGLE_PNPM_FILTER.test(command));
+  if (soleFailure && r.tail.some((l) => EMPTY_FILTER.test(l))) return "skipped";
   if (r.code === 0) return "pass";
   return environmentLine(r.tail) !== null ? "cannot-start" : "fails-as-expected";
 }
@@ -305,7 +317,7 @@ export async function preflight(
       continue;
     }
     const r = slot.value;
-    const outcome = classify(r);
+    const outcome = classify(r, check);
     results.push({
       lane: l.lane,
       check,
