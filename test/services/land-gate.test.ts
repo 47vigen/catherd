@@ -12,6 +12,7 @@ import {
   reviewerPassed,
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
+import { protocolNext } from "../../src/services/protocol.ts";
 import { appendAgentRun, appendRecord, readAgentRuns } from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import { result, recordAgentRun } from "../../src/services/run-service.ts";
@@ -294,6 +295,79 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
       "Verifier: PASS (verifier-M1, headless)",
     );
+  });
+
+  it("treats VERDICT: BLOCKED: environment as a blocker to surface, in land and in the next step (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await route(fakeDeps(), { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const t0 = Date.now() + 1000;
+    appendAgentRun(run, {
+      at: new Date(t0 - 500).toISOString(),
+      name: "worker-M1.L1",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 1,
+      costUsd: null,
+      secs: 1,
+      status: "ok",
+      lane: "M1.L1",
+    });
+    await passGate(run, "M1", new Date(t0).toISOString());
+    const dispatchId = newDispatchId();
+    const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
+    mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
+    writeFileSync(
+      join(run.dir, replyPath),
+      "VERDICT: BLOCKED: environment — curl http://172.17.0.2:8080 from a Go binary: no route to host, twice\nSTATUS: blocked — the VPN filter\n",
+    );
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId,
+        name: "verifier-M1",
+        role: "verifier",
+        replyPath,
+        endedAt: new Date(t0 + 1000).toISOString(),
+      }),
+    );
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toBe(
+      "land M1: verifier-M1 is blocked by the environment: curl http://172.17.0.2:8080 from a Go binary: no route to host, twice",
+    );
+    expect(e.fix).toContain('park(run, "M1"');
+    expect(protocolNext(run, [])).toBe(
+      "M1: verifier-M1 is blocked by the environment (curl http://172.17.0.2:8080 from a Go binary: no route to host, twice): surface it to the owner (park M1), not a fix round",
+    );
+    // a native verifier says it through record_agent_run's verdict
+    const claude = { host: "claude-code" as const, session: null, conflict: null };
+    recordAgentRun(fakeDeps({ host: claude, now: () => t0 + 2000 }), {
+      run: run.id,
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      totalTokens: 1,
+      status: "failed",
+      verdict: "VERDICT: BLOCKED: environment - docker compose: minio-buckets cannot resolve minio\nmore",
+    });
+    expect((await refusal(land(fakeDeps(), landing(run.id, c)))).message).toBe(
+      "land M1: verifier-M1 is blocked by the environment: docker compose: minio-buckets cannot resolve minio",
+    );
+    // a plain FAIL stays a fix round
+    recordAgentRun(fakeDeps({ host: claude, now: () => t0 + 3000 }), {
+      run: run.id,
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      totalTokens: 1,
+      status: "failed",
+      verdict: "VERDICT: FAIL",
+    });
+    expect(protocolNext(run, [])).toStartWith("M1: verifier-M1 failed: the owning lanes fix it");
   });
 
   it("takes a native reviewer (record_agent_run, role reviewer, reviewer-<M>, ok) since the milestone started", async () => {

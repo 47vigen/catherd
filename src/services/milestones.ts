@@ -80,6 +80,15 @@ export const reviewerPassed = (run: Run, m: string, start = milestoneStart(run, 
 /** The verifier's contract puts `VERDICT: PASS` or `VERDICT: FAIL` on the reply's first line (role-prompts.ts). */
 const VERDICT_PASS = /^VERDICT: PASS\b/;
 
+/**
+ * Plan 23: `VERDICT: BLOCKED: environment — <the probe that proves it>`, a verdict on the machine, not on the
+ * work. Its probe, or null when `line` is no such verdict ("" when it names none).
+ */
+export function blockedByEnvironment(line: string | null | undefined): string | null {
+  const m = /^VERDICT:\s*BLOCKED:\s*environment\b\s*(?:—|–|-|:)?\s*(.*)$/i.exec(line?.trim() ?? "");
+  return m ? (m[1] ?? "").trim() : null;
+}
+
 /** A headless verifier's reply: its first non-blank line, trimmed; null when there is no reply to read. */
 export function replyVerdict(run: Run, r: RunRecord): string | null {
   const file = join(run.dir, r.replyPath);
@@ -106,6 +115,8 @@ export interface MilestoneVerifier {
   passed: boolean;
   /** what the attempt said: a native row's status, or a headless reply's first non-blank line ("no reply") */
   verdict: string;
+  /** plan 23: the probe of a `VERDICT: BLOCKED: environment` attempt ("" when it named none); null otherwise */
+  blocked: string | null;
 }
 
 /**
@@ -123,13 +134,18 @@ export function milestoneVerifier(
   const found: MilestoneVerifier[] = [
     ...readAgentRuns(run)
       .filter((a) => a.role === "verifier" && namesMilestone(a.name, m) && since(a.at, start))
-      .map((a) => ({
-        name: a.name,
-        at: a.at,
-        headless: false,
-        passed: a.status === "ok",
-        verdict: a.status,
-      })),
+      .map((a) => {
+        // plan 23: a native verifier's verdict line, when record_agent_run passed it
+        const blocked = a.status === "ok" ? null : blockedByEnvironment(a.verdict);
+        return {
+          name: a.name,
+          at: a.at,
+          headless: false,
+          passed: a.status === "ok",
+          verdict: blocked === null ? a.status : (a.verdict ?? a.status),
+          blocked,
+        };
+      }),
     ...readRecords(run)
       .records.filter((r) => r.role === "verifier" && namesMilestone(r.name, m) && since(r.endedAt, start))
       .map((r) => {
@@ -142,6 +158,7 @@ export function milestoneVerifier(
           headless: true,
           passed,
           verdict: r.status === "ok" ? said : `${r.status}, ${said}`,
+          blocked: r.status === "ok" ? blockedByEnvironment(first) : null,
         };
       }),
   ];

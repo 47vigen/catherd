@@ -274,6 +274,15 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
   const start = milestoneStart(run, m);
   // the latest verifier attempt, passed or not: a FAIL after a PASS undoes it
   const verdict = milestoneVerifier(run, m, start);
+  // plan 23: a verdict on the machine is a blocker for the owner, never a fix round
+  if (verdict?.blocked != null)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: ${verdict.name} is blocked by the environment${verdict.blocked ? `: ${verdict.blocked}` : ""}`,
+      {
+        fix: `surface it to the owner: park(run, "${m}", <the blocker and its probe>); once the environment is fixed, run a fresh verifier on ${m}. A fix round or a climb cannot help`,
+      },
+    );
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []

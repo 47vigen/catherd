@@ -162,7 +162,7 @@ const STATUS_LINE =
  */
 const CONTRACTS: Record<Role, string> = {
   architect: `Reply briefly: the milestones, each with its lanes as Mx.Ly — one line — owned files, and the full-check command. ${STATUS_LINE}`,
-  verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL. ${STATUS_LINE}`,
+  verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL, or VERDICT: BLOCKED: environment — <the probe that proves it> when the machine, not the work, stops the gate (run that probe twice, 5 s apart, before you call the host blocked). ${STATUS_LINE}`,
   worker: WORKER_REPLY,
   reviewer: REPLY,
   "ui-reviewer": REPLY,

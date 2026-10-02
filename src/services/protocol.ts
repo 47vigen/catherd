@@ -112,6 +112,9 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
   if (!reviewerPassed(run, m, start)) return `${m}: reviewer`;
   const verdict = milestoneVerifier(run, m, start);
   if (!verdict) return `${m}: verifier`;
+  // plan 23: the machine, not the work: the owner hears of it, and no fix round runs
+  if (verdict.blocked !== null)
+    return `${m}: ${verdict.name} is blocked by the environment${verdict.blocked ? ` (${verdict.blocked})` : ""}: surface it to the owner (park ${m}), not a fix round`;
   if (!verdict.passed) {
     // plan 23: a resumed verifier can hang; a re-check goes to a fresh one, told what failed
     const failed = failedItems(run, m);
