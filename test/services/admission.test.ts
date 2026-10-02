@@ -10,6 +10,7 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
+import { ownsAdd } from "../../src/services/lane-edit.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -207,6 +208,18 @@ describe("admission", () => {
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L4", lane: "M1.L4" })))).toBe("admitted");
   });
 
+  it("refuses a lane overlapping what owns_add granted a running lane since its admission", async () => {
+    const { run } = setup();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L5", ["kit/"]);
+    await fakeDispatch(run, { name: "worker-M1.L5", lane: "M1.L5", owns: ["kit/"] }, { proc: "self" });
+    await ownsAdd(deps, { run: run.id, lane: "M1.L5", paths: ["src/a_test.ts"], why: "its test" });
+    writeLane(run, "M1.L6", ["src/a_test.ts"]);
+    expect(await refusal(admit(deps, run, input({ name: "worker-M1.L6", lane: "M1.L6" })))).toBe(
+      "E_ADMIT_OVERLAP",
+    );
+  });
+
   it("finalizes an exited dispatch nobody waits for before its checks, then admits", async () => {
     const { run } = setup();
     const endedAt = new Date().toISOString();
@@ -266,7 +279,7 @@ describe("admission", () => {
     const deps = fakeDeps({ view: testView({ budget: { tokens: 300 } }) });
     await fakeDispatch(
       run,
-      { name: "worker-M1.L9", owns: ["other/"] },
+      { name: "worker-M1.L9", lane: "M1.L9", owns: ["other/"] },
       { proc: "self", events: readFileSync(join(FX, "two-turns.jsonl"), "utf8") },
     );
     expect(await refusal(admit(deps, run, input()))).toBe("E_RUN_BUDGET");

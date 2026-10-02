@@ -70,6 +70,18 @@ it("owns_add grows Owns with its why, refusing a path a running lane owns", asyn
   );
 });
 
+it("owns_add refuses a path a running lane was granted by an earlier owns_add", async () => {
+  const { run } = freshRun();
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeLane(run, "M1.L2", ["web/"]);
+  const deps = fakeDeps();
+  await fakeDispatch(run, { name: "worker-M1.L1", lane: "M1.L1", owns: ["src/a.ts"] }, { proc: "self" });
+  await ownsAdd(deps, { run: run.id, lane: "M1.L1", paths: ["src/a_test.ts"], why: "its test" });
+  await expect(
+    ownsAdd(deps, { run: run.id, lane: "M1.L2", paths: ["src/a_test.ts"], why: "mine too" }),
+  ).rejects.toMatchObject({ code: "E_ADMIT_OVERLAP" });
+});
+
 it("holds a dispatch still running when its Owns grew to the new list, so the added path is not a violation", async () => {
   const { run } = freshRun();
   writeLane(run, "M1.L1", ["src/a.ts"]);

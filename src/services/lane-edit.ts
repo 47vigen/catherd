@@ -63,7 +63,9 @@ function readLane(run: Run, lane: string): { file: string; text: string } {
 function overlapCheck(deps: Deps, run: Run, lane: string, owns: string[]): string[] {
   for (const d of pendingDispatches(run, deps.now())) {
     if (d.admit.lane === lane) continue;
-    const shared = overlaps(owns, d.admit.owns);
+    // a running lane holds what an earlier owns_add granted it, too
+    const held = d.admit.lane ? [...d.admit.owns, ...currentOwns(run, d.admit.lane)] : d.admit.owns;
+    const shared = overlaps(owns, held);
     if (shared.length)
       throw new CatherdError(
         "E_ADMIT_OVERLAP",

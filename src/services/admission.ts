@@ -38,6 +38,7 @@ import {
 import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
+import { currentOwns } from "./lane-edit.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
@@ -276,7 +277,9 @@ export async function admit(
         },
       );
     for (const d of pending) {
-      const shared = overlaps(owns, d.admit.owns);
+      // a running lane holds what owns_add granted it since its admission, too
+      const held = d.admit.lane ? [...d.admit.owns, ...currentOwns(run, d.admit.lane)] : d.admit.owns;
+      const shared = overlaps(owns, held);
       if (shared.length)
         throw new CatherdError(
           "E_ADMIT_OVERLAP",
