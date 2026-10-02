@@ -4,37 +4,6 @@ Improvements collected from real catherd runs and from designing it, not yet pla
 into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
 (the evidence), and where it would live.
 
-## From the reviews of #42 and #43 (2026-10-02)
-
-Both PRs were merged as they stood (owner decision); the findings below are fixed in the next autopilot run, not by
-the contributor.
-
-#43 (workspace runs), review findings:
-
-1. **One unrelated broken run blocks the whole workspace.** `workspaceChildren` (`workspace-store.ts`) reads every
-   run in each member repo and throws `E_RUN_CORRUPT` on any folder without `meta.json`; `createRun` writes meta
-   last, so a concurrent `run_start` or a crash bricks child start, admission, land, route and `workspace_status`,
-   with no folder named. Reproduced with one empty run folder. Fix: only workspace-linked runs with a meta; skip or
-   warn on the rest, and name the folder.
-2. **Strict reads of every child for every operation.** One torn jsonl line in one child stops every sibling and
-   makes `workspace_status` throw. Read only the evidence the operation needs; status reports a corrupt child as a
-   warning. Reproduced.
-3. **A child cannot land any milestone while any dispatch is pending** (`lane-service.ts`), not only its completion
-   milestone: landing M1 while an M2 lane runs gives `E_LAND_GATE`. Apply the rule only when
-   `milestone === step.milestone`.
-4. **The default workspace budget is the profile's per-run budget over all children**, with minutes from the
-   workspace's creation and no way to raise it: one night parked on a question refuses every later child. Default
-   no cap, or start the clock at the first child, and allow raising it.
-5. **The workspace lock is held across slow git work** (admission's status snapshot, land's diffs and state
-   refresh; up to 15 s each) while waiters give up at 10 s, so dispatches in other repos fail `E_IO_LOCK`.
-6. **MCP step objects use `z.object`**, which drops `dependsOn` silently; use `z.strictObject`.
-7. **A landed step's child can never admit again** (a post-land fix needs a new workspace), and a `milestone` that
-   never lands (`m1` vs `M1`) leaves dependents waiting with no warning.
-8. **Admission and child start check dependencies differently** (lenient without the runs lock vs strict).
-9. **Dependencies release on `land`, not on merge.** The payment run's need was "M1 of run B after M1 of run A is
-   merged, then rebase"; worktrees of one repo count as distinct members, so it fits otherwise. Also still open
-   from the same evidence: a group-level environment pause and verifier contention across runs.
-
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
 report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
@@ -520,52 +489,19 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 **Delivery and the loop**
 
 - **Messages arrive only when the next turn starts.** worker-M3.L1 ended at 17:43:08, and its catherd message reached the main thread only after the owner's next message, about 20 min later. An idle main thread is not woken. Until something wakes it, `peek` is the only way to see it, and the owner read the silence as a hang. Fix: wake an idle owner session, or let `status` show "finished, unread" prominently.
-- **`protocol.next` ignores lane order.** It said "dispatch M3.L3, M3.L4" while both depended on L1's kit changes, which have to compile first. Admission guards only file overlap, not package-level compile coupling. Fix: add a `After: M3.L1` lane header that `protocol.next` and admission respect.
 
 **Lanes and Owns**
 
-- **An Owns list cannot grow mid-lane.**
-  - L3 (Task 11 Go) ended partial on `services/notification/cmd/notification/audit_platform_test.go:93`, outside its Owns. The plan's grep excluded `_test.go`.
-  - L4 (Task 12) stopped on four panel clones that `dupes` found only after the allowlist emptied.
-  - Each case needed a hand-written lane: L5, L6, L7, and a rescoped L4.
-
-  Fix: an `owns_add(run, lane, paths, why)` tool that re-checks overlap. Clone-driven work also needs a "discover, then split" step, because the files are knowable only after the gate runs.
-- **A lane could not declare an allowed exception to its own absence grep.** The plan's `func Allowed` grep also matched an unrelated `services/verification/internal/job/command.go:120`, and `acceptancetest\.SignIn` matched the surviving `SignInAuth` and `SignInSSO`. The workers returned partial correctly, but a check that can never pass looks the same as work that isn't done yet. Fix: an `Allow:` line under the check, and word boundaries in plan greps.
-
-**Preflight and environment**
-
-- **The version bump changed the sandbox silently.** Worker records went from `workspace-write, isolated: true` (1.1.0) to `access: full, isolated: false` (1.2.0) with no note in the run. Fix: pin the protocol and the sandbox per run, or log the change in `state.md`.
-
-**Ledger and knowledge**
-
-- **`land` accepted inexact verifier names.** M2 landed with verifier records named `verifier-M2-pre`, `-gate1` and `-gate3`, with no exact `verifier-M2` row. Its ledger minutes (1689) counted the whole paused night. Fix: match the name exactly, and subtract the pauses.
-- **`knowledge.md` is keyed by worktree path.** Every worktree (`dev-registry`, `auth-verification`, `auth-kit-cleanup`) is a new repo, so `read_knowledge` for M3 was empty although M1 and M2 wrote `learned`. Fix: key by the git origin.
+- **Clone-driven work needs a "discover, then split" step.** L4 (Task 12) stopped on four panel clones that `dupes` found only after the allowlist emptied, and needed a hand-written rescoped lane. `owns_add` (1.5) grows one lane's Owns; splitting work the gate discovers into new lanes is still by hand, because the files are knowable only after the gate runs.
 
 **Resume (2026-09-29)**
 
 - **A "foreground" verifier is still a background agent.** On the resume, the orchestrator briefed the verifier to stay in the foreground, and the Agent tool launched it async anyway ("Async agent launched successfully"). The verifier can block inside its own turn, but the main thread only learns the verdict from a notification. Fix: the skill says so plainly, and `protocol.next` treats the verifier as a dispatched role whose result arrives as a message, not as a call that returns.
 - **`status` lists a previous owner session as live.** After a new session had taken the run, `status` and `peek` still listed the previous owner session as `live: true` (the stale verifier step itself closes since 1.5).
-- **The profile is not pinned per run either.** The active profile changed from the codex one to `just-claude` while M3 was paused, so the run's verifier rung changed (`catherd-default-verifier-*` is gone and `catherd-just-claude-verifier-claude-opus-5-5-low` took over), and any re-dispatched lane would route on Sonnet instead of the Codex rungs it started on. Nothing in the run records the switch. Fix: same as the sandbox item: pin the profile at `run_start`, or log the change in `state.md`.
 
 ## From the payment run (2026-09-29)
 
 catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That is eleven runs, one per plan and its worktree, from `20260929-113331` (plan 1) to `20260929-145705` (plan 11). The run ended with eleven MRs merged to staging (!59–!62, !64–!70). Evidence lives in each run folder: `runs.jsonl`, `agents.jsonl`, the lane files and the role records.
-
-**Programs span runs**
-
-- **One run per worktree, and nothing links them.** Each plan had its own worktree, so it needed its own run with a lone `M1`. The program's order lived only in the orchestrator's head:
-  - 1, 2 and 4 in parallel;
-  - 3 after 2;
-  - the chain 5→11.
-
-  Nothing models "M1 of run B needs M1 of run A merged", and after each merge the stack had to be rebased by hand. Fix: a program or run group with cross-run `After:` edges.
-- **One environment blocker took three parks.** A VPN took the default route and blocked every run. `park` is per run and per milestone, so it took three parks and three pushes. Fix: a machine-level or group-level "paused: environment" state.
-- **Two verifiers at once starve each other.** Plan 2's and plan 4's verifiers ran side by side. Plan 4's vitest ran next to a `task check` and hit six 5000 ms timeouts in files the diff does not touch. The lock's heavy slots let the two overlap, and catherd has no view of the machine across runs.
-
-**Routing and dispatch**
-
-- **Lane values are refused only at preflight.** `Difficulty: medium` (the word plans use) was refused as `E_LANE_INVALID` at preflight, not when `write_run_file` wrote the lane. Evidence: run `-135414`.
-- **There is no `lane_set`.** Fixing one header line (a fast check without `pnpm check`, or an Owns path) meant `sed` on the run folder. Evidence: runs `-113331` and `-143512`.
 
 **Preflight**
 
@@ -607,10 +543,6 @@ owner turned isolation off (the host is itself a sandbox).
   goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the skill ends
   such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the thread
   has an active goal would catch it before the first poll.
-- **A superseded run stays open.** Planning run `20261002-002615-…` (main checkout) handed over to the execution run
-  in the worktree, because there is one run per worktree. It still lists as `idle`, with
-  `Protocol next: route and preflight M1's lanes`. Fix: `runs supersede <run> --by <run>` (or a field set by
-  `run_start` with a `from:` line) closes it with a pointer, and `status` hides it.
 - **Investigate: three MCP servers for one Codex session.** At 09:36 one Codex TUI started `catherd mcp` three times
   (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
   Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
@@ -665,9 +597,6 @@ owner turned isolation off (the host is itself a sandbox).
 
 ## Orchestration
 
-- **A per-milestone digest.** One screen per landed milestone: A-lines met, commits, climbs, open findings, time and
-  tokens. The push notification links it. _Why:_ the user asked "where is it" about 8 times in one run; the milestone
-  push answers when, and the digest answers what. _Where:_ `land` writes it into the run folder; `watch` shows it.
 - **Milestone per branch.** A real multi-MR build wants one branch and one MR per milestone, some in parallel. `land`
   only commits. _Where:_ an optional `branch` on milestones, and a finish step that opens the MR through the repo's
   own tooling.
