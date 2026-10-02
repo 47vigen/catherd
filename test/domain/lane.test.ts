@@ -32,9 +32,33 @@ describe("parseLaneHeader", () => {
   });
 
   it("reads After: lanes and the Allow: exceptions under the check", () => {
-    const h = parseLaneHeader(`${LANE}\nAfter: M1.L1, \`M0.L3\`\nAllow: src/job/command.go:120, docs/`);
+    const head = LANE.replace("\n\n", "\nAfter: M1.L1, `M0.L3`\nAllow: src/job/command.go:120, docs/\n\n");
+    const h = parseLaneHeader(head);
     expect(h.after).toEqual(["M1.L1", "M0.L3"]);
     expect(h.allow).toEqual(["src/job/command.go:120", "docs/"]);
+  });
+
+  it("reads the header lines only from the header block, never from the body's prose", () => {
+    const text = [
+      "# M1.L3 — Return 404 for a missing job",
+      "",
+      "Owns: src/job/",
+      "Kind: repo_code",
+      "",
+      "## Behaviour",
+      "Before: the handler returns 500.",
+      "After: the handler returns 404.",
+      "allow: nothing else",
+      "Difficulty: impossible",
+    ].join("\n");
+    expect(parseLaneHeader(text)).toMatchObject({
+      owns: ["src/job/"],
+      kind: "repo_code",
+      difficulty: null,
+      after: [],
+      allow: [],
+    });
+    expect(() => assertLaneValues(text, "lanes/M1.L3.md")).not.toThrow();
   });
 });
 

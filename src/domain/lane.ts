@@ -29,10 +29,29 @@ const unquote = (s: string) =>
     .replace(/^`+|`+$/g, "")
     .trim();
 
-/** The value of the first `Label:` line, allowing `**Label:**` and `_Label_:` emphasis. */
+/**
+ * The lane's header block, as [start, end) line indexes: the lines under the `# ` title (blank lines right
+ * after it skipped) up to the first blank line or heading. Header lines are read only here, so a body's prose
+ * (`After: the handler returns 404`) is never a header value.
+ */
+export function headerBlock(lines: string[]): [number, number] {
+  const title = lines.findIndex((l) => /^#\s+/.test(l));
+  let start = title + 1;
+  while (start < lines.length && (lines[start] ?? "").trim() === "") start++;
+  let end = start;
+  while (end < lines.length && (lines[end] ?? "").trim() !== "" && !(lines[end] ?? "").startsWith("#")) end++;
+  return [start, end];
+}
+
+/** A header line `Label:`, allowing `**Label:**` and `_Label_:` emphasis; group 1 is its value. */
+export const headerLine = (label: string) => new RegExp(`^\\s*[*_]*${label}[*_]*\\s*:[*_]*\\s*(.*)$`, "i");
+
+/** The value of the first `Label:` line of the header block. */
 function field(text: string, label: string): string | null {
-  const re = new RegExp(`^\\s*[*_]*${label}[*_]*\\s*:[*_]*\\s*(.*)$`, "i");
-  for (const line of text.split("\n")) {
+  const re = headerLine(label);
+  const lines = text.split("\n");
+  const [start, end] = headerBlock(lines);
+  for (const line of lines.slice(start, end)) {
     const m = re.exec(line);
     if (m) return (m[1] ?? "").trim();
   }

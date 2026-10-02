@@ -20,6 +20,16 @@ it("sets one header line in place, or adds it under the title", () => {
   );
 });
 
+it("sets a header line, never a body line that shares its label", () => {
+  const text = "# M1.L1 — x\n\nOwns: a.ts\n\n## Behaviour\nAfter: the handler returns 404.\n";
+  expect(setHeaderLine(text, "After", "M1.L0")).toBe(
+    "# M1.L1 — x\n\nAfter: M1.L0\nOwns: a.ts\n\n## Behaviour\nAfter: the handler returns 404.\n",
+  );
+  expect(setHeaderLine(text, "Owns", "b.ts")).toBe(
+    "# M1.L1 — x\n\nOwns: b.ts\n\n## Behaviour\nAfter: the handler returns 404.\n",
+  );
+});
+
 it("lane_set writes a valid line, and refuses a wrong value without touching the file", async () => {
   const { run } = freshRun();
   const file = writeLane(run, "M1.L1", ["src/a.ts"]);

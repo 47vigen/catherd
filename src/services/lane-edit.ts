@@ -4,6 +4,8 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import {
   assertLaneValues,
+  headerBlock,
+  headerLine,
   type LaneHeader,
   normalizeOwned,
   overlaps,
@@ -33,16 +35,15 @@ export const LANE_FIELDS = {
 } as const;
 export type LaneField = keyof typeof LANE_FIELDS;
 
-/** `label`'s first header line, as parseLaneHeader reads it (`**Label:**` and `_Label_:` included). */
-const lineOf = (label: string) => new RegExp(`^\\s*[*_]*${label}[*_]*\\s*:.*$`, "im");
-
-/** `text` with `label`'s line set to `value`: replaced where it is, else added under the title. */
+/** `text` with `label`'s header line set to `value`: replaced where it is, else added atop the header block. */
 export function setHeaderLine(text: string, label: string, value: string): string {
   const line = `${label}: ${value}`;
-  if (lineOf(label).test(text)) return text.replace(lineOf(label), line);
   const lines = text.split("\n");
-  const title = lines.findIndex((l) => /^#\s+/.test(l));
-  lines.splice(title + 1, 0, line);
+  const [start, end] = headerBlock(lines);
+  const re = headerLine(label);
+  const at = lines.slice(start, end).findIndex((l) => re.test(l));
+  if (at >= 0) lines[start + at] = line;
+  else lines.splice(start, 0, line);
   return lines.join("\n");
 }
 
