@@ -572,17 +572,34 @@ clean by 03:30. The six and a half hours after that went to seven verifier attem
 failures. The coordinator read 26.7 M input tokens (97 % cached). The harnesses were isolated until 10:20, when the
 owner turned isolation off (the host is itself a sandbox).
 
-- **A completion is lost while the host is gone.** The coordinator ran straight on SSH, not in tmux. Its MCP server
-  (pid 345390) logged its last event at 08:47:57. `researcher-M1-notification-fake` ended at 09:03:32. The next
-  `notify` came at 09:38:04, after the owner restarted Codex and a new server reconciled (09:36:46). The run sat
-  idle for 35 minutes. The roles are detached and survived, but only the MCP server pushes. Fix: on a role's exit,
-  the detached supervisor sends `codex queue --remote unix://` itself. The app-server daemon outlives the TUI, so
-  queued input waits for the thread. Alternatively, a server at boot pushes every unread record of the runs that
-  session owns. The skill tells a Codex coordinator to run inside tmux and says so once when `$TMUX` is empty.
-  (`src/infra/codex-queue.ts`, the supervisor, `plugin/skills/catherd`.)
+- **A completion is lost once the daemon drops the thread.** Codex 0.159/0.160 runs threads in its app-server
+  daemon (pid 241476, up since 2026-10-01 21:33). The TUI is only a client, and catherd's MCP server is a child of
+  the daemon, not of the TUI. Timeline, all from logs:
+  - The owner's SSH dropped at 08:42:57 (sshd: `Read error from remote host … Connection timed out`). The
+    coordinator ran on bare SSH, not in tmux.
+  - The daemon finished the coordinator's turn anyway: last dispatch 08:47:57, turn end 08:48:02.
+  - At 08:49:05 the daemon closed the thread's MCP clients (`rmcp::transport::streamable_http_client: fail to
+    delete session` in `~/.codex/app-server-daemon/daemon.stderr.log`). The same signature appears at 10:28:48,
+    when the owner closed the TUI on purpose. catherd's server for the thread (pid 345390, 164 tool calls and 26
+    `notify` since 00:24) logged nothing after that.
+  - `researcher-M1-notification-fake` ended at 09:03:32 with no server left to push it. The next `notify` came at
+    09:38:04 from a new server (634083) that reconciled after the owner reattached at 09:36. The run sat for
+    35 minutes.
+
+  Most likely the daemon unloads a thread, and stops that thread's MCP servers, once its turn ends and no client is
+  attached. One fact does not fit yet: 634083 outlived the 10:28 TUI restart, maybe because a client reattached
+  within a grace period. Pin this down with a controlled detach before relying on it.
+
+  Fix: push from where a role ends, not only from the MCP server. On exit, the detached supervisor runs
+  `codex queue --remote unix:// --thread <owner>`. The daemon outlives every client and keeps queued input for an
+  unloaded thread (README: "unloaded/interrupted hosts may retain input"), so the notice waits for the next attach.
+  Keep the server-side push as the fast path, with the existing per-event receipt so the two never double-deliver.
+  The Codex half of the skill tells the coordinator to run inside tmux and says so once when `$TMUX` is empty.
+  (`src/infra/codex-queue.ts`, the supervisor, `src/services/notifier.ts`, `plugin/skills/catherd`.)
 - **Isolated roles cannot reach catherd's own tools.** The isolated `CODEX_HOME` has no catherd MCP server. The
   verifier was told to call `gate_check`/`gate_pass`, so it wrote a stdio MCP client (`/tmp/m1-verifier-mcp.py`),
-  wrapped it in `/tmp/m1-gate.py`, and drove `catherd mcp` by hand for every gate item. Fix: add CLI forms any role
+  wrapped it in `/tmp/m1-gate.py`, and drove `catherd mcp` by hand for every gate item. That spawned about 200 one-shot `catherd mcp` processes, one per call (03:31–10:17 in
+  `catherd-2026-10-02.jsonl`), each paying a boot and a reconcile. Fix: add CLI forms any role
   can run (`catherd gate check|pass`, `catherd run-file write`), name them in the verifier's brief, and stop
   telling an isolated role to call MCP tools. Or write a catherd-only `[mcp_servers]` entry into the isolated
   config. Isolation per role, not only per harness, would also have kept the verifier native here.
