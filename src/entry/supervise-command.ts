@@ -16,7 +16,7 @@ export async function runSupervise(specPath: string): Promise<void> {
   const a = adapterFor(spec.backend);
   const busy = a?.isBusy?.bind(a);
   const stop = a?.interrupt?.bind(a);
-  await supervise(spec, {
+  const ended = await supervise(spec, {
     onLine: (line) => {
       const d = a?.parse(line) ?? {};
       return { final: d.final, thread: d.thread, item: d.item };
@@ -26,6 +26,12 @@ export async function runSupervise(specPath: string): Promise<void> {
       : undefined,
     interrupt: stop ? (thread) => (thread ? stop(thread, spec.cwd) : Promise.resolve()) : undefined,
   });
+  // plan 22: a Codex owner hears of the role from here too, when its thread's MCP server is gone. Loaded only
+  // once the worker ended (a supervisor that lost the lock to another pushes nothing); never throws.
+  if (ended && process.env.CATHERD_NO_END_PUSH !== "1") {
+    const { pushFromEnd } = await import("../services/end-push.ts");
+    await pushFromEnd(spec.dispatchDir);
+  }
 }
 
 export const superviseCommand = defineCommand({

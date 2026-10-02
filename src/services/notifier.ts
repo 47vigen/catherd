@@ -79,7 +79,8 @@ function legacyNotified(q: Queued, target: HostSessionRef): boolean {
   }
 }
 
-function recoverSubmission(dir: string, eventId: string): void {
+/** A "submitting" claim left by a sender that died is ambiguous: retrying it may duplicate input. Under the notify lock. */
+export function recoverSubmission(dir: string, eventId: string): void {
   for (const a of readDelivery(dir)) {
     if (a.status === "submitting" && a.eventIds.includes(eventId))
       writeDeliveryAttempt(dir, {
