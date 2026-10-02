@@ -57,6 +57,29 @@ Plan 21 (roles and ownership) review:
   `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
   `roleScopeFromEnv`. Fix: refuse them with `E_ROLE_SCOPE` when `roleScopeFromEnv(process.env)` is set. (Minor 7.)
 
+Plan 22 (delivery and the loop) review:
+
+- **`thread` is checked against records a claim has not written yet.** `threadFor` reads `runs.jsonl` before
+  `claim()`, which finalizes finished dispatches that lack a record, so `thread: "latest"` can resolve to an older
+  thread and an explicit newer thread is refused. Evidence: `src/services/dispatch-service.ts:297-321` (called at
+  :354, before `claim`). Fix: also accept the threads of finished, unrecorded dispatches (`admit.thread` or the
+  stream's thread), or finalize the name's finished dispatches before the check without claiming. (M1.)
+- **`advanceNext` runs on every `result()`.** A re-read of an already collected record can rewrite a Next that names
+  the role for a future step. Evidence: `src/services/run-service.ts:113-124`, called at :160. Fix: advance only
+  when the call marks the record read, or when the record ended after state.md's last write. (M2.)
+- **End push reads the owner before the notify lock.** A claim in the gap sends to the old owner, and the new
+  owner's notifier also sends (two sessions, one message each). Evidence: `src/services/end-push.ts:85` (owner) vs
+  :89 (`tryLock`). Fix: re-read `codexOwner` inside the lock. (M3.)
+- **End push reports an `ambiguous` delivery as "delivered".** Evidence: `src/services/end-push.ts:93`
+  (`deliveryState(...) !== "pending"` returns `"delivered"`). Fix: return the delivery state itself. (M4.)
+- **End push gives up at once on "busy".** If the server holding the notify lock then fails to submit, nobody
+  retries. Evidence: `src/services/end-push.ts:90`. Fix: one short retry after the lock frees. (M5.)
+- **`CATHERD_NO_END_PUSH` reaches only children that inherit `process.env`.** A test that spawns with an explicit
+  `env` could leave a supervisor running 20 s and calling the real `codex`. Evidence: `test/preload.ts:7`; there
+  is no shared spawn-env helper (each test builds its `env`, e.g. `test/plugin.test.ts:112`). Fix: add a shared
+  spawn-env helper in `test/helpers.ts` that sets `CATHERD_NO_END_PUSH=1` (and `ANTHROPIC_API_KEY: ""`), and use it
+  in the tests that spawn catherd. (M6.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
