@@ -403,7 +403,10 @@ export async function gateList(i: {
   milestone: string;
 }): Promise<{ recorded: RecordedItem[]; env: string[] }> {
   const run = findRun(i.run);
-  return { recorded: await recordedItems(run, i.milestone), env: gateEnvLines(await readGateEnv(run.meta.repo)) };
+  return {
+    recorded: await recordedItems(run, i.milestone),
+    env: gateEnvLines(await readGateEnv(run.meta.repo)),
+  };
 }
 
 /** `gate_check` as both MCP servers expose it: item, command and paths together check an item; none of them,
