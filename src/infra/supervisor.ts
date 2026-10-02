@@ -210,7 +210,15 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         } catch {
           continue; // one line the hook cannot read must not end supervision
         }
-        if (d?.thread) thread = d.thread;
+        if (d?.thread && d.thread !== thread) {
+          thread = d.thread;
+          // spec 1.5 plan 21: a live role's thread is on disk, so no delivery ever targets it
+          try {
+            writeJsonAtomic(p.thread, { schema: 1, thread, at: new Date().toISOString() });
+          } catch (e) {
+            log("warn", "supervise", { dispatch: spec.dispatchDir, error: errorMessage(e) });
+          }
+        }
         if (d?.final) finalAt ??= Date.now();
         if (d?.item) {
           if (d.item.open) open.add(d.item.id);

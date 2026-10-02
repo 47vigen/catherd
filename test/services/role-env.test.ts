@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { roleScopeFromEnv } from "../../src/domain/role-scope.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { watchersSettled } from "../../src/services/dispatch-service.ts";
+import { listDispatches, readThread, roleThreadOf } from "../../src/services/dispatches.ts";
 import { noPosixModes, snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, freshRun, runRole, writeLane } from "./helpers.ts";
@@ -18,11 +19,12 @@ describe("the role's env (spec 1.5 plan 21)", () => {
     process.env.PATH = simPath();
     const sim = withScenario({
       reply: "done\nSTATUS: complete — ok",
+      eventsFile: join(import.meta.dir, "..", "fixtures", "adapters", "codex", "ok-with-reconnect.jsonl"),
       touch: [{ path: "src/a.ts", content: "x" }],
     });
     Object.assign(process.env, sim.env);
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    await runRole(fakeDeps(), {
+    const { record } = await runRole(fakeDeps(), {
       run: run.id,
       role: "worker",
       name: "worker-M1.L1",
@@ -41,5 +43,10 @@ describe("the role's env (spec 1.5 plan 21)", () => {
     // and a catherd MCP server its Codex starts, which sees TMPDIR but not CATHERD_ROLE, knows it is that role
     expect(roleScopeFromEnv({ TMPDIR: seen.tmpdir! })).toEqual({ run: run.id, name: "worker-M1.L1" });
     expect(existsSync(join(run.dir, "scratch"))).toBe(true);
+    // the supervisor wrote the role's thread down as soon as the CLI named it, so no notice ever targets it
+    expect(record.thread).toBe("01a0d0d4-d0a6-71a1-983c-82a9169200b4");
+    const d = listDispatches(run)[0]!;
+    expect(readThread(d.dir)).toBe(record.thread);
+    expect(roleThreadOf(run, record.thread!)).toBe("worker-M1.L1");
   });
 });

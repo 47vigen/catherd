@@ -24,6 +24,9 @@ const AttemptSchema = z
   .refine((a) => a.status !== "accepted" || Boolean(a.msgId?.trim()), "accepted attempt needs a receipt");
 const DeliverySchema = z.looseObject({ schema: z.literal(1), attempts: z.array(AttemptSchema) });
 export type DeliveryAttempt = z.infer<typeof AttemptSchema>;
+/** How a delivery to a role's thread is recorded (spec 1.5 plan 21); `status` warns about it. */
+export const ROLE_THREAD_REFUSAL = "refused: the target is a role's thread";
+
 export type DeliveryState = "pending" | "enqueue-accepted" | "ambiguous" | "collected";
 
 export function readDelivery(dir: string): DeliveryAttempt[] {

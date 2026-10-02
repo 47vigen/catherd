@@ -140,6 +140,23 @@ export function pendingDispatches(
 export const liveDispatches = (run: Run, now = Date.now()): LiveDispatch[] =>
   pendingDispatches(run, now).filter((d) => d.state !== "finished");
 
+/** The thread the supervisor saw the role's CLI name (thread.json), else null. */
+export function readThread(dir: string): string | null {
+  const t = readJson<{ thread?: unknown }>(dispatchPaths(dir).thread)?.thread;
+  return typeof t === "string" && t ? t : null;
+}
+
+/**
+ * Spec 1.5 plan 21: the role whose thread `thread` is, in this run: a recorded thread, a resumed one, or the one
+ * a live role's supervisor wrote down. Null for any other thread, the orchestrator's among them.
+ */
+export function roleThreadOf(run: Run, thread: string): string | null {
+  const recorded = readRecords(run).records.find((r) => r.thread === thread);
+  if (recorded) return recorded.name;
+  const d = listDispatches(run).find((x) => x.admit.thread === thread || readThread(x.dir) === thread);
+  return d ? d.admit.name : null;
+}
+
 /** Spec §4.1: `roles/<name>/latest` names the newest dispatch of a role. */
 export function setLatest(run: Run, name: string, dispatchId: string): void {
   writeTextAtomic(join(roleDir(run, name), "latest"), dispatchId);

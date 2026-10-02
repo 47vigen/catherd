@@ -45,6 +45,8 @@ export function dispatchPaths(dir: string) {
     stall: join(dir, "stall.json"),
     /** the message that announced the stall, once sent */
     stallNotified: join(dir, "stall-notified.json"),
+    /** the role's own thread, written by the supervisor once the CLI names it (spec 1.5 plan 21) */
+    thread: join(dir, "thread.json"),
   };
 }
 
