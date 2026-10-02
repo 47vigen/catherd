@@ -294,15 +294,20 @@ export function validateProfile(
           message: `no worker rung clears ${unreached.join("; ")}: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)`,
         });
     }
-    // spec 1.5 plan 24: a quota whose rungs never start a lane sits idle but for climbs (the identity run's Go)
-    if (usable.length > 1) {
+    // spec 1.5 plan 24: a quota whose rungs never start a lane sits idle but for climbs (the identity run's Go).
+    // Only the worker routes lanes and climbs (Ruling 9); another role routes lane-less to one rung, so a rung
+    // on a second quota is a deliberate spare there, not an idle quota (final review Important 4, Ruling 8)
+    if (role === "worker" && usable.length > 1) {
       const idle = idleQuotas(c, p, role, usable);
-      for (const [q, rungs] of idle)
+      for (const [q, rungs] of idle) {
+        // the billing key, not the quota, is what billing is set on (`claude:` and `claude-code:` share one)
+        const keys = [...new Set(usable.filter((x) => rungs.includes(x.rung)).map((x) => x.info.key))];
         warnings.push({
           path: `${at}.rungs`,
           message: `${q} never starts a ${role} lane: ${rungs.join(", ")} ${rungs.length > 1 ? "run" : "runs"} only on a climb, since another rung starts every lane`,
-          fix: `check billing.${q} (a metered rung starts only where nothing paid from a plan clears the bar), or order ${at}.rungs so its rungs come first among equals`,
+          fix: `check ${keys.map((k) => `billing.${k}`).join(" and ")} (a metered rung starts only where nothing paid from a plan clears the bar), or order ${at}.rungs so its rungs come first among equals`,
         });
+      }
     }
   }
 

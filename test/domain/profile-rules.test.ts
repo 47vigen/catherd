@@ -382,6 +382,26 @@ describe("validateProfile: what a role can never start or reach (spec 1.5 plan 2
     });
   });
 
+  it("does not tell a lane-less role that a quota runs only on a climb (final review Important 4)", () => {
+    // a reviewer routes without a lane: no kind or difficulty ever starts it, and it never climbs
+    const v = check({
+      roles: { reviewer: { rungs: ["codex:gpt-6-sol#xhigh", "claude-code:claude-sonnet-5-5#high"] } },
+    });
+    expect(messages(v.warnings).filter((m) => m.includes("never starts"))).toEqual([]);
+  });
+
+  it("names the billing key, not the quota, in the fix for an idle native Claude rung", () => {
+    const sonnet = "claude:claude-sonnet-5#medium";
+    const v = check({
+      billing: { claude: "metered" },
+      roles: { worker: { rungs: [LUNA, SOL, sonnet], defaultRung: SOL } },
+    });
+    const idle = v.warnings.filter((w) => w.message.includes("never starts"));
+    expect(idle.map((w) => w.fix)).toEqual([
+      "check billing.claude (a metered rung starts only where nothing paid from a plan clears the bar), or order roles.worker.rungs so its rungs come first among equals",
+    ]);
+  });
+
   it("counts a quota that wins a tie on headroom as one that starts", () => {
     const v = check({ roles: { worker: { rungs: [LUNA, SOL, GO_KIMI], defaultRung: SOL } } }, c());
     expect(messages(v.warnings).some((m) => m.includes("never starts"))).toBe(false);
