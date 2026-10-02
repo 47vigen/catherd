@@ -28,9 +28,10 @@ beforeEach(() => {
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
 // spec 1.2 §5: build lanes need DeepSWE 66.6 (the median), which Luna high (carried from max) and Sol xhigh
-// clear; copy needs 60.95, which Sol high clears too; no Sol rung clears a logic or hard bar
+// clear; copy needs 60.95, which Sol high clears too, but it scores below Luna high, so a ladder that only goes
+// up (spec 1.5 plan 24) leaves it off; no Sol rung clears a logic or hard bar
 const TRACK_A = { rung: LADDER[0] as string, ladder: [LADDER[0] as string, LADDER[3] as string] };
-const COPY = { rung: LADDER[0] as string, ladder: [LADDER[0], LADDER[2], LADDER[3]] as string[] };
+const COPY = TRACK_A;
 const TRACK_B = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 
@@ -327,13 +328,14 @@ describe("route and a repository's listing", () => {
     });
     const rungs = ["opencode:opencode/gpt-6-luna#high", "opencode:opencode/gpt-6-sol#high"];
     const profile = view({
-      roles: { worker: { enabled: true, access: "workspace-write", rungs, defaultRung: rungs[0] } },
+      roles: { worker: { enabled: true, access: "workspace-write", rungs, defaultRung: rungs[1] } },
     });
     const r = routingService();
+    // /work/a does not list the default rung, so the role falls back to the one it lists
     const inA = await r.route(req(null, { repo: "/work/a", profile }));
     expect(inA.ladder).toEqual(["opencode:opencode/gpt-6-luna#high"]);
     const inB = await r.route(req(null, { repo: "/work/b", profile }));
-    expect(inB.ladder).toContain("opencode:opencode/gpt-6-sol#high");
+    expect(inB.rung).toBe("opencode:opencode/gpt-6-sol#high");
   });
 });
 

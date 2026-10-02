@@ -31,6 +31,8 @@ export interface Candidate {
 export interface Pick {
   rung: string;
   ladder: string[];
+  /** spec 1.5 plan 24: no rung clears the lane's bar (`no rung clears repo_code/hard; best is …`) */
+  noClear?: string;
 }
 
 const byNull = (a: number | null, b: number | null) =>
@@ -90,15 +92,38 @@ function noRung(role: Role): CatherdError {
   });
 }
 
+/** The dimensions a ladder is compared on: the bar's, else every dimension the start has a value on. */
+function compareDims(start: Candidate, bar: Partial<Record<Dim, number>>): Dim[] {
+  const dims = (Object.keys(bar) as Dim[]).filter((d) => bar[d] !== undefined);
+  return dims.length ? dims : (Object.keys(start.scores) as Dim[]);
+}
+
+/** `x` scores at least `start` on every one of `dims` (a missing value scores below any). */
+const atLeast = (x: Candidate, start: Candidate, dims: Dim[]): boolean =>
+  dims.every(
+    (d) => (x.scores[d] ?? Number.NEGATIVE_INFINITY) >= (start.scores[d] ?? Number.NEGATIVE_INFINITY),
+  );
+
 /**
- * The role's default rung and every candidate above it (the whole list when it has no default), in cost
- * order under either objective: speed order would put slower, not stronger, rungs above the default.
+ * Spec 1.5 plan 24, "climb ladders only go up": the start, then every other candidate that scores at least the
+ * start on `dims`, in `order`'s order. A stronger rung is on the ladder wherever cost puts it, and a weaker one
+ * never is, so a climb never lands on a rung below the one it leaves.
+ */
+function ladderFrom(start: Candidate, order: Candidate[], dims: Dim[]): Pick {
+  const rest = order.filter((x) => x !== start && atLeast(x, start, dims));
+  return { rung: start.rung, ladder: [start, ...rest].map((x) => x.rung) };
+}
+
+/**
+ * The role's default rung and every candidate at least as strong on every dimension it has a value on (the
+ * whole list when it has no default), in cost order under either objective: speed order would put slower, not
+ * stronger, rungs above the default.
  */
 export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
-  const all = candidates(c, { ...p, objective: "cost" }, role).map((x) => x.rung);
+  const all = candidates(c, { ...p, objective: "cost" }, role);
   if (all.length === 0) throw noRung(role);
-  const i = Math.max(0, all.indexOf(p.role.defaultRung ?? ""));
-  return { rung: all[i] as string, ladder: all.slice(i) };
+  const start = all.find((x) => x.rung === p.role.defaultRung) ?? (all[0] as Candidate);
+  return ladderFrom(start, all, compareDims(start, {}));
 }
 
 /**
@@ -113,29 +138,78 @@ export function defaultDifficulty(c: Catalog, p: RoutingProfile, role: Role, kin
   return cleared.at(-1) ?? "build";
 }
 
+/** The kind's main dimension: what a speed ladder sorts on and what `best is` reads first. */
+export const primaryDim = (kind: Kind): Dim =>
+  kind === "terminal" ? "terminal" : kind === "ui" ? "frontend" : "repo_code";
+
 /**
  * Under `objective: "speed"` the objective picks only the start (the fastest bar-clearing rung); the
- * ladder above it is the other bar-clearing rungs at least as strong on the kind's primary dimension,
- * weakest first, cost breaking ties, so a lane never climbs onto a weaker rung. Ported from 0.x.
+ * ladder above it is the other rungs at least as strong on the bar, weakest first on the kind's primary
+ * dimension, cost breaking ties, so a lane never climbs onto a weaker rung. Ported from 0.x.
  */
-function speedLadder(clearing: Candidate[], kind: Kind): Pick {
-  const start = clearing[0] as Candidate;
-  const dim: Dim = kind === "terminal" ? "terminal" : "repo_code";
+function speedLadder(start: Candidate, all: Candidate[], kind: Kind, dims: Dim[]): Pick {
+  const dim = primaryDim(kind);
   const strength = (x: Candidate) => x.scores[dim] ?? Number.NEGATIVE_INFINITY;
-  const rest = clearing
-    .filter((x) => x !== start && strength(x) >= strength(start))
-    .sort((a, b) => strength(a) - strength(b) || compareCost(a.cost, b.cost));
-  return { rung: start.rung, ladder: [start, ...rest].map((x) => x.rung) };
+  const order = [...all].sort((a, b) => strength(a) - strength(b) || compareCost(a.cost, b.cost));
+  return ladderFrom(start, order, dims);
 }
 
-/** Spec §5.4: the start rung and ladder for a lane of this kind and difficulty (0.x `select`). */
+/** The thresholds of `bar` a rung misses, each with its value: `agentic 0.0818 < 0.1077`. */
+function shortfalls(cand: Candidate, bar: Partial<Record<Dim, number>>): string[] {
+  return (Object.entries(bar) as [Dim, number | undefined][]).flatMap(([dim, min]) => {
+    if (min === undefined) return [];
+    const v = cand.scores[dim];
+    return v !== undefined && v >= min ? [] : [`${dim} ${v ?? "none"} < ${min}`];
+  });
+}
+
+/**
+ * Spec 1.5 plan 24: when no rung clears a bar, the one closest to it: the fewest thresholds missed, then the
+ * highest on the kind's primary dimension, then the candidates' order.
+ */
+function bestOf(all: Candidate[], bar: Partial<Record<Dim, number>>, kind: Kind): Candidate {
+  const dim = primaryDim(kind);
+  const v = (x: Candidate) => x.scores[dim] ?? Number.NEGATIVE_INFINITY;
+  const misses = (x: Candidate) => shortfalls(x, bar).length;
+  return [...all].sort((a, b) => misses(a) - misses(b) || v(b) - v(a))[0] as Candidate;
+}
+
+/** `no rung clears repo_code/hard; best is codex:gpt-6-sol#xhigh (agentic 0.0818 < 0.1077)`. */
+export function noClearLine(
+  all: Candidate[],
+  bar: Partial<Record<Dim, number>>,
+  kind: Kind,
+  d: Difficulty,
+): string {
+  const best = bestOf(all, bar, kind);
+  return `no rung clears ${kind}/${d}; best is ${best.rung} (${shortfalls(best, bar).join(", ")})`;
+}
+
+/**
+ * Spec §5.4: the start rung and ladder for a lane of this kind and difficulty (0.x `select`). The start is the
+ * first rung in objective order that clears the bar. When none does, it is the default rung, raised to an
+ * easier difficulty's start when that one scores at least the default on this bar (spec 1.5 plan 24: `logic`
+ * starts no lower than `build`), and `noClear` says so. The ladder above the start only goes up.
+ */
 export function select(c: Catalog, p: RoutingProfile, role: Role, kind: Kind, difficulty: Difficulty): Pick {
   const all = candidates(c, p, role, kind);
   if (all.length === 0) throw noRung(role);
   if (all.length === 1) return { rung: all[0]?.rung as string, ladder: [all[0]?.rung as string] };
-  const clearing = all.filter((x) => clearsBar(c, x, kind, difficulty));
-  if (clearing.length === 0) return defaultLadder(c, p, role);
-  return p.objective === "speed"
-    ? speedLadder(clearing, kind)
-    : { rung: clearing[0]?.rung as string, ladder: clearing.map((x) => x.rung) };
+  const bar = c.bars[kind][difficulty];
+  const first = all.find((x) => clearsBar(c, x, kind, difficulty));
+  if (first) {
+    const dims = compareDims(first, bar);
+    return p.objective === "speed" ? speedLadder(first, all, kind, dims) : ladderFrom(first, all, dims);
+  }
+  const byCost = candidates(c, { ...p, objective: "cost" }, role, kind);
+  const fallback = defaultLadder(c, p, role).rung;
+  let start = byCost.find((x) => x.rung === fallback) ?? (byCost[0] as Candidate);
+  const dims = compareDims(start, bar);
+  for (const easier of DIFFICULTIES.slice(0, DIFFICULTIES.indexOf(difficulty)).reverse()) {
+    const s = byCost.find((x) => clearsBar(c, x, kind, easier));
+    if (!s) continue;
+    if (atLeast(s, start, dims)) start = s;
+    break;
+  }
+  return { ...ladderFrom(start, byCost, dims), noClear: noClearLine(all, bar, kind, difficulty) };
 }
