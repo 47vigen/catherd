@@ -189,6 +189,8 @@ Your context is re-read on every turn, and it is the run's most expensive token.
 
 Call `dispatch` from your main thread only, never from a subagent: catherd messages the session that dispatched.
 
+Only you, the orchestrator, call the coordinator tools: `peek` (of another role), `result`, `dispatch`, `run_start`, `climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set` and the `workspace_*` writers. A role never does: a native Claude subagent's agent file forbids them, and a process role's catherd server refuses them with `E_ROLE_SCOPE`, so a role can never take the run from you. A brief never asks a role to call one.
+
 - **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
 - **Then write one status line and end your turn.** Claude Code receives `<cross-session-message from-name="catherd">` through its peer inbox with its existing priorities. Codex receives queued next input through the existing native server (`--remote unix://`): idle sessions can wake; a busy session processes it after the active turn, without Claude's urgent next-tool-round promise. The notice names the run, dispatch and every event ID, including every coalesced event. Call `result(run, name)` for each stored record you will act on, then dispatch what follows.
 - **A single role is `dispatch`, then end your turn.**

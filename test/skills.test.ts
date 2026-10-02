@@ -67,6 +67,9 @@ describe("orchestrator skill", () => {
     expect(after).toMatch(/neither[^\n]*user approval/);
     // plan 10's push facts the orchestrator still needs
     expect(after).toContain("catherd messages the session that dispatched");
+    // spec 1.5 plan 21: only the orchestrator calls the coordinator tools
+    expect(after).toContain("Only you, the orchestrator, call the coordinator tools");
+    expect(after).toContain("refuses them with `E_ROLE_SCOPE`");
     expect(after).toContain("every coalesced event");
     expect(md).toContain("so catherd messages you from now on");
     expect(md).toContain("call `peek(run)` once and answer from it");
