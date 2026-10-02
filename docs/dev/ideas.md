@@ -104,6 +104,40 @@ Plan 23 (verifier, gate and environment) review:
 - **A stray JSDoc in `supervise-command.ts`.** `runSupervise`'s doc sits above `superviseEnv`'s. Evidence:
   `src/entry/supervise-command.ts:122-126`. Fix: move it back. (Re-review.)
 
+Plan 24 (routing and cost) review:
+
+- **`jev-kind` is claimed when Jev was sure of nothing.** When Jev answered but was sure of no kind, a lane's
+  declared `Kind:` alone still routes as source `jev-kind`, so `why` says "Jev's kind with …" and `decidedBy: jev-kind`
+  reaches the outcome rows used to calibrate Jev; with Jev off or failing, a `Kind:`-only lane falls to the default
+  and its declared kind is ignored. Evidence: `src/services/routing-service.ts:196` (`judged && lane.kind`). Fix:
+  label it `lane` (or a new source) and use `lane.kind` whether or not Jev answered. (Minor 2.)
+- **A one-rung role hides what it cannot clear.** A role with one usable rung returns no `noClear` even when that rung
+  clears nothing, and Jev is never asked, so a lane that declared `Kind:` and `Difficulty:` still gets the why "neither
+  Jev nor the lane file gave a kind and difficulty" and null kind and difficulty in its row. Evidence:
+  `src/domain/select.ts:262`, `src/services/routing-service.ts:155`, `src/services/routing-service.ts:98`. Fix: take a
+  declared header before the one-rung shortcut, and run the bar check (and `noClear`) for one rung too. (Minor 3.)
+- **An explicit rung on a routed lane goes unchecked and unrecorded.** A lane dispatch with an explicit `rung` on a
+  lane already routed is neither checked against the lane's ladder nor written to `routes.jsonl`. Evidence:
+  `src/services/dispatch-service.ts:364-366`. Fix: refuse (or warn on) a rung off the ladder, and record the rung
+  dispatched as a route row. (Minor 5.)
+- **Quota usage is read once per lane, and double-counts a re-route.** `runUsage(run)` is computed for each lane of a
+  batch, and a waiting lane that is re-routed counts both its routes. Evidence: `src/services/lane-service.ts:94`,
+  `src/services/lane-service.ts:141`. Fix: compute it once per batch and count each lane's latest route only.
+  (Minor 6.)
+- **A raised no-clear start does not say it was raised.** When no rung clears the bar and the start is raised to an
+  easier difficulty's start, `noClear`/`why` do not say so. Evidence: `src/domain/select.ts:273-281`. Fix: append
+  "started at <difficulty>'s start, which scores at least the default" to the line. (Minor 7.)
+- **An empty first page loses its rate-limit headers.** The "empty first page" `SourceError` carries no status or
+  headers, so that attempt's rate-limit count is lost. Evidence: `src/infra/sources/artificial-analysis.ts:48`. Fix:
+  pass the first response's status and headers, as line 32 does. (Minor 8.)
+- **An unknown Claude model rides the plan for free.** On `claude-plan` a rung with no family costs 0 at tier 0, while
+  some Claude models are metered on the plan (as Fable is), so an unknown one may start lanes as if free. Evidence:
+  `src/domain/cost.ts:71`. Fix: price a familyless Claude-plan rung last in tier 0, or treat it as metered until the
+  catalog knows it. (Minor 9.)
+- **`route` sends unbounded Jev requests.** `route`'s `lanes` has no upper bound, and every lane is judged at once, so
+  a large batch sends that many Jev requests in parallel. Evidence: `src/entry/mcp/lane-tools.ts:21`,
+  `src/services/routing-service.ts:237`. Fix: cap `lanes` (`.max(n)`) or judge with bounded concurrency. (Minor 10.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
