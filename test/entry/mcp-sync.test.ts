@@ -1,12 +1,16 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { startMcpServer } from "../../src/entry/mcp/server.ts";
+import { bootLockTarget } from "../../src/infra/boot-lock.ts";
+import { locksDir } from "../../src/infra/paths.ts";
+import * as reconcile from "../../src/services/reconcile.ts";
 import { backgroundSync, type SyncReport } from "../../src/services/source-sync.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
-import { fakeDeps } from "../services/helpers.ts";
+import { deadProcess, fakeDeps, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -50,6 +54,59 @@ describe("catalog_sync (spec 1.2 §9)", () => {
     expect((await call(c, "catalog_sync")).data.busy).toBe(
       "another sync was running; call catalog_sync again",
     );
+  });
+});
+
+describe("one MCP server runs the boot sync and reconcile (plan 22, single-flight)", () => {
+  async function server(syncs: string[], label: string): Promise<Client> {
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await startMcpServer({
+      transport: serverSide,
+      deps: fakeDeps(),
+      sync: async () => {
+        syncs.push(label);
+      },
+    });
+    const client = new Client({ name: "catherd-test", version: "0.0.0" });
+    await client.connect(clientSide);
+    // a tool call: the boot work of `initialized` has started by its answer
+    expect((await call(client, "status")).isError).toBe(false);
+    return client;
+  }
+
+  it("lets a second server skip both while the first is alive, and the next lead once it closes", async () => {
+    withHome();
+    const reconciles = spyOn(reconcile, "reconcileAll");
+    try {
+      const syncs: string[] = [];
+      const first = await server(syncs, "first");
+      await waitFor(() => reconciles.mock.calls.length === 1);
+      const second = await server(syncs, "second");
+      expect(syncs).toEqual(["first"]);
+      expect(reconciles.mock.calls).toHaveLength(1);
+      expect(readFileSync(`${bootLockTarget()}.lock`, "utf8")).toContain(`"pid":${process.pid}`);
+      await first.close();
+      const third = await server(syncs, "third");
+      await waitFor(() => reconciles.mock.calls.length === 2);
+      expect(syncs).toEqual(["first", "third"]);
+      await second.close();
+      await third.close();
+    } finally {
+      reconciles.mockRestore();
+    }
+  });
+
+  it("takes the lock over from a server that died holding it", async () => {
+    withHome();
+    mkdirSync(locksDir(), { recursive: true });
+    writeFileSync(
+      `${bootLockTarget()}.lock`,
+      JSON.stringify({ pid: await deadProcess(), startTime: "gone" }),
+    );
+    const syncs: string[] = [];
+    const c = await server(syncs, "after a crash");
+    await waitFor(() => syncs.length === 1);
+    await c.close();
   });
 });
 

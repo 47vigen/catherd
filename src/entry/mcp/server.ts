@@ -11,6 +11,7 @@ import {
   type RoleScope,
   roleScopeError,
 } from "../../domain/role-scope.ts";
+import { takeBootLock } from "../../infra/boot-lock.ts";
 import { resolveHost } from "../../infra/host-context.ts";
 import { log } from "../../infra/log.ts";
 import { assertRoleMay } from "../../services/role-access.ts";
@@ -178,7 +179,13 @@ export function buildServer(deps: Deps = defaultDeps(), observe?: ObserveSession
 
 /** Connect immediately; initialized triggers recovery without delaying the handshake. */
 export async function startMcpServer(
-  o: { transport?: Transport; sync?: () => Promise<unknown>; deps?: Deps } = {},
+  o: {
+    transport?: Transport;
+    sync?: () => Promise<unknown>;
+    deps?: Deps;
+    /** plan 22: the boot lock (tests replace it); null while another live server holds it */
+    bootLock?: () => (() => void) | null;
+  } = {},
 ): Promise<void> {
   const deps = o.deps ?? defaultDeps();
   const observed = new Map<string, ReturnType<typeof startNotifier>>();
@@ -201,6 +208,8 @@ export async function startMcpServer(
   let generation = 0;
   let notifier: ReturnType<typeof startNotifier> | undefined;
   let recovery: Deps | undefined;
+  // plan 22: taken at the first initialize, held until this server closes; null: another server leads the boot
+  let boot: (() => void) | null | undefined;
   const invalidate = () => {
     generation++;
     if (recovery) recovery.host = { host: "unknown", session: null, conflict: null };
@@ -210,10 +219,17 @@ export async function startMcpServer(
     observed.clear();
     closed();
   };
-  server.server.onclose = invalidate;
+  server.server.onclose = () => {
+    invalidate();
+    boot?.();
+    boot = undefined;
+  };
   server.server.oninitialized = () => {
     invalidate();
     initialized();
+    boot ??= (o.bootLock ?? takeBootLock)();
+    const lead = boot !== null;
+    if (!lead) log("info", "boot", { skipped: "another catherd server runs the boot sync and reconcile" });
     log("info", "session", {
       host: deps.host.host,
       conflict: deps.host.conflict,
@@ -231,12 +247,14 @@ export async function startMcpServer(
     if (target) observed.set(sessionKey(target), active);
     void Promise.resolve()
       .then(() => {
-        if (epoch === generation) return (o.sync ?? (() => backgroundSync()))();
+        if (lead && epoch === generation) return (o.sync ?? (() => backgroundSync()))();
       })
       .catch((e: unknown) => log("debug", "sources", { error: errorMessage(e) }));
     void (async () => {
       try {
         if (epoch !== generation) return;
+        // the leading server reconciles every run; this one still tells its own session what it owns
+        if (!lead) return void active.scan();
         const r = await reconcileAll(context);
         if (epoch !== generation) return;
         const shown = r.warnings.length;
