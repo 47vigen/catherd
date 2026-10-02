@@ -266,7 +266,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 5. **Lanes.** Dispatch every lane of the milestone, one after another, each at its rung, then end your turn: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
    - When a worker's message arrives, read it with `result`: check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
    - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
-6. **writer,** when the milestone changes docs. It starts once the workers are done.
+6. **writer,** when the milestone changes docs. It starts once the workers are done. Its brief names the files it may change on an `Owns:` line (default: `docs/**` and `*.md`), so its edits count as its own and never as a lane's violation.
 7. **reviewer,** named `reviewer-<M>`, once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
 8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. Dispatch every lane's fix, then end your turn. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.

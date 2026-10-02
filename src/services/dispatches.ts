@@ -19,6 +19,11 @@ const AdmitSchema = z.looseObject({
   role: z.enum(ROLES),
   lane: z.string().nullable(),
   owns: z.array(z.string()),
+  /**
+   * spec 1.5 plan 21: a laneless writer's implicit Owns (its brief's Owns: line, else docs/** and *.md), so its
+   * edits are its own and never a concurrent lane's violation; admission never refuses an overlap with it
+   */
+  ownsImplicit: z.array(z.string()).optional(),
   rung: z.string(),
   backend: z.string(),
   thread: z.string().nullable(),

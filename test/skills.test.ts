@@ -108,6 +108,9 @@ describe("orchestrator skill", () => {
     expect(md).toContain("`dispatch` appends the role's reply contract to every brief");
     // spec 1.5 plan 21
     expect(md).toContain("with `lane`, `dispatch` inlines the lane file as it stands");
+    expect(md).toContain(
+      "Its brief names the files it may change on an `Owns:` line (default: `docs/**` and `*.md`)",
+    );
     expect(md).not.toContain('"Do not commit." Then the reply shape');
     expect(md).toContain("`dispatch` routes a lane you missed");
     for (const code of ["E_LANE_INVALID", "E_LAND_GATE", "E_CLIMB_DESIGN"]) expect(md).toContain(code);

@@ -8,6 +8,7 @@ import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { composeBrief } from "../domain/brief.ts";
+import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
 import { ROLE_SERVER_BACKENDS, SCRATCH_BACKENDS } from "../domain/role-tools.ts";
 import type { Role } from "../domain/roles.ts";
 import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
@@ -195,6 +196,8 @@ export async function admit(
       { fix: "dispatch a fresh thread (omit `thread`)" },
     );
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
+  // spec 1.5 plan 21: the writer's implicit docs lane, for attribution only
+  const ownsImplicit = i.role === "writer" && i.lane === null ? (briefOwns(i.brief) ?? DOCS_OWNS) : null;
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
@@ -275,6 +278,7 @@ export async function admit(
       role: i.role,
       lane: i.lane,
       owns,
+      ...(ownsImplicit ? { ownsImplicit } : {}),
       rung: formatRung(rung),
       backend: rung.backend,
       thread: i.thread,

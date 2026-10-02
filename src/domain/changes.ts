@@ -33,6 +33,28 @@ export function changedPaths(before: Snapshot, after: Snapshot): string[] {
     .sort();
 }
 
+/** Spec 1.5 plan 21: a writer's implicit docs lane, when its brief names no Owns. */
+export const DOCS_OWNS = ["docs/**", "*.md"];
+
+/** The paths of an `Owns:` line in a brief (as a lane file writes it), or null when it has none. */
+export function briefOwns(brief: string): string[] | null {
+  const line = /^Owns:\s*(.+)$/m.exec(brief)?.[1];
+  const paths = line
+    ?.split(",")
+    .map((p) => p.trim().replace(/^`|`$/g, ""))
+    .filter(Boolean);
+  return paths?.length ? paths : null;
+}
+
+/**
+ * Whether `path` is inside an Owns entry: a path covers what is under it, and the other way round (as lanes'
+ * Owns always did); `dir/**` covers what is under dir; `*.ext` (no slash) is any file with that extension.
+ */
+export function ownsPath(path: string, entry: string): boolean {
+  if (entry.startsWith("*.") && !entry.includes("/")) return path.endsWith(entry.slice(1));
+  return overlaps([path], [entry.replace(/\/\*\*$/, "")]).length > 0;
+}
+
 /**
  * Spec §4.4: `changedOwned` are the changes inside the lane's Owns; `violations` the ones outside it
  * that no overlapping dispatch owns either. `strict` is false for a laneless dispatch that may write
@@ -44,7 +66,7 @@ export function splitChanges(
   others: string[],
   strict: boolean,
 ): { changedOwned: string[]; violations: string[] } {
-  const inside = (p: string, paths: string[]) => overlaps([p], paths).length > 0;
+  const inside = (p: string, paths: string[]) => paths.some((entry) => ownsPath(p, entry));
   return {
     changedOwned: changed.filter((p) => inside(p, owns)),
     violations: strict ? changed.filter((p) => !inside(p, owns) && !inside(p, others)) : [],
