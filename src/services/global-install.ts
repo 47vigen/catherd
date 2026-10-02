@@ -26,6 +26,9 @@ export type GlobalInstall =
 /** How long `bun add -g` may take: a blackholed or proxied registry would otherwise hold `init` for as long as Bun retries. */
 export const installLimits = { timeoutMs: 120_000 };
 
+/** How long a `catherd --version` probe may take before its version counts as unknown. */
+export const versionLimits = { timeoutMs: 10_000 };
+
 /**
  * `cmd` with its output. Past `timeoutMs` it is killed and reported as failed with the reason; its output is
  * not awaited then, since a child it started may still hold the pipes open.
@@ -63,7 +66,8 @@ export async function run(
 /** what `bin --version` prints on stdout (a warning on stderr must not make it look like another version) */
 async function versionOf(bin: string | null): Promise<string | null> {
   if (!bin) return null;
-  const r = await run([bin, "--version"]).catch(() => null);
+  // a wedged `catherd` on PATH must not hold `init`: past the limit its version is unknown
+  const r = await run([bin, "--version"], versionLimits.timeoutMs).catch(() => null);
   return r?.ok ? r.stdout.trim() || null : null;
 }
 

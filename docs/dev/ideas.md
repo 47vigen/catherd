@@ -149,9 +149,6 @@ Plan 26 (the minors sweep) review:
   the run's start head, the range is empty and the message reads "<commit> changed nothing" instead of "nothing
   committed since the run started" (it fails safe). Evidence: `src/services/lane-service.ts:368-373`,
   `milestoneFiles`. Fix: special-case commit == startHead with the clearer message. (Minor 2.)
-- **`versionOf` can hang init.** It has no timeout and now also runs on the "current" path (`pathVersion`), so a
-  wedged `catherd` first on PATH hangs `init`. Evidence: `src/services/global-install.ts:64`. Fix: pass a
-  short timeout to the spawn. (Minor 3.)
 - **RoleView's `done` outlives its role.** `done` is component state and RoleView has no key, so a future
   role-to-role navigation would carry `done=true` to a live role and stop polling. Evidence: `src/entry/tui/views/runs.tsx:375,597`
   (`RoleView`). Fix: render it with `key={role.dispatchId}`. (Minor 4.)

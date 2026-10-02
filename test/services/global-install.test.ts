@@ -6,6 +6,7 @@ import {
   ensureGlobal,
   type GlobalInstallDeps,
   installLimits,
+  versionLimits,
   realGlobalInstall,
   run,
 } from "../../src/services/global-install.ts";
@@ -169,6 +170,18 @@ describe("realGlobalInstall.pathVersion", () => {
   it("is null when the catherd on PATH fails", async () => {
     onPath("echo 1.1.0\nexit 2");
     expect(await realGlobalInstall.pathVersion()).toBeNull();
+  });
+
+  it("is null when the catherd on PATH does not answer within the probe's limit (Codex P2)", async () => {
+    const was = versionLimits.timeoutMs;
+    versionLimits.timeoutMs = 50;
+    try {
+      onPath("sleep 30\necho 1.1.0");
+      expect(await realGlobalInstall.pathVersion()).toBeNull();
+    } finally {
+      versionLimits.timeoutMs = was;
+    }
+    expect(versionLimits.timeoutMs).toBe(10_000);
   });
 
   it("skips bunx's transient bin, so after the install it finds the catherd that stays", async () => {
