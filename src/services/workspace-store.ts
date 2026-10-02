@@ -43,6 +43,13 @@ export function createWorkspace(
   return workspace;
 }
 
+/** Rewrites the workspace's meta.json, validated; callers hold the workspace's admission lock. */
+export function saveWorkspace(workspace: Workspace): Workspace {
+  const parsed = WorkspaceSchema.parse(workspace);
+  writeJsonAtomic(workspacePaths(workspaceDirectory(parsed.id)).meta, parsed);
+  return parsed;
+}
+
 export function findWorkspace(id: string): Workspace {
   const file = workspacePaths(workspaceDirectory(id)).meta;
   if (!existsSync(file)) throw new CatherdError("E_RUN_NOT_FOUND", `no workspace "${id}"`);

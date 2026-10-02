@@ -112,7 +112,8 @@ export async function startWorkspace(
     createdAt: new Date(deps.now()).toISOString(),
     repos: selected,
     steps: input.steps,
-    budget: input.budget ?? deps.profiles.budgetFor?.(null) ?? deps.profiles.forRepo(null).budget,
+    // #43 finding 4: no cap unless the owner sets one; each child keeps its own profile budget
+    budget: input.budget ?? {},
   });
   if (!snapshot.success)
     throw invalid(

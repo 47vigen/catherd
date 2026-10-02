@@ -11,6 +11,7 @@ import { landedMilestones } from "./milestones.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 import {
   findWorkspace,
+  saveWorkspace,
   WORKSPACE_LOCK_WAIT_MS,
   workspaceChildren,
   workspaceDirectory,
@@ -18,9 +19,10 @@ import {
 } from "./workspace-store.ts";
 
 /**
- * Count each recorded or unrecorded dispatch once; elapsed minutes belong to the parent. With `warnings`,
- * a child whose cost evidence cannot be read is skipped and named there (status); without, it throws
- * E_RUN_CORRUPT (admission against a cap, which cannot prove the cap holds without it).
+ * Count each recorded or unrecorded dispatch once; elapsed minutes belong to the parent and start at its first
+ * child (#43 finding 4), none before one. With `warnings`, a child whose cost evidence cannot be read is
+ * skipped and named there (status); without, it throws E_RUN_CORRUPT (admission against a cap, which cannot
+ * prove the cap holds without it).
  */
 export async function workspaceSpend(
   workspace: Workspace,
@@ -28,8 +30,9 @@ export async function workspaceSpend(
   children = workspaceChildren(workspace),
   warnings?: string[],
 ): Promise<Spend> {
+  const first = Math.min(...children.map((c) => Date.parse(c.meta.createdAt)).filter(Number.isFinite));
   const total: Spend = {
-    minutes: Math.max(0, (now - Date.parse(workspace.createdAt)) / 60_000),
+    minutes: Number.isFinite(first) ? Math.max(0, (now - first) / 60_000) : 0,
     tokens: 0,
     usd: 0,
   };
@@ -179,8 +182,34 @@ export async function assertWorkspaceBudget(
   const budget = budgetStatus(await workspaceSpend(workspace, now, children), workspace.budget);
   if (budget && budget.fraction >= 1)
     throw new CatherdError("E_RUN_BUDGET", `the workspace budget is spent: ${formatBudget(budget)}`, {
-      fix: "finish with the work already admitted, or start a new workspace with an authorized budget",
+      fix: `finish with the work already admitted, or raise it: workspace_budget(${workspace.id}, …)`,
     });
+}
+
+/**
+ * `workspace_budget`: sets the caps given (a number) or removes them (null), keeping the others; the owner's
+ * way to raise a spent budget without a new workspace (#43 finding 4). Returns the budget and its status.
+ */
+export async function setWorkspaceBudget(
+  deps: { now: () => number },
+  i: { workspace: string; minutes?: number | null; tokens?: number | null; usd?: number | null },
+): Promise<{ budget: Workspace["budget"]; spend: Spend; status: BudgetStatus | null }> {
+  const workspace = findWorkspace(i.workspace);
+  return withFileLock(
+    workspacePaths(workspaceDirectory(workspace.id)).admission,
+    async () => {
+      const budget: Workspace["budget"] = { ...findWorkspace(workspace.id).budget };
+      for (const key of ["minutes", "tokens", "usd"] as const) {
+        const v = i[key];
+        if (v === null) delete budget[key];
+        else if (v !== undefined) budget[key] = v;
+      }
+      const saved = saveWorkspace({ ...findWorkspace(workspace.id), budget });
+      const spend = await workspaceSpend(saved, deps.now(), undefined, []);
+      return { budget: saved.budget, spend, status: budgetStatus(spend, saved.budget) };
+    },
+    { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+  );
 }
 
 /** The shared contract is frozen when the first child starts, then copied into child dossiers. */

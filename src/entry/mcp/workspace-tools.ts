@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { WORKSPACE_LIMIT, WorkspaceBudgetSchema, WorkspaceIdSchema } from "../../domain/workspace.ts";
 import type { Deps } from "../../services/ports.ts";
-import { workspaceContract } from "../../services/workspace-admission.ts";
+import { setWorkspaceBudget, workspaceContract } from "../../services/workspace-admission.ts";
 import {
   inspectWorkspace,
   startWorkspace,
@@ -32,7 +32,7 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
     "workspace_start",
     {
       description:
-        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget. Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
+        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget (no cap unless given; raise it later with workspace_budget). Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
       inputSchema: {
         root: z.string().min(1),
         title: z.string().min(1),
@@ -40,7 +40,8 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
         repos,
         steps: z
           .array(
-            z.object({
+            // #43 finding 6: an unknown key (dependsOn for depends_on) is refused, never dropped
+            z.strictObject({
               id,
               repo: id,
               title: z.string().min(1),
@@ -90,6 +91,16 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
       inputSchema: { workspace: z.string().min(1), step: id },
     },
     (a) => handle(() => startWorkspaceChild(deps, a)),
+  );
+  const cap = z.number().finite().nonnegative().nullable().optional();
+  server.registerTool(
+    "workspace_budget",
+    {
+      description:
+        "Set or raise a workspace's shared budget: each of minutes, tokens and usd given as a number replaces that cap, null removes it, and one left out stays. A workspace has no cap unless one is set; its minutes count from its first child. Returns the budget, the spend and its status.",
+      inputSchema: { workspace: z.string().min(1), minutes: cap, tokens: cap, usd: cap },
+    },
+    (a) => handle(() => setWorkspaceBudget(deps, a)),
   );
   server.registerTool(
     "workspace_status",
