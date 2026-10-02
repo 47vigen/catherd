@@ -125,10 +125,19 @@ function shippedOnGrok(): ShippedGrok {
   return shipped;
 }
 
-async function listModels(): Promise<DiscoveredModel[]> {
-  const r = await runCli("grok", ["models"], { ...grokShell, env: NO_UPDATE });
+/** `grok models` under `env`: the user's GROK_HOME (its login) by default, catherd's isolated one with the key. */
+async function listAs(env: Record<string, string>): Promise<DiscoveredModel[]> {
+  const r = await runCli("grok", ["models"], { ...grokShell, env });
   return r?.ok ? parseGrokModels(r.out, shippedOnGrok()).models : [];
 }
+
+const listModels = (): Promise<DiscoveredModel[]> => listAs(NO_UPDATE);
+
+/**
+ * The discovery cache an isolated run is judged by: the listing under catherd's own GROK_HOME, where only
+ * XAI_API_KEY signs grok in, apart from the native login's (1.3 follow-ups: the two accounts may differ).
+ */
+export const ISOLATED_LISTING = "grok-isolated";
 
 /**
  * Spec 1.3 §5.3–§5.4: an isolated run needs XAI_API_KEY (its home holds no login, and the user's auth.json is
@@ -150,7 +159,13 @@ async function prepare(req: {
   if (req.isolated) ensurePrivateDir(home);
   if (req.access === "workspace-write") writeGrokProfiles(home);
   const { model, effort } = req.rung;
-  const models = await discovered("grok", listModels, { maxAgeMs: DAY_MS, need: model });
+  // an isolated run signs in with the key, so its model is checked against the key's own listing
+  const models = req.isolated
+    ? await discovered(ISOLATED_LISTING, () => listAs({ ...NO_UPDATE, ...grokHomeEnv() }), {
+        maxAgeMs: DAY_MS,
+        need: model,
+      })
+    : await discovered("grok", listModels, { maxAgeMs: DAY_MS, need: model });
   if (models.length === 0) return; // grok listed nothing: let the run itself say what is wrong
   const m = models.find((x) => x.id === model);
   if (!m)
@@ -241,7 +256,9 @@ async function sandboxInfo(): Promise<{ id: string; label: string; detail: strin
     const r = await runCli(
       "grok",
       ["-p", "hi", "--output-format", "streaming-json", "--sandbox", "read-only", "--no-auto-update"],
-      { ...grokShell, env: { ...NO_UPDATE, GROK_HOME: home, XAI_API_KEY: "" } },
+      // a scratch HOME as well as GROK_HOME, with memory and the compat features off: nothing of the user's
+      // own Claude Code or Cursor setup loads into the check (1.3 follow-ups)
+      { ...grokShell, env: { ...NO_UPDATE, ...grokHomeEnv(home), XAI_API_KEY: "" } },
     );
     if (!r) return null;
     const refused = /could not apply the '?read-only'? sandbox profile/.test(r.err);

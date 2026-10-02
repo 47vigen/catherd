@@ -102,10 +102,19 @@ function plan(r: RunRequest): SpawnPlan {
   };
 }
 
-async function listModels(): Promise<DiscoveredModel[]> {
-  const r = await runCli("agy", ["models"], { ...agyShell, env: ENV });
+/** `agy models` under `env`: the user's HOME (its Google login) by default, an isolated one with the key. */
+async function listAs(env: Record<string, string> = {}): Promise<DiscoveredModel[]> {
+  const r = await runCli("agy", ["models"], { ...agyShell, env: { ...ENV, ...env } });
   return r?.ok ? parseAgyModels(r.out) : [];
 }
+
+const listModels = (): Promise<DiscoveredModel[]> => listAs();
+
+/**
+ * The discovery cache an isolated run is judged by: the listing under catherd's isolated HOME, where
+ * GEMINI_API_KEY signs agy in, apart from the native login's (1.3 follow-ups: the two may serve differently).
+ */
+export const ISOLATED_LISTING = "antigravity-isolated";
 
 /**
  * Spec 1.3 §6.3, §6.4, §9 Q2: read-only runs only isolated; an isolated run needs GEMINI_API_KEY and gets its
@@ -137,7 +146,13 @@ async function prepare(req: {
       { fix: LOGIN_FIX },
     );
   const { model, effort } = req.rung;
-  const models = await discovered("antigravity", listModels, { maxAgeMs: DAY_MS, need: model });
+  // an isolated run signs in with the key, so its model is checked against the key's own listing
+  const models = req.isolated
+    ? await discovered(ISOLATED_LISTING, () => listAs(agyHomeEnv(req.access, req.network !== false)), {
+        maxAgeMs: DAY_MS,
+        need: model,
+      })
+    : await discovered("antigravity", listModels, { maxAgeMs: DAY_MS, need: model });
   if (models.length === 0) return; // agy listed nothing: let the run itself say what is wrong
   const m = models.find((x) => x.id === model);
   if (!m)

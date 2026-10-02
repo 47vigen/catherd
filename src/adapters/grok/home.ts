@@ -21,9 +21,9 @@ const COMPAT = ["CLAUDE", "CURSOR"].flatMap((tool) =>
 /**
  * Spec 1.3 §5.4: an isolated run's env. GROK_HOME and the toggles alone still load the user's Claude Code
  * plugins, agents and permission rules (research §3.8 [run]), so HOME moves too, and GROK_HOME lives in it.
+ * `home`: another root than the isolated runs' (doctor's sandbox check runs in a scratch one).
  */
-export function grokHomeEnv(): Record<string, string> {
-  const home = isolatedGrokRoot();
+export function grokHomeEnv(home = isolatedGrokRoot()): Record<string, string> {
   return {
     ...movedHomeEnv(home),
     GROK_HOME: join(home, ".grok"),

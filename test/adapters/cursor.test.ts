@@ -309,6 +309,21 @@ describe("cursor probe (spec 1.3 §4.1, §3.3)", () => {
 });
 
 describe("cursor models and prepare (spec 1.3 §4.6, §4.4)", () => {
+  it("never asks an agent that is not Cursor's for models: it lists none (1.3 follow-ups)", async () => {
+    const calls = join(mkdtempSync(join(tmpdir(), "catherd-agent-")), "calls");
+    process.env.PATH = pathWith(
+      "agent",
+      null,
+      `#!/bin/sh\necho "$*" >> ${calls}\necho 'agent 1.0.44 (grok)'\n`,
+    );
+    expect(await cursorAdapter.listModels()).toEqual([]);
+    expect(readFileSync(calls, "utf8")).toBe("--version\n");
+    // Cursor's own CLI under the name agent still lists
+    process.env.PATH = pathWith("agent", SIM);
+    Object.assign(process.env, withCursorScenario({ modelsFile: join(FX, "models.txt") }).env);
+    expect((await cursorAdapter.listModels()).length).toBeGreaterThan(0);
+  });
+
   it("lists models from `models`, efforts folded", async () => {
     process.env.PATH = SIMS;
     Object.assign(process.env, withCursorScenario({ modelsFile: join(FX, "models.txt") }).env);

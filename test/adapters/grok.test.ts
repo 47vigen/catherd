@@ -4,7 +4,13 @@ import { dirname, join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import { readDiscovery } from "../../src/adapters/discovery.ts";
 import { grokHost, READ_TOOLS } from "../../src/adapters/grok/home.ts";
-import { GROK_INSTALL, grokAdapter, grokShell, isolatedGrokRoot } from "../../src/adapters/grok/index.ts";
+import {
+  GROK_INSTALL,
+  grokAdapter,
+  grokShell,
+  ISOLATED_LISTING,
+  isolatedGrokRoot,
+} from "../../src/adapters/grok/index.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
@@ -314,6 +320,50 @@ describe("grok probe (spec 1.3 §5.1, §5.6, §3.3)", () => {
       fix: GROK_INSTALL,
     });
     expect(grokAdapter.install).toBe("curl -fsSL https://x.ai/cli/install.sh | bash");
+  });
+});
+
+describe("grok identities (1.3 follow-ups)", () => {
+  it("runs doctor's sandbox check in a scratch HOME, memory and the compat features off, with no key", async () => {
+    withHome();
+    process.env.PATH = SIMS;
+    onHost("linux");
+    process.env.XAI_API_KEY = "key-for-test";
+    const callsTo = join(tempDir("catherd-grok-calls-"), "calls.jsonl");
+    Object.assign(process.env, withGrokScenario({ callsTo }).env);
+    await grokAdapter.probe();
+    const calls = readFileSync(callsTo, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { args: string[]; home: string; vars: Record<string, string> });
+    const check = calls.find((c) => c.args.includes("--sandbox"));
+    if (!check) throw new Error("no sandbox check ran");
+    expect(check.home).not.toBe(process.env.HOME);
+    expect(check.vars.GROK_HOME).toBe(join(check.home, ".grok"));
+    expect(check.vars).toMatchObject({
+      GROK_MEMORY: "0",
+      GROK_CLAUDE_HOOKS_ENABLED: "0",
+      GROK_CURSOR_RULES_ENABLED: "0",
+      XAI_API_KEY: "",
+    });
+  });
+
+  it("checks an isolated rung against the key's own listing, cached apart from the login's", async () => {
+    withHome();
+    process.env.PATH = SIMS;
+    process.env.GROK_HOME = tempDir("catherd-grokhome-"); // the user's, signed in with a Grok login
+    process.env.XAI_API_KEY = "key-for-test";
+    Object.assign(
+      process.env,
+      withGrokScenario({ models: ["grok-4.6", "grok-4.5"], keyModels: ["grok-4.5"] }).env,
+    );
+    const prep = (isolated: boolean, rung = "grok:grok-4.6#high") =>
+      code(grokAdapter.prepare?.({ rung: parseRung(rung), access: "read-only", isolated, repo: "/r" }));
+    expect(await prep(false)).toBe("ok");
+    expect(await prep(true)).toBe("E_BACKEND_MODEL_UNKNOWN");
+    expect(await prep(true, "grok:grok-4.5#high")).toBe("ok");
+    expect(readDiscovery("grok")?.models.map((m) => m.id)).toEqual(["grok-4.6", "grok-4.5"]);
+    expect(readDiscovery(ISOLATED_LISTING)?.models.map((m) => m.id)).toEqual(["grok-4.5"]);
   });
 });
 

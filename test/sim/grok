@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Grok Build simulator for catherd's tests (research 2026-09-29 §3): behaviour comes from the JSON scenario in
 // CATHERD_SIM_GROK.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const s = JSON.parse(readFileSync(process.env.CATHERD_SIM_GROK ?? "", "utf8")) as Record<string, any>;
@@ -20,6 +20,14 @@ const apiKey = !!process.env.XAI_API_KEY;
 // research §3.9: a Grok login is the auth.json in GROK_HOME; a GROK_HOME without one has none
 const home = process.env.GROK_HOME;
 const login = s.loggedIn !== false && (!home || existsSync(join(home, "auth.json")));
+// every call, before anything else: its arguments and the env that sets its identity and home
+if (s.callsTo) {
+  const picked = Object.keys(process.env).filter((k) => k.startsWith("GROK_") || k === "XAI_API_KEY");
+  appendFileSync(
+    s.callsTo,
+    `${JSON.stringify({ args, home: process.env.HOME ?? null, vars: Object.fromEntries(picked.map((k) => [k, process.env[k]])) })}\n`,
+  );
+}
 
 if (args[0] === "--version" || args[0] === "version") {
   say(`grok ${s.version ?? "1.0.44"} (5b807183dd79)`);
@@ -34,7 +42,8 @@ if (args[0] === "models") {
         ? "You are using XAI_API_KEY."
         : "You are not authenticated.",
   );
-  const models: string[] = s.models ?? ["grok-4.6", "grok-4.5"];
+  // an API key's account may serve other models than the login's
+  const models: string[] = (!login && apiKey ? s.keyModels : undefined) ?? s.models ?? ["grok-4.6", "grok-4.5"];
   say(`\nDefault model: ${models[0]}\n\nAvailable models:`);
   models.forEach((m, i) => say(i === 0 ? `  * ${m} (default)` : `  - ${m}`));
   process.exit(0);
