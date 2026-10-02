@@ -142,13 +142,7 @@ Plan 25 (runs, programs and lanes) review:
 
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
-Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
-(`ee661e4..5209310`):
-
-- **Piped `init` reads a new line order** (Jev, AA, profile, replace): an old script piping `KEY\nwork\ny` now sends
-  `work` as the AA key. Say so in the 1.2 changeset and MIGRATION (plan 14).
-
-From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
+Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
 
 - **The shipped rebuild still spreads `adjacent` values downward** (Luna none carries Luna max's DeepSWE; a sync
   spreads only upward since 1.5, plan 24): the default ladder's Luna rungs rest on a value published only at max
@@ -157,40 +151,6 @@ From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
   owner's call, percentiles as specced or a ladder with a stronger top rung.
 - **Haiku 4.5's terminal value returns** when Epoch's Terminal-Bench covers five anchor rungs (plan 14 C-2).
 - **The Artificial Analysis fixtures are synthetic** (plan 13 R-C); re-record them with a key.
-- **The text `catalog list` format changed in 1.2** (values line, then `runs:`); any script scraping it should use
-  `--json`.
-
-## 1.1 follow-ups (minors from the 1.1 reviews, 2026-09-28)
-
-Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land here, not in code. Each is small.
-
-- **Runs page (TUI).** A ref is written during render in `runs.tsx`; the role screen keeps polling a finished role;
-  a recent run opened from the Status tab lands on the session's first role, not that run; a session opens on its
-  first milestone row and live roles can sit below the fold; `milestoneAt` rebuilds its list on every key; a
-  milestone whose id is not `M<n>` gets a row only once it has landed. The `watchDirs` real-fs test can pass on a
-  late probe event; doctor's `failed` push row is tested only with a hand-made outcome.
-- **Protocol and gate (plan 11).** `laneDone` reads the records file once per lane; `peek.ts` shadows `r` and reads
-  the notes twice. A verifier that writes `**VERDICT: PASS**` in markdown counts as no verdict (fails safe): say so in
-  the `E_LAND_GATE` fix. The first milestone's commit range is its landed commit only (store the start HEAD in
-  meta.json). `dispatch` routes (asks Jev, writes a route row) before admission can refuse, and two concurrent
-  dispatches of one lane both route it. The ownership regex for climbs also catches environment errors that say
-  "owned by". `gate_pass` names HEAD for a pass on an uncommitted tree; a staged rename out of a gate's paths is not
-  seen; `./` is refused where `.` is meant.
-- **Access and doctor.** Doctor's claude-code access row reads the sandbox setting of the directory doctor runs in,
-  not each bound repo. `profile show` pads the "(no network)" row wrong; nothing warns about `network: false` on a
-  read-only or full role. Live check: whether `bunx catherd-cli@latest init` sees bunx's own `.bin` on PATH and
-  reports the global install as present.
-- **Failover and validation (plan 12).** An unscored stand-in gets both its "unscored" error and a "downgrade"
-  warning; `ladderDropDims` has no direct unit test; `rankStandIns` recomputes the bar check per pool member.
-- **Docs.** live-verification §9.2 reads verifier minutes from `agents.jsonl`, so a headless (`claude-code:`)
-  verifier prints nothing; the "back to published" block reuses `$version`, empty in a new shell.
-- **Install (plan 12 final review).** `bun add -g` in `init` has no time limit; the spawned init test passes
-  `BUN_INSTALL` through; `init` no longer warns "shadowed" when the global install is current but an older `catherd`
-  comes first on PATH (the launcher then falls back to bunx); an open milestone row lost its description; §9 check 5
-  should say "at least three" worker folders.
-- **Tests.** Three doctor tests run close to the 5 s default under load (plan 11's probes make a doctor run ~2.3 s):
-  give them 30 s like their neighbour. One full `bun test` run in five failed once on plan 12's head with no name recorded; heavy parallel
-  load in a shared sandbox times out git- and notifier-based tests at 5 s.
 
 ## Picked up
 
@@ -272,38 +232,8 @@ lint in the fast check, the `status` harness line, Jev keeping a sure kind.
 - **One owner question stops everything.** A blocked milestone should park with a push while independent milestones
   and runs continue; one question held the auth build for 4.5 h. _Evidence:_ the same report, finding 4.
 
-## From the 1.0.0 fresh install (2026-09-27)
-
 A clean 1.0.0 setup on macOS after removing every 0.x file: `bunx catherd-cli init`, the plugin commands, `doctor`, the
 TUI.
-
-- **Plugin install fails without GitHub SSH (blocker).** `marketplace.json` gives the plugin a `git-subdir` source
-  with `"url": "47vigen/catherd"`. The marketplace itself clones over HTTPS, but Claude Code clones that shorthand over
-  SSH, so `claude plugin install catherd@catherd` dies with `ssh: connect to host github.com port 22` on any machine
-  without GitHub SSH. 0.x used `"source": "./plugin"` and installed fine. Fix: `"url": "https://github.com/47vigen/catherd.git"`,
-  keeping `path` and `ref`. Workaround used: `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf
-  GIT_CONFIG_VALUE_0=git@github.com: claude plugin install catherd@catherd`.
-- **`doctor`'s sandbox probe is dead on current Codex.** `canWrite` runs `codex sandbox macos --full-auto`; Codex
-  0.157 has no `macos` subcommand (`codex sandbox [COMMAND]`, seatbelt implied) and no `--full-auto` there, so the row
-  reads "not tested: no codex sandbox to test with" on every current install. It is the one check meant to catch the
-  auth build's top finding. Fix: probe `codex sandbox -- sh -c ...` first, fall back to the old form.
-- **The worker sandbox still cannot run checks (auth-build finding 1, confirmed on 1.0).** Under `codex sandbox`, a
-  write to the locks dir, the Docker socket (`docker ps`), a loopback `bind()` and a write to `/tmp` are all denied.
-  The default worker is `workspace-write`, so a Go monorepo with testcontainers repeats the auth build. Fix options: a
-  worker access level between `workspace-write` and `full` (network, loopback, the lock dir, `DOCKER_HOST`), or a
-  `check(run, lane)` tool that runs the fast check outside the sandbox behind the lock; `doctor` should say which one
-  this machine needs.
-- **Failover downgrades high rungs.** The inferred failover maps `codex:gpt-6-sol#high` and `#xhigh` to
-  `opencode-go/kimi-k3#max` "treated like gpt-6-sol#medium". A usage limit on a climbed lane silently drops it back
-  to the medium tier it just climbed from. Prefer a stand-in that clears the rung's own bar, or mark the row as a
-  downgrade in `profile show` and `doctor`.
-- **Warnings on the defaults.** A fresh `doctor` shows two `!` rows (full access for verifier and ui-reviewer, advisory
-  access for the Claude roles) about the shipped defaults, which the user did not choose and cannot act on. Show them
-  as info, or only when the profile departs from the defaults.
-- **Silent first `bunx`.** The first `bunx catherd-cli init` resolves about 108 packages (TypeScript among them,
-  pulled in transitively) for about 30 s before any output. Check what pulls TypeScript into the runtime tree, and
-  say "installing catherd…" before the resolve where possible (README: suggest `bun add -g catherd-cli` first).
-- **TUI first frame.** The Status tab shows "active · 0 profiles" before the profile list loads, then "1 profile".
 
 ## From the 1.0.0 headless test (2026-09-27)
 
@@ -581,44 +511,6 @@ owner turned isolation off (the host is itself a sandbox).
   goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the skill ends
   such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the thread
   has an active goal would catch it before the first poll.
-- **Investigate: three MCP servers for one Codex session.** At 09:36 one Codex TUI started `catherd mcp` three times
-  (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
-  Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
-  processes.
-
-## 1.3 follow-ups (plan reviews, 2026-09-29)
-
-- **Discovery runs a non-Cursor `agent`.** `refreshDiscovery` calls `listModels()` without a probe, so with only
-  grok's `agent` on PATH catherd runs `agent models`. Its lines do not parse, so nothing is written, but the row shows a
-  raw spawn error. Fix: `listModels` returns `[]` unless the `agent` found prints Cursor's date-hash version, or
-  `refreshDiscovery` skips a backend `probeBackend` calls not installed. (Plan 15 final review, Minor 2.)
-- **Downgrade fixes can suggest a Cursor stand-in** on a machine without Cursor. `profile-rules` builds its stand-in
-  pool from every registered adapter. Fix: limit the pool to backends the profile already names. (Plan 15 final
-  review, Minor 4.)
-
-- **Isolated grok discovery lists under the native identity.** With both a grok login and `XAI_API_KEY`, `listModels`
-  runs under the user's `GROK_HOME` (the login wins) while an isolated worker uses the key, so `prepare` can judge a
-  model by the wrong account's listing. Fix: list and cache per identity when isolated. (Codex, PR #31.)
-- **Doctor ignores implicit paired stand-ins.** `usedBackends` scans role rungs and `profile.failover`, not
-  `PAIRED_FAILOVER`, so a missing Cursor reads as an unused `skip` although a Grok rung would fail over to it. Fix:
-  count paired targets as failover use. (Codex, PR #31.)
-- **Doctor's `sandbox:grok` check keeps the real HOME and the compat features on** (it moves only `GROK_HOME`). Fix:
-  add the ten compat toggles and `GROK_MEMORY=0`, or a scratch HOME. (Plan 16 final review, Minor 2.)
-- **sandbox.toml: bare keys after catherd's block change tables** when the block moves to the end; and two catherd
-  homes on one machine rewrite each other's block. Both rare. (Plan 16 final review, Minors 3 and 5.)
-
-- **A sandbox.toml link catherd cannot follow or write** (dangling, or into a read-only store such as Nix) fails
-  closed with a raw ENOENT/EACCES instead of `E_CONFIG_INVALID` and the isolate fix. And `sessionFor` could hash
-  the dispatch id alone rather than the full dispatch path, so a differently resolved data dir cannot change it.
-  (Plan 16 re-review, Minors.)
-
-- **Isolated agy lists models as the native account.** `prepare` checks an isolated rung against `agy models` run
-  under the user's HOME and its shared discovery cache, so a Google-plan listing can reject (or admit) a rung the
-  `GEMINI_API_KEY` project serves differently. List under the isolated HOME, with the cache keyed by auth route.
-  (Codex P2, PR #32; the grok twin is above.)
-- **agy's 10-minute readiness cache.** A probe that saw agy signed in is kept 10 minutes, so a sign-out inside that
-  window still reaches a native `-p` (which opens a browser). Document it, or re-run `agy models` in native
-  `prepare` (~10 s a dispatch). (Plan 17 final review, Minor 3.)
 
 ## Routing and cost
 
