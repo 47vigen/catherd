@@ -13,8 +13,8 @@ worker per plan; one final review, one fix wave, one Codex round, merge on green
 | 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | **merged** (PR #48; final review 1 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; CI flake root-caused (test-side fsync starving the poll) and made deterministic; ledger `plan23-ledger.md`) |
 | 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | **merged** (PR #49; final review 0 C / 1 I + 1 upgraded minor fixed; Codex 1 P2 fixed; ledger `plan24-ledger.md`) |
 | 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | **merged** (PR #50; final review 1 C / 4 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan25-ledger.md`) |
-| 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | in PR |
-| 27 release 1.5.0 | — | pending |
+| 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | **merged** (PR #51; final review 0 C / 1 I fixed; Codex 2 P2 fixed; ledger `plan26-ledger.md`) |
+| 27 release 1.5.0 | `docs/plans/2026-10-02-27-release.md` | in PR (1.5.0 changeset, MIGRATION 1.4→1.5, README/skills, ideas.md sweep; ledger `plan27-ledger.md`). After it merges: merge "chore: release catherd" → catherd-cli@1.5.0 on npm |
 
 Review minors of 1.5 land in `docs/dev/ideas.md` under "1.5 follow-ups". Live checks for vendor behaviour the sandbox
 cannot run are in `docs/dev/live-verification.md` §15 onward.
