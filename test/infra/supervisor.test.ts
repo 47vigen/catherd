@@ -106,6 +106,30 @@ describe("supervise", () => {
     expect(Date.now() - at).toBeLessThan(5_000);
   });
 
+  it("keeps the wall counting from a lock's last output after the lock exits (plan 23 review C1)", async () => {
+    const s = spec("sleep 30", { idleMs: 60_000, wallMs: 200, killGraceMs: 20 });
+    const lock = activityReporter(basename(s.dispatchDir), Date.now, 0);
+    if (!lock) throw new Error("no reporter");
+    const begun = Date.now();
+    // output for 600 ms, three times the wall; then the lock's command exits and its file goes
+    const timer = setInterval(() => {
+      if (Date.now() - begun < 600) lock.tick();
+      else {
+        clearInterval(timer);
+        lock.done();
+      }
+    }, 20);
+    try {
+      const exit = await supervise(s, { isBusy: async () => true });
+      expect(exit?.reason).toBe("wall-timeout");
+      // the role gets up to a wall after the last output it saw, not an immediate timeout at the lock's exit
+      expect(Date.now() - begun).toBeGreaterThanOrEqual(740);
+    } finally {
+      clearInterval(timer);
+      lock.done();
+    }
+  });
+
   it("ends an attempt that only retries its provider as provider-unavailable (plan 23)", async () => {
     const step = (l: string) => ({ step: l.includes("step_start") });
     // four step starts in a row with nothing between: three retries

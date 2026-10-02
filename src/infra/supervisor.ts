@@ -209,6 +209,9 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     const started = Date.now();
     const dispatchId = basename(spec.dispatchDir);
     let lastActivity = started;
+    // plan 23: the last output seen from a `catherd lock` of the role, kept after the lock exits (its file goes),
+    // so the wall counts from that output, never from the role's start again
+    let lockAt = started;
     let finalAt: number | null = null;
     // spec §3.6: a quiet stretch of half the idle timeout, not busy, is a stall, reported once per dispatch
     let stalled = false;
@@ -284,9 +287,10 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
       // a worker that ended on its own is recorded as it ended, even if a cancel or a limit arrived meanwhile
       if (done) break;
       const now = Date.now();
+      lockAt = Math.max(lockAt, lastLockOutput(dispatchId) ?? lockAt);
       if (existsSync(p.cancel)) reason = "cancelled";
-      else if (now - started >= spec.wallMs && now - (lastLockOutput(dispatchId) ?? started) >= spec.wallMs)
-        // plan 23: while a `catherd lock` of the role is alive and writing, the wall counts from its last output
+      else if (now - lockAt >= spec.wallMs)
+        // plan 23: once a `catherd lock` of the role has written, the wall counts from its last output
         reason = "wall-timeout";
       else if (finalAt !== null && spec.graceAfterFinalMs !== null && now - finalAt >= spec.graceAfterFinalMs)
         reason = "after-final";
