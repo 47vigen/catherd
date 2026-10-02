@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { codexRoleMcpArgs } from "../../infra/role-mcp.ts";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
+import { composeReply } from "../../domain/reply.ts";
 import {
   type AccessShell,
   type BackendAdapter,
@@ -132,6 +133,7 @@ function finalize(run: FinishedRun): Outcome {
                 : "ok";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
   const home = run.request.isolated ? isolatedCodexHomePath() : userCodexHome();
+  const reply = composeReply(f.finals, run.reply);
   return {
     status,
     thread: f.thread ?? run.request.thread,
@@ -145,6 +147,8 @@ function finalize(run: FinishedRun): Outcome {
             code: status,
             message: f.failure ?? (lastErr || `${stopped}, exit ${run.exit.code ?? run.exit.signal}`),
           },
+    // plan 22: -o keeps the last turn's message; a later turn never overwrites the report
+    ...(reply !== run.reply ? { reply } : {}),
   };
 }
 

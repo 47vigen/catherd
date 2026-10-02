@@ -8,6 +8,8 @@ export interface CodexFold {
   limit: boolean;
   tooOld: boolean;
   lastEvent: string | null;
+  /** plan 22: the agent message that ended each completed turn, in order */
+  finals: string[];
 }
 
 /**
@@ -43,10 +45,18 @@ export function foldCodexEvents(lines: string[]): CodexFold {
     limit: false,
     tooOld: false,
     lastEvent: null,
+    finals: [],
   };
+  let said: string | null = null;
   for (const line of lines) {
     const e = parseCodexLine(line);
     if (!e) continue;
+    if (e.type === "item.completed" && e.item?.type === "agent_message" && typeof e.item.text === "string")
+      said = e.item.text;
+    if (e.type === "turn.completed" && said !== null) {
+      f.finals.push(said);
+      said = null;
+    }
     f.lastEvent = e.item?.type ? `${e.type}/${e.item.type}` : e.type;
     const msg: string = e.message ?? e.error?.message ?? e.item?.message ?? "";
     if (CODEX_TOO_OLD.some((r) => r.test(msg))) f.tooOld = true;
