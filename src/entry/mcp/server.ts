@@ -24,6 +24,7 @@ import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
 import { registerProtocolTools } from "./protocol-tools.ts";
+import { registerPushTools } from "./push-tools.ts";
 import { handle, sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
@@ -173,6 +174,7 @@ export function buildServer(deps: Deps = defaultDeps(), observe?: ObserveSession
   registerDispatchTools(server, scoped);
   registerSetupTools(server, scoped);
   registerProtocolTools(server, scoped);
+  registerPushTools(server, scoped);
   refuseCoordinatorTools(server, deps);
   return server;
 }

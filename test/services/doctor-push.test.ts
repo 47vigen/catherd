@@ -5,7 +5,9 @@ import type { HostContext } from "../../src/domain/host.ts";
 import { resolveHost } from "../../src/infra/host-context.ts";
 import { claudeHome } from "../../src/infra/paths.ts";
 import { probePush, pushCheck } from "../../src/services/doctor-push.ts";
-import { terminalHost } from "../../src/entry/host-arg.ts";
+import { terminalHost, withThread } from "../../src/entry/host-arg.ts";
+import { call, mcpClient } from "../mcp-helpers.ts";
+import { fakeDeps } from "./helpers.ts";
 import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { type FakeInbox, fakeInbox } from "../sim/peer-inbox.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -96,6 +98,38 @@ describe("explicit push smoke", () => {
     expect(inbox.frames[0]?.priority).toBe("later");
     expect(inbox.frames[0]?.message.content).toContain("no action needed");
     expect(JSON.stringify(probe)).not.toContain("never-report");
+  });
+
+  it("lets a shell name the Codex thread the smoke goes to (plan 22: doctor --test-push --thread)", () => {
+    const host = withThread(terminalHost("codex", {}), uuid.toUpperCase());
+    expect(host).toEqual(codex);
+    expect(withThread(codex, undefined)).toBe(codex);
+    expect(() => withThread(codex, "not-a-thread")).toThrow("--thread not-a-thread is not a Codex thread id");
+    const claude: HostContext = {
+      host: "claude-code",
+      session: { host: "claude-code", sessionId: "s-1", hostSessionId: null, name: null },
+      conflict: null,
+    };
+    expect(() => withThread(claude, uuid)).toThrow("--thread names a Codex thread");
+  });
+
+  it("serves the smoke from inside a session as the test_push tool, to the thread of the call", async () => {
+    withHome();
+    process.env.PATH = simPath();
+    const envTo = join(tempDir("smoke-"), "calls");
+    Object.assign(process.env, withScenario({ queue: "accepted", envTo }).env);
+    // a Codex client: the server resolves its thread as it does for every call
+    process.env.CODEX_THREAD_ID = uuid;
+    const c = await mcpClient(fakeDeps(), "codex-mcp-client");
+    const r = await call(c, "test_push");
+    expect(r.data).toMatchObject({ outcome: "ok", enqueue: "accepted", processing: "unconfirmed" });
+    const sent = (await Bun.file(envTo).text())
+      .trim()
+      .split("\n")
+      .map((s) => JSON.parse(s) as { args: string[] })
+      .filter((f) => f.args.includes("--message"));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.args.slice(0, 5)).toEqual(["queue", "--remote", "unix://", "--thread", uuid]);
   });
 
   it("preserves no-session for gone Claude inbox and ambiguous malformed Codex receipt", async () => {

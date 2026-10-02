@@ -69,6 +69,7 @@ export const COORDINATOR_TOOLS = [
   "workspace_start",
   "workspace_contract",
   "workspace_child_start",
+  "test_push",
 ] as const;
 
 const COORDINATOR = new Set<string>(COORDINATOR_TOOLS);

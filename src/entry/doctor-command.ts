@@ -1,5 +1,6 @@
 import { gitToplevel } from "../infra/git.ts";
-import { HOST_ARG, terminalHost } from "./host-arg.ts";
+import { CatherdError } from "../domain/errors.ts";
+import { HOST_ARG, terminalHost, withThread } from "./host-arg.ts";
 import { defineCommand } from "citty";
 import { VERSION } from "../infra/version.ts";
 import { type DoctorReport, doctor } from "../services/doctor.ts";
@@ -43,11 +44,20 @@ export const doctorCommand = defineCommand({
       description:
         "send one labeled smoke to the validated original session (receipt does not prove processing)",
     },
+    thread: {
+      type: "string",
+      description:
+        "with --test-push: the Codex thread to send the smoke to (Codex does not export it to the commands it runs)",
+    },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
+    if (args.thread !== undefined && args["test-push"] !== true)
+      throw new CatherdError("E_INPUT_INVALID", "--thread only names where --test-push sends its smoke", {
+        fix: `catherd doctor --test-push --thread ${args.thread}`,
+      });
     const r = await doctor({
-      host: terminalHost(args.host),
+      host: withThread(terminalHost(args.host), args.thread),
       repo: await gitToplevel(process.cwd()),
       bunVersion: Bun.version,
       version: VERSION,
