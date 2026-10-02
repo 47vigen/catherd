@@ -12,12 +12,13 @@ import { fakeDeps, fakeGit, freshRun, writeLane } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
-/** Spec §4.8, the 1.1 spec §14 (plan 10: `wait` removed, `peek` added) and 1.2 §9 (`catalog_sync`), exactly. */
+/** The public MCP tools, including bounded orchestration waits. */
 const TOOLS = [
   "run_start",
   "route",
   "preflight",
   "dispatch",
+  "wait",
   "cancel",
   "peek",
   "climb",
@@ -48,10 +49,10 @@ const TOOLS = [
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the run and workspace tools, 31 of them", async () => {
+  it("lists exactly the run and workspace tools, 32 of them", async () => {
     freshRun();
     const c = await mcpClient();
-    expect(TOOLS).toHaveLength(31);
+    expect(TOOLS).toHaveLength(32);
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
     const described = (name: string) =>
       c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");

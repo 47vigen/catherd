@@ -12,6 +12,7 @@ import { lastActivity } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, listRuns, readRecords, type Run, runPaths } from "./run-store.ts";
 import { groupRuns, type SessionGroup } from "./session-view.ts";
+import { orchestratorWait, type OrchestratorWait } from "./wait-service.ts";
 
 /**
  * Spec §4: what the Runs tab shows. The top level is the sessions; a session's screen holds its runs, each with its
@@ -56,6 +57,7 @@ export interface Milestone {
 }
 
 export interface SessionRun {
+  waiting?: OrchestratorWait | null;
   id: string;
   title: string;
   repo: string;
@@ -183,6 +185,7 @@ function sessionRun(deps: Deps, x: SessionGroup["runs"][number]): SessionRun {
   }
   return {
     id: run.id,
+    waiting: orchestratorWait(run, deps.now()),
     title: run.meta.title,
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,

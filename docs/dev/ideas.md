@@ -4,6 +4,16 @@ Improvements collected from real catherd runs and from designing it, not yet pla
 into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
 (the evidence), and where it would live.
 
+## Role access and orchestration wait ruling (2026-10-02)
+
+Three owner-reported runs exposed unread completed records after queue acceptance and headless architects denied
+run-file MCP calls. Queue acceptance is not evidence that the host started a turn. The fix provides bounded
+completion waiting for Codex orchestration and a dedicated role MCP server for native headless Codex/Claude Code
+roles, preserving project access controls and the user's config. Claude Code's push flow stays unchanged.
+No tests, E2E, gates or live acceptance were run for this contribution at the owner's request; wake behavior
+and performance improvements remain unverified. Per-host custom ladders, plan-width warnings, cheaper fix rungs
+and multi-repo support remain separate enhancements.
+
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
 report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %

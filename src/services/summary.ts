@@ -13,6 +13,7 @@ import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
+import { orchestratorWait, type OrchestratorWait } from "./wait-service.ts";
 import {
   findRun,
   listRuns,
@@ -24,6 +25,8 @@ import {
 } from "./run-store.ts";
 
 export interface RunSummary {
+  /** No live roles and at least one durable completion the orchestrator has not collected. */
+  waiting?: OrchestratorWait | null;
   delivery: (DeliveryInspection & { name: string; dispatchId: string })[];
   id: string;
   /** spec 1.1 §8: the owner questions not answered yet, listed first */
@@ -70,6 +73,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     warnings.push(`budget: ${isCatherdError(e) ? e.message : String(e)}`);
   }
   return {
+    waiting: orchestratorWait(run, now, records, live.length > 0),
     delivery: listDispatches(run).flatMap((d) =>
       inspectDeliveries(run, d, recorded.has(d.admit.dispatchId)).map((inspection) => ({
         name: d.admit.name,
@@ -121,7 +125,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   };
 }
 
-/** `status(run?)`: that run; without one, every run with a live role, else the newest run. */
+/** `status(run?)`: that run; without one, live or waiting runs, else the newest run. */
 export function status(
   deps: Deps,
   runId?: string,
@@ -144,12 +148,12 @@ export function status(
   const { runs, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
   const all = runs.map((r) => summarizeRun(deps, r));
-  const live = all.filter((s) => s.live.length > 0);
+  const active = all.filter((s) => s.live.length > 0 || s.waiting);
   return {
     host: inspectionHost(deps.host),
     queue,
     version: deps.version,
-    runs: live.length ? live : all.slice(0, 1),
+    runs: active.length ? active : all.slice(0, 1),
     warnings,
   };
 }

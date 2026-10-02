@@ -40,6 +40,10 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
   ];
   for (const q of s.questions) lines.push(`  ${mark("warn")} parked ${q.milestone}: ${q.question}`);
   for (const l of s.live) lines.push(`  live ${l.name}  ${l.rung}  ${l.state} ${l.secs}s`);
+  if (s.waiting)
+    lines.push(
+      `  ${s.waiting.stalled ? `${mark("warn")} stalled · ` : ""}waiting for orchestrator since ${s.waiting.since} · ${s.waiting.seconds}s · ${s.waiting.unread} unread result(s)`,
+    );
   lines.push(
     `  done ${t.runs} role run(s), ${t.ok} ok${t.notOk.length ? `; not ok: ${t.notOk.join(", ")}` : ""}`,
     `  tokens ${n(t.tokens.input)} in (${n(t.tokens.cached)} cached) · ${n(t.tokens.output)} out · $${t.costUsd.toFixed(2)}` +
@@ -105,7 +109,7 @@ async function printStatus(runId: string | undefined, asJson: boolean, live = fa
       for (const l of rest) console.log(l);
     }
   }
-  console.log(`host ${r.host.host}${r.host.conflict ? ` · conflict: ${r.host.conflict}` : ""}`);
+  console.log(`inspection host ${r.host.host}${r.host.conflict ? ` · conflict: ${r.host.conflict}` : ""}`);
   if (r.queue)
     console.log(
       r.queue.checked === false
@@ -115,11 +119,11 @@ async function printStatus(runId: string | undefined, asJson: boolean, live = fa
   for (const w of r.warnings) console.log(`${mark("warn")} ${w}`);
 }
 
-/** Spec §8 `catherd status [run] [--json]`: that run, else every run with a live role, else the newest. */
+/** `catherd status [run] [--json]`: that run, else live or waiting runs, else the newest. */
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
-    description: "A run at a glance (default: runs with a live role, else the newest)",
+    description: "A run at a glance (default: live or waiting runs, else the newest)",
   },
   args: { run: { type: "positional", required: false, description: "run id" }, ...json },
   run({ args }) {
@@ -200,6 +204,7 @@ const list = defineCommand({
         roleRuns: s.totals.runs,
         session: s.session,
         continuedIn: s.continuedIn,
+        waiting: s.waiting,
       };
     };
     const groups = groupRuns(shown);
@@ -210,7 +215,7 @@ const list = defineCommand({
       for (const x of g.runs) {
         const r = row(x.run);
         console.log(
-          `  ${r.id}  ${r.live ? `${r.live} live` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
+          `  ${r.id}  ${r.live ? `${r.live} live` : r.waiting ? `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${r.waiting.seconds}s` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
         );
       }
     }

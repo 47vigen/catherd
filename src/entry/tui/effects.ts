@@ -55,6 +55,7 @@ import {
   sessionRows,
 } from "../../services/runs-page.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
+import { orchestratorWait } from "../../services/wait-service.ts";
 import { defaultDeps } from "../deps.ts";
 import { mcpHandshake } from "../mcp/handshake.ts";
 
@@ -72,6 +73,7 @@ export type {
 
 /** One line of the run list. */
 export interface RunRow {
+  waiting?: RunSummary["waiting"];
   id: string;
   title: string;
   repo: string;
@@ -207,6 +209,7 @@ export function stampOf(dir: string): string {
     p.jev,
     p.agents,
     p.state,
+    p.stateJson,
     p.ledger,
     p.roles,
     profilesDir(),
@@ -233,7 +236,12 @@ export function memoRuns(compute: (run: Run) => RunRow, stamp: (dir: string) => 
     runs.map((r) => {
       const s = stamp(r.dir);
       const hit = cache.get(r.dir);
-      if (hit && hit.stamp === s && hit.row.live === 0) return hit.row;
+      if (hit && hit.stamp === s && hit.row.live === 0) {
+        // A dead collection lease can restore unread status without changing any file's mtime.
+        const waiting = orchestratorWait(r, Date.now());
+        if (waiting || hit.row.waiting) hit.row = { ...hit.row, waiting };
+        return hit.row;
+      }
       const row = compute(r);
       cache.set(r.dir, { stamp: s, row });
       return row;
@@ -242,6 +250,7 @@ export function memoRuns(compute: (run: Run) => RunRow, stamp: (dir: string) => 
 
 export function rowOf(s: RunSummary): RunRow {
   return {
+    waiting: s.waiting,
     id: s.id,
     title: s.title,
     repo: s.repo,

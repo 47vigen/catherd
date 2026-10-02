@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { codexRoleMcpArgs } from "../../infra/role-mcp.ts";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
 import {
@@ -90,6 +91,7 @@ function plan(r: RunRequest): SpawnPlan {
     "-o",
     r.replyPath,
     ...codexGrants(r.access, r.network, r.isolated),
+    ...(r.roleMcp ? codexRoleMcpArgs(r.roleMcp) : []),
   ];
   const sandbox = SANDBOX[r.access];
   const args =
