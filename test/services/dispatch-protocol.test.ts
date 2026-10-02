@@ -6,8 +6,8 @@ import { ROLES } from "../../src/domain/roles.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, watchersSettled } from "../../src/services/dispatch-service.ts";
-import { route } from "../../src/services/lane-service.ts";
-import { readRoutes } from "../../src/services/run-store.ts";
+import { climb, route } from "../../src/services/lane-service.ts";
+import { readRoleRoutes, readRoutes } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { briefFor, fakeDeps, freshRun, LADDER, writeLane } from "./helpers.ts";
@@ -150,5 +150,66 @@ describe("dispatch routes an unrouted lane first (spec 1.1 §6)", () => {
       rung: "codex:gpt-6-sol#high",
     });
     expect(readRoutes(run)).toHaveLength(1);
+  });
+});
+
+describe("dispatch takes rung optionally on a lane (spec 1.5 plan 24)", () => {
+  it("routes an unrouted lane and runs it at the routed rung, then at the rung its climb gave", async () => {
+    const { run, deps } = setup();
+    const first = await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L1",
+      brief: "b",
+      lane: "M1.L1",
+    });
+    expect(first.dispatched.rung).toBe(L0);
+    expect(first.hints).toEqual([]);
+    await watchersSettled();
+    await climb(deps, { run: run.id, lane: "M1.L1", reason: "check-failed-twice" });
+    const again = await dispatch(deps, {
+      run: run.id,
+      role: "worker",
+      name: "worker-M1.L1-r2",
+      brief: "b",
+      lane: "M1.L1",
+    });
+    expect(again.dispatched.rung).toBe(L1);
+  });
+
+  it("refuses a role outside a lane with no rung, naming route", async () => {
+    const { run, deps } = setup();
+    const err = await dispatch(deps, {
+      run: run.id,
+      role: "reviewer",
+      name: "reviewer-M1",
+      brief: "b",
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: "E_INPUT_INVALID",
+      message: "dispatch reviewer-M1: a role outside a lane needs a rung",
+      fix: 'route(run, role: "reviewer") gives the role\'s rung; pass it as rung',
+    });
+  });
+
+  it("records a lane-less dispatch's rung, and whether route or the coordinator chose it", async () => {
+    const { run, deps } = setup();
+    await route(deps, { run: run.id, role: "reviewer" });
+    const routed = deps.view.roles.reviewer?.rungs[0] as string;
+    await dispatch(deps, { run: run.id, role: "reviewer", name: "reviewer-M1", brief: "b", rung: routed });
+    await dispatch(deps, { run: run.id, role: "worker", name: "worker-spike", brief: "b", rung: L2 });
+    expect(readRoleRoutes(run).map((r) => [r.source, r.role, r.name, r.rung, r.decidedBy, r.why])).toEqual([
+      ["route", "reviewer", null, routed, "default", "the role's default rung"],
+      ["dispatch", "reviewer", "reviewer-M1", routed, "default", "the rung route gave the reviewer"],
+      [
+        "dispatch",
+        "worker",
+        "worker-spike",
+        L2,
+        "orchestrator",
+        "the coordinator's rung; the worker was never routed",
+      ],
+    ]);
+    expect(readRoutes(run)).toEqual([]);
   });
 });

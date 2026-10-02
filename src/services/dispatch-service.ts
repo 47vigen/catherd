@@ -35,7 +35,8 @@ import {
 import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
-import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
+import { currentRoute } from "../domain/route.ts";
+import { appendRoute, findRun, readRecords, readRoleRoutes, readRoutes, type Run } from "./run-store.ts";
 import { sessionKey } from "../domain/host.ts";
 import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
@@ -45,7 +46,8 @@ export interface DispatchInput {
   role: Role;
   name: string;
   brief: string;
-  rung: string;
+  /** spec 1.5 plan 24: optional with `lane` (the lane's current rung); required without one */
+  rung?: string;
   thread?: string;
   lane?: string;
   next?: string;
@@ -381,16 +383,25 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   await claim(deps, run);
   const hints: string[] = [];
   if (thread !== null) hints.push(...(await stopLeftovers(deps, run, thread)));
-  let rung = i.rung;
-  // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
-  if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {
+  let rung: string;
+  if (i.lane !== undefined) {
     assertId("lane", i.lane);
-    const routed = await route(deps, { run: i.run, laneFile: `lanes/${i.lane}.md`, role: i.role });
-    if (!routed.ladder.includes(i.rung)) {
+    // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
+    const current = currentRoute(readRoutes(run), i.lane);
+    const routed = current
+      ? null
+      : await route(deps, { run: i.run, laneFile: `lanes/${i.lane}.md`, role: i.role });
+    // spec 1.5 plan 24: without a rung, a lane runs at its current rung (its route, after any climb)
+    rung = i.rung ?? routed?.rung ?? (current?.rung as string);
+    if (routed && i.rung !== undefined && !routed.ladder.includes(i.rung)) {
       rung = routed.rung;
       hints.push(`${i.rung} is not on ${i.lane}'s routed ladder: dispatched at ${routed.rung}`);
     }
-  }
+  } else if (i.rung === undefined)
+    throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: a role outside a lane needs a rung`, {
+      fix: `route(run, role: "${i.role}") gives the role's rung; pass it as rung`,
+    });
+  else rung = i.rung;
   // the rung that runs, after routing: an off-ladder native rung routing replaced is never launched
   assertNativeHost(rung, deps.host.host);
   const { d, specPath } = await admit(
@@ -416,8 +427,38 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     // a launch that failed is still watched: its record (lost, after the start grace) is announced
     watch(deps, run, d);
   }
+  if (i.lane === undefined) recordRoleDispatch(deps, run, i.role, i.name, rung);
   await refresh(run, i.next ? { next: i.next } : {}, hints);
   return { dispatched: dispatchedOf(d), hints };
+}
+
+/**
+ * Spec 1.5 plan 24: a lane-less dispatch's rung in routes.jsonl, so every role's decision can be audited:
+ * `route` when it is the rung the role's last `route` gave (with that ladder), else the coordinator's own pick.
+ * A failed write is logged, never a failed dispatch: the role is already running.
+ */
+function recordRoleDispatch(deps: Deps, run: Run, role: Role, name: string, rung: string): void {
+  try {
+    const last = readRoleRoutes(run).findLast((r) => r.role === role && r.source === "route");
+    const routed = last?.rung === rung;
+    appendRoute(run, {
+      at: new Date(deps.now()).toISOString(),
+      lane: null,
+      role,
+      name,
+      rung,
+      ladder: last?.ladder ?? [rung],
+      source: "dispatch",
+      decidedBy: routed ? last.decidedBy : "orchestrator",
+      why: routed
+        ? `the rung route gave the ${role}`
+        : last
+          ? `the coordinator's rung; route gave the ${role} ${last.rung}`
+          : `the coordinator's rung; the ${role} was never routed`,
+    });
+  } catch (e) {
+    log("warn", "dispatch", { run: run.id, name, routes: errorMessage(e) });
+  }
 }
 
 /** How long a settle waits for another process's failover of the same dispatch (a test seam). */

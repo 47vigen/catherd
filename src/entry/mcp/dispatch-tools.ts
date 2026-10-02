@@ -12,13 +12,13 @@ export function registerDispatchTools(server: McpServer, deps: Deps): void {
     "dispatch",
     {
       description:
-        "Start one role on a process backend (codex, claude-code, opencode) and return at launch, in about a second, with { dispatched: { name, role, rung, dispatchId, admittedAt }, hints }; the role runs on. When it finishes, catherd sends this session a <cross-session-message from-name=\"catherd\"> naming the run, the role and its status, and result(run, name) reads the record. Dispatch every independent role one after another, then end your turn. The brief is the text itself; dispatch appends the role's reply contract (reply length and the STATUS line), so do not write it. With lane, the lane file's Owns: paths guard against overlapping lanes, and a lane not yet routed is routed first (a rung off its routed ladder starts at the routed rung, with a hint). thread resumes that role's thread for its own fix round: the thread its catherd message names, or \"latest\" for the name's last thread; a thread the name never ran on in this run is refused (E_ADMIT_THREAD). Refused with a structured error (E_ADMIT_*, E_RUN_BUDGET, E_BACKEND_*) before anything starts. Call it from the main thread.",
+        "Start one role on a process backend (codex, claude-code, opencode) and return at launch, in about a second, with { dispatched: { name, role, rung, dispatchId, admittedAt }, hints }; the role runs on. When it finishes, catherd sends this session a <cross-session-message from-name=\"catherd\"> naming the run, the role and its status, and result(run, name) reads the record. Dispatch every independent role one after another, then end your turn. The brief is the text itself; dispatch appends the role's reply contract (reply length and the STATUS line), so do not write it. With lane, the lane file's Owns: paths guard against overlapping lanes, a lane not yet routed is routed first (a rung off its routed ladder starts at the routed rung, with a hint), and rung may be left out: the lane runs at its current rung (its route, or the rung its last climb gave). Without lane, rung is required (route(run, role) gives it), and the choice is recorded in routes.jsonl. thread resumes that role's thread for its own fix round: the thread its catherd message names, or \"latest\" for the name's last thread; a thread the name never ran on in this run is refused (E_ADMIT_THREAD). Refused with a structured error (E_ADMIT_*, E_RUN_BUDGET, E_BACKEND_*) before anything starts. Call it from the main thread.",
       inputSchema: {
         run: z.string(),
         role: z.enum(ROLES),
         name: z.string().regex(ID_PATTERN),
         brief: z.string().min(1),
-        rung: z.string().min(3),
+        rung: z.string().min(3).optional(),
         thread: z.string().optional(),
         lane: z.string().regex(ID_PATTERN).optional(),
         next: z.string().optional(),

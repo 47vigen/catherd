@@ -23,6 +23,7 @@ import {
   knowledgeFile,
   listRuns,
   readAgentRuns,
+  readRoleRoutes,
   readRoutes,
   runPaths,
 } from "../../src/services/run-store.ts";
@@ -78,7 +79,7 @@ describe("startRun", () => {
 });
 
 describe("route and climb", () => {
-  it("routes a lane file and records it, and routes a role without recording", async () => {
+  it("routes a lane file and records it, and records a role's route apart from the lanes", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     const deps = fakeDeps();
@@ -100,6 +101,7 @@ describe("route and climb", () => {
       agent: "catherd-architect-claude-opus-5-5-high",
     });
     expect(readRoutes(run)).toHaveLength(1);
+    expect(readRoleRoutes(run)).toMatchObject([{ lane: null, role: "architect", source: "route" }]);
   });
 
   it("refuses a lane file outside lanes/ or missing", async () => {
