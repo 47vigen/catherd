@@ -31,7 +31,7 @@ const REPORT: SyncReport = {
 describe("catalog_sync (spec 1.2 §9)", () => {
   it("syncs, forced when asked, and returns the rungs newly scored, the stand-ins no longer needed and what failed", async () => {
     withHome();
-    const asked: { force: boolean }[] = [];
+    const asked: { force: boolean; wait?: boolean }[] = [];
     const c = await mcpClient({
       ...fakeDeps(),
       sync: async (o) => {
@@ -40,7 +40,8 @@ describe("catalog_sync (spec 1.2 §9)", () => {
       },
     });
     const r = await call(c, "catalog_sync", { force: true });
-    expect(asked).toEqual([{ force: true }]);
+    // (1.2 minor) the tool never waits on a running sync: it answers busy
+    expect(asked).toEqual([{ force: true, wait: false }]);
     expect(r.data).toEqual({
       newlyScored: ["claude-opus-5-5#high"],
       standInsNoLongerNeeded: [{ rung: "gpt-6-sol#high", like: "yardstick#high" }],
@@ -49,7 +50,7 @@ describe("catalog_sync (spec 1.2 §9)", () => {
       warnings: [],
     });
     await call(c, "catalog_sync");
-    expect(asked[1]).toEqual({ force: false });
+    expect(asked[1]).toEqual({ force: false, wait: false });
   });
 
   it("says so when another sync was running", async () => {

@@ -49,6 +49,8 @@ export interface SyncOptions {
   force?: boolean;
   /** the MCP server's boot sync: skips when another sync runs, and gives a failing source an hour's rest */
   background?: boolean;
+  /** false: answer `busy` at once when another sync holds the lock (the catalog_sync tool), never wait */
+  wait?: boolean;
   /** how every source is fetched; tests replace it */
   transport?: SourceTransport;
   /** the Artificial Analysis key; default: the env's, else the saved one */
@@ -129,7 +131,7 @@ export function cachedAnswers(): RawAnswers {
  */
 export async function syncSources(o: SyncOptions = {}): Promise<SyncReport> {
   const now = o.now ?? Date.now;
-  const release = await takeLock(o.background === true);
+  const release = await takeLock(o.background === true || o.wait === false);
   if (!release)
     return {
       busy: true,
@@ -177,16 +179,19 @@ export async function syncSources(o: SyncOptions = {}): Promise<SyncReport> {
           lastAttemptAt: iso(at),
           error: null,
           rateLimitRemaining: limit,
+          rateLimitAt: limit === null ? null : iso(at),
         };
         outcomes.set(id, { source: id, state: "fetched", fetchedAt: iso(at) });
       } catch (e) {
         const error = errorMessage(e);
         const limit = e instanceof SourceError ? rateLimitRemaining(e.headers) : null;
+        // (1.2 minor) a failure with no header keeps the last count with the time that count was read
         state.sources[id] = {
           fetchedAt: prev?.fetchedAt ?? null,
           lastAttemptAt: iso(at),
           error,
           rateLimitRemaining: limit ?? prev?.rateLimitRemaining ?? null,
+          rateLimitAt: limit === null ? (prev?.rateLimitAt ?? null) : iso(at),
         };
         outcomes.set(id, { source: id, state: "failed", fetchedAt: prev?.fetchedAt ?? null, error });
         log(o.background ? "debug" : "warn", "sources", { source: id, error });
@@ -300,6 +305,8 @@ export function sourcesStatus(): {
     })),
     aaKey: aaKey() !== null,
     rateLimitRemaining: aa?.rateLimitRemaining ?? null,
-    rateLimitAt: aa?.rateLimitRemaining === null || aa === undefined ? null : aa.lastAttemptAt,
+    // a state written before 1.5 has no rateLimitAt: its last attempt is the best guess
+    rateLimitAt:
+      aa?.rateLimitRemaining === null || aa === undefined ? null : (aa.rateLimitAt ?? aa.lastAttemptAt),
   };
 }

@@ -1,5 +1,5 @@
 import { effortWord } from "../../domain/sources.ts";
-import { type SourceTransport, sourceGet } from "./http.ts";
+import { SourceError, type SourceTransport, sourceGet } from "./http.ts";
 import { isoDay, num, type SourceRow } from "./rows.ts";
 
 /** Spec 1.2 §3.1: the Agent Arena boards and WebDev (CC-BY-4.0). */
@@ -18,10 +18,18 @@ export const ARENA_PAGE = "https://huggingface.co/datasets/lmarena-ai/leaderboar
 export const arenaUrl = (config: ArenaConfig): string =>
   `https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/leaderboard-dataset&config=${config}&split=latest&length=100`;
 
-/** Every config, in parallel; one failure fails the source, which keeps its last answer. */
+/**
+ * Every config, in parallel; one failure fails the source, which keeps its last answer. A config that answers
+ * no rows is a failure too (1.2 minor): an answer of the wrong shape never replaces a good one.
+ */
 export async function fetchArena(t: SourceTransport = {}): Promise<Record<ArenaConfig, unknown>> {
   const got = await Promise.all(
-    ARENA_CONFIGS.map(async (c) => [c, (await sourceGet(arenaUrl(c), t)).json()]),
+    ARENA_CONFIGS.map(async (c) => {
+      const body = (await sourceGet(arenaUrl(c), t)).json() as { rows?: unknown } | null;
+      if (!Array.isArray(body?.rows) || body.rows.length === 0)
+        throw new SourceError(`Arena ${c} answered no rows`);
+      return [c, body];
+    }),
   );
   return Object.fromEntries(got) as Record<ArenaConfig, unknown>;
 }

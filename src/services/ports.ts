@@ -167,7 +167,7 @@ export interface Deps {
   session: SessionEnv | null;
   now: () => number;
   /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
-  sync?: (o: { force: boolean }) => Promise<SyncReport>;
+  sync?: (o: { force: boolean; wait?: boolean }) => Promise<SyncReport>;
   /**
    * Spec 1.5 plan 21: the role this process works for (CATHERD_ROLE, or a role's scratch TMPDIR); null or
    * absent for the orchestrator's own server. A role never claims a run and never reaches a coordinator tool.

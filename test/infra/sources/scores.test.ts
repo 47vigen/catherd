@@ -30,8 +30,13 @@ describe("Arena (spec 1.2 §3.1)", () => {
     expect(arenaRung("gemini-3.5-flash-lite")).toBe("gemini-3.5-flash-lite");
   });
 
-  it("fetches the six configs of the leaderboard dataset", async () => {
+  it("refuses an answer with no rows, keeping the last good one (1.2 minor)", async () => {
     const f = fakeFetch({ status: 200, body: { rows: [] } });
+    await expect(fetchArena({ fetchImpl: f.impl })).rejects.toThrow(/^Arena \w+ answered no rows$/);
+  });
+
+  it("fetches the six configs of the leaderboard dataset", async () => {
+    const f = fakeFetch({ status: 200, body: { rows: [{ row: {} }] } });
     const got = await fetchArena({ fetchImpl: f.impl });
     expect(Object.keys(got)).toEqual([...ARENA_CONFIGS]);
     expect(f.sent.map((s) => s.url)).toEqual(ARENA_CONFIGS.map(arenaUrl));

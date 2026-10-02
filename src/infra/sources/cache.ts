@@ -59,6 +59,8 @@ const StateSchema = z.looseObject({
         error: z.string().nullable(),
         /** Artificial Analysis: `x-ratelimit-remaining` of its last answer */
         rateLimitRemaining: z.number().nullable().default(null),
+        /** when that count was read (1.2 minor); absent in a state written before 1.5 */
+        rateLimitAt: z.iso.datetime().nullable().optional(),
       }),
     )
     .default({}),

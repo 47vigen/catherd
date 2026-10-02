@@ -26,7 +26,11 @@ export async function fetchArtificialAnalysis(key: string, t: SourceTransport = 
   const o = { ...t, headers: { "x-api-key": key } };
   try {
     const r = await sourceGet(AA_MODELS_URL, o);
-    return { path: "models", pages: [r.json()], rateLimitRemaining: rateLimitRemaining(r.headers) };
+    const body = r.json() as { data?: unknown } | null;
+    // (1.2 minor) an answer of the wrong shape is a failure: the last good one stays
+    if (!Array.isArray(body?.data) || body.data.length === 0)
+      throw new SourceError("Artificial Analysis answered no models", r.status, r.headers);
+    return { path: "models", pages: [body], rateLimitRemaining: rateLimitRemaining(r.headers) };
   } catch (e) {
     if (!(e instanceof SourceError) || (e.status !== 403 && e.status !== 404)) throw e;
   }
@@ -41,6 +45,7 @@ export async function fetchArtificialAnalysis(key: string, t: SourceTransport = 
     const total = num(body.pagination?.total_pages);
     if (total !== null && page >= total) break;
   }
+  if (pages.length === 0) throw new SourceError("Artificial Analysis answered an empty first page");
   return { path: "free", pages, rateLimitRemaining: remaining };
 }
 
@@ -53,10 +58,12 @@ export async function testAaKey(
   t: SourceTransport = {},
 ): Promise<{ result: "ok" | "refused" | "unchecked"; error?: string; rateLimitRemaining: number | null }> {
   try {
+    // spec 1.2 §9: one request, never retried (a 429 or 5xx leaves the key unchecked)
     const r = await sourceGet(aaFreeUrl(1), {
       attemptMs: 10_000,
       deadlineMs: 20_000,
       ...t,
+      retries: 0,
       headers: { "x-api-key": key },
     });
     return { result: "ok", rateLimitRemaining: rateLimitRemaining(r.headers) };

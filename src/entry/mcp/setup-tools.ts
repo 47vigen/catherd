@@ -59,7 +59,8 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     },
     (a) =>
       handle(async () => {
-        const r = await (deps.sync ?? ((o) => syncSources(o)))({ force: a.force });
+        // (1.2 minor) a sync already running (the boot sync) answers busy at once, never a 120 s wait
+        const r = await (deps.sync ?? ((o) => syncSources(o)))({ force: a.force, wait: false });
         return {
           newlyScored: r.newlyScored,
           standInsNoLongerNeeded: r.noLongerNeeded,

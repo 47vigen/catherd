@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { applyFacts, buildCatalog } from "../../src/domain/catalog.ts";
-import { derive, openRouterIds } from "../../src/services/source-derive.ts";
+import { applyFacts, buildCatalog, ScoreSchema } from "../../src/domain/catalog.ts";
+import { derive, LOWER_IS_BETTER, openRouterIds } from "../../src/services/source-derive.ts";
 import { fixtureJson, rawAnswers, shippedContext } from "./source-fixtures.ts";
 
 const AT = "2026-09-28T10:00:00.000Z";
@@ -170,7 +170,7 @@ describe("anchors and calibration (spec 1.2 §4.1, §4.2)", () => {
 });
 
 describe("adjacent values (spec 1.2 §4.3)", () => {
-  it("carries a family's synced value to its other efforts, from the nearest effort", () => {
+  it("carries a family's synced value to its stronger efforts, from the nearest weaker one (1.2 minor)", () => {
     // over the hand-typed values alone: the shipped file carries the keyless values spread already
     const c = shippedContext(NOW);
     const hand = c.scores.scores.filter((s) => s.source === undefined && s.confidence !== "adjacent");
@@ -182,8 +182,9 @@ describe("adjacent values (spec 1.2 §4.3)", () => {
         note: "arena has it at high; carried to this effort",
       }),
     ]);
-    // Sol has Arena values at max only: every other effort takes them
-    expect(find(d, "gpt-6-sol#low", "steer", "adjacent")[0]?.value).toBe(0.1335);
+    // Sol has Arena values at max only: no weaker effort takes them (Luna none never takes Luna max's)
+    expect(find(d, "gpt-6-sol#low", "steer", "adjacent")).toEqual([]);
+    expect(find(d, "gpt-6-sol#xhigh", "steer", "adjacent")).toEqual([]);
   });
 
   it("never spreads the shipped values, and leaves Opus 5.5 without a coding or terminal value (plan 13 R-D)", () => {
@@ -288,5 +289,33 @@ describe("the Artificial Analysis Intelligence Index (spec 1.5 plan 24)", () => 
         field: "artificial_analysis_intelligence_index",
       }),
     );
+  });
+});
+
+describe("the 1.2 minors in derive", () => {
+  it("keeps the lower of two rows on a rung for a field where less is better", () => {
+    const aa = fixtureJson("artificial-analysis-models.json") as { data: Record<string, unknown>[] };
+    const sol = aa.data.find((m) => typeof m.slug === "string" && m.slug.startsWith("gpt-6-sol"));
+    if (!sol) throw new Error("fixture lacks gpt-6-sol");
+    // the same rung twice, as an alias would give it: 0.9 and 0.4 dollars per task
+    const twice = {
+      ...aa,
+      data: [...aa.data, { ...sol, cost_per_task: 0.9 }, { ...sol, cost_per_task: 0.4 }],
+    };
+    const raw = rawAnswers(AT, { aa: true });
+    raw["artificial-analysis"] = {
+      fetchedAt: AT,
+      data: { path: "models", pages: [twice], rateLimitRemaining: null },
+    };
+    const d = derive(raw, shippedContext(NOW));
+    const key = Object.keys(d.features).find((k) => k.startsWith("gpt-6-sol#"));
+    expect(key).toBeDefined();
+    expect(LOWER_IS_BETTER.has("cost_per_task")).toBe(true);
+    expect(d.features[key as string]?.cost_per_task).toBeLessThanOrEqual(0.4);
+  });
+
+  it("drops a score that would not read back, so one bad date never makes the derived file unreadable", () => {
+    const d = derive(rawAnswers("not a time"), shippedContext(NOW));
+    for (const s of d.scores) expect(ScoreSchema.safeParse(s).success).toBe(true);
   });
 });
