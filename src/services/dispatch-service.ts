@@ -319,7 +319,8 @@ function threadFor(run: Run, name: string, thread: string | undefined): string |
 /**
  * Plan 22, resume hygiene: what an earlier turn on `thread` left running in its process group (a server, a
  * watcher, a background command) is stopped before the thread is resumed, so it never ends the resumed CLI
- * (exit 143). Only a finished dispatch whose group leader is gone is touched: a live group with no process of the
+ * (exit 143). Only a dispatch whose supervisor and group leader are both gone is touched (with or without
+ * exit.json: a supervisor killed before it stopped the group writes none): a live group with no process of the
  * leader's pid can only be that dispatch's leftovers (a pid is never reused while its group lives), and a pid
  * that answers belongs to someone else by now. Returns a hint per group stopped.
  */
@@ -331,7 +332,10 @@ async function stopLeftovers(deps: Deps, run: Run, thread: string): Promise<stri
     if (on?.toLowerCase() !== thread.toLowerCase()) continue;
     const proc = readProc(d.dir);
     const pgid = proc?.pgid ?? proc?.pid;
-    if (!proc || pgid === undefined || pgid !== proc.pid || readExit(d.dir) === null) continue;
+    if (!proc || pgid === undefined || pgid !== proc.pid) continue;
+    // a live supervisor stops its own group when its worker ends; exit.json is not the test, since a supervisor
+    // killed (SIGKILL, OOM) before it stopped the group never writes one
+    if (isAlive(proc.supervisorPid, proc.supervisorStartTime)) continue;
     if (isAlive(proc.pid, null) || !groupAlive(pgid)) continue;
     await stopGroup(pgid, orphanLimits.killGraceMs, deps.pollMs);
     log("info", "dispatch", { run: run.id, name: d.admit.name, thread, stoppedGroup: pgid });

@@ -92,6 +92,37 @@ describe("resume hygiene (plan 22: a resumed worker exits 143)", () => {
     await watchersSettled();
   });
 
+  it("stops the leftovers of a turn whose supervisor died before it wrote exit.json (killed, OOM)", async () => {
+    const { run, deps } = setup();
+    const turn = Bun.spawn(["sh", "-c", "sleep 60 & exit 0"], {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    const startTime = processStartTime(turn.pid);
+    await turn.exited;
+    expect(groupLives(turn.pid)).toBe(true);
+    const events = readFileSync(join(FX, "ok-with-reconnect.jsonl"), "utf8");
+    const dead = await deadProcess();
+    // the real supervisor writes exit.json only after it stops the group: a supervisor that died leaves none
+    const earlier = await fakeDispatch(
+      run,
+      {},
+      { proc: { pid: turn.pid, startTime, supervisorPid: dead, supervisorStartTime: "gone" }, events },
+    );
+    try {
+      expect((await finalizeDispatch(run, earlier)).thread).toBe(THREAD);
+      const { hints } = await dispatch(deps, input(run.id, { thread: "latest", brief: "Fix the finding" }));
+      expect(groupLives(turn.pid)).toBe(false);
+      expect(hints).toContain(
+        `resume: stopped what worker-M1.L1's earlier turn left running on thread ${THREAD}`,
+      );
+      await watchersSettled();
+    } finally {
+      if (groupLives(turn.pid)) process.kill(-turn.pid, "SIGKILL");
+    }
+  });
+
   it("never signals a group whose leader's pid answers: it is someone else's by now", async () => {
     const { run, deps } = setup();
     const other = Bun.spawn(["sleep", "60"], {
