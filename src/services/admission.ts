@@ -10,7 +10,6 @@ import type { RunRecord } from "../domain/record.ts";
 import { withReplyContract } from "../domain/role-prompts.ts";
 import type { Role } from "../domain/roles.ts";
 import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
-import { roleRequiresMcp } from "../domain/role-tools.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
@@ -205,15 +204,9 @@ export async function admit(
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
-  const needsRoleMcp = rung.backend === "codex" || rung.backend === "claude-code";
-  if (needsRoleMcp && isolated && roleRequiresMcp(i.role))
-    throw new CatherdError(
-      "E_ADMIT_RUNG",
-      `${i.role} needs catherd's run tools, which are not available in an isolated ${rung.backend} harness`,
-      {
-        fix: `set harness.${rung.backend}.isolated to false in profile ${profile.name}, then dispatch a fresh thread`,
-      },
-    );
+  // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
+  // role is refused for isolation, and a thread an isolated run started resumes as it started
+  const roleServer = rung.backend === "codex" || rung.backend === "claude-code";
   const scratch = roleScratch(run, i.name, rung.backend);
   await prepared(adapter, {
     rung,
@@ -232,7 +225,7 @@ export async function admit(
     briefPath: p.brief,
     replyPath: p.reply,
     dispatchDir: dir,
-    ...(needsRoleMcp && !isolated ? { roleMcp: { run: run.id, role: i.role } } : {}),
+    ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
     ...(scratch ? { scratch } : {}),
   });
 

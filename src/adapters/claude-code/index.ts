@@ -141,6 +141,18 @@ async function accessShell(): Promise<AccessShell | string> {
   return scratchShell("an unsandboxed shell (Claude Code's sandbox is off)", []);
 }
 
+/**
+ * An isolated run without the user's customizations. --bare would also drop OAuth, so a Claude plan could not
+ * log in; --safe-mode keeps auth, but drops every --mcp-config server too (Claude Code 2.1.287: "--mcp-config:
+ * … ignored (safe mode)"). A run with the role server (spec 1.5 plan 21, #42 finding 1) gets the same isolation
+ * piece by piece instead: only the --mcp-config servers, no settings file (so no hooks, no enabled plugins), no
+ * skills, and CLAUDE.md off through the env.
+ */
+function isolationArgs(r: RunRequest): string[] {
+  if (!r.roleMcp) return ["--safe-mode"];
+  return ["--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands"];
+}
+
 function plan(r: RunRequest): SpawnPlan {
   if (r.thread !== null && !THREAD.test(r.thread))
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
@@ -173,10 +185,10 @@ function plan(r: RunRequest): SpawnPlan {
       "--permission-prompts",
       "none",
       ...accessArgs,
-      // --bare would also drop OAuth, so a Claude plan could not log in; --safe-mode keeps auth
-      ...(r.isolated ? ["--safe-mode"] : []),
+      ...(r.isolated ? isolationArgs(r) : []),
     ],
-    env: {},
+    // CLAUDE.md off, as --safe-mode turns it off (spec 1.5 plan 21)
+    env: r.isolated && r.roleMcp ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" } : {},
     cwd: r.repo,
     stdinPath: r.briefPath,
   };
