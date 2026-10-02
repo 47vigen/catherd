@@ -20,7 +20,7 @@ export function heavySlots(setting: number | "cpus/2" | undefined): number {
 export async function withHeavySlot<T>(
   slots: number,
   fn: (slot: number) => T | Promise<T>,
-  o: { pollMs?: number } = {},
+  o: { pollMs?: number; onWait?: () => void } = {},
 ): Promise<T> {
   const r = await withHeavySlotWithin(slots, Number.POSITIVE_INFINITY, fn, o);
   if (r.busy) throw new Error("unreachable: an unbounded wait never gives up");
@@ -35,7 +35,7 @@ export async function withHeavySlotWithin<T>(
   slots: number,
   waitMs: number,
   fn: (slot: number) => T | Promise<T>,
-  o: { pollMs?: number } = {},
+  o: { pollMs?: number; onWait?: () => void } = {},
 ): Promise<{ busy: false; value: T } | { busy: true }> {
   const dir = locksDir();
   ensurePrivateDir(dir);
@@ -52,6 +52,7 @@ export async function withHeavySlotWithin<T>(
     }
     const left = deadline - Date.now();
     if (left <= 0) return { busy: true };
+    o.onWait?.();
     await Bun.sleep(Math.min(o.pollMs ?? 500, left));
   }
 }
@@ -88,7 +89,7 @@ export async function withRoleLock<T>(
   role: string,
   owner: string,
   fn: () => T | Promise<T>,
-  o: { pollMs?: number } = {},
+  o: { pollMs?: number; onWait?: () => void } = {},
 ): Promise<T> {
   const dir = locksDir();
   ensurePrivateDir(dir);
@@ -102,7 +103,10 @@ export async function withRoleLock<T>(
       writeJsonAtomic(file, { owner, holders: [...live, me] } satisfies RoleLockState);
       return true;
     });
-  while (!(await enter())) await Bun.sleep(o.pollMs ?? 500);
+  while (!(await enter())) {
+    o.onWait?.();
+    await Bun.sleep(o.pollMs ?? 500);
+  }
   try {
     return await fn();
   } finally {

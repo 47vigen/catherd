@@ -189,18 +189,16 @@ export const lockCommand = defineCommand({
       process.exitCode = await runForwarding(argv);
       return;
     }
-    const run = async () => {
-      // plan 23: a role's lock reports its output, so the role's wall timeout counts from its last line
-      const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
-      try {
-        return await runForwarding(argv, {
-          extraEnv: { [LOCK_HELD_ENV]: "1" },
-          ...(activity ? { onOutput: activity.tick } : {}),
-        });
-      } finally {
-        activity?.done();
-      }
-    };
+    // plan 23: a role's lock reports its output, so the role's wall timeout counts from its last line; it
+    // reports while it waits for the role lock or a slot too, so a gate queued behind another run's is not
+    // killed before its first command
+    const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
+    const waiting = activity ? { onWait: activity.tick } : {};
+    const run = () =>
+      runForwarding(argv, {
+        extraEnv: { [LOCK_HELD_ENV]: "1" },
+        ...(activity ? { onOutput: activity.tick } : {}),
+      });
     const role = args.role;
     const repo = await gitToplevel(process.cwd());
     const slots = resolveSlots(
@@ -210,8 +208,17 @@ export const lockCommand = defineCommand({
       () => readProfileDoc(activeName(repo)).lock?.heavy ?? "cpus/2",
       (m) => console.error(m),
     );
-    process.exitCode = role
-      ? await withRoleLock(role, roleLockOwnerOf(args.run, process.env), () => withHeavySlot(slots, run))
-      : await withHeavySlot(slots, run);
+    try {
+      process.exitCode = role
+        ? await withRoleLock(
+            role,
+            roleLockOwnerOf(args.run, process.env),
+            () => withHeavySlot(slots, run, waiting),
+            waiting,
+          )
+        : await withHeavySlot(slots, run, waiting);
+    } finally {
+      activity?.done();
+    }
   },
 });

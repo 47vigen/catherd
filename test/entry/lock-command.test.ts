@@ -146,6 +146,30 @@ describe("catherd lock", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it("inside a dispatch, reports while it still waits for a slot, so the role's wall does not run out", async () => {
+    const home = withHome();
+    mkdirSync(locksDir(), { recursive: true });
+    const release = tryLock(join(locksDir(), "slot-0"));
+    const dir = activityDir("01TESTWAITING");
+    const p = Bun.spawn([process.execPath, CLI, "lock", "--slots", "1", "--", "true"], {
+      env: {
+        ...process.env,
+        CATHERD_HOME: home,
+        ANTHROPIC_API_KEY: "",
+        CATHERD_DISPATCH_ID: "01TESTWAITING",
+      },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      await waitFor(() => existsSync(dir) && readdirSync(dir).some((f) => f.endsWith(".json")));
+    } finally {
+      release?.();
+    }
+    expect(await p.exited).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+  }, 20_000);
+
   it("refuses a bad --slots as a usage error", () => {
     withHome();
     const p = Bun.spawnSync([process.execPath, CLI, "lock", "--slots", "zero", "--", "true"], {
