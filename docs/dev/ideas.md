@@ -80,6 +80,30 @@ Plan 22 (delivery and the loop) review:
   spawn-env helper in `test/helpers.ts` that sets `CATHERD_NO_END_PUSH=1` (and `ANTHROPIC_API_KEY: ""`), and use it
   in the tests that spawn catherd. (M6.)
 
+Plan 23 (verifier, gate and environment) review:
+
+- **A chatty login profile corrupts the login env.** A profile that prints to stdout (a motd, an `echo`) lands in
+  front of the first `env -0` record, so that variable (PATH, when it comes first) is lost; and the capture's
+  `spawnSync` blocks the MCP server's event loop for up to 5 s, once per process. Evidence:
+  `src/infra/login-env.ts:13`, `src/infra/login-env.ts:26`. Fix: parse only `K=V` records, dropping what precedes the
+  last newline before the first `\0`; capture it asynchronously (or at boot, off the request path). (Minor 2.)
+- **"BLOCKER: none" counts as an open blocker.** A reviewer that writes `BLOCKER: none` (or `BUG: none`) gets one
+  open finding and the orchestrator a needless fix round. Evidence: `src/services/milestones.ts:100`. Fix: skip a
+  finding line whose text after the label is `none`, `n/a` or `-`. (Minor 3.)
+- **An `ENV:` line anywhere makes climb refuse.** `parseReplyEnvironment` matches an `ENV:` line anywhere in the
+  reply, a YAML or Dockerfile snippet in a code fence included, so `climb` refuses with `E_CLIMB_ENV` for a lane that
+  had no environment blocker. Evidence: `src/domain/record.ts:93-95`. Fix: read it outside code fences only, or only
+  among the lines just above the `STATUS:` line. (Minor 4.)
+- **The retry reset also fires when the `providerRetry` hook times out.** `bounded(..., null)` falls back to null,
+  which clears the stream-counted retries, so a slow hook hides an outage until the idle timeout. Evidence:
+  `src/infra/supervisor.ts` (the `providerRetry` poll). Fix: reset only on a hook answer of "no retry", not on a
+  timeout. (Re-review.)
+- **The reserved gate-env names are a hand-kept list.** It misses `GH_CONFIG_DIR`, `GIT_CONFIG_GLOBAL`,
+  `XDG_CACHE_HOME`, `BUN_INSTALL_CACHE_DIR` (the env order still protects them). Evidence: `src/services/gate-env.ts`
+  `RESERVED`. Fix: derive it from what the adapters' plans set. (Re-review.)
+- **A stray JSDoc in `supervise-command.ts`.** `runSupervise`'s doc sits above `superviseEnv`'s. Evidence:
+  `src/entry/supervise-command.ts:122-126`. Fix: move it back. (Re-review.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
