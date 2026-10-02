@@ -23,14 +23,15 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "run_start",
     {
       description:
-        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id, the folder, protocol (the next step of the milestone loop and its six-line checklist), and hints when state.md could not be written yet.",
+        "Start a catherd run for a git repository: creates its run folder (outside the repo) and state.md. Returns the run id, the folder, protocol (the next step of the milestone loop and its six-line checklist), and hints when state.md could not be written yet. from: the run this one takes over (a planning run handed to the execution run in a worktree): it is closed with a pointer here, and status hides it.",
       inputSchema: {
         repo: z.string().min(1),
         title: z.string().min(1),
         a_lines: z.array(z.string().min(1)).min(1),
+        from: z.string().regex(ID_PATTERN).optional(),
       },
     },
-    (a) => handle(() => startRun(deps, { repo: a.repo, title: a.title, aLines: a.a_lines })),
+    (a) => handle(() => startRun(deps, { repo: a.repo, title: a.title, aLines: a.a_lines, from: a.from })),
   );
 
   server.registerTool(

@@ -39,7 +39,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import type { Deps } from "./ports.ts";
-import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
+import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
 import { verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
@@ -156,6 +156,11 @@ export async function admit(
   if (i.lane !== null) assertId("lane", i.lane);
   // a machine or workspace pause refuses every dispatch it covers, with its reason (spec 1.5 "Group pause")
   assertNotPaused(run);
+  const closed = supersededBy(run);
+  if (closed)
+    throw new CatherdError("E_RUN_NOT_LIVE", `run ${run.id} is superseded by ${closed.by}`, {
+      fix: `dispatch in run ${closed.by}`,
+    });
   const rung = parseRung(i.rung);
   const profile = deps.profiles.forRepo(run.meta.repo);
   const rc = profile.roles[i.role];

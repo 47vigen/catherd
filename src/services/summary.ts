@@ -24,6 +24,7 @@ import {
   readRoutes,
   type Run,
   runPaths,
+  supersededBy,
 } from "./run-store.ts";
 
 export interface RunSummary {
@@ -31,6 +32,8 @@ export interface RunSummary {
   waiting?: OrchestratorWait | null;
   delivery: (DeliveryInspection & { name: string; dispatchId: string })[];
   id: string;
+  /** spec 1.5 "runs supersede": the run that took this one over; status() without a run hides it */
+  supersededBy?: string | null;
   /** spec 1.1 §8: the owner questions not answered yet, listed first */
   questions: OpenQuestion[];
   title: string;
@@ -94,6 +97,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       })),
     ),
     id: run.id,
+    supersededBy: supersededBy(run)?.by ?? null,
     questions: openQuestions(run),
     title: run.meta.title,
     repo: run.meta.repo,
@@ -165,8 +169,10 @@ export function status(
       warnings: [],
     };
   }
-  const { runs, corrupt } = listRuns();
+  const { runs: listed, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
+  // a superseded run is closed: only status(run) shows it
+  const runs = listed.filter((r) => !supersededBy(r));
   const all = runs.map((r) => summarizeRun(deps, r));
   const live = all.filter((s) => s.live.length > 0);
   const waiting = all.filter((s) => s.waiting);

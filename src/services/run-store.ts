@@ -329,7 +329,25 @@ export function appendKnowledge(toplevel: string, at: Date, source: string, text
   return line;
 }
 
+/** Spec 1.5 "runs supersede": the run that took over a closed one, and when. */
+const SupersededSchema = z.looseObject({ schema: z.literal(1), by: z.string(), at: z.string() });
+export type Superseded = z.infer<typeof SupersededSchema>;
+
+export const supersededFile = (run: Run): string => join(run.dir, "superseded.json");
+
+/** The pointer `runs supersede` left, or null: an open run, or a pointer that cannot be read. */
+export function supersededBy(run: Run): Superseded | null {
+  const file = supersededFile(run);
+  if (!existsSync(file)) return null;
+  try {
+    return readVersioned(file, SupersededSchema, 1);
+  } catch {
+    return null;
+  }
+}
+
 const SERVER_OWNED = new Set([
+  "superseded.json",
   "workspace-contract.md",
   "meta.json",
   "state.md",

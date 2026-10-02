@@ -6,12 +6,13 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
 import { gitToplevel } from "../infra/git.ts";
-import { writeTextAtomic } from "../infra/store.ts";
+import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import {
   dispatchState,
   type DispatchState,
   latestDispatch,
   listDispatches,
+  liveDispatches,
   recordHints,
 } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
@@ -26,14 +27,48 @@ import {
   readRecords,
   runFile,
   type Run,
+  supersededBy,
+  supersededFile,
 } from "./run-store.ts";
 import { protocolNext, protocolView } from "./protocol.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { readNotes, refreshState } from "./state.ts";
 
+/**
+ * `runs supersede <run> --by <run>`: closes `run` with a pointer to the run that took it over (a planning
+ * run handed to the execution run in a worktree). Status hides it; dispatch refuses it. A run with live
+ * roles is refused: cancel them, or let them finish, first.
+ */
+export async function supersedeRun(
+  deps: Deps,
+  i: { run: string; by: string },
+): Promise<{ run: string; by: string; at: string; hints?: string[] }> {
+  const run = findRun(i.run);
+  const by = findRun(i.by);
+  if (run.id === by.id)
+    throw new CatherdError("E_INPUT_INVALID", `run ${run.id} cannot supersede itself`, {
+      fix: "pass the run that took over as --by",
+    });
+  if (supersededBy(by)?.by === run.id)
+    throw new CatherdError("E_INPUT_INVALID", `run ${by.id} is itself superseded by ${run.id}`, {
+      fix: "supersede the older run by the newer one",
+    });
+  const live = liveDispatches(run, deps.now());
+  if (live.length)
+    throw new CatherdError(
+      "E_INPUT_INVALID",
+      `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
+      { fix: `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}` },
+    );
+  const at = new Date(deps.now()).toISOString();
+  writeJsonAtomic(supersededFile(run), { schema: 1, by: by.id, at });
+  const { hints } = await refreshState(run, { next: `superseded by ${by.id}: continue there` });
+  return { run: run.id, by: by.id, at, ...(hints.length ? { hints } : {}) };
+}
+
 export async function startRun(
   deps: Deps,
-  i: { repo: string; title: string; aLines: string[] },
+  i: { repo: string; title: string; aLines: string[]; from?: string },
 ): Promise<{
   run: string;
   dir: string;
@@ -45,6 +80,12 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
+  // the run this one takes over must exist and be free to close before anything is created
+  const from = i.from === undefined ? null : findRun(i.from);
+  if (from && liveDispatches(from, deps.now()).length)
+    throw new CatherdError("E_INPUT_INVALID", `run ${from.id} still has live roles`, {
+      fix: `cancel them or let them finish, then run_start with from: ${from.id}`,
+    });
   const run = createRun({
     repo: top,
     title: i.title,
@@ -54,8 +95,10 @@ export async function startRun(
     startedBy: currentSession(deps),
   });
   await claimRun(deps, run);
+  const superseded = from ? await supersedeRun(deps, { run: from.id, by: run.id }) : null;
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
+  hints.push(...(superseded?.hints ?? []));
   // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
   return { run: run.id, dir: run.dir, protocol: protocolView(run, []), ...(hints.length ? { hints } : {}) };
 }

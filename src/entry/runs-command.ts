@@ -15,6 +15,7 @@ import { cancel } from "../services/dispatch-service.ts";
 import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
+import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
@@ -210,6 +211,7 @@ const list = defineCommand({
         session: s.session,
         continuedIn: s.continuedIn,
         waiting: s.waiting,
+        supersededBy: s.supersededBy ?? null,
       };
     };
     const groups = groupRuns(shown);
@@ -220,7 +222,7 @@ const list = defineCommand({
       for (const x of g.runs) {
         const r = row(x.run);
         console.log(
-          `  ${r.id}  ${r.live ? `${r.live} live` : r.waiting ? `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${r.waiting.seconds}s` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
+          `  ${r.id}  ${r.supersededBy ? `superseded by ${r.supersededBy}` : r.live ? `${r.live} live` : r.waiting ? `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${r.waiting.seconds}s` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
         );
       }
     }
@@ -355,9 +357,30 @@ const retryPush = defineCommand({
   },
 });
 
+const supersede = defineCommand({
+  meta: {
+    name: "supersede",
+    description: "Close a run with a pointer to the run that took it over; status hides it",
+  },
+  args: {
+    id: { type: "positional", required: true, description: "the run to close" },
+    by: { type: "string", required: true, description: "the run that took it over" },
+    ...json,
+  },
+  async run({ args }) {
+    const r = await supersedeRun(defaultDeps(), { run: args.id, by: args.by });
+    if (args.json) return printJson(r);
+    console.log(`${mark("ok")} ${r.run} superseded by ${r.by}`);
+    for (const h of r.hints ?? []) console.log(`  ${h}`);
+  },
+});
+
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
-  meta: { name: "runs", description: "Runs: list them (the default), show one, cancel a live role" },
-  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush },
+  meta: {
+    name: "runs",
+    description: "Runs: list them (the default), show one, cancel a live role, supersede one",
+  },
+  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush, supersede },
   default: "list",
 });
