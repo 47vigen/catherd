@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { knownSecrets } from "../../src/infra/log.ts";
 import { aaKey, credentialsPath, saveAaKey, savedCredential } from "../../src/services/credentials.ts";
 import { jevKey, registerSavedSecrets, saveJevKey } from "../../src/services/jev-service.ts";
@@ -56,5 +56,37 @@ describe("the Artificial Analysis key (spec 1.2 §9)", () => {
     saveAaKey("aa-redact-0123456789");
     registerSavedSecrets();
     expect(knownSecrets({})).toContain("aa-redact-0123456789");
+  });
+});
+
+describe("saving a credential (1.2 minor)", () => {
+  it("holds the file's lock, so two concurrent saves of different keys both survive", async () => {
+    withHome();
+    const module = join(import.meta.dir, "..", "..", "src", "services", "credentials.ts");
+    const writer = (field: string, key: string) =>
+      Bun.spawn(
+        [
+          process.execPath,
+          "-e",
+          `const { saveCredential } = await import(${JSON.stringify(module)}); for (let i = 0; i < 25; i++) saveCredential(${JSON.stringify(field)}, ${JSON.stringify(key)} + i);`,
+        ],
+        {
+          env: {
+            PATH: process.env.PATH ?? "",
+            CATHERD_HOME: process.env.CATHERD_HOME ?? "",
+            ANTHROPIC_API_KEY: "",
+          },
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      );
+    const a = writer("typesafeApiKey", "tsk-");
+    const b = writer("artificialAnalysisApiKey", "aa-");
+    expect([await a.exited, await b.exited]).toEqual([0, 0]);
+    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
+      schema: 1,
+      typesafeApiKey: "tsk-24",
+      artificialAnalysisApiKey: "aa-24",
+    });
   });
 });

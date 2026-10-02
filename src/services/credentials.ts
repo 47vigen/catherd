@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import { withFileLockSync } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { configDir } from "../infra/paths.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
@@ -45,13 +46,17 @@ export function savedCredential(field: CredentialField): {
 
 /**
  * Keeps every other credential, and the file at mode 600 (spec §10.4). A missing file starts empty; an
- * unreadable or newer-schema one is refused (it throws) rather than overwritten.
+ * unreadable or newer-schema one is refused (it throws) rather than overwritten. The read and the write hold
+ * the file's lock (1.2 minor), so two concurrent `init`s never lose a key.
  */
 export function saveCredential(field: CredentialField, key: string): void {
-  const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
-    ? readCredentials()
-    : { schema: 1 };
-  writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, [field]: key.trim() }, { mode: 0o600 });
+  mkdirSync(configDir(), { recursive: true });
+  withFileLockSync(credentialsPath(), () => {
+    const cur: z.infer<typeof CredentialsSchema> = existsSync(credentialsPath())
+      ? readCredentials()
+      : { schema: 1 };
+    writeJsonAtomic(credentialsPath(), { ...cur, schema: 1, [field]: key.trim() }, { mode: 0o600 });
+  });
 }
 
 /**

@@ -249,6 +249,23 @@ describe("SaveDialog (spec §9.2)", () => {
     expect(answers).toEqual(["save"]);
   });
 
+  it("offers no repair for a profile with no stored file, as the ProfileService rules (1.2 minor)", async () => {
+    const effects = fixtureEffects();
+    const read = effects.readProfile;
+    effects.readProfile = (n) =>
+      applyPatch(read(n), {
+        roles: { writer: { rungs: [] } },
+        failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" },
+      });
+    // no profile file yet: the service would refuse the save, so the preview offers only Cancel
+    const profiles = effects.profiles;
+    effects.profiles = () => ({ ...profiles(), names: [] });
+    await save({ failover: { "codex:gpt-6-sol#high": "opencode:opencode-go/kimi-k3#max" } }, effects);
+    const f = h!.s.frame();
+    expect(f).not.toContain("This save fixes an error and adds none");
+    expect(f).not.toContain("[ Save ]");
+  });
+
   it("answers activate from the second button, and cancels from the third", async () => {
     const answers = await save({ budget: { usd: 5 } });
     await h!.s.press("right", "return");

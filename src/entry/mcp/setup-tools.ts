@@ -91,7 +91,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "profile_validate",
     {
       description:
-        "Check a profile (without a name: the profile this repo runs on, as in profile_get). errors block a save: the worker disabled, an enabled role with no usable rung, an unscored rung without a 'treat like', a failover stand-in unscored or on the same quota, a backend catherd cannot run. warnings do not: an access mode other than the role's default, a model the backend's listing lacks, a stand-in that never runs. Each has a path, a message and often a fix.",
+        "Check a profile (without a name: the profile this repo runs on, as in profile_get). errors block a save: the worker disabled, an enabled role with no usable rung, an unscored rung without a 'treat like', a failover stand-in unscored or on the same quota, a backend catherd cannot run. warnings do not: an access mode other than the role's default, a model the backend's listing lacks, a stand-in that never runs, a quota none of whose rungs ever starts a lane, and every kind and difficulty no worker rung clears. Each has a path, a message and often a fix.",
       inputSchema: { name: PROFILE, repo: REPO },
     },
     (a) => handle(async () => deps.profiles.validate(a.name, await toplevel(a.repo))),

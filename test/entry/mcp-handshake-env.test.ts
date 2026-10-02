@@ -20,6 +20,11 @@ describe("doctor's MCP handshake", () => {
       CLAUDE_CODE_MESSAGING_TOKEN: "t",
       PATH: "/usr/bin",
     });
-    expect(env).toEqual({ PATH: "/usr/bin" });
+    expect(env).toEqual({ PATH: "/usr/bin", CATHERD_NO_SYNC: "1" });
+  });
+
+  it("starts the server with no boot sync: it lives for one tools/list (1.2 minor)", () => {
+    expect(handshakeEnv({ PATH: "/usr/bin" }).CATHERD_NO_SYNC).toBe("1");
+    expect(handshakeEnv({ PATH: "/usr/bin", CATHERD_NO_SYNC: "0" }).CATHERD_NO_SYNC).toBe("1");
   });
 });
