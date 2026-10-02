@@ -82,10 +82,47 @@ const tomlError = (text: string): string | null => {
   }
 };
 
+/** The `read_write` roots of each profile in catherd's block as it stands, by profile name. */
+function blockRoots(block: string): Record<string, string[]> {
+  try {
+    const p =
+      (Bun.TOML.parse(block) as { profiles?: Record<string, { read_write?: unknown }> }).profiles ?? {};
+    return Object.fromEntries(
+      Object.entries(p).map(([k, v]) => [
+        k,
+        Array.isArray(v.read_write) ? v.read_write.filter((r): r is string => typeof r === "string") : [],
+      ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 /**
- * `text` (a sandbox.toml) with catherd's marked block set to `profiles`: the old block cut out, the new one
- * appended. Outside the block only trailing blank lines change. `why` when catherd must not write: the file
- * is not TOML, defines a `catherd-*` profile of its own, or has lost the block's end marker.
+ * `profiles` with each one's `read_write` merged into the block's current roots: those that still exist, in
+ * their order, then the new ones. Two catherd homes on one machine (another CATHERD_HOME, other lock dirs) then
+ * converge on one block instead of rewriting each other's.
+ */
+function mergedProfiles(
+  profiles: Record<string, Record<string, unknown>>,
+  was: Record<string, string[]>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(profiles).map(([name, p]) => {
+      const mine = Array.isArray(p.read_write) ? (p.read_write as string[]) : [];
+      const kept = (was[name] ?? []).filter((r) => existsSync(r));
+      const roots = [...new Set([...kept, ...mine])];
+      return [name, { ...p, read_write: roots }];
+    }),
+  );
+}
+
+/**
+ * `text` (a sandbox.toml) with catherd's marked block set to `profiles`: rewritten where it stands, or appended
+ * when there is none. A rewrite in place keeps every line outside the block, and what each line belongs to: a
+ * bare key the user put after the block stays in the table it was in. The block's existing roots that still
+ * exist stay (mergedProfiles). `why` when catherd must not write: the file is not TOML, defines a `catherd-*`
+ * profile of its own, or has lost the block's end marker.
  */
 export function withCatherdProfiles(
   text: string,
@@ -95,21 +132,22 @@ export function withCatherdProfiles(
   const end = start === -1 ? -1 : text.indexOf(END, start);
   if (start !== -1 && end === -1)
     return { why: `catherd's block has lost its end marker (${END}): delete the block` };
-  // the block goes with the blank line catherd put before it
-  const rest =
-    start === -1
-      ? text
-      : text.slice(0, start).replace(/\n\n$/, "\n") + text.slice(end + END.length).replace(/^\r?\n/, "");
+  const after = start === -1 ? "" : text.slice(end + END.length).replace(/^\r?\n/, "");
+  // the file without the block, for the checks: the block goes with the blank line catherd put before it
+  const rest = start === -1 ? text : text.slice(0, start).replace(/\n\n$/, "\n") + after;
   const bad = tomlError(rest);
   if (bad) return { why: `it is not valid TOML (${bad})` };
   const own = Object.keys((Bun.TOML.parse(rest) as { profiles?: object }).profiles ?? {}).find((k) =>
     k.startsWith("catherd-"),
   );
   if (own) return { why: `it has a [profiles.${own}] of its own: rename it, catherd's tables are catherd-*` };
+  const was = start === -1 ? {} : blockRoots(text.slice(start, end));
+  const block = `${HEADER}\n${Bun.TOML.stringify({ profiles: mergedProfiles(profiles, was) })}${END}\n`;
   const head = rest.trimEnd();
-  const out = `${head ? `${head}\n\n` : ""}${HEADER}\n${Bun.TOML.stringify({ profiles })}${END}\n`;
-  const after = tomlError(out);
-  return after ? { why: `it is not valid TOML with catherd's tables added (${after})` } : { text: out };
+  const out =
+    start === -1 ? `${head ? `${head}\n\n` : ""}${block}` : `${text.slice(0, start)}${block}${after}`;
+  const broken = tomlError(out);
+  return broken ? { why: `it is not valid TOML with catherd's tables added (${broken})` } : { text: out };
 }
 
 /**
@@ -119,14 +157,31 @@ export function withCatherdProfiles(
  */
 export function writeGrokProfiles(home: string): void {
   const path = join(home, "sandbox.toml");
-  // a link (a dotfiles repo) stays a link: the atomic rename goes to the file it points at
-  const file = lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() ? realpathSync(path) : path;
-  const was = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const next = withCatherdProfiles(was);
-  if ("why" in next)
-    throw new CatherdError("E_CONFIG_INVALID", `catherd will not edit ${file}: ${next.why}`, {
+  const refuse = (file: string, why: string) =>
+    new CatherdError("E_CONFIG_INVALID", `catherd will not edit ${file}: ${why}`, {
       fix: `fix ${file}, or isolate grok (catherd profile set harness.grok.isolated true)`,
     });
+  // a link (a dotfiles repo) stays a link: the atomic rename goes to the file it points at
+  let file = path;
+  if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink())
+    try {
+      file = realpathSync(path);
+    } catch (e) {
+      throw refuse(path, `it is a link catherd cannot follow (${(e as NodeJS.ErrnoException).code ?? e})`);
+    }
+  let was = "";
+  try {
+    was = existsSync(file) ? readFileSync(file, "utf8") : "";
+  } catch (e) {
+    throw refuse(file, `catherd cannot read it (${(e as NodeJS.ErrnoException).code ?? e})`);
+  }
+  const next = withCatherdProfiles(was);
+  if ("why" in next) throw refuse(file, next.why);
   if (next.text === was) return;
-  writeTextAtomic(file, next.text, { mode: existsSync(file) ? statSync(file).mode & 0o777 : 0o600 });
+  try {
+    writeTextAtomic(file, next.text, { mode: existsSync(file) ? statSync(file).mode & 0o777 : 0o600 });
+  } catch (e) {
+    // a read-only store (a Nix home, say) or a folder catherd may not write
+    throw refuse(file, `catherd cannot write it (${(e as NodeJS.ErrnoException).code ?? e})`);
+  }
 }

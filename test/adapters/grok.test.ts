@@ -10,6 +10,7 @@ import {
   grokShell,
   ISOLATED_LISTING,
   isolatedGrokRoot,
+  sessionFor,
 } from "../../src/adapters/grok/index.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
@@ -324,6 +325,14 @@ describe("grok probe (spec 1.3 §5.1, §5.6, §3.3)", () => {
 });
 
 describe("grok identities (1.3 follow-ups)", () => {
+  it("derives a run's session from its dispatch id alone, wherever the data dir resolves", () => {
+    const id = "20261002-101500-ab12cd";
+    const a = sessionFor({ dispatchDir: `/var/data/runs/r/roles/worker-M1.L1/${id}` });
+    expect(sessionFor({ dispatchDir: `/private/var/data/runs/r/roles/worker-M1.L1/${id}` })).toBe(a);
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(sessionFor({ dispatchDir: "/var/data/runs/r/roles/worker-M1.L1/other" })).not.toBe(a);
+  });
+
   it("runs doctor's sandbox check in a scratch HOME, memory and the compat features off, with no key", async () => {
     withHome();
     process.env.PATH = SIMS;

@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
@@ -57,11 +57,13 @@ const NO_UPDATE = { GROK_DISABLE_AUTOUPDATER: "1" };
 export const grokShell = { timeoutMs: 15_000 };
 
 /**
- * A fresh run's session id (`-s`), derived from its dispatch dir so finalize knows it without the stream: a run
- * killed before grok's `end` (a timeout, a cancel) still records the session grok saved (plan 16 final review).
+ * A fresh run's session id (`-s`), derived from its dispatch id (the dispatch dir's last part) so finalize knows
+ * it without the stream: a run killed before grok's `end` (a timeout, a cancel) still records the session grok
+ * saved (plan 16 final review). The id alone, not the full path: a data dir reached by another path (a link,
+ * `/private/var` for `/var`) gives the same session.
  */
 export function sessionFor(r: Pick<RunRequest, "dispatchDir">): string {
-  const h = new Bun.CryptoHasher("sha256").update(r.dispatchDir).digest("hex");
+  const h = new Bun.CryptoHasher("sha256").update(basename(r.dispatchDir)).digest("hex");
   const variant = ((Number.parseInt(h[16] as string, 16) & 0x3) | 0x8).toString(16);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
