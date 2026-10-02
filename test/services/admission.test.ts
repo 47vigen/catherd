@@ -107,13 +107,16 @@ describe("admission", () => {
     expect(text).not.toContain("s3cret");
     expect(text).not.toContain("TYPESAFE_API_KEY");
     // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, the dispatch id
-    // for catherd lock, and PWD
+    // for catherd lock, its testcontainers session, and PWD
     expect(JSON.parse(text).env).toEqual({
       CATHERD_ROLE: `${run.id}/worker-M1.L1`,
       TMPDIR: realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
       CATHERD_DISPATCH_ID: expect.any(String),
+      TESTCONTAINERS_SESSION_ID: expect.any(String),
       PWD: repo,
     });
+    const env = JSON.parse(text).env;
+    expect(env.TESTCONTAINERS_SESSION_ID).toBe(env.CATHERD_DISPATCH_ID);
     expect(statSync(specPath).mode & 0o777).toBe(0o600);
   });
 

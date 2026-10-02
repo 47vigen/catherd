@@ -994,3 +994,11 @@ plugin, one scratch repo and a run owned by a Codex TUI thread. Record each resu
    plan 22 does not cover.
 7. **Two final replies.** Brief a worker to reply, then emit a second short message after a background command's
    notification; `result` returns the report first, the short one under `later:`, and the report's STATUS.
+
+## 17. Verifier, gate and environment (1.5, plan 23)
+
+What the simulator cannot show. Record each observation, with the versions, in the acceptance report.
+
+| Step | Required observation |
+| --- | --- |
+| Testcontainers per dispatch | Two lanes of one milestone whose fast checks start testcontainers on one Docker daemon run side by side. Each worker's env has its own `TESTCONTAINERS_SESSION_ID` (its dispatch id), and neither fails with "reaper container name already in use". If the testcontainers library in use ignores that variable, record which one, and which variable it reads instead. |
