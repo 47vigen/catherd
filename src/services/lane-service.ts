@@ -6,7 +6,15 @@ import { quotaUsage } from "../domain/select.ts";
 import { assertLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import { cell } from "../domain/util.ts";
-import { type ClimbReason, currentRoute, laneOutcome, nextRung } from "../domain/route.ts";
+import {
+  type ClimbReason,
+  currentRoute,
+  laneOutcome,
+  nextRung,
+  type OutcomeRow,
+  outcomeRouteRow,
+  type RouteRow,
+} from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { laneFile } from "./admission.ts";
@@ -230,6 +238,15 @@ async function refuseDesign(
     });
 }
 
+/**
+ * A lane's final outcome: its outcomes.jsonl row (spec §5.6) and, beside Jev's answer, its routes.jsonl row
+ * (spec 1.5 plan 24). Called under the routes lock.
+ */
+function writeOutcome(run: Run, routes: RouteRow[], o: OutcomeRow): void {
+  appendOutcome(run, o);
+  appendRoute(run, outcomeRouteRow(routes, o));
+}
+
 /** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
 export async function climb(
   deps: Deps,
@@ -278,8 +295,9 @@ export async function climb(
     });
     // spec §5.6: a climb past the top rung ends the lane open
     if (!next) {
-      const o = laneOutcome(readRoutes(run), i.lane, false, new Date(deps.now()).toISOString());
-      if (o) appendOutcome(run, o);
+      const routes = readRoutes(run);
+      const o = laneOutcome(routes, i.lane, false, new Date(deps.now()).toISOString());
+      if (o) writeOutcome(run, routes, o);
     }
     return { cur, next };
   });
@@ -472,7 +490,7 @@ async function landRun(
       if (lane.startsWith(`${i.milestone}.`)) {
         landed++;
         const o = laneOutcome(routes, lane, true, now.toISOString());
-        if (o) appendOutcome(run, o);
+        if (o) writeOutcome(run, routes, o);
       }
   });
   // a milestone name no routed lane starts with is most likely a typo: say so rather than record nothing

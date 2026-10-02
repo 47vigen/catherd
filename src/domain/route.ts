@@ -147,6 +147,50 @@ export function laneOutcome(rows: RouteRow[], lane: string, landed: boolean, at:
   };
 }
 
+/**
+ * Spec 1.5 plan 24: a lane's final outcome in routes.jsonl, beside the route row that holds Jev's answer, for
+ * calibrating Jev's difficulty question: what Jev said and what the route used, whether the lane climbed, and
+ * how it ended. `readRoutes` skips these rows; outcomes.jsonl keeps its own (spec §5.6).
+ */
+export interface OutcomeRouteRow {
+  at: string;
+  lane: string;
+  source: "outcome";
+  decidedBy: RouteSource;
+  kind: Kind | null;
+  difficulty: Difficulty | null;
+  questionSet: string | null;
+  jev: RouteJev | null;
+  /** some climb moved the lane to another rung (an environment climb included) */
+  climbed: boolean;
+  startRung: string;
+  finalRung: string;
+  landed: boolean;
+  start_ok: boolean;
+  envCaused: boolean;
+}
+
+/** The routes.jsonl outcome row of `o`, with the kind and difficulty of the lane's last route. */
+export function outcomeRouteRow(rows: RouteRow[], o: OutcomeRow): OutcomeRouteRow {
+  const start = rows.findLast((r) => r.lane === o.lane && r.source === "route");
+  return {
+    at: o.at,
+    lane: o.lane,
+    source: "outcome",
+    decidedBy: o.source,
+    kind: start?.kind ?? null,
+    difficulty: start?.difficulty ?? null,
+    questionSet: o.questionSet,
+    jev: o.jevProbs,
+    climbed: o.climbs.length > 0,
+    startRung: o.startRung,
+    finalRung: o.finalRung,
+    landed: o.landed,
+    start_ok: o.start_ok,
+    envCaused: o.envCaused,
+  };
+}
+
 /** Spec §5.6: one row per lane, the last one written (last row per lane wins), in first-seen lane order. */
 export function latestOutcomes(rows: OutcomeRow[]): OutcomeRow[] {
   const byLane = new Map<string, OutcomeRow>();
