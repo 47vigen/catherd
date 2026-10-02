@@ -5,12 +5,16 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { startMcpServer } from "../../src/entry/mcp/server.ts";
 import { bootLockTarget } from "../../src/infra/boot-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
+import { processStartTime } from "../../src/infra/proc.ts";
+import { watching, watchersSettled } from "../../src/services/dispatch-service.ts";
 import * as reconcile from "../../src/services/reconcile.ts";
+import { createRun, readRecords } from "../../src/services/run-store.ts";
+import { claimRun } from "../../src/services/sessions.ts";
 import { backgroundSync, type SyncReport } from "../../src/services/source-sync.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
-import { deadProcess, fakeDeps, waitFor } from "../services/helpers.ts";
+import { deadProcess, fakeDeps, fakeDispatch, freshRun, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -93,6 +97,44 @@ describe("one MCP server runs the boot sync and reconcile (plan 22, single-fligh
       await third.close();
     } finally {
       reconciles.mockRestore();
+    }
+  });
+
+  it("still watches the live roles of the runs its own session owns when another server leads", async () => {
+    const { repo, run } = freshRun();
+    const deps = fakeDeps({
+      session: { sessionId: "s-me", hostSessionId: null, socketPath: null, token: null },
+    });
+    expect(await claimRun(deps, run)).toBe(true);
+    // a role whose server is gone (the coordinator's server restarted): nothing in this process watches it yet
+    const worker = Bun.spawn(["sh", "-c", "read x"], {
+      stdin: "pipe",
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    const proc = {
+      pid: worker.pid,
+      startTime: processStartTime(worker.pid),
+      supervisorPid: await deadProcess(),
+      supervisorStartTime: "gone",
+    };
+    const mine = await fakeDispatch(run, {}, { proc, reply: "Done.\nSTATUS: complete — ok" });
+    // a run this session does not own is the lead's to reconcile
+    const other = createRun({ repo, title: "theirs", aLines: ["A1 it works"], version: "0.0.0-test" });
+    const theirs = await fakeDispatch(other, {}, { proc });
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await startMcpServer({ transport: serverSide, deps, sync: async () => {}, bootLock: () => null });
+    const client = new Client({ name: "claude-code", version: "0.0.0" });
+    await client.connect(clientSide);
+    try {
+      await waitFor(() => watching.has(mine.admit.dispatchId));
+      expect(watching.has(theirs.admit.dispatchId)).toBe(false);
+      worker.stdin.end();
+      await worker.exited;
+      await watchersSettled();
+      expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([mine.admit.dispatchId]);
+    } finally {
+      worker.kill("SIGKILL");
+      await client.close();
     }
   });
 

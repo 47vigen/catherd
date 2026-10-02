@@ -3,7 +3,7 @@ import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { settle, stallPoll, unsettledLimits, watching } from "./dispatch-service.ts";
+import { adopt, settle, stallPoll, unsettledLimits, watching } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
@@ -54,6 +54,22 @@ async function watchAndFinalize(deps: Deps, run: Run, d: Dispatch): Promise<void
     if (s.stateHints[0]) throw new Error(s.stateHints[0]);
   } finally {
     watching.delete(d.admit.dispatchId);
+  }
+}
+
+/**
+ * Plan 22, final-review I2: a server that does not lead the boot still watches the live roles of the runs its
+ * own session owns, so a coordinator's server that restarts mid-run (an /mcp reconnect, a crash) while another
+ * session's server holds the boot lock still finalizes and announces them. A second watcher of a dispatch the
+ * lead also watches is harmless: finalize and failover run once. A run that cannot be read is skipped, logged.
+ */
+export function adoptOwned(deps: Deps): void {
+  for (const run of listRuns().runs) {
+    try {
+      if (ownsRun(deps, run)) adopt(deps, run);
+    } catch (e) {
+      log("warn", "reconcile", { run: run.id, error: errorMessage(e) });
+    }
   }
 }
 

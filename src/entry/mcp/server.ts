@@ -18,7 +18,7 @@ import { assertRoleMay } from "../../services/role-access.ts";
 import { currentSession } from "../../services/sessions.ts";
 import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
-import { reconcileAll } from "../../services/reconcile.ts";
+import { adoptOwned, reconcileAll } from "../../services/reconcile.ts";
 import { backgroundSync } from "../../services/source-sync.ts";
 import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
@@ -255,8 +255,12 @@ export async function startMcpServer(
     void (async () => {
       try {
         if (epoch !== generation) return;
-        // the leading server reconciles every run; this one still tells its own session what it owns
-        if (!lead) return void active.scan();
+        // the leading server reconciles every run; this one still watches the live roles of the runs its own
+        // session owns (a coordinator's server restarted mid-run) and tells its session what it owns
+        if (!lead) {
+          adoptOwned(context);
+          return void active.scan();
+        }
         const r = await reconcileAll(context);
         if (epoch !== generation) return;
         const shown = r.warnings.length;
