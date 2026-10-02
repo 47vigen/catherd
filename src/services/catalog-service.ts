@@ -345,6 +345,8 @@ function rungRows(
         date: string;
         /** spec 1.2 §5.3: the rung a borrowed or inferred value belongs to */
         from?: string;
+        /** what lent it: a treat-like's mapping (`like X`) or an inferred stand-in's guess (1.2 minor) */
+        lent?: "treat-like" | "stand-in";
       }
     > = {};
     for (const v of valuesUsed(c, info.canonical))
@@ -356,6 +358,7 @@ function rungRows(
         source: v.source,
         date: v.date,
         ...(v.from ? { from: v.from } : {}),
+        ...(v.lent ? { lent: v.lent } : {}),
       };
     const like = c.treatLike[info.canonical] ?? null;
     return {

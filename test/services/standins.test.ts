@@ -134,6 +134,41 @@ describe("inferred values in the catalog (spec 1.2 §6.1)", () => {
   });
 });
 
+describe("sparse rungs never stand in (spec 1.5 plan 24)", () => {
+  const sparse = (value: number) => ({
+    rung: "sparse-1#high",
+    dim: "honesty" as const,
+    value,
+    benchmark: "Broken Search Tool",
+    version: "1",
+    url: "https://example.com/sparse",
+    date: "2026-09-28",
+    confidence: "measured" as const,
+  });
+
+  it("refuses a rung with values on fewer than three dimensions as anyone's stand-in", () => {
+    // GPT-6.1 Sol's one honesty figure, shipped as its own row, would have lent 97.92 to unrelated rungs
+    const c = withStandIns(
+      shipped({ override: { schema: 1, treatLike: {}, scores: [sparse(97.92)], bars: {} } }),
+    );
+    const lenders = Object.values(c.inferred).flatMap((m) => Object.values(m).map((x) => x?.like));
+    expect(lenders).not.toContain("sparse-1#high");
+    expect(lenders.length).toBeGreaterThan(0);
+    expect(suggestStandIns(c, "gpt-5.6-terra#high", 50).map((s) => s.like)).not.toContain("sparse-1#high");
+  });
+
+  it("infers steer only once a user's bar uses it (plan 14 Ruling 7, as aligned)", () => {
+    const none = withStandIns(shipped());
+    expect(Object.values(none.inferred).some((x) => x.steer)).toBe(false);
+    const steerBar = withStandIns(
+      shipped({
+        override: { schema: 1, treatLike: {}, scores: [], bars: { repo_code: { build: { steer: 0.05 } } } },
+      }),
+    );
+    expect(Object.values(steerBar.inferred).some((x) => x.steer)).toBe(true);
+  });
+});
+
 describe("a new release of a family line (spec 1.5 plan 24)", () => {
   it("takes at least its predecessor's value at the same effort until a value of its own arrives", () => {
     const models = shippedModels();

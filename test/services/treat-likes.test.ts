@@ -11,6 +11,7 @@ import {
   resetTreatLikes,
   suggestFor,
 } from "../../src/services/treat-likes.ts";
+import { leftLines } from "../../src/entry/catalog-command.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -144,6 +145,43 @@ describe("treat-like --clear and --reset (spec 1.2 §6.4)", () => {
     expect((await clearTreatLike(foo, "claude-code")).left).toEqual(left);
     await saveTreatLike(foo, "gpt-6-sol#high");
     expect((await resetTreatLikes("claude-code")).left).toEqual(left);
+  });
+
+  it("names a rung the removal leaves with some values but none on a bar dimension (1.2 minor)", async () => {
+    withHome();
+    // a model no family knows, with one value of its own: too few features for a stand-in on the others
+    const foo = "opencode:acme/foo-9#high";
+    patchProfile(
+      "default",
+      { roles: { worker: { rungs: [...DEFAULT_WORKER, foo] } } },
+      { host: "claude-code" },
+    );
+    const own = {
+      rung: "acme/foo-9#high",
+      dim: "repo_code",
+      value: 70,
+      benchmark: "mine",
+      version: "1",
+      url: "https://example.com/mine",
+      date: "2026-09-27",
+      confidence: "verified",
+    };
+    mkdirSync(dirname(overridePath()), { recursive: true });
+    writeFileSync(overridePath(), JSON.stringify({ schema: 1, treatLike: {}, scores: [own], bars: {} }));
+    await saveTreatLike(foo, "gpt-6-sol#high");
+    const left = leftOnStandIns(["acme/foo-9#high"], "claude-code");
+    expect(left).toEqual([
+      {
+        profile: "default",
+        rung: foo,
+        dims: [],
+        unscored: false,
+        missing: ["terminal", "honesty", "agentic", "frontend"],
+      },
+    ]);
+    expect(leftLines(left, true)).toEqual([
+      `! default: ${foo} is left with no terminal, honesty, agentic, frontend value: it clears no bar that needs one`,
+    ]);
   });
 
   it("says there is nothing to remove", async () => {

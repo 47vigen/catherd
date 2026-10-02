@@ -22,6 +22,13 @@ export type Features = Record<string, number | string>;
 /** Spec 1.2 §6.3: a pair sharing fewer features than this is not suggested. */
 export const MIN_SHARED_FEATURES = 3;
 
+/**
+ * Spec 1.5 plan 24: a rung stands in only when it has values of its own on at least this many dimensions. A
+ * sparse row (GPT-6.1 Sol's one honesty figure) ranks near everything, for it has few features to differ on,
+ * and would lend that one value to unrelated rungs.
+ */
+export const MIN_STANDIN_DIMS = 3;
+
 export interface Suggestion {
   /** the canonical rung that would stand in */
   like: string;
@@ -132,7 +139,11 @@ export function missingDims(c: Catalog, canonical: string, dims: readonly Dim[] 
   return dims.filter((d) => !own[d] && !lent[d]);
 }
 
-/** Every dimension some bar of the catalog (the defaults, with the user's override) has a threshold on. */
+/**
+ * Every dimension some bar of the catalog (the defaults, with the user's override) has a threshold on: the
+ * dimensions a stand-in fills. No shipped bar uses `steer`, so it is never inferred by default; a user's steer
+ * bar makes it one (plan 14 Ruling 7, as the code has always read it; spec 1.5 plan 24 aligns the words).
+ */
 export function barDimsIn(c: Catalog): Dim[] {
   const used = new Set<string>();
   for (const kind of Object.values(c.bars))
@@ -148,13 +159,17 @@ class Ranker {
     for (const r of canonicalRungs(c)) this.all.set(r, featuresOf(c, r));
     this.z = scales([...this.all.values()]);
   }
-  /** The rungs with an own value on any of `dims`, nearest first; each with what it would lend. */
+  /**
+   * The rungs with an own value on any of `dims` (and on at least MIN_STANDIN_DIMS dimensions in all), nearest
+   * first; each with what it would lend.
+   */
   rank(canonical: string, dims: readonly Dim[]): Suggestion[] {
     const mine = this.all.get(canonical) ?? featuresOf(this.c, canonical);
     const out: Suggestion[] = [];
     for (const [other, f] of this.all) {
       if (other === canonical) continue;
       const own = ownValues(this.c, other);
+      if (Object.keys(own).length < MIN_STANDIN_DIMS) continue;
       const lends = dims.filter((d) => own[d] !== undefined);
       if (lends.length === 0) continue;
       const got = distance(mine, f, this.z);

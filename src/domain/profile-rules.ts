@@ -129,7 +129,8 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
 /**
  * Whether a rung's scores are catherd's guess: borrowed through a treat-like, filled by an inferred stand-in
  * (spec 1.2 §6.1), or only `inferred` ones. `note` says what a treat-like lends: "scores borrowed from X"
- * when the rung has no value of its own, else the dimensions it borrows (a rung a sync scored on some).
+ * when every value is borrowed, else the dimensions it borrows (a rung a sync scored on some); and (1.2
+ * minor) what each inferred stand-in lends: "honesty inferred from Y".
  */
 export function inferredScores(
   c: Catalog,
@@ -140,9 +141,17 @@ export function inferredScores(
   const records = Object.values(s.records);
   const guessed =
     s.via !== null || s.inferred.length > 0 || records.every((r) => r.confidence === "inferred");
-  const all = s.borrowed.length + s.inferred.length === records.length;
-  const note = s.via ? `${all ? "scores" : s.borrowed.join(", ")} borrowed from ${s.via}` : null;
-  return { inferred: guessed, via: s.via, note };
+  const all = s.borrowed.length === records.length;
+  const byStandIn = new Map<string, Dim[]>();
+  for (const d of s.inferred) {
+    const like = s.standIns[d] as string;
+    byStandIn.set(like, [...(byStandIn.get(like) ?? []), d]);
+  }
+  const parts = [
+    ...(s.via ? [`${all ? "scores" : s.borrowed.join(", ")} borrowed from ${s.via}`] : []),
+    ...[...byStandIn].map(([like, dims]) => `${dims.join(", ")} inferred from ${like}`),
+  ];
+  return { inferred: guessed, via: s.via, note: parts.length ? parts.join("; ") : null };
 }
 
 /**

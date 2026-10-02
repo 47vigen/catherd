@@ -113,7 +113,8 @@ describe("the Profiles tab", () => {
     const f = h!.s.frame();
     expect(f).toContain("codex:gpt-6-luna#high");
     expect(f).toMatch(/repo_code 66\.6 +adjacent · shipped DeepSWE 1\.1/);
-    expect(f).toMatch(/agentic -0\.0075 +inferred from gpt-5\.6-luna#high/);
+    // a treat-like lends it: a mapping, "like X", not a stand-in's guess (1.2 minor)
+    expect(f).toMatch(/agentic -0\.0075 +like gpt-5\.6-luna#high/);
     expect(f).toContain("no runs yet");
   });
 

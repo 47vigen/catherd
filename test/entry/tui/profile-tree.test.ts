@@ -232,9 +232,13 @@ describe("edits", () => {
     expect(standIns[0]).toEqual({ value: "", title: "none", current: false });
     expect(standIns.some((o) => o.value.startsWith("codex:"))).toBe(false);
     expect(standIns.some((o) => o.value === "claude-code:claude-opus-5-5#xhigh")).toBe(true);
-    // Opus high has values of its own now (carried from xhigh and max): nothing borrowed
-    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe("");
-    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe("");
+    // Opus high has values of its own now (carried from xhigh and max), but no honesty: Sol's is inferred, and said
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe(
+      "honesty inferred from gpt-6-sol#high",
+    );
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe(
+      "honesty inferred from gpt-6-sol#max",
+    );
     expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe(
       "agentic, steer borrowed from gpt-5.6-luna#high",
     );

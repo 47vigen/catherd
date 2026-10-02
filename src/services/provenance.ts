@@ -17,6 +17,8 @@ export interface ValueUsed {
   inferred: boolean;
   /** the rung the value belongs to, when it is not this one */
   from: string | null;
+  /** what lent it: a treat-like (a mapping, `like X`) or an inferred stand-in (a guess); null for its own */
+  lent: "treat-like" | "stand-in" | null;
 }
 
 /** Spec 1.2 §5.3: one threshold of the lane's bar, the value used against it, and whether it clears. */
@@ -54,7 +56,8 @@ export function valuesUsed(c: Catalog, canonical: string): ValueUsed[] {
   return DIMS.flatMap((dim) => {
     const r = s.records[dim];
     if (!r) return [];
-    const from = s.borrowed.includes(dim) ? s.via : (s.standIns[dim] ?? null);
+    const borrowed = s.borrowed.includes(dim);
+    const from = borrowed ? s.via : (s.standIns[dim] ?? null);
     return [
       {
         dim,
@@ -66,6 +69,7 @@ export function valuesUsed(c: Catalog, canonical: string): ValueUsed[] {
         url: r.url,
         inferred: from !== null,
         from,
+        lent: from === null ? null : borrowed ? "treat-like" : "stand-in",
       },
     ];
   });

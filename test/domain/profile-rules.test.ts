@@ -299,6 +299,13 @@ describe("inferredScores", () => {
     expect(inferredScores(c, rungInfo(c, "codex:gpt-5.6-terra#high"))).toMatchObject({
       inferred: true,
       via: null,
+      note: expect.stringMatching(/^repo_code(, \S+)* inferred from \S+/),
+    });
+    // (1.2 minor) a rung scored partly by an inferred stand-in says so, as the tree and profile show print it
+    expect(inferredScores(c, rungInfo(c, "claude-code:claude-opus-5-5#high"))).toEqual({
+      inferred: true,
+      via: null,
+      note: "honesty inferred from gpt-6-sol#high",
     });
   });
 });

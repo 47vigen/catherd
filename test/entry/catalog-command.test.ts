@@ -67,6 +67,16 @@ describe("formatModel (spec 1.2 §4.1, §8)", () => {
               source: "epoch",
               date: "2026-09-20",
               from: "gpt-6-sol#high",
+              lent: "stand-in",
+            },
+            honesty: {
+              value: 95.1,
+              benchmark: "Broken Search Tool",
+              confidence: "inferred",
+              source: "shipped",
+              date: "2026-09-20",
+              from: "gpt-6-astra#medium",
+              lent: "treat-like",
             },
           },
           treatLike: null,
@@ -86,7 +96,8 @@ describe("formatModel (spec 1.2 §4.1, §8)", () => {
     expect(formatModel(m).split("\n")).toEqual([
       "codex:gpt-6-sol  1/2 rungs scored  roles worker",
       "  $2/$10 per M tokens in/out · openrouter.throughput_last_30m 81.23",
-      "  #medium  repo_code 65.3 (verified, shipped) · terminal 0.1235 (inferred from gpt-6-sol#high, epoch)",
+      // a treat-like's value is the user's mapping, "like X"; a stand-in's is a guess (1.2 minor)
+      "  #medium  repo_code 65.3 (verified, shipped) · terminal 0.1235 (inferred from gpt-6-sol#high, epoch) · honesty 95.1 (like gpt-6-astra#medium, shipped)",
       "  #high  unscored",
       "    runs: 12 lanes, 2 climbed, 1 partial",
     ]);
