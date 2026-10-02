@@ -4,7 +4,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
-import type { VerifierStep } from "./gate-service.ts";
+import { failedItems, RECHECK_COMMAND_MIN, type VerifierStep } from "./gate-service.ts";
 import {
   landedMilestones,
   milestoneReviewer,
@@ -12,7 +12,6 @@ import {
   milestoneStart,
   namesMilestone,
   reviewerPassed,
-  verifierPassed,
 } from "./milestones.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
@@ -111,7 +110,13 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
   if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
   const start = milestoneStart(run, m);
   if (!reviewerPassed(run, m, start)) return `${m}: reviewer`;
-  if (!verifierPassed(run, m, start)) return `${m}: verifier`;
+  const verdict = milestoneVerifier(run, m, start);
+  if (!verdict) return `${m}: verifier`;
+  if (!verdict.passed) {
+    // plan 23: a resumed verifier can hang; a re-check goes to a fresh one, told what failed
+    const failed = failedItems(run, m);
+    return `${m}: ${verdict.name} failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks ${failed.length ? failed.join(", ") : "the failed items"}, each command capped at ${RECHECK_COMMAND_MIN} min`;
+  }
   return `land ${m}`;
 }
 

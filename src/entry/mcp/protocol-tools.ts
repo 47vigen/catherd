@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { CatherdError } from "../../domain/errors.ts";
 import { ID_PATTERN } from "../../domain/ids.ts";
-import { gateCheck, gatePass } from "../../services/gate-service.ts";
+import { gateCheck, gateList, gatePass } from "../../services/gate-service.ts";
 import { answer, park } from "../../services/questions.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
@@ -19,10 +20,30 @@ export function registerProtocolTools(server: McpServer, deps: Deps): void {
     "gate_check",
     {
       description:
-        "The verifier, before running a gate item: { carried: true, passedAt, commit } when this repo already has a pass of the same command on the same content of paths (repo-relative; . for the whole repo: HEAD plus uncommitted not-ignored changes; a git-ignored input such as .env or a build output is hashed only when named as a path), so it reports the item as carried over from that commit instead of running it; else { carried: false }, and it runs the item. Either way the call is recorded as the verifier's current step, which status and peek show. Pass milestone (the M the verifier checks) so the milestone's digest lists only its own carried items.",
-      inputSchema: { ...gate, milestone: z.string().regex(ID_PATTERN).optional() },
+        "The verifier, before running a gate item: { carried: true, passedAt, commit } when this repo already has a pass of the same command on the same content of paths (repo-relative; . for the whole repo: the tracked files plus uncommitted not-ignored changes; the repo's lockfiles always count, so never name node_modules; a git-ignored input such as .env or a build output is hashed only when named as a path, and as absent while it is not built), so it reports the item as carried over from that commit instead of running it; else { carried: false }, and it runs the item. Either way the call is recorded as the verifier's current step, which status and peek show. Pass milestone (the M the verifier checks): the milestone's digest then lists only its own carried items, and the answer adds recorded, the items already checked for that milestone in this run, each with its command and whether it passed. Call it first with only run and milestone to get that list without checking anything: reuse those item names, and re-check the failed ones first.",
+      inputSchema: {
+        run: z.string(),
+        item: gate.item.optional(),
+        command: gate.command.optional(),
+        paths: gate.paths.optional(),
+        milestone: z.string().regex(ID_PATTERN).optional(),
+      },
     },
-    (a) => handle(() => gateCheck(deps, a)),
+    (a) =>
+      handle(async () => {
+        if (a.item === undefined && a.command === undefined && a.paths === undefined) {
+          if (!a.milestone)
+            throw new CatherdError("E_INPUT_INVALID", "gate_check needs an item, or a milestone to list", {
+              fix: "pass item, command and paths to check an item, or only run and milestone to list the recorded items",
+            });
+          return gateList({ run: a.run, milestone: a.milestone });
+        }
+        if (a.item === undefined || a.command === undefined || a.paths === undefined)
+          throw new CatherdError("E_INPUT_INVALID", "gate_check needs item, command and paths together", {
+            fix: "pass all three to check an item, or none of them (with milestone) to list the recorded items",
+          });
+        return gateCheck(deps, { ...a, item: a.item, command: a.command, paths: a.paths });
+      }),
   );
 
   server.registerTool(

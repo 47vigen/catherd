@@ -160,6 +160,50 @@ describe("Protocol next (spec 1.1 §10)", () => {
     expect(protocolNext(run, [])).toBe("finish: the final gate, then the report");
   });
 
+  it("after a verifier FAIL names a fresh verifier and the failed items, not a resume (plan 23)", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    worked(run, "M1.L1");
+    const at = new Date(Date.now() + 1000).toISOString();
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "reviewer-M1",
+        role: "reviewer",
+        lane: null,
+        endedAt: at,
+      }),
+    );
+    const check = (item: string) => ({
+      run: run.id,
+      item,
+      command: `run ${item}`,
+      paths: ["."],
+      milestone: "M1",
+    });
+    await gateCheck(deps, check("lint"));
+    await gatePass(deps, { ...check("lint"), evidence: "ok" });
+    await gateCheck(deps, check("acceptance"));
+    appendAgentRun(run, {
+      at: new Date(Date.now() + 2000).toISOString(),
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 0,
+      costUsd: null,
+      secs: null,
+      status: "failed",
+    });
+    expect(protocolNext(run, [])).toBe(
+      "M1: verifier-M1 failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks acceptance, each command capped at 10 min",
+    );
+  });
+
   it("run_start returns the step and the six-line checklist", async () => {
     withHome();
     const r = await startRun(fakeDeps(), { repo: tempRepo(), title: "t", aLines: ["A1 x"] });

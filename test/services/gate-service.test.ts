@@ -4,7 +4,14 @@ import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:f
 import { dirname, join } from "node:path";
 import { formatRun } from "../../src/entry/runs-command.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
-import { gateCheck, gatePass, gatesFile, latestVerifierStep } from "../../src/services/gate-service.ts";
+import {
+  failedItems,
+  gateCheck,
+  gatePass,
+  gatesFile,
+  latestVerifierStep,
+  recordedItems,
+} from "../../src/services/gate-service.ts";
 import { createRun } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -292,6 +299,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(latestVerifierStep(run)).toEqual({
       at: "2026-09-28T10:05:00.000Z",
       item: "boot check",
+      command: "bun test",
       carried: false,
     });
     const s = summarizeRun(deps, run);
@@ -310,5 +318,39 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     // the optional milestone lands on the verifier's step
     expect((await call(c, "gate_check", item(run.id, { milestone: "M1" }))).data.carried).toBe(true);
     expect(latestVerifierStep(run)).toMatchObject({ item: "unit tests", carried: true, milestone: "M1" });
+    // the list alone, recording no step; half an item is refused
+    expect((await call(c, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
+      recorded: [{ item: "unit tests", command: "bun test", passed: true }],
+    });
+    expect((await call(c, "gate_check", { run: run.id, item: "x", milestone: "M1" })).error?.code).toBe(
+      "E_INPUT_INVALID",
+    );
+    expect((await call(c, "gate_check", { run: run.id })).error?.code).toBe("E_INPUT_INVALID");
+  });
+
+  it("lists the milestone's recorded items with whether each passed, so a new verifier reuses their names (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    const m1 = (name: string, over: Record<string, unknown> = {}) =>
+      item(run.id, { item: name, command: `run ${name}`, milestone: "M1", ...over });
+    expect(await gateCheck(deps, m1("lint"))).toEqual({
+      carried: false,
+      recorded: [{ item: "lint", command: "run lint", passed: false }],
+    });
+    await gatePass(deps, { ...m1("lint"), evidence: "ok" });
+    await gateCheck(deps, m1("acceptance"));
+    // another milestone's items stay out
+    await gateCheck(deps, item(run.id, { item: "boot", milestone: "M2" }));
+    expect(recordedItems(run, "M1")).toEqual([
+      { item: "lint", command: "run lint", passed: true },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
+    expect(failedItems(run, "M1")).toEqual(["acceptance"]);
+    // a second check of an item that passed, not carried (its content changed), is open again
+    write(repo, "src/a.ts", "b");
+    await gateCheck(fakeDeps({ now: () => Date.now() + 1000 }), m1("lint"));
+    expect(failedItems(run, "M1")).toEqual(["lint", "acceptance"]);
   });
 });

@@ -27,6 +27,8 @@ type GatePass = z.infer<typeof GatePassSchema>;
 export interface VerifierStep {
   at: string;
   item: string;
+  /** the item's command; steps written before 1.5 lack it */
+  command?: string;
   carried: boolean;
   /** a carried item: the commit its pass was recorded on */
   commit?: string;
@@ -284,14 +286,51 @@ export function latestVerifierStep(run: Run): VerifierStep | null {
     .at(-1) ?? null) as VerifierStep | null;
 }
 
+/** One item the verifier checked for a milestone in this run: its name, its command, and whether it passed. */
+export interface RecordedItem {
+  item: string;
+  command: string | null;
+  /** carried over at its last check, or a gate_pass of this run recorded since that check */
+  passed: boolean;
+}
+
+/**
+ * The items checked for milestone `m` in this run, in the order they were first checked (plan 23): a new
+ * verifier reuses their names, so the ledger carries what passed, and a re-check starts from the failed ones.
+ */
+export function recordedItems(run: Run, m: string): RecordedItem[] {
+  const steps = readJsonl<VerifierStep>(stepsFile(run)).rows.filter(
+    (s) => typeof s?.item === "string" && s.milestone === m,
+  );
+  const passes = readPasses(run.meta.repo).filter((p) => p.run === run.id);
+  return [...new Set(steps.map((s) => s.item))].map((item) => {
+    const last = steps.findLast((s) => s.item === item) as VerifierStep;
+    const passed =
+      last.carried || passes.some((p) => p.item === item && Date.parse(p.at) >= Date.parse(last.at));
+    return { item, command: last.command ?? null, passed };
+  });
+}
+
+/** A re-check's cap on each command, in minutes: a hung command fails its item instead of the verifier (plan 23). */
+export const RECHECK_COMMAND_MIN = 10;
+
+/** The milestone's checked items that have not passed since their last check: what a re-check runs first. */
+export const failedItems = (run: Run, m: string): string[] =>
+  recordedItems(run, m)
+    .filter((r) => !r.passed)
+    .map((r) => r.item);
+
 /**
  * `gate_check`: carried when this repo has a pass with the same command on the same content of `paths`;
- * records "verifier step: <item>" either way.
+ * records "verifier step: <item>" either way. With `milestone` it also lists the milestone's recorded items
+ * (plan 23), so a verifier reuses the names an earlier one checked.
  */
 export async function gateCheck(
   deps: Deps,
   i: { run: string; item: string; command: string; paths: string[]; milestone?: string },
-): Promise<{ carried: true; passedAt: string; commit: string } | { carried: false }> {
+): Promise<
+  ({ carried: true; passedAt: string; commit: string } | { carried: false }) & { recorded?: RecordedItem[] }
+> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
   const hash = await contentHash(run.meta.repo, paths);
@@ -299,11 +338,20 @@ export async function gateCheck(
   recordStep(run, {
     at: new Date(deps.now()).toISOString(),
     item: i.item,
+    command: i.command,
     carried: pass !== undefined,
     ...(pass ? { commit: pass.commit } : {}),
     ...(i.milestone ? { milestone: i.milestone } : {}),
   });
-  return pass ? { carried: true, passedAt: pass.at, commit: pass.commit } : { carried: false };
+  const carried = pass
+    ? { carried: true as const, passedAt: pass.at, commit: pass.commit }
+    : { carried: false as const };
+  return i.milestone ? { ...carried, recorded: recordedItems(run, i.milestone) } : carried;
+}
+
+/** `gate_check` with a milestone and no item: the milestone's recorded items, recording no step. */
+export function gateList(i: { run: string; milestone: string }): { recorded: RecordedItem[] } {
+  return { recorded: recordedItems(findRun(i.run), i.milestone) };
 }
 
 /** `gate_pass`: records that `command` passed on the current content of `paths`, with its evidence. */
