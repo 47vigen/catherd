@@ -34,6 +34,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
+import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
   role: Role;
@@ -218,7 +219,7 @@ export async function admit(
   });
 
   await finalizeFinished(run, deps.now(), onRecorded);
-  return withFileLock(runPaths(run.dir).admission, async () => {
+  return withRunAdmission(run, deps.now, async () => {
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
     // could not be recorded just now. The records and the pending dispatches are one snapshot, taken

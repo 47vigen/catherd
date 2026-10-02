@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { gitToplevel } from "../../src/infra/git.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { readAgentRuns } from "../../src/services/run-store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempDir, tempRepo } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, fakeGit, freshRun, writeLane } from "../services/helpers.ts";
 
@@ -41,19 +41,82 @@ const TOOLS = [
   "gate_pass",
   "park",
   "answer",
+  "workspace_inspect",
+  "workspace_start",
+  "workspace_contract",
+  "workspace_child_start",
+  "workspace_status",
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the public tools, 27 of them", async () => {
+  it("lists exactly the run and workspace tools, 32 of them", async () => {
     freshRun();
     const c = await mcpClient();
-    expect(TOOLS).toHaveLength(27);
+    expect(TOOLS).toHaveLength(32);
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
     const described = (name: string) =>
       c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");
     // status is the verdict for a verifier: a FAIL recorded ok would open the land gate
     expect(await described("record_agent_run")).toContain('pass status: "failed" when its verdict is FAIL');
     expect(await described("land")).toContain("or a Claude subagent recorded with record_agent_run");
+  });
+
+  it("coordinates independent repository runs through workspace tools", async () => {
+    freshRun();
+    const root = tempDir("catherd-workspace-");
+    const repos = { api: tempRepo(), web: tempRepo() };
+    writeFileSync(join(root, "catherd.workspace.json"), JSON.stringify({ schema: 1, repos }));
+    const c = await mcpClient(fakeDeps());
+    const inspected = await call(c, "workspace_inspect", { root });
+    expect(inspected.isError).toBe(false);
+    expect(inspected.data).toEqual({ root, repos });
+    const cli = (...args: string[]) =>
+      Bun.spawnSync([process.execPath, new URL("../../src/cli.ts", import.meta.url).pathname, ...args], {
+        env: process.env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    const inspection = cli("workspace", "inspect", root, "--json");
+    expect(inspection.exitCode).toBe(0);
+    expect(JSON.parse(inspection.stdout.toString())).toEqual({ root, repos });
+    const started = await call(c, "workspace_start", {
+      root,
+      title: "shared interface",
+      a_lines: ["A1 both members work"],
+      budget: { tokens: 10000 },
+      steps: [
+        { id: "api", repo: "api", title: "API", a_lines: ["A1 API works"], milestone: "M1" },
+        { id: "web", repo: "web", title: "Web", a_lines: ["A1 UI works"], depends_on: ["api"] },
+      ],
+    });
+    expect(started.isError).toBe(false);
+    const workspace = started.data.workspace.id;
+    expect(
+      (await call(c, "workspace_contract", { workspace, content: "GET /items returns an array" })).isError,
+    ).toBe(false);
+    const initial = await call(c, "workspace_status", { workspace });
+    expect(initial.data.steps.map((s: { state: string }) => s.state)).toEqual(["ready", "waiting"]);
+    expect((await call(c, "workspace_child_start", { workspace, step: "web" })).isError).toBe(true);
+    const child = await call(c, "workspace_child_start", { workspace, step: "api" });
+    expect(child.isError).toBe(false);
+    expect(child.data.run).toBeTruthy();
+    expect(child.data.contract).toBe(join(child.data.dir, "workspace-contract.md"));
+    expect((await call(c, "workspace_child_start", { workspace, step: "api" })).data.run).toBe(
+      child.data.run,
+    );
+    expect(
+      (await call(c, "read_run_file", { run: child.data.run, path: "workspace-contract.md" })).raw,
+    ).toContain("GET /items");
+    expect((await call(c, "workspace_contract", { workspace, content: "changed" })).isError).toBe(true);
+    const active = await call(c, "workspace_status", { workspace });
+    expect(active.data.steps[0]).toMatchObject({ state: "active", run: child.data.run });
+    expect(active.data.budget.tokens.cap).toBe(10000);
+    const status = cli("workspace", "status", workspace, "--json");
+    expect(status.exitCode).toBe(0);
+    expect(JSON.parse(status.stdout.toString()).steps[0]).toMatchObject({
+      state: "active",
+      run: child.data.run,
+    });
   });
 
   it("reports its version in status", async () => {

@@ -233,6 +233,41 @@ the default's).
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
 
+### Coordinating several repositories
+
+A workspace can be a plain directory containing independent Git repositories. Declare its members explicitly
+in `catherd.workspace.json`; catherd does not scan neighboring folders:
+
+```json
+{
+  "schema": 1,
+  "repos": { "api": "./api", "web": "./web" }
+}
+```
+
+Run `catherd workspace inspect /path/to/workspace --json` to check the resolved members. Through MCP,
+`workspace_start` takes `root`, `title`, `a_lines`, and `steps`: each step has `id`, a member `repo`, `title`,
+`a_lines`, optional `depends_on` step ids, and the `milestone` that releases its dependents (default `M1`).
+An explicit `repos` map can replace the manifest. Only members used by the steps enter the run snapshot.
+Steps reusing one member must be ordered by dependencies. A final verification step can reuse a member
+after both parallel producer steps land; unordered steps in the same repository are refused.
+
+Write the shared interface or coordination agreement with `workspace_contract(workspace, content)` before
+starting children; the first child freezes it, and every child receives `workspace-contract.md`.
+`workspace_child_start(workspace, step)` creates a single-repo run only when its prerequisites have landed.
+Use the existing route, dispatch, verification and land workflow with that child's run id. Each member keeps
+its own profile, knowledge and repository rules; workers write within their own repository.
+
+`workspace_status(workspace)` and `catherd workspace status <id> --json` show the shared view and spending.
+The optional workspace `budget` (`minutes`, `tokens`, `usd`) stops new admissions when aggregate observed
+spending reaches its cap, alongside each child's budget. Running workers may overshoot; native subagent
+usage is reported after execution. Dependency readiness requires a recorded landing and finalized
+dispatches, not just a finished worker. Landing and dispatch admission share the parent lock.
+Workspaces support at most 100 repositories and 100 steps. Unreadable or negative usage evidence blocks
+continuation until repaired. Stored status remains available after a checkout disappears, while child
+recovery and admission require the captured Git root. catherd never automatically commits, pushes,
+rolls back repositories or starts the next child.
+
 ### Environment variables
 
 | Variable                      | What it does                                                                                                |

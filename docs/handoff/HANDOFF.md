@@ -3,6 +3,32 @@
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 
+## General workspace runs (2026-10-02, contribution)
+
+Implementation based on main `804682f`. Local verification is complete; commit, fork push and an
+upstream pull request are authorized. Merging and publication remain outside this contribution.
+Research and rationale:
+`docs/research/2026-10-02-workspace-runs.md`.
+
+Decision: explicit workspace registry plus parent execution DAG; ordinary single-repo child runs keep
+their profiles, knowledge, gates and adapters. Children start lazily and recover from atomic metadata
+linkage. A required landed milestone and finalized dispatches release dependencies. Same-repo steps
+must be transitively ordered; a final integration step may reuse a member after parallel producers.
+Shared contracts freeze at first child creation and are protected child dossiers. Parent admission
+serializes dependency/budget checks; routing sees shared spend. Native usage is post-hoc accounting,
+and running dispatches may exceed observed caps. No automatic scheduler, Git action, or rollback.
+Landing shares the parent lock and requires collected dispatches and readable native verdicts.
+Corrupt/negative usage fails closed. Recovery validates Git roots; stored status survives checkout loss.
+Graph size is capped at 100; iterative validation, scoped history reads and per-child evidence reuse
+address the measured graph slowdown and redundant scans.
+
+MCP adds workspace inspect/start/contract/child-start/status; CLI adds read-only workspace inspect/status.
+Tests use temporary repositories and simulators. Baseline full gate: 1955 pass, 27 skip, 0 fail.
+Final polish verification: full suite 1998 pass / 27 skip / 0 fail across 181 files, 90 snapshots;
+typecheck/lint/format clean; final tarball install/CLI/MCP handshake passed. Regression tests observed
+RED → GREEN for races, corrupt/negative usage, checkout loss and graph limits. The report includes
+the local schema microbenchmark and remaining live limits.
+
 ## Codex orchestration entry (2026-10-01, execution)
 
 Owner-approved spec: `docs/specs/2026-10-01-catherd-codex-entry-design.md`. It extends the existing shared core
