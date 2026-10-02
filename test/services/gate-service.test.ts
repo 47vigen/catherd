@@ -7,6 +7,7 @@ import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   failedItems,
   gateCheck,
+  gateCheckOrList,
   gatePass,
   gatesFile,
   latestVerifierStep,
@@ -305,6 +306,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
       at: "2026-09-28T10:05:00.000Z",
       item: "boot check",
       command: "bun test",
+      paths: ["src/"],
       carried: false,
     });
     const s = summarizeRun(deps, run);
@@ -349,7 +351,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     await gateCheck(deps, m1("acceptance"));
     // another milestone's items stay out
     await gateCheck(deps, item(run.id, { item: "boot", milestone: "M2" }));
-    expect(recordedItems(run, "M1")).toEqual([
+    expect(await recordedItems(run, "M1")).toEqual([
       { item: "lint", command: "run lint", passed: true },
       { item: "acceptance", command: "run acceptance", passed: false },
     ]);
@@ -358,5 +360,39 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/a.ts", "b");
     await gateCheck(fakeDeps({ now: () => Date.now() + 1000 }), m1("lint"));
     expect(failedItems(run, "M1")).toEqual(["lint", "acceptance"]);
+  });
+
+  it("lists a recorded pass as carried only while its command and paths' content still match the tree", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    write(repo, "web/b.ts", "b");
+    commit(repo);
+    const deps = fakeDeps();
+    const m1 = (name: string, paths: string[]) =>
+      item(run.id, { item: name, command: `run ${name}`, paths, milestone: "M1" });
+    await gateCheck(deps, m1("lint", ["src/"]));
+    await gatePass(deps, { ...m1("lint", ["src/"]), evidence: "ok" });
+    await gateCheck(deps, m1("acceptance", ["web/"]));
+    // a fix round changes what lint reads: the listing must not tell a fresh verifier lint carries
+    write(repo, "src/a.ts", "fixed");
+    commit(repo);
+    const listed = (await gateCheckOrList(deps, { run: run.id, milestone: "M1" })) as {
+      recorded: { item: string; command: string | null; passed: boolean }[];
+    };
+    expect(listed.recorded).toEqual([
+      { item: "lint", command: "run lint", passed: false },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
+    expect((await gateCheck(deps, m1("acceptance", ["web/"]))).recorded?.[0]).toMatchObject({
+      item: "lint",
+      passed: false,
+    });
+    // back to the content it passed on: carried again
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    expect(await recordedItems(run, "M1")).toEqual([
+      { item: "lint", command: "run lint", passed: true },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
   });
 });

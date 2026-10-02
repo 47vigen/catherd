@@ -30,6 +30,8 @@ export interface VerifierStep {
   item: string;
   /** the item's command; steps written before 1.5 lack it */
   command?: string;
+  /** the item's paths, cleaned (plan 23); steps written before it lack them */
+  paths?: string[];
   carried: boolean;
   /** a carried item: the commit its pass was recorded on */
   commit?: string;
@@ -297,32 +299,71 @@ export function latestVerifierStep(run: Run): VerifierStep | null {
 export interface RecordedItem {
   item: string;
   command: string | null;
-  /** carried over at its last check, or a gate_pass of this run recorded since that check */
+  /** gate_check would carry it now: its last check's command has a pass on the current content of its paths */
   passed: boolean;
+}
+
+const milestoneSteps = (run: Run, m: string): VerifierStep[] =>
+  readJsonl<VerifierStep>(stepsFile(run)).rows.filter(
+    (s) => typeof s?.item === "string" && s.milestone === m,
+  );
+
+/** Each item's last step, in the order the items were first checked. */
+const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
+  [...new Set(steps.map((s) => s.item))].map(
+    (item) => steps.findLast((s) => s.item === item) as VerifierStep,
+  );
+
+/** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
+async function carryingPass(repo: string, command: string, paths: string[]): Promise<GatePass | undefined> {
+  const hash = await contentHash(repo, paths);
+  return readPasses(repo).findLast((p) => p.command === command && p.hash === hash);
 }
 
 /**
  * The items checked for milestone `m` in this run, in the order they were first checked (plan 23): a new
  * verifier reuses their names, so the ledger carries what passed, and a re-check starts from the failed ones.
+ * An item counts as passed only when gate_check would carry it now, by the same rule: its last check's command
+ * has a pass on the current content of its paths, so a fix round that changed what it reads opens it again.
  */
-export function recordedItems(run: Run, m: string): RecordedItem[] {
-  const steps = readJsonl<VerifierStep>(stepsFile(run)).rows.filter(
-    (s) => typeof s?.item === "string" && s.milestone === m,
+export async function recordedItems(run: Run, m: string): Promise<RecordedItem[]> {
+  const repo = run.meta.repo;
+  const passes = readPasses(repo);
+  return Promise.all(
+    lastSteps(milestoneSteps(run, m)).map(async (last) => {
+      const command = last.command ?? null;
+      // a step written before its paths were recorded: those of this run's latest pass of the item stand in
+      const paths =
+        last.paths ??
+        passes.findLast((p) => p.run === run.id && p.item === last.item && p.command === command)?.paths;
+      let passed = false;
+      if (command !== null && paths !== undefined) {
+        try {
+          passed = (await carryingPass(repo, command, paths)) !== undefined;
+        } catch (e) {
+          // a path gone from the tree carries no pass
+          if (!isCatherdError(e)) throw e;
+        }
+      }
+      return { item: last.item, command, passed };
+    }),
   );
-  const passes = readPasses(run.meta.repo).filter((p) => p.run === run.id);
-  return [...new Set(steps.map((s) => s.item))].map((item) => {
-    const last = steps.findLast((s) => s.item === item) as VerifierStep;
-    const passed =
-      last.carried || passes.some((p) => p.item === item && Date.parse(p.at) >= Date.parse(last.at));
-    return { item, command: last.command ?? null, passed };
-  });
 }
 
-/** The milestone's checked items that have not passed since their last check: what a re-check runs first. */
-export const failedItems = (run: Run, m: string): string[] =>
-  recordedItems(run, m)
-    .filter((r) => !r.passed)
-    .map((r) => r.item);
+/**
+ * The milestone's checked items with no pass recorded since their last check, from the step history alone
+ * (sync, for the protocol's next step); the verifier's listing and brief use recordedItems, which also re-opens
+ * a pass whose content has changed since.
+ */
+export function failedItems(run: Run, m: string): string[] {
+  const passes = readPasses(run.meta.repo).filter((p) => p.run === run.id);
+  return lastSteps(milestoneSteps(run, m))
+    .filter(
+      (last) =>
+        !last.carried && !passes.some((p) => p.item === last.item && Date.parse(p.at) >= Date.parse(last.at)),
+    )
+    .map((last) => last.item);
+}
 
 /**
  * `gate_check`: carried when this repo has a pass with the same command on the same content of `paths`;
@@ -337,12 +378,12 @@ export async function gateCheck(
 > {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  const hash = await contentHash(run.meta.repo, paths);
-  const pass = readPasses(run.meta.repo).findLast((p) => p.command === i.command && p.hash === hash);
+  const pass = await carryingPass(run.meta.repo, i.command, paths);
   recordStep(run, {
     at: new Date(deps.now()).toISOString(),
     item: i.item,
     command: i.command,
+    paths,
     carried: pass !== undefined,
     ...(pass ? { commit: pass.commit } : {}),
     ...(i.milestone ? { milestone: i.milestone } : {}),
@@ -350,16 +391,19 @@ export async function gateCheck(
   const carried = pass
     ? { carried: true as const, passedAt: pass.at, commit: pass.commit }
     : { carried: false as const };
-  return i.milestone ? { ...carried, recorded: recordedItems(run, i.milestone) } : carried;
+  return i.milestone ? { ...carried, recorded: await recordedItems(run, i.milestone) } : carried;
 }
 
 /**
  * `gate_check` with a milestone and no item: the milestone's recorded items, recording no step, and the
  * repo's gate environment as `NAME=value` lines (a secret as `NAME=$FROM`), which a native verifier exports.
  */
-export function gateList(i: { run: string; milestone: string }): { recorded: RecordedItem[]; env: string[] } {
+export async function gateList(i: {
+  run: string;
+  milestone: string;
+}): Promise<{ recorded: RecordedItem[]; env: string[] }> {
   const run = findRun(i.run);
-  return { recorded: recordedItems(run, i.milestone), env: gateEnvLines(readGateEnv(run.meta.repo)) };
+  return { recorded: await recordedItems(run, i.milestone), env: gateEnvLines(readGateEnv(run.meta.repo)) };
 }
 
 /** `gate_check` as both MCP servers expose it: item, command and paths together check an item; none of them,

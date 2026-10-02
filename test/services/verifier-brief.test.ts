@@ -47,7 +47,7 @@ describe("the verifier's brief (plan 23)", () => {
     await gatePass(deps, { ...check("lint"), evidence: "ok" });
     await gateCheck(deps, check("acceptance notification"));
     await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
-    const brief = verifierBrief(run, "verifier", "verifier-M1", "Verify M1.");
+    const brief = await verifierBrief(run, "verifier", "verifier-M1", "Verify M1.");
     expect(brief).toStartWith(`Verify M1.\n\n${GATE_NOTES_HEADING}\n`);
     expect(brief).toContain(
       "- Items already recorded for M1; reuse these names in gate_check, so what passed is carried over: lint, acceptance notification.",
@@ -56,8 +56,8 @@ describe("the verifier's brief (plan 23)", () => {
       "- This is a re-check. Run the failed items first: acceptance notification. Cap each command at 10 minutes;",
     );
     expect(brief).toContain("DOCKER_HOST=unix:///tmp/d.sock");
-    expect(verifierBrief(run, "verifier", "verifier-M1", brief)).toBe(brief);
-    expect(verifierBrief(run, "reviewer", "reviewer-M1", "Review M1.")).toBe("Review M1.");
+    expect(await verifierBrief(run, "verifier", "verifier-M1", brief)).toBe(brief);
+    expect(await verifierBrief(run, "reviewer", "reviewer-M1", "Review M1.")).toBe("Review M1.");
   });
 
   it("is what dispatch writes for a verifier, before its reply contract", async () => {

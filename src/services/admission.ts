@@ -308,7 +308,7 @@ export async function admit(
     // a verifier's brief also carries the gate's rules and the run's recorded items
     writeTextAtomic(
       p.brief,
-      composeBrief(verifierBrief(run, i.role, i.name, i.brief), {
+      composeBrief(await verifierBrief(run, i.role, i.name, i.brief), {
         run: run.id,
         name: i.name,
         role: i.role,
