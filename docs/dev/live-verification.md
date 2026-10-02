@@ -354,8 +354,9 @@ Look for, one at a time:
 2. `peek` answered during the run: `grep -o '"name":"mcp__[a-z_]*catherd__peek"' run.jsonl | head -1` prints a
    line, before the last worker's record.
 3. Every lane was routed with valid headers:
-   `jq -r 'select(.source == "route") | .lane' "$run/routes.jsonl" | sort -u | wc -l` (the routed lanes; the
-   header row and climb rows do not count) is at least 4, and
+   `jq -r 'select(.source == "route" and .lane != null) | .lane' "$run/routes.jsonl" | sort -u | wc -l` (the
+   routed lanes; the header row, climb and outcome rows and a role's rows outside a lane do not count) is at
+   least 4, and
    `grep -hE '^(Kind|Difficulty):' "$run"/lanes/*.md | sort | uniq -c` shows only the catalog's values.
 4. A reviewer and a verifier ran before each `land`:
    `catherd runs show "$(basename "$run")" --json | jq -r '.records[] | "\(.startedAt) \(.name) \(.status)"'`
@@ -439,7 +440,7 @@ In a scratch repository, start a run and route two lanes through the MCP tools f
 ```sh
 scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
 claude -p --output-format json \
-  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route for each and print both answers' rung and provenance.thresholds as JSON. Do not dispatch." \
+  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.thresholds of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
   | jq -r .result
 ```
 

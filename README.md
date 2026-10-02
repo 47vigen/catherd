@@ -228,9 +228,12 @@ A lane's kind and difficulty pick a bar: a threshold on each dimension it spans 
 `honesty`, `agentic`, `frontend`; `steer` is shown but has no default bar), and the lane starts on the cheapest
 rung that clears them all. A rung with no value on a dimension takes its nearest stand-in's as `inferred`, and
 `profile validate` and `doctor` list it as a "stand-in to confirm": confirm or replace it with `catherd catalog
-treat-like --suggest <rung>`, then `treat-like <rung> <like>`. `route` says, for the rung it picks, each threshold,
-the value used, its confidence and source, and catherd's own runs on it ("12 lanes, 2 climbed, 1 partial"), which
-it shows but never routes on. A bar of your own goes in `~/.config/catherd/catalog.override.json`, per dimension
+treat-like --suggest <rung>`, then `treat-like <rung> <like>`. A ladder holds only rungs at least as strong as its
+start, and rungs of equal scores on two quotas start on the one the run has used least. `route` returns the rung,
+its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and the why says when Jev
+disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl` keeps every role's
+decision with, for the rung it picks, each threshold, the value used, its confidence and source, and catherd's own
+runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A bar of your own goes in `~/.config/catherd/catalog.override.json`, per dimension
 (`"bars": { "ui": { "hard": { "frontend": 1700, "honesty": null } } }`: a number sets a threshold, `null` removes
 the default's).
 

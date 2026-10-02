@@ -166,7 +166,7 @@ A climb is for capability only. When the evidence says the lane cannot be done a
 A failure on the top rung (`top: true`) goes to the architect when Jev calls it design, else to the report as open.
 
 - Jev decides which model does the work. It never decides that the work is done: only a check, the reviewer or the verifier does.
-- `R/routes.jsonl` records each lane's rung and every climb with its reason; `R/outcomes.jsonl` gets one row per lane when its milestone lands or it fails its top rung; a lane written again (landed after failing its top rung, or re-landed) keeps its rows, and the last row per lane wins.
+- `R/routes.jsonl` records every role's decision (its why and provenance, a lane-less dispatch's rung too), each lane's rung, every climb with its reason, and each lane's outcome beside Jev's answer; `R/outcomes.jsonl` gets one row per lane when its milestone lands or it fails its top rung; a lane written again (landed after failing its top rung, or re-landed) keeps its rows, and the last row per lane wins.
 - Never put a secret or a key into an `ask` state. Keep the state short and in English.
 
 ## Threads
