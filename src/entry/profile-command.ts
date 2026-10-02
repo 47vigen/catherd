@@ -34,7 +34,7 @@ import {
   runnableBackends,
   validateNamed,
 } from "../services/profile-store.ts";
-import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
+import { EXIT, JSON_ARG, mark, printJson, refuseInRole } from "./cli-kit.ts";
 
 const json = JSON_ARG;
 
@@ -216,6 +216,7 @@ const use = defineCommand({
     clear: { type: "boolean", description: "with --repo and no name: unbind the git repo you are in" },
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd profile use");
     if (args.clear) {
       if (!args.repo || args.name !== undefined)
         throw new CatherdError("E_INPUT_INVALID", "--clear goes with --repo and no profile name", {
@@ -244,6 +245,7 @@ const create = defineCommand({
     from: { type: "string", description: "copy this profile instead of the default one" },
   },
   run({ args }) {
+    refuseInRole(process.env, "catherd profile new");
     const r = createProfile(args.name, args.from, terminalHost(args.host).host);
     if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} created ${args.name}${args.from ? ` from ${args.from}` : ""}`);
@@ -259,6 +261,7 @@ const copy = defineCommand({
     to: { type: "positional", required: true, description: "new profile name" },
   },
   run({ args }) {
+    refuseInRole(process.env, "catherd profile copy");
     const r = createProfile(args.to, args.from, terminalHost(args.host).host);
     if (!r.saved) throw refused(r.errors);
     console.log(`${mark("ok")} copied ${args.from} to ${args.to}`);
@@ -273,6 +276,7 @@ const rm = defineCommand({
     name: { type: "positional", required: true, description: "profile name" },
   },
   run({ args }) {
+    refuseInRole(process.env, "catherd profile rm");
     deleteProfile(args.name);
     console.log(`${mark("ok")} deleted ${args.name}`);
   },
@@ -291,6 +295,7 @@ const set = defineCommand({
     profile: { type: "string", description: "the profile to change (default: the one this repo runs on)" },
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd profile set");
     // the CLI never creates a profile by setting a field of it: a typo would start a new one
     if (args.profile !== undefined && !profileExists(assertProfileName(args.profile)))
       throw new CatherdError("E_INPUT_INVALID", `no profile named "${args.profile}"`, {
@@ -381,6 +386,7 @@ const resetDefaults = defineCommand({
     let r;
     if (args.preview) r = resetHostDefaults(name, host, { preview: true });
     else {
+      refuseInRole(process.env, "catherd profile reset-host-defaults");
       if (!args.expect)
         throw new CatherdError(
           "E_INPUT_INVALID",

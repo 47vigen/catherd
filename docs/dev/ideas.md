@@ -21,10 +21,6 @@ Plan 21 (roles and ownership) review:
   `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
   owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
   attempt is already a role-thread refusal (`ROLE_THREAD_REFUSAL`) for the same target. (Minor 5.)
-- **A role's shell still reaches the coordinator CLI forms.** Under `CATHERD_ROLE`, `catherd runs cancel` and
-  `catherd profile set` (the CLI forms of the `cancel` and `profile_set` tools) still run. Evidence:
-  `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
-  `roleScopeFromEnv`. Fix: refuse them with `E_ROLE_SCOPE` when `roleScopeFromEnv(process.env)` is set. (Minor 7.)
 
 Plan 22 (delivery and the loop) review:
 

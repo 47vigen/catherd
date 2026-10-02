@@ -13,7 +13,7 @@ import {
 import { readDerived } from "../infra/sources/cache.ts";
 import { type SyncReport, syncSources } from "../services/source-sync.ts";
 import { clearTreatLike, type LeftOnStandIn, resetTreatLikes, suggestFor } from "../services/treat-likes.ts";
-import { exitCodeOf, JSON_ARG, mark, printError } from "./cli-kit.ts";
+import { exitCodeOf, JSON_ARG, mark, printError, refuseInRole } from "./cli-kit.ts";
 
 /**
  * Spec 1.2 §9: a sync, one line per source (fetched, fresh, skipped, or failed with the answer it kept),
@@ -236,6 +236,7 @@ const treatLike = defineCommand({
         else for (const l of suggestLines(r, args.suggest)) console.log(l);
         return;
       }
+      refuseInRole(process.env, "catherd catalog treat-like");
       if (args.clear !== undefined) {
         const r = await clearTreatLike(args.clear, terminalHost(args.host).host);
         if (args.json) return console.log(JSON.stringify(r, null, 2));

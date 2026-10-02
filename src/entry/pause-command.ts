@@ -7,7 +7,7 @@ import {
   resumeMachine,
   resumeWorkspace,
 } from "../services/pause.ts";
-import { JSON_ARG, printJson } from "./cli-kit.ts";
+import { JSON_ARG, printJson, refuseInRole } from "./cli-kit.ts";
 
 /** Exactly one of --machine and --workspace: what a pause or resume covers. */
 function scope(args: { machine?: boolean; workspace?: string }, usage: string): "machine" | string {
@@ -43,6 +43,7 @@ export const pauseCommand = defineCommand({
     ...JSON_ARG,
   },
   run({ args }) {
+    refuseInRole(process.env, "catherd pause");
     const at = scope(args, PAUSE_USAGE);
     const r =
       at === "machine"
@@ -57,6 +58,7 @@ export const resumeCommand = defineCommand({
   meta: { name: "resume", description: "Lift a pause on this machine (--machine) or on a workspace" },
   args: { ...SCOPE_ARGS, ...JSON_ARG },
   run({ args }) {
+    refuseInRole(process.env, "catherd resume");
     const at = scope(args, RESUME_USAGE);
     const r = at === "machine" ? resumeMachine(Date.now()) : resumeWorkspace(Date.now(), { workspace: at });
     if (args.json) return printJson(r);

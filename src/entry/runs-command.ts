@@ -20,7 +20,7 @@ import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
-import { JSON_ARG, mark, printJson } from "./cli-kit.ts";
+import { JSON_ARG, mark, printJson, refuseInRole } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
 
 const json = JSON_ARG;
@@ -291,6 +291,7 @@ const cancelCmd = defineCommand({
     name: { type: "positional", required: true, description: "the role's name, as status lists it" },
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs cancel");
     const r = await cancel(defaultDeps(), args.id, args.name);
     console.log(`${mark("ok")} ${r.record.name} ${r.record.status}`);
     for (const h of r.hints) console.log(`  ${h}`);
@@ -305,6 +306,7 @@ const clean = defineCommand({
   },
   args: { id: { type: "positional", required: false, description: "run id (default: every run)" }, ...json },
   run({ args }) {
+    refuseInRole(process.env, "catherd runs clean");
     const r = cleanScratch({ run: args.id });
     if (args.json) return printJson(r);
     for (const x of r.removed)
@@ -330,6 +332,7 @@ const retryPush = defineCommand({
     ...json,
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs retry-push");
     if (args["acknowledge-possible-duplicate"] !== true)
       throw new CatherdError("E_INPUT_INVALID", "Retry requires --acknowledge-possible-duplicate");
     assertId("role name", args.name);
@@ -369,6 +372,7 @@ const supersede = defineCommand({
     ...json,
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs supersede");
     const r = await supersedeRun(defaultDeps(), { run: args.id, by: args.by });
     if (args.json) return printJson(r);
     console.log(`${mark("ok")} ${r.run} superseded by ${r.by}`);
@@ -383,6 +387,7 @@ const pin = defineCommand({
   },
   args: { id: { type: "positional", required: true, description: "run id" }, ...json },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs pin");
     const r = await repin(defaultDeps(), { run: args.id });
     if (args.json) return printJson(r);
     console.log(`${mark("ok")} ${args.id} pinned to ${r.pin.profile}`);
