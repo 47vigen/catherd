@@ -79,6 +79,11 @@ describe("the profile tools on the profile service", () => {
           path: "roles.verifier.access",
           message: "verifier runs read-only; catherd's default for it is full",
         },
+        // spec 1.5 plan 24: an explicit validate also names what no worker rung clears
+        {
+          path: "roles.worker.rungs",
+          message: expect.stringMatching(/^no worker rung clears repo_code logic, hard;/),
+        },
       ],
     });
   });

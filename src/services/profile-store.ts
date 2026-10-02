@@ -15,7 +15,12 @@ import {
   ProfileDocSchema,
   resolveProfile,
 } from "../domain/profile.ts";
-import { type Issue, type Validation, validateProfile } from "../domain/profile-rules.ts";
+import {
+  type Issue,
+  type ValidateOptions,
+  type Validation,
+  validateProfile,
+} from "../domain/profile-rules.ts";
 import type { Catalog } from "../domain/catalog.ts";
 import type { Access } from "../domain/record.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
@@ -220,8 +225,9 @@ export function validateHere(
   c: Catalog,
   doc?: ProfileDoc,
   host: OrchestrationHost = "unknown",
+  o: ValidateOptions = {},
 ): Validation {
-  const v = validateProfile(p, c, runnableBackends(), doc, host);
+  const v = validateProfile(p, c, runnableBackends(), doc, host, o);
   return {
     errors: [...v.errors, ...isolationKeyErrors(p), ...isolatedOnlyErrors(p)],
     warnings: [...v.warnings, ...budgetUsdWarnings(p)],
@@ -233,12 +239,13 @@ export function validateNamed(
   name: string | undefined,
   repo: string | null,
   host: OrchestrationHost,
+  o: ValidateOptions = {},
 ): Validation {
   const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
   const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
   try {
-    return validateHere(resolveProfile(doc, n, host), catalog, doc, host);
+    return validateHere(resolveProfile(doc, n, host), catalog, doc, host, o);
   } catch (e) {
     if (!(e instanceof CatherdError)) throw e;
     return { errors: [{ path: "roles", message: e.message, fix: e.fix }], warnings: [] };

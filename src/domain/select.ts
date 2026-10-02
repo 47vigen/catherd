@@ -132,7 +132,7 @@ const quota = (x: Candidate): string => quotaOf(x.info.parsed);
  * Spec 1.5 plan 24: when rungs on other quotas score exactly as `start` does on `dims`, the start goes to the
  * quota with the most headroom (the fewest of the run's dispatches so far), the candidates' order (cost, then
  * the profile's ladder order) breaking an equal count. `tie` says what decided. Rungs of one quota that tie
- * are no tie: cost already orders them.
+ * are no tie (cost already orders them), nor is a rung of another cost tier.
  */
 function breakTie(
   start: Candidate,
@@ -140,7 +140,11 @@ function breakTie(
   dims: Dim[],
   usage: Partial<Record<string, number>>,
 ): { start: Candidate; tie?: string } {
-  const rivals = order.filter((x) => x !== start && quota(x) !== quota(start) && same(x, start, dims));
+  // a metered rung never wins a tie over a plan's: headroom is free only within the start's cost tier
+  const rivals = order.filter(
+    (x) =>
+      x !== start && quota(x) !== quota(start) && x.cost.tier === start.cost.tier && same(x, start, dims),
+  );
   if (rivals.length === 0) return { start };
   const used = (x: Candidate) => usage[quota(x)] ?? 0;
   const tied = [start, ...rivals];

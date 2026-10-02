@@ -318,6 +318,13 @@ describe("equal scores go to the quota with more headroom (spec 1.5 plan 24)", (
     ).toBe(DEEPSEEK);
   });
 
+  it("never gives a tie to a metered rung over one paid from a plan", () => {
+    const p = worker({ billing: { "opencode-go": "metered" }, usage: { codex: 9 } }, rungs);
+    const pick = select(c(), p, "worker", "repo_code", "copy");
+    expect(pick.rung).toBe(LUNA_HIGH);
+    expect(pick.tie).toBeUndefined();
+  });
+
   it("leaves a start with no equal alone", () => {
     expect(select(shipped(), worker(), "worker", "repo_code", "copy").tie).toBeUndefined();
   });

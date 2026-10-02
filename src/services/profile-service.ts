@@ -333,6 +333,7 @@ export function profileService(host: () => HostContext): ProfilePort {
         name === undefined ? activeName(repo) : requireProfile(name),
         repo,
         host().host,
+        { reach: true },
       );
       return { valid: v.errors.length === 0, ...v };
     },
