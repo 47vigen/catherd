@@ -124,6 +124,12 @@ describe("runFile", () => {
       expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
   });
 
+  it("refuses a role write to the run's pin or supersede pointer (the pin's access is laid over the profile)", () => {
+    const { run } = freshRun();
+    for (const p of ["pin.json", "PIN.JSON", "superseded.json"])
+      expect(code(() => runFile(run, p, "write"))).toBe("E_IO_PATH");
+  });
+
   it("refuses a symlink inside the run folder that points out of it", () => {
     const { run } = freshRun();
     symlinkSync(mkdtempSync(join(tmpdir(), "catherd-out-")), join(run.dir, "lanes", "out"));

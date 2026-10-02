@@ -3,7 +3,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { gateEnvLines, readGateEnv, removeGateEnv, setGateEnv } from "../services/gate-env.ts";
 import { addKnowledge, knowledgeLines, knowledgePath, readKnowledge } from "../services/run-service.ts";
-import { JSON_ARG, printJson } from "./cli-kit.ts";
+import { JSON_ARG, printJson, refuseInRole } from "./cli-kit.ts";
 
 /** `--repo`, else the repository the command runs in, as run_start and read_knowledge resolve it. */
 const REPO_ARG = {
@@ -31,6 +31,7 @@ const add = defineCommand({
     ...REPO_ARG,
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd knowledge add");
     console.log(await addKnowledge(repoOf(args.repo), args.line));
   },
 });
@@ -64,6 +65,7 @@ const envSet = defineCommand({
     ...JSON_ARG,
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd knowledge env set");
     const set = assignment(args.variable);
     if (args.from !== undefined && set)
       throw new CatherdError("E_INPUT_INVALID", "pass NAME=value or NAME --from ENV_VAR, not both", {
@@ -85,6 +87,7 @@ const envRm = defineCommand({
   meta: { name: "rm", description: "Remove one variable from the repo's gate environment" },
   args: { name: { type: "positional", required: true }, ...REPO_ARG, ...JSON_ARG },
   async run({ args }) {
+    refuseInRole(process.env, "catherd knowledge env rm");
     const r = await removeGateEnv(repoOf(args.repo), args.name);
     if (args.json) return printJson(r);
     for (const line of gateEnvLines(r.vars)) console.log(line);
@@ -96,7 +99,7 @@ const envList = defineCommand({
   args: { ...REPO_ARG, ...JSON_ARG },
   async run({ args }) {
     const at = await knowledgePath(repoOf(args.repo));
-    const vars = readGateEnv(at.repo);
+    const vars = await readGateEnv(at.repo);
     if (args.json) return printJson({ repo: at.repo, vars });
     const lines = gateEnvLines(vars);
     console.log(lines.length ? lines.join("\n") : "catherd: no gate environment set for this repo");

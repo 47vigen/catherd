@@ -1,8 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { WORKSPACE_LIMIT, WorkspaceBudgetSchema, WorkspaceIdSchema } from "../../domain/workspace.ts";
+import {
+  BaseRefSchema,
+  RELEASES,
+  WORKSPACE_LIMIT,
+  WorkspaceBudgetSchema,
+  WorkspaceIdSchema,
+} from "../../domain/workspace.ts";
+import { pauseWorkspace, resumeWorkspace } from "../../services/pause.ts";
 import type { Deps } from "../../services/ports.ts";
-import { workspaceContract } from "../../services/workspace-admission.ts";
+import { setWorkspaceBudget, workspaceContract } from "../../services/workspace-admission.ts";
 import {
   inspectWorkspace,
   startWorkspace,
@@ -32,7 +39,7 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
     "workspace_start",
     {
       description:
-        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget. Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
+        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget (no cap unless given; raise it later with workspace_budget). A step releases its dependents when its milestone lands, or with release: 'merge' and base (e.g. origin/main) once its landed commit is an ancestor of that ref, checked when a dependent asks. Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
       inputSchema: {
         root: z.string().min(1),
         title: z.string().min(1),
@@ -40,13 +47,16 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
         repos,
         steps: z
           .array(
-            z.object({
+            // #43 finding 6: an unknown key (dependsOn for depends_on) is refused, never dropped
+            z.strictObject({
               id,
               repo: id,
               title: z.string().min(1),
               a_lines: aLines,
               depends_on: z.array(id).max(WORKSPACE_LIMIT).optional(),
               milestone: id.optional(),
+              release: z.enum(RELEASES).optional(),
+              base: BaseRefSchema.optional(),
             }),
           )
           .min(1)
@@ -69,6 +79,8 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
             aLines: s.a_lines,
             dependsOn: s.depends_on,
             milestone: s.milestone,
+            release: s.release,
+            base: s.base,
           })),
         }),
       ),
@@ -86,10 +98,37 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
     "workspace_child_start",
     {
       description:
-        "Create or return a step's single-repo run once its dependencies have landed their declared milestone. Returns run, dir and the frozen contract path. Use the existing route, dispatch, verification and land tools on this child run.",
+        "Create or return a step's single-repo run once its dependencies have landed their declared milestone, every dispatch of theirs is collected, and each 'merge' release's commit is in its base ref (fetch first; nothing is polled). Returns run, dir and the frozen contract path. Use the existing route, dispatch, verification and land tools on this child run.",
       inputSchema: { workspace: z.string().min(1), step: id },
     },
     (a) => handle(() => startWorkspaceChild(deps, a)),
+  );
+  server.registerTool(
+    "workspace_pause",
+    {
+      description:
+        "Pause every child of a workspace on one blocker (a VPN, Docker down): admission refuses each dispatch and child start with E_ADMIT_PAUSED and the reason until workspace_resume. Running roles finish. status shows the pause first. Push the reason to the owner once.",
+      inputSchema: { workspace: z.string().min(1), reason: z.string().min(1) },
+    },
+    (a) => handle(() => pauseWorkspace(deps.now(), a)),
+  );
+  server.registerTool(
+    "workspace_resume",
+    {
+      description: "Lift a workspace's pause. Returns the pause it lifted, or null when none was in force.",
+      inputSchema: { workspace: z.string().min(1) },
+    },
+    (a) => handle(() => resumeWorkspace(deps.now(), a)),
+  );
+  const cap = z.number().finite().nonnegative().nullable().optional();
+  server.registerTool(
+    "workspace_budget",
+    {
+      description:
+        "Set or raise a workspace's shared budget: each of minutes, tokens and usd given as a number replaces that cap, null removes it, and one left out stays. A workspace has no cap unless one is set; its minutes count from its first child. Returns the budget, the spend and its status.",
+      inputSchema: { workspace: z.string().min(1), minutes: cap, tokens: cap, usd: cap },
+    },
+    (a) => handle(() => setWorkspaceBudget(deps, a)),
   );
   server.registerTool(
     "workspace_status",

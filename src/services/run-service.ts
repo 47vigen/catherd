@@ -1,17 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
+import { assertLaneValues } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { gitToplevel } from "../infra/git.ts";
-import { writeTextAtomic } from "../infra/store.ts";
+import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import {
   dispatchState,
   type DispatchState,
   latestDispatch,
   listDispatches,
+  liveDispatches,
   recordHints,
 } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
@@ -22,18 +25,91 @@ import {
   appendKnowledge,
   createRun,
   findRun,
-  knowledgeFile,
+  knowledgeFor,
   readRecords,
   runFile,
   type Run,
+  runPaths,
+  supersededBy,
+  supersededFile,
 } from "./run-store.ts";
 import { protocolNext, protocolView } from "./protocol.ts";
+import { writePin } from "./run-pin.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { readNotes, refreshState } from "./state.ts";
 
+/** The run `id` was superseded by, or undefined: an open run, or one that cannot be found. */
+function nextInChain(id: string): string | undefined {
+  try {
+    return supersededBy(findRun(id))?.by;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `runs supersede <run> --by <run>`: closes `run` with a pointer to the run that took it over (a planning
+ * run handed to the execution run in a worktree). Status hides it; dispatch refuses it. A run with live
+ * roles is refused: cancel them, or let them finish, first.
+ */
+export async function supersedeRun(
+  deps: Deps,
+  i: { run: string; by: string },
+): Promise<{ run: string; by: string; at: string; hints?: string[] }> {
+  const run = findRun(i.run);
+  const by = findRun(i.by);
+  if (run.id === by.id)
+    throw new CatherdError("E_INPUT_INVALID", `run ${run.id} cannot supersede itself`, {
+      fix: "pass the run that took over as --by",
+    });
+  // walk the chain the new pointer would join: any run it reaches back to `run` closes a cycle
+  const seen = new Set<string>([by.id]);
+  for (let hop = supersededBy(by)?.by; hop !== undefined && !seen.has(hop);) {
+    if (hop === run.id)
+      throw new CatherdError("E_INPUT_INVALID", `run ${by.id} is itself superseded by ${run.id}`, {
+        fix: "supersede the older run by the newer one",
+      });
+    seen.add(hop);
+    hop = nextInChain(hop);
+  }
+  // under the run's admission lock: a dispatch admitted meanwhile is either live here, or sees the pointer
+  const at = await withFileLock(runPaths(run.dir).admission, () => {
+    assertNoLiveRoles(
+      deps,
+      run,
+      `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}`,
+    );
+    return writeSuperseded(deps, run, by.id);
+  });
+  return { run: run.id, by: by.id, at, ...(await supersededHints(run, by.id)) };
+}
+
+/** Held under `run`'s admission lock: no role of it may be live when it closes. */
+function assertNoLiveRoles(deps: Deps, run: Run, fix: string): void {
+  const live = liveDispatches(run, deps.now());
+  if (live.length)
+    throw new CatherdError(
+      "E_INPUT_INVALID",
+      `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
+      { fix },
+    );
+}
+
+/** Held under `run`'s admission lock: the pointer to the run that took it over; its time. */
+function writeSuperseded(deps: Deps, run: Run, by: string): string {
+  const when = new Date(deps.now()).toISOString();
+  writeJsonAtomic(supersededFile(run), { schema: 1, by, at: when });
+  return when;
+}
+
+async function supersededHints(run: Run, by: string): Promise<{ hints?: string[] }> {
+  const { hints } = await refreshState(run, { next: `superseded by ${by}: continue there` });
+  return hints.length ? { hints } : {};
+}
+
 export async function startRun(
   deps: Deps,
-  i: { repo: string; title: string; aLines: string[] },
+  i: { repo: string; title: string; aLines: string[]; from?: string },
 ): Promise<{
   run: string;
   dir: string;
@@ -45,17 +121,36 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
-  const run = createRun({
-    repo: top,
-    title: i.title,
-    aLines: i.aLines,
-    version: deps.version,
-    now: new Date(deps.now()),
-    startedBy: currentSession(deps),
-  });
-  await claimRun(deps, run);
+  const open = async (): Promise<Run> => {
+    const run = createRun({
+      repo: top,
+      title: i.title,
+      aLines: i.aLines,
+      version: deps.version,
+      now: new Date(deps.now()),
+      startedBy: currentSession(deps),
+    });
+    // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
+    writePin(deps, run);
+    await claimRun(deps, run);
+    return run;
+  };
+  // the run this one takes over must be free to close before anything is created, and stay so until its pointer
+  // is written: its admission lock is held from the check to the pointer, so no dispatch gets in between and
+  // leaves the new run open beside it (PR #50). It is the only lock taken first: the new run's are uncontended.
+  const from = i.from === undefined ? null : findRun(i.from);
+  const run = from
+    ? await withFileLock(runPaths(from.dir).admission, async () => {
+        assertNoLiveRoles(deps, from, `cancel them or let them finish, then run_start with from: ${from.id}`);
+        const opened = await open();
+        writeSuperseded(deps, from, opened.id);
+        return opened;
+      })
+    : await open();
+  const superseded = from ? await supersededHints(from, run.id) : {};
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
+  hints.push(...(superseded.hints ?? []));
   // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
   return { run: run.id, dir: run.dir, protocol: protocolView(run, []), ...(hints.length ? { hints } : {}) };
 }
@@ -64,7 +159,11 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
   path: string;
   bytes: number;
 } {
-  const file = runFile(findRun(i.run), i.path, "write");
+  const run = findRun(i.run);
+  const file = runFile(run, i.path, "write");
+  // spec 1.5 "Lane editing": a lane's header values are checked when it is written, not first at preflight
+  const lane = /^lanes\/([^/]+)\.md$/.exec(relative(run.dir, file).split(sep).join("/"));
+  if (lane) assertLaneValues(i.content, `lanes/${lane[1]}.md`);
   writeTextAtomic(file, i.content);
   return { path: file, bytes: Buffer.byteLength(i.content) };
 }
@@ -227,7 +326,7 @@ async function repoTop(repo: string): Promise<string> {
 
 /** What past runs of the repo learned; `repo` may be any path inside it. */
 export async function readKnowledge(repo: string): Promise<string> {
-  const file = knowledgeFile(await repoTop(repo));
+  const file = await knowledgeFor(await repoTop(repo));
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
   return text.trim() ? text : "catherd: no knowledge recorded yet for this repo";
 }
@@ -235,7 +334,7 @@ export async function readKnowledge(repo: string): Promise<string> {
 /** Where the repo's knowledge.md is (it may not exist yet); `repo` may be any path inside it. */
 export async function knowledgePath(repo: string): Promise<{ repo: string; path: string }> {
   const top = await repoTop(repo);
-  return { repo: top, path: knowledgeFile(top) };
+  return { repo: top, path: await knowledgeFor(top) };
 }
 
 /** The repo's knowledge.md as its lines, none when it is missing or blank; `repo` may be any path inside it. */

@@ -18,6 +18,6 @@ export async function verifierBrief(run: Run, role: string, name: string, brief:
   return withGateNotes(brief, {
     milestone,
     recorded: milestone ? await recordedItems(run, milestone) : [],
-    env: gateEnvLines(readGateEnv(run.meta.repo)),
+    env: gateEnvLines(await readGateEnv(run.meta.repo)),
   });
 }

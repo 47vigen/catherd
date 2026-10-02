@@ -39,6 +39,7 @@ import { currentRoute } from "../domain/route.ts";
 import { appendRoute, findRun, readRecords, readRoleRoutes, readRoutes, type Run } from "./run-store.ts";
 import { sessionKey } from "../domain/host.ts";
 import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
+import { pinChanges, runProfile } from "./run-pin.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -428,7 +429,13 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
     watch(deps, run, d);
   }
   if (i.lane === undefined) recordRoleDispatch(deps, run, i.role, i.name, rung);
-  await refresh(run, i.next ? { next: i.next } : {}, hints);
+  // spec 1.5: a change since the run's pin is logged in state.md each time a role starts
+  const changes = pinChanges(deps, run);
+  if (changes.length)
+    hints.push(
+      `dispatched on the run's pinned values: ${changes.join("; ")}; run_pin(run) re-pins to the repo's now`,
+    );
+  await refresh(run, { ...(i.next ? { next: i.next } : {}), pinChanges: changes }, hints);
   return { dispatched: dispatchedOf(d), hints };
 }
 
@@ -631,7 +638,7 @@ async function failover(deps: Deps, run: Run, d: Dispatch, limited: RunRecord): 
     return failedOver(already.admit.rung, already);
   }
   // else that stand-in never ran and is over (recorded as lost, or past its start grace): admit a new one
-  const standIn = standInFor(deps.profiles.forRepo(run.meta.repo).failover, limited.rung, run.meta.repo);
+  const standIn = standInFor(runProfile(deps, run).failover, limited.rung, run.meta.repo);
   if (!standIn) return { hints, started: null, pause: paused };
   // the stand-in answers to whoever owns the run now, which a claim from another host may have changed
   assertNativeHost(standIn, runOwner(run)?.host ?? deps.host.host);

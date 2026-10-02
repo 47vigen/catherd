@@ -4,6 +4,7 @@ import { assertId } from "../domain/ids.ts";
 import { knownQueueCapability, UNCHECKED_QUEUE } from "../infra/codex-queue.ts";
 import { listDispatches } from "../services/dispatches.ts";
 import { retryDelivery } from "../services/notifier.ts";
+import { pauseLine } from "../services/pause.ts";
 import { inspectDelivery } from "../services/run-debug.ts";
 import { terminalHost } from "./host-arg.ts";
 import { formatBudget } from "../domain/budget.ts";
@@ -14,10 +15,12 @@ import { cancel } from "../services/dispatch-service.ts";
 import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
+import { repin } from "../services/run-pin.ts";
+import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
-import { JSON_ARG, mark, printJson } from "./cli-kit.ts";
+import { JSON_ARG, mark, printJson, refuseInRole } from "./cli-kit.ts";
 import { defaultDeps } from "./deps.ts";
 
 const json = JSON_ARG;
@@ -88,6 +91,8 @@ async function printStatus(runId: string | undefined, asJson: boolean, live = fa
       : null;
   const r = redact(status(defaultDeps(host), runId, queue));
   if (asJson) return printJson(r);
+  // spec 1.5 "Group pause": a pause comes first, before any run
+  for (const p of r.paused) console.log(`${mark("warn")} ${pauseLine(p)}`);
   if (r.runs.length === 0) console.log("no runs yet");
   // grouped by session, as the runs page is (spec §4); a run shows once, under the session that started it
   const byId = new Map(r.runs.map((s) => [s.id, s]));
@@ -207,6 +212,7 @@ const list = defineCommand({
         session: s.session,
         continuedIn: s.continuedIn,
         waiting: s.waiting,
+        supersededBy: s.supersededBy ?? null,
       };
     };
     const groups = groupRuns(shown);
@@ -217,7 +223,7 @@ const list = defineCommand({
       for (const x of g.runs) {
         const r = row(x.run);
         console.log(
-          `  ${r.id}  ${r.live ? `${r.live} live` : r.waiting ? `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${r.waiting.seconds}s` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
+          `  ${r.id}  ${r.supersededBy ? `superseded by ${r.supersededBy}` : r.live ? `${r.live} live` : r.waiting ? `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${r.waiting.seconds}s` : "idle"}  ${r.roleRuns} role run(s)  ${r.title}  ${r.repo}${movedNote(x)}`,
         );
       }
     }
@@ -285,6 +291,7 @@ const cancelCmd = defineCommand({
     name: { type: "positional", required: true, description: "the role's name, as status lists it" },
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs cancel");
     const r = await cancel(defaultDeps(), args.id, args.name);
     console.log(`${mark("ok")} ${r.record.name} ${r.record.status}`);
     for (const h of r.hints) console.log(`  ${h}`);
@@ -299,6 +306,7 @@ const clean = defineCommand({
   },
   args: { id: { type: "positional", required: false, description: "run id (default: every run)" }, ...json },
   run({ args }) {
+    refuseInRole(process.env, "catherd runs clean");
     const r = cleanScratch({ run: args.id });
     if (args.json) return printJson(r);
     for (const x of r.removed)
@@ -324,6 +332,7 @@ const retryPush = defineCommand({
     ...json,
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd runs retry-push");
     if (args["acknowledge-possible-duplicate"] !== true)
       throw new CatherdError("E_INPUT_INVALID", "Retry requires --acknowledge-possible-duplicate");
     assertId("role name", args.name);
@@ -352,9 +361,46 @@ const retryPush = defineCommand({
   },
 });
 
+const supersede = defineCommand({
+  meta: {
+    name: "supersede",
+    description: "Close a run with a pointer to the run that took it over; status hides it",
+  },
+  args: {
+    id: { type: "positional", required: true, description: "the run to close" },
+    by: { type: "string", required: true, description: "the run that took it over" },
+    ...json,
+  },
+  async run({ args }) {
+    refuseInRole(process.env, "catherd runs supersede");
+    const r = await supersedeRun(defaultDeps(), { run: args.id, by: args.by });
+    if (args.json) return printJson(r);
+    console.log(`${mark("ok")} ${r.run} superseded by ${r.by}`);
+    for (const h of r.hints ?? []) console.log(`  ${h}`);
+  },
+});
+
+const pin = defineCommand({
+  meta: {
+    name: "pin",
+    description: "Re-pin a run to the profile, access and isolation its repo runs on now",
+  },
+  args: { id: { type: "positional", required: true, description: "run id" }, ...json },
+  async run({ args }) {
+    refuseInRole(process.env, "catherd runs pin");
+    const r = await repin(defaultDeps(), { run: args.id });
+    if (args.json) return printJson(r);
+    console.log(`${mark("ok")} ${args.id} pinned to ${r.pin.profile}`);
+    for (const c of r.changed) console.log(`  was: ${c}`);
+  },
+});
+
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
-  meta: { name: "runs", description: "Runs: list them (the default), show one, cancel a live role" },
-  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush },
+  meta: {
+    name: "runs",
+    description: "Runs: list them (the default), show one, cancel a live role, supersede or re-pin one",
+  },
+  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush, supersede, pin },
   default: "list",
 });

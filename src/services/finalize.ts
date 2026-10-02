@@ -26,6 +26,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
+import { currentOwns } from "./lane-edit.ts";
 import { tail } from "./run-debug.ts";
 import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 
@@ -187,7 +188,13 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const { changedOwned, violations } = after
     ? splitChanges(
         changedPaths(a.before, after),
-        a.owns.length ? a.owns : (a.ownsImplicit ?? []),
+        // spec 1.5 owns_add: paths the lane gained while it ran are its own, not violations; a laneless
+        // writer is held to its implicit docs lane (plan 21)
+        a.lane !== null
+          ? [...new Set([...a.owns, ...currentOwns(run, a.lane)])]
+          : a.owns.length
+            ? a.owns
+            : (a.ownsImplicit ?? []),
         // from admission, when the before-snapshot was taken, not from the worker's start
         othersOwns(run, d, Date.parse(a.admittedAt), end),
         a.lane !== null || a.access === "read-only",

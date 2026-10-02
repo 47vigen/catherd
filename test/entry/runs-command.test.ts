@@ -267,6 +267,32 @@ describe("catherd runs", () => {
       "error E_RUN_NOT_LIVE: worker-M1.L1 has no live dispatch",
     ]);
   });
+
+  it("refuses a role's shell every command that writes the orchestrator's state (plan 21 minor 7)", () => {
+    const { repo, run } = freshRun();
+    const role = { CATHERD_ROLE: `${run.id}/worker-1` };
+    const cases: [string[], string][] = [
+      [["runs", "cancel", run.id, "worker-M1.L1"], "catherd runs cancel"],
+      [["runs", "supersede", run.id, "--by", run.id], "catherd runs supersede"],
+      [["runs", "pin", run.id], "catherd runs pin"],
+      [["runs", "clean", run.id], "catherd runs clean"],
+      [["profile", "set", "budget.usd", "20"], "catherd profile set"],
+      [["profile", "new", "other"], "catherd profile new"],
+      [["profile", "use", "default"], "catherd profile use"],
+      [["knowledge", "env", "set", "A=1", "--repo", repo], "catherd knowledge env set"],
+      [["knowledge", "add", "a fact", "--repo", repo], "catherd knowledge add"],
+    ];
+    for (const [args, command] of cases) {
+      const r = catherd(args, role);
+      expect([args.join(" "), r.code, r.err.split("\n")[0]]).toEqual([
+        args.join(" "),
+        1,
+        `error E_ROLE_SCOPE: ${command} is the orchestrator's: this process runs worker-1 of run ${run.id}`,
+      ]);
+    }
+    // reads stay open to a role
+    expect(catherd(["runs", "show", run.id], role).code).toBe(0);
+  });
 });
 
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";

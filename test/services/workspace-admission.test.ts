@@ -11,6 +11,7 @@ import {
   runPaths,
 } from "../../src/services/run-store.ts";
 import {
+  setWorkspaceBudget,
   workspaceBudget,
   workspaceContract,
   workspaceSpend,
@@ -19,7 +20,7 @@ import {
 import { startWorkspace, startWorkspaceChild } from "../../src/services/workspace-service.ts";
 import { workspaceChildren } from "../../src/services/workspace-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, makeRecord } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, makeRecord, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -98,6 +99,41 @@ it("counts finalized, pending and native usage once across siblings with parent 
   expect((await workspaceBudget(producer, now))?.fraction).toBe(0.5);
 });
 
+it("has no cap by default, and counts minutes from the first child, not the workspace (#43 finding 4)", async () => {
+  withHome();
+  let now = Date.parse("2026-10-02T10:00:00.000Z");
+  const deps = fakeDeps({ now: () => now, view: testView({ budget: { minutes: 1 } }) });
+  const { workspace } = await startWorkspace(deps, {
+    root: tempDir("catherd-parent-"),
+    repos: { app: tempRepo() },
+    title: "Overnight",
+    aLines: [],
+    steps: [{ id: "app", repo: "app", title: "App", aLines: [] }],
+  });
+  // the profile's per-run budget is no longer the workspace's
+  expect(workspace.budget).toEqual({});
+  now += 10 * 60 * 60_000; // a night before the first child
+  expect((await workspaceSpend(workspace, now)).minutes).toBe(0);
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "app" });
+  now += 30 * 60_000;
+  expect((await workspaceSpend(workspace, now)).minutes).toBe(30);
+});
+
+it("raises a spent workspace budget so the next sibling is admitted (#43 finding 4)", async () => {
+  const { deps, workspace, producer, consumer } = await setup({ tokens: 1000 });
+  await appendRecord(
+    producer,
+    makeRecord({ runId: producer.id, tokens: { input: 1000, cached: 0, output: 0 } }),
+  );
+  await expect(withWorkspaceAdmission(consumer, deps.now(), async () => "admitted")).rejects.toMatchObject({
+    code: "E_RUN_BUDGET",
+    fix: expect.stringContaining("workspace_budget"),
+  });
+  const raised = await setWorkspaceBudget(deps, { workspace: workspace.id, tokens: 5000 });
+  expect(raised.budget).toEqual({ tokens: 5000 });
+  expect(await withWorkspaceAdmission(consumer, deps.now(), async () => "admitted")).toBe("admitted");
+});
+
 it("cost routing sees sibling spend at the shared 80 percent threshold", async () => {
   const { deps, producer, consumer } = await setup();
   await appendRecord(
@@ -137,12 +173,10 @@ it("serializes sibling admission and rejects the second after aggregate budget i
   expect(rejected?.status === "rejected" && rejected.reason.code).toBe("E_RUN_BUDGET");
 });
 
-it("refuses more dispatches into a completed step and preserves ordinary run admission", async () => {
+it("admits a post-land fix into a completed step and preserves ordinary run admission (#43 finding 7)", async () => {
   const { deps, producer } = await setup();
   appendLedger(producer, "M1 | Finished | abcdef1 | 1 | passed");
-  await expect(withWorkspaceAdmission(producer, deps.now(), async () => "admitted")).rejects.toMatchObject({
-    code: "E_INPUT_INVALID",
-  });
+  expect(await withWorkspaceAdmission(producer, deps.now(), async () => "admitted")).toBe("admitted");
   const ordinary = createRun({ repo: tempRepo(), title: "Ordinary", aLines: [], version: "test" });
   expect(await withWorkspaceAdmission(ordinary, deps.now(), async () => "admitted")).toBe("admitted");
 });

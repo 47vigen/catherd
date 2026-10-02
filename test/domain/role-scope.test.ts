@@ -59,6 +59,12 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
         "workspace_child_start",
         "workspace_contract",
         "workspace_start",
+        "workspace_budget",
+        "workspace_pause",
+        "workspace_resume",
+        "lane_set",
+        "owns_add",
+        "run_pin",
       ].sort(),
     );
     for (const tool of COORDINATOR_TOOLS)

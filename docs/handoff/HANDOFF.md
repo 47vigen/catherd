@@ -11,8 +11,8 @@ worker per plan; one final review, one fix wave, one Codex round, merge on green
 | 21 roles and ownership | `docs/plans/2026-10-02-21-roles-ownership.md` | **merged** (PR #46; final review 0 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan21-ledger.md`) |
 | 22 delivery and the loop | `docs/plans/2026-10-02-22-delivery-loop.md` | **merged** (PR #47; final review 0 C / 2 I fixed; Codex 2 P1 fixed; ledger `plan22-ledger.md`) |
 | 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | **merged** (PR #48; final review 1 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; CI flake root-caused (test-side fsync starving the poll) and made deterministic; ledger `plan23-ledger.md`) |
-| 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | in PR |
-| 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | pending |
+| 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | **merged** (PR #49; final review 0 C / 1 I + 1 upgraded minor fixed; Codex 1 P2 fixed; ledger `plan24-ledger.md`) |
+| 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | in PR |
 | 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | pending |
 | 27 release 1.5.0 | — | pending |
 

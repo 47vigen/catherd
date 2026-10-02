@@ -1,13 +1,15 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
+import { parseLaneHeader } from "../domain/lane.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
 import { failedItems, type VerifierStep } from "./gate-service.ts";
 import {
   countFindings,
+  FINDING,
   landedMilestones,
   milestoneReviewer,
   milestoneVerifier,
@@ -17,6 +19,7 @@ import {
   partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
+import { openQuestions } from "./questions.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
 // Spec 1.1 §10: the protocol's next step, derived from the run's own files so a session that lost its
@@ -81,6 +84,24 @@ function laneDone(run: Run, lane: string, routes: RouteRow[], live: Dispatch[]):
   return latest?.ok ?? false;
 }
 
+/** The lane's After: lanes, from its file; none when it has none or cannot be read. */
+function afterOf(run: Run, lane: string): string[] {
+  try {
+    return parseLaneHeader(readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8")).after;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Spec 1.5 "Lane editing": the lanes `lane`'s After: line names that have not finished: their milestone has
+ * not landed and their latest try since the latest climb is still running, or did not end ok.
+ */
+export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = readRoutes(run)): string[] {
+  const landed = new Set(landedMilestones(run));
+  return afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)) && !laneDone(run, a, routes, []));
+}
+
 /**
  * The step the milestone loop is at: the first milestone neither landed nor parked, and within it the
  * first of route, dispatch, collect, reviewer, verifier and land that is still to do.
@@ -108,10 +129,19 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
     return last?.source === "climb" && last.from === last.rung;
   });
   const waiting = notDone.filter((l) => !spent.includes(l));
-  if (waiting.length) return `dispatch ${waiting.join(", ")}`;
+  // an After: line keeps a lane back until the lanes it names have finished
+  const held = new Map(waiting.map((l) => [l, unfinishedAfter(run, l, routes)]));
+  const ready = waiting.filter((l) => held.get(l)?.length === 0);
+  const order = waiting
+    .filter((l) => !ready.includes(l))
+    .map((l) => `${l} after ${held.get(l)?.join(", ")}`)
+    .join("; ");
+  if (ready.length) return `dispatch ${ready.join(", ")}${order ? `; then ${order}` : ""}`;
   if (spent.length) return `${spent.join(", ")}: out of rungs — ask finding, then the architect or park ${m}`;
   const running = live.filter((d) => d.admit.lane !== null && mine.includes(d.admit.lane));
-  if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
+  if (running.length)
+    return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})${order ? `; then ${order}` : ""}`;
+  if (order) return `${m}: ${order} (After:), not done: finish those lanes first`;
   const start = milestoneStart(run, m);
   if (!reviewerPassed(run, m, start)) {
     // plan 23: a partial review is not the review: a second pass, scoped to what it did not read
@@ -150,6 +180,17 @@ function findingCounts(run: Run, r: RunRecord | undefined): string {
   return `${total} finding(s): ${n.BLOCKER} BLOCKER, ${n.BUG} BUG, ${n.NIT} NIT`;
 }
 
+/** The reviewer's BLOCKER and BUG lines, as it wrote them: what the digest lists as findings. */
+function findingLines(run: Run, r: RunRecord | null | undefined): string[] {
+  if (!r?.replyPath) return [];
+  const file = join(run.dir, r.replyPath);
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  return text
+    .split("\n")
+    .filter((l) => /^(BLOCKER|BUG)$/.test(FINDING.exec(l)?.[1] ?? ""))
+    .map((l) => l.trim().replace(/^[-*]\s*/, ""));
+}
+
 const k = (x: number) => (x >= 1000 ? `${Math.round(x / 1000)}k` : String(x));
 
 /**
@@ -159,7 +200,18 @@ const k = (x: number) => (x >= 1000 ? `${Math.round(x / 1000)}k` : String(x));
  */
 export function writeDigest(
   run: Run,
-  i: { milestone: string; what: string; commit: string; evidence: string; minutes: number; at: string },
+  i: {
+    milestone: string;
+    what: string;
+    commit: string;
+    evidence: string;
+    minutes: number;
+    at: string;
+    /** spec 1.5: the commits the milestone landed, `<hash> <subject>`, oldest first */
+    commits?: string[];
+    /** spec 1.5: the parked and paused minutes `minutes` leaves out */
+    pausedMinutes?: number;
+  },
 ): string {
   const m = i.milestone;
   const start = milestoneStart(run, m);
@@ -177,6 +229,9 @@ export function writeDigest(
   const records = readRecords(run).records;
   // the reviewer the gate counted: since the milestone's lanes started, a dispatch or a native subagent
   const reviewer = milestoneReviewer(run, m, start);
+  // spec 1.5: the review's BLOCKER and BUG lines, and the owner questions still open in the run
+  const findings = findingLines(run, reviewer?.record);
+  const open = openQuestions(run);
   const agents = readAgentRuns(run);
   // the verdict the gate counted: the latest attempt, native or headless, a FAIL shown as such
   const verdict = milestoneVerifier(run, m, start);
@@ -207,7 +262,8 @@ export function writeDigest(
   const text = [
     `# ${m} — ${i.what}`,
     "",
-    `Commit ${i.commit} · ${i.minutes} min · landed ${i.at}`,
+    `Commit ${i.commit} · ${i.minutes} min${i.pausedMinutes ? ` (${i.pausedMinutes} min parked or paused left out)` : ""} · landed ${i.at}`,
+    ...(i.commits?.length ? [`Commits: ${i.commits.join("; ")}`] : []),
     `A-lines: ${aLines.length ? aLines.join("; ") : "none named in what or evidence"}`,
     "",
     "Lanes:",
@@ -215,6 +271,8 @@ export function writeDigest(
     "",
     `Reviewer: ${reviewer ? `${reviewer.name} · ${reviewer.record ? findingCounts(run, reviewer.record) : "a Claude subagent (findings in its reply)"}` : "none"}`,
     `Verifier: ${verdict ? `${verdict.passed ? "PASS" : `FAIL: ${verdict.verdict}`} (${verdict.name}${verdict.headless ? ", headless" : ""})` : "none"}${steps.length ? ` · carried: ${steps.map((s) => `${s.item}${s.commit ? ` from ${s.commit}` : ""}`).join(", ")}` : ""}`,
+    `Findings: ${findings.length ? findings.join(" · ") : "no BLOCKER or BUG lines"}`,
+    `Open: ${open.length ? open.map((q) => `${q.milestone} parked: ${q.question}`).join(" · ") : "none"}`,
     `Evidence: ${i.evidence}`,
     `Tokens: ${k(tokens.input)} in (${k(tokens.cached)} cached) · ${k(tokens.output)} out · Claude subagents ${k(reported)} (reported)`,
     "",

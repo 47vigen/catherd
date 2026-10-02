@@ -37,8 +37,12 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
+import { assertNotPaused } from "./pause.ts";
+import { currentOwns } from "./lane-edit.ts";
+import { unfinishedAfter } from "./protocol.ts";
+import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
-import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
+import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
 import { verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
@@ -141,6 +145,15 @@ async function prepared(adapter: BackendAdapter, req: Parameters<NonNullable<Bac
   }
 }
 
+/** Refuses a dispatch into a run `runs supersede` closed, naming the run that took over. */
+function assertNotSuperseded(run: Run): void {
+  const closed = supersededBy(run);
+  if (closed)
+    throw new CatherdError("E_RUN_NOT_LIVE", `run ${run.id} is superseded by ${closed.by}`, {
+      fix: `dispatch in run ${closed.by}`,
+    });
+}
+
 /**
  * Spec §4.4 step 1. The checks that read shared state and the write that makes the dispatch live
  * happen under the run's admission lock, so parallel dispatches always see each other (audit C1).
@@ -153,8 +166,12 @@ export async function admit(
 ): Promise<{ d: Dispatch; specPath: string }> {
   assertId("role name", i.name);
   if (i.lane !== null) assertId("lane", i.lane);
+  // a machine or workspace pause refuses every dispatch it covers, with its reason (spec 1.5 "Group pause")
+  assertNotPaused(run);
+  assertNotSuperseded(run);
   const rung = parseRung(i.rung);
-  const profile = deps.profiles.forRepo(run.meta.repo);
+  // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
+  const profile = runProfile(deps, run);
   const rc = profile.roles[i.role];
   if (!rc?.enabled)
     throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
@@ -202,6 +219,14 @@ export async function admit(
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
   // spec 1.5 plan 21: the writer's implicit docs lane, for attribution only
   const ownsImplicit = i.role === "writer" && i.lane === null ? (briefOwns(i.brief) ?? DOCS_OWNS) : null;
+  // spec 1.5 "Lane editing": an After: line orders lanes that compile against each other
+  const before = i.lane === null ? [] : unfinishedAfter(run, i.lane);
+  if (before.length)
+    throw new CatherdError(
+      "E_ADMIT_ORDER",
+      `${i.lane} runs after ${before.join(", ")} (its After: line), which ${before.length > 1 ? "have" : "has"} not finished`,
+      { fix: `dispatch ${i.lane} once ${before.join(", ")} ${before.length > 1 ? "end" : "ends"} ok` },
+    );
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
@@ -219,6 +244,8 @@ export async function admit(
 
   await finalizeFinished(run, deps.now(), onRecorded);
   return withRunAdmission(run, deps.now, async () => {
+    // again under the lock `runs supersede` writes under: a supersede that landed since the check above wins
+    assertNotSuperseded(run);
     // the scratch is created under the admission lock `catherd runs clean` takes too, so cleanup never removes
     // the scratch of a dispatch it does not see live yet (PR #46)
     const scratch = roleScratch(run, i.name, rung.backend, isolated);
@@ -257,7 +284,9 @@ export async function admit(
         },
       );
     for (const d of pending) {
-      const shared = overlaps(owns, d.admit.owns);
+      // a running lane holds what owns_add granted it since its admission, too
+      const held = d.admit.lane ? [...d.admit.owns, ...currentOwns(run, d.admit.lane)] : d.admit.owns;
+      const shared = overlaps(owns, held);
       if (shared.length)
         throw new CatherdError(
           "E_ADMIT_OVERLAP",
@@ -302,7 +331,8 @@ export async function admit(
     };
     ensurePrivateDir(dir);
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
-    const gate = i.role === "verifier" ? gateEnvParts(readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
+    const gate =
+      i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
     // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
     // a verifier's brief also carries the gate's rules and the run's recorded items

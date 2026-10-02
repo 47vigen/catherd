@@ -19,6 +19,8 @@ const NotesSchema = z.looseObject({
   lastLandedAt: z.string().nullable(),
   /** spec 1.1 §8: the milestones waiting on the owner */
   parked: z.array(z.string()).optional(),
+  /** spec 1.5: what changed since the run's pin, as dispatch last saw it */
+  pinChanges: z.array(z.string()).optional(),
 });
 export type Notes = z.infer<typeof NotesSchema>;
 export type NotesPatch = Partial<Omit<Notes, "schema">>;
@@ -68,12 +70,31 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
         brief: relative(run.dir, dispatchPaths(d.dir).brief),
       })),
       lastCheck: next.lastCheck,
+      pinChanges: next.pinChanges ?? [],
       next: next.next,
       protocol: protocolNext(run, next.parked ?? []),
     });
     writeTextAtomic(p.state, text);
     return text;
   });
+}
+
+/**
+ * Writes state.json's notes only, with no git, under the state lock; for a writer that must not wait on git
+ * while it holds another lock (`land` in a workspace, #43 finding 5). It waits out a refresh's git (15 s).
+ */
+export function patchNotes(run: Run, change: (n: Notes) => NotesPatch): Promise<Notes> {
+  const stateJson = runPaths(run.dir).stateJson;
+  return withFileLock(
+    stateJson,
+    () => {
+      const notes = readNotes(run);
+      const next = parkedNext({ ...notes, ...change(notes) });
+      writeJsonAtomic(stateJson, next);
+      return next;
+    },
+    { timeoutMs: 30_000 },
+  );
 }
 
 /**

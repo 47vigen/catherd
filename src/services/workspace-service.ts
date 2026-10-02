@@ -9,17 +9,22 @@ import { gitToplevel } from "../infra/git.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { listDispatches } from "./dispatches.ts";
 import { landedCommits, landedMilestones } from "./milestones.ts";
+import { assertNotPaused, pausesOver } from "./pause.ts";
+import { writePin } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { createRun, readRecords, type Run } from "./run-store.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { refreshState } from "./state.ts";
 import { summarizeRun } from "./summary.ts";
-import { workspaceSpend } from "./workspace-admission.ts";
+import { assertWorkspaceBudget, dependencyBlockers, workspaceSpend } from "./workspace-admission.ts";
 import {
   createWorkspace,
   findWorkspace,
+  unreadableWarning,
+  WORKSPACE_LOCK_WAIT_MS,
   workspaceChildren,
   workspaceDirectory,
+  workspaceListing,
   workspacePaths,
 } from "./workspace-store.ts";
 
@@ -88,6 +93,8 @@ export async function startWorkspace(
       aLines: string[];
       dependsOn?: string[];
       milestone?: string;
+      release?: "land" | "merge";
+      base?: string;
     }>;
     budget?: Budget;
   },
@@ -109,49 +116,28 @@ export async function startWorkspace(
     createdAt: new Date(deps.now()).toISOString(),
     repos: selected,
     steps: input.steps,
-    budget: input.budget ?? deps.profiles.budgetFor?.(null) ?? deps.profiles.forRepo(null).budget,
+    // #43 finding 4: no cap unless the owner sets one; each child keeps its own profile budget
+    budget: input.budget ?? {},
   });
   if (!snapshot.success)
     throw invalid(
-      "workspace requires unique step ids, ordered repository reuse, valid budget, and an acyclic dependency graph",
+      `workspace requires unique step ids, ordered repository reuse, valid budget, and an acyclic dependency graph: ${snapshot.error.issues[0]?.message ?? "invalid"}`,
     );
   const canonical = await inspectWorkspace(root, selected);
   const workspace = createWorkspace({ ...snapshot.data, repos: canonical.repos }, new Date(deps.now()));
   return { workspace, dir: workspaceDirectory(workspace.id) };
 }
 
-function pending(run: Run): boolean {
+/** Whether a child still has dispatches nobody collected; null when its records cannot be read. */
+function ownPending(run: Run): boolean | null {
   const { records, corrupt } = readRecords(run);
-  if (corrupt) throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has unreadable cost records`);
+  if (corrupt) return null;
   const recorded = new Set(records.map((r) => r.dispatchId));
-  return listDispatches(run, true).some((d) => !recorded.has(d.admit.dispatchId));
-}
-
-function completion(children: Run[]): Map<string, { landed: string[]; pending: boolean }> {
-  return new Map(
-    children.map((child) => [
-      child.meta.workspace!.step,
-      {
-        landed: landedMilestones(child),
-        pending: pending(child),
-      },
-    ]),
-  );
-}
-
-export function workspaceStepBlockedBy(
-  workspace: Workspace,
-  stepId: string,
-  children = workspaceChildren(workspace),
-  evidence = completion(children),
-): string[] {
-  const step = workspace.steps.find((s) => s.id === stepId);
-  if (!step) throw invalid(`unknown workspace step ${stepId}`);
-  return step.dependsOn.filter((id) => {
-    const predecessor = workspace.steps.find((s) => s.id === id)!;
-    const child = evidence.get(id);
-    return !child || !child.landed.includes(predecessor.milestone) || child.pending;
-  });
+  try {
+    return listDispatches(run, true).some((d) => !recorded.has(d.admit.dispatchId));
+  } catch {
+    return null;
+  }
 }
 
 export async function startWorkspaceChild(
@@ -160,64 +146,91 @@ export async function startWorkspaceChild(
 ): Promise<{ run: string; dir: string; contract: string | null }> {
   const workspace = findWorkspace(input.workspace);
   const paths = workspacePaths(workspaceDirectory(workspace.id));
-  return withFileLock(paths.admission, async () => {
-    const children = workspaceChildren(workspace);
-    const step = workspace.steps.find((s) => s.id === input.step);
-    if (!step) throw invalid(`unknown workspace step ${input.step}`);
-    // Recovery must validate the checkout too; stored status remains readable without it.
-    const repo = workspace.repos[step.repo]!;
-    if ((await gitToplevel(repo)) !== repo)
-      throw new CatherdError(
-        "E_IO_PATH",
-        `workspace repository ${step.repo} is no longer the captured git root`,
-      );
-    let run = children.find((r) => r.meta.workspace?.step === step.id);
-    if (!run) {
-      const blockedBy = workspaceStepBlockedBy(workspace, step.id, children);
-      if (blockedBy.length) throw invalid(`workspace step ${step.id} waits for ${blockedBy.join(", ")}`);
-      const budget = budgetStatus(await workspaceSpend(workspace, deps.now(), children), workspace.budget);
-      if (budget && budget.fraction >= 1) throw new CatherdError("E_RUN_BUDGET", "workspace budget is spent");
-      run = createRun({
-        repo,
-        title: step.title,
-        aLines: step.aLines,
-        version: deps.version,
-        now: new Date(deps.now()),
-        startedBy: currentSession(deps),
-        workspace: { id: workspace.id, step: step.id },
-      });
-    }
-    const contract = existsSync(paths.contract) ? join(run.dir, "workspace-contract.md") : null;
-    if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(paths.contract, "utf8"));
-    await claimRun(deps, run);
-    await refreshState(run);
-    return { run: run.id, dir: run.dir, contract };
-  });
+  const step = workspace.steps.find((s) => s.id === input.step);
+  if (!step) throw invalid(`unknown workspace step ${input.step}`);
+  // Recovery must validate the checkout too; stored status remains readable without it. The git work runs
+  // outside the workspace lock (#43 finding 5).
+  const repo = workspace.repos[step.repo]!;
+  if ((await gitToplevel(repo)) !== repo)
+    throw new CatherdError(
+      "E_IO_PATH",
+      `workspace repository ${step.repo} is no longer the captured git root`,
+    );
+  const run = await withFileLock(
+    paths.admission,
+    () => childFor(deps, workspace, step, repo, paths.contract),
+    { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+  );
+  const contract = existsSync(paths.contract) ? join(run.dir, "workspace-contract.md") : null;
+  await claimRun(deps, run);
+  await refreshState(run);
+  return { run: run.id, dir: run.dir, contract };
+}
+
+/** Under the workspace lock: the step's child, created once its dependencies release it. */
+async function childFor(
+  deps: Deps,
+  workspace: Workspace,
+  step: Workspace["steps"][number],
+  repo: string,
+  contractFile: string,
+): Promise<Run> {
+  const children = workspaceChildren(workspace);
+  let run = children.find((r) => r.meta.workspace?.step === step.id);
+  if (!run) {
+    assertNotPaused({ meta: { workspace: { id: workspace.id, step: step.id } } });
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
+    if (blockers.length)
+      throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
+    await assertWorkspaceBudget(workspace, deps.now(), children);
+    run = createRun({
+      repo,
+      title: step.title,
+      aLines: step.aLines,
+      version: deps.version,
+      now: new Date(deps.now()),
+      startedBy: currentSession(deps),
+      workspace: { id: workspace.id, step: step.id },
+    });
+    writePin(deps, run);
+  }
+  const contract = existsSync(contractFile) ? join(run.dir, "workspace-contract.md") : null;
+  if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(contractFile, "utf8"));
+  return run;
 }
 
 export async function workspaceStatus(deps: Deps, id: string) {
   const workspace = findWorkspace(id);
-  const children = workspaceChildren(workspace);
-  const evidence = completion(children);
-  const steps = workspace.steps.map((step) => {
+  const { children, unreadable } = workspaceListing(workspace);
+  // #43 finding 2: a corrupt child is a warning here, never a failed status
+  const warnings = unreadable.map(unreadableWarning);
+  const steps = [];
+  for (const step of workspace.steps) {
     const child = children.find((r) => r.meta.workspace?.step === step.id);
     const summary = child ? summarizeRun(deps, child) : null;
-    const facts = evidence.get(step.id);
-    const landed = facts?.landed ?? [];
-    const blockedBy = workspaceStepBlockedBy(workspace, step.id, children, evidence);
+    const landed = child ? landedMilestones(child) : [];
+    const pending = child ? ownPending(child) : false;
+    if (child && pending === null)
+      warnings.push(`${step.id}: run ${child.id} has unreadable dispatch records`);
+    // #43 finding 7: a milestone that differs only by case never releases the dependents
+    const twin = landed.find((m) => m !== step.milestone && m.toLowerCase() === step.milestone.toLowerCase());
+    if (twin && !landed.includes(step.milestone))
+      warnings.push(`${step.id} completes on ${step.milestone}, but its run landed ${twin}`);
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
     const state: "waiting" | "ready" | "active" | "landed" = child
-      ? landed.includes(step.milestone) && !facts?.pending
+      ? landed.includes(step.milestone) && pending === false
         ? "landed"
         : "active"
-      : blockedBy.length
+      : blockers.length
         ? "waiting"
         : "ready";
-    return {
+    steps.push({
       id: step.id,
       repo: step.repo,
       state,
       run: child?.id ?? null,
-      blockedBy,
+      blockedBy: blockers.map((b) => b.step),
+      waitingFor: blockers.map((b) => b.why),
       landedMilestones: landed,
       landedCommits: child ? landedCommits(child) : [],
       failures: summary?.totals.notOk ?? [],
@@ -225,14 +238,17 @@ export async function workspaceStatus(deps: Deps, id: string) {
       live: summary?.live ?? [],
       childBudget: summary?.budget ?? null,
       warnings: summary?.warnings ?? [],
-    };
-  });
-  const spend = await workspaceSpend(workspace, deps.now(), children);
+    });
+  }
+  const spend = await workspaceSpend(workspace, deps.now(), children, warnings);
   return {
+    // spec 1.5 "Group pause": a pause over the workspace comes first
+    paused: pausesOver([{ meta: { workspace: { id, step: workspace.steps[0]!.id } } }]),
     workspace,
     dir: workspaceDirectory(id),
     steps,
     spend,
     budget: budgetStatus(spend, workspace.budget),
+    warnings,
   };
 }

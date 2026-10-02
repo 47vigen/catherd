@@ -1,4 +1,5 @@
-import { type CatherdError, isCatherdError } from "../domain/errors.ts";
+import { CatherdError, isCatherdError } from "../domain/errors.ts";
+import { roleScopeFromEnv } from "../domain/role-scope.ts";
 import { RUN_NOT_FOUND_FIX } from "../services/run-store.ts";
 import { glyph, type State } from "./glyphs.ts";
 
@@ -23,6 +24,21 @@ export function printError(e: Pick<CatherdError, "code" | "message" | "fix">): v
 /** Bad input from the command line is a usage error; any other catherd error is an error. */
 export const exitCodeOf = (e: unknown): number =>
   isCatherdError(e) && e.code === "E_INPUT_INVALID" ? EXIT.usage : EXIT.error;
+
+/**
+ * Spec 1.5 plan 21: a role's shell (CATHERD_ROLE, or its scratch TMPDIR) never runs a command that writes the
+ * orchestrator's state (pause, runs cancel, profile set, …): E_ROLE_SCOPE, as `catherd run-file` and `catherd gate`
+ * refuse an operation the role has not. `command` is the command as typed, like `catherd pause`.
+ */
+export function refuseInRole(env: Record<string, string | undefined>, command: string): void {
+  const scope = roleScopeFromEnv(env);
+  if (!scope) return;
+  throw new CatherdError(
+    "E_ROLE_SCOPE",
+    `${command} is the orchestrator's: this process runs ${scope.name} of run ${scope.run}`,
+    { fix: "report it in your reply; the orchestrator does it" },
+  );
+}
 
 export const printJson = (v: unknown): void => console.log(JSON.stringify(v, null, 2));
 

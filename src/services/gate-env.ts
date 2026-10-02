@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { ROLE_ENV } from "../domain/role-scope.ts";
@@ -9,6 +9,7 @@ import { gitToplevel } from "../infra/git.ts";
 import { DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { repoDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
+import { knowledgeFor } from "./run-store.ts";
 
 // Plan 23: the gate environment a repo's verifier and preflight need (DOCKER_HOST, HTTPS_PROXY, a
 // TESTCONTAINERS_* setting), kept beside the repo's knowledge.md, so no verifier sets it up by hand. A value is
@@ -26,8 +27,32 @@ const GateEnvSchema = z.looseObject({
 });
 type GateEnvFile = z.infer<typeof GateEnvSchema>;
 
-/** `<data>/repos/<repo key>/gate-env.json`, beside knowledge.md and gates.jsonl. */
+/** `<data>/repos/<repo key>/gate-env.json`: where a toplevel keyed it (before 1.5, and with no origin). */
 export const gateEnvFile = (toplevel: string): string => join(repoDir(toplevel), "gate-env.json");
+
+/**
+ * Spec 1.5 "Knowledge keyed by git origin": the gate-env.json beside the repo's knowledge.md, which every
+ * worktree and clone of one repository shares. A toplevel-keyed file this worktree left before is migrated on
+ * read: its variables join the shared file (the shared file's own win), and it is renamed `.migrated`.
+ */
+export async function gateEnvFor(toplevel: string): Promise<string> {
+  const file = join(dirname(await knowledgeFor(toplevel)), "gate-env.json");
+  const legacy = gateEnvFile(toplevel);
+  if (file === legacy || !existsSync(legacy)) return file;
+  ensurePrivateDir(dirname(file));
+  await withFileLock(file, () => {
+    if (!existsSync(legacy)) return;
+    const vars = { ...readVarsAt(legacy), ...readVarsAt(file) };
+    writeJsonAtomic(file, { schema: GATE_ENV_SCHEMA, vars } satisfies GateEnvFile);
+    renameSync(legacy, `${legacy}.migrated`);
+  });
+  return file;
+}
+
+function readVarsAt(file: string): Record<string, GateEnvEntry> {
+  if (!existsSync(file)) return {};
+  return readVersioned<GateEnvFile>(file, GateEnvSchema, GATE_ENV_SCHEMA).vars;
+}
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A name a secret goes by: such a variable is set by reference (--from), never by value. */
@@ -59,10 +84,8 @@ const RESERVED = new Set([
 ]);
 
 /** The repo's gate environment, by name; empty when none is set. */
-export function readGateEnv(toplevel: string): Record<string, GateEnvEntry> {
-  const file = gateEnvFile(toplevel);
-  if (!existsSync(file)) return {};
-  return readVersioned<GateEnvFile>(file, GateEnvSchema, GATE_ENV_SCHEMA).vars;
+export async function readGateEnv(toplevel: string): Promise<Record<string, GateEnvEntry>> {
+  return readVarsAt(await gateEnvFor(toplevel));
 }
 
 async function top(repo: string): Promise<string> {
@@ -86,10 +109,10 @@ async function update(
   change: (vars: Record<string, GateEnvEntry>) => void,
 ): Promise<{ repo: string; vars: Record<string, GateEnvEntry> }> {
   const t = await top(repo);
-  const file = gateEnvFile(t);
-  ensurePrivateDir(repoDir(t));
+  const file = await gateEnvFor(t);
+  ensurePrivateDir(dirname(file));
   return withFileLock(file, () => {
-    const vars = { ...readGateEnv(t) };
+    const vars = { ...readVarsAt(file) };
     change(vars);
     writeJsonAtomic(file, { schema: GATE_ENV_SCHEMA, vars } satisfies GateEnvFile);
     return { repo: t, vars };

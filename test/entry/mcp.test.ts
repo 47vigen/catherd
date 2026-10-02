@@ -46,13 +46,19 @@ const TOOLS = [
   "workspace_child_start",
   "workspace_status",
   "test_push",
+  "workspace_budget",
+  "workspace_pause",
+  "workspace_resume",
+  "lane_set",
+  "owns_add",
+  "run_pin",
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the run and workspace tools, 32 of them", async () => {
+  it("lists exactly the run and workspace tools, 38 of them", async () => {
     freshRun();
     const c = await mcpClient();
-    expect(TOOLS).toHaveLength(32);
+    expect(TOOLS).toHaveLength(38);
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
     const described = (name: string) =>
       c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");
@@ -111,12 +117,35 @@ describe("MCP server", () => {
     const active = await call(c, "workspace_status", { workspace });
     expect(active.data.steps[0]).toMatchObject({ state: "active", run: child.data.run });
     expect(active.data.budget.tokens.cap).toBe(10000);
+    const raised = await call(c, "workspace_budget", { workspace, tokens: 20000, usd: 5 });
+    expect(raised.data.budget).toEqual({ tokens: 20000, usd: 5 });
+    expect((await call(c, "workspace_budget", { workspace, usd: null })).data.budget).toEqual({
+      tokens: 20000,
+    });
     const status = cli("workspace", "status", workspace, "--json");
     expect(status.exitCode).toBe(0);
     expect(JSON.parse(status.stdout.toString()).steps[0]).toMatchObject({
       state: "active",
       run: child.data.run,
     });
+  });
+
+  it("refuses a workspace step with an unknown key instead of dropping it (#43 finding 6)", async () => {
+    freshRun();
+    const root = tempDir("catherd-workspace-");
+    const c = await mcpClient(fakeDeps());
+    const r = await call(c, "workspace_start", {
+      root,
+      repos: { api: tempRepo(), web: tempRepo() },
+      title: "camel case",
+      a_lines: ["A1 web waits for api"],
+      steps: [
+        { id: "api", repo: "api", title: "API", a_lines: ["A1 API"] },
+        { id: "web", repo: "web", title: "Web", a_lines: ["A1 Web"], dependsOn: ["api"] },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    expect(r.raw).toContain("dependsOn");
   });
 
   it("reports its version in status", async () => {

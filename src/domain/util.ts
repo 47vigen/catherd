@@ -16,6 +16,28 @@ export function median(xs: readonly number[]): number | null {
   return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2;
 }
 
+/** A stretch of time in epoch ms; `to` null while it is still open. */
+export interface Span {
+  from: number;
+  to: number | null;
+}
+
+/** How many ms of [from, to] any of `spans` covers, overlaps counted once; an open span runs to `to`. */
+export function coveredMs(from: number, to: number, spans: readonly Span[]): number {
+  const clipped = spans
+    .map((s) => [Math.max(from, s.from), Math.min(to, s.to ?? to)] as const)
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  let total = 0;
+  let end = -Infinity;
+  for (const [a, b] of clipped) {
+    if (b <= end) continue;
+    total += b - Math.max(a, end);
+    end = b;
+  }
+  return total;
+}
+
 /** A plain object: not null and not an array. */
 export const isPlain = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);

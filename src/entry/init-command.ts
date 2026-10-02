@@ -15,7 +15,7 @@ import { ensureGlobal, type GlobalInstallDeps, realGlobalInstall } from "../serv
 import { hasProfileFile, type InitResult, initSetup, moveLegacy } from "../services/setup.ts";
 import { activeName } from "../services/profile-store.ts";
 import { formatRefreshed, syncLines } from "./catalog-command.ts";
-import { mark as markOf } from "./cli-kit.ts";
+import { mark as markOf, refuseInRole } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
 import type { State } from "./glyphs.ts";
@@ -213,6 +213,7 @@ export const initCommand = defineCommand({
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
+    refuseInRole(process.env, "catherd init");
     // a bad --profile is refused before any question is asked
     if (args.profile !== undefined) assertProfileName(args.profile);
     const ask = (args as { input?: boolean }).input === false ? null : await prompter();

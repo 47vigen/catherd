@@ -13,7 +13,7 @@ import { fakeDeps, fakeDispatch, makeRecord } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
-async function setup() {
+async function setup(milestone = "M1") {
   withHome();
   const deps = fakeDeps();
   const repo = tempRepo();
@@ -23,7 +23,7 @@ async function setup() {
     title: "Completion admission",
     aLines: [],
     budget: { tokens: 1 },
-    steps: [{ id: "app", repo: "app", title: "App", aLines: [] }],
+    steps: [{ id: "app", repo: "app", title: "App", aLines: [], milestone }],
   });
   await startWorkspaceChild(deps, { workspace: workspace.id, step: "app" });
   const run = workspaceChildren(workspace)[0]!;
@@ -98,9 +98,44 @@ it("allows landing after a finished dispatch has been collected", async () => {
   const dispatch = await fakeDispatch(run, { lane: null }, { proc: "dead" });
   await appendRecord(run, makeRecord({ runId: run.id, dispatchId: dispatch.admit.dispatchId, lane: null }));
   await expect(land(deps, input)).resolves.toHaveProperty("ledger");
+  // #43 finding 7: a landed step is no longer refused as landed; only this workspace's spent budget stops it
   await expect(withWorkspaceAdmission(run, deps.now, async () => true)).rejects.toMatchObject({
-    code: "E_INPUT_INVALID",
+    code: "E_RUN_BUDGET",
   });
+});
+
+it("lands a milestone other than the step's completion while a dispatch runs (#43 finding 3)", async () => {
+  const { deps, run, input } = await setup("M2");
+  await fakeDispatch(run, { lane: null }, { proc: "self" });
+  await expect(land(deps, input)).resolves.toHaveProperty("ledger");
+  expect(landedMilestones(run)).toEqual(["M1"]);
+});
+
+it("says when a landed milestone differs from the step's only by case (#43 finding 7)", async () => {
+  const { deps, input } = await setup("m1");
+  const landed = await land(deps, input);
+  expect(landed.hints).toContainEqual(expect.stringContaining("M1 is not m1"));
+});
+
+it("runs the gate's git work before taking the workspace lock (#43 finding 5)", async () => {
+  const { deps, run, input } = await setup();
+  writeFileSync(runPaths(run.dir).agents, "");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let entered!: () => void;
+  const inside = new Promise<void>((resolve) => (entered = resolve));
+  const holder = withWorkspaceAdmission(run, deps.now, async () => {
+    entered();
+    await held;
+  });
+  await inside;
+  try {
+    // the gate refuses (no reviewer, no verifier) while the lock is still held: it never waited for it
+    await expect(land(deps, input)).rejects.toMatchObject({ code: "E_LAND_GATE" });
+  } finally {
+    release();
+    await holder;
+  }
 });
 
 it("refuses landing with corrupted dispatch records", async () => {

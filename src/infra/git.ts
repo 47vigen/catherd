@@ -54,6 +54,12 @@ export async function gitToplevel(dir: string): Promise<string | null> {
   return r.kind === "ok" ? r.out.trim() || null : null;
 }
 
+/** The repo's `origin` remote URL, or null when it has none (or git cannot say). */
+export async function gitOrigin(repo: string): Promise<string | null> {
+  const r = await git(repo, ["config", "--get", "remote.origin.url"]);
+  return (r.kind === "ok" && r.out.trim()) || null;
+}
+
 /** The short HEAD, or null when git cannot say (no commit, not a repo, failure, timeout). */
 export async function gitHead(repo: string, timeoutMs?: number): Promise<string | null> {
   const r = await git(repo, ["rev-parse", "--short", "HEAD"], timeoutMs);

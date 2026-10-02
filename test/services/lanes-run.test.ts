@@ -171,6 +171,7 @@ describe("land", () => {
       ledger: `M1 | login / form | ${c1} | 12 | bun test/12/12`,
       minutes: 12,
       digest: "digests/M1.md",
+      digestPath: join(run.dir, "digests", "M1.md"),
     });
     now += 5 * 60_000;
     const second = await land(deps, {
@@ -241,6 +242,7 @@ describe("a failed state.md refresh", () => {
       ledger: `M1 | x | ${c1} | 3 | ok`,
       minutes: 3,
       digest: "digests/M1.md",
+      digestPath: join(run.dir, "digests", "M1.md"),
       hints: [hint],
     });
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(state);
@@ -326,6 +328,17 @@ describe("run files, result and agent runs", () => {
     expect(await codeOf(() => readRunFile({ run: run.id, path: "nope.md" }))).toBe("E_IO_PATH");
     await setNext({ run: run.id, next: "paused: user asked" });
     expect(nextLine(runPaths(run.dir).state)).toBe("Next: paused: user asked");
+  });
+
+  it("refuses a lane whose header values are wrong when it is written, not at preflight", async () => {
+    const { run } = freshRun();
+    const lane = "# M1.L1\nOwns: src/a.ts\nKind: repo_code\nDifficulty: medium\n";
+    expect(await codeOf(() => writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: lane }))).toBe(
+      "E_LANE_INVALID",
+    );
+    expect(existsSync(join(run.dir, "lanes", "M1.L1.md"))).toBe(false);
+    // only a lane is checked: a plan may quote the word
+    writeRunFile({ run: run.id, path: "plan.md", content: lane });
   });
 
   it("returns a live role's state, then its record, capped reply and hints", async () => {

@@ -10,10 +10,20 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
-import { readRecords } from "../../src/services/run-store.ts";
+import { ownsAdd } from "../../src/services/lane-edit.ts";
+import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { briefFor, fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
+import {
+  briefFor,
+  fakeDeps,
+  fakeDispatch,
+  fakeGit,
+  freshRun,
+  makeRecord,
+  testView,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -99,6 +109,24 @@ describe("admission", () => {
     });
   });
 
+  it("refuses a lane whose After: lane has not finished, naming it (spec 1.5 lane order)", async () => {
+    const { run } = setup();
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
+    const e = await admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })).catch((x) => x);
+    expect(e).toMatchObject({
+      code: "E_ADMIT_ORDER",
+      message: "M1.L2 runs after M1.L1 (its After: line), which has not finished",
+    });
+    const first = await admit(fakeDeps(), run, input());
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: first.d.admit.dispatchId, name: "worker-M1.L1" }),
+    );
+    expect(await refusal(admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })))).toBe(
+      "admitted",
+    );
+  });
+
   it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {
     const { repo, run } = setup();
     process.env.FOO_API_KEY = "s3cret";
@@ -180,6 +208,18 @@ describe("admission", () => {
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L4", lane: "M1.L4" })))).toBe("admitted");
   });
 
+  it("refuses a lane overlapping what owns_add granted a running lane since its admission", async () => {
+    const { run } = setup();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L5", ["kit/"]);
+    await fakeDispatch(run, { name: "worker-M1.L5", lane: "M1.L5", owns: ["kit/"] }, { proc: "self" });
+    await ownsAdd(deps, { run: run.id, lane: "M1.L5", paths: ["src/a_test.ts"], why: "its test" });
+    writeLane(run, "M1.L6", ["src/a_test.ts"]);
+    expect(await refusal(admit(deps, run, input({ name: "worker-M1.L6", lane: "M1.L6" })))).toBe(
+      "E_ADMIT_OVERLAP",
+    );
+  });
+
   it("finalizes an exited dispatch nobody waits for before its checks, then admits", async () => {
     const { run } = setup();
     const endedAt = new Date().toISOString();
@@ -239,7 +279,7 @@ describe("admission", () => {
     const deps = fakeDeps({ view: testView({ budget: { tokens: 300 } }) });
     await fakeDispatch(
       run,
-      { name: "worker-M1.L9", owns: ["other/"] },
+      { name: "worker-M1.L9", lane: "M1.L9", owns: ["other/"] },
       { proc: "self", events: readFileSync(join(FX, "two-turns.jsonl"), "utf8") },
     );
     expect(await refusal(admit(deps, run, input()))).toBe("E_RUN_BUDGET");

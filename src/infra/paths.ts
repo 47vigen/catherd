@@ -34,6 +34,41 @@ export function repoKey(toplevel: string): string {
 }
 
 export const repoDir = (toplevel: string): string => join(dataDir(), "repos", repoKey(toplevel));
+
+/**
+ * One repository however it is cloned or checked out (spec 1.5 "Knowledge keyed by git origin"):
+ * `git@github.com:a/b.git`, `https://user@github.com/a/b` and `ssh://git@github.com/a/b.git/` are all
+ * `github.com/a/b`. The host is lower-cased; the path keeps its case.
+ */
+export function normalizeOrigin(url: string): string {
+  let s = url
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "");
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(s)?.[1]?.toLowerCase() ?? null;
+  const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(s);
+  if (scp && !scheme) s = `${scp[1]}/${scp[2]}`;
+  else s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^@/]+@/, "");
+  const [host = "", ...path] = s.split("/");
+  // only the scheme's own default port goes: two servers on one host on other ports are two repos (PR #50)
+  const port = /:(\d+)$/.exec(host)?.[1];
+  const bare = port !== undefined && scheme !== null && DEFAULT_PORTS[scheme] === port;
+  return [(bare ? host.slice(0, -port.length - 1) : host).toLowerCase(), ...path].join("/");
+}
+
+/** Each git URL scheme's default port, which a URL may name or leave out for the same server. */
+const DEFAULT_PORTS: Record<string, string> = {
+  ssh: "22",
+  "git+ssh": "22",
+  "ssh+git": "22",
+  https: "443",
+  http: "80",
+  git: "9418",
+};
+
+/** Where what runs of one repository learned lives, keyed by its origin, whatever worktree it runs in. */
+export const originDir = (url: string): string =>
+  join(dataDir(), "repos", `origin-${repoKey(normalizeOrigin(url))}`);
 export const runsDir = (toplevel: string): string => join(repoDir(toplevel), "runs");
 export const logsDir = (): string => join(dataDir(), "logs");
 export const discoveryDir = (): string => join(dataDir(), "discovery");

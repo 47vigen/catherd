@@ -9,6 +9,7 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       "mcp__plugin_catherd_catherd__gate_pass",
       "report it as carried over from its commit",
       "Run independent items side by side, each heavy one wrapped in catherd lock",
+      "catherd lock --role verifier -- <command>",
       "Build each commit's images once, and reuse them for the boot check and the acceptance suite.",
       "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
     ])

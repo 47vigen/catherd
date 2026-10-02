@@ -145,6 +145,27 @@ describe("Protocol next (spec 1.1 §10)", () => {
     expect(protocolNext(run, [])).toBe("M1: reviewer");
   });
 
+  it("keeps a lane back until the lanes its After: line names have finished ok", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["kit/"]);
+    writeLane(run, "M1.L2", ["web/"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
+    writeLane(run, "M1.L3", ["api/"]);
+    for (const l of ["M1.L1", "M1.L2", "M1.L3"])
+      await route(deps, { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L3; then M1.L2 after M1.L1");
+    worked(run, "M1.L3");
+    const kit = await fakeDispatch(run, { name: "worker-M1.L1", lane: "M1.L1" }, { proc: "self" });
+    expect(protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L1); then M1.L2 after M1.L1");
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: kit.admit.dispatchId, name: "worker-M1.L1", status: "failed" }),
+    );
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1; then M1.L2 after M1.L1");
+    worked(run, "M1.L1");
+    expect(protocolNext(run, [])).toBe("dispatch M1.L2");
+  });
+
   it("says finish once every milestone landed", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);
@@ -351,6 +372,11 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       "- M1.L1 · codex:gpt-6-luna#high → codex:gpt-6-sol#medium · climbs: check-failed-twice",
     );
     expect(text).toContain("Reviewer: reviewer-M1 · 2 finding(s): 0 BLOCKER, 1 BUG, 1 NIT");
+    // spec 1.5: the commits, the review's BLOCKER and BUG lines, and what is still open
+    expect(text).toContain(`Commits: ${head(repo)} init`);
+    expect(text).toContain("Findings: BUG src/a.ts:3 — x — y");
+    expect(text).toContain("Open: none");
+    expect(landed.digestPath).toBe(join(r.dir, "digests", "M1.md"));
     expect(text.find((l) => l.startsWith("Verifier: "))).toMatch(
       /^Verifier: PASS \(verifier-M1\) · carried: unit tests from [0-9a-f]+$/,
     );
