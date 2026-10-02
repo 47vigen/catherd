@@ -8,7 +8,7 @@ import type { Tokens } from "../domain/record.ts";
 import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
-import { latestVerifierStep, type VerifierStep } from "./gate-service.ts";
+import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
@@ -49,8 +49,8 @@ export interface RunSummary {
   harness: { backend: string; native: number; isolated: number }[];
   budget: BudgetStatus | null;
   milestones: string[];
-  /** spec 1.1 §7: the verifier's latest gate_check, so the user sees where it is */
-  verifier: VerifierStep | null;
+  /** spec 1.1 §7: the verifier's latest gate_check, so the user sees where it is; plan 22: its age, and what closed it */
+  verifier: VerifierStepView | null;
   warnings: string[];
 }
 
@@ -131,7 +131,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     }),
     budget,
     milestones: nonBlankLines(runPaths(run.dir).ledger).slice(1),
-    verifier: latestVerifierStep(run),
+    verifier: verifierStepView(run, now),
     warnings,
   };
 }

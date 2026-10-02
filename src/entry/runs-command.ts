@@ -61,7 +61,7 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
   for (const m of s.milestones) lines.push(`  landed ${m}`);
   if (s.verifier)
     lines.push(
-      `  verifier step ${s.verifier.item}${s.verifier.carried ? " (carried over)" : ""} at ${s.verifier.at.slice(11, 16)}`,
+      `  verifier step ${s.verifier.item}${s.verifier.carried ? " (carried over)" : ""} at ${s.verifier.at.slice(11, 16)} · ${Math.floor(s.verifier.secs / 60)} min ago · ${s.verifier.open ? "open" : `closed (${s.verifier.closedBy})`}`,
     );
   for (const d of s.delivery)
     lines.push(

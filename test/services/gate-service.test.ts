@@ -260,7 +260,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     });
     const s = summarizeRun(deps, run);
     expect(s.verifier?.item).toBe("boot check");
-    expect(formatRun(s)).toContain("  verifier step boot check at 10:05");
+    expect(formatRun(s)).toContain("  verifier step boot check at 10:05 · 0 min ago · open");
   });
 
   it("serves gate_check and gate_pass over MCP", async () => {
