@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { codexRoleMcpArgs } from "../../infra/role-mcp.ts";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Access, RunStatus } from "../../domain/record.ts";
+import { composeReply } from "../../domain/reply.ts";
 import {
   type AccessShell,
   type BackendAdapter,
@@ -132,6 +133,7 @@ function finalize(run: FinishedRun): Outcome {
                 : "ok";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
   const home = run.request.isolated ? isolatedCodexHomePath() : userCodexHome();
+  const reply = composeReply(f.finals, run.reply);
   return {
     status,
     thread: f.thread ?? run.request.thread,
@@ -145,6 +147,8 @@ function finalize(run: FinishedRun): Outcome {
             code: status,
             message: f.failure ?? (lastErr || `${stopped}, exit ${run.exit.code ?? run.exit.signal}`),
           },
+    // plan 22: -o keeps the last turn's message; a later turn never overwrites the report
+    ...(reply !== run.reply ? { reply } : {}),
   };
 }
 
@@ -250,7 +254,7 @@ function codexActivity(e: Record<string, any>): string | undefined {
     return `edit ${it.changes
       .map((c: { path?: unknown }) => c.path)
       .filter((p: unknown) => typeof p === "string")
-      .join(", ")}`;
+      .join(", ")}`.trimEnd();
   if (it.type === "agent_message" && typeof it.text === "string") return it.text;
   return undefined;
 }
@@ -270,12 +274,13 @@ export const codexAdapter: BackendAdapter = {
     // Not a todo_list: update_plan opens one that only completes with the turn, and would mute the watchdog
     const id = typeof e.item?.id === "string" && CODEX_TOOL_ITEMS.has(e.item.type) ? e.item.id : null;
     const open = e.type === "item.started" ? true : e.type === "item.completed" ? false : null;
+    const activity = codexActivity(e);
     return {
       ...(f.thread ? { thread: f.thread } : {}),
       ...(id !== null && open !== null ? { item: { id, open } } : {}),
       ...(e.type === "turn.completed" ? { tokens: f.tokens } : {}),
       lastEvent: f.lastEvent ?? undefined,
-      ...(codexActivity(e) ? { activity: codexActivity(e) } : {}),
+      ...(activity ? { activity } : {}),
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),
       ...(f.limit ? { limit: true } : {}),
       ...(f.tooOld ? { tooOld: true } : {}),

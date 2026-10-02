@@ -48,6 +48,7 @@ import {
   fakeGit,
   freshRun,
   runRole,
+  seedThread,
   testView,
   waitFor,
   writeLane,
@@ -221,6 +222,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
 
   it("hands a fix round's stand-in the lane file and the fix brief by path, both of which exist", async () => {
     const { run, deps } = setup({ byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": DONE } });
+    await seedThread(run, "worker-M1.L1", "t-earlier-thread");
     const { record } = await runRole(
       deps,
       input(run.id, { thread: "t-earlier-thread", brief: "Fix: BUG src/a.ts:3 — off by one" }),
@@ -421,6 +423,59 @@ describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)
       failoverLock.timeoutMs = was;
       settledHooks.delete(hook);
     }
+  });
+
+  it("leaves a limit to the new owner when its session lost the run before it settled (1.1 push minors)", async () => {
+    const release = held();
+    const { run } = setup({ ...LIMIT, holdUntil: release });
+    const deps = await owned(run);
+    const limited = (await dispatch(deps, input(run.id))).dispatched;
+    // another session takes the run while the limited role still runs
+    const other = fakeDeps({
+      view: testView({ failover: FAILOVER }),
+      session: { sessionId: "s-other", hostSessionId: null, socketPath: null, token: null },
+    });
+    await claimRun(other, run);
+    writeFileSync(release, "");
+    await watchersSettled();
+    const d = listDispatches(run).find((x) => x.admit.dispatchId === limited.dispatchId) as Dispatch;
+    expect(readRecords(run).records.find((r) => r.dispatchId === limited.dispatchId)?.status).toBe("limit");
+    // the old owner's watcher recorded it and left the failover to the run's owner
+    expect(readFailover(d.dir)).toBeNull();
+    expect(standInOf(run)).toBeUndefined();
+    expect(awaitsCollect(d.dir)).toBe(true);
+  });
+
+  it("leaves a limit to the new owner when its server's connection closed and another session took the run (PR #47 P1)", async () => {
+    const release = held();
+    const { run } = setup({ ...LIMIT, holdUntil: release });
+    const deps = await owned(run);
+    const limited = (await dispatch(deps, input(run.id))).dispatched;
+    // the MCP connection closes (the watcher stays alive): its scoped host is invalidated, as the server does
+    deps.host = { host: "unknown", session: null, conflict: null };
+    const other = fakeDeps({
+      view: testView({ failover: FAILOVER }),
+      session: { sessionId: "s-other", hostSessionId: null, socketPath: null, token: null },
+    });
+    await claimRun(other, run);
+    writeFileSync(release, "");
+    await watchersSettled();
+    const d = listDispatches(run).find((x) => x.admit.dispatchId === limited.dispatchId) as Dispatch;
+    expect(readRecords(run).records.find((r) => r.dispatchId === limited.dispatchId)?.status).toBe("limit");
+    expect(readFailover(d.dir)).toBeNull();
+    expect(standInOf(run)).toBeUndefined();
+    expect(awaitsCollect(d.dir)).toBe(true);
+  });
+
+  it("still fails a limit over when its server's connection closed but its session still owns the run", async () => {
+    const release = held();
+    const { run } = setup({ ...LIMIT, holdUntil: release });
+    const deps = await owned(run);
+    await dispatch(deps, input(run.id));
+    deps.host = { host: "unknown", session: null, conflict: null };
+    writeFileSync(release, "");
+    await watchersSettled();
+    expect(standInOf(run)).toBeDefined();
   });
 
   it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {

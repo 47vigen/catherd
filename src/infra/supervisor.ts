@@ -79,7 +79,7 @@ async function bounded<T>(call: () => Promise<T> | undefined, ms: number, fallba
   }
 }
 
-function groupAlive(pgid: number): boolean {
+export function groupAlive(pgid: number): boolean {
   try {
     process.kill(-pgid, 0);
     return true;
@@ -89,7 +89,7 @@ function groupAlive(pgid: number): boolean {
 }
 
 /** SIGTERM the group, give it `graceMs` to leave, then SIGKILL whatever is left of it. */
-async function stopGroup(pgid: number, graceMs: number, pollMs: number): Promise<void> {
+export async function stopGroup(pgid: number, graceMs: number, pollMs: number): Promise<void> {
   killGroup(pgid, "SIGTERM");
   const end = Date.now() + graceMs;
   while (Date.now() < end && groupAlive(pgid))

@@ -338,7 +338,9 @@ function claudeActivity(e: Record<string, any>): string | undefined {
     if (typeof input.command === "string") return `$ ${input.command}`;
     if (typeof input.file_path === "string")
       return `${EDIT_TOOLS.has(c.name) ? "edit" : String(c.name)} ${input.file_path}`;
-    return String(c.name ?? "tool");
+    // another tool shows its first string argument, as opencode's activity does
+    const first = Object.values(input).find((v) => typeof v === "string");
+    return `${String(c.name ?? "tool")}${typeof first === "string" ? ` ${first}` : ""}`;
   }
   if (c?.type === "text" && typeof c.text === "string") return c.text;
   return undefined;

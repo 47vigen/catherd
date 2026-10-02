@@ -55,6 +55,7 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
         "result",
         "run_start",
         "set_next",
+        "test_push",
         "workspace_child_start",
         "workspace_contract",
         "workspace_start",

@@ -964,3 +964,33 @@ Codex and headless Claude Code (`claude-code:` rungs).
    `$TMPDIR`).
 6. **Scratch.** After any dispatch, `ls <run>/scratch/<name>/` holds what the role wrote to `$TMPDIR` and `/tmp`
    holds nothing new from it; `catherd runs clean <run>` removes the scratch once no role is live.
+
+## 16. Delivery and the loop (1.5, plan 22)
+
+On a Codex host (0.159 or later, the app-server daemon running), with catherd from this branch installed as the
+plugin, one scratch repo and a run owned by a Codex TUI thread. Record each result in the acceptance report.
+
+1. **A completion survives a detach.** Start the coordinator outside tmux, dispatch one worker whose fast check
+   takes about two minutes, then close the terminal (or drop the SSH session) while it runs. Wait past the worker's
+   end plus 20 s (the supervisor's grace). Look for: `notify` with `"from":"supervisor"` and `outcome: accepted` in
+   `catherd-<date>.jsonl`, and the dispatch's `delivery.json` holding one accepted attempt for the thread. Reattach
+   (`codex resume`): the catherd message arrives as the next input, its first line naming `thread:`. Repeat with the
+   terminal left attached: the MCP server's push wins (`notify` without `from`), and the supervisor logs nothing
+   (its receipt check found the event accepted). This also pins down the daemon behaviour the identity run left
+   open (a thread unloaded once no client is attached, and the grace before it).
+2. **tmux, once.** In a shell where `$TMUX` and `$STY` are empty, start a run: the coordinator tells the user once
+   to run inside tmux, and not again on later turns.
+3. **Goal mode.** Set a thread goal, dispatch two workers, and let the goal continue: each continuation ends with no
+   tool call while only the workers run. A `peek(run)` in that stretch answers `actionable: false` with its reason.
+4. **One MCP server per session.** Open one Codex TUI and count `catherd mcp` processes and `reconcile` log rows: one
+   server leads (`reconcile`), any other logs `boot … skipped`.
+5. **The push smoke.** From inside the thread, call `test_push`; from a shell, `catherd doctor --test-push --thread
+   <uuid>` with the uuid the last catherd message named. Both report `enqueue accepted`, and the labeled smoke
+   arrives in that thread.
+6. **Resume hygiene (exit 143).** Brief a worker to start `sleep 600 &` and reply; then resume its thread for a fix
+   round (`thread: "latest"`). The resumed role ends `ok`, not exit 143, and `dispatch` returns the hint
+   `resume: stopped what … left running on thread …`. If a resumed worker still exits 143, record the process tree
+   of the old turn (`ps -o pid,pgid,sid,cmd`): a background command outside the worker's process group is the case
+   plan 22 does not cover.
+7. **Two final replies.** Brief a worker to reply, then emit a second short message after a background command's
+   notification; `result` returns the report first, the short one under `later:`, and the report's STATUS.

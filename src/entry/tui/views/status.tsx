@@ -1,5 +1,5 @@
 import type { Check } from "../../../services/doctor-checks.ts";
-import { ORCHESTRATOR_STALL_MS } from "../../../services/orchestrator-wait.ts";
+import { waitingLine } from "../../../services/orchestrator-wait.ts";
 import { useApp, useNow } from "../providers/app.tsx";
 import { useData } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
@@ -20,10 +20,8 @@ function stateParts(state: Check["state"], word: string, plain: boolean): Part[]
 /** A run in one line: its state word first, then title, repo and progress (research C4). */
 export function runParts(r: RunRow, now: number, plain: boolean): Part[] {
   const bits = [plural(r.roleRuns, "role run"), `${r.landed} landed`];
-  if (r.waiting)
-    bits.push(
-      `${now - Date.parse(r.waiting.since) >= ORCHESTRATOR_STALL_MS ? "stalled · " : ""}waiting for orchestrator ${Math.max(0, Math.floor((now - Date.parse(r.waiting.since)) / 1000))}s`,
-    );
+  const waiting = waitingLine(r.waiting, now);
+  if (waiting) bits.push(waiting);
   if (r.budget !== null) bits.push(`${Math.round(r.budget * 100)}% budget`);
   return [
     r.live

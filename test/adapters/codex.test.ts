@@ -64,6 +64,14 @@ describe("codex parse", () => {
     ]);
     expect(codexAdapter.parse('{"type":"turn.started"}').activity).toBeUndefined();
   });
+
+  it("shows a file change with no paths as `edit`, with no trailing space (1.1 push minors)", () => {
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_9", type: "file_change", changes: [] },
+    });
+    expect(codexAdapter.parse(line).activity).toBe("edit");
+  });
 });
 
 describe("codex plan", () => {
@@ -164,6 +172,30 @@ describe("codex finalize", () => {
     expect(o.thread).toBe("01a0d0d4-d0a6-71a1-983c-82a9169200b4");
     expect(o.tokens).toEqual({ input: 898388, cached: 788992, output: 5341 });
     expect(o.error).toBeNull();
+  });
+
+  it("keeps the report when a later turn ends on a short message (plan 22: a final reply never overwrites)", () => {
+    const msg = (id: string, text: string) =>
+      JSON.stringify({ type: "item.completed", item: { id, type: "agent_message", text } });
+    const turn = (...items: string[]) => [
+      '{"type":"turn.started"}',
+      ...items,
+      '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}',
+    ];
+    const report = "Done: moved the kit.\nDeviation: kept one export.\nSTATUS: complete — lane finished";
+    const short = "That notification was my wait loop; nothing to do.";
+    const events = [
+      '{"type":"thread.started","thread_id":"t-two"}',
+      ...turn(msg("i0", "Starting."), msg("i1", report)),
+      ...turn(msg("i2", short)),
+    ];
+    const o = codexAdapter.finalize(finished(events, { reply: short }));
+    expect(o.reply).toBe(
+      "Done: moved the kit.\nDeviation: kept one export.\n\nlater:\n" +
+        `${short}\n\nSTATUS: complete — lane finished\n`,
+    );
+    // one turn: the CLI's reply file is the reply, as before
+    expect(codexAdapter.finalize(finished(lines("ok-with-reconnect.jsonl"))).reply).toBeUndefined();
   });
 
   it("sums tokens over turns", () => {

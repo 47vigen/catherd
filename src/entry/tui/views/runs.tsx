@@ -1,4 +1,5 @@
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
+import { waitingLine } from "../../../services/orchestrator-wait.ts";
 import { useApp, useBack, useNow } from "../providers/app.tsx";
 import { useData, usePoll } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";
@@ -166,10 +167,8 @@ function roleMark(r: RoleRow, plain: boolean): Part {
 function runHeading(r: SessionRun, now: number, plain: boolean): Part[] {
   const bits = [r.repo, `started ${ago(now - Date.parse(r.createdAt))}`];
   if (r.budget !== null) bits.push(`budget ${Math.round(r.budget * 100)}%`);
-  if (r.waiting)
-    bits.push(
-      `${r.waiting.stalled ? "stalled · " : ""}waiting for orchestrator ${Math.max(0, Math.floor((now - Date.parse(r.waiting.since)) / 1000))}s`,
-    );
+  const waiting = waitingLine(r.waiting, now);
+  if (waiting) bits.push(waiting);
   const moved =
     r.continued === "here" ? "continued here" : r.continuedIn ? `continued in ${r.continuedIn}` : null;
   return [

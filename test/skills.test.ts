@@ -52,6 +52,22 @@ describe("orchestrator skill", () => {
     }
   });
 
+  it("tells a Codex coordinator to run in tmux once, and to end a goal continuation with no tool call (plan 22)", () => {
+    const md = skill("catherd");
+    const codex = md.slice(md.indexOf("### On Codex"), md.indexOf("\n## ", md.indexOf("### On Codex")));
+    expect(codex).toContain("When `$TMUX` and `$STY` are both empty, tell the user once");
+    expect(codex).toContain("A goal continuation while only roles are live ends the turn with no tool call");
+    expect(codex).toContain("`actionable: false`");
+  });
+
+  it("names test_push in the tool table and the Codex half, with the shell's --thread form (plan 22)", () => {
+    const md = skill("catherd");
+    expect(md).toContain("| `test_push()`");
+    expect(md).toContain("`catherd doctor --test-push --thread <uuid>`");
+    const codex = md.slice(md.indexOf("### On Codex"), md.indexOf("\n## ", md.indexOf("### On Codex")));
+    expect(codex).toContain("with `test_push`");
+  });
+
   it("dispatches roles one after another, then ends its turn; results arrive as catherd messages (spec 1.1 §3.8)", () => {
     const md = skill("catherd");
     const after = md.slice(

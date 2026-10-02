@@ -8,7 +8,7 @@ import type { Tokens } from "../domain/record.ts";
 import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
-import { latestVerifierStep, type VerifierStep } from "./gate-service.ts";
+import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
@@ -49,8 +49,8 @@ export interface RunSummary {
   harness: { backend: string; native: number; isolated: number }[];
   budget: BudgetStatus | null;
   milestones: string[];
-  /** spec 1.1 §7: the verifier's latest gate_check, so the user sees where it is */
-  verifier: VerifierStep | null;
+  /** spec 1.1 §7: the verifier's latest gate_check, so the user sees where it is; plan 22: its age, and what closed it */
+  verifier: VerifierStepView | null;
   warnings: string[];
 }
 
@@ -131,12 +131,15 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     }),
     budget,
     milestones: nonBlankLines(runPaths(run.dir).ledger).slice(1),
-    verifier: latestVerifierStep(run),
+    verifier: verifierStepView(run, now),
     warnings,
   };
 }
 
-/** `status(run?)`: that run; without one, live or waiting runs, else the newest run. */
+/**
+ * `status(run?)`: that run; without one, the live runs, else the runs waiting for their orchestrator (a current
+ * owner, a recent unread record: plan 22), else the newest run.
+ */
 export function status(
   deps: Deps,
   runId?: string,
@@ -159,12 +162,13 @@ export function status(
   const { runs, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
   const all = runs.map((r) => summarizeRun(deps, r));
-  const active = all.filter((s) => s.live.length > 0 || s.waiting);
+  const live = all.filter((s) => s.live.length > 0);
+  const waiting = all.filter((s) => s.waiting);
   return {
     host: inspectionHost(deps.host),
     queue,
     version: deps.version,
-    runs: active.length ? active : all.slice(0, 1),
+    runs: live.length ? live : waiting.length ? waiting : all.slice(0, 1),
     warnings,
   };
 }

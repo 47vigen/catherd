@@ -25,10 +25,11 @@ import {
   knowledgeFile,
   readRecords,
   runFile,
+  type Run,
 } from "./run-store.ts";
-import { protocolView } from "./protocol.ts";
+import { protocolNext, protocolView } from "./protocol.ts";
 import { claimRun, currentSession } from "./sessions.ts";
-import { refreshState } from "./state.ts";
+import { readNotes, refreshState } from "./state.ts";
 
 export async function startRun(
   deps: Deps,
@@ -99,6 +100,28 @@ function capReply(reply: string, path: string): string {
   return `${head.slice(0, CAP_CHARS)}\n[capped: the full reply is ${path}]`;
 }
 
+/** Whether `text` names `token` (a role name or lane id) as a whole word, a full stop after it allowed. */
+export function names(text: string, token: string): boolean {
+  const t = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w.-])${t}(?![\\w-]|\\.\\w)`).test(text);
+}
+
+/**
+ * Plan 22: state.md's Next never outlives the step it names. When it names a role whose record `result` returns
+ * (by its name or its lane), it moves on to the protocol's next step. A refresh that fails comes back as hints.
+ */
+async function advanceNext(run: Run, record: RunRecord): Promise<string[]> {
+  const stale = (next: string) =>
+    names(next, record.name) || (record.lane !== null && names(next, record.lane));
+  if (!stale(readNotes(run).next)) return [];
+  const { hints } = await refreshState(run, (n) =>
+    stale(n.next)
+      ? { next: `after ${record.name} (${record.status}): ${protocolNext(run, n.parked ?? [])}` }
+      : {},
+  );
+  return hints;
+}
+
 /**
  * A role's latest dispatch: its record once finished, its capped reply and its hints. Spec §3.7: reading a
  * finished record marks it read, with the collect lease (each record is marked read once, whoever reads it);
@@ -134,6 +157,7 @@ export async function result(
     if (x.admit.dispatchId !== d.admit.dispatchId) hints.push(...recordHints(run, x, r));
   }
   if (record) for (const h of recordHints(run, d, record)) if (!hints.includes(h)) hints.push(h);
+  if (record) for (const h of await advanceNext(run, record)) if (!hints.includes(h)) hints.push(h);
   const reply = dispatchPaths(d.dir).reply;
   const text = existsSync(reply) ? readFileSync(reply, "utf8") : "";
   return {

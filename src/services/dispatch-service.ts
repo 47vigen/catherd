@@ -16,6 +16,7 @@ import {
 import { lockHeld, withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
+import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
@@ -35,7 +36,8 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
 import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
-import { claimRun, ownsRun, runOwner } from "./sessions.ts";
+import { sessionKey } from "../domain/host.ts";
+import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -174,9 +176,19 @@ export async function watchersSettled(): Promise<void> {
  */
 export function watch(deps: Deps, run: Run, d: Dispatch): void {
   watching.add(d.admit.dispatchId);
+  // the session this watcher started under, kept apart from its live identity: an MCP connection that closes
+  // invalidates the scoped host (no session), yet the watcher still came from that session (PR #47 P1)
+  const origin = currentSession(deps);
   const w = (async () => {
     await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
-    const s = await settle(deps, run, d, await finalizeDispatch(run, d));
+    const record = await finalizeDispatch(run, d);
+    // a session that lost the run since it dispatched leaves a limit to the owner's claim (1.1 push minors):
+    // only the run's owner starts a stand-in. A process with no session (a terminal) settles as before.
+    if (record.status === "limit" && !limitIsMine(deps, run, origin)) {
+      log("info", "dispatch", { run: run.id, name: d.admit.name, limit: "left to the run's owner" });
+      return;
+    }
+    const s = await settle(deps, run, d, record);
     if (s.stateHints[0]) log("warn", "dispatch", { run: run.id, name: d.admit.name, hint: s.stateHints[0] });
   })()
     .catch((e: unknown) =>
@@ -187,6 +199,18 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
       watching.delete(d.admit.dispatchId);
     });
   watchers.add(w);
+}
+
+/**
+ * Whether a watcher settles a limit (fails it over): a watcher with no session, then or now (a terminal, a
+ * test), always does; one that started under a session does only while that session, or its live one, owns
+ * the run.
+ */
+function limitIsMine(deps: Deps, run: Run, origin: SessionRef | null): boolean {
+  if (origin === null && currentSession(deps) === null) return true;
+  if (ownsRun(deps, run)) return true;
+  const owner = runOwner(run);
+  return origin !== null && owner !== null && sessionKey(owner) === sessionKey(origin);
 }
 
 /**
@@ -214,6 +238,16 @@ export function adopt(deps: Deps, run: Run): void {
  */
 export async function claim(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
   if (!(await claimRun(deps, run)) && !ownsRun(deps, run)) return;
+  await recoverOwned(deps, run, o);
+}
+
+/**
+ * What `claim` does for a run this session already owns, without taking it: watch its live roles, record and
+ * settle what finished unrecorded, settle its unsettled limits and unannounced records. A server that does not
+ * lead the boot runs it for each run its session owns (PR #47 P1: a role that finished while that server was
+ * away has no live process to watch and no record to scan).
+ */
+export async function recoverOwned(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
   adopt(deps, run);
   let r = recovering.get(run.id);
   if (!r) {
@@ -282,13 +316,71 @@ function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
 }
 
 /**
+ * Plan 22: the thread a dispatch resumes. `"latest"` is the name's last recorded thread; any other id must be one
+ * the name's records in this run hold (`runs.jsonl`), in any case, so a wrong id is refused before a CLI starts
+ * and fails on it. Null for a fresh thread.
+ */
+function threadFor(run: Run, name: string, thread: string | undefined): string | null {
+  if (thread === undefined) return null;
+  assertId("role name", name);
+  const mine = readRecords(run)
+    .records.filter((r) => r.name === name && r.thread !== null)
+    .map((r) => r.thread as string);
+  const last = mine.at(-1);
+  if (thread === "latest") {
+    if (last) return last;
+    throw new CatherdError("E_ADMIT_THREAD", `${name} has no earlier thread in this run`, {
+      fix: "omit thread for a fresh thread",
+    });
+  }
+  const known = mine.findLast((t) => t.toLowerCase() === thread.toLowerCase());
+  if (known) return known;
+  throw new CatherdError("E_ADMIT_THREAD", `${thread} is not a thread of ${name} in this run`, {
+    fix: last
+      ? `pass thread: "latest" for ${name}'s last thread (${last}), or omit thread for a fresh one`
+      : "omit thread for a fresh thread",
+  });
+}
+
+/**
+ * Plan 22, resume hygiene: what an earlier turn on `thread` left running in its process group (a server, a
+ * watcher, a background command) is stopped before the thread is resumed, so it never ends the resumed CLI
+ * (exit 143). Only a dispatch whose supervisor and group leader are both gone is touched (with or without
+ * exit.json: a supervisor killed before it stopped the group writes none): a live group with no process of the
+ * leader's pid can only be that dispatch's leftovers (a pid is never reused while its group lives), and a pid
+ * that answers belongs to someone else by now. Returns a hint per group stopped.
+ */
+async function stopLeftovers(deps: Deps, run: Run, thread: string): Promise<string[]> {
+  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
+  const hints: string[] = [];
+  for (const d of listDispatches(run)) {
+    const on = d.admit.thread ?? records.get(d.admit.dispatchId)?.thread ?? null;
+    if (on?.toLowerCase() !== thread.toLowerCase()) continue;
+    const proc = readProc(d.dir);
+    const pgid = proc?.pgid ?? proc?.pid;
+    if (!proc || pgid === undefined || pgid !== proc.pid) continue;
+    // a live supervisor stops its own group when its worker ends; exit.json is not the test, since a supervisor
+    // killed (SIGKILL, OOM) before it stopped the group never writes one
+    if (isAlive(proc.supervisorPid, proc.supervisorStartTime)) continue;
+    if (isAlive(proc.pid, null) || !groupAlive(pgid)) continue;
+    await stopGroup(pgid, orphanLimits.killGraceMs, deps.pollMs);
+    log("info", "dispatch", { run: run.id, name: d.admit.name, thread, stoppedGroup: pgid });
+    hints.push(`resume: stopped what ${d.admit.name}'s earlier turn left running on thread ${thread}`);
+  }
+  return hints;
+}
+
+/**
  * Spec §4.4, plan 9 ruling 1: admit and launch one role, start its watcher, then refresh state.md with
  * `next` (after the launch, so nothing delays it). Returns at once; catherd announces the record (spec §3).
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
+  // refused before the claim, so a wrong thread changes nothing
+  const thread = threadFor(run, i.name, i.thread);
   await claim(deps, run);
   const hints: string[] = [];
+  if (thread !== null) hints.push(...(await stopLeftovers(deps, run, thread)));
   let rung = i.rung;
   // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
   if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {
@@ -309,7 +401,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
       name: i.name,
       brief: i.brief,
       rung,
-      thread: i.thread ?? null,
+      thread,
       lane: i.lane ?? null,
       failoverFrom: null,
     },

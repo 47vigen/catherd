@@ -1,5 +1,24 @@
 # catherd — handoff (2026-09-29, seventh session: the 1.3 backend designs)
 
+## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
+
+Binding spec: `docs/specs/2026-10-02-catherd-1.5-design.md`. Plans 21–26 were written in parallel on main `6f2f8c7`,
+each pre-validated as a scratch branch, then replayed in order onto the previous merged plan by one integration
+worker per plan; one final review, one fix wave, one Codex round, merge on green CI. Plan 27 is the 1.5.0 release.
+
+| Plan | File | State |
+| ---- | ---- | ----- |
+| 21 roles and ownership | `docs/plans/2026-10-02-21-roles-ownership.md` | **merged** (PR #46; final review 0 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan21-ledger.md`) |
+| 22 delivery and the loop | `docs/plans/2026-10-02-22-delivery-loop.md` | in PR |
+| 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | pending |
+| 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | pending |
+| 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | pending |
+| 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | pending |
+| 27 release 1.5.0 | — | pending |
+
+Review minors of 1.5 land in `docs/dev/ideas.md` under "1.5 follow-ups". Live checks for vendor behaviour the sandbox
+cannot run are in `docs/dev/live-verification.md` §15 onward.
+
 This file carries the working state of the 1.0 rewrite from one agent session to the next.
 Read it after the spec, before touching any plan.
 

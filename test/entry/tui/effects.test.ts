@@ -60,6 +60,28 @@ describe("the run list's memo (spec §9.4: memoised by mtime)", () => {
     rows(runs);
     expect(computed).toEqual(["a", "b", "a", "b", "b"]);
   });
+
+  it("computes an idle run's wait for its orchestrator once per stamp change (#42 finding 7)", () => {
+    let computed = 0;
+    const waiting = {
+      since: "2026-10-02T11:50:00.000Z",
+      seconds: 0,
+      stalled: false,
+      unread: 1,
+      until: "2026-10-03T11:50:00.000Z",
+    };
+    const rows = memoRuns(
+      (r) => {
+        computed++;
+        return { ...row(r.id), waiting };
+      },
+      () => "1",
+    );
+    const runs = [{ id: "a", dir: "/a" }] as Run[];
+    const first = rows(runs)[0];
+    for (let i = 0; i < 5; i++) expect(rows(runs)[0]).toBe(first as RunRow);
+    expect(computed).toBe(1);
+  });
 });
 
 describe("the live effects", () => {

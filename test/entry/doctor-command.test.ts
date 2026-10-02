@@ -252,4 +252,15 @@ it("default CLI doctor sends nothing; explicit smoke preserves receipt-only repo
       .map((line) => JSON.parse(line))
       .filter((c) => c.args.includes("--message")),
   ).toHaveLength(1);
+  // plan 22: a shell names the thread Codex does not export to it
+  const thread = "01a0f53b-a47d-7350-83a4-c3430e4534ff";
+  const named = runCodex("--host", "codex", "--test-push", "--thread", thread);
+  expect(named.push).toMatchObject({ enqueue: "accepted", processing: "unconfirmed" });
+  const sent = readFileSync(envTo, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter((c) => c.args.includes("--message"));
+  expect(sent).toHaveLength(2);
+  expect(sent[1].args.slice(0, 5)).toEqual(["queue", "--remote", "unix://", "--thread", thread]);
 }, 60_000);

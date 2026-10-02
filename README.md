@@ -46,7 +46,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
 
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
-you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session.
+you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session (`--thread <uuid>` names the Codex thread from a shell; inside a session, the `test_push` tool does the same).
 
 ### Cursor
 
@@ -189,7 +189,7 @@ In a terminal:
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `catherd`                                                                                   | The dashboard: Status, Profiles and Runs (below)                                                    |
 | `catherd init [--host codex\|claude-code\|auto] [--no-input] [--no-global] [--profile <p>]` | First-run setup; installs the global `catherd` at its own version unless `--no-global`              |
-| `catherd doctor [--host codex\|claude-code\|auto] [--test-push] [--json]`                   | Readiness and capability report; no send unless explicit smoke; exits 3 when not ready              |
+| `catherd doctor [--host codex\|claude-code\|auto] [--test-push [--thread <uuid>]] [--json]` | Readiness and capability report; no send unless explicit smoke; exits 3 when not ready              |
 | `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`      | Profiles; `use --repo` binds one to the repo you are in                                             |
 | `catherd profile use --repo --clear`                                                        | Unbinds the repo you are in; it runs on the active profile again                                    |
 | `catherd profile set <path> <value> [--profile <p>]`                                        | One field, e.g. `roles.verifier.access read-only`, `roles.worker.network false`, `budget.usd 20`    |

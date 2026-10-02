@@ -7,22 +7,7 @@ into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and
 ## From the reviews of #42 and #43 (2026-10-02)
 
 Both PRs were merged as they stood (owner decision); the findings below are fixed in the next autopilot run, not by
-the contributor. Owner rulings:
-
-- **`wait` goes.** A 50 s bounded wait makes the Codex coordinator re-read its whole context about every 50 s (about
-  100 rounds for a 90-min gate), the goal-mode polling problem in a blessed form, and it dies with the turn when the
-  daemon drops the thread. Remove the tool and its skill text; deliver instead from where a role ends (the
-  supervisor's `codex queue` push in "A completion is lost once the daemon drops the thread" below). Keep the
-  "waiting for orchestrator" line from #42, with the fix in finding 3.
-
-#42 (role MCP server, `wait`), review findings:
-
-3. **"waiting for orchestrator · stalled" never clears.** `runOwner` is never cleared and a dashboard `cancel` or an
-   abandoned run leaves a record unread forever, so old runs show stalled forever and `status()` with no run returns
-   all of them into the coordinator's context. Fix: only for a current owner and recent unread records; `status()`
-   keeps defaulting to live runs, else the newest.
-7. **The TUI memo calls `orchestratorWait` on every tick for every idle run** (defeats the mtime memo), and
-   `runs.tsx` uses the precomputed `stalled` while `status.tsx` recomputes it.
+the contributor.
 
 #43 (workspace runs), review findings:
 
@@ -71,6 +56,29 @@ Plan 21 (roles and ownership) review:
   `catherd profile set` (the CLI forms of the `cancel` and `profile_set` tools) still run. Evidence:
   `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
   `roleScopeFromEnv`. Fix: refuse them with `E_ROLE_SCOPE` when `roleScopeFromEnv(process.env)` is set. (Minor 7.)
+
+Plan 22 (delivery and the loop) review:
+
+- **`thread` is checked against records a claim has not written yet.** `threadFor` reads `runs.jsonl` before
+  `claim()`, which finalizes finished dispatches that lack a record, so `thread: "latest"` can resolve to an older
+  thread and an explicit newer thread is refused. Evidence: `src/services/dispatch-service.ts:297-321` (called at
+  :354, before `claim`). Fix: also accept the threads of finished, unrecorded dispatches (`admit.thread` or the
+  stream's thread), or finalize the name's finished dispatches before the check without claiming. (M1.)
+- **`advanceNext` runs on every `result()`.** A re-read of an already collected record can rewrite a Next that names
+  the role for a future step. Evidence: `src/services/run-service.ts:113-124`, called at :160. Fix: advance only
+  when the call marks the record read, or when the record ended after state.md's last write. (M2.)
+- **End push reads the owner before the notify lock.** A claim in the gap sends to the old owner, and the new
+  owner's notifier also sends (two sessions, one message each). Evidence: `src/services/end-push.ts:85` (owner) vs
+  :89 (`tryLock`). Fix: re-read `codexOwner` inside the lock. (M3.)
+- **End push reports an `ambiguous` delivery as "delivered".** Evidence: `src/services/end-push.ts:93`
+  (`deliveryState(...) !== "pending"` returns `"delivered"`). Fix: return the delivery state itself. (M4.)
+- **End push gives up at once on "busy".** If the server holding the notify lock then fails to submit, nobody
+  retries. Evidence: `src/services/end-push.ts:90`. Fix: one short retry after the lock frees. (M5.)
+- **`CATHERD_NO_END_PUSH` reaches only children that inherit `process.env`.** A test that spawns with an explicit
+  `env` could leave a supervisor running 20 s and calling the real `codex`. Evidence: `test/preload.ts:7`; there
+  is no shared spawn-env helper (each test builds its `env`, e.g. `test/plugin.test.ts:112`). Fix: add a shared
+  spawn-env helper in `test/helpers.ts` that sets `CATHERD_NO_END_PUSH=1` (and `ANTHROPIC_API_KEY: ""`), and use it
+  in the tests that spawn catherd. (M6.)
 
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
@@ -133,10 +141,6 @@ From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
 
 Owner rule for the end of 1.1: review Minors and non-correctness bot P2s land here, not in code. Each is small.
 
-- **Push and sessions (plan 10).** `watch()` in dispatch-service settles and fails over a limit without checking
-  that this session still owns the run (failover-once keeps it to one stand-in, but the old owner can start it).
-  Codex activity is computed twice per line; a file change with no paths shows `edit `; Claude tool activity shows
-  only the tool name (opencode shows its first argument).
 - **Runs page (TUI).** A ref is written during render in `runs.tsx`; the role screen keeps polling a finished role;
   a recent run opened from the Status tab lands on the session's first role, not that run; a session opens on its
   first milestone row and live roles can sit below the fold; `milestoneAt` rebuilds its list on every key; a
@@ -506,7 +510,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 
 - **Messages arrive only when the next turn starts.** worker-M3.L1 ended at 17:43:08, and its catherd message reached the main thread only after the owner's next message, about 20 min later. An idle main thread is not woken. Until something wakes it, `peek` is the only way to see it, and the owner read the silence as a hang. Fix: wake an idle owner session, or let `status` show "finished, unread" prominently.
 - **`protocol.next` ignores lane order.** It said "dispatch M3.L3, M3.L4" while both depended on L1's kit changes, which have to compile first. Admission guards only file overlap, not package-level compile coupling. Fix: add a `After: M3.L1` lane header that `protocol.next` and admission respect.
-- **The dispatch description still says "wait(run) collects its record".** `wait` was removed in 1.1.0.
 
 **Lanes and Owns**
 
@@ -518,7 +521,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
   Fix: an `owns_add(run, lane, paths, why)` tool that re-checks overlap. Clone-driven work also needs a "discover, then split" step, because the files are knowable only after the gate runs.
 - **Jev overrode the lane headers.** All four first lanes declared `Kind`/`Difficulty`, and routing replaced them (declared logic → `repo_code`/`copy`), so the logic lanes started on `luna#high`. Fix: a declared header wins, or the route record says why it didn't.
 - **A lane could not declare an allowed exception to its own absence grep.** The plan's `func Allowed` grep also matched an unrelated `services/verification/internal/job/command.go:120`, and `acceptancetest\.SignIn` matched the surviving `SignInAuth` and `SignInSSO`. The workers returned partial correctly, but a check that can never pass looks the same as work that isn't done yet. Fix: an `Allow:` line under the check, and word boundaries in plan greps.
-- **`dispatch` accepted a thread id that doesn't exist.** The orchestrator passed a wrong thread for the L4 fix, the role launched, and codex failed with "no rollout found for thread id". Fix: check `thread` against `runs.jsonl` (same name) before launching, or default to the name's last thread.
 
 **Preflight and environment**
 
@@ -544,8 +546,7 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 **Resume (2026-09-29)**
 
 - **A "foreground" verifier is still a background agent.** On the resume, the orchestrator briefed the verifier to stay in the foreground, and the Agent tool launched it async anyway ("Async agent launched successfully"). The verifier can block inside its own turn, but the main thread only learns the verdict from a notification. Fix: the skill says so plainly, and `protocol.next` treats the verifier as a dispatched role whose result arrives as a message, not as a call that returns.
-- **`status` shows a stale verifier step as live.** After the round-2 verifier was gone, `status` and `peek` still reported `verifier: {item: "acceptance notification", at: 10:04:03Z}`, with no process running. They also listed the previous owner session as `live: true` after a new session had taken the run. `gate_check` records a step, but nothing ends one. Fix: close the step on `gate_pass`, on `record_agent_run(role: verifier)`, or when the owning session is gone, and show its age.
-- **`state.md`'s Next outlives the step.** It still read "dispatch M3.L1 at codex:gpt-6-sol#medium on a fresh thread" ten hours after that dispatch ended ok (L1 attempt 3, 23:55). Fix: `result()` of the named dispatch clears or advances Next.
+- **`status` lists a previous owner session as live.** After a new session had taken the run, `status` and `peek` still listed the previous owner session as `live: true` (the stale verifier step itself closes since 1.5).
 - **The profile is not pinned per run either.** The active profile changed from the codex one to `just-claude` while M3 was paused, so the run's verifier rung changed (`catherd-default-verifier-*` is gone and `catherd-just-claude-verifier-claude-opus-5-5-low` took over), and any re-dispatched lane would route on Sonnet instead of the Codex rungs it started on. Nothing in the run records the switch. Fix: same as the sandbox item: pin the profile at `run_start`, or log the change in `state.md`.
 - **A host probe needs to run twice.** Right after the AnyConnect VPN was disconnected, the first unsigned Go probe to `203.0.113.20` still got `no route to host`. The next seven, including one from a freshly built binary on a fresh network, answered 200. A single probe would have stopped the run for nothing. Fix: when catherd ships a host probe, it retries once after a few seconds before calling the host blocked.
 
@@ -571,7 +572,6 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 - **`route` bloats the orchestrator.** Every call returns the full provenance block, about 3k tokens per lane, into the most expensive context of the run. Fix: return rung, ladder, backend and agent, and write provenance to `R/routes.jsonl`.
 - **Ladders were inverted on just-claude.** `Difficulty: build` lanes got the ladder [sonnet#high] with no room to climb (source `jev-kind`). `logic` lanes started lower, at sonnet#medium. Every claude-code value in provenance was `inferred` from a gpt-6-sol benchmark. Evidence: the first four routes of runs `-113331`, `-113334` and `-113338`.
 - **`dispatch` needs a rung it then overrides.** `rung` is required, even when the lane is not routed yet. The orchestrator guessed a rung, and dispatch overrode it with a hint. Fix: make `rung` optional on a lane dispatch.
-- **The catherd message does not carry the thread id.** Passing the dispatchId gave `E_ADMIT_THREAD`. Every fix round needed `jq … runs.jsonl`. Fix: put `thread:` in the message's first line, or accept `thread: "latest"`.
 - **Lane values are refused only at preflight.** `Difficulty: medium` (the word plans use) was refused as `E_LANE_INVALID` at preflight, not when `write_run_file` wrote the lane. Evidence: run `-135414`.
 - **There is no `lane_set`.** Fixing one header line (a fast check without `pnpm check`, or an Owns path) meant `sed` on the run folder. Evidence: runs `-113331` and `-143512`.
 
@@ -592,7 +592,6 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
   Climb, accept or rerun is left to the orchestrator.
 - **An environment block is not tagged.** A worker replied `STATUS: blocked` with `ENV: vpn` on its own line, but the hints did not flag it. Climb-by-default would have spent a rung. Evidence: run `-113338`, worker-M1.L4.
 - **Lanes share the testcontainers reaper.** Parallel lanes on one daemon failed with "reaper container name already in use". Evidence: run `-135414`, worker-M1.L1.
-- **A final reply can overwrite the report.** worker-M1.L3 of plan 9 sent a second, short reply ("the notification is just my wait loop…"), and `result` showed that one. The real report with its deviations survived only in `events.jsonl`. Fix: keep the report reply, or concatenate.
 
 **Reviewers and verifiers**
 
@@ -614,7 +613,6 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 
 catherd 1.2.1, sanitell/platform review-fix plans 1–7, one run per plan and its worktree, seven MRs merged to staging (!73–!79) in about 13 h 20 min. Already listed above and seen again: one run per worktree (`dispatch` takes no cwd), and a "foreground" verifier that runs in the background anyway.
 
-- **A resumed worker exits 143.** A worker that left a command running in the background in its previous turn gets exit 143 when its thread is resumed. Fix: the worker contract forbids leaving background processes behind, and `dispatch` kills the thread's process group before a resume.
 - **`protocol.next` offers the verifier before the fix round.** After a reviewer returns findings, the next step it names is the verifier, not the fix round. Fix: `protocol.next` reads the reviewer record, and with open BLOCKER or BUG lines it names the fix round.
 - **A verifier resumed with SendMessage hangs.** More than once, the resumed verifier never returned. The workaround was a fresh verifier with a 10-minute cap on each command. Fix: re-checks go to a fresh verifier by default, with the failed items named and a per-command timeout in its brief; `gate_check` already carries over what passed.
 - **`preflight` times out at 300 s behind the lock.** With testcontainers suites from other lanes holding the lock slots, preflight waited past its own timeout. Fix: preflight takes a lock slot per check with its own wait budget, or reports `lock-busy` instead of a timeout.
@@ -629,30 +627,6 @@ clean by 03:30. The six and a half hours after that went to seven verifier attem
 failures. The coordinator read 26.7 M input tokens (97 % cached). The harnesses were isolated until 10:20, when the
 owner turned isolation off (the host is itself a sandbox).
 
-- **A completion is lost once the daemon drops the thread.** Codex 0.159/0.160 runs threads in its app-server
-  daemon (pid 241476, up since 2026-10-01 21:33). The TUI is only a client, and catherd's MCP server is a child of
-  the daemon, not of the TUI. Timeline, all from logs:
-  - The owner's SSH dropped at 08:42:57 (sshd: `Read error from remote host … Connection timed out`). The
-    coordinator ran on bare SSH, not in tmux.
-  - The daemon finished the coordinator's turn anyway: last dispatch 08:47:57, turn end 08:48:02.
-  - At 08:49:05 the daemon closed the thread's MCP clients (`rmcp::transport::streamable_http_client: fail to
-    delete session` in `~/.codex/app-server-daemon/daemon.stderr.log`). The same signature appears at 10:28:48,
-    when the owner closed the TUI on purpose. catherd's server for the thread (pid 345390, 164 tool calls and 26
-    `notify` since 00:24) logged nothing after that.
-  - `researcher-M1-notification-fake` ended at 09:03:32 with no server left to push it. The next `notify` came at
-    09:38:04 from a new server (634083) that reconciled after the owner reattached at 09:36. The run sat for
-    35 minutes.
-
-  Most likely the daemon unloads a thread, and stops that thread's MCP servers, once its turn ends and no client is
-  attached. One fact does not fit yet: 634083 outlived the 10:28 TUI restart, maybe because a client reattached
-  within a grace period. Pin this down with a controlled detach before relying on it.
-
-  Fix: push from where a role ends, not only from the MCP server. On exit, the detached supervisor runs
-  `codex queue --remote unix:// --thread <owner>`. The daemon outlives every client and keeps queued input for an
-  unloaded thread (README: "unloaded/interrupted hosts may retain input"), so the notice waits for the next attach.
-  Keep the server-side push as the fast path, with the existing per-event receipt so the two never double-deliver.
-  The Codex half of the skill tells the coordinator to run inside tmux and says so once when `$TMUX` is empty.
-  (`src/infra/codex-queue.ts`, the supervisor, `src/services/notifier.ts`, `plugin/skills/catherd`.)
 - **Isolated roles cannot reach catherd's own tools.** The isolated `CODEX_HOME` has no catherd MCP server. The
   verifier was told to call `gate_check`/`gate_pass`, so it wrote a stdio MCP client (`/tmp/m1-verifier-mcp.py`),
   wrapped it in `/tmp/m1-gate.py`, and drove `catherd mcp` by hand for every gate item. That spawned about 200 one-shot `catherd mcp` processes, one per call (03:31–10:17 in
@@ -673,13 +647,10 @@ owner turned isolation off (the host is itself a sandbox).
   (`roles.verifier.timeouts.wallMin`). Or count the wall from the last output, not from the start, while a
   `catherd lock` child of the role is alive and writing. The verifier brief also splits the root gate from the
   per-service acceptance items by default.
-- **Codex goal mode turns into polling.** After the owner set a thread goal ("never stop again…"), Codex started a
-  goal-continuation turn about once a minute. There were 11 such turns in 21 minutes, which read 7.2 M input
-  tokens on Astra. They ran `pidwait`, `write_stdin` with 55 s yields and `wait` cells, and the coordinator also did
-  role work itself (browser preflight, GitLab docs research). Fix: the Codex half of the catherd skill says that a
-  goal continuation while only roles are live ends the turn with no tool call. `peek` returns
-  `actionable: false` with the reason, so the coordinator has a one-call answer. Also consider `run_start` warning
-  when the thread has an active goal.
+- **`run_start` could warn about an active Codex goal.** In the identity run a thread goal made Codex start a
+  goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the skill ends
+  such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the thread
+  has an active goal would catch it before the first poll.
 - **Equal scores never reach the second quota.** In 34 dispatches there were 0 opencode rungs and 0 climbs. Under
   `objective: speed`, DeepSeek 4.1 Flash max (treat-like GPT-6 Luna xhigh, the same values as Luna high) sits
   second in the worker ladder, so Luna always won. The writer and researcher ladders behaved the same way. The
@@ -710,10 +681,6 @@ owner turned isolation off (the host is itself a sandbox).
   internal names (`minio-buckets` could not reach `minio`) and a BusyBox `wget` loopback health check
   (`notification-fake`). Three of the seven verifier attempts failed on it. Fix: doctor warns when the client config
   has `proxies`, and probes a two-container compose network by service name with a loopback `wget` health check.
-- **`doctor --test-push` cannot find a Codex thread from a shell.** Codex does not export `CODEX_THREAD_ID` to the
-  commands it runs. The thread reaches catherd only as `_meta.threadId` on MCP calls, so the smoke always reports
-  `no session` even inside a live thread. Fix: a `test_push` MCP tool, or `--thread <uuid>`, or resolve the cwd's
-  latest thread from `~/.codex/session_index.jsonl`.
 - **A provider outage looks like progress.** `researcher-M1-signin-failures` on
   `opencode-go/muse-spark-1.3-contributor#xhigh` (10:29:39) produced no tool call and no text in 4.5 minutes. The
   session held one assistant message with `retry.attempt: 6` and `503 service_overloaded: The backend is
