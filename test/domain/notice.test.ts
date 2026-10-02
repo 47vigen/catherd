@@ -17,6 +17,7 @@ const notice = (o: Partial<Notice> = {}): Notice => ({
   name: "worker-M1.L1",
   role: "worker",
   lane: "M1.L1",
+  thread: "019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60",
   rung: "codex:gpt-6-sol#medium",
   status: "ok",
   replyStatus: "complete",
@@ -30,17 +31,18 @@ const notice = (o: Partial<Notice> = {}): Notice => ({
 describe("the push message (spec §3.5)", () => {
   it("puts everything on a first line that stands alone", () => {
     expect(noticeHeader(notice())).toBe(
-      "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · ok · STATUS: complete · 312s · 3 owned files changed",
+      "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · ok · STATUS: complete · 312s · 3 owned files changed · thread: 019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60",
     );
     expect(noticeHeader(notice({ replyStatus: null, changedOwned: 1 }))).toContain(
       "· ok · no STATUS · 312s · 1 owned file changed",
     );
+    expect(noticeHeader(notice({ thread: null }))).toEndWith(" · thread: none");
   });
 
   it("carries the reply and the call that reads the record", () => {
     expect(formatNotices([notice()])).toBe(
       [
-        "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · ok · STATUS: complete · 312s · 3 owned files changed",
+        "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · ok · STATUS: complete · 312s · 3 owned files changed · thread: 019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60",
         "Done: added the kit.",
         "STATUS: complete — kit in place",
         'Record: result(run: "20260928-100000-auth", name: "worker-M1.L1")',
@@ -62,7 +64,7 @@ describe("the push message (spec §3.5)", () => {
   it("sends several roles as one message: a preview line, then one block each", () => {
     const text = formatNotices([
       notice(),
-      notice({ name: "worker-M1.L2", lane: "M1.L2", dispatchId: "d2" }),
+      notice({ name: "worker-M1.L2", lane: "M1.L2", dispatchId: "d2", thread: null }),
       notice({
         name: "worker-M1.L3",
         lane: "M1.L3",
@@ -72,7 +74,7 @@ describe("the push message (spec §3.5)", () => {
     ]);
     const [preview, ...blocks] = text.split("\n\n");
     expect(preview).toBe(
-      "catherd · Auth plan 5 MR B · 3 roles finished: M1.L1 ok, M1.L2 ok, M1.L3 limit on codex:gpt-6-sol#medium",
+      "catherd · Auth plan 5 MR B · 3 roles finished: M1.L1 ok (thread: 019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60), M1.L2 ok (thread: none), M1.L3 limit on codex:gpt-6-sol#medium (thread: 019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60)",
     );
     expect(blocks).toHaveLength(3);
     expect(blocks[2]).toContain("limit on codex:gpt-6-sol#medium; failed over to codex:gpt-6-sol#high");
@@ -90,7 +92,7 @@ describe("the push message (spec §3.5)", () => {
     ]);
     expect(text).toBe(
       [
-        "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · stalled: no output for 7 min · running 900s",
+        "catherd · Auth plan 5 MR B · worker-M1.L1 worker · codex:gpt-6-sol#medium · stalled: no output for 7 min · running 900s · thread: 019a0c1e-5b7a-7d10-9a4e-2f1c3d4e5f60",
         'Peek: peek(run: "20260928-100000-auth", name: "worker-M1.L1")',
         'Event: ["20260928-100000-auth","d1","finished"]',
       ].join("\n"),

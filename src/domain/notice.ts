@@ -17,6 +17,8 @@ export interface Notice {
   role: string;
   /** the lane it worked, when it had one: the multi-role preview names it */
   lane: string | null;
+  /** the role's thread, so a fix round resumes it without reading runs.jsonl; null before the CLI named one */
+  thread: string | null;
   rung: string;
   /** the record's status, or for a limit what failover did ("limit on X; failed over to Y"), or the event */
   status: string;
@@ -34,15 +36,19 @@ export const REPLY_CAP = 2_000;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** `thread: <id>`, or `thread: none` before the CLI named one: every message's first line carries it. */
+const threadWord = (n: Notice): string => `thread: ${n.thread ?? "none"}`;
+
 /** The first line of one role's block: it must stand alone, since the Desktop preview shows only it. */
 export function noticeHeader(n: Notice): string {
   const head = `catherd · ${n.runTitle} · ${n.name} ${n.role} · ${n.rung} · ${n.status}`;
-  if (n.kind === "stalled") return `${head} · running ${n.secs}s`;
+  if (n.kind === "stalled") return `${head} · running ${n.secs}s · ${threadWord(n)}`;
   return [
     head,
     n.replyStatus ? `STATUS: ${n.replyStatus}` : "no STATUS",
     `${n.secs}s`,
     plural(n.changedOwned, "owned file changed", "owned files changed"),
+    threadWord(n),
   ].join(" · ");
 }
 
@@ -78,7 +84,8 @@ function previewOf(ns: Notice[]): string {
     ? `${ns.length} roles finished`
     : `${plural(ns.length, "role", "roles")} to look at`;
   const each = ns.map(
-    (n) => `${n.lane ?? n.name} ${n.kind === "stalled" ? "stalled" : n.status.split(";")[0]}`,
+    (n) =>
+      `${n.lane ?? n.name} ${n.kind === "stalled" ? "stalled" : n.status.split(";")[0]} (${threadWord(n)})`,
   );
   return `catherd · ${where} · ${what}: ${each.join(", ")}`;
 }

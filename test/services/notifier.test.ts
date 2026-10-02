@@ -764,6 +764,22 @@ function writeJsonAtomicForExit(dir: string) {
   store.writeJsonAtomic(dispatchPaths(dir).exit, { schema: 1, ...exit() });
 }
 
+describe("the notice names the thread (plan 22)", () => {
+  it("puts the record's thread, or a live role's streamed one, on the first line", async () => {
+    const { run } = freshRun("Auth plan 5 MR B");
+    const events = readFileSync(join(FX, "ok-with-reconnect.jsonl"), "utf8");
+    const d = await fakeDispatch(run, {}, { proc: "dead", exit: exit(), events, collect: true });
+    const record = await finalizeDispatch(run, d);
+    expect(record.thread).toBe("01a0d0d4-d0a6-71a1-983c-82a9169200b4");
+    expect(finishedNotice(run, d, record).thread).toBe(record.thread);
+    // a fresh live role has no thread in its admission: the stream's thread.started names it
+    const live = await fakeDispatch(run, { name: "worker-M1.L2", lane: "M1.L2" }, { proc: "self", events });
+    expect(stalledNotice(run, live, 60_000, Date.now()).thread).toBe(record.thread);
+    const quiet = await fakeDispatch(run, { name: "worker-M1.L3", lane: "M1.L3" }, { proc: "self" });
+    expect(stalledNotice(run, quiet, 60_000, Date.now()).thread).toBeNull();
+  });
+});
+
 describe("the notifier (spec §3.4–§3.6)", () => {
   it("announces a finished role of a run this session owns, at later, and writes notified.json", async () => {
     const { run, deps, n } = await owned();
@@ -798,7 +814,9 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     await n.idle();
     const [f] = await (inbox as FakeInbox).received(1);
     expect(inbox?.frames).toHaveLength(1);
-    expect(f?.message.content).toContain("catherd · Auth plan 5 MR B · 2 roles finished: M1.L1 ok, M1.L2 ok");
+    expect(f?.message.content).toContain(
+      "catherd · Auth plan 5 MR B · 2 roles finished: M1.L1 ok (thread: none), M1.L2 ok (thread: none)",
+    );
   });
 
   it("sends a role that finishes after the message went as a message of its own", async () => {
@@ -888,7 +906,9 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     await n.idle();
     const [f] = await (inbox as FakeInbox).received(1);
     expect(inbox?.frames).toHaveLength(1);
-    expect(f?.message.content).toContain("2 roles finished: M1.L1 ok, M1.L2 ok");
+    expect(f?.message.content).toContain(
+      "2 roles finished: M1.L1 ok (thread: none), M1.L2 ok (thread: none)",
+    );
     expect([a, b, read].map((d) => existsSync(dispatchPaths(d.dir).notified))).toEqual([true, true, false]);
   });
 

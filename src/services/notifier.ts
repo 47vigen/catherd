@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { adapterFor } from "../adapters/registry.ts";
+import "../adapters/all.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { envelope, formatNotices, type Notice, type NoticePriority, priorityOf } from "../domain/notice.ts";
 import { sessionKey, type HostSessionRef } from "../domain/host.ts";
@@ -16,7 +18,7 @@ import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
 import { tryLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { type SendResult, sendToInbox } from "../infra/peer-inbox.ts";
-import { writeJsonAtomic } from "../infra/store.ts";
+import { nonBlankLines, writeJsonAtomic } from "../infra/store.ts";
 import {
   readStallQuietMs,
   type Settled,
@@ -120,6 +122,7 @@ export function finishedNotice(run: Run, d: Dispatch, r: RunRecord): Notice {
     name: r.name,
     role: r.role,
     lane: r.lane,
+    thread: r.thread,
     rung: r.rung,
     status,
     replyStatus: r.replyStatus,
@@ -128,6 +131,21 @@ export function finishedNotice(run: Run, d: Dispatch, r: RunRecord): Notice {
     reply: replyOf(run, r),
     priority: urgent ? "next" : "later",
   };
+}
+
+/** A live fresh role's thread, as its CLI named it early in its stream; null before it did. */
+function streamThread(d: Dispatch): string | null {
+  const a = adapterFor(d.admit.backend);
+  if (!a) return null;
+  for (const line of nonBlankLines(dispatchPaths(d.dir).events)) {
+    try {
+      const t = a.parse(line).thread;
+      if (t) return t;
+    } catch {
+      // a line the adapter cannot read names no thread
+    }
+  }
+  return null;
 }
 
 /** Spec §3.6: a live role that went quiet, once, at `next`. */
@@ -141,6 +159,7 @@ export function stalledNotice(run: Run, d: Dispatch, quietMs: number, now: numbe
     name: d.admit.name,
     role: d.admit.role,
     lane: d.admit.lane,
+    thread: d.admit.thread ?? streamThread(d),
     rung: d.admit.rung,
     status: `stalled: no output for ${Math.max(1, Math.round(quietMs / 60_000))} min`,
     replyStatus: null,
