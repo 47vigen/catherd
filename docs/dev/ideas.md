@@ -496,11 +496,6 @@ typing a number.
   3 minutes and their event logs were growing, yet the TUI showed `running 00:00` for both. The owner took this to mean
   the run was stuck. Elapsed time should count from `proc.json` `startedAt`. Also show the last event's age, so that
   "alive" and "stuck" look different.
-- **Workspace-write codex cannot reach the Go build cache.** In the same run, the M3.L1 worker's `go vet ./...` failed
-  with "operation not permitted": the Go build cache (`~/Library/Caches/go-build`) is outside `writable_roots`. The
-  worker got past it by pointing `GOCACHE` at `/private/tmp`, which forces a cold cache on every lane. Fix: add the
-  toolchain caches that are present (`go env GOCACHE`/`GOMODCACHE`, the pnpm store, `~/.bun/install/cache`) to
-  `writable_roots`, and add a `doctor` probe for them.
 
 ## From the 1.1.0 platform run (2026-09-28/29)
 
@@ -524,19 +519,7 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 
 **Preflight and environment**
 
-- **Preflight runs without the user's environment.** The testcontainers checks in L1 and L3 failed "rootless Docker not found", because `DOCKER_HOST` points at OrbStack and preflight doesn't inherit it. They were reported as fails-as-expected, not as cannot-start. Fix: run preflight in the user's login environment, and class "cannot start" apart from "fails as expected".
-- **The verdict has no environment class.** In verifier rounds 2 and 3, both acceptance suites failed on the environment:
-  - a connected Cisco AnyConnect socket filter drops unsigned binaries' connections to the docker bridge subnet, while `curl` passes, and a 20-line Go binary reproduces it;
-  - `proxy.golang.org` returned EOF inside an image build.
-
-  Both came out as a plain FAIL. Fix: a verdict of `BLOCKED: environment`, with the probe that proves it, so the orchestrator surfaces the blocker instead of cycling fix rounds.
 - **The version bump changed the sandbox silently.** Worker records went from `workspace-write, isolated: true` (1.1.0) to `access: full, isolated: false` (1.2.0) with no note in the run. Fix: pin the protocol and the sandbox per run, or log the change in `state.md`.
-
-**Verifier**
-
-- **The foreground verifier handed off and ended.** Its first turn ended after 80 s with "the status monitor will report each one as it finishes". No monitor reports to the main thread, so it had to be resumed with SendMessage, and ending the turn killed an auth `task check` mid-govulncheck. Fix: the verifier prompt forbids background watchers and ending the turn while a command runs.
-- **Lint reached only the verifier.** The workers' fast checks ran `go test`, never `golangci-lint`, so an `unparam` in tokenapi and a `revive` in both services' `audit_names.go` cost a full verifier round of about 43 min. Fix: a lane's fast check includes the linter of every package it touched.
-- **`gate_check` carried nothing across rounds.** The round-2 verifier didn't have round 1's item names, so every item ran again. Fix: `gate_check` lists the milestone's recorded items, and the verifier reuses their names.
 
 **Ledger and knowledge**
 
@@ -548,9 +531,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **A "foreground" verifier is still a background agent.** On the resume, the orchestrator briefed the verifier to stay in the foreground, and the Agent tool launched it async anyway ("Async agent launched successfully"). The verifier can block inside its own turn, but the main thread only learns the verdict from a notification. Fix: the skill says so plainly, and `protocol.next` treats the verifier as a dispatched role whose result arrives as a message, not as a call that returns.
 - **`status` lists a previous owner session as live.** After a new session had taken the run, `status` and `peek` still listed the previous owner session as `live: true` (the stale verifier step itself closes since 1.5).
 - **The profile is not pinned per run either.** The active profile changed from the codex one to `just-claude` while M3 was paused, so the run's verifier rung changed (`catherd-default-verifier-*` is gone and `catherd-just-claude-verifier-claude-opus-5-5-low` took over), and any re-dispatched lane would route on Sonnet instead of the Codex rungs it started on. Nothing in the run records the switch. Fix: same as the sandbox item: pin the profile at `run_start`, or log the change in `state.md`.
-- **A host probe needs to run twice.** Right after the AnyConnect VPN was disconnected, the first unsigned Go probe to `203.0.113.20` still got `no route to host`. The next seven, including one from a freshly built binary on a fresh network, answered 200. A single probe would have stopped the run for nothing. Fix: when catherd ships a host probe, it retries once after a few seconds before calling the host blocked.
-
-- **`preflight` reruns every past milestone's lanes.** Called for M4, which had one new lane, it ran all seven M3 lane checks too (Go testcontainers and four panels), took about 2 min behind the lock while the M4 worker was already running, and reported a failure on an M3 lane (`TestSeedWritesEveryStateThePanelShows`) that has nothing to do with M4. Fix: preflight only lanes that have not landed, or take a `milestone` argument.
 
 ## From the payment run (2026-09-29)
 
@@ -577,32 +557,13 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 
 **Preflight**
 
-- **Environment failures are classed as expected.** A testcontainers check without `DOCKER_HOST` failed with "rootless Docker not found", and preflight called it `fails-as-expected`. This happened on plan 1 and again on plan 3. An environment error should be `cannot-start`.
-- **A filter that matches nothing passes.** `pnpm --filter checkout …` passed before `apps/checkout` existed, because pnpm exits 0 on an empty filter. It should be `skipped`. Evidence: run `-135414`, M1.L4.
 - **A broken check is called expected.** A compose file that is valid only layered on another failed `config -q`, and preflight called that `fails-as-expected`. Evidence: run `-143512`, M1.L5.
 
 **Workers**
 
-- **"Do not commit" conflicts with acceptance built from HEAD.** `tooling/acceptance.sh` builds from `git archive HEAD`, so a lane told not to commit cannot run the acceptance it owns. One worker skipped it (plan 5). Another made an unreferenced commit and a detached worktree (plan 10). Fix: a per-lane WIP-commit escape, or acceptance belongs to the verifier by default.
-- **There is no "flaky" outcome.** Three cases needed a judgement with no record:
-  - an input-otp timer error that the worker never reproduced;
-  - a notification timing test that failed once in turbo and passed 3/3 alone;
-  - vitest timeouts under load.
-
-  Climb, accept or rerun is left to the orchestrator.
-- **An environment block is not tagged.** A worker replied `STATUS: blocked` with `ENV: vpn` on its own line, but the hints did not flag it. Climb-by-default would have spent a rung. Evidence: run `-113338`, worker-M1.L4.
-- **Lanes share the testcontainers reaper.** Parallel lanes on one daemon failed with "reaper container name already in use". Evidence: run `-135414`, worker-M1.L1.
-
 **Reviewers and verifiers**
 
-- **The low-effort reviewer stops at "partial".** On plans 4, 5, 9, 10 and 11, reviewer-M1 at claude-opus#low read the core and replied `STATUS: partial`. `record_agent_run` counts it `ok`, and `land` accepts it. Second passes scoped to the unread files found real issues:
-  - a vacuous property walk (plan 10);
-  - two bugs in plan 11's review actions, found on its first scoped pass.
-
-  Fix: size the reviewer to the diff, or refuse a partial review as the milestone's review.
 - **The verifier runs in the background even when told not to.** The Agent call returned "Async agent launched" and an interim "waiting for the gate" message. The verdict came as a second notification. Evidence: runs `-113331` and `-133255`.
-- **The verifier sets up the environment by hand.** Every verifier's first `task check` or turbo hit govulncheck's 403, because `HTTPS_PROXY` was missing. Every first testcontainers run needed `DOCKER_HOST`. Fix: carry a per-repo gate environment in the profile or the knowledge file, and inject it into verifier briefs.
-- **Nothing cleans up Docker.** After about 30 image and acceptance builds, Docker hit "no space left on device", and even `builder prune` failed until dangling images were removed. About 20 GB was freed. Evidence: plan 11 verifier, 15:42.
 - **The verifier caught what review could not, and it paid off.** The hardened property walk, run `-count=3` by the verifier, found a real cross-payment ledger bug in refund. The plan 8 and plan 11 reviewers found real bugs as well. The loop earned its cost on this run.
 
 **Outside catherd, noted for the orchestrator**
@@ -612,10 +573,6 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 ## From the platform review-fix run (2026-09-30)
 
 catherd 1.2.1, sanitell/platform review-fix plans 1–7, one run per plan and its worktree, seven MRs merged to staging (!73–!79) in about 13 h 20 min. Already listed above and seen again: one run per worktree (`dispatch` takes no cwd), and a "foreground" verifier that runs in the background anyway.
-
-- **`protocol.next` offers the verifier before the fix round.** After a reviewer returns findings, the next step it names is the verifier, not the fix round. Fix: `protocol.next` reads the reviewer record, and with open BLOCKER or BUG lines it names the fix round.
-- **A verifier resumed with SendMessage hangs.** More than once, the resumed verifier never returned. The workaround was a fresh verifier with a 10-minute cap on each command. Fix: re-checks go to a fresh verifier by default, with the failed items named and a per-command timeout in its brief; `gate_check` already carries over what passed.
-- **`preflight` times out at 300 s behind the lock.** With testcontainers suites from other lanes holding the lock slots, preflight waited past its own timeout. Fix: preflight takes a lock slot per check with its own wait budget, or reports `lock-busy` instead of a timeout.
 
 ## From the agentic-machine identity run (2026-10-02)
 
@@ -634,19 +591,6 @@ owner turned isolation off (the host is itself a sandbox).
   can run (`catherd gate check|pass`, `catherd run-file write`), name them in the verifier's brief, and stop
   telling an isolated role to call MCP tools. Or write a catherd-only `[mcp_servers]` entry into the isolated
   config. Isolation per role, not only per harness, would also have kept the verifier native here.
-- **`gate_check` paths do not fit a monorepo gate.** The log has six `E_INPUT_INVALID` (03:32–08:33):
-  `gate path apps/checkout/dist exists neither at HEAD nor in the working tree`, and
-  `gate path node_modules/.bun/@adobe+react-spectrum@… holds more than 10000 files to hash`. A full
-  `turbo run check` really does read `.`, `node_modules` and ignored build outputs. Fix: hash tracked content from
-  `git ls-files -s` plus the lockfiles for dependencies. Treat an absent ignored path as part of the hash ("absent"),
-  not as an error. Leave `node_modules` and the gitignored outputs out of the walk unless a path names them.
-  (`src/services/gate-service.ts`.)
-- **The wall timeout kills a long gate.** Verifier attempt 3 hit `wall-timeout, exit SIGTERM` at 90 minutes inside
-  the root gate (55 turbo tasks plus testcontainers). Attempt 4 took 85 minutes for that gate alone. The
-  coordinator then split the gate and acceptance into separate continuations by hand. Fix: per-role `timeouts`
-  (`roles.verifier.timeouts.wallMin`). Or count the wall from the last output, not from the start, while a
-  `catherd lock` child of the role is alive and writing. The verifier brief also splits the root gate from the
-  per-service acceptance items by default.
 - **`run_start` could warn about an active Codex goal.** In the identity run a thread goal made Codex start a
   goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the skill ends
   such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the thread
@@ -676,21 +620,6 @@ owner turned isolation off (the host is itself a sandbox).
   in the worktree, because there is one run per worktree. It still lists as `idle`, with
   `Protocol next: route and preflight M1's lanes`. Fix: `runs supersede <run> --by <run>` (or a field set by
   `run_start` with a `from:` line) closes it with a pointer, and `status` hides it.
-- **doctor misses a Docker client that injects proxies.** `access:codex` passed `docker version`, but
-  `~/.docker/config.json` had a `proxies` block, so every container got `HTTP_PROXY`. That broke a compose stack's
-  internal names (`minio-buckets` could not reach `minio`) and a BusyBox `wget` loopback health check
-  (`notification-fake`). Three of the seven verifier attempts failed on it. Fix: doctor warns when the client config
-  has `proxies`, and probes a two-container compose network by service name with a loopback `wget` health check.
-- **A provider outage looks like progress.** `researcher-M1-signin-failures` on
-  `opencode-go/muse-spark-1.3-contributor#xhigh` (10:29:39) produced no tool call and no text in 4.5 minutes. The
-  session held one assistant message with `retry.attempt: 6` and `503 service_overloaded: The backend is
-  temporarily overloaded`. Each opencode retry emitted a `step_start`, which reset the 15-minute idle timer, and
-  `failover` covers only usage limits. The role would have sat until `wallMin`. The owner cancelled it by hand
-  (`runs cancel` interrupted the server session cleanly: `aborted: Step interrupted`). Fix: the opencode adapter
-  reads the session's `retry` field (or counts consecutive `step_start` with no part between them). After N
-  provider retries (say 3) or about 3 minutes of retry-only events, it fails the attempt as `provider-unavailable`,
-  and `climb`/failover treats that like a usage limit: the next rung on another backend. A retry-only stretch
-  does not count as activity for `idleMin`.
 - **Investigate: three MCP servers for one Codex session.** At 09:36 one Codex TUI started `catherd mcp` three times
   (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
   Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
