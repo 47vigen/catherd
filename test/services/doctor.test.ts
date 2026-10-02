@@ -153,6 +153,8 @@ describe("doctor", () => {
       agents: "ok ready",
       mcp: "ok ready",
       locks: "ok ready",
+      // the toolchain caches this machine has: none, or some, all writable
+      caches: expect.stringMatching(/^(ok ready|skip none)$/),
       "sandbox:codex": "ok ready",
       "access:codex": "ok ready",
       "access:opencode": "ok ready",

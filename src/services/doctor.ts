@@ -13,6 +13,7 @@ import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
 import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
+import { cachesCheck, dockerChecks } from "./doctor-docker.ts";
 import { roleMcpChecks } from "./doctor-role-mcp.ts";
 import {
   agentsCheck,
@@ -68,6 +69,8 @@ export interface DoctorDeps {
   /** Explicit smoke test injection; default doctor never invokes it. */
   push?: () => Promise<PushProbe>;
   testPush?: boolean;
+  /** plan 23: `--docker`: run the Docker host probes (a compose network by service name, the free disk) */
+  docker?: boolean;
   env?: Record<string, string | undefined>;
   jev?: JevTransport;
   /** spec 1.5 plan 21: a cold start of the role server, timed; absent, doctor does not probe it */
@@ -296,6 +299,9 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   }
 
   checks.push(locksCheck());
+  // plan 23: the toolchain caches workers write, and Docker as a gate sees it (before the access probes)
+  checks.push(cachesCheck());
+  checks.push(...(await dockerChecks({ probe: d.docker === true })));
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
   checks.push(...(await accessChecks(profiles, installed)));
 

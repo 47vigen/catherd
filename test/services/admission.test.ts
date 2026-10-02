@@ -86,6 +86,19 @@ describe("admission", () => {
     expect(latestDispatch(run, "worker-M1.L1")?.admit.dispatchId).toBe(d.admit.dispatchId);
   });
 
+  it("gives a role its own timeouts over the profile's (plan 23)", async () => {
+    const { run } = setup();
+    const view = testView();
+    const worker = view.roles.worker;
+    if (!worker) throw new Error("no worker role");
+    view.roles.worker = { ...worker, timeouts: { wallMin: 240 } };
+    const { specPath } = await admit(fakeDeps({ view }), run, input());
+    expect(JSON.parse(readFileSync(specPath, "utf8"))).toMatchObject({
+      idleMs: 15 * 60_000,
+      wallMs: 240 * 60_000,
+    });
+  });
+
   it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {
     const { repo, run } = setup();
     process.env.FOO_API_KEY = "s3cret";
@@ -93,12 +106,17 @@ describe("admission", () => {
     const text = readFileSync(specPath, "utf8");
     expect(text).not.toContain("s3cret");
     expect(text).not.toContain("TYPESAFE_API_KEY");
-    // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, and PWD
+    // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, the dispatch id
+    // for catherd lock, its testcontainers session, and PWD
     expect(JSON.parse(text).env).toEqual({
       CATHERD_ROLE: `${run.id}/worker-M1.L1`,
       TMPDIR: realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
+      CATHERD_DISPATCH_ID: expect.any(String),
+      TESTCONTAINERS_SESSION_ID: expect.any(String),
       PWD: repo,
     });
+    const env = JSON.parse(text).env;
+    expect(env.TESTCONTAINERS_SESSION_ID).toBe(env.CATHERD_DISPATCH_ID);
     expect(statSync(specPath).mode & 0o777).toBe(0o600);
   });
 

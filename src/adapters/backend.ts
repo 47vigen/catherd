@@ -87,6 +87,11 @@ export interface EventDelta {
   limit?: boolean;
   tooOld?: boolean;
   retrying?: boolean;
+  /**
+   * plan 23: a model step started (opencode's step_start). Two in a row with nothing between are a provider retry,
+   * which the supervisor never counts as progress
+   */
+  step?: boolean;
   /** the stream's terminal event: the supervisor may kill a CLI that lingers after it */
   final?: boolean;
   /** a tool call starting (`open`) or ending: while one is open the run is busy, however quiet */
@@ -152,6 +157,11 @@ export interface BackendAdapter {
   interrupt?(thread: string, cwd: string): Promise<void>;
   /** `sinceMs`: when this run started, so what an earlier run on the thread left behind does not count */
   isBusy?(thread: string, cwd: string, sinceMs?: number): Promise<boolean>;
+  /**
+   * Plan 23: the provider retry the session is waiting out, by its attempt number, when its newest message since
+   * `sinceMs` is retrying (a 503, an overloaded backend); null when it is not
+   */
+  providerRetry?(thread: string, cwd: string, sinceMs: number): Promise<number | null>;
   /** Spec §4.5: this backend's own stand-in for a rung on a usage limit, when the profile names none. */
   failoverFor?(rung: Rung, repo?: string): Rung | null;
   /**

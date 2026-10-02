@@ -42,6 +42,23 @@ describe("opencode busy and interrupt", () => {
     expect(await opencodeAdapter.isBusy?.(SES, "/repo")).toBe(false);
   });
 
+  it("reads a provider retry from the session, and is not busy while it waits one out (plan 23)", async () => {
+    const overloaded = { type: "service_overloaded", message: "503 The backend is temporarily overloaded" };
+    onSim({
+      active: { [SES]: { type: "running" } },
+      messages: [{ type: "assistant", time: { created: 5_000 }, retry: { attempt: 6, error: overloaded } }],
+    });
+    expect(await opencodeAdapter.providerRetry?.(SES, "/repo", 1_000)).toBe(6);
+    expect(await opencodeAdapter.isBusy?.(SES, "/repo", 1_000)).toBe(false);
+    // a retry an earlier run left behind does not count
+    expect(await opencodeAdapter.providerRetry?.(SES, "/repo", 9_000)).toBeNull();
+    onSim({
+      active: { [SES]: { type: "running" } },
+      messages: [{ type: "assistant", time: { created: 5_000 } }],
+    });
+    expect(await opencodeAdapter.providerRetry?.(SES, "/repo", 1_000)).toBeNull();
+  });
+
   it("is not busy while it only waits out a usage limit", async () => {
     onSim({
       active: { [SES]: { type: "running" } },

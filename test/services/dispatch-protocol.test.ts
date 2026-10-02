@@ -29,14 +29,21 @@ function setup() {
 
 describe("the reply contract (spec 1.1 §6)", () => {
   it("ends every role's contract with the STATUS line", () => {
-    for (const role of ROLES)
+    for (const role of ROLES.filter((r) => r !== "worker"))
       expect(replyContract(role)).toEndWith(
         "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
       );
-    expect(replyContract("worker")).toStartWith("Before you reply, leave nothing running");
-    expect(replyContract("worker")).toContain("Do not commit. Reply in at most 15 lines");
+    // plan 22: a worker stops what it started before replying; plan 23: it may also say flaky, put the
+    // environment on an ENV: line, and leaves acceptance built from HEAD to the verifier
+    const worker = replyContract("worker");
+    expect(worker).toStartWith("Before you reply, leave nothing running");
+    expect(worker).toContain("Do not commit. Acceptance items that build from HEAD");
+    expect(worker).toContain("add a line ENV: <what>");
+    expect(worker).toContain(
+      "The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — ",
+    );
     expect(replyContract("verifier")).toStartWith(
-      "The first line of your reply is VERDICT: PASS or VERDICT: FAIL.",
+      "The first line of your reply is VERDICT: PASS or VERDICT: FAIL, or VERDICT: BLOCKED: environment",
     );
   });
 

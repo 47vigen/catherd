@@ -235,7 +235,7 @@ describe("orchestrator skill, run findings", () => {
   it("puts the linter and the type check in every fast check it describes", () => {
     const s = md();
     expect(s).toContain(
-      "its targeted tests plus the linter, and the type check when the repo has one, scoped to the lane's owned packages",
+      "its targeted tests plus the linter of every package the lane touches, and the type check when the repo has one, scoped to those packages",
     );
     expect(s).toContain("its fast check (targeted tests, lint and type check), to run until it passes");
     expect(s).toContain("the lint and type-check commands, and how to scope each to one package;");

@@ -6,6 +6,7 @@ import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
+import { roleTimeouts } from "../domain/profile.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { composeBrief } from "../domain/brief.ts";
 import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
@@ -16,6 +17,7 @@ import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
 import { launchSupervisor } from "../infra/launch.ts";
+import { DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { ensurePrivateDir, PRIVATE_FILE, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
@@ -34,9 +36,11 @@ import {
   setLatest,
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
+import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
+import { verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -297,11 +301,14 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
+    // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
+    const gate = i.role === "verifier" ? gateEnvParts(readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
-    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools
+    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
+    // a verifier's brief also carries the gate's rules and the run's recorded items
     writeTextAtomic(
       p.brief,
-      composeBrief(i.brief, {
+      composeBrief(await verifierBrief(run, i.role, i.name, i.brief), {
         run: run.id,
         name: i.name,
         role: i.role,
@@ -320,17 +327,26 @@ export async function admit(
         dispatchDir: dir,
         cmd: plan.cmd,
         args: plan.args,
-        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR
+        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR;
+        // plan 23: a `catherd lock` in the role reports to this dispatch, so a long gate keeps its wall alive
+        // plan 23: each dispatch its own testcontainers session, so parallel lanes never share a reaper;
+        // the gate env never overrides the role's identity, scratch, dispatch id, PWD or isolated home
         env: {
+          ...gate.values,
           ...plan.env,
           [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
           ...(scratch ? { TMPDIR: scratch } : {}),
+          [DISPATCH_ID_ENV]: id,
+          TESTCONTAINERS_SESSION_ID: id,
           PWD: plan.cwd,
         },
+        // a secret of the gate env by reference only: the supervisor reads it from its own env at spawn
+        ...(Object.keys(gate.refs).length ? { envFrom: gate.refs } : {}),
         cwd: plan.cwd,
         stdinPath: plan.stdinPath,
-        idleMs: profile.timeouts.idleMin * 60_000,
-        wallMs: profile.timeouts.wallMin * 60_000,
+        // plan 23: a role's own timeouts win over the profile's (a verifier's long gate)
+        idleMs: roleTimeouts(profile, rc).idleMin * 60_000,
+        wallMs: roleTimeouts(profile, rc).wallMin * 60_000,
         killGraceMs: KILL_GRACE_MS,
         graceAfterFinalMs: adapter.graceAfterFinalMs,
         pollMs: deps.pollMs,

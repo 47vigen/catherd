@@ -267,6 +267,10 @@ const AgentRunSchema = z.looseObject({
   status: z.enum(["ok", "failed", "cancelled"]),
   /** the lane the subagent worked, so catalog timings count it under that lane's kind; rows before it lack it */
   lane: z.string().nullable().optional(),
+  /** plan 23: a native verifier's verdict line (VERDICT: BLOCKED: environment — <probe>); rows before it lack it */
+  verdict: z.string().optional(),
+  /** plan 23: the STATUS word of the subagent's reply (a reviewer's partial is no review); rows before it lack it */
+  replyStatus: z.enum(["complete", "partial", "blocked", "refused", "flaky"]).optional(),
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 

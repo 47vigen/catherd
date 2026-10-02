@@ -27,17 +27,21 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "preflight",
     {
       description:
-        "Run each lane's fast check once, on the base tree, behind the heavy-command lock, with a 120 s timeout. Each lane is pass, fails-as-expected, skipped (it checks a file the lane creates) or cannot-start; only cannot-start blocks. When the profile asks for confirmation, the first call returns the commands to show the user; call again with confirmed: true. Refused with E_LANE_INVALID, running nothing, while any lane's Kind: or Difficulty: is not one the catalog knows.",
-      inputSchema: { run: z.string(), confirmed: z.boolean().optional() },
+        "Run each lane's fast check once, on the base tree, behind the heavy-command lock, with a 120 s timeout, in the user's login environment plus the repo's gate environment (catherd knowledge env). By default only the lanes of milestones not landed yet; milestone names one. Each lane is pass, fails-as-expected, skipped (it checks a file the lane creates, or a pnpm filter that matches no package yet), cannot-start (a missing command, a timeout, or an environment error: no Docker, DNS, a denied permission; its note says which) or lock-busy (no heavy slot came free within 60 s: run it again); only cannot-start blocks. warnings names each lane whose fast check runs no linter while the repo has one. When the profile asks for confirmation, the first call returns the commands to show the user; call again with confirmed: true. Refused with E_LANE_INVALID, running nothing, while any lane's Kind: or Difficulty: is not one the catalog knows.",
+      inputSchema: {
+        run: z.string(),
+        confirmed: z.boolean().optional(),
+        milestone: z.string().regex(ID_PATTERN).optional(),
+      },
     },
-    (a) => handle(() => preflight(deps, { run: a.run, confirmed: a.confirmed })),
+    (a) => handle(() => preflight(deps, { run: a.run, confirmed: a.confirmed, milestone: a.milestone })),
   );
 
   server.registerTool(
     "climb",
     {
       description:
-        "Move a routed lane one rung up its ladder and record why. Returns the next rung, or top: true, and any hints. Dispatch the lane again at that rung on a fresh thread. Pass env: true when the environment caused it (a missing service, a broken tool, a usage limit), not the rung. Refused with E_CLIMB_DESIGN when the evidence is a design question (Jev's finding answer is design, or a blocked climb's evidence is about lane ownership): send it to the architect instead.",
+        "Move a routed lane one rung up its ladder and record why. Returns the next rung, or top: true, and any hints. Dispatch the lane again at that rung on a fresh thread. Pass env: true when the environment caused it (a missing service, a broken tool, a usage limit), not the rung. Refused with E_CLIMB_DESIGN when the evidence is a design question (Jev's finding answer is design, or a blocked climb's evidence is about lane ownership): send it to the architect instead. Refused with E_CLIMB_ENV when the lane's last reply named the environment on an ENV: line: fix the environment or park the milestone.",
       inputSchema: {
         run: z.string(),
         lane: z.string().regex(ID_PATTERN),

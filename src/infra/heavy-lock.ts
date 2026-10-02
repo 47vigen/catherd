@@ -19,18 +19,36 @@ export async function withHeavySlot<T>(
   fn: (slot: number) => T | Promise<T>,
   o: { pollMs?: number } = {},
 ): Promise<T> {
+  const r = await withHeavySlotWithin(slots, Number.POSITIVE_INFINITY, fn, o);
+  if (r.busy) throw new Error("unreachable: an unbounded wait never gives up");
+  return r.value;
+}
+
+/**
+ * withHeavySlot with a wait budget (plan 23): `{ busy: true }` when no slot came free within `waitMs`, so a
+ * caller with a deadline of its own (preflight) reports the lock as busy instead of timing out behind it.
+ */
+export async function withHeavySlotWithin<T>(
+  slots: number,
+  waitMs: number,
+  fn: (slot: number) => T | Promise<T>,
+  o: { pollMs?: number } = {},
+): Promise<{ busy: false; value: T } | { busy: true }> {
   const dir = locksDir();
   ensurePrivateDir(dir);
+  const deadline = Date.now() + waitMs;
   for (;;) {
     for (let i = 0; i < slots; i++) {
       const release = tryLock(join(dir, `slot-${i}`));
       if (!release) continue;
       try {
-        return await fn(i);
+        return { busy: false, value: await fn(i) };
       } finally {
         release();
       }
     }
-    await Bun.sleep(o.pollMs ?? 500);
+    const left = deadline - Date.now();
+    if (left <= 0) return { busy: true };
+    await Bun.sleep(Math.min(o.pollMs ?? 500, left));
   }
 }

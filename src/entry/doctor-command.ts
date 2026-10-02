@@ -49,6 +49,11 @@ export const doctorCommand = defineCommand({
       description:
         "with --test-push: the Codex thread to send the smoke to (Codex does not export it to the commands it runs)",
     },
+    docker: {
+      type: "boolean",
+      description:
+        "also probe Docker as a gate sees it: two compose services reaching each other by name, and the free disk (pulls busybox)",
+    },
     plain: { type: "boolean", description: "ASCII glyphs (NO_COLOR drops only colour)" },
   },
   async run({ args }) {
@@ -64,6 +69,7 @@ export const doctorCommand = defineCommand({
       handshake: () => mcpHandshake(),
       roleServerStart: () => probeRoleServer(),
       testPush: args["test-push"] === true,
+      docker: args.docker === true,
     });
     if (args.json) printJson(r);
     else for (const l of formatReport(r, args.plain === true)) console.log(l);

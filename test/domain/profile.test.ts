@@ -12,6 +12,7 @@ import {
   ProfileDocSchema,
   ProfilePatchSchema,
   resolveProfile,
+  roleTimeouts,
   unknownValues,
 } from "../../src/domain/profile.ts";
 import { ROLES } from "../../src/domain/roles.ts";
@@ -249,6 +250,20 @@ describe("patchAt", () => {
       harness: { "claude-code": { isolated: true } },
     });
     expect(patchAt("notify", "finish,blocked")).toEqual({ notify: ["finish", "blocked"] });
+  });
+
+  it("sets a role's own timeouts, which win over the profile's and come off with null (plan 23)", () => {
+    const patch = patchAt("roles.verifier.timeouts.wallMin", "240");
+    expect(patch).toEqual({ roles: { verifier: { timeouts: { wallMin: 240 } } } });
+    const doc = applyPatch(defaultProfileDoc(), patch);
+    const p = resolveProfile(doc, "default", "claude-code");
+    expect(p.roles.verifier.timeouts).toEqual({ wallMin: 240 });
+    expect(p.roles.worker.timeouts).toBeUndefined();
+    expect(roleTimeouts(p, p.roles.verifier)).toEqual({ idleMin: 15, wallMin: 240 });
+    expect(roleTimeouts(p, p.roles.worker)).toEqual({ idleMin: 15, wallMin: 90 });
+    const cleared = applyPatch(doc, patchAt("roles.verifier.timeouts", "null"));
+    expect(resolveProfile(cleared, "default", "claude-code").roles.verifier.timeouts).toBeUndefined();
+    expect(() => patchAt("roles.verifier.timeouts.wallMin", "0")).toThrow("cannot set");
   });
 
   it("keeps a rung key with dots whole, and splits a comma-separated rung list", () => {

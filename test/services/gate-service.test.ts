@@ -4,7 +4,15 @@ import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:f
 import { dirname, join } from "node:path";
 import { formatRun } from "../../src/entry/runs-command.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
-import { gateCheck, gatePass, gatesFile, latestVerifierStep } from "../../src/services/gate-service.ts";
+import {
+  failedItems,
+  gateCheck,
+  gateCheckOrList,
+  gatePass,
+  gatesFile,
+  latestVerifierStep,
+  recordedItems,
+} from "../../src/services/gate-service.ts";
 import { createRun } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -247,6 +255,47 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     }
   });
 
+  it("hashes an absent ignored output as absent, not as an error, and its build as new content", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "dist/\n");
+    write(repo, "apps/checkout/src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    const built = item(run.id, { paths: ["apps/checkout/", "apps/checkout/dist"] });
+    expect(await gateCheck(deps, built)).toEqual({ carried: false });
+    await gatePass(deps, { ...built, evidence: "ok" });
+    expect(await gateCheck(deps, built)).toMatchObject({ carried: true });
+    write(repo, "apps/checkout/dist/index.js", "x");
+    expect(await gateCheck(deps, built)).toEqual({ carried: false });
+  });
+
+  it("covers dependencies through the tracked lockfiles, never walking node_modules under a named path", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "node_modules/\n");
+    write(repo, "apps/web/src/a.ts", "a");
+    write(repo, "bun.lock", "v1");
+    write(repo, "apps/web/package.json", "{}");
+    commit(repo);
+    // more files than a walk takes, under an ignored folder inside the gate's paths
+    for (let i = 0; i < 10_001; i++) write(repo, `node_modules/.bun/p${i % 10}/f${i}`, "");
+    const deps = fakeDeps();
+    const whole = item(run.id, { paths: ["."] });
+    const web = item(run.id, { paths: ["apps/web/"] });
+    await gatePass(deps, { ...whole, evidence: "ok" });
+    await gatePass(deps, { ...web, evidence: "ok" });
+    expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
+    // a lockfile change outside apps/web/ still reaches the apps/web/ item
+    write(repo, "bun.lock", "v2");
+    commit(repo);
+    expect(await gateCheck(deps, web)).toEqual({ carried: false });
+    expect(await gateCheck(deps, whole)).toEqual({ carried: false });
+    // and an uncommitted one does too (a worker's `bun add` it has not committed; plan 23 review I3)
+    await gatePass(deps, { ...web, evidence: "ok" });
+    expect(await gateCheck(deps, web)).toMatchObject({ carried: true });
+    write(repo, "bun.lock", "v3");
+    expect(await gateCheck(deps, web)).toEqual({ carried: false });
+  });
+
   it("records each check as the verifier's step, which status shows", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");
@@ -256,6 +305,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(latestVerifierStep(run)).toEqual({
       at: "2026-09-28T10:05:00.000Z",
       item: "boot check",
+      command: "bun test",
+      paths: ["src/"],
       carried: false,
     });
     const s = summarizeRun(deps, run);
@@ -274,5 +325,74 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     // the optional milestone lands on the verifier's step
     expect((await call(c, "gate_check", item(run.id, { milestone: "M1" }))).data.carried).toBe(true);
     expect(latestVerifierStep(run)).toMatchObject({ item: "unit tests", carried: true, milestone: "M1" });
+    // the list alone, recording no step; half an item is refused
+    expect((await call(c, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
+      recorded: [{ item: "unit tests", command: "bun test", passed: true }],
+      env: [],
+    });
+    expect((await call(c, "gate_check", { run: run.id, item: "x", milestone: "M1" })).error?.code).toBe(
+      "E_INPUT_INVALID",
+    );
+    expect((await call(c, "gate_check", { run: run.id })).error?.code).toBe("E_INPUT_INVALID");
+  });
+
+  it("lists the milestone's recorded items with whether each passed, so a new verifier reuses their names (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    const m1 = (name: string, over: Record<string, unknown> = {}) =>
+      item(run.id, { item: name, command: `run ${name}`, milestone: "M1", ...over });
+    expect(await gateCheck(deps, m1("lint"))).toEqual({
+      carried: false,
+      recorded: [{ item: "lint", command: "run lint", passed: false }],
+    });
+    await gatePass(deps, { ...m1("lint"), evidence: "ok" });
+    await gateCheck(deps, m1("acceptance"));
+    // another milestone's items stay out
+    await gateCheck(deps, item(run.id, { item: "boot", milestone: "M2" }));
+    expect(await recordedItems(run, "M1")).toEqual([
+      { item: "lint", command: "run lint", passed: true },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
+    expect(failedItems(run, "M1")).toEqual(["acceptance"]);
+    // a second check of an item that passed, not carried (its content changed), is open again
+    write(repo, "src/a.ts", "b");
+    await gateCheck(fakeDeps({ now: () => Date.now() + 1000 }), m1("lint"));
+    expect(failedItems(run, "M1")).toEqual(["lint", "acceptance"]);
+  });
+
+  it("lists a recorded pass as carried only while its command and paths' content still match the tree", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    write(repo, "web/b.ts", "b");
+    commit(repo);
+    const deps = fakeDeps();
+    const m1 = (name: string, paths: string[]) =>
+      item(run.id, { item: name, command: `run ${name}`, paths, milestone: "M1" });
+    await gateCheck(deps, m1("lint", ["src/"]));
+    await gatePass(deps, { ...m1("lint", ["src/"]), evidence: "ok" });
+    await gateCheck(deps, m1("acceptance", ["web/"]));
+    // a fix round changes what lint reads: the listing must not tell a fresh verifier lint carries
+    write(repo, "src/a.ts", "fixed");
+    commit(repo);
+    const listed = (await gateCheckOrList(deps, { run: run.id, milestone: "M1" })) as {
+      recorded: { item: string; command: string | null; passed: boolean }[];
+    };
+    expect(listed.recorded).toEqual([
+      { item: "lint", command: "run lint", passed: false },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
+    expect((await gateCheck(deps, m1("acceptance", ["web/"]))).recorded?.[0]).toMatchObject({
+      item: "lint",
+      passed: false,
+    });
+    // back to the content it passed on: carried again
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    expect(await recordedItems(run, "M1")).toEqual([
+      { item: "lint", command: "run lint", passed: true },
+      { item: "acceptance", command: "run acceptance", passed: false },
+    ]);
   });
 });

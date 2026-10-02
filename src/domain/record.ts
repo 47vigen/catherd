@@ -6,7 +6,8 @@ export type Access = (typeof ACCESS)[number];
 const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-const REPLY_STATUSES = ["complete", "partial", "blocked", "refused"] as const;
+/** plan 23: `flaky`, a worker's word for a check that failed, then passed when run alone */
+const REPLY_STATUSES = ["complete", "partial", "blocked", "refused", "flaky"] as const;
 export type ReplyStatus = (typeof REPLY_STATUSES)[number];
 
 export interface Tokens {
@@ -27,6 +28,8 @@ export const EXIT_REASONS = [
   "wall-timeout",
   "cancelled",
   "lost",
+  /** plan 23: the provider kept failing (retries with no progress); failover treats it as a usage limit */
+  "provider-unavailable",
 ] as const;
 export type ExitReason = (typeof EXIT_REASONS)[number];
 export interface ExitInfo {
@@ -65,6 +68,8 @@ export const RunRecordSchema = z.looseObject({
   gitUnavailable: z.boolean().optional(),
   replyStatus: z.enum(REPLY_STATUSES).nullable(),
   replyWhy: z.string().nullable(),
+  /** plan 23: the reply's ENV: line, when the environment stopped the role; absent otherwise */
+  environment: z.string().optional(),
   threadHeavy: z.boolean(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
@@ -79,7 +84,16 @@ export const RunRecordSchema = z.looseObject({
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 
-const STATUS_LINE = /^STATUS:\s*(complete|partial|blocked|refused)\s*(?:—|–|-)\s*(.*)$/;
+const STATUS_LINE = /^STATUS:\s*(complete|partial|blocked|refused|flaky)\s*(?:—|–|-)\s*(.*)$/;
+
+/**
+ * Plan 23: what stopped the role, when the environment did: an `ENV: <what>` line of its reply (a VPN, no
+ * Docker, a dead registry); null without one.
+ */
+export function parseReplyEnvironment(reply: string): string | null {
+  const m = /^[ \t]*ENV:[ \t]*(\S.*?)[ \t]*$/m.exec(reply);
+  return m ? (m[1] as string) : null;
+}
 
 /** The role's claim about its own work: the reply's last line, `STATUS: <s> — <why>`. */
 export function parseReplyStatus(reply: string): { status: ReplyStatus | null; why: string | null } {

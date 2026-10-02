@@ -145,9 +145,9 @@ describe("rolePrompt", () => {
     expect(text).not.toContain("first three lines");
   });
 
-  it("puts the linter and the type check in the architect's fast check", () => {
+  it("puts the linter of every package the lane touches and the type check in the architect's fast check (plan 23)", () => {
     expect(rolePrompt("architect", "1.0.0")).toContain(
-      "its targeted tests plus the linter, and the type check when the project has one, scoped to the packages the lane owns",
+      "its targeted tests plus the linter of every package the lane touches (each package's own: golangci-lint for a Go module, its lint script for a JS one), and the type check when the project has one, scoped to those packages",
     );
   });
 

@@ -155,6 +155,20 @@ function finalize(run: FinishedRun): Outcome {
   const f = foldOpencodeEvents(run.eventLines);
   const stopped = run.exit.reason;
   const tooOld = f.tooOld || OPENCODE_TOO_OLD.some((r) => r.test(run.stderr));
+  // plan 23: the provider kept failing; failover takes it as a usage limit, onto the next backend
+  if (stopped === "provider-unavailable")
+    return {
+      status: "limit",
+      thread: f.thread ?? run.request.thread,
+      tokens: f.tokens,
+      costUsd: f.costUsd,
+      images: [],
+      error: {
+        code: "provider-unavailable",
+        message: f.error?.message ?? "the provider retried with no progress",
+      },
+      reply: f.reply,
+    };
   const status: RunStatus =
     stopped === "cancelled"
       ? "cancelled"
@@ -201,6 +215,8 @@ function parse(line: string): EventDelta {
   const activity = opencodeActivity(e);
   if (activity) d.activity = activity;
   if (typeof e.sessionID === "string") d.thread = e.sessionID;
+  // plan 23: each provider retry starts a step again with nothing between; the supervisor counts them
+  if (e.type === "step_start") d.step = true;
   if (e.type === "step_finish") {
     d.tokens = opencodeTokens(e.part?.tokens);
     d.requestInput = d.tokens.input;
@@ -220,6 +236,21 @@ function parse(line: string): EventDelta {
  * older messages keep their errors, so only the newest assistant message counts, and with `sinceMs` only
  * if this run wrote it.
  */
+/**
+ * Plan 23: the provider retry the newest assistant message this run wrote is waiting out (a 503, an
+ * overloaded backend), by its attempt number; null when it is not retrying.
+ */
+function providerRetryOf(messages: unknown, sinceMs: number): number | null {
+  if (!Array.isArray(messages)) return null;
+  const m = messages.find((x) => x?.type === "assistant") as Record<string, any> | undefined;
+  if (!m?.retry || !(m.time?.created >= sinceMs)) return null;
+  return typeof m.retry.attempt === "number" ? m.retry.attempt : 1;
+}
+
+async function providerRetry(thread: string, sinceMs: number): Promise<number | null> {
+  return providerRetryOf((await opencodeApi("GET", `/api/session/${thread}/message`))?.data, sinceMs);
+}
+
 function limitRetry(messages: unknown, sinceMs?: number): string | null {
   if (!Array.isArray(messages)) return null;
   const m = messages.find((x) => x?.type === "assistant") as Record<string, any> | undefined;
@@ -265,7 +296,12 @@ async function isBusy(thread: string, sinceMs?: number): Promise<boolean> {
   const active = (await opencodeApi("GET", "/api/session/active"))?.data;
   if (!active || typeof active !== "object" || !(thread in active)) return false;
   const messages = (await opencodeApi("GET", `/api/session/${thread}/message`))?.data;
-  return Array.isArray(messages) && limitRetry(messages, sinceMs) === null;
+  // plan 23: a session only retrying its provider is not busy, so the idle timeout still runs
+  return (
+    Array.isArray(messages) &&
+    limitRetry(messages, sinceMs) === null &&
+    providerRetryOf(messages, sinceMs ?? 0) === null
+  );
 }
 
 /** Killing the v2 client does not stop its session; the service must be told (research §2.4). */
@@ -327,6 +363,7 @@ export const opencodeAdapter: BackendAdapter = {
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
   interrupt: (thread) => interrupt(thread),
   isBusy: (thread, _cwd, sinceMs) => isBusy(thread, sinceMs),
+  providerRetry: (thread, _cwd, sinceMs) => providerRetry(thread, sinceMs),
   failoverFor,
   graceAfterFinalMs: null,
   reportsCost: true,

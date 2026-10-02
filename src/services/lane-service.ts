@@ -27,6 +27,7 @@ import {
   fullCommit,
   milestoneFiles,
   milestoneStart,
+  partialReviewer,
   reviewerPassed,
   milestoneVerifier,
 } from "./milestones.ts";
@@ -184,6 +185,18 @@ export async function climb(
     });
   // an unrouted lane is refused before Jev is asked about its evidence (no call, no jev.jsonl row)
   if (!currentRoute(readRoutes(run), i.lane)) throw unrouted();
+  // plan 23: a reply that named the environment (ENV: …) would stop a higher rung the same way
+  const last = readRecords(run)
+    .records.filter((r) => r.lane === i.lane)
+    .at(-1);
+  if (last?.environment)
+    throw new CatherdError(
+      "E_CLIMB_ENV",
+      `climb ${i.lane}: ${last.name} was stopped by the environment (${last.environment}), which a higher rung cannot fix`,
+      {
+        fix: `fix the environment (doctor; catherd knowledge env set for the gate environment) and dispatch ${i.lane} again at the same rung, or park the milestone when only the owner can fix it`,
+      },
+    );
   await refuseDesign(deps, run, i);
   const { cur, next } = await withFileLock(runPaths(run.dir).routes, () => {
     const cur = currentRoute(readRoutes(run), i.lane);
@@ -272,8 +285,27 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     );
   }
   const start = milestoneStart(run, m);
+  // plan 23: a reviewer that stopped partial read part of the diff; that is not the milestone's review
+  const partial = partialReviewer(run, m, start);
+  if (partial)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: ${partial.name} replied STATUS: partial, which is not the milestone's review`,
+      {
+        fix: `dispatch a scoped second pass, reviewer-${m}-2, over the files ${partial.name} did not read (its reply names them), then land again`,
+      },
+    );
   // the latest verifier attempt, passed or not: a FAIL after a PASS undoes it
   const verdict = milestoneVerifier(run, m, start);
+  // plan 23: a verdict on the machine is a blocker for the owner, never a fix round
+  if (verdict?.blocked != null)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: ${verdict.name} is blocked by the environment${verdict.blocked ? `: ${verdict.blocked}` : ""}`,
+      {
+        fix: `surface it to the owner: park(run, "${m}", <the blocker and its probe>); once the environment is fixed, run a fresh verifier on ${m}. A fix round or a climb cannot help`,
+      },
+    );
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []

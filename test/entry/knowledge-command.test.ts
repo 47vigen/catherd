@@ -92,3 +92,33 @@ describe("catherd knowledge", () => {
     expect((await knowledgeLines(repo)).lines).toEqual([]);
   });
 });
+
+describe("catherd knowledge env (plan 23)", () => {
+  it("sets a value or a reference, lists them, and removes one", () => {
+    withHome();
+    const repo = tempRepo();
+    expect(catherd(["env", "list", "--repo", repo]).out).toBe(
+      "catherd: no gate environment set for this repo\n",
+    );
+    expect(catherd(["env", "set", "DOCKER_HOST=unix:///var/run/docker.sock", "--repo", repo]).code).toBe(0);
+    const set = catherd(["env", "set", "GITLAB_TOKEN", "--from", "MY_TOKEN", "--repo", repo]);
+    expect(set).toEqual({
+      code: 0,
+      out: "DOCKER_HOST=unix:///var/run/docker.sock\nGITLAB_TOKEN=$MY_TOKEN\n",
+      err: "",
+    });
+    const json = JSON.parse(catherd(["env", "list", "--json", "--repo", repo]).out);
+    expect(json).toEqual({
+      repo,
+      vars: {
+        DOCKER_HOST: { value: "unix:///var/run/docker.sock" },
+        GITLAB_TOKEN: { from: "MY_TOKEN" },
+      },
+    });
+    expect(catherd(["env", "rm", "DOCKER_HOST", "--repo", repo]).out).toBe("GITLAB_TOKEN=$MY_TOKEN\n");
+    const secret = catherd(["env", "set", "GITLAB_TOKEN=glpat-x", "--repo", repo]);
+    expect(secret.code).toBe(2);
+    expect(secret.err).toStartWith("error E_INPUT_INVALID: GITLAB_TOKEN looks like a secret");
+    expect(catherd(["env", "set", "NOVALUE", "--repo", repo]).err).toStartWith("error E_INPUT_INVALID:");
+  });
+});

@@ -70,6 +70,39 @@ describe("dispatchHints", () => {
     expect(dispatchHints(makeRecord({ changedOwned: [] }), [], dir)).toEqual([]);
   });
 
+  it("says environment for an ENV: line and flaky for a flaky reply, never climb (plan 23)", () => {
+    expect(
+      dispatchHints(
+        makeRecord({ replyStatus: "blocked", environment: "vpn", changedOwned: [] }),
+        ["src/a.ts"],
+        dir,
+      ),
+    ).toEqual(["environment: vpn"]);
+    expect(
+      dispatchHints(
+        makeRecord({
+          replyStatus: "flaky",
+          replyWhy: "notify_test failed once in turbo, passed 3/3 alone",
+          changedOwned: [],
+        }),
+        ["src/a.ts"],
+        dir,
+      ),
+    ).toEqual([
+      "flaky: notify_test failed once in turbo, passed 3/3 alone; rerun it alone, accept it, or climb: your call",
+    ]);
+  });
+
+  it("names a provider outage apart from a usage limit, failing over the same way (plan 23)", () => {
+    const r = makeRecord({
+      status: "limit",
+      error: { code: "provider-unavailable", message: "503 service_overloaded" },
+    });
+    expect(dispatchHints(r, ["src/a.ts"], dir)[0]).toBe(
+      "limit: codex:gpt-6-sol#medium's provider is unavailable (503 service_overloaded); it fails over as on a usage limit",
+    );
+  });
+
   it("says the changes are unknown, not unchanged, when git could not see them", () => {
     const r = makeRecord({ changedOwned: [], gitUnavailable: true });
     expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual(["git-unavailable: changed files unknown"]);

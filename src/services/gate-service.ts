@@ -1,19 +1,12 @@
-import {
-  existsSync,
-  lstatSync,
-  readdirSync,
-  readlinkSync,
-  realpathSync,
-  type Stats,
-  statSync,
-} from "node:fs";
-import { join } from "node:path";
+import { lstatSync, readdirSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { normalizeOwned, overlaps } from "../domain/lane.ts";
 import { git, gitHead, statusSnapshot } from "../infra/git.ts";
 import { repoDir } from "../infra/paths.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
+import { gateEnvLines, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
 
@@ -35,6 +28,10 @@ type GatePass = z.infer<typeof GatePassSchema>;
 export interface VerifierStep {
   at: string;
   item: string;
+  /** the item's command; steps written before 1.5 lack it */
+  command?: string;
+  /** the item's paths, cleaned (plan 23); steps written before it lack them */
+  paths?: string[];
   carried: boolean;
   /** a carried item: the commit its pass was recorded on */
   commit?: string;
@@ -148,7 +145,10 @@ const isLink = (file: string): boolean => {
 
 /** Whether git ignores `p` (a tracked file never is). */
 async function ignored(repo: string, p: string): Promise<boolean> {
-  return (await git(repo, ["check-ignore", "-q", "--", p.replace(/\/$/, "")])).kind === "ok";
+  const bare = p.replace(/\/$/, "");
+  const asked = async (q: string) => (await git(repo, ["check-ignore", "-q", "--", q])).kind === "ok";
+  // a directory pattern (`dist/`) matches a path that is not on disk yet only through a child of it
+  return (await asked(bare)) || (!onDisk(join(repo, bare)) && (await asked(`${bare}/.catherd`)));
 }
 
 /** The most files a gate path's on-disk walk hashes. */
@@ -179,44 +179,98 @@ function walk(repo: string, p: string): string[] {
 }
 
 /**
- * The content hash of `paths`: each one's tree entry at HEAD (mode, type and object id), plus the content of every
- * uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of what it ran.
- * A path git ignores, or one not at HEAD, is also hashed file by file from disk; ignored files under `.` or
- * under a tracked directory are not, so an ignored input is covered only when it is named.
+ * The lockfiles a gate item's dependencies come from, wherever the repo tracks them: they stand in for
+ * `node_modules` and the toolchain caches, which a gate path never needs to name (plan 23).
+ */
+export const LOCKFILES = [
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "go.sum",
+  "Cargo.lock",
+  "poetry.lock",
+  "uv.lock",
+  "Gemfile.lock",
+  "composer.lock",
+];
+
+/** `git ls-files -s -z` for `pathspecs`: each tracked file's mode, object id, stage and path, as the index holds them. */
+async function tracked(repo: string, pathspecs: string[]): Promise<string> {
+  const r = await git(repo, ["ls-files", "-s", "-z", "--", ...pathspecs]);
+  if (r.kind !== "ok")
+    throw new CatherdError(
+      "E_IO_UNEXPECTED",
+      `git ls-files ${r.kind === "timed-out" ? "timed out" : "failed"} in ${repo}`,
+      { fix: `check that git works in ${repo}` },
+    );
+  return r.out;
+}
+
+/** Whether anything is at `file` on disk, a dangling symlink included. */
+const onDisk = (file: string): boolean => {
+  try {
+    lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The content hash of `paths` (plan 23, a monorepo gate): the tracked files under each one, from `git ls-files -s`
+ * (mode, object id and path, so a committed chmod -x is new content), the repo's tracked lockfiles, and the
+ * content of every uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of
+ * what it ran. An ignored path named explicitly (a `.env`, a build output, a `node_modules` folder) is hashed
+ * from disk, file by file within GATE_WALK_MAX, and as "absent" while it is not there; ignored files under `.`
+ * or under a tracked directory are never walked. A named symlink is hashed by what it points at too.
  */
 async function contentHash(repo: string, paths: string[]): Promise<string> {
   const h = new Bun.CryptoHasher("sha256");
+  // a dependency bump reaches every gate item through its lockfile
+  h.update(
+    `locks=${sha(
+      await tracked(
+        repo,
+        LOCKFILES.map((l) => `:(glob)**/${l}`),
+      ),
+    )}\n`,
+  );
   for (const p of paths) {
-    // the tree entry, mode and type with the object id (`100755 blob <sha>`), so a committed chmod -x is new
-    // content; a directory's tree id already covers its children's modes
-    const entry = await git(
-      repo,
-      p === "."
-        ? ["rev-parse", "HEAD^{tree}"]
-        : ["ls-tree", "--full-tree", "HEAD", "--", p.replace(/\/$/, "")],
-    );
-    const at = entry.kind === "ok" ? entry.out.trim() : "";
-    // a mistyped path (or a glob) would hash as a constant and carry a pass forever
-    if (!at && !existsSync(join(repo, p)))
+    const bare = p.replace(/\/$/, "");
+    const listed = await tracked(repo, [p === "." ? "." : bare]);
+    const there = p === "." || onDisk(join(repo, bare));
+    const isIgnored = p !== "." && listed === "" && (await ignored(repo, p));
+    // a mistyped path (or a glob) would hash as a constant and carry a pass forever; an ignored output that
+    // is not built yet is part of the content, as "absent"
+    if (listed === "" && !there && !isIgnored)
       throw new CatherdError(
         "E_INPUT_INVALID",
         `gate path ${p} exists neither at HEAD nor in the working tree`,
         {
-          fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs)",
+          fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs); a git-ignored output not built yet is fine",
         },
       );
-    h.update(`${p}=${at || "missing"}\n`);
-    // git status leaves ignored files out, so an ignored path (.env, a build output) or one not at HEAD is
-    // hashed by what is on disk; "." keeps to HEAD and the not-ignored status. A symlink's HEAD entry is only
-    // its link text, so a named symlink is hashed from disk too, by what it points at
-    if (p !== "." && (!at || isLink(join(repo, p)) || (await ignored(repo, p)))) {
+    h.update(`${p}=${listed ? sha(listed) : there ? "untracked" : "absent"}\n`);
+    // git status leaves ignored files out, so an ignored path named here is hashed by what is on disk; "."
+    // keeps to the index and the not-ignored status. A tracked symlink's index entry is only its link text,
+    // so a named symlink is hashed from disk too, by what it points at
+    if (p !== "." && there && (isIgnored || isLink(join(repo, bare)))) {
       // one budget per gate path: its walk and every symlink target it follows count against GATE_WALK_MAX
       const budget: Budget = { path: p, files: 0, seen: new Set() };
       for (const f of walk(repo, p)) h.update(`disk ${f}=${await diskEntry(join(repo, f), budget)}\n`);
     }
   }
+  // an uncommitted lockfile change (a worker's `bun add`) reaches every item, as a committed one does
   const dirty = Object.keys(await statusSnapshot(repo))
-    .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)
+    .filter(
+      (f) =>
+        paths.includes(".") ||
+        LOCKFILES.includes(basename(f.replace(/\/$/, ""))) ||
+        overlaps([f], paths).length > 0,
+    )
     .sort();
   for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f), f)}\n`);
   return h.digest("hex");
@@ -241,26 +295,135 @@ export function latestVerifierStep(run: Run): VerifierStep | null {
     .at(-1) ?? null) as VerifierStep | null;
 }
 
+/** One item the verifier checked for a milestone in this run: its name, its command, and whether it passed. */
+export interface RecordedItem {
+  item: string;
+  command: string | null;
+  /** gate_check would carry it now: its last check's command has a pass on the current content of its paths */
+  passed: boolean;
+}
+
+const milestoneSteps = (run: Run, m: string): VerifierStep[] =>
+  readJsonl<VerifierStep>(stepsFile(run)).rows.filter(
+    (s) => typeof s?.item === "string" && s.milestone === m,
+  );
+
+/** Each item's last step, in the order the items were first checked. */
+const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
+  [...new Set(steps.map((s) => s.item))].map(
+    (item) => steps.findLast((s) => s.item === item) as VerifierStep,
+  );
+
+/** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
+async function carryingPass(repo: string, command: string, paths: string[]): Promise<GatePass | undefined> {
+  const hash = await contentHash(repo, paths);
+  return readPasses(repo).findLast((p) => p.command === command && p.hash === hash);
+}
+
+/**
+ * The items checked for milestone `m` in this run, in the order they were first checked (plan 23): a new
+ * verifier reuses their names, so the ledger carries what passed, and a re-check starts from the failed ones.
+ * An item counts as passed only when gate_check would carry it now, by the same rule: its last check's command
+ * has a pass on the current content of its paths, so a fix round that changed what it reads opens it again.
+ */
+export async function recordedItems(run: Run, m: string): Promise<RecordedItem[]> {
+  const repo = run.meta.repo;
+  const passes = readPasses(repo);
+  return Promise.all(
+    lastSteps(milestoneSteps(run, m)).map(async (last) => {
+      const command = last.command ?? null;
+      // a step written before its paths were recorded: those of this run's latest pass of the item stand in
+      const paths =
+        last.paths ??
+        passes.findLast((p) => p.run === run.id && p.item === last.item && p.command === command)?.paths;
+      let passed = false;
+      if (command !== null && paths !== undefined) {
+        try {
+          passed = (await carryingPass(repo, command, paths)) !== undefined;
+        } catch (e) {
+          // a path gone from the tree carries no pass
+          if (!isCatherdError(e)) throw e;
+        }
+      }
+      return { item: last.item, command, passed };
+    }),
+  );
+}
+
+/**
+ * The milestone's checked items with no pass recorded since their last check, from the step history alone
+ * (sync, for the protocol's next step); the verifier's listing and brief use recordedItems, which also re-opens
+ * a pass whose content has changed since.
+ */
+export function failedItems(run: Run, m: string): string[] {
+  const passes = readPasses(run.meta.repo).filter((p) => p.run === run.id);
+  return lastSteps(milestoneSteps(run, m))
+    .filter(
+      (last) =>
+        !last.carried && !passes.some((p) => p.item === last.item && Date.parse(p.at) >= Date.parse(last.at)),
+    )
+    .map((last) => last.item);
+}
+
 /**
  * `gate_check`: carried when this repo has a pass with the same command on the same content of `paths`;
- * records "verifier step: <item>" either way.
+ * records "verifier step: <item>" either way. With `milestone` it also lists the milestone's recorded items
+ * (plan 23), so a verifier reuses the names an earlier one checked.
  */
 export async function gateCheck(
   deps: Deps,
   i: { run: string; item: string; command: string; paths: string[]; milestone?: string },
-): Promise<{ carried: true; passedAt: string; commit: string } | { carried: false }> {
+): Promise<
+  ({ carried: true; passedAt: string; commit: string } | { carried: false }) & { recorded?: RecordedItem[] }
+> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  const hash = await contentHash(run.meta.repo, paths);
-  const pass = readPasses(run.meta.repo).findLast((p) => p.command === i.command && p.hash === hash);
+  const pass = await carryingPass(run.meta.repo, i.command, paths);
   recordStep(run, {
     at: new Date(deps.now()).toISOString(),
     item: i.item,
+    command: i.command,
+    paths,
     carried: pass !== undefined,
     ...(pass ? { commit: pass.commit } : {}),
     ...(i.milestone ? { milestone: i.milestone } : {}),
   });
-  return pass ? { carried: true, passedAt: pass.at, commit: pass.commit } : { carried: false };
+  const carried = pass
+    ? { carried: true as const, passedAt: pass.at, commit: pass.commit }
+    : { carried: false as const };
+  return i.milestone ? { ...carried, recorded: await recordedItems(run, i.milestone) } : carried;
+}
+
+/**
+ * `gate_check` with a milestone and no item: the milestone's recorded items, recording no step, and the
+ * repo's gate environment as `NAME=value` lines (a secret as `NAME=$FROM`), which a native verifier exports.
+ */
+export async function gateList(i: {
+  run: string;
+  milestone: string;
+}): Promise<{ recorded: RecordedItem[]; env: string[] }> {
+  const run = findRun(i.run);
+  return { recorded: await recordedItems(run, i.milestone), env: gateEnvLines(readGateEnv(run.meta.repo)) };
+}
+
+/** `gate_check` as both MCP servers expose it: item, command and paths together check an item; none of them,
+ * with a milestone, lists the milestone's recorded items. */
+export async function gateCheckOrList(
+  deps: Deps,
+  a: { run: string; item?: string; command?: string; paths?: string[]; milestone?: string },
+): Promise<unknown> {
+  if (a.item === undefined && a.command === undefined && a.paths === undefined) {
+    if (!a.milestone)
+      throw new CatherdError("E_INPUT_INVALID", "gate_check needs an item, or a milestone to list", {
+        fix: "pass item, command and paths to check an item, or only run and milestone to list the recorded items",
+      });
+    return gateList({ run: a.run, milestone: a.milestone });
+  }
+  if (a.item === undefined || a.command === undefined || a.paths === undefined)
+    throw new CatherdError("E_INPUT_INVALID", "gate_check needs item, command and paths together", {
+      fix: "pass all three to check an item, or none of them (with milestone) to list the recorded items",
+    });
+  return gateCheck(deps, { ...a, item: a.item, command: a.command, paths: a.paths });
 }
 
 /** `gate_pass`: records that `command` passed on the current content of `paths`, with its evidence. */
