@@ -28,6 +28,8 @@ export const EXIT_REASONS = [
   "wall-timeout",
   "cancelled",
   "lost",
+  /** plan 23: the provider kept failing (retries with no progress); failover treats it as a usage limit */
+  "provider-unavailable",
 ] as const;
 export type ExitReason = (typeof EXIT_REASONS)[number];
 export interface ExitInfo {

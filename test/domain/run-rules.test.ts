@@ -93,6 +93,16 @@ describe("dispatchHints", () => {
     ]);
   });
 
+  it("names a provider outage apart from a usage limit, failing over the same way (plan 23)", () => {
+    const r = makeRecord({
+      status: "limit",
+      error: { code: "provider-unavailable", message: "503 service_overloaded" },
+    });
+    expect(dispatchHints(r, ["src/a.ts"], dir)[0]).toBe(
+      "limit: codex:gpt-6-sol#medium's provider is unavailable (503 service_overloaded); it fails over as on a usage limit",
+    );
+  });
+
   it("says the changes are unknown, not unchanged, when git could not see them", () => {
     const r = makeRecord({ changedOwned: [], gitUnavailable: true });
     expect(dispatchHints(r, ["src/a.ts"], dir)).toEqual(["git-unavailable: changed files unknown"]);

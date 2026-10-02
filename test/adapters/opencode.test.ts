@@ -113,6 +113,19 @@ describe("opencode finalize", () => {
     expect(o).toMatchObject({ status: "failed", error: { message: "boom" }, thread: null });
   });
 
+  it("ends a provider outage as a limit, so failover moves the lane to the next backend (plan 23)", () => {
+    const o = opencodeAdapter.finalize(
+      finished([], { exit: { code: null, signal: "SIGTERM", reason: "provider-unavailable", endedAt: "x" } }),
+    );
+    expect(o).toMatchObject({
+      status: "limit",
+      error: { code: "provider-unavailable", message: "the provider retried with no progress" },
+    });
+    // a step start is what the supervisor counts
+    expect(opencodeAdapter.parse(lines("shell-ok.jsonl")[0] as string).step).toBe(true);
+    expect(opencodeAdapter.parse(lines("shell-ok.jsonl")[3] as string).step).toBeUndefined();
+  });
+
   it("keeps the thread of a resumed run with no events", () => {
     const thread = "ses_f2671cde4ffe4VbeG6dKWzM2vi";
     expect(opencodeAdapter.finalize(finished([], { request: req({ thread }) })).thread).toBe(thread);

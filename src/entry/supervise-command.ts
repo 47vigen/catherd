@@ -22,15 +22,19 @@ export async function runSupervise(specPath: string): Promise<void> {
   const a = adapterFor(spec.backend);
   const busy = a?.isBusy?.bind(a);
   const stop = a?.interrupt?.bind(a);
+  const retrying = a?.providerRetry?.bind(a);
   const ended = await supervise(spec, {
     onLine: (line) => {
       const d = a?.parse(line) ?? {};
-      return { final: d.final, thread: d.thread, item: d.item };
+      return { final: d.final, thread: d.thread, item: d.item, step: d.step };
     },
     isBusy: busy
       ? (thread, sinceMs) => (thread ? busy(thread, spec.cwd, sinceMs) : Promise.resolve(false))
       : undefined,
     interrupt: stop ? (thread) => (thread ? stop(thread, spec.cwd) : Promise.resolve()) : undefined,
+    providerRetry: retrying
+      ? (thread, sinceMs) => (thread ? retrying(thread, spec.cwd, sinceMs) : Promise.resolve(null))
+      : undefined,
   });
   // plan 22: a Codex owner hears of the role from here too, when its thread's MCP server is gone. Loaded only
   // once the worker ended (a supervisor that lost the lock to another pushes nothing); never throws.

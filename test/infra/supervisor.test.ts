@@ -106,6 +106,50 @@ describe("supervise", () => {
     expect(Date.now() - at).toBeLessThan(5_000);
   });
 
+  it("ends an attempt that only retries its provider as provider-unavailable (plan 23)", async () => {
+    const step = (l: string) => ({ step: l.includes("step_start") });
+    // four step starts in a row with nothing between: three retries
+    const retried = spec(`for i in 1 2 3 4; do echo '{"type":"step_start"}'; done; sleep 30`, {
+      idleMs: 60_000,
+    });
+    expect((await supervise(retried, { onLine: step }))?.reason).toBe("provider-unavailable");
+    // or a long enough stretch of retries, however few
+    const slow = spec(`while true; do echo '{"type":"step_start"}'; sleep 0.05; done`, {
+      idleMs: 60_000,
+      providerRetry: { attempts: 1_000, ms: 300 },
+    });
+    expect((await supervise(slow, { onLine: step }))?.reason).toBe("provider-unavailable");
+    // a step with work after it is progress, not a retry
+    const working = spec(
+      `for i in 1 2 3 4 5; do echo '{"type":"step_start"}'; echo '{"type":"text"}'; done; exit 0`,
+      { idleMs: 60_000 },
+    );
+    expect((await supervise(working, { onLine: step }))?.reason).toBe("exited");
+  });
+
+  it("never counts retry-only events as activity, and reads a quiet session's own retry field (plan 23)", async () => {
+    const step = (l: string) => ({ step: l.includes("step_start") });
+    const idle = spec(`while true; do echo '{"type":"step_start"}'; sleep 0.05; done`, {
+      idleMs: 400,
+      providerRetry: { attempts: 1_000, ms: 600_000 },
+    });
+    expect((await supervise(idle, { onLine: step, isBusy: async () => false }))?.reason).toBe("idle-timeout");
+    const quiet = spec(`echo '{"type":"text"}'; sleep 30`, {
+      idleMs: 60_000,
+      providerRetry: { pollMs: 50 },
+    });
+    let asked = 0;
+    const exit = await supervise(quiet, {
+      onLine: step,
+      providerRetry: async () => {
+        asked++;
+        return 6;
+      },
+    });
+    expect(exit?.reason).toBe("provider-unavailable");
+    expect(asked).toBeGreaterThan(0);
+  });
+
   it("kills a CLI that lingers after its final event", async () => {
     const s = spec(`echo '{"type":"result"}'; sleep 30`, { graceAfterFinalMs: 100 });
     const exit = await supervise(s, { onLine: (l) => ({ final: l.includes("result") }) });

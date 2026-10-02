@@ -28,8 +28,19 @@ export const SuperviseSpecSchema = z.looseObject({
   killGraceMs: z.number().nonnegative(),
   graceAfterFinalMs: z.number().nonnegative().nullable(),
   pollMs: z.number().positive(),
+  /** plan 23: when provider retries end an attempt; PROVIDER_RETRY when absent (tests shorten it) */
+  providerRetry: z
+    .object({ attempts: z.number().positive(), ms: z.number().positive(), pollMs: z.number().positive() })
+    .partial()
+    .optional(),
 });
 export type SuperviseSpec = z.infer<typeof SuperviseSpecSchema>;
+
+/**
+ * Plan 23: an attempt that has only retried its provider (3 retries, or 3 min of nothing else) ends as
+ * provider-unavailable; a quiet session's own retry field is read every pollMs.
+ */
+export const PROVIDER_RETRY = { attempts: 3, ms: 180_000, pollMs: 30_000 };
 
 /** What one stream line tells the supervisor: the terminal event, the thread, a tool call opening or closing. */
 interface LineInfo {
@@ -37,6 +48,8 @@ interface LineInfo {
   thread?: string;
   /** a tool call the CLI started (`open`) or finished: while one is open the run is busy, however quiet */
   item?: { id: string; open: boolean };
+  /** plan 23: a model step started; one right after another, with nothing between, is a provider retry */
+  step?: boolean;
 }
 
 export interface SuperviseHooks {
@@ -44,6 +57,8 @@ export interface SuperviseHooks {
   /** `sinceMs`: when this run started, so a backend can ignore what an earlier run on the thread left */
   isBusy?(thread: string | null, sinceMs: number): Promise<boolean>;
   interrupt?(thread: string | null): Promise<void>;
+  /** plan 23: the provider retry attempt the session waits out (its own retry field), or null */
+  providerRetry?(thread: string | null, sinceMs: number): Promise<number | null>;
 }
 
 /** Reads whatever the child appended to `file` since `offset`, as complete lines. */
@@ -201,20 +216,39 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     const open = new Set<string>();
     const stream = { offset: 0, rest: "", decoder: new TextDecoder("utf-8") };
 
+    // plan 23: a step that starts right after another with nothing between is a provider retry; retries are
+    // not progress, and enough of them (or a long enough stretch) end the attempt as provider-unavailable
+    let lastWasStep = false;
+    let retries = 0;
+    let retrySince: number | null = null;
+    let lastRetryPoll = started;
+    const retry = { ...PROVIDER_RETRY, ...spec.providerRetry };
+
     while (!done && reason === null) {
       await Bun.sleep(spec.pollMs);
       const lines = readNew(p.events, stream);
-      if (lines.length) {
-        lastActivity = Date.now();
-        stallChecked = false;
-      }
+      let progress = false;
       for (const line of lines) {
         let d: LineInfo | undefined;
         try {
           d = hooks.onLine?.(line);
         } catch {
-          continue; // one line the hook cannot read must not end supervision
+          // one line the hook cannot read must not end supervision; it is output all the same
+          progress = true;
+          lastWasStep = false;
+          continue;
         }
+        if (d?.step && lastWasStep) {
+          retries++;
+          retrySince ??= Date.now();
+        } else {
+          progress = true;
+          if (!d?.step) {
+            retries = 0;
+            retrySince = null;
+          }
+        }
+        lastWasStep = d?.step === true;
         if (d?.thread && d.thread !== thread) {
           thread = d.thread;
           // spec 1.5 plan 21: a live role's thread is on disk, so no delivery ever targets it
@@ -230,6 +264,23 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
           else open.delete(d.item.id);
         }
       }
+      if (progress) {
+        lastActivity = Date.now();
+        stallChecked = false;
+      }
+      // plan 23: a session quiet for a while may be waiting out a provider retry the stream does not show
+      if (
+        hooks.providerRetry &&
+        Date.now() - lastActivity >= retry.pollMs &&
+        Date.now() - lastRetryPoll >= retry.pollMs
+      ) {
+        lastRetryPoll = Date.now();
+        const attempt = await bounded(() => hooks.providerRetry?.(thread, started), hookMs, null);
+        if (attempt !== null) {
+          retrySince ??= Date.now();
+          retries = Math.max(retries, attempt);
+        }
+      }
       // a worker that ended on its own is recorded as it ended, even if a cancel or a limit arrived meanwhile
       if (done) break;
       const now = Date.now();
@@ -239,6 +290,8 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         reason = "wall-timeout";
       else if (finalAt !== null && spec.graceAfterFinalMs !== null && now - finalAt >= spec.graceAfterFinalMs)
         reason = "after-final";
+      else if (retries >= retry.attempts || (retrySince !== null && now - retrySince >= retry.ms))
+        reason = "provider-unavailable";
       else if (now - lastActivity >= spec.idleMs) {
         const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
         // the busy check can take up to hookMs: a worker that ended meanwhile is recorded as it ended, read
