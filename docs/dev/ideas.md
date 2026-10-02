@@ -109,55 +109,18 @@ Plan 23 (verifier, gate and environment) review:
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
 (`ee661e4..5209310`):
 
-- **doctor's handshake starts a boot sync** (`src/entry/mcp/handshake.ts`): each `doctor` with a stale cache spends
-  fetches (AA included) in a server it kills a moment later, and records nothing. Set `CATHERD_NO_SYNC=1` in
-  `handshakeEnv`.
 - **Piped `init` reads a new line order** (Jev, AA, profile, replace): an old script piping `KEY\nwork\ny` now sends
   `work` as the AA key. Say so in the 1.2 changeset and MIGRATION (plan 14).
-- **Fetchers store an answer of the wrong shape as a success** (AA `pages: []`, an Arena answer without `rows`),
-  replacing the last good one. Throw when a parser yields no rows or page 1 is empty.
-- **`writeDerived` does not validate what it writes**, while `readDerived` does: one score with a bad date makes the
-  whole file unreadable. `ScoreSchema.safeParse` each score in `derive` and drop the invalid ones.
-- **`catalog_sync` right after boot** waits up to 120 s for the boot sync's lock and may throw `E_IO_LOCK` when
-  sources hang. Return `busy` from the tool instead of waiting.
-- **`testAaKey` retries 429 and 5xx** through `sourceGet` (up to 3 requests); the spec says one. Pass `retries: 0`.
-- **doctor's "requests left today" can be stale:** a failed AA attempt with no header keeps the old
-  `rateLimitRemaining` under a new `lastAttemptAt`. Keep the header's own timestamp.
-- **`derive` keeps the highest value per key** whatever the field's direction; fine for today's dims, wrong for
-  `cost_per_task` or time to first token once they are facts. Carry a direction per field.
-- **`saveCredential` writes without a file lock**; two concurrent `init`s could lose a key (the Jev key's old
-  pattern). Take the profiles lock or a credentials lock.
 
 From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
 
-- **A threshold's `why` in `route` always shows the default's `barsWhy`**, even when the user's override replaced
-  it (`provenance.ts`): `min: 70` beside "the median … 66.6". Say "your override" when `c.bars` differs.
-- **A failover stand-in scored only by an inferred stand-in has no mark** in `profile show` and the tree
-  (`note` is set only for a treat-like). Add "`<dims>` inferred from X".
-- **`route` reads every run on the machine for evidence, unguarded** (`routing-service.ts`): an unreadable run file
-  fails routing, though evidence is display-only. Wrap it; `evidence: null` on error.
-- **The TUI save preview checks the repair rule against a profile with no stored file**, which the service refuses:
-  the dialog offers Save and the save comes back invalid. Preview `repair: false` when the profile does not exist.
-- **An unscored `defaultRung` falls back silently** to the cheapest candidate (`select.ts` `defaultLadder`); say so
-  in the warning.
-- **`speedLadder`'s main dimension for `ui` is `repo_code`**, while `ui` now gates on `frontend`.
-- **Ruling 7 says `steer` is never inferred**, but a user's steer bar makes it inferred (`standins.ts` `barDimsIn`).
-  Align the ruling or the code.
-- **`catalog/ATTRIBUTION.md` says models.dev data is never shipped**, but `models.json` now ships its release dates.
-  Move models.dev to the shipped section with its MIT line.
-- **`catalog-refresh.yml` keeps the token in `.git/config` while `bun install` runs scripts** (as `release.yml`
-  does). `persist-credentials: false`; push with the token only in the PR step.
-- **`valueWords` in `provenance.ts` is exported and unused.**
-- **`adjacent` values overstate lower efforts** (Luna none carries Luna max's DeepSWE). A per-effort discount, or
-  spreading only upward, once sources score low efforts (plan 14 Ruling 3).
+- **The shipped rebuild still spreads `adjacent` values downward** (Luna none carries Luna max's DeepSWE; a sync
+  spreads only upward since 1.5, plan 24): the default ladder's Luna rungs rest on a value published only at max
+  (plan 14 Ruling 3). The owner's call, with the Sol bars below.
 - **The logic and hard bars sit above every Sol rung** on the default ladder (Sol agentic 0.0818 vs 0.08606): the
   owner's call, percentiles as specced or a ladder with a stronger top rung.
 - **Haiku 4.5's terminal value returns** when Epoch's Terminal-Bench covers five anchor rungs (plan 14 C-2).
 - **The Artificial Analysis fixtures are synthetic** (plan 13 R-C); re-record them with a key.
-- **`catalog list` says "inferred from X" for a user treat-like's values too**, the same as a stand-in's guess;
-  tell a user's mapping apart ("like X").
-- **`treat-like --clear` does not name a rung that keeps some values but loses a bar dimension** to no stand-in
-  (neither unscored nor inferred). Spec §6.4 arguably covers the partial gap.
 - **The text `catalog list` format changed in 1.2** (values line, then `runs:`); any script scraping it should use
   `--json`.
 
@@ -538,7 +501,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
   - Each case needed a hand-written lane: L5, L6, L7, and a rescoped L4.
 
   Fix: an `owns_add(run, lane, paths, why)` tool that re-checks overlap. Clone-driven work also needs a "discover, then split" step, because the files are knowable only after the gate runs.
-- **Jev overrode the lane headers.** All four first lanes declared `Kind`/`Difficulty`, and routing replaced them (declared logic → `repo_code`/`copy`), so the logic lanes started on `luna#high`. Fix: a declared header wins, or the route record says why it didn't.
 - **A lane could not declare an allowed exception to its own absence grep.** The plan's `func Allowed` grep also matched an unrelated `services/verification/internal/job/command.go:120`, and `acceptancetest\.SignIn` matched the surviving `SignInAuth` and `SignInSSO`. The workers returned partial correctly, but a check that can never pass looks the same as work that isn't done yet. Fix: an `Allow:` line under the check, and word boundaries in plan greps.
 
 **Preflight and environment**
@@ -573,9 +535,6 @@ catherd 1.2.1, profile just-claude, sanitell/platform payment plans 1–11. That
 
 **Routing and dispatch**
 
-- **`route` bloats the orchestrator.** Every call returns the full provenance block, about 3k tokens per lane, into the most expensive context of the run. Fix: return rung, ladder, backend and agent, and write provenance to `R/routes.jsonl`.
-- **Ladders were inverted on just-claude.** `Difficulty: build` lanes got the ladder [sonnet#high] with no room to climb (source `jev-kind`). `logic` lanes started lower, at sonnet#medium. Every claude-code value in provenance was `inferred` from a gpt-6-sol benchmark. Evidence: the first four routes of runs `-113331`, `-113334` and `-113338`.
-- **`dispatch` needs a rung it then overrides.** `rung` is required, even when the lane is not routed yet. The orchestrator guessed a rung, and dispatch overrode it with a hint. Fix: make `rung` optional on a lane dispatch.
 - **Lane values are refused only at preflight.** `Difficulty: medium` (the word plans use) was refused as `E_LANE_INVALID` at preflight, not when `write_run_file` wrote the lane. Evidence: run `-135414`.
 - **There is no `lane_set`.** Fixing one header line (a fast check without `pnpm check`, or an Owns path) meant `sed` on the run folder. Evidence: runs `-113331` and `-143512`.
 
@@ -619,27 +578,6 @@ owner turned isolation off (the host is itself a sandbox).
   goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the skill ends
   such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the thread
   has an active goal would catch it before the first poll.
-- **Equal scores never reach the second quota.** In 34 dispatches there were 0 opencode rungs and 0 climbs. Under
-  `objective: speed`, DeepSeek 4.1 Flash max (treat-like GPT-6 Luna xhigh, the same values as Luna high) sits
-  second in the worker ladder, so Luna always won. The writer and researcher ladders behaved the same way. The
-  ChatGPT plan carried everything while the OpenCode Go subscription sat idle. Fix: break ties on quota headroom
-  across billing keys, starting the lane on the less used subscription when scores tie. Or add an objective that
-  balances subscriptions. `route` says when a tie decided the pick.
-  Root cause, found after the run: the profile's ladder order is never read. `candidates` sorts by cost
-  (`compareCost`), or by measured seconds first under `speed`. The three opencode-go models have no catalog family,
-  so `costOf(null, …)` returns `value: null` and they have no `secs` yet, and both sorts put them after every Codex
-  rung. Only `billing.codex: metered` (tier 1) together with `objective: cost` put them first. A dry run of
-  `select` then started worker copy/build/prose lanes, and every writer and researcher lane, on DeepSeek or Muse.
-  Fix: an unpriced subscription rung costs 0 within its tier, not "unknown, last". The profile's ladder order breaks
-  ties. `profile validate` warns about a subscription rung that can never start.
-- **The climb ladder goes down above the top rung.** `M1.L2` (repo_code/hard) got the ladder
-  `gpt-6.1-sol#medium → deepseek-v4.1-flash#max → glm-5.3-flash#max`: no rung cleared the hard bar, so the "climb"
-  was all weaker rungs. Fix: a climb ladder holds only rungs that score at least the start. When nothing clears the
-  bar, `route` says so (`no rung clears repo_code/hard; best is …`), and `profile validate` warns about a kind and
-  difficulty no rung of a role can reach.
-- **Only worker dispatches leave a route record.** `routes.jsonl` has 11 entries for 34 dispatches. The writer,
-  researcher, reviewer, verifier and architect rungs (for example writer on Luna high instead of the ladder's first
-  rung) cannot be audited. Fix: `route` and `dispatch` record every role's decision, its source and the ladder.
 - **A superseded run stays open.** Planning run `20261002-002615-…` (main checkout) handed over to the execution run
   in the worktree, because there is one run per worktree. It still lists as `idle`, with
   `Protocol next: route and preflight M1's lanes`. Fix: `runs supersede <run> --by <run>` (or a field set by
@@ -648,12 +586,6 @@ owner turned isolation off (the host is itself a sandbox).
   (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
   Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
   processes.
-- **Scores of a new same-family release start absurd.** With no public numbers, GPT-6.1 Sol was inferred at
-  repo_code 37.2 (low) and 56.6 (medium), below GPT-6 Luna, so the router would have avoided it. It was fixed
-  locally with `treat-like` from the Artificial Analysis Intelligence Index per effort (slopalytics.com): Sol 6.1
-  medium 47.8 ≈ Astra low, high 50.2 ≈ Astra medium. GLM 5.3 Flash max (41.8) and DeepSeek 4.1 Flash max (39.5)
-  were mapped the same way. Fix: read the AA Intelligence Index per model and effort as a calibration source. Until
-  a value arrives, a release of the same family takes at least its predecessor's values at the same effort.
 
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 
@@ -689,22 +621,15 @@ owner turned isolation off (the host is itself a sandbox).
   window still reaches a native `-p` (which opens a browser). Document it, or re-run `agy models` in native
   `prepare` (~10 s a dispatch). (Plan 17 final review, Minor 3.)
 
-- **A sparse rung borrows its nearest stand-in's honesty.** Shipping GPT-6.1 Sol's one honesty value (97.92, a
-  Broken Search Tool figure) would have become the honesty stand-in for 18 unrelated rungs, e.g.
-  `opencode/claude-haiku-4-5#high` 22.5 → 97.92: the similarity ranking seems to favour rungs with few values of their
-  own. Check the nearest-stand-in distance before shipping any single-dimension row. (PR #36.)
-
 ## Routing and cost
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
   "build lanes on `codex:gpt-6-luna#high` climbed 3 of 10". _Why:_ it is the raw material for catalog tuning, and it
   tells the user whether a bar is too low today. _Where:_ `runs_summary`, `watch`, and the setup skill.
 - **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty
-  (0.4), so 3 of 4 routes fell back to the default. Log each lane's final outcome (climbed or not) beside Jev's answer,
-  then tune the difficulty question's wording, its options or its threshold from that data.
-- **Batch `route`.** `route` takes one lane per call, and each call may wait up to 25 s on Jev, so a milestone of
-  six lanes can spend minutes routing before its first dispatch. One `route(run, lanes: [...])` could ask Jev for
-  every lane at once and return one answer per lane. _Where:_ the `route` tool and `routing-service.ts`.
+  (0.4), so 3 of 4 routes fell back to the default. Since 1.5 each lane's final outcome (climbed or not) is logged
+  beside Jev's answer in `routes.jsonl` (plan 24): tune the difficulty question's wording, its options or its
+  threshold from that data.
 - **First-turn cost on small lanes.** A native Codex turn starts at about 280k input tokens (mostly cached) whatever
   the lane's size. A profile rule such as "isolated below difficulty build" could save most of it without touching the
   user's harness for real work. _Where:_ the profile's `harness.<backend>.isolated`, made conditional.
