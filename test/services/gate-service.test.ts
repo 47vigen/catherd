@@ -120,6 +120,29 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(false);
   });
 
+  it("names a pass on uncommitted changes HEAD+uncommitted, takes ./ as ., and sees a staged rename out", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    const c1 = commit(repo);
+    const deps = fakeDeps();
+    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    write(repo, "src/a.ts", "dirty");
+    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(`${c1}+uncommitted`);
+    // a dirty file outside the paths leaves the pass on HEAD
+    write(repo, "src/a.ts", "a");
+    write(repo, "docs/x.md", "x");
+    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    // ./ is the whole repo, as . is
+    const whole = await gatePass(deps, { ...item(run.id, { paths: ["./"] }), evidence: "ok" });
+    expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(true);
+    expect(whole.commit).toBe(`${c1}+uncommitted`);
+    // a staged rename out of the paths changes their content (git status reports the rename's source too)
+    rmSync(join(repo, "docs"), { recursive: true });
+    expect((await gateCheck(deps, item(run.id))).carried).toBe(true);
+    execFileSync("git", ["mv", "src/a.ts", "lib-a.ts"], { cwd: repo });
+    expect((await gateCheck(deps, item(run.id))).carried).toBe(false);
+  });
+
   it("keeps the ledger per repo, beside knowledge.md, and a pass is found from another run of the repo", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");

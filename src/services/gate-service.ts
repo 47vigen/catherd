@@ -43,10 +43,11 @@ export interface VerifierStep {
 export const gatesFile = (toplevel: string): string => join(repoDir(toplevel), "gates.jsonl");
 const stepsFile = (run: Run): string => join(run.dir, "verifier.jsonl");
 
-/** Repo-relative paths, `.` for the whole repo; anything that leaves the repo is refused. */
+/** Repo-relative paths, `.` (or `./`) for the whole repo; anything that leaves the repo is refused. */
 function cleanPaths(paths: string[]): string[] {
+  const whole = (p: string) => p.trim() === "." || p.trim() === "./";
   try {
-    return [...new Set(paths.map((p) => (p.trim() === "." ? "." : normalizeOwned(p))))].sort();
+    return [...new Set(paths.map((p) => (whole(p) ? "." : normalizeOwned(p))))].sort();
   } catch (e) {
     if (isCatherdError(e))
       throw new CatherdError("E_INPUT_INVALID", e.message.replace("owned path", "gate path"), {
@@ -227,7 +228,7 @@ const onDisk = (file: string): boolean => {
  * from disk, file by file within GATE_WALK_MAX, and as "absent" while it is not there; ignored files under `.`
  * or under a tracked directory are never walked. A named symlink is hashed by what it points at too.
  */
-async function contentHash(repo: string, paths: string[]): Promise<string> {
+async function contentHash(repo: string, paths: string[]): Promise<{ hash: string; dirty: boolean }> {
   const h = new Bun.CryptoHasher("sha256");
   // a dependency bump reaches every gate item through its lockfile
   h.update(
@@ -273,7 +274,7 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
     )
     .sort();
   for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f), f)}\n`);
-  return h.digest("hex");
+  return { hash: h.digest("hex"), dirty: dirty.length > 0 };
 }
 
 const readPasses = (repo: string): GatePass[] =>
@@ -316,7 +317,7 @@ const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
 
 /** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
 async function carryingPass(repo: string, command: string, paths: string[]): Promise<GatePass | undefined> {
-  const hash = await contentHash(repo, paths);
+  const { hash } = await contentHash(repo, paths);
   return readPasses(repo).findLast((p) => p.command === command && p.hash === hash);
 }
 
@@ -429,15 +430,19 @@ export async function gateCheckOrList(
   return gateCheck(deps, { ...a, item: a.item, command: a.command, paths: a.paths });
 }
 
-/** `gate_pass`: records that `command` passed on the current content of `paths`, with its evidence. */
+/**
+ * `gate_pass`: records that `command` passed on the current content of `paths`, with its evidence. A pass on
+ * uncommitted changes under `paths` names its commit `<HEAD>+uncommitted`: HEAD alone is not what it ran on.
+ */
 export async function gatePass(
   deps: Deps,
   i: { run: string; item: string; command: string; paths: string[]; evidence: string },
 ): Promise<{ recorded: true; hash: string; commit: string }> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  const hash = await contentHash(run.meta.repo, paths);
-  const commit = (await gitHead(run.meta.repo)) ?? "none";
+  const { hash, dirty } = await contentHash(run.meta.repo, paths);
+  const head = (await gitHead(run.meta.repo)) ?? "none";
+  const commit = dirty ? `${head}+uncommitted` : head;
   const file = gatesFile(run.meta.repo);
   ensureJsonlHeader(file, "gates");
   appendJsonl(file, {

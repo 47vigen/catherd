@@ -1,5 +1,6 @@
 import { assertNativeHost } from "./backends.ts";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -18,7 +19,7 @@ import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
+import { admit, KILL_GRACE_MS, laneFile, laneOwns, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
 import {
   type Dispatch,
@@ -318,6 +319,34 @@ function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
   });
 }
 
+/** How long a dispatch waits for another dispatch's route of the same lane (Jev may take tens of seconds). */
+const ROUTE_LOCK_MS = 120_000;
+
+/**
+ * What admission would refuse anyway, refused before a lane is routed, so a refused dispatch asks Jev nothing
+ * and writes no route row: the role off, the lane file missing or with no Owns:, the name or the lane already
+ * running. Admission checks them again under its lock.
+ */
+function refuseBeforeRouting(deps: Deps, run: Run, i: DispatchInput & { lane: string }): void {
+  const profile = runProfile(deps, run);
+  if (!profile.roles[i.role]?.enabled)
+    throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {
+      fix: "skip the role, or turn it on with profile_set",
+    });
+  laneOwns(run, i.lane);
+  const pending = pendingDispatches(run, deps.now());
+  const same = pending.find((d) => d.admit.name === i.name);
+  if (same)
+    throw new CatherdError("E_ADMIT_DUPLICATE", `${i.name} is already running on ${same.admit.rung}`, {
+      fix: `its record is announced when it finishes; or cancel(run, "${i.name}")`,
+    });
+  const lane = pending.find((d) => d.admit.lane === i.lane);
+  if (lane)
+    throw new CatherdError("E_ADMIT_OVERLAP", `lane ${i.lane} is already running as ${lane.admit.name}`, {
+      fix: `dispatch it after ${lane.admit.name} finishes`,
+    });
+}
+
 /**
  * Plan 22: the thread a dispatch resumes. `"latest"` is the name's last recorded thread; any other id must be one
  * the name's records in this run hold (`runs.jsonl`), in any case, so a wrong id is refused before a CLI starts
@@ -386,17 +415,35 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   if (thread !== null) hints.push(...(await stopLeftovers(deps, run, thread)));
   let rung: string;
   if (i.lane !== undefined) {
-    assertId("lane", i.lane);
+    const lane = i.lane;
+    assertId("lane", lane);
     // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
-    const current = currentRoute(readRoutes(run), i.lane);
-    const routed = current
-      ? null
-      : await route(deps, { run: i.run, laneFile: `lanes/${i.lane}.md`, role: i.role });
+    let current = currentRoute(readRoutes(run), lane);
+    let routed: Awaited<ReturnType<typeof route>> | null = null;
+    if (!current) {
+      refuseBeforeRouting(deps, run, { ...i, lane });
+      // one route per lane: a second dispatch of the lane waits for the first's route and takes it
+      const got = await withFileLock(
+        join(run.dir, `route-${lane}`),
+        async () => {
+          const now = currentRoute(readRoutes(run), lane);
+          return now
+            ? { current: now, routed: null }
+            : {
+                current: null,
+                routed: await route(deps, { run: i.run, laneFile: `lanes/${lane}.md`, role: i.role }),
+              };
+        },
+        { timeoutMs: ROUTE_LOCK_MS },
+      );
+      current = got.current;
+      routed = got.routed;
+    }
     // spec 1.5 plan 24: without a rung, a lane runs at its current rung (its route, after any climb)
     rung = i.rung ?? routed?.rung ?? (current?.rung as string);
     if (routed && i.rung !== undefined && !routed.ladder.includes(i.rung)) {
       rung = routed.rung;
-      hints.push(`${i.rung} is not on ${i.lane}'s routed ladder: dispatched at ${routed.rung}`);
+      hints.push(`${i.rung} is not on ${lane}'s routed ladder: dispatched at ${routed.rung}`);
     }
   } else if (i.rung === undefined)
     throw new CatherdError("E_INPUT_INVALID", `dispatch ${i.name}: a role outside a lane needs a rung`, {
