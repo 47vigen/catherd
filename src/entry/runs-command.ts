@@ -13,6 +13,7 @@ import { redact } from "../infra/log.ts";
 import { cancel } from "../services/dispatch-service.ts";
 import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
+import { cleanScratch } from "../services/scratch.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
 import { type RunSummary, status, summarizeRun } from "../services/summary.ts";
@@ -289,6 +290,23 @@ const cancelCmd = defineCommand({
   },
 });
 
+const clean = defineCommand({
+  meta: {
+    name: "clean",
+    description:
+      "Remove the roles' scratch folders (their TMPDIR) of a run with no live role, or of every such run",
+  },
+  args: { id: { type: "positional", required: false, description: "run id (default: every run)" }, ...json },
+  run({ args }) {
+    const r = cleanScratch({ run: args.id });
+    if (args.json) return printJson(r);
+    for (const x of r.removed)
+      console.log(`${mark("ok")} ${x.run}  scratch removed (${n(Math.round(x.bytes / 1024))} KB)`);
+    for (const x of r.kept) console.log(`${mark("skip")} ${x.run}  scratch kept: ${x.why}`);
+    if (!r.removed.length && !r.kept.length) console.log("no scratch to remove");
+  },
+});
+
 const retryPush = defineCommand({
   meta: {
     name: "retry-push",
@@ -336,6 +354,6 @@ const retryPush = defineCommand({
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
   meta: { name: "runs", description: "Runs: list them (the default), show one, cancel a live role" },
-  subCommands: { list, show, cancel: cancelCmd, "retry-push": retryPush },
+  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush },
   default: "list",
 });

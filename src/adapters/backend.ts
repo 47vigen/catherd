@@ -46,6 +46,8 @@ export interface RunRequest {
   access: Access;
   /** Native catherd roles receive a dedicated, run-bound control-plane server. */
   roleMcp?: RoleMcpContext;
+  /** spec 1.5 plan 21: the role's TMPDIR (`<run>/scratch/<name>`), a write root besides the repo */
+  scratch?: string;
   /** spec §5: a workspace-write role's network and loopback grants; false only when the profile says `network: false` */
   network?: boolean;
   thread: string | null;

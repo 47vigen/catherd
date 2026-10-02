@@ -1,4 +1,3 @@
-import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +8,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type ClaudeScenario, withClaudeScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -60,7 +59,7 @@ describe("dispatch on claude-code (simulator)", () => {
     });
     expect(hints).toEqual([]);
     expect(seen).toMatchObject({
-      stdin: `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      stdin: briefFor(run, "---\nRead lanes/M1.L1.md", { backend: "claude-code" }),
       cwd: repo,
       pwd: repo,
     });

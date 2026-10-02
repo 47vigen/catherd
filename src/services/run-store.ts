@@ -67,6 +67,8 @@ export function runPaths(dir: string) {
     sessions: join(dir, "sessions.jsonl"),
     roles: join(dir, "roles"),
     shots: join(dir, "shots"),
+    /** per dispatch name, the role's TMPDIR (spec 1.5 plan 21): `scratch/<name>/` */
+    scratch: join(dir, "scratch"),
     /** the admission lock's target: `admission.lock` guards dispatch admission */
     admission: join(dir, "admission"),
   };

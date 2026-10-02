@@ -7,6 +7,7 @@ import { sendToCodexQueue, type QueueSendResult } from "../infra/codex-queue.ts"
 import {
   deliveryState,
   readDelivery,
+  ROLE_THREAD_REFUSAL,
   writeDeliveryAttempt,
   type DeliveryAttempt,
 } from "../infra/delivery.ts";
@@ -23,7 +24,7 @@ import {
   type Stalled,
   stallHooks,
 } from "./dispatch-service.ts";
-import { type Dispatch, listDispatches, readFailover } from "./dispatches.ts";
+import { type Dispatch, listDispatches, readFailover, roleThreadOf } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
 import { currentSession, ownsRun, readSessionRows, runOwner } from "./sessions.ts";
@@ -238,6 +239,38 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
           if (stopped || !live || sessionKey(live) !== sessionKey(target) || !owned(q.run)) continue;
           recoverSubmission(q.dir, q.notice.eventId);
           if (pending(q, target)) due.push(q);
+        } catch (e) {
+          log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
+        }
+      }
+      // spec 1.5 plan 21: a notice never goes to a role's own thread (a `codex exec` thread exits after its turn,
+      // so what is queued there is lost). It fails loudly, and `status` says so, instead of enqueue-accepted.
+      const roles = new Map(due.map((q) => [q, roleThreadOf(q.run, target.sessionId)]));
+      for (const [q, role] of roles) {
+        if (role === null) continue;
+        due.splice(due.indexOf(q), 1);
+        const reason = `${ROLE_THREAD_REFUSAL} (${role}, ${target.host} ${target.sessionId}), not the orchestrator's; peek(run) from the orchestrator's session takes the run back`;
+        log("error", "notify", {
+          run: q.run.id,
+          dispatch: q.notice.dispatchId,
+          target: target.sessionId,
+          reason,
+        });
+        try {
+          writeDeliveryAttempt(q.dir, {
+            attemptId: crypto.randomUUID(),
+            target: {
+              host: target.host,
+              sessionId: target.sessionId,
+              hostSessionId: target.hostSessionId,
+              name: target.name,
+            },
+            eventIds: [q.notice.eventId],
+            at: new Date(deps.now()).toISOString(),
+            status: "failed",
+            msgId: null,
+            reason,
+          });
         } catch (e) {
           log("warn", "notify", { error: errorMessage(e), dispatch: q.notice.dispatchId });
         }

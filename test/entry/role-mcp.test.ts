@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Role } from "../../src/domain/roles.ts";
 import { buildRoleServer } from "../../src/entry/mcp/role-server.ts";
+import { codexRoleMcpArgs, probeRoleServer, ROLE_MCP_STARTUP_SEC } from "../../src/infra/role-mcp.ts";
 import { createRun } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { call } from "../mcp-helpers.ts";
@@ -19,6 +20,19 @@ async function roleClient(run: string, role: Role): Promise<Client> {
   await client.connect(clientSide);
   return client;
 }
+
+describe("the role server's start (spec 1.5 plan 21, #42 finding 8)", () => {
+  it("gives Codex an explicit startup timeout, and starts cold well inside it", async () => {
+    const args = codexRoleMcpArgs({ run: "20261002-101500-auth", role: "verifier" });
+    expect(args).toContain("mcp_servers.catherd_role.required=true");
+    expect(args).toContain(`mcp_servers.catherd_role.startup_timeout_sec=${ROLE_MCP_STARTUP_SEC}`);
+    expect(ROLE_MCP_STARTUP_SEC).toBe(30);
+    const start = await probeRoleServer();
+    expect(start).toMatchObject({ ok: true });
+    if (start.ok) expect(start.ms).toBeLessThan((ROLE_MCP_STARTUP_SEC * 1000) / 2);
+    expect(await probeRoleServer(1)).toEqual({ ok: false, error: "no answer in 1 ms" });
+  });
+});
 
 describe("dispatch-scoped role MCP", () => {
   it("exposes only each role's allowed tools", async () => {
@@ -61,10 +75,11 @@ describe("dispatch-scoped role MCP", () => {
       expect((await call(client, "read_run_file", { run: other.id, path: "plan.md" })).error?.code).toBe(
         "E_INPUT_INVALID",
       );
-      expect((await call(client, "read_knowledge", { repo: other.meta.repo })).error?.code).toBe(
-        "E_INPUT_INVALID",
-      );
-      expect((await call(client, "read_knowledge", { repo })).isError).toBe(false);
+      // #42 finding 4: read_knowledge reads the run's own repository, whatever repo it is given
+      const own = (await call(client, "read_knowledge", { repo })).raw;
+      expect((await call(client, "read_knowledge", {})).raw).toBe(own);
+      expect((await call(client, "read_knowledge", { repo: "." })).raw).toBe(own);
+      expect((await call(client, "read_knowledge", { repo: other.meta.repo })).raw).toBe(own);
       for (const path of ["state.md", "../outside.md"])
         expect(
           (await call(client, "write_run_file", { run: run.id, path, content: "blocked" })).error?.code,

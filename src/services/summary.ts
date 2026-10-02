@@ -11,6 +11,7 @@ import { spendOf } from "./budget.ts";
 import { latestVerifierStep, type VerifierStep } from "./gate-service.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
+import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
 import { orchestratorWait, type OrchestratorWait } from "./orchestrator-wait.ts";
@@ -71,6 +72,16 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     );
   } catch (e) {
     warnings.push(`budget: ${isCatherdError(e) ? e.message : String(e)}`);
+  }
+  // spec 1.5 plan 21: a notice refused because its target was a role's thread, while that is its latest attempt
+  for (const d of listDispatches(run)) {
+    try {
+      const last = readDelivery(d.dir).at(-1);
+      if (last?.status === "failed" && last.reason?.startsWith(ROLE_THREAD_REFUSAL))
+        warnings.push(`${d.admit.name}: its notice was not sent: ${last.reason}`);
+    } catch {
+      // unreadable delivery evidence is the delivery row's to show
+    }
   }
   return {
     waiting: orchestratorWait(run, now, records, live.length > 0),

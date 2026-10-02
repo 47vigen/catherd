@@ -1,11 +1,18 @@
 import type { Access } from "./record.ts";
+import { COORDINATOR_TOOLS } from "./role-scope.ts";
 import type { Role } from "./roles.ts";
 
 // The role prompts of the native Claude subagents, ported from 0.x (spec D9). Headless backends get the
 // same text from the orchestrator's briefs; only native agents carry it in their agent file.
 
-const RUN_FILES =
-  "The run folder is outside the project. Read and write it only through the catherd MCP tools read_run_file and write_run_file, with the run id the orchestrator gave you. Native headless Codex and Claude Code roles use mcp__catherd_role__<name>; native Claude subagents use mcp__plugin_catherd_catherd__<name>. Use the tools exposed in your harness. Paths are relative to the run folder.";
+/**
+ * How a role reaches its run folder, naming only the tools that role gets (spec 1.5 plan 21, #42 finding 5): every
+ * role reads, the architect and the researcher also write. The CLI forms are the fallback when no tool is listed.
+ */
+const runFiles = (writes: boolean): string =>
+  writes
+    ? "The run folder is outside the project. Read and write it only through catherd's read_run_file and write_run_file, with the run id the orchestrator gave you (native Claude subagents: mcp__plugin_catherd_catherd__<name>; headless Codex and Claude Code roles: mcp__catherd_role__<name>). When neither is listed, run catherd run-file read <run> <path>, and catherd run-file write <run> <path> with the content on stdin. Paths are relative to the run folder."
+    : "The run folder is outside the project. Read it only through catherd's read_run_file, with the run id the orchestrator gave you (native Claude subagents: mcp__plugin_catherd_catherd__read_run_file; headless Codex and Claude Code roles: mcp__catherd_role__read_run_file). When neither is listed, run catherd run-file read <run> <path>. Paths are relative to the run folder.";
 
 const REPLY =
   "Do not commit. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
@@ -13,7 +20,7 @@ const REPLY =
 const architect = [
   "You are the architect of a catherd run. The orchestrator gave you the goal, the acceptance lines, the run id, and usually a dossier: a researcher's map of the code this work touches. Workers are other models that run in the project directory with no memory of this conversation. They will write every line of code from your plan.",
   "",
-  `Start from the dossier. Open a project file yourself only to settle a decision the dossier leaves open, and read each file once. Bash is for inspection only. Change nothing in the project. ${RUN_FILES}`,
+  `Start from the dossier. Open a project file yourself only to settle a decision the dossier leaves open, and read each file once. Bash is for inspection only. Change nothing in the project. ${runFiles(true)}`,
   "",
   "When the acceptance lines include plan: <path>[, <path>…], the user already has a plan and there is no dossier. Translate it, do not design: each plan task becomes lanes, each merge request or phase a milestone with its full check. Copy the plan's decisions into plan.md and the lane files, and decide only what the plan leaves undecided.",
   "",
@@ -56,6 +63,7 @@ const verifier = [
   "1. Run the check command once. Report its exit code and the failing lines. When the check has several gate items (suites, lint, builds, a boot check):",
   "   - Before each item, call the catherd MCP tool gate_check (mcp__catherd_role__gate_check for native headless Codex/Claude Code roles; mcp__plugin_catherd_catherd__gate_check for native Claude subagents) with the run id, the milestone you verify (M1, as your brief names it), the item, its command and the repo paths it depends on. When it answers carried: true, do not run the item: report it as carried over from its commit. It also tells the orchestrator which step you are on.",
   "   - After an item passes, call gate_pass (mcp__catherd_role__gate_pass, or mcp__plugin_catherd_catherd__gate_pass for native Claude subagents) with the same item, command and paths, and the evidence.",
+  "   - When neither tool is listed, run the same from your shell: catherd gate check <run> --milestone <M> --item <item> --command <command> --paths <path,…>, then catherd gate pass <run> --item <item> --command <command> --paths <path,…> --evidence <evidence>.",
   "   - Run independent items side by side, each heavy one wrapped in catherd lock, which queues them within the machine's slots.",
   "   - Build each commit's images once, and reuse them for the boot check and the acceptance suite.",
   "2. Exercise every acceptance line through the real entry point: the CLI, the HTTP route, the page. Read source only to find that entry point. When a line needs data or files, build them in a temporary directory outside the project.",
@@ -75,7 +83,7 @@ const worker = (version: string) =>
   [
     "You are a worker in a catherd run. The orchestrator's message is your brief: the acceptance lines, the lane file to read, the files you own and the files you must not touch, and your fast check.",
     "",
-    `Read your lane file first. ${RUN_FILES} If the project has a CLAUDE.md or AGENTS.md, follow it.`,
+    `Read your lane file first. ${runFiles(false)} If the project has a CLAUDE.md or AGENTS.md, follow it.`,
     "",
     `Change only the files you own. Run your fast check until it passes. Run the full suite only if the brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${version} lock -- <command>. Other lanes share this machine.`,
     "",
@@ -123,7 +131,7 @@ const writer = [
 const researcher = [
   "You answer a factual question about the code, or map it for a dossier. Change nothing in the project. Give file:line for every claim.",
   "",
-  `A dossier lists: the files and folders involved, one line each on what they hold; the existing patterns the work should copy, by path; the build, test and run commands, with how long the full suite takes when the docs, the CI config or a log say so (never run the suite to find out; write "unknown" instead); the lint and type-check commands, and how to scope each to one package; the symbols the change will call or alter, with their signatures; the project rules (CLAUDE.md, AGENTS.md, conventions) that bind this work; and risks: shared files, generated code, slow or flaky tests. It may run to 200 lines. Write it with write_run_file to the path the brief names, and reply with that path. ${RUN_FILES}`,
+  `A dossier lists: the files and folders involved, one line each on what they hold; the existing patterns the work should copy, by path; the build, test and run commands, with how long the full suite takes when the docs, the CI config or a log say so (never run the suite to find out; write "unknown" instead); the lint and type-check commands, and how to scope each to one package; the symbols the change will call or alter, with their signatures; the project rules (CLAUDE.md, AGENTS.md, conventions) that bind this work; and risks: shared files, generated code, slow or flaky tests. It may run to 200 lines. Write it with write_run_file to the path the brief names, and reply with that path. ${runFiles(true)}`,
   "",
   "For a single question, reply in at most 15 lines. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
 ].join("\n");
@@ -169,10 +177,27 @@ export function withReplyContract(role: Role, brief: string): string {
 /** The role's prompt; the worker's names the catherd version whose `lock` it must use. */
 export const rolePrompt = (role: Role, version: string): string => BODIES[role](version);
 
+/** The catherd plugin's MCP tool names as a native Claude subagent sees them. */
+export const NATIVE_TOOL_PREFIX = "mcp__plugin_catherd_catherd__";
+
+/**
+ * The catherd tools a native subagent may never call: the coordinator tools, and record_agent_run, which only the
+ * orchestrator calls (a native verifier recording its own `ok` would satisfy land's evidence).
+ */
+const NATIVE_FORBIDDEN = [...COORDINATOR_TOOLS, "record_agent_run"] as const;
+
+/**
+ * Spec 1.5 plan 21: a native Claude subagent shares the orchestrator's MCP server, so it has no env of its own to
+ * refuse it by. Its agent file forbids the coordinator tools and record_agent_run, and its prompt says why.
+ */
+export const NOT_THE_ORCHESTRATOR = `You are a role of a catherd run, not its orchestrator. Never call catherd's ${NATIVE_FORBIDDEN.join(", ")}: they belong to the orchestrator, which reads your reply.`;
+
 /**
  * Spec D10 for native subagents, whose only lever is the agent file's tool list: read-only drops the
  * editing tools (its Bash stays, for inspection, so enforcement is advisory); every role drops Agent,
- * so a role never spawns its own subagents.
+ * so a role never spawns its own subagents, and catherd's coordinator tools and record_agent_run (spec 1.5 plan 21).
  */
-export const nativeDisallowedTools = (access: Access): string[] =>
-  access === "read-only" ? ["Write", "Edit", "NotebookEdit", "Agent"] : ["Agent"];
+export const nativeDisallowedTools = (access: Access): string[] => [
+  ...(access === "read-only" ? ["Write", "Edit", "NotebookEdit", "Agent"] : ["Agent"]),
+  ...NATIVE_FORBIDDEN.map((tool) => `${NATIVE_TOOL_PREFIX}${tool}`),
+];

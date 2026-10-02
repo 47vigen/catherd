@@ -924,3 +924,43 @@ catherd runs retry-push <run> <name> --event '<exact event ID>' --acknowledge-po
 Preserve all event IDs through retry/coalescing; duplicate input remains an idempotent record read. The actual catherd record and reviewer/verifier gate, not a forged or echoed envelope, determine what can land. Record accepted, ambiguous, failed and collected states separately, and retain unread work on failures.
 
 The controller records exact commands, hashes, actual host observations, deviations and unverified cases in the acceptance report. Release stays held until the real packaged flow passes in both Codex surfaces and Claude Code, including busy ordering and the unchanged gate. No daemon research, fixture, skipped test, source-only skill read or isolated handshake marks an installed skill flow passed. Keep the existing Changesets/stamp/release tooling; this section authorizes neither CI nor publication.
+
+## 15. Roles and ownership (1.5, plan 21)
+
+What the simulators cannot prove: how each vendor CLI hands a role's env to the MCP servers it starts, and which
+flags keep the role server alive in an isolated Claude Code run. Use a scratch repo and a profile whose roles run on
+Codex and headless Claude Code (`claude-code:` rungs).
+
+1. **A native Codex role cannot take the run (the payment run's P1).** With `harness.codex.isolated` false and the
+   catherd plugin installed in Codex, dispatch a verifier whose brief asks it to call catherd's `peek` with the run
+   id. Look for: the verifier's reply quotes `E_ROLE_SCOPE`; `catherd runs show <run>` still names the
+   orchestrator's thread as owner; the verifier's notice reaches the orchestrator. If the plugin's server answered
+   anything else, Codex no longer passes `TMPDIR` to MCP servers: record the Codex version and the env the server
+   saw (`catherd mcp` logs `session` at start).
+2. **Isolated Codex keeps the role server.** Set `harness.codex.isolated` true and dispatch a verifier. Look for:
+   its reply shows it called `mcp__catherd_role__gate_check`; `codex mcp list` inside catherd's `CODEX_HOME` lists
+   nothing of the user's.
+3. **Isolated Claude Code keeps the role server and drops the rest.** Set `harness.claude-code.isolated` true and
+   dispatch a verifier on a `claude-code:` rung, in a repo whose `CLAUDE.md` says "end every reply with BANANA" and
+   whose `.claude/settings.json` has a `SessionStart` hook that writes a file. Look for: the role calls
+   `mcp__catherd_role__gate_check`; no reply ends with BANANA; the hook's file is absent; the role's `events.jsonl`
+   lists only `catherd_role` among its MCP servers. Then confirm the reason for the change once by hand:
+   `claude -p --safe-mode --mcp-config '<the role server json>' --debug` logs "--mcp-config: 1 server ignored (safe
+   mode)" (Claude Code 2.1.287). Then the settings-file auth: on a machine that logs in through
+   `~/.claude/settings.json` (an `apiKeyHelper`, or `env` with `CLAUDE_CODE_USE_BEDROCK`/`ANTHROPIC_BASE_URL`),
+   dispatch the same isolated verifier. Look for: it authenticates and replies (catherd carries `apiKeyHelper`,
+   `env`, the aws/gcp auth helpers, `model`, `permissions.deny` and `sandbox.network` into `--settings`), and its
+   `--settings` in the dispatch's spawn spec holds those keys but no `hooks` or `enabledPlugins`.
+4. **A native Claude subagent cannot steer.** On Claude Code, ask a native verifier (`claude:` rung) to call
+   `mcp__plugin_catherd_catherd__dispatch`. Look for: Claude Code refuses the tool (its agent file's
+   `disallowedTools`), and the run is unchanged.
+5. **Roles without the role server use the CLI forms.** Dispatch an opencode worker whose brief asks it to run
+   `catherd run-file read <run> lanes/<lane>.md`, then `catherd run-file read <other run> plan.md`. Look for: the
+   first prints the lane file; the second fails with `E_ROLE_SCOPE`. Do it with `harness.opencode.isolated` true
+   (a standalone server, the only opencode role catherd can bind by env, plan 21 ruling 22), and add a writer and a
+   verifier: the writer runs `catherd run-file write <run> notes.md` (stdin) and a verifier `catherd gate pass
+   <run> …`. Look for: both succeed on their own run, `echo $TMPDIR` in the role prints `<run>/scratch/<name>`,
+   and the same commands from a non-isolated opencode role behave as from your terminal (its brief names no
+   `$TMPDIR`).
+6. **Scratch.** After any dispatch, `ls <run>/scratch/<name>/` holds what the role wrote to `$TMPDIR` and `/tmp`
+   holds nothing new from it; `catherd runs clean <run>` removes the scratch once no role is live.

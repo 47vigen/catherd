@@ -35,7 +35,7 @@ The catherd server keeps `state.md` true: it rewrites it on every dispatch, clim
 
 The catherd MCP tools ship with this plugin. Discover them through the host's available capability mechanism: tool names and deferred loading vary by host. In Claude Code they appear as `mcp__plugin_catherd_catherd__<name>`; use `ToolSearch` there when deferred, and load `PushNotification` if available. Codex uses its own exposed tools and discovery facility; never invent a Claude `ToolSearch`, `Agent` or notification tool there.
 
-Native headless Codex and Claude Code roles receive a dedicated `catherd_role` MCP server (`mcp__catherd_role__<name>`): all roles can read run files and knowledge, architects/researchers can write run files, and verifiers can record gate checks and passes. Dispatch configures it for the role without editing the user's config or profiles. Native Claude subagents retain the plugin tool namespace above. Isolated Codex/Claude Code architects, researchers, workers and verifiers are refused before launch because they require these MCP tools; use a native harness for those roles. Other isolated roles retain their existing behavior without the role server.
+Headless Codex and Claude Code roles receive a dedicated `catherd_role` MCP server (`mcp__catherd_role__<name>`), isolated or not: all roles can read run files and knowledge, architects/researchers can write run files, and verifiers can record gate checks and passes. Dispatch configures it for the role without editing the user's config or profiles. Native Claude subagents retain the plugin tool namespace above. Roles on other backends use the same operations from their shell: `catherd run-file read|write <run> <path>` and `catherd gate check|pass <run> …`, bound to their own run. A role is never refused for being isolated.
 
 Pass the actual project `repo` explicitly to profile, setup and catalog tools that accept it. The native Codex MCP server starts in the installed plugin root, so its cwd is not evidence of the project. `run_start(repo, ...)` establishes the run's repository.
 
@@ -189,6 +189,8 @@ Your context is re-read on every turn, and it is the run's most expensive token.
 
 Call `dispatch` from your main thread only, never from a subagent: catherd messages the session that dispatched.
 
+Only you, the orchestrator, call the coordinator tools: `peek` (of another role), `result`, `dispatch`, `run_start`, `climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set`, the `workspace_*` writers and `record_agent_run`. A role never does: a native Claude subagent's agent file forbids them, and a process role's catherd server refuses them with `E_ROLE_SCOPE`, so a role can never take the run from you. A brief never asks a role to call one.
+
 - **Dispatch every independent role one after another.** Each `dispatch` returns in about a second, once its role has started, so they all run side by side.
 - **Then write one status line and end your turn.** Claude Code receives `<cross-session-message from-name="catherd">` through its peer inbox with its existing priorities. Codex receives queued next input through the existing native server (`--remote unix://`): idle sessions can wake; a busy session processes it after the active turn, without Claude's urgent next-tool-round promise. The notice names the run, dispatch and every event ID, including every coalesced event. Call `result(run, name)` for each stored record you will act on, then dispatch what follows.
 - **A single role is `dispatch`, then end your turn.**
@@ -264,7 +266,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 5. **Lanes.** Dispatch every lane of the milestone, one after another, each at its rung, then end your turn: workers, the artist, and a researcher if needed. A worker's brief points at its lane file, and `dispatch` gets its `lane`. A worker runs its own fast check until it passes.
    - When a worker's message arrives, read it with `result`: check its STATUS line, its `changedOwned` and its `hints`, then run its fast check yourself once. A fail goes back to the same thread with the failing output's path; a second fail climbs a rung.
    - A `violation: <paths>` hint means the role wrote outside its lane. Send those paths to the reviewer with the milestone; a lane that needs them gets an `Owns:` delta from the architect.
-6. **writer,** when the milestone changes docs. It starts once the workers are done.
+6. **writer,** when the milestone changes docs. It starts once the workers are done. Its brief names the files it may change on an `Owns:` line (default: `docs/**` and `*.md`), so its edits count as its own and never as a lane's violation.
 7. **reviewer,** named `reviewer-<M>`, once, over the whole milestone diff on a frozen tree.
    - **UI pass,** when the milestone touched a screen. List the changed files (`git diff --name-only <milestone base>`), map them to the screens that render them, and brief the UI reviewer on those screens only. You start the app first.
 8. **One fix round.** Send each lane's findings, verbatim, to its own worker thread, at its rung. A BLOCKER climbs a rung instead, on a fresh thread. Dispatch every lane's fix, then end your turn. Then resume the same reviewer thread, and it re-checks only the BLOCKER and BUG lines.
@@ -341,6 +343,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
    The tool tops out around 1536×1024.
 
 8. Not the reply shape: `dispatch` appends the role's reply contract to every brief ("Do not commit", at most 15 lines, and the last line `STATUS: complete|partial|blocked|refused — <one line why>`), and a native Claude role's agent carries it.
+9. Not the lane file's text, the role's scratch folder or its catherd tools: with `lane`, `dispatch` inlines the lane file as it stands, and every brief names the role's `$TMPDIR` (`<run>/scratch/<name>/`) and how it reads its run's files.
 
 ## Reading results
 

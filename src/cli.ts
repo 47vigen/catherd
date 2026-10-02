@@ -52,6 +52,8 @@ export const main: Command = defineCommand({
     knowledge: () => import("./entry/knowledge-command.ts").then((m) => m.knowledgeCommand),
     workspace: () => import("./entry/workspace-command.ts").then((m) => m.workspaceCommand),
     lock: () => import("./entry/lock-command.ts").then((m) => m.lockCommand),
+    "run-file": () => import("./entry/role-cli-command.ts").then((m) => m.runFileCommand),
+    gate: () => import("./entry/role-cli-command.ts").then((m) => m.gateCommand),
     "capture-fixtures": () =>
       import("./entry/capture-fixtures-command.ts").then((m) => m.captureFixturesCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),

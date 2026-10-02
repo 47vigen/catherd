@@ -17,29 +17,12 @@ the contributor. Owner rulings:
 
 #42 (role MCP server, `wait`), review findings:
 
-1. **The isolated refusal is unnecessary and reopens P1.** `admission.ts` refuses isolated codex/claude-code
-   architect, researcher, worker and verifier with `E_ADMIT_RUNG`, whose fix says to turn isolation off. Verified:
-   `-c mcp_servers.*` overrides still apply under `--ignore-user-config` and an empty `CODEX_HOME` (`codex mcp list`
-   showed `catherd_role` enabled). Isolation is today the only thing that keeps a role from loading the full
-   catherd plugin and stealing the run with `peek`. Fix: inject the role server in isolated mode too; for Claude,
-   check whether `--mcp-config` survives `--safe-mode`, else `--strict-mcp-config --mcp-config`.
-2. **Runs started isolated break on resume.** A resumed thread keeps its record's `isolated`, so fix rounds,
-   verifier re-checks and failover stand-ins on an isolated backend are refused even after the user turns isolation
-   off. Goes away with finding 1.
 3. **"waiting for orchestrator · stalled" never clears.** `runOwner` is never cleared and a dashboard `cancel` or an
    abandoned run leaves a record unread forever, so old runs show stalled forever and `status()` with no run returns
    all of them into the coordinator's context. Fix: only for a current owner and recent unread records; `status()`
    keeps defaulting to live runs, else the newest.
-4. **`read_knowledge` on the role server takes `z.literal(run.meta.repo)`**, refusing `.`, the pwd, or
-   `/tmp` vs `/private/tmp`. Make `repo` optional and use the run's.
-5. **`RUN_FILES` tells every role to write with `write_run_file`**, which workers and verifiers do not get.
-6. **doctor's role-MCP row:** fails inactive profiles; `existsSync(ROLE_MCP_ENTRY)` is always true; `profile
-   validate` should say it instead.
 7. **The TUI memo calls `orchestratorWait` on every tick for every idle run** (defeats the mtime memo), and
    `runs.tsx` uses the precomputed `stalled` while `status.tsx` recomputes it.
-8. **`required=true` on the role server** aborts the whole role when a cold Bun start beats Codex's MCP startup
-   timeout on a loaded machine. Check the timeout; set `startup_timeout_sec` or drop `required`.
-9. **`docs/dev/reports/role-access-orchestration-wait-pr.md`** is a PR description, not a run report; delete it.
 
 #43 (workspace runs), review findings:
 
@@ -71,6 +54,23 @@ Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line
 report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
+
+## 1.5 follow-ups (plan reviews, 2026-10-02)
+
+Plan 21 (roles and ownership) review:
+
+- **A role's own peek still claims.** A role may `peek` its own dispatch (ruling 4), but `peek` still calls
+  `claim()`; on a 1.4-era run whose owner of record is that role's thread, adopt and recover then run inside the role
+  process. Evidence: `src/services/peek.ts:126`, `src/services/dispatch-service.ts:216`. Fix: return from `claim`
+  when `deps.role` is set, and skip `startNotifier` in a role process (`src/entry/mcp/server.ts`). (Minor 4.)
+- **Refused notices pile up in delivery.jsonl.** Each deliver pass writes another `failed` attempt and another
+  `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
+  owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
+  attempt is already a role-thread refusal (`ROLE_THREAD_REFUSAL`) for the same target. (Minor 5.)
+- **A role's shell still reaches the coordinator CLI forms.** Under `CATHERD_ROLE`, `catherd runs cancel` and
+  `catherd profile set` (the CLI forms of the `cancel` and `profile_set` tools) still run. Evidence:
+  `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
+  `roleScopeFromEnv`. Fix: refuse them with `E_ROLE_SCOPE` when `roleScopeFromEnv(process.env)` is set. (Minor 7.)
 
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
@@ -516,11 +516,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
   - Each case needed a hand-written lane: L5, L6, L7, and a rescoped L4.
 
   Fix: an `owns_add(run, lane, paths, why)` tool that re-checks overlap. Clone-driven work also needs a "discover, then split" step, because the files are knowable only after the gate runs.
-- **A writer's edits are blamed on the lanes.** The writer role has no lane and no Owns:
-  - its record reads "0 owned files changed" after it edited 11 docs;
-  - the L4 fix record listed its 7 concurrent doc edits as L4 violations.
-
-  Fix: give non-lane roles an Owns (or a docs lane), and attribute each edit to the process that wrote it.
 - **Jev overrode the lane headers.** All four first lanes declared `Kind`/`Difficulty`, and routing replaced them (declared logic → `repo_code`/`copy`), so the logic lanes started on `luna#high`. Fix: a declared header wins, or the route record says why it didn't.
 - **A lane could not declare an allowed exception to its own absence grep.** The plan's `func Allowed` grep also matched an unrelated `services/verification/internal/job/command.go:120`, and `acceptancetest\.SignIn` matched the surviving `SignInAuth` and `SignInSSO`. The workers returned partial correctly, but a check that can never pass looks the same as work that isn't done yet. Fix: an `Allow:` line under the check, and word boundaries in plan greps.
 - **`dispatch` accepted a thread id that doesn't exist.** The orchestrator passed a wrong thread for the L4 fix, the role launched, and codex failed with "no rollout found for thread id". Fix: check `thread` against `runs.jsonl` (same name) before launching, or default to the name's last thread.
@@ -554,7 +549,6 @@ Run `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform, a
 - **The profile is not pinned per run either.** The active profile changed from the codex one to `just-claude` while M3 was paused, so the run's verifier rung changed (`catherd-default-verifier-*` is gone and `catherd-just-claude-verifier-claude-opus-5-5-low` took over), and any re-dispatched lane would route on Sonnet instead of the Codex rungs it started on. Nothing in the run records the switch. Fix: same as the sandbox item: pin the profile at `run_start`, or log the change in `state.md`.
 - **A host probe needs to run twice.** Right after the AnyConnect VPN was disconnected, the first unsigned Go probe to `203.0.113.20` still got `no route to host`. The next seven, including one from a freshly built binary on a fresh network, answered 200. A single probe would have stopped the run for nothing. Fix: when catherd ships a host probe, it retries once after a few seconds before calling the host blocked.
 
-- **An isolated headless worker cannot read its lane file.** worker-M4.L1 (`claude-code`, `isolated: true`) was told "your lane file is lanes/M4.L1.md in the run" and replied "I couldn't find `lanes/M4.L1.md` on disk, so I worked from your summary". It guessed its Owns from the brief and edited four files the lane file did not list, which came back as violations (`directory.go`, `internal_test.go`, two Dokploy READMEs). All four were right to edit, but only because the brief happened to be detailed. Fix: `dispatch` inlines the lane file (Owns, Fast check, body) into the brief, or passes its absolute path and grants read access to the run folder.
 - **`preflight` reruns every past milestone's lanes.** Called for M4, which had one new lane, it ran all seven M3 lane checks too (Go testcontainers and four panels), took about 2 min behind the lock while the M4 worker was already running, and reported a failure on an M3 lane (`TestSeedWritesEveryStateThePanelShows`) that has nothing to do with M4. Fix: preflight only lanes that have not landed, or take a `milestone` argument.
 
 ## From the payment run (2026-09-29)
@@ -720,10 +714,6 @@ owner turned isolation off (the host is itself a sandbox).
   commands it runs. The thread reaches catherd only as `_meta.threadId` on MCP calls, so the smoke always reports
   `no session` even inside a live thread. Fix: a `test_push` MCP tool, or `--thread <uuid>`, or resolve the cwd's
   latest thread from `~/.codex/session_index.jsonl`.
-- **Roles litter `/tmp`.** The run left about 250 files there: drivers, observers, ledgers, a 51 MB `payment`
-  binary, and logs copied between roles. This host's `/tmp` is a 5.9 GiB tmpfs with a per-user quota that had
-  already broken a TUI once. Fix: each dispatch gets `TMPDIR=<run>/scratch/<role>/`, the brief names it, and
-  evidence goes through `write_run_file`. `runs` cleanup removes the scratch with the run.
 - **A provider outage looks like progress.** `researcher-M1-signin-failures` on
   `opencode-go/muse-spark-1.3-contributor#xhigh` (10:29:39) produced no tool call and no text in 4.5 minutes. The
   session held one assistant message with `retry.attempt: 6` and `503 service_overloaded: The backend is
@@ -744,23 +734,6 @@ owner turned isolation off (the host is itself a sandbox).
   medium 47.8 ≈ Astra low, high 50.2 ≈ Astra medium. GLM 5.3 Flash max (41.8) and DeepSeek 4.1 Flash max (39.5)
   were mapped the same way. Fix: read the AA Intelligence Index per model and effort as a calibration source. Until
   a value arrives, a release of the same family takes at least its predecessor's values at the same effort.
-- **A native role steals the run, and every later result goes to it (P1).** Isolation was turned off, so roles
-  launched with `codex exec` load the user's config, including the catherd plugin. At 11:08:37
-  `verifier-M1-verification` called `peek({run})`. Its prompt included the coordinator section of AGENTS.md, and
-  "skip this section" was not enough to stop it. `claimRun` (spec §3.3: `run_start`, `dispatch` and `peek` claim)
-  made the verifier's exec thread `01a0fc4b` the run's owner. The deliveries of `verifier-M1` (11:22:49) and
-  `verifier-M1-notification` (11:23:40) were then queued to that thread
-  (`~/.codex/queue_1.sqlite`, `enqueue-accepted`, status `unread`), and the coordinator never saw them. A
-  `codex exec` thread exits after its turn, so those items stay orphaned. Found 15 minutes later only because the
-  owner noticed silence. Fixed by hand: the coordinator called `peek` to reclaim ownership, and AGENTS.md now forbids
-  roles the claiming and steering tools. Fix in catherd:
-  - The supervisor sets `CATHERD_ROLE=<run>/<role>` in every role's env, Codex and opencode alike.
-  - `claimRun` never claims from a process that carries it.
-  - In a role process the MCP server refuses the coordinator tools (`peek` on another role, `result`, `dispatch`,
-    `run_start`, `climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set`) with a clear error.
-  - A test pins all three.
-  - Also: a delivery whose target thread is a `codex exec` thread, or a thread that is not the owner of record at
-    enqueue time, should fail loudly instead of going `enqueue-accepted`.
 
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 

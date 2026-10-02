@@ -1,5 +1,5 @@
 import type { KnownHost } from "../domain/host.ts";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
@@ -7,9 +7,11 @@ import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
-import { withReplyContract } from "../domain/role-prompts.ts";
+import { composeBrief } from "../domain/brief.ts";
+import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
+import { grantsScratch, ROLE_SERVER_BACKENDS } from "../domain/role-tools.ts";
 import type { Role } from "../domain/roles.ts";
-import { roleRequiresMcp } from "../domain/role-tools.ts";
+import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
@@ -28,6 +30,7 @@ import {
   listDispatches,
   pendingDispatches,
   roleDir,
+  scratchDir,
   setLatest,
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
@@ -55,6 +58,14 @@ export interface AdmitInput {
 export const KILL_GRACE_MS = 10_000;
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
+
+/** The role's scratch folder, created (0700) and by its real path, on a backend that grants it; else null. */
+function roleScratch(run: Run, name: string, backend: string, isolated: boolean): string | null {
+  if (!grantsScratch(backend, isolated)) return null;
+  const dir = scratchDir(run, name);
+  ensurePrivateDir(dir);
+  return realpathSync(dir);
+}
 
 function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
@@ -185,19 +196,15 @@ export async function admit(
       { fix: "dispatch a fresh thread (omit `thread`)" },
     );
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
+  // spec 1.5 plan 21: the writer's implicit docs lane, for attribution only
+  const ownsImplicit = i.role === "writer" && i.lane === null ? (briefOwns(i.brief) ?? DOCS_OWNS) : null;
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
-  const needsRoleMcp = rung.backend === "codex" || rung.backend === "claude-code";
-  if (needsRoleMcp && isolated && roleRequiresMcp(i.role))
-    throw new CatherdError(
-      "E_ADMIT_RUNG",
-      `${i.role} needs catherd's run tools, which are not available in an isolated ${rung.backend} harness`,
-      {
-        fix: `set harness.${rung.backend}.isolated to false in profile ${profile.name}, then dispatch a fresh thread`,
-      },
-    );
+  // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
+  // role is refused for isolation, and a thread an isolated run started resumes as it started
+  const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
   await prepared(adapter, {
     rung,
     access: rc.access,
@@ -205,21 +212,25 @@ export async function admit(
     repo: run.meta.repo,
     network,
   });
-  const plan = adapter.plan({
-    rung,
-    access: rc.access,
-    network,
-    thread: i.thread,
-    isolated,
-    repo: run.meta.repo,
-    briefPath: p.brief,
-    replyPath: p.reply,
-    dispatchDir: dir,
-    ...(needsRoleMcp && !isolated ? { roleMcp: { run: run.id, role: i.role } } : {}),
-  });
 
   await finalizeFinished(run, deps.now(), onRecorded);
   return withRunAdmission(run, deps.now, async () => {
+    // the scratch is created under the admission lock `catherd runs clean` takes too, so cleanup never removes
+    // the scratch of a dispatch it does not see live yet (PR #46)
+    const scratch = roleScratch(run, i.name, rung.backend, isolated);
+    const plan = adapter.plan({
+      rung,
+      access: rc.access,
+      network,
+      thread: i.thread,
+      isolated,
+      repo: run.meta.repo,
+      briefPath: p.brief,
+      replyPath: p.reply,
+      dispatchDir: dir,
+      ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
+      ...(scratch ? { scratch } : {}),
+    });
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
     // could not be recorded just now. The records and the pending dispatches are one snapshot, taken
@@ -269,6 +280,7 @@ export async function admit(
       role: i.role,
       lane: i.lane,
       owns,
+      ...(ownsImplicit ? { ownsImplicit } : {}),
       rung: formatRung(rung),
       backend: rung.backend,
       thread: i.thread,
@@ -285,8 +297,19 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
-    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included
-    writeTextAtomic(p.brief, withReplyContract(i.role, i.brief));
+    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
+    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools
+    writeTextAtomic(
+      p.brief,
+      composeBrief(i.brief, {
+        run: run.id,
+        name: i.name,
+        role: i.role,
+        lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
+        scratch,
+        roleServer,
+      }),
+    );
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(
@@ -297,7 +320,13 @@ export async function admit(
         dispatchDir: dir,
         cmd: plan.cmd,
         args: plan.args,
-        env: { ...plan.env, PWD: plan.cwd },
+        // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR
+        env: {
+          ...plan.env,
+          [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
+          ...(scratch ? { TMPDIR: scratch } : {}),
+          PWD: plan.cwd,
+        },
         cwd: plan.cwd,
         stdinPath: plan.stdinPath,
         idleMs: profile.timeouts.idleMin * 60_000,

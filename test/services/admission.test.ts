@@ -1,7 +1,7 @@
 import * as git from "../../src/infra/git.ts";
 import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { antigravityAdapter } from "../../src/adapters/antigravity/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
@@ -13,7 +13,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -60,7 +60,12 @@ describe("admission", () => {
       input({ brief: "--help me, do not read me as a flag" }),
     );
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
-      `--help me, do not read me as a flag\n\n${replyContract("worker")}\n`,
+      briefFor(run, "--help me, do not read me as a flag"),
+    );
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(`\n\n${replyContract("worker")}\n`);
+    // spec 1.5 plan 21: the lane file itself travels in the brief, so an isolated worker never guesses its Owns
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(
+      '<lane-file path="lanes/M1.L1.md">\n# M1.L1 — test lane\nOwns: src/a.ts\nFast check: true\n',
     );
     expect(d.admit).toMatchObject({
       name: "worker-M1.L1",
@@ -88,8 +93,12 @@ describe("admission", () => {
     const text = readFileSync(specPath, "utf8");
     expect(text).not.toContain("s3cret");
     expect(text).not.toContain("TYPESAFE_API_KEY");
-    // the adapter's overrides and PWD only: a plain codex rung has none
-    expect(JSON.parse(text).env).toEqual({ PWD: repo });
+    // the adapter's overrides (a plain codex rung has none), the role's identity and scratch, and PWD
+    expect(JSON.parse(text).env).toEqual({
+      CATHERD_ROLE: `${run.id}/worker-M1.L1`,
+      TMPDIR: realpathSync(join(run.dir, "scratch", "worker-M1.L1")),
+      PWD: repo,
+    });
     expect(statSync(specPath).mode & 0o777).toBe(0o600);
   });
 

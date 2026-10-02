@@ -52,11 +52,13 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
   server.registerTool(
     "read_knowledge",
     {
-      description: "Read what past runs learned about this role's repository.",
-      inputSchema: { repo: z.literal(run.meta.repo) },
+      description:
+        "Read what past runs learned about this role's repository. Takes no argument: it reads the run's own repository.",
+      // #42 finding 4: `.`, the pwd or /tmp vs /private/tmp never matched a literal; any repo given is ignored
+      inputSchema: { repo: z.string().optional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    (a) => call("read_knowledge", () => readKnowledge(a.repo)),
+    () => call("read_knowledge", () => readKnowledge(run.meta.repo)),
   );
   if (tools.has("write_run_file"))
     server.registerTool(

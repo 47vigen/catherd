@@ -33,8 +33,16 @@ const VALUE = [
   "--disallowedTools",
   "--settings",
   "--mcp-config",
+  "--setting-sources",
 ];
-const BOOL = ["-p", "--print", "--verbose", "--safe-mode"];
+const BOOL = [
+  "-p",
+  "--print",
+  "--verbose",
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--disable-slash-commands",
+];
 const opts: Record<string, string> = {};
 const prompt: string[] = [];
 for (let i = 0; i < args.length; i++) {

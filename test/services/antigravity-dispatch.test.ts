@@ -2,13 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isolatedAgyHome } from "../../src/adapters/antigravity/index.ts";
-import { replyContract } from "../../src/domain/role-prompts.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type AgyScenario, withAgyScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -63,7 +62,7 @@ describe("dispatch on agy (simulator)", () => {
       seen.stdin,
     )?.[1];
     expect(readFileSync(brief as string, "utf8")).toBe(
-      `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      briefFor(run, "---\nRead lanes/M1.L1.md", { backend: "antigravity" }),
     );
     expect(seen.args.slice(2)).toEqual([
       "--output-format",

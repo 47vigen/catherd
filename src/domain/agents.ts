@@ -1,7 +1,7 @@
 import { parseRung, tryParseRung } from "./ids.ts";
 import { agentName, type Profile } from "./profile.ts";
 import type { Access } from "./record.ts";
-import { nativeDisallowedTools, rolePrompt } from "./role-prompts.ts";
+import { NOT_THE_ORCHESTRATOR, nativeDisallowedTools, rolePrompt } from "./role-prompts.ts";
 import { ROLES, type Role } from "./roles.ts";
 
 export interface AgentFile {
@@ -31,6 +31,8 @@ export function renderAgent(o: {
     "---",
     "",
     rolePrompt(o.role, o.version),
+    "",
+    NOT_THE_ORCHESTRATOR,
     "",
   ].join("\n");
 }

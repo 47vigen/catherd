@@ -75,7 +75,7 @@ function othersOwns(run: Run, self: Dispatch, start: number, end: number): strin
       const to = ended.get(d.admit.dispatchId) ?? (Date.parse(readExit(d.dir)?.endedAt ?? "") || Date.now());
       return from <= end && to >= start;
     })
-    .flatMap((d) => d.admit.owns);
+    .flatMap((d) => [...d.admit.owns, ...(d.admit.ownsImplicit ?? [])]);
 }
 
 /** The tree after the run, or null when git cannot say: the record is still written, its changes unknown. */
@@ -186,7 +186,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const { changedOwned, violations } = after
     ? splitChanges(
         changedPaths(a.before, after),
-        a.owns,
+        a.owns.length ? a.owns : (a.ownsImplicit ?? []),
         // from admission, when the before-snapshot was taken, not from the worker's start
         othersOwns(run, d, Date.parse(a.admittedAt), end),
         a.lane !== null || a.access === "read-only",

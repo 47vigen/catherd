@@ -19,6 +19,11 @@ const AdmitSchema = z.looseObject({
   role: z.enum(ROLES),
   lane: z.string().nullable(),
   owns: z.array(z.string()),
+  /**
+   * spec 1.5 plan 21: a laneless writer's implicit Owns (its brief's Owns: line, else docs/** and *.md), so its
+   * edits are its own and never a concurrent lane's violation; admission never refuses an overlap with it
+   */
+  ownsImplicit: z.array(z.string()).optional(),
   rung: z.string(),
   backend: z.string(),
   thread: z.string().nullable(),
@@ -55,6 +60,8 @@ export const startLimits = { graceMs: STARTING_GRACE_MS };
 export const admitPath = (dir: string): string => join(dir, "admit.json");
 export const launchPath = (dir: string): string => join(dir, "launch.json");
 export const roleDir = (run: Run, name: string): string => join(runPaths(run.dir).roles, name);
+/** Spec 1.5 plan 21: the role's TMPDIR, `<run>/scratch/<name>/`, removed with the run's scratch. */
+export const scratchDir = (run: Run, name: string): string => join(runPaths(run.dir).scratch, name);
 
 /** Every admitted dispatch of the run, oldest first; a folder whose admit.json cannot be read is skipped. */
 export function listDispatches(run: Run, strict = false): Dispatch[] {
@@ -137,6 +144,23 @@ export function pendingDispatches(
 
 export const liveDispatches = (run: Run, now = Date.now()): LiveDispatch[] =>
   pendingDispatches(run, now).filter((d) => d.state !== "finished");
+
+/** The thread the supervisor saw the role's CLI name (thread.json), else null. */
+export function readThread(dir: string): string | null {
+  const t = readJson<{ thread?: unknown }>(dispatchPaths(dir).thread)?.thread;
+  return typeof t === "string" && t ? t : null;
+}
+
+/**
+ * Spec 1.5 plan 21: the role whose thread `thread` is, in this run: a recorded thread, a resumed one, or the one
+ * a live role's supervisor wrote down. Null for any other thread, the orchestrator's among them.
+ */
+export function roleThreadOf(run: Run, thread: string): string | null {
+  const recorded = readRecords(run).records.find((r) => r.thread === thread);
+  if (recorded) return recorded.name;
+  const d = listDispatches(run).find((x) => x.admit.thread === thread || readThread(x.dir) === thread);
+  return d ? d.admit.name : null;
+}
 
 /** Spec §4.1: `roles/<name>/latest` names the newest dispatch of a role. */
 export function setLatest(run: Run, name: string, dispatchId: string): void {

@@ -6,7 +6,13 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../../src/domain/profile.ts";
-import { rolePrompt } from "../../src/domain/role-prompts.ts";
+import { NATIVE_TOOL_PREFIX, rolePrompt } from "../../src/domain/role-prompts.ts";
+import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
+
+/** spec 1.5 plan 21: every native role's agent file also forbids catherd's coordinator tools and record_agent_run */
+const COORDINATOR = [...COORDINATOR_TOOLS, "record_agent_run"]
+  .map((t) => `${NATIVE_TOOL_PREFIX}${t}`)
+  .join(", ");
 
 const profile = (patch: ProfilePatch = {}, name = "default") =>
   resolveProfile(applyPatch(defaultProfileDoc(name), patch), name, "claude-code");
@@ -25,7 +31,7 @@ describe("agentFiles", () => {
         "description: Internal architect role of the catherd orchestrator (profile default), on claude-opus-5-5 at high effort. Dispatched only by the catherd skill while a run is in flight. Never for a plain request, even one that names this role.",
         "model: claude-opus-5-5",
         "effort: high",
-        "disallowedTools: Write, Edit, NotebookEdit, Agent",
+        `disallowedTools: Write, Edit, NotebookEdit, Agent, ${COORDINATOR}`,
         "---",
         "",
         "You are the architect of a catherd run.",
@@ -35,12 +41,12 @@ describe("agentFiles", () => {
 
   it("takes the tool list from the role's access, not from the role", () => {
     const [verifier] = agentFiles(profile({ roles: { architect: { enabled: false } } }), "1.0.0");
-    expect(verifier?.text).toContain("\ndisallowedTools: Agent\n");
+    expect(verifier?.text).toContain(`\ndisallowedTools: Agent, ${COORDINATOR}\n`);
     const [ro] = agentFiles(
       profile({ roles: { architect: { enabled: false }, verifier: { access: "read-only" } } }),
       "1.0.0",
     );
-    expect(ro?.text).toContain("\ndisallowedTools: Write, Edit, NotebookEdit, Agent\n");
+    expect(ro?.text).toContain(`\ndisallowedTools: Write, Edit, NotebookEdit, Agent, ${COORDINATOR}\n`);
   });
 
   it("skips disabled roles and headless rungs, and counts a native stand-in", () => {
@@ -57,6 +63,30 @@ describe("agentFiles", () => {
     ]);
   });
 
+  it("tells a native role it is not the orchestrator, and forbids it the coordinator tools (spec 1.5 plan 21)", () => {
+    const [architect] = agentFiles(profile(), "1.0.0");
+    expect(architect?.text).toContain(
+      "You are a role of a catherd run, not its orchestrator. Never call catherd's peek, result, dispatch,",
+    );
+    for (const tool of ["peek", "result", "dispatch", "run_start", "land", "workspace_child_start"])
+      expect(architect?.text).toContain(`${NATIVE_TOOL_PREFIX}${tool}`);
+  });
+
+  it("forbids a native role record_agent_run, which only the orchestrator calls (PR #46 P1)", () => {
+    for (const access of ["full", "read-only"] as const) {
+      const text = renderAgent({
+        profile: "p",
+        role: "verifier",
+        rung: "claude:claude-opus-5-5#low",
+        access,
+        version: "1.0.0",
+      });
+      const line = text.split("\n").find((l) => l.startsWith("disallowedTools: "));
+      expect(line?.split(", ")).toContain(`${NATIVE_TOOL_PREFIX}record_agent_run`);
+      expect(text).toContain("record_agent_run: they belong to the orchestrator");
+    }
+  });
+
   it("leaves the effort out for a model that takes none", () => {
     const text = renderAgent({
       profile: "p",
@@ -65,7 +95,7 @@ describe("agentFiles", () => {
       access: "full",
       version: "1.0.0",
     });
-    expect(text).toContain("\nmodel: claude-haiku-4-5-20251001\ndisallowedTools: Agent\n");
+    expect(text).toContain(`\nmodel: claude-haiku-4-5-20251001\ndisallowedTools: Agent, ${COORDINATOR}\n`);
     expect(text).toContain("(profile p), on claude-haiku-4-5-20251001. Dispatched only by the catherd skill");
     expect(text).not.toContain("effort");
   });
