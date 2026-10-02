@@ -377,6 +377,7 @@ export function supersededBy(run: Run): Superseded | null {
 
 const SERVER_OWNED = new Set([
   "superseded.json",
+  "pin.json",
   "workspace-contract.md",
   "meta.json",
   "state.md",
