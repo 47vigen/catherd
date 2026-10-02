@@ -55,6 +55,27 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 (`<data>/repos/<slug>-<hash8>/knowledge.md`, read with `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 1.5 follow-ups (plan reviews, 2026-10-02)
+
+Plan 21 (roles and ownership) review:
+
+- **A role's own peek still claims.** A role may `peek` its own dispatch (ruling 4), but `peek` still calls
+  `claim()`; on a 1.4-era run whose owner of record is that role's thread, adopt and recover then run inside the role
+  process. Evidence: `src/services/peek.ts:126`, `src/services/dispatch-service.ts:216`. Fix: return from `claim`
+  when `deps.role` is set, and skip `startNotifier` in a role process (`src/entry/mcp/server.ts`). (Minor 4.)
+- **Refused notices pile up in delivery.jsonl.** Each deliver pass writes another `failed` attempt and another
+  `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
+  owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
+  attempt is already a role-thread refusal (`ROLE_THREAD_REFUSAL`) for the same target. (Minor 5.)
+- **`runs clean` can race admission.** `cleanScratch` checks for live dispatches and then `rmSync`s the scratch, but
+  admission creates the role's scratch (`roleScratch`) before it writes `admit.json`, so a dispatch admitted in
+  between loses its fresh TMPDIR. Evidence: `src/services/scratch.ts:37-43`, `src/services/admission.ts:208`. Fix:
+  take the run's admission lock in `cleanScratch`, or create the scratch after the admit record. (Minor 6.)
+- **A role's shell still reaches the coordinator CLI forms.** Under `CATHERD_ROLE`, `catherd runs cancel` and
+  `catherd profile set` (the CLI forms of the `cancel` and `profile_set` tools) still run. Evidence:
+  `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
+  `roleScopeFromEnv`. Fix: refuse them with `E_ROLE_SCOPE` when `roleScopeFromEnv(process.env)` is set. (Minor 7.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
