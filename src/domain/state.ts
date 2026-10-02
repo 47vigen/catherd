@@ -16,6 +16,8 @@ export interface StateView {
   dirty: { path: string; owner: string | null }[];
   running: { name: string; rung: string; thread: string | null; since: string; brief: string }[];
   lastCheck: string | null;
+  /** spec 1.5 "Pinned per run": what changed since the pin; dispatch keeps the pinned values */
+  pinChanges?: string[];
   next: string;
   /** spec 1.1 §10: the protocol's next step, derived from the run's files; always the last line */
   protocol: string;
@@ -40,6 +42,9 @@ export function renderState(s: StateView): string {
       : ["- none"]),
     "",
     `Last check: ${s.lastCheck ?? "none"}`,
+    ...(s.pinChanges?.length
+      ? [`Pinned: ${s.pinChanges.join("; ")} (dispatch keeps the pinned values; run_pin re-pins)`]
+      : []),
     "",
     // 1.1: no tool waits; each running role's record arrives as a catherd message
     `Next: ${waiting.length ? `running ${waiting.join(", ")} (results arrive as catherd messages; peek to check); then ${s.next}` : s.next}`,

@@ -15,6 +15,7 @@ import {
   startRun,
   writeRunFile,
 } from "../../services/run-service.ts";
+import { repin } from "../../services/run-pin.ts";
 import { runsSummary, status } from "../../services/summary.ts";
 import { handle } from "./result.ts";
 
@@ -32,6 +33,16 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
       },
     },
     (a) => handle(() => startRun(deps, { repo: a.repo, title: a.title, aLines: a.a_lines, from: a.from })),
+  );
+
+  server.registerTool(
+    "run_pin",
+    {
+      description:
+        "Re-pin a run to what its repo runs on now: the profile, each role's access and each backend's isolation. run_start pins them; while they differ, dispatch keeps the pinned values and status and state.md say what changed. Only on the owner's word. Returns the new pin and what it changed. Orchestrator only.",
+      inputSchema: { run: z.string().regex(ID_PATTERN) },
+    },
+    (a) => handle(() => repin(deps, a)),
   );
 
   server.registerTool(

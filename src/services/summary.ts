@@ -10,6 +10,7 @@ import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
 import { type Pause, pausesOver } from "./pause.ts";
+import { pinChanges } from "./run-pin.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
@@ -34,6 +35,8 @@ export interface RunSummary {
   id: string;
   /** spec 1.5 "runs supersede": the run that took this one over; status() without a run hides it */
   supersededBy?: string | null;
+  /** spec 1.5: what changed since the run's pin; dispatch keeps the pinned values */
+  pinChanges?: string[];
   /** spec 1.1 §8: the owner questions not answered yet, listed first */
   questions: OpenQuestion[];
   title: string;
@@ -69,6 +72,9 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const sum = (f: (t: Tokens) => number) => records.reduce((n, r) => n + f(r.tokens), 0);
   let budget: BudgetStatus | null = null;
   const warnings = corrupt ? [`runs.jsonl: skipped ${corrupt} unreadable row(s)`] : [];
+  // spec 1.5 "Pinned per run": a change since the pin, which dispatch does not follow
+  const pinned = pinChanges(deps, run);
+  for (const c of pinned) warnings.push(`pinned: ${c}; dispatch keeps the pinned value (run_pin re-pins)`);
   try {
     budget = budgetStatus(
       spendOf(run, records, live, now),
@@ -98,6 +104,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     ),
     id: run.id,
     supersededBy: supersededBy(run)?.by ?? null,
+    pinChanges: pinned,
     questions: openQuestions(run),
     title: run.meta.title,
     repo: run.meta.repo,

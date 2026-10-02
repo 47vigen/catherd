@@ -64,6 +64,7 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
         "workspace_resume",
         "lane_set",
         "owns_add",
+        "run_pin",
       ].sort(),
     );
     for (const tool of COORDINATOR_TOOLS)

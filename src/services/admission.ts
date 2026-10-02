@@ -39,6 +39,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import { unfinishedAfter } from "./protocol.ts";
+import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
@@ -163,7 +164,8 @@ export async function admit(
       fix: `dispatch in run ${closed.by}`,
     });
   const rung = parseRung(i.rung);
-  const profile = deps.profiles.forRepo(run.meta.repo);
+  // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
+  const profile = runProfile(deps, run);
   const rc = profile.roles[i.role];
   if (!rc?.enabled)
     throw new CatherdError("E_ADMIT_RUNG", `the ${i.role} role is off in profile ${profile.name}`, {

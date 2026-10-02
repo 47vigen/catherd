@@ -75,6 +75,7 @@ export const COORDINATOR_TOOLS = [
   "workspace_resume",
   "lane_set",
   "owns_add",
+  "run_pin",
 ] as const;
 
 const COORDINATOR = new Set<string>(COORDINATOR_TOOLS);

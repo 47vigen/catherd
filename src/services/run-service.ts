@@ -32,6 +32,7 @@ import {
   supersededFile,
 } from "./run-store.ts";
 import { protocolNext, protocolView } from "./protocol.ts";
+import { writePin } from "./run-pin.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { readNotes, refreshState } from "./state.ts";
 
@@ -95,6 +96,8 @@ export async function startRun(
     now: new Date(deps.now()),
     startedBy: currentSession(deps),
   });
+  // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
+  writePin(deps, run);
   await claimRun(deps, run);
   const superseded = from ? await supersedeRun(deps, { run: from.id, by: run.id }) : null;
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it

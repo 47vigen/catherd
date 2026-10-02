@@ -19,6 +19,8 @@ const NotesSchema = z.looseObject({
   lastLandedAt: z.string().nullable(),
   /** spec 1.1 §8: the milestones waiting on the owner */
   parked: z.array(z.string()).optional(),
+  /** spec 1.5: what changed since the run's pin, as dispatch last saw it */
+  pinChanges: z.array(z.string()).optional(),
 });
 export type Notes = z.infer<typeof NotesSchema>;
 export type NotesPatch = Partial<Omit<Notes, "schema">>;
@@ -68,6 +70,7 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
         brief: relative(run.dir, dispatchPaths(d.dir).brief),
       })),
       lastCheck: next.lastCheck,
+      pinChanges: next.pinChanges ?? [],
       next: next.next,
       protocol: protocolNext(run, next.parked ?? []),
     });

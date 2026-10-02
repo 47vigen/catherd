@@ -10,6 +10,7 @@ import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { listDispatches } from "./dispatches.ts";
 import { landedCommits, landedMilestones } from "./milestones.ts";
 import { assertNotPaused, pausesOver } from "./pause.ts";
+import { writePin } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { createRun, readRecords, type Run } from "./run-store.ts";
 import { claimRun, currentSession } from "./sessions.ts";
@@ -191,6 +192,7 @@ async function childFor(
       startedBy: currentSession(deps),
       workspace: { id: workspace.id, step: step.id },
     });
+    writePin(deps, run);
   }
   const contract = existsSync(contractFile) ? join(run.dir, "workspace-contract.md") : null;
   if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(contractFile, "utf8"));

@@ -55,6 +55,7 @@ import {
 } from "./run-store.ts";
 import { writeDigest } from "./protocol.ts";
 import { openQuestions } from "./questions.ts";
+import { runProfile } from "./run-pin.ts";
 import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
@@ -131,7 +132,8 @@ export async function routeLanes(
     throw new CatherdError("E_INPUT_INVALID", `route: lane ${dup.lane} is named twice`, {
       fix: "name each lane file once",
     });
-  const profile = deps.profiles.forRepo(run.meta.repo);
+  // spec 1.5: the run's pinned profile, whatever the repo runs on now
+  const profile = runProfile(deps, run);
   const spentFraction = Math.max(
     budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
     (await workspaceBudget(run, deps.now()))?.fraction ?? 0,

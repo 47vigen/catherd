@@ -15,6 +15,7 @@ import { cancel } from "../services/dispatch-service.ts";
 import { registerSavedSecrets } from "../services/jev-service.ts";
 import { runDebug } from "../services/run-debug.ts";
 import { cleanScratch } from "../services/scratch.ts";
+import { repin } from "../services/run-pin.ts";
 import { supersedeRun } from "../services/run-service.ts";
 import { findRun, listRuns, readRecords, type Run } from "../services/run-store.ts";
 import { groupRuns, type RunSession, type SessionGroup } from "../services/session-view.ts";
@@ -375,12 +376,26 @@ const supersede = defineCommand({
   },
 });
 
+const pin = defineCommand({
+  meta: {
+    name: "pin",
+    description: "Re-pin a run to the profile, access and isolation its repo runs on now",
+  },
+  args: { id: { type: "positional", required: true, description: "run id" }, ...json },
+  async run({ args }) {
+    const r = await repin(defaultDeps(), { run: args.id });
+    if (args.json) return printJson(r);
+    console.log(`${mark("ok")} ${args.id} pinned to ${r.pin.profile}`);
+    for (const c of r.changed) console.log(`  was: ${c}`);
+  },
+});
+
 /** Spec §8 `catherd runs list|show [--debug]|cancel`; a bare `catherd runs` lists them, as `status` needs no run. */
 export const runsCommand = defineCommand({
   meta: {
     name: "runs",
-    description: "Runs: list them (the default), show one, cancel a live role, supersede one",
+    description: "Runs: list them (the default), show one, cancel a live role, supersede or re-pin one",
   },
-  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush, supersede },
+  subCommands: { list, show, cancel: cancelCmd, clean, "retry-push": retryPush, supersede, pin },
   default: "list",
 });
