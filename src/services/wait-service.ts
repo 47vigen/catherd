@@ -113,10 +113,10 @@ export async function wait(_deps: Deps, input: WaitInput, signal?: AbortSignal):
           ancestor.admit.dispatchId !== target.dispatchId
         ) {
           ancestry.add(ancestor.admit.dispatchId);
-          const parentId = ancestor.admit.failoverOf;
+          const parentId: string | undefined = ancestor.admit.failoverOf;
           ancestor = parentId
-            ? dispatches.get(parentId) ??
-              listDispatches(run).find((candidate) => candidate.admit.dispatchId === parentId)
+            ? (dispatches.get(parentId) ??
+              listDispatches(run).find((candidate) => candidate.admit.dispatchId === parentId))
             : undefined;
         }
         const limit =
@@ -166,7 +166,9 @@ export function orchestratorWait(
   const owner = runOwner(run);
   if (!owner || hasLive) return null;
   const unread = new Set(
-    listDispatches(run).filter((d) => awaitsCollect(d.dir)).map((d) => d.admit.dispatchId),
+    listDispatches(run)
+      .filter((d) => awaitsCollect(d.dir))
+      .map((d) => d.admit.dispatchId),
   );
   if (!records.some((r) => unread.has(r.dispatchId))) return null;
   const ended = records.map((r) => Date.parse(r.endedAt)).filter(Number.isFinite);

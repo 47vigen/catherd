@@ -1,4 +1,4 @@
-# PR draft
+# Role access and orchestration wait review
 
 Title: fix: provide role MCP access and bounded orchestration waits
 
@@ -21,8 +21,13 @@ retains its push flow, and duplicate queued notices retain their existing idempo
 
 - Final source review covered role tool permissions, run/repository binding, dependency layers,
   failover publication, cancellation and unread-result cache recovery. `git diff --check` passed.
-- No tests, E2E, gates, type checks, lint or formatting were executed, at the owner's explicit request.
+- After the owner authorized a lightweight local gate, typecheck, lint and format checking passed.
+  Focused tests cover the affected services, adapters, MCP surface, CLI and TUI; the two doctor
+  expectations affected by the new diagnostic were updated and passed on recheck.
+  Nine new regressions passed for bounded waiting, cancellation, linked failover, no collection or
+  ownership mutation, role tool sets and run/repository/path restrictions.
+  TUI frames were regenerated per CONTRIBUTING.md and remained unchanged.
 - Native host wake behavior, packaged acceptance and performance gains have not been demonstrated.
-- Local checks and packaged native Codex/Claude acceptance remain outstanding. CONTRIBUTING.md holds this
+- The full test suite and packaged native Codex/Claude acceptance remain outstanding. CONTRIBUTING.md holds this
   feature's release and forbids triggering or re-enabling CI for this work.
 - Per-host custom ladders, plan-width guardrails, cheaper fix-round models and multi-repo support are outside this PR.
