@@ -13,6 +13,7 @@ import {
 import { type Difficulty, type Kind, parseLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import type { RouteJev } from "../domain/route.ts";
+import type { Catalog } from "../domain/catalog.ts";
 import {
   candidates,
   defaultDifficulty,
@@ -26,7 +27,7 @@ import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.t
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
 import { provenanceOf } from "./provenance.ts";
-import { runEvidence } from "./run-evidence.ts";
+import { type EvidenceTable, runEvidence } from "./run-evidence.ts";
 
 function routingProfile(
   v: ProfileView,
@@ -56,13 +57,59 @@ const answer = (
   asked: Asked | null,
   jev: RouteJev | null,
 ): RouteAnswer => ({
-  ...pick,
+  rung: pick.rung,
+  ladder: pick.ladder,
   source,
   kind,
   difficulty,
   questionSet: asked?.answers ? asked.meta.questionSet : null,
   jev,
+  jevSaid: null,
+  why: "",
+  ...(pick.noClear ? { noClear: pick.noClear } : {}),
+  ...(pick.tie ? { tie: pick.tie } : {}),
 });
+
+/** Spec 1.5 plan 24: what Jev said when it differs from the kind and difficulty the route used, else null. */
+function jevSaid(
+  judged: ReturnType<typeof judgeRoute> | null,
+  kind: Kind | null,
+  difficulty: Difficulty | null,
+): string | null {
+  if (!judged) return null;
+  const k = judged.kind;
+  const d = judged.track ? judged.difficulty : null;
+  if ((k === null || k === kind) && (d === null || d === difficulty)) return null;
+  return `Jev said ${k ?? "no sure kind"}/${d ?? "no sure difficulty"}`;
+}
+
+/** Spec 1.5 plan 24: the route's one-line why, for the coordinator; the provenance goes to routes.jsonl. */
+function whyOf(a: RouteAnswer, hasLane: boolean): string {
+  const what = `${a.kind}/${a.difficulty}`;
+  const head =
+    a.source === "lane"
+      ? `the lane's Kind/Difficulty, ${what}`
+      : a.source === "jev"
+        ? `Jev: ${what}`
+        : a.source === "jev-kind"
+          ? `Jev's kind with ${what}`
+          : hasLane
+            ? "the role's default rung: neither Jev nor the lane file gave a kind and difficulty"
+            : "the role's default rung";
+  const start =
+    a.noClear ?? (a.source === "default" ? null : "the first rung in objective order that clears it");
+  return [head, a.jevSaid, start, a.tie].filter((x): x is string => Boolean(x)).join("; ");
+}
+
+/** Spec 1.2 §8 evidence is display only: an unreadable run on this machine never fails a route. */
+function evidenceOrNone(c: Catalog): EvidenceTable | null {
+  try {
+    return runEvidence(c);
+  } catch (e) {
+    log("debug", "route", { evidence: errorMessage(e) });
+    return null;
+  }
+}
 
 /** How long `route` waits on the daily discovery refresh before routing on the cached listing. */
 const DISCOVERY_BUDGET_MS = 5_000;
@@ -86,20 +133,24 @@ async function freshenWithin(rungs: string[], repo: string, ms: number): Promise
 }
 
 /**
- * Spec §5.4: kind and difficulty from Jev (§5.5's rule), else the lane file's `Kind:`/`Difficulty:`,
- * else the role's default rung. A kind Jev is sure of survives a difficulty in the dead band: the
- * difficulty then comes from the lane, else the role's default difficulty (`jev-kind`). A role with one
- * usable rung never asks Jev.
+ * Spec §5.4: kind and difficulty from the lane file's `Kind:`/`Difficulty:` when it declares both (spec 1.5
+ * plan 24: a declared header wins, and `jevSaid` names where Jev disagreed), else from Jev (§5.5's rule), else
+ * the role's default rung. A kind Jev is sure of survives a difficulty in the dead band: the difficulty then
+ * comes from the lane, else the role's default difficulty (`jev-kind`). A role with one usable rung never asks
+ * Jev.
  */
 async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
   const c = loadCatalog({ repo: req.repo });
   const fallback = () => defaultLadder(c, p, req.role);
-  if (req.laneText === null || candidates(c, p, req.role).length <= 1) {
-    const out = answer(fallback(), "default", null, null, null, null);
-    return { ...out, provenance: provenanceOf(c, out.rung, null, null, p.billing, runEvidence(c)) };
-  }
+  const finish = (out: RouteAnswer): RouteAnswer => {
+    out.why = whyOf(out, req.laneText !== null);
+    out.provenance = provenanceOf(c, out.rung, out.kind, out.difficulty, p.billing, evidenceOrNone(c));
+    return out;
+  };
+  if (req.laneText === null || candidates(c, p, req.role).length <= 1)
+    return finish(answer(fallback(), "default", null, null, null, null));
   const lane = parseLaneHeader(req.laneText);
   let asked: Asked | null = null;
   let judged: ReturnType<typeof judgeRoute> | null = null;
@@ -111,27 +162,27 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
     ? { pKind: judged.pKind, pA: judged.pA, pB: judged.pB, nouls: judged.nouls }
     : null;
   let out: RouteAnswer;
-  if (judged?.track && judged.difficulty) {
-    const kind = judged.kind ?? lane.kind ?? "repo_code";
-    out = answer(select(c, p, req.role, kind, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
-  } else if (judged?.kind) {
-    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role, judged.kind);
+  if (lane.kind && lane.difficulty) {
     out = answer(
-      select(c, p, req.role, judged.kind, difficulty),
-      "jev-kind",
-      judged.kind,
-      difficulty,
+      select(c, p, req.role, lane.kind, lane.difficulty),
+      "lane",
+      lane.kind,
+      lane.difficulty,
       asked,
       jev,
     );
+  } else if (judged?.track && judged.difficulty) {
+    const kind = lane.kind ?? judged.kind ?? "repo_code";
+    out = answer(select(c, p, req.role, kind, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
+  } else if (judged?.kind || (judged && lane.kind)) {
+    const kind = (lane.kind ?? judged.kind) as Kind;
+    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role, kind);
+    out = answer(select(c, p, req.role, kind, difficulty), "jev-kind", kind, difficulty, asked, jev);
   } else {
-    const kind = lane.kind;
-    out =
-      kind && lane.difficulty
-        ? answer(select(c, p, req.role, kind, lane.difficulty), "lane", kind, lane.difficulty, asked, jev)
-        : answer(fallback(), "default", null, null, asked, jev);
+    out = answer(fallback(), "default", null, null, asked, jev);
   }
-  out.provenance = provenanceOf(c, out.rung, out.kind, out.difficulty, p.billing, runEvidence(c));
+  out.jevSaid = out.source === "default" ? null : jevSaid(judged, out.kind, out.difficulty);
+  finish(out);
   if (asked) {
     logJev(req.runDir, {
       ...asked.meta,

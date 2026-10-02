@@ -3,17 +3,10 @@ import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import { quotaUsage } from "../domain/select.ts";
-import { assertLaneHeader, type Difficulty, type Kind } from "../domain/lane.ts";
+import { assertLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import { cell } from "../domain/util.ts";
-import {
-  type ClimbReason,
-  currentRoute,
-  laneOutcome,
-  nextRung,
-  type RouteJev,
-  type RouteSource,
-} from "../domain/route.ts";
+import { type ClimbReason, currentRoute, laneOutcome, nextRung } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { laneFile } from "./admission.ts";
@@ -52,20 +45,20 @@ import { type Notes, type NotesPatch, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
+/**
+ * Spec 1.5 plan 24: what `route` returns: little, since every call lands in the coordinator's context. The
+ * decision's source, kind, difficulty, Jev's answer and the provenance go to routes.jsonl.
+ */
 export interface RouteResult {
   lane: string | null;
   role: Role;
   rung: string;
   ladder: string[];
-  source: RouteSource;
-  kind: Kind | null;
-  difficulty: Difficulty | null;
   backend: string;
   /** the native agent to run a `claude:` rung as */
   agent: string | null;
-  /** the Jev question set asked, and what it said, when Jev was asked */
-  questionSet: string | null;
-  jev: RouteJev | null;
+  /** the decision in one line */
+  why: string;
 }
 
 function readLaneFile(run: Run, path: string): { lane: string; text: string } {
@@ -108,9 +101,18 @@ export async function route(
       (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
     ),
   });
+  const at = new Date(deps.now()).toISOString();
+  // spec 1.5 plan 24: every role's decision is recorded, with its source, ladder and provenance
+  const detail = {
+    why: a.why,
+    ...(a.jevSaid ? { jevSaid: a.jevSaid } : {}),
+    ...(a.noClear ? { noClear: a.noClear } : {}),
+    ...(a.tie ? { tie: a.tie } : {}),
+    ...(a.provenance ? { provenance: a.provenance } : {}),
+  };
   if (lane)
     appendRoute(run, {
-      at: new Date(deps.now()).toISOString(),
+      at,
       lane: lane.lane,
       role: i.role,
       rung: a.rung,
@@ -123,13 +125,28 @@ export async function route(
       difficulty: a.difficulty,
       questionSet: a.questionSet,
       jev: a.jev,
+      ...detail,
+    });
+  else
+    appendRoute(run, {
+      at,
+      lane: null,
+      role: i.role,
+      name: null,
+      rung: a.rung,
+      ladder: a.ladder,
+      source: "route",
+      decidedBy: a.source,
+      ...detail,
     });
   return {
     lane: lane?.lane ?? null,
     role: i.role,
-    ...a,
+    rung: a.rung,
+    ladder: a.ladder,
     backend: parseRung(a.rung).backend,
     agent: deps.profiles.agentFor(run.meta.repo, i.role, a.rung),
+    why: a.why,
   };
 }
 

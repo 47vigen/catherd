@@ -99,6 +99,8 @@ describe("dispatch routes an unrouted lane first (spec 1.1 §6)", () => {
       difficulty: "logic",
       questionSet: null,
       jev: null,
+      jevSaid: null,
+      why: "the lane's Kind/Difficulty, repo_code/logic",
     });
     const s = await dispatch(deps, {
       run: run.id,

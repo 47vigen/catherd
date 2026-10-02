@@ -101,6 +101,8 @@ export function fakeDeps(
         difficulty: null,
         questionSet: null,
         jev: null,
+        jevSaid: null,
+        why: "the role's default rung",
       };
     },
     finding: async (_runDir, _laneText, _finding, _use) => ({

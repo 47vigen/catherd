@@ -43,6 +43,35 @@ export interface RouteRow {
   jev?: RouteJev | null;
   /** climb rows: the climb was caused by the environment, not the rung's capability (spec §5.6) */
   env?: boolean;
+  /** route rows (spec 1.5 plan 24): the decision in one line, as `route` returned it */
+  why?: string;
+  /** route rows: where Jev disagreed with the lane's declared Kind/Difficulty */
+  jevSaid?: string;
+  /** route rows: no rung clears the lane's bar, and the closest one */
+  noClear?: string;
+  /** route rows: rungs of equal scores on other quotas competed for the start, and what decided */
+  tie?: string;
+  /** route rows: the chosen rung's thresholds, values and sources (spec 1.2 §5.3), kept out of `route`'s answer */
+  provenance?: unknown;
+}
+
+/**
+ * Spec 1.5 plan 24: one routes.jsonl row for a role's decision outside a lane: `route` without a lane file, or
+ * a lane-less `dispatch` (its `name`). `readRoutes` skips these rows: they have no lane to climb.
+ */
+export interface RoleRouteRow {
+  at: string;
+  lane: null;
+  role: Role;
+  /** the dispatch's name; null for a `route` */
+  name: string | null;
+  rung: string;
+  ladder: string[];
+  source: "route" | "dispatch";
+  /** who chose the rung: the router (its source), or the coordinator passing `rung` to `dispatch` */
+  decidedBy: RouteSource | "orchestrator";
+  why: string;
+  provenance?: unknown;
 }
 
 export function nextRung(ladder: string[], current: string): string | null {

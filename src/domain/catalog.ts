@@ -211,6 +211,8 @@ export interface Catalog {
    * whose value it uses as `inferred` (spec 1.2 §6.1); filled by the stand-in ranking (services/standins.ts)
    */
   inferred: Record<string, Partial<Record<Dim, InferredStandIn>>>;
+  /** the thresholds the user's override set or removed, as `<kind>/<difficulty>/<dim>` (route says "your override") */
+  userBars?: string[];
 }
 
 /**
@@ -317,11 +319,14 @@ export function buildCatalog(o: {
   for (const [rung, like] of Object.entries(o.override?.treatLike ?? {}))
     treatLike[rung] = { like, source: "user" };
   const bars = structuredClone(o.scores.bars) as Bars;
+  const userBars: string[] = [];
   for (const kind of KINDS)
     for (const d of DIFFICULTIES)
-      for (const [dim, min] of Object.entries(o.override?.bars[kind]?.[d] ?? {}) as [Dim, number | null][])
+      for (const [dim, min] of Object.entries(o.override?.bars[kind]?.[d] ?? {}) as [Dim, number | null][]) {
+        userBars.push(`${kind}/${d}/${dim}`);
         if (min === null) delete bars[kind][d][dim];
         else bars[kind][d][dim] = min;
+      }
   return {
     families: o.facts ? applyFacts(o.models.families, o.facts) : o.models.families,
     backends: o.models.backends,
@@ -333,6 +338,7 @@ export function buildCatalog(o: {
     secs: o.secs ?? {},
     features: o.features ?? {},
     inferred: {},
+    userBars,
   };
 }
 

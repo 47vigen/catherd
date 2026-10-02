@@ -24,6 +24,8 @@ function jevDeps() {
     difficulty: "build",
     questionSet: "route-v2#0123abcd",
     jev: JEV,
+    jevSaid: null,
+    why: "Jev: repo_code/build",
   });
   return deps;
 }
@@ -38,11 +40,21 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     const r = await route(jevDeps(), { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
-    expect(r).toMatchObject({ questionSet: "route-v2#0123abcd", jev: JEV });
+    // spec 1.5 plan 24: route returns little; Jev's answer stays in routes.jsonl
+    expect(r).toEqual({
+      lane: "M1.L1",
+      role: "worker",
+      rung: LADDER[0] as string,
+      ladder: LADDER,
+      backend: "codex",
+      agent: null,
+      why: "Jev: repo_code/build",
+    });
     expect(readRoutes(run)[0]).toMatchObject({
       decidedBy: "jev",
       questionSet: "route-v2#0123abcd",
       jev: JEV,
+      why: "Jev: repo_code/build",
     });
   });
 

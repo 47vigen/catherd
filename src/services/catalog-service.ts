@@ -99,18 +99,23 @@ export function measuredSecs(base: Catalog): Catalog["secs"] {
     if (kind) add(`${canonical}|${kind}`, secs);
   };
   for (const run of listRuns().runs) {
-    const routes = readRoutes(run);
-    for (const r of readRecords(run).records)
-      if (r.status === "ok") count(routes, r.rung, r.secs, r.lane, r.startedAt);
-    for (const a of readAgentRuns(run)) {
-      if (a.status !== "ok" || a.secs === null) continue;
-      // a row is written when the subagent ends; it started `secs` earlier
-      const lane = typeof a.lane === "string" ? a.lane : null;
-      const end = Date.parse(a.at);
-      // a duration past the Date range (record_agent_run takes any) keeps the end, not a RangeError
-      const start = new Date(end - a.secs * 1000);
-      const startedAt = Number.isNaN(start.getTime()) ? a.at : start.toISOString();
-      count(routes, a.rung, a.secs, lane, startedAt);
+    // a run whose files cannot be read gives no timings; it never fails a route (1.2 minor)
+    try {
+      const routes = readRoutes(run);
+      for (const r of readRecords(run).records)
+        if (r.status === "ok") count(routes, r.rung, r.secs, r.lane, r.startedAt);
+      for (const a of readAgentRuns(run)) {
+        if (a.status !== "ok" || a.secs === null) continue;
+        // a row is written when the subagent ends; it started `secs` earlier
+        const lane = typeof a.lane === "string" ? a.lane : null;
+        const end = Date.parse(a.at);
+        // a duration past the Date range (record_agent_run takes any) keeps the end, not a RangeError
+        const start = new Date(end - a.secs * 1000);
+        const startedAt = Number.isNaN(start.getTime()) ? a.at : start.toISOString();
+        count(routes, a.rung, a.secs, lane, startedAt);
+      }
+    } catch (e) {
+      log("debug", "catalog", { run: run.id, timings: errorMessage(e) });
     }
   }
   const secs: Catalog["secs"] = {};

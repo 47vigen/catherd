@@ -107,6 +107,14 @@ export interface RouteAnswer {
   /** the Jev question set asked, and its summed probabilities, for outcomes.jsonl (spec §5.6) */
   questionSet: string | null;
   jev: RouteJev | null;
+  /** spec 1.5 plan 24: where Jev disagreed with a declared lane header (`Jev said logic/hard`), else null */
+  jevSaid: string | null;
+  /** spec 1.5 plan 24: no rung clears the lane's bar, and the closest one */
+  noClear?: string;
+  /** spec 1.5 plan 24: rungs of equal scores on other quotas competed for the start, and what decided */
+  tie?: string;
+  /** spec 1.5 plan 24: the decision in one line, for the coordinator */
+  why: string;
   /** spec 1.2 §5.3, §8: the chosen rung's thresholds, values, sources, facts and run evidence */
   provenance?: Provenance;
 }

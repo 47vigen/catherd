@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { readJsonl } from "../../src/infra/store.ts";
-import { resetFreshen } from "../../src/services/catalog-service.ts";
+import { overridePath, resetFreshen } from "../../src/services/catalog-service.ts";
+import { runPaths } from "../../src/services/run-store.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { routingService } from "../../src/services/routing-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { LADDER, testView } from "./helpers.ts";
+import { freshRun, LADDER, testView } from "./helpers.ts";
+
+/** the PATH a real run needs (it is a repository); beforeEach takes every CLI off PATH */
+const PATH_AT_LOAD = process.env.PATH;
 
 afterEach(snapshotEnv());
 beforeEach(() => {
@@ -88,6 +92,8 @@ describe("route without Jev", () => {
       difficulty: "build",
       questionSet: null,
       jev: null,
+      jevSaid: null,
+      why: "the lane's Kind/Difficulty, repo_code/build; the first rung in objective order that clears it",
       provenance: expect.objectContaining({ rung: TRACK_A.rung }),
     });
     expect(jevRows(r.runDir)).toEqual([
@@ -178,6 +184,30 @@ describe("route's provenance (spec 1.2 §5.3)", () => {
     ]);
   });
 
+  it("says a threshold is the user's override, not the default's why (1.2 minor)", async () => {
+    mkdirSync(join(overridePath(), ".."), { recursive: true });
+    writeFileSync(
+      overridePath(),
+      JSON.stringify({ schema: 1, bars: { repo_code: { build: { repo_code: 60 } } } }),
+    );
+    const a = await routingService().route(req(lane("repo_code", "build")));
+    expect(a.provenance?.thresholds).toEqual([
+      expect.objectContaining({ dim: "repo_code", min: 60, why: "your override" }),
+    ]);
+  });
+
+  it("routes with no evidence when a run on this machine cannot be read (1.2 minor)", async () => {
+    process.env.PATH = PATH_AT_LOAD;
+    const { run } = freshRun();
+    process.env.PATH = "/nonexistent";
+    // a routes.jsonl that is a directory: reading it throws
+    rmSync(runPaths(run.dir).routes, { force: true });
+    mkdirSync(runPaths(run.dir).routes);
+    const a = await routingService().route(req(lane("repo_code", "build")));
+    expect(a.rung).toBe(TRACK_A.rung);
+    expect(a.provenance?.evidence).toBeNull();
+  });
+
   it("shows the default rung's values with no thresholds when the route reads no bar", async () => {
     const a = await routingService().route(req(null));
     expect(a.source).toBe("default");
@@ -187,7 +217,7 @@ describe("route's provenance (spec 1.2 §5.3)", () => {
 });
 
 describe("route with Jev", () => {
-  it("takes a confident track over the lane's declaration, and logs the decision but never the lane", async () => {
+  it("keeps the lane's declaration over a confident track, says Jev disagreed, and logs it but never the lane", async () => {
     const f = fakeFetch({
       status: 200,
       body: fx("route-v2-track-b.json"),
@@ -201,7 +231,17 @@ describe("route with Jev", () => {
       ),
     );
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    expect(a).toMatchObject({ ...TRACK_B, source: "jev", kind: "repo_code", difficulty: "hard" });
+    // spec 1.5 plan 24: a declared header wins; the route says where Jev disagreed
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "build",
+      jevSaid: "Jev said repo_code/hard",
+    });
+    expect(a.why).toBe(
+      "the lane's Kind/Difficulty, repo_code/build; Jev said repo_code/hard; the first rung in objective order that clears it",
+    );
     expect(a.questionSet).toMatch(/^route-v2#[0-9a-f]{8}$/);
     expect(a.jev).toMatchObject({ pA: 0.05, pB: 0.95, pKind: 0.96, nouls: { unclear_cause: 0.88 } });
     const sent = JSON.stringify(f.sent[0]?.body);
@@ -211,7 +251,7 @@ describe("route with Jev", () => {
     expect(sent).not.toContain("drainAll");
     const [row] = jevRows(r.runDir);
     expect(row).toMatchObject({
-      source: "jev",
+      source: "lane",
       requestId: "req_1",
       model: "jev-1.13.0",
       why: "P(B) 0.95 ≥ 0.8",
@@ -227,20 +267,40 @@ describe("route with Jev", () => {
     expect(jevRows(r.runDir)[0]?.why).toBe("P(A) 0.55, P(B) 0.45: both below 0.8");
   });
 
-  it("keeps a sure kind in the dead band, with the lane's Difficulty", async () => {
+  it("keeps the lane's Kind over a sure kind in the dead band, and says Jev's", async () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
     const r = req(lane("prose", "build"));
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
-    expect(jevRows(r.runDir)[0]).toMatchObject({ source: "jev-kind", used: `worker ${TRACK_A.rung}` });
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "lane",
+      kind: "prose",
+      difficulty: "build",
+      jevSaid: "Jev said repo_code/no sure difficulty",
+    });
+    expect(jevRows(r.runDir)[0]).toMatchObject({ source: "lane", used: `worker ${TRACK_A.rung}` });
+  });
+
+  it("keeps a sure kind in the dead band when the lane declares only its Difficulty", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
+    const r = req(lane(null, "build"));
+    const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "jev-kind",
+      kind: "repo_code",
+      difficulty: "build",
+      jevSaid: null,
+    });
   });
 
   it("keeps a sure kind in the dead band without a Difficulty line, at the default rung's difficulty", async () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
     const r = req(lane("prose", null));
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    // the default rung, gpt-6-sol#medium, clears no repo_code bar: the default difficulty is build
-    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
+    // the lane's Kind wins; the default rung, gpt-6-sol#medium, clears no prose bar: the default difficulty is build
+    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "prose", difficulty: "build" });
+    expect(a.jevSaid).toBe("Jev said repo_code/no sure difficulty");
     expect(jevRows(r.runDir)[0]?.source).toBe("jev-kind");
   });
 
