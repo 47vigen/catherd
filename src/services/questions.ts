@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
+import type { Span } from "../domain/util.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
@@ -36,6 +37,20 @@ export function openQuestions(run: Run): OpenQuestion[] {
     else open.delete(r.milestone);
   }
   return [...open.values()];
+}
+
+/** Spec 1.5 "The ledger": when `milestone` was parked, question to answer; the last one open while unanswered. */
+export function parkedSpans(run: Run, milestone: string): Span[] {
+  const out: Span[] = [];
+  for (const r of rows(run)) {
+    if (r.milestone !== milestone) continue;
+    const at = Date.parse(r.at);
+    if (Number.isNaN(at)) continue;
+    const open = out.at(-1);
+    if (r.kind === "question" && (!open || open.to !== null)) out.push({ from: at, to: null });
+    else if (r.kind === "answer" && open && open.to === null) open.to = at;
+  }
+  return out;
 }
 
 function append(run: Run, row: QuestionRow): void {

@@ -187,9 +187,13 @@ export interface MilestoneVerifier {
   blocked: string | null;
 }
 
+/** The one name a milestone's verifier is counted under (spec 1.5 "The ledger"): verifier-<m>, exactly. */
+export const verifierName = (m: string): string => `verifier-${m}`;
+
 /**
  * The milestone's latest verifier attempt since its lanes started, whatever it said: a record_agent_run row
- * with role verifier whose name names the milestone (the skill records a FAIL as failed), passing when its
+ * with role verifier named exactly verifier-<m> (the skill records a FAIL as failed; verifier-M2-pre or
+ * verifier-M2-gate1 is not M2's verifier), passing when its
  * status is ok; or a headless verifier's dispatch record of the same shape, passing when it exited ok and its
  * reply opens VERDICT: PASS (status ok means only the CLI exited). A later FAIL undoes an earlier PASS. Null
  * when there is none.
@@ -201,7 +205,7 @@ export function milestoneVerifier(
 ): MilestoneVerifier | null {
   const found: MilestoneVerifier[] = [
     ...readAgentRuns(run)
-      .filter((a) => a.role === "verifier" && namesMilestone(a.name, m) && since(a.at, start))
+      .filter((a) => a.role === "verifier" && a.name === verifierName(m) && since(a.at, start))
       .map((a) => {
         // plan 23: a native verifier's verdict line, when record_agent_run passed it
         const blocked = a.status === "ok" ? null : blockedByEnvironment(a.verdict);
@@ -215,7 +219,7 @@ export function milestoneVerifier(
         };
       }),
     ...readRecords(run)
-      .records.filter((r) => r.role === "verifier" && namesMilestone(r.name, m) && since(r.endedAt, start))
+      .records.filter((r) => r.role === "verifier" && r.name === verifierName(m) && since(r.endedAt, start))
       .map((r) => {
         const first = replyVerdict(run, r);
         const passed = r.status === "ok" && first !== null && VERDICT_PASS.test(first);

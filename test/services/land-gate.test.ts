@@ -114,7 +114,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     const e = await refusal(land(fakeDeps(), landing(run.id, commitFiles(repo, ["src/a.ts"]))));
     expect(e.code).toBe("E_LAND_GATE");
     expect(e.message).toBe(
-      "land M1: missing a reviewer record (a dispatch named reviewer-M1, or record_agent_run with role reviewer and that name, status ok) and a verifier verdict (record_agent_run with role verifier and a name holding M1, status ok; a headless verifier's reply opening VERDICT: PASS), since its lanes started",
+      "land M1: missing a reviewer record (a dispatch named reviewer-M1, or record_agent_run with role reviewer and that name, status ok) and a verifier verdict (record_agent_run with role verifier named exactly verifier-M1, status ok; a headless verifier-M1's reply opening VERDICT: PASS), since its lanes started",
     );
     expect(e.fix).toContain('record_agent_run(name: "verifier-M1")');
   });

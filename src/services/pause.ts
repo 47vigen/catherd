@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
+import type { Span } from "../domain/util.ts";
 import { dataDir } from "../infra/paths.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
 /** What a pause is checked against: a run, or a workspace step about to start one. */
@@ -116,6 +117,15 @@ export function pausesFor(run: Covered | null): Pause[] {
   const ws = id ? current(workspacePauseFile(id)) : null;
   if (id && ws) out.push({ scope: "workspace", workspace: id, ...ws });
   return out;
+}
+
+/** Every stretch the machine, or the run's workspace, was paused, in epoch ms: `land` leaves them out. */
+export function pauseSpans(run: Covered): Span[] {
+  const id = run.meta.workspace?.id;
+  const files = [machinePauseFile(), ...(id ? [workspacePauseFile(id)] : [])];
+  return files.flatMap((f) =>
+    pauseIntervals(f).map((p) => ({ from: Date.parse(p.from), to: p.to === null ? null : Date.parse(p.to) })),
+  );
 }
 
 /** The pauses in force over any of `runs`, each once, the machine's first. */

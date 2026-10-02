@@ -5,7 +5,7 @@ import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import { quotaUsage } from "../domain/select.ts";
 import { assertLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
-import { cell } from "../domain/util.ts";
+import { cell, coveredMs } from "../domain/util.ts";
 import {
   type ClimbReason,
   currentRoute,
@@ -54,7 +54,8 @@ import {
   runPaths,
 } from "./run-store.ts";
 import { writeDigest } from "./protocol.ts";
-import { openQuestions } from "./questions.ts";
+import { pauseSpans } from "./pause.ts";
+import { openQuestions, parkedSpans } from "./questions.ts";
 import { runProfile } from "./run-pin.ts";
 import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
@@ -406,7 +407,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     ...(verdict?.passed
       ? []
       : [
-          `a verifier verdict (record_agent_run with role verifier and a name holding ${m}, status ok; a headless verifier's reply opening VERDICT: PASS)${verdict ? `: the latest, ${verdict.name}${verdict.headless ? " (headless)" : ""}, is ${verdict.verdict}` : ""}`,
+          `a verifier verdict (record_agent_run with role verifier named exactly verifier-${m}, status ok; a headless verifier-${m}'s reply opening VERDICT: PASS)${verdict ? `: the latest, ${verdict.name}${verdict.headless ? " (headless)" : ""}, is ${verdict.verdict}` : ""}`,
         ]),
   ];
   if (missing.length)
@@ -500,10 +501,14 @@ async function landRun(
   const now = new Date(deps.now());
   let row = "";
   let minutes = 0;
+  // spec 1.5 "The ledger": the minutes leave out the time the milestone was parked and any machine or
+  // workspace pause, so a night parked on a question does not count
+  const paused = [...parkedSpans(run, i.milestone), ...pauseSpans(run)];
   const landRow = (notes: Notes): NotesPatch => {
+    const from = Date.parse(notes.lastLandedAt ?? run.meta.createdAt);
     minutes = Math.max(
       0,
-      Math.round((now.getTime() - Date.parse(notes.lastLandedAt ?? run.meta.createdAt)) / 60_000),
+      Math.round((now.getTime() - from - coveredMs(from, now.getTime(), paused)) / 60_000),
     );
     row = [i.milestone, i.what, i.commit, String(minutes), i.evidence].map(cell).join(" | ");
     appendLedger(run, row);
