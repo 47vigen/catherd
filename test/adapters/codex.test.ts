@@ -64,6 +64,14 @@ describe("codex parse", () => {
     ]);
     expect(codexAdapter.parse('{"type":"turn.started"}').activity).toBeUndefined();
   });
+
+  it("shows a file change with no paths as `edit`, with no trailing space (1.1 push minors)", () => {
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_9", type: "file_change", changes: [] },
+    });
+    expect(codexAdapter.parse(line).activity).toBe("edit");
+  });
 });
 
 describe("codex plan", () => {

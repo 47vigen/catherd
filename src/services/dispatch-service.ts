@@ -35,7 +35,7 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
 import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
-import { claimRun, ownsRun, runOwner } from "./sessions.ts";
+import { claimRun, currentSession, ownsRun, runOwner } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -176,7 +176,14 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
   watching.add(d.admit.dispatchId);
   const w = (async () => {
     await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
-    const s = await settle(deps, run, d, await finalizeDispatch(run, d));
+    const record = await finalizeDispatch(run, d);
+    // a session that lost the run since it dispatched leaves a limit to the owner's claim (1.1 push minors):
+    // only the run's owner starts a stand-in. A process with no session (a terminal) settles as before.
+    if (record.status === "limit" && currentSession(deps) !== null && !ownsRun(deps, run)) {
+      log("info", "dispatch", { run: run.id, name: d.admit.name, limit: "left to the run's owner" });
+      return;
+    }
+    const s = await settle(deps, run, d, record);
     if (s.stateHints[0]) log("warn", "dispatch", { run: run.id, name: d.admit.name, hint: s.stateHints[0] });
   })()
     .catch((e: unknown) =>

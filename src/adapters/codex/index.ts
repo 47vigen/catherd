@@ -250,7 +250,7 @@ function codexActivity(e: Record<string, any>): string | undefined {
     return `edit ${it.changes
       .map((c: { path?: unknown }) => c.path)
       .filter((p: unknown) => typeof p === "string")
-      .join(", ")}`;
+      .join(", ")}`.trimEnd();
   if (it.type === "agent_message" && typeof it.text === "string") return it.text;
   return undefined;
 }
@@ -270,12 +270,13 @@ export const codexAdapter: BackendAdapter = {
     // Not a todo_list: update_plan opens one that only completes with the turn, and would mute the watchdog
     const id = typeof e.item?.id === "string" && CODEX_TOOL_ITEMS.has(e.item.type) ? e.item.id : null;
     const open = e.type === "item.started" ? true : e.type === "item.completed" ? false : null;
+    const activity = codexActivity(e);
     return {
       ...(f.thread ? { thread: f.thread } : {}),
       ...(id !== null && open !== null ? { item: { id, open } } : {}),
       ...(e.type === "turn.completed" ? { tokens: f.tokens } : {}),
       lastEvent: f.lastEvent ?? undefined,
-      ...(codexActivity(e) ? { activity: codexActivity(e) } : {}),
+      ...(activity ? { activity } : {}),
       ...(f.turnFailed ? { failure: f.failure ?? "turn failed" } : {}),
       ...(f.limit ? { limit: true } : {}),
       ...(f.tooOld ? { tooOld: true } : {}),

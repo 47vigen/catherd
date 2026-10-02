@@ -288,6 +288,21 @@ describe("claude-code parse", () => {
     expect(lines("ok.jsonl").map((l) => claudeCodeAdapter.parse(l).activity)).toContain("hello");
   });
 
+  it("shows another tool with its first string argument, as opencode does (1.1 push minors)", () => {
+    const call = (name: string, input: Record<string, unknown>) =>
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "t1", name, input }] },
+      });
+    expect(claudeCodeAdapter.parse(call("Grep", { pattern: "TODO", path: "src" })).activity).toBe(
+      "Grep TODO",
+    );
+    expect(claudeCodeAdapter.parse(call("WebFetch", { url: "https://example.com" })).activity).toBe(
+      "WebFetch https://example.com",
+    );
+    expect(claudeCodeAdapter.parse(call("TodoWrite", { todos: [] })).activity).toBe("TodoWrite");
+  });
+
   it("reports the first request's own input from its assistant message, not the session's total", () => {
     const first = lines("read-only-write.jsonl")
       .map((l) => claudeCodeAdapter.parse(l).requestInput)

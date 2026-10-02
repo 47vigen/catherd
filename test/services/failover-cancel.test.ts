@@ -423,6 +423,27 @@ describe("failover's stand-in, tied to its limited dispatch, launched once (N-3)
     }
   });
 
+  it("leaves a limit to the new owner when its session lost the run before it settled (1.1 push minors)", async () => {
+    const release = held();
+    const { run } = setup({ ...LIMIT, holdUntil: release });
+    const deps = await owned(run);
+    const limited = (await dispatch(deps, input(run.id))).dispatched;
+    // another session takes the run while the limited role still runs
+    const other = fakeDeps({
+      view: testView({ failover: FAILOVER }),
+      session: { sessionId: "s-other", hostSessionId: null, socketPath: null, token: null },
+    });
+    await claimRun(other, run);
+    writeFileSync(release, "");
+    await watchersSettled();
+    const d = listDispatches(run).find((x) => x.admit.dispatchId === limited.dispatchId) as Dispatch;
+    expect(readRecords(run).records.find((r) => r.dispatchId === limited.dispatchId)?.status).toBe("limit");
+    // the old owner's watcher recorded it and left the failover to the run's owner
+    expect(readFailover(d.dir)).toBeNull();
+    expect(standInOf(run)).toBeUndefined();
+    expect(awaitsCollect(d.dir)).toBe(true);
+  });
+
   it("never hands one limited dispatch's stand-in to another of the same name and rung", async () => {
     const release = held();
     const { run, deps } = setup({ ...DONE, holdUntil: release });
