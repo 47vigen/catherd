@@ -192,10 +192,11 @@ export function StatusView(props: { width: number; height: number }) {
       if (name !== null) {
         showProfile(app, name);
       } else if (selected?.startsWith("run:")) {
-        // spec §4: a run opens in its session's screen, which shows it with the session's other runs
+        // spec §4: a run opens in its session's screen, which shows it with the session's other runs; the
+        // cursor starts on that run
         const row = runs.find((r) => `run:${r.id}` === selected);
         app.dispatch({ type: "tab", tab: "runs" });
-        if (row) app.dispatch({ type: "session", key: row.session });
+        if (row) app.dispatch({ type: "session", key: row.session, run: row.id });
       }
     },
   });

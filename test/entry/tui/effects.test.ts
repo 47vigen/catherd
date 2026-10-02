@@ -127,6 +127,13 @@ describe("the live effects", () => {
         writeFileSync(probe, String(i));
         await waitFor(() => calls > 0, 500).catch(() => null);
       }
+      // a probe write the watch reports late would pass the check below with no nested change: wait until
+      // the probe's events stop (no call for one burst window, three times over) before counting from zero
+      for (let quiet = 0, seen = calls; quiet < 3;) {
+        await waitFor(() => calls !== seen, 300).catch(() => null);
+        if (calls === seen) quiet++;
+        else [quiet, seen] = [0, calls];
+      }
       calls = 0;
       // only changes below the run folder, in a folder made after the watch started
       const nested = join(run.dir, "roles", "w", "2");
