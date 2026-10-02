@@ -62,11 +62,18 @@ const CHECK_ENV = new Set([
   "CATHERD_LOCK_SLOTS",
 ]);
 const CHECK_ENV_PATTERN = /^(LC_[A-Z_]+|XDG_[A-Z_]+_(HOME|DIR|DIRS))$/;
+/**
+ * Plan 23: where the toolchains a check runs find their daemon, proxy and caches (DOCKER_HOST for OrbStack or
+ * rootless Docker, a proxy, Go's and pnpm's caches); without them a check that would run fails as if broken.
+ */
+const TOOL_ENV_PATTERN =
+  /^(DOCKER_(HOST|CONTEXT|CONFIG|CERT_PATH|TLS_VERIFY)|TESTCONTAINERS_[A-Z_]+|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy|GO(PATH|CACHE|MODCACHE|FLAGS|PROXY|PRIVATE|NOSUMDB|TOOLCHAIN)|PNPM_HOME|npm_config_store_dir|BUN_INSTALL(_CACHE_DIR)?|NVM_DIR|JAVA_HOME|CARGO_HOME|RUSTUP_HOME)$/;
 
 /** A strict allowlist of `base` plus PWD, for lane-authored shell text such as preflight checks. */
 export function checkEnv(base: Record<string, string | undefined>, cwd: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(base))
-    if (v !== undefined && (CHECK_ENV.has(k) || CHECK_ENV_PATTERN.test(k))) env[k] = v;
+    if (v !== undefined && (CHECK_ENV.has(k) || CHECK_ENV_PATTERN.test(k) || TOOL_ENV_PATTERN.test(k)))
+      env[k] = v;
   return { ...env, PWD: cwd };
 }

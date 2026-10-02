@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
+import { resetLoginEnv } from "../../src/infra/login-env.ts";
 import { locksDir } from "../../src/infra/paths.ts";
-import { classify, preflight, preflightUser, runCheck } from "../../src/services/preflight.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { setGateEnv } from "../../src/services/gate-env.ts";
+import {
+  classify,
+  preflight,
+  preflightLimits,
+  preflightUser,
+  runCheck,
+} from "../../src/services/preflight.ts";
+import { runPaths } from "../../src/services/run-store.ts";
+import { snapshotEnv, tempDir } from "../helpers.ts";
 import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -141,5 +150,93 @@ describe("preflight", () => {
     expect(classify({ code: 1, timedOut: false, tail: ["sh: x: command not found"] })).toBe("cannot-start");
     expect(classify({ code: 126, timedOut: false, tail: [] })).toBe("cannot-start");
     expect(classify({ code: 2, timedOut: false, tail: ["1 failing"] })).toBe("fails-as-expected");
+  });
+
+  it("calls an environment error cannot-start, never fails-as-expected (plan 23)", () => {
+    for (const line of [
+      "panic: rootless Docker not found",
+      "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+      "dial tcp: lookup proxy.golang.org: no such host",
+      "curl: (6) Could not resolve host: registry.npmjs.org",
+      "open /Users/me/Library/Caches/go-build/ab: operation not permitted",
+    ])
+      expect(classify({ code: 1, timedOut: false, tail: ["--- FAIL", line] })).toBe("cannot-start");
+    // pnpm passes an empty filter: nothing to run yet
+    expect(classify({ code: 0, timedOut: false, tail: ['No projects matched the filters in "/repo"'] })).toBe(
+      "skipped",
+    );
+  });
+
+  it("runs only the lanes of milestones not landed, or the milestone named (plan 23)", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    writeLane(run, "M2.L1", ["src/b.ts"], "true");
+    writeLane(run, "M2.L2", ["src/c.ts"], "true");
+    appendFileSync(runPaths(run.dir).ledger, "M1 | w | abc1234 | 3 | ok\n");
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id }))).toEqual([
+      ["M2.L1", "pass"],
+      ["M2.L2", "pass"],
+    ]);
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id, milestone: "M1" }))).toEqual([
+      ["M1.L1", "pass"],
+    ]);
+  });
+
+  it("reports lock-busy when no heavy slot comes free within its wait budget (plan 23)", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    mkdirSync(locksDir(), { recursive: true });
+    const release = tryLock(join(locksDir(), "slot-0"));
+    const saved = preflightLimits.lockWaitMs;
+    preflightLimits.lockWaitMs = 100;
+    try {
+      const r = await preflight(fakeDeps({ view: testView({ heavy: 1 }) }), { run: run.id });
+      expect(outcomes(r)).toEqual([["M1.L1", "lock-busy"]]);
+      if (!r.needsConfirmation) expect(r.blocked).toBe(false);
+    } finally {
+      preflightLimits.lockWaitMs = saved;
+      release?.();
+    }
+  });
+
+  it("runs a check in the login env and the repo's gate env, and names the environment error (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    const dir = tempDir("catherd-shell-");
+    const shell = join(dir, "login");
+    writeFileSync(shell, `#!/bin/sh\nprintf 'DOCKER_HOST=unix:///login/docker.sock\\0PATH=/login/bin\\0'\n`);
+    chmodSync(shell, 0o755);
+    process.env.SHELL = shell;
+    resetLoginEnv();
+    await setGateEnv(repo, "TESTCONTAINERS_RYUK_DISABLED", { value: "true" });
+    writeLane(
+      run,
+      "M1.L1",
+      ["src/a.ts"],
+      'test "$DOCKER_HOST" = unix:///login/docker.sock && test "$TESTCONTAINERS_RYUK_DISABLED" = true && echo "${PATH%%:*}"',
+    );
+    writeLane(run, "M1.L2", ["src/b.ts"], "echo 'Could not find a valid Docker environment' >&2; exit 1");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    resetLoginEnv();
+    expect(outcomes(r)).toEqual([
+      ["M1.L1", "pass"],
+      ["M1.L2", "cannot-start"],
+    ]);
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.results[0]?.tail).toEqual(["/login/bin"]);
+    expect(r.results[1]?.note).toBe("environment: Could not find a valid Docker environment");
+  });
+
+  it("warns about a fast check with no lint step when the repo has a linter (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    writeLane(run, "M1.L2", ["src/b.ts"], "go test ./x/... && golangci-lint run ./x/...");
+    const none = await preflight(fakeDeps(), { run: run.id });
+    if (!none.needsConfirmation) expect(none.warnings).toEqual([]);
+    writeFileSync(join(repo, ".golangci.yml"), "linters: {}\n");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.warnings).toEqual([
+      "M1.L1: its fast check runs no linter, and the repo has one (golangci-lint): add the linter of every package the lane touches to its Fast check: line",
+    ]);
   });
 });
