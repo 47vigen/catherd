@@ -72,6 +72,36 @@ Pass the actual project `repo` explicitly to profile, setup and catalog tools th
 - `E_LAND_GATE`: the milestone has no reviewer record or no verifier verdict since its lanes started, it is parked, or its `skip` does not hold. Run what the message names, then land again.
 - `E_CLIMB_DESIGN`: the evidence points at the plan, not the rung. Send it to the architect (an `ask` finding, then an architect delta), not up the ladder.
 
+## Workspaces with independent repositories
+
+For a task spanning repositories, the workspace root may be a plain directory. Call
+`workspace_inspect(root, repos?)` to resolve its explicit `catherd.workspace.json` members
+(`{"schema":1,"repos":{"api":"./api","web":"./web"}}`) or a supplied repo map.
+Never discover participants by scanning unrelated folders. Select only members the task needs.
+
+Call `workspace_start(root, title, a_lines, steps, repos?, budget?)`. Each step names its `id`, member
+`repo`, `title`, `a_lines`, optional `depends_on` step ids, and the `milestone` that satisfies downstream
+dependencies (default `M1`). The response contains `workspace.id` and the parent artifact `dir`.
+Keep each workspace within 100 members and 100 steps.
+Steps reusing a member must be ordered by dependencies. For a joint check, add a final step in an
+existing member with `depends_on` naming both producer steps; never start two steps in the same repo together.
+Use `workspace_contract(workspace, content)` to prepare the shared interface and coordination agreement
+before any child exists. The first child freezes the contract; subsequent reads omit `content`.
+
+Use `workspace_status(workspace)` for ready, waiting, active and landed steps and aggregate spending.
+Start only ready steps with `workspace_child_start(workspace, step)`; it returns the ordinary child `run`
+id, `dir`, and frozen contract path. Repeating it returns the same child. Children are created lazily, and a
+dependency becomes ready only after its predecessor's declared milestone is recorded by `land`.
+Finish and collect every child dispatch before landing; live or uncollected work blocks completion.
+Repair corrupt accounting evidence before continuing rather than treating unknown usage as zero.
+
+Follow the single-repo milestone sequence below independently for each child. Read each member's rules,
+profile and knowledge separately. Include the copied `workspace-contract.md` in role briefs; do not give
+workers sibling writable roots. The shared budget (`minutes`, `tokens`, `usd`) includes all child spending
+and complements each child's profile budget. Keep cross-repo progress in the parent status view; do not
+assume one successful member completes the workspace. Commits and pushes still require the user's
+authorization and repository rules; there is no automatic commit, push or rollback.
+
 ## Roles
 
 | Role        | How to run it                                                           | Job                                                     |

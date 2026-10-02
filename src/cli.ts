@@ -50,6 +50,7 @@ export const main: Command = defineCommand({
     doctor: () => import("./entry/doctor-command.ts").then((m) => m.doctorCommand),
     catalog: () => import("./entry/catalog-command.ts").then((m) => m.catalogCommand),
     knowledge: () => import("./entry/knowledge-command.ts").then((m) => m.knowledgeCommand),
+    workspace: () => import("./entry/workspace-command.ts").then((m) => m.workspaceCommand),
     lock: () => import("./entry/lock-command.ts").then((m) => m.lockCommand),
     "capture-fixtures": () =>
       import("./entry/capture-fixtures-command.ts").then((m) => m.captureFixturesCommand),

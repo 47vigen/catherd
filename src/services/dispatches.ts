@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { z } from "zod";
+import { CatherdError } from "../domain/errors.ts";
 import { dispatchHints } from "../domain/hints.ts";
 import { ACCESS, type RunRecord } from "../domain/record.ts";
 import { ROLES } from "../domain/roles.ts";
@@ -56,7 +57,7 @@ export const launchPath = (dir: string): string => join(dir, "launch.json");
 export const roleDir = (run: Run, name: string): string => join(runPaths(run.dir).roles, name);
 
 /** Every admitted dispatch of the run, oldest first; a folder whose admit.json cannot be read is skipped. */
-export function listDispatches(run: Run): Dispatch[] {
+export function listDispatches(run: Run, strict = false): Dispatch[] {
   const roles = runPaths(run.dir).roles;
   const out: Dispatch[] = [];
   if (!existsSync(roles)) return out;
@@ -68,6 +69,8 @@ export function listDispatches(run: Run): Dispatch[] {
       try {
         out.push({ dir, admit: decodeAdmit(readVersioned(admitPath(dir), AdmitSchema, 1)) });
       } catch {
+        if (strict && existsSync(admitPath(dir)))
+          throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has unreadable admission evidence: ${dir}`);
         // admission never finished writing this folder
       }
     }
@@ -124,9 +127,10 @@ export function pendingDispatches(
   run: Run,
   now = Date.now(),
   records: RunRecord[] = readRecords(run).records,
+  strict = false,
 ): LiveDispatch[] {
   const recorded = new Set(records.map((r) => r.dispatchId));
-  return listDispatches(run)
+  return listDispatches(run, strict)
     .filter((d) => !recorded.has(d.admit.dispatchId))
     .map((d) => ({ ...d, state: dispatchState(d, now) }));
 }
