@@ -40,6 +40,7 @@ import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
+import { verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -303,10 +304,11 @@ export async function admit(
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
     const gate = i.role === "verifier" ? gateEnvParts(readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
-    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools
+    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
+    // a verifier's brief also carries the gate's rules and the run's recorded items
     writeTextAtomic(
       p.brief,
-      composeBrief(i.brief, {
+      composeBrief(verifierBrief(run, i.role, i.name, i.brief), {
         run: run.id,
         name: i.name,
         role: i.role,

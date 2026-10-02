@@ -4,7 +4,8 @@ import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
-import { failedItems, RECHECK_COMMAND_MIN, type VerifierStep } from "./gate-service.ts";
+import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
+import { failedItems, type VerifierStep } from "./gate-service.ts";
 import {
   countFindings,
   landedMilestones,

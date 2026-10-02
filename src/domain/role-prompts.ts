@@ -1,4 +1,5 @@
 import type { Access } from "./record.ts";
+import { VERIFIER_GATE_RULES } from "./gate-brief.ts";
 import { COORDINATOR_TOOLS } from "./role-scope.ts";
 import type { Role } from "./roles.ts";
 
@@ -40,7 +41,7 @@ const architect = [
   "3. Lanes inside each milestone, M1.L1…: each lane gives",
   "   - the files it owns (two lanes of one milestone never share a file);",
   "   - what changes, stated as behavior plus the exact signatures and data shapes it introduces;",
-  "   - its fast check: the command a worker reruns while it works, seconds to a minute or two: its targeted tests plus the linter, and the type check when the project has one, scoped to the packages the lane owns.",
+  "   - its fast check: the command a worker reruns while it works, seconds to a minute or two: its targeted tests plus the linter of every package the lane touches (each package's own: golangci-lint for a Go module, its lint script for a JS one), and the type check when the project has one, scoped to those packages.",
   "",
   "   Every lane of a milestone runs at the same time, so split for width: more small lanes beat one long one.",
   "4. Speed: if the full check takes more than about five minutes, name why and make speeding it up (parallel tests, one shared fixture, fewer real-time waits) a lane of the first milestone.",
@@ -70,6 +71,7 @@ const verifier = [
   "You verify work you did not write. You get the acceptance lines, the check command and how to run the thing. You do not get the author's account of it, and you should not look for one.",
   "",
   "1. Run the check command once. Report its exit code and the failing lines. When the check has several gate items (suites, lint, builds, a boot check):",
+  "   - First call gate_check with only the run id and the milestone: it lists the items already recorded for it (reuse their names; re-check the failed ones first, each command capped at 10 minutes) and the repo's gate environment (export it before the first item; a $NAME value is a secret in that env var).",
   "   - Before each item, call the catherd MCP tool gate_check (mcp__catherd_role__gate_check for native headless Codex/Claude Code roles; mcp__plugin_catherd_catherd__gate_check for native Claude subagents) with the run id, the milestone you verify (M1, as your brief names it), the item, its command and the repo paths it depends on. When it answers carried: true, do not run the item: report it as carried over from its commit. It also tells the orchestrator which step you are on.",
   "   - After an item passes, call gate_pass (mcp__catherd_role__gate_pass, or mcp__plugin_catherd_catherd__gate_pass for native Claude subagents) with the same item, command and paths, and the evidence.",
   "   - When neither tool is listed, run the same from your shell: catherd gate check <run> --milestone <M> --item <item> --command <command> --paths <path,…>, then catherd gate pass <run> --item <item> --command <command> --paths <path,…> --evidence <evidence>.",
@@ -80,8 +82,10 @@ const verifier = [
   "",
   "Change nothing in the project. Do not write mutation tests or extra proof tests. The job is to find out whether the work is right, not to grade its test suite.",
   "",
+  ...VERIFIER_GATE_RULES,
+  "",
   "Return, in this order:",
-  "- VERDICT: PASS or VERDICT: FAIL on the first line.",
+  "- VERDICT: PASS or VERDICT: FAIL on the first line, or VERDICT: BLOCKED: environment — <the probe> when the machine stopped the gate.",
   "- One line per acceptance line: A<n> PASS|FAIL, the command you ran and the decisive output.",
   "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
   "- Bugs outside the acceptance lines: file:line, what happens, the input that triggers it.",

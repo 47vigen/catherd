@@ -321,6 +321,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     // the list alone, recording no step; half an item is refused
     expect((await call(c, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
       recorded: [{ item: "unit tests", command: "bun test", passed: true }],
+      env: [],
     });
     expect((await call(c, "gate_check", { run: run.id, item: "x", milestone: "M1" })).error?.code).toBe(
       "E_INPUT_INVALID",

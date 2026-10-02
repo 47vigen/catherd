@@ -6,6 +6,7 @@ import { normalizeOwned, overlaps } from "../domain/lane.ts";
 import { git, gitHead, statusSnapshot } from "../infra/git.ts";
 import { repoDir } from "../infra/paths.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
+import { gateEnvLines, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
 
@@ -311,9 +312,6 @@ export function recordedItems(run: Run, m: string): RecordedItem[] {
   });
 }
 
-/** A re-check's cap on each command, in minutes: a hung command fails its item instead of the verifier (plan 23). */
-export const RECHECK_COMMAND_MIN = 10;
-
 /** The milestone's checked items that have not passed since their last check: what a re-check runs first. */
 export const failedItems = (run: Run, m: string): string[] =>
   recordedItems(run, m)
@@ -349,9 +347,13 @@ export async function gateCheck(
   return i.milestone ? { ...carried, recorded: recordedItems(run, i.milestone) } : carried;
 }
 
-/** `gate_check` with a milestone and no item: the milestone's recorded items, recording no step. */
-export function gateList(i: { run: string; milestone: string }): { recorded: RecordedItem[] } {
-  return { recorded: recordedItems(findRun(i.run), i.milestone) };
+/**
+ * `gate_check` with a milestone and no item: the milestone's recorded items, recording no step, and the
+ * repo's gate environment as `NAME=value` lines (a secret as `NAME=$FROM`), which a native verifier exports.
+ */
+export function gateList(i: { run: string; milestone: string }): { recorded: RecordedItem[]; env: string[] } {
+  const run = findRun(i.run);
+  return { recorded: recordedItems(run, i.milestone), env: gateEnvLines(readGateEnv(run.meta.repo)) };
 }
 
 /** `gate_check` as both MCP servers expose it: item, command and paths together check an item; none of them,
