@@ -9,6 +9,8 @@ import {
 } from "./catalog.ts";
 import { type BillingMode, type Cost, compareCost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
+import { quotaOf } from "./failover.ts";
+import { tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, type Difficulty, type Kind } from "./lane.ts";
 import type { Role } from "./roles.ts";
 
@@ -17,6 +19,11 @@ export interface RoutingProfile {
   objective: "cost" | "speed";
   billing: Partial<Record<string, BillingMode>>;
   role: { enabled: boolean; rungs: string[]; defaultRung?: string };
+  /**
+   * spec 1.5 plan 24: the run's dispatches so far per quota (`quotaOf`), the headroom a tie between rungs of
+   * equal scores is broken on; absent, every quota counts 0 and the candidates' order breaks it
+   */
+  usage?: Partial<Record<string, number>>;
 }
 
 export interface Candidate {
@@ -33,6 +40,8 @@ export interface Pick {
   ladder: string[];
   /** spec 1.5 plan 24: no rung clears the lane's bar (`no rung clears repo_code/hard; best is …`) */
   noClear?: string;
+  /** spec 1.5 plan 24: rungs of equal scores competed for the start, and how the tie was broken */
+  tie?: string;
 }
 
 const byNull = (a: number | null, b: number | null) =>
@@ -104,14 +113,64 @@ const atLeast = (x: Candidate, start: Candidate, dims: Dim[]): boolean =>
     (d) => (x.scores[d] ?? Number.NEGATIVE_INFINITY) >= (start.scores[d] ?? Number.NEGATIVE_INFINITY),
   );
 
+/** Spec 1.5 plan 24: how many of `rungs` (a run's dispatched rungs) drew on each quota. */
+export function quotaUsage(rungs: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const rung of rungs) {
+    const r = tryParseRung(rung);
+    if (r) out[quotaOf(r)] = (out[quotaOf(r)] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Equal on every one of `dims`: a tie for the start. */
+const same = (a: Candidate, b: Candidate, dims: Dim[]): boolean => atLeast(a, b, dims) && atLeast(b, a, dims);
+
+const quota = (x: Candidate): string => quotaOf(x.info.parsed);
+
 /**
- * Spec 1.5 plan 24, "climb ladders only go up": the start, then every other candidate that scores at least the
- * start on `dims`, in `order`'s order. A stronger rung is on the ladder wherever cost puts it, and a weaker one
- * never is, so a climb never lands on a rung below the one it leaves.
+ * Spec 1.5 plan 24: when rungs on other quotas score exactly as `start` does on `dims`, the start goes to the
+ * quota with the most headroom (the fewest of the run's dispatches so far), the candidates' order (cost, then
+ * the profile's ladder order) breaking an equal count. `tie` says what decided. Rungs of one quota that tie
+ * are no tie: cost already orders them.
  */
-function ladderFrom(start: Candidate, order: Candidate[], dims: Dim[]): Pick {
+function breakTie(
+  start: Candidate,
+  order: Candidate[],
+  dims: Dim[],
+  usage: Partial<Record<string, number>>,
+): { start: Candidate; tie?: string } {
+  const rivals = order.filter((x) => x !== start && quota(x) !== quota(start) && same(x, start, dims));
+  if (rivals.length === 0) return { start };
+  const used = (x: Candidate) => usage[quota(x)] ?? 0;
+  const tied = [start, ...rivals];
+  const pick = [...tied].sort((a, b) => used(a) - used(b))[0] as Candidate;
+  const others = tied.filter((x) => x !== pick).map((x) => x.rung);
+  const counts = [...new Set(tied.map(quota))].map((q) => `${q} ${usage[q] ?? 0}`).join(", ");
+  const why = tied.every((x) => used(x) === used(pick))
+    ? `equal headroom (${used(pick)} dispatches each); the profile's ladder order and cost decided`
+    : `${quota(pick)} has the most headroom (dispatches in this run: ${counts})`;
+  return {
+    start: pick,
+    tie: `tie on ${dims.join(", ")} with ${others.join(", ")}: started on ${pick.rung}; ${why}`,
+  };
+}
+
+/**
+ * Spec 1.5 plan 24, "climb ladders only go up": the start (after a tie on equal scores goes to the quota with
+ * the most headroom), then every other candidate that scores at least the start on `dims`, in `order`'s order.
+ * A stronger rung is on the ladder wherever cost puts it, and a weaker one never is, so a climb never lands on
+ * a rung below the one it leaves.
+ */
+function ladderFrom(
+  first: Candidate,
+  order: Candidate[],
+  dims: Dim[],
+  usage: Partial<Record<string, number>> = {},
+): Pick {
+  const { start, tie } = breakTie(first, order, dims, usage);
   const rest = order.filter((x) => x !== start && atLeast(x, start, dims));
-  return { rung: start.rung, ladder: [start, ...rest].map((x) => x.rung) };
+  return { rung: start.rung, ladder: [start, ...rest].map((x) => x.rung), ...(tie ? { tie } : {}) };
 }
 
 /**
@@ -123,7 +182,7 @@ export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
   const all = candidates(c, { ...p, objective: "cost" }, role);
   if (all.length === 0) throw noRung(role);
   const start = all.find((x) => x.rung === p.role.defaultRung) ?? (all[0] as Candidate);
-  return ladderFrom(start, all, compareDims(start, {}));
+  return ladderFrom(start, all, compareDims(start, {}), p.usage);
 }
 
 /**
@@ -147,11 +206,11 @@ export const primaryDim = (kind: Kind): Dim =>
  * ladder above it is the other rungs at least as strong on the bar, weakest first on the kind's primary
  * dimension, cost breaking ties, so a lane never climbs onto a weaker rung. Ported from 0.x.
  */
-function speedLadder(start: Candidate, all: Candidate[], kind: Kind, dims: Dim[]): Pick {
+function speedLadder(start: Candidate, all: Candidate[], kind: Kind, dims: Dim[], p: RoutingProfile): Pick {
   const dim = primaryDim(kind);
   const strength = (x: Candidate) => x.scores[dim] ?? Number.NEGATIVE_INFINITY;
   const order = [...all].sort((a, b) => strength(a) - strength(b) || compareCost(a.cost, b.cost));
-  return ladderFrom(start, order, dims);
+  return ladderFrom(start, order, dims, p.usage);
 }
 
 /** The thresholds of `bar` a rung misses, each with its value: `agentic 0.0818 < 0.1077`. */
@@ -199,7 +258,9 @@ export function select(c: Catalog, p: RoutingProfile, role: Role, kind: Kind, di
   const first = all.find((x) => clearsBar(c, x, kind, difficulty));
   if (first) {
     const dims = compareDims(first, bar);
-    return p.objective === "speed" ? speedLadder(first, all, kind, dims) : ladderFrom(first, all, dims);
+    return p.objective === "speed"
+      ? speedLadder(first, all, kind, dims, p)
+      : ladderFrom(first, all, dims, p.usage);
   }
   const byCost = candidates(c, { ...p, objective: "cost" }, role, kind);
   const fallback = defaultLadder(c, p, role).rung;
@@ -211,5 +272,5 @@ export function select(c: Catalog, p: RoutingProfile, role: Role, kind: Kind, di
     if (atLeast(s, start, dims)) start = s;
     break;
   }
-  return { ...ladderFrom(start, byCost, dims), noClear: noClearLine(all, bar, kind, difficulty) };
+  return { ...ladderFrom(start, byCost, dims, p.usage), noClear: noClearLine(all, bar, kind, difficulty) };
 }

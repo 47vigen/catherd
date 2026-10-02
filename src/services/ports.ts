@@ -94,6 +94,8 @@ export interface RouteRequest {
   lane: string | null;
   laneText: string | null;
   spentFraction: number;
+  /** spec 1.5 plan 24: the run's dispatches so far per quota, for a tie between rungs of equal scores */
+  usage?: Record<string, number>;
 }
 
 export interface RouteAnswer {

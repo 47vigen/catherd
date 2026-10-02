@@ -472,3 +472,27 @@ it("refuses native dispatch without host evidence while explicit profile stays i
     fix: expect.stringContaining("claude-code:claude-opus-5-5#high"),
   });
 });
+
+describe("route and quota headroom (spec 1.5 plan 24)", () => {
+  // Luna high on Codex and on OpenCode Go is one model: equal scores on two quotas
+  const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+  const rungs = [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)];
+  const profile = () =>
+    view({
+      roles: {
+        ...testView().roles,
+        worker: { enabled: true, access: "workspace-write", rungs, defaultRung: "codex:gpt-6-sol#medium" },
+      },
+    });
+
+  it("starts a tie on the quota the run has used least", async () => {
+    const r = routingService();
+    const a = await r.route(
+      req(lane("repo_code", "copy"), { profile: profile(), usage: { "opencode-go": 2 } }),
+    );
+    expect(a.rung).toBe(LADDER[0] as string);
+    const b = await r.route(req(lane("repo_code", "copy"), { profile: profile(), usage: { codex: 2 } }));
+    expect(b.rung).toBe(GO_LUNA);
+    expect(b.ladder).toContain(LADDER[0] as string);
+  });
+});

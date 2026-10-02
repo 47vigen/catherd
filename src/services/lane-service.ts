@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
+import { quotaUsage } from "../domain/select.ts";
 import { assertLaneHeader, type Difficulty, type Kind } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import { cell } from "../domain/util.ts";
@@ -101,6 +102,7 @@ export async function route(
     role: i.role,
     lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
+    usage: quotaUsage(readRecords(run).records.map((r) => r.rung)),
     spentFraction: Math.max(
       budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
       (await workspaceBudget(run, deps.now()))?.fraction ?? 0,

@@ -28,9 +28,15 @@ import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } fro
 import { provenanceOf } from "./provenance.ts";
 import { runEvidence } from "./run-evidence.ts";
 
-function routingProfile(v: ProfileView, role: Role, spentFraction: number): RoutingProfile {
+function routingProfile(
+  v: ProfileView,
+  role: Role,
+  spentFraction: number,
+  usage: Record<string, number> = {},
+): RoutingProfile {
   const rc = v.roles[role];
   return {
+    usage,
     // spec §4.6: from 80 % of the budget on, start at the cheapest rung that clears the bar
     objective: spentFraction >= BUDGET_CHEAP_AT ? "cost" : v.objective,
     billing: v.billing,
@@ -86,7 +92,7 @@ async function freshenWithin(rungs: string[], repo: string, ms: number): Promise
  * usable rung never asks Jev.
  */
 async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
-  const p = routingProfile(req.profile, req.role, req.spentFraction);
+  const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
   const c = loadCatalog({ repo: req.repo });
   const fallback = () => defaultLadder(c, p, req.role);

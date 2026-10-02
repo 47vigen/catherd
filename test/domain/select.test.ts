@@ -4,6 +4,7 @@ import {
   candidates,
   defaultDifficulty,
   defaultLadder,
+  quotaUsage,
   type RoutingProfile,
   select,
 } from "../../src/domain/select.ts";
@@ -131,6 +132,7 @@ describe("select", () => {
     expect(select(c, p, "worker", "terminal", "copy")).toEqual({
       rung: kimi,
       ladder: [kimi, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH],
+      tie: expect.stringMatching(/^tie on terminal with codex:gpt-6-sol#medium, /),
     });
   });
 
@@ -269,5 +271,69 @@ describe("climb ladders only go up (spec 1.5 plan 24)", () => {
     const pick = select(c, worker(), "worker", "repo_code", "logic");
     expect(pick.rung).toBe(LUNA_HIGH);
     expect(pick.ladder).toEqual([LUNA_HIGH, SOL_XHIGH]);
+  });
+});
+
+describe("equal scores go to the quota with more headroom (spec 1.5 plan 24)", () => {
+  // the identity run: DeepSeek on OpenCode Go is treated like Luna high, so the two tie on every dimension
+  const c = () =>
+    shipped({
+      override: {
+        schema: 1,
+        treatLike: { "opencode-go/deepseek-v4.1-flash#default": "gpt-6-luna#high" },
+        scores: [],
+        bars: {},
+      },
+    });
+  const DEEPSEEK = "opencode:opencode-go/deepseek-v4.1-flash#default";
+  const rungs = [LUNA_HIGH, DEEPSEEK, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH];
+
+  it("starts on the less used quota and says the tie decided", () => {
+    const p = worker({ usage: { codex: 3, "opencode-go": 0 } }, rungs);
+    const pick = select(c(), p, "worker", "repo_code", "copy");
+    expect(pick.rung).toBe(DEEPSEEK);
+    expect(pick.ladder).toEqual([DEEPSEEK, LUNA_HIGH, SOL_XHIGH]);
+    expect(pick.tie).toBe(
+      `tie on repo_code with ${LUNA_HIGH}, ${SOL_XHIGH}: started on ${DEEPSEEK}; opencode-go has the most headroom (dispatches in this run: opencode-go 0, codex 3)`,
+    );
+    const back = select(
+      c(),
+      worker({ usage: { codex: 1, "opencode-go": 2 } }, rungs),
+      "worker",
+      "repo_code",
+      "copy",
+    );
+    expect(back.rung).toBe(LUNA_HIGH);
+  });
+
+  it("breaks a tie with equal headroom on the profile's ladder order, and says so", () => {
+    const first = select(c(), worker({}, [DEEPSEEK, LUNA_HIGH, SOL_XHIGH]), "worker", "repo_code", "build");
+    expect(first.rung).toBe(DEEPSEEK);
+    expect(first.tie).toMatch(
+      /equal headroom \(0 dispatches each\); the profile's ladder order and cost decided$/,
+    );
+    // the unpriced Go rung costs 0, so cost puts it first whatever the written order
+    expect(
+      select(c(), worker({}, [LUNA_HIGH, DEEPSEEK, SOL_XHIGH]), "worker", "repo_code", "build").rung,
+    ).toBe(DEEPSEEK);
+  });
+
+  it("leaves a start with no equal alone", () => {
+    expect(select(shipped(), worker(), "worker", "repo_code", "copy").tie).toBeUndefined();
+  });
+});
+
+describe("quotaUsage", () => {
+  it("counts a run's dispatched rungs per quota, Claude's two paths as one", () => {
+    expect(
+      quotaUsage([
+        "codex:gpt-6-luna#high",
+        "codex:gpt-6-sol#high",
+        "claude:claude-opus-5-5#low",
+        "claude-code:claude-opus-5-5#low",
+        "opencode:opencode-go/gpt-6-luna#high",
+        "not a rung",
+      ]),
+    ).toEqual({ codex: 2, "claude-code": 2, "opencode-go": 1 });
   });
 });
