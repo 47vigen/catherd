@@ -1,5 +1,8 @@
 import type { HostContext } from "../../src/domain/host.ts";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { composeBrief } from "../../src/domain/brief.ts";
+import type { Role } from "../../src/domain/roles.ts";
+import { ROLE_SERVER_BACKENDS, SCRATCH_BACKENDS } from "../../src/domain/role-tools.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
@@ -9,7 +12,14 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
-import { type Admit, admitPath, type Dispatch, roleDir, setLatest } from "../../src/services/dispatches.ts";
+import {
+  type Admit,
+  admitPath,
+  type Dispatch,
+  roleDir,
+  scratchDir,
+  setLatest,
+} from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { result } from "../../src/services/run-service.ts";
 import { appendAgentRun, appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
@@ -17,6 +27,31 @@ import { makeRecord } from "../domain/make-record.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 
 export { makeRecord } from "../domain/make-record.ts";
+
+/**
+ * The brief admission writes for `text` (spec 1.5 plan 21): the lane file inlined, the role's notes, its reply
+ * contract. `backend` decides the scratch folder and the role server, as admission does.
+ */
+export function briefFor(
+  run: Run,
+  text: string,
+  o: { name?: string; role?: Role; lane?: string | null; backend?: string } = {},
+): string {
+  const name = o.name ?? "worker-M1.L1";
+  const lane = o.lane === undefined ? "M1.L1" : o.lane;
+  const backend = o.backend ?? "codex";
+  return composeBrief(text, {
+    run: run.id,
+    name,
+    role: o.role ?? "worker",
+    lane:
+      lane === null
+        ? null
+        : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
+    scratch: SCRATCH_BACKENDS.includes(backend) ? realpathSync(scratchDir(run, name)) : null,
+    roleServer: ROLE_SERVER_BACKENDS.includes(backend),
+  });
+}
 
 export const LADDER = [
   "codex:gpt-6-luna#high",

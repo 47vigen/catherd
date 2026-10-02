@@ -343,6 +343,7 @@ The brief is the `brief` text you pass to `dispatch` (catherd writes it to the d
    The tool tops out around 1536×1024.
 
 8. Not the reply shape: `dispatch` appends the role's reply contract to every brief ("Do not commit", at most 15 lines, and the last line `STATUS: complete|partial|blocked|refused — <one line why>`), and a native Claude role's agent carries it.
+9. Not the lane file's text, the role's scratch folder or its catherd tools: with `lane`, `dispatch` inlines the lane file as it stands, and every brief names the role's `$TMPDIR` (`<run>/scratch/<name>/`) and how it reads its run's files.
 
 ## Reading results
 

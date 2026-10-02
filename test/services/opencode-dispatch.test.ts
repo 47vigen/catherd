@@ -1,4 +1,3 @@
-import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +10,7 @@ import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type OpencodeModel, type OpencodeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => {
@@ -67,7 +66,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
       cliVersion: "2.0.16",
     });
     expect(sim.recorded()).toMatchObject({
-      stdin: `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      stdin: briefFor(run, "---\nRead lanes/M1.L1.md", { backend: "opencode" }),
       pwd: repo,
     });
     expect(sim.recorded().args).toEqual([

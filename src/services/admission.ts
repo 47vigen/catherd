@@ -7,7 +7,8 @@ import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
-import { withReplyContract } from "../domain/role-prompts.ts";
+import { composeBrief } from "../domain/brief.ts";
+import { ROLE_SERVER_BACKENDS, SCRATCH_BACKENDS } from "../domain/role-tools.ts";
 import type { Role } from "../domain/roles.ts";
 import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
@@ -57,15 +58,9 @@ export const KILL_GRACE_MS = 10_000;
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
-/**
- * Spec 1.5 plan 21: the backends whose sandbox catherd grants the role's scratch, so they get it as TMPDIR.
- * Cursor, Grok and agy write their grants once per isolated home, not per dispatch: they keep the inherited one.
- */
-const SCRATCH_BACKENDS = new Set(["codex", "claude-code", "opencode"]);
-
 /** The role's scratch folder, created (0700) and by its real path, on a backend that grants it; else null. */
 function roleScratch(run: Run, name: string, backend: string): string | null {
-  if (!SCRATCH_BACKENDS.has(backend)) return null;
+  if (!SCRATCH_BACKENDS.includes(backend)) return null;
   const dir = scratchDir(run, name);
   ensurePrivateDir(dir);
   return realpathSync(dir);
@@ -206,7 +201,7 @@ export async function admit(
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
   // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
   // role is refused for isolation, and a thread an isolated run started resumes as it started
-  const roleServer = rung.backend === "codex" || rung.backend === "claude-code";
+  const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
   const scratch = roleScratch(run, i.name, rung.backend);
   await prepared(adapter, {
     rung,
@@ -296,8 +291,19 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
-    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included
-    writeTextAtomic(p.brief, withReplyContract(i.role, i.brief));
+    // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
+    // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools
+    writeTextAtomic(
+      p.brief,
+      composeBrief(i.brief, {
+        run: run.id,
+        name: i.name,
+        role: i.role,
+        lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
+        scratch,
+        roleServer,
+      }),
+    );
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(

@@ -41,6 +41,7 @@ import { readNotes } from "../../src/services/state.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { type CodexScenario, simPath, withScenario } from "../sim/scenario.ts";
 import {
+  briefFor,
   deadProcess,
   fakeDeps,
   fakeDispatch,
@@ -201,7 +202,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
     const stand = latestDispatch(run, "worker-M1.L1");
     expect(stand?.admit.thread).toBeNull();
     expect(readFileSync(dispatchPaths(stand?.dir ?? "").brief, "utf8")).toBe(
-      `Read lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      briefFor(run, "Read lanes/M1.L1.md"),
     );
   });
 
@@ -230,9 +231,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
     const paths = [...brief.matchAll(/: (\/\S+)/g)].map((m) => m[1] as string);
     expect(paths).toHaveLength(2);
     for (const p of paths) expect(existsSync(p)).toBe(true);
-    expect(readFileSync(paths[1] as string, "utf8")).toBe(
-      `Fix: BUG src/a.ts:3 — off by one\n\n${replyContract("worker")}\n`,
-    );
+    expect(readFileSync(paths[1] as string, "utf8")).toBe(briefFor(run, "Fix: BUG src/a.ts:3 — off by one"));
     // spec 1.1 §6: the stand-in's own brief carries the reply contract too
     expect(brief).toEndWith(`${replyContract("worker")}\n`);
   });

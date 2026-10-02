@@ -7,6 +7,15 @@ export interface RoleMcpContext {
 
 export const ROLE_MCP_SERVER = "catherd_role";
 
+/** Spec 1.5 plan 21: the backends whose harness gets the role server, isolated or not. */
+export const ROLE_SERVER_BACKENDS: readonly string[] = ["codex", "claude-code"];
+
+/**
+ * Spec 1.5 plan 21: the backends whose sandbox catherd grants the role's scratch, so they get it as TMPDIR.
+ * Cursor, Grok and agy write their grants once per isolated home, not per dispatch: they keep the inherited one.
+ */
+export const SCRATCH_BACKENDS: readonly string[] = ["codex", "claude-code", "opencode"];
+
 /** Run artifacts and gate evidence have their own authority, independent of repository writes. */
 export function roleMcpTools(role: Role): string[] {
   const tools = ["read_run_file", "read_knowledge"];

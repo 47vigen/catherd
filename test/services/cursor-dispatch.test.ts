@@ -2,13 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isolatedCursorHome } from "../../src/adapters/cursor/index.ts";
-import { replyContract } from "../../src/domain/role-prompts.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type CursorScenario, withCursorScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -54,7 +53,7 @@ describe("dispatch on cursor-agent (simulator)", () => {
     });
     expect(record.thread).toMatch(/^[0-9a-f-]{36}$/);
     expect(sim.recorded()).toMatchObject({
-      stdin: `---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
+      stdin: briefFor(run, "---\nRead lanes/M1.L1.md", { backend: "cursor" }),
     });
     expect(sim.recorded().args).toEqual([
       "-p",

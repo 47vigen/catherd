@@ -13,7 +13,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -60,7 +60,12 @@ describe("admission", () => {
       input({ brief: "--help me, do not read me as a flag" }),
     );
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
-      `--help me, do not read me as a flag\n\n${replyContract("worker")}\n`,
+      briefFor(run, "--help me, do not read me as a flag"),
+    );
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(`\n\n${replyContract("worker")}\n`);
+    // spec 1.5 plan 21: the lane file itself travels in the brief, so an isolated worker never guesses its Owns
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(
+      '<lane-file path="lanes/M1.L1.md">\n# M1.L1 — test lane\nOwns: src/a.ts\nFast check: true\n',
     );
     expect(d.admit).toMatchObject({
       name: "worker-M1.L1",

@@ -2,13 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isolatedGrokRoot } from "../../src/adapters/grok/index.ts";
-import { replyContract } from "../../src/domain/role-prompts.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type GrokScenario, withGrokScenario } from "../sim/sim-scenarios.ts";
-import { fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -61,7 +60,7 @@ describe("dispatch on grok (simulator)", () => {
       changedOwned: ["src/a.ts"],
       cliVersion: "1.0.44",
     });
-    expect(sim.recorded().stdin).toBe(`---\nRead lanes/M1.L1.md\n\n${replyContract("worker")}\n`);
+    expect(sim.recorded().stdin).toBe(briefFor(run, "---\nRead lanes/M1.L1.md", { backend: "grok" }));
     expect(args.slice(0, -2)).toEqual([
       "--prompt-file",
       args[1] as string,

@@ -10,7 +10,7 @@ import { route } from "../../src/services/lane-service.ts";
 import { readRoutes } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, freshRun, LADDER, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, LADDER, writeLane } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
@@ -56,9 +56,7 @@ describe("the reply contract (spec 1.1 §6)", () => {
       lane: "M1.L1",
     });
     const dir = join(run.dir, "roles", "worker-M1.L1", s.dispatched.dispatchId);
-    expect(readFileSync(dispatchPaths(dir).brief, "utf8")).toBe(
-      `Read lanes/M1.L1.md\n\n${replyContract("worker")}\n`,
-    );
+    expect(readFileSync(dispatchPaths(dir).brief, "utf8")).toBe(briefFor(run, "Read lanes/M1.L1.md"));
   });
 });
 
