@@ -67,6 +67,7 @@ Rulings of this plan (`what — why — cost if wrong`):
 19. **Owns entries gain `dir/**` and `*.ext` in attribution only** (`ownsPath`); the lane overlap check (`overlaps`) is unchanged. — The default docs lane needs both forms. — Cost if wrong: none for lanes.
 20. **`E_ROLE_SCOPE` joins `ErrorCode`**; its MIGRATION note is plan 27's. — Spec plan 27. — Cost if wrong: none.
 21. **`ideas.md` keeps #42 findings 3 and 7 verbatim, with their numbers**, for plan 22, whose spec bullet cites them by number. — "Partially fixed entries are trimmed to what stays open". — Cost if wrong: none.
+22. **A non-isolated opencode role cannot be bound by env** (final review, finding 2; narrows ruling 15): without `--standalone`, opencode v2 runs its tools in the shared background service, whose env the client cannot set, so neither `CATHERD_ROLE` nor a scratch `TMPDIR` reaches the role's shell. Only an isolated (standalone) opencode role gets the scratch `TMPDIR` and the brief's scratch note (`grantsScratch`); a non-isolated one gets neither, and its CLI forms act as from the user's terminal (unbound). — The brief must not claim a `$TMPDIR` the shell does not have. — Cost if wrong: a non-isolated opencode role writes temp files to `/tmp`, and its CLI forms are not scoped to its run; live step §15.5 checks the isolated case.
 
 ## Assumes
 

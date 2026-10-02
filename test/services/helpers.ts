@@ -2,7 +2,7 @@ import type { HostContext } from "../../src/domain/host.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
-import { ROLE_SERVER_BACKENDS, SCRATCH_BACKENDS } from "../../src/domain/role-tools.ts";
+import { grantsScratch, ROLE_SERVER_BACKENDS } from "../../src/domain/role-tools.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
@@ -30,12 +30,12 @@ export { makeRecord } from "../domain/make-record.ts";
 
 /**
  * The brief admission writes for `text` (spec 1.5 plan 21): the lane file inlined, the role's notes, its reply
- * contract. `backend` decides the scratch folder and the role server, as admission does.
+ * contract. `backend` (and `isolated`) decide the scratch folder and the role server, as admission does.
  */
 export function briefFor(
   run: Run,
   text: string,
-  o: { name?: string; role?: Role; lane?: string | null; backend?: string } = {},
+  o: { name?: string; role?: Role; lane?: string | null; backend?: string; isolated?: boolean } = {},
 ): string {
   const name = o.name ?? "worker-M1.L1";
   const lane = o.lane === undefined ? "M1.L1" : o.lane;
@@ -48,7 +48,7 @@ export function briefFor(
       lane === null
         ? null
         : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
-    scratch: SCRATCH_BACKENDS.includes(backend) ? realpathSync(scratchDir(run, name)) : null,
+    scratch: grantsScratch(backend, o.isolated ?? false) ? realpathSync(scratchDir(run, name)) : null,
     roleServer: ROLE_SERVER_BACKENDS.includes(backend),
   });
 }

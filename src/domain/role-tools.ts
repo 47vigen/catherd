@@ -16,6 +16,15 @@ export const ROLE_SERVER_BACKENDS: readonly string[] = ["codex", "claude-code"];
  */
 export const SCRATCH_BACKENDS: readonly string[] = ["codex", "claude-code", "opencode"];
 
+/**
+ * Whether a role on `backend` gets its scratch as TMPDIR. opencode only when isolated (plan 21 ruling 22): without
+ * --standalone its tools run in the shared background service, whose env the client cannot set.
+ */
+export function grantsScratch(backend: string, isolated: boolean): boolean {
+  if (backend === "opencode") return isolated;
+  return SCRATCH_BACKENDS.includes(backend);
+}
+
 /** Run artifacts and gate evidence have their own authority, independent of repository writes. */
 export function roleMcpTools(role: Role): string[] {
   const tools = ["read_run_file", "read_knowledge"];

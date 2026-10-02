@@ -956,6 +956,11 @@ Codex and headless Claude Code (`claude-code:` rungs).
    `disallowedTools`), and the run is unchanged.
 5. **Roles without the role server use the CLI forms.** Dispatch an opencode worker whose brief asks it to run
    `catherd run-file read <run> lanes/<lane>.md`, then `catherd run-file read <other run> plan.md`. Look for: the
-   first prints the lane file; the second fails with `E_ROLE_SCOPE`.
+   first prints the lane file; the second fails with `E_ROLE_SCOPE`. Do it with `harness.opencode.isolated` true
+   (a standalone server, the only opencode role catherd can bind by env, plan 21 ruling 22), and add a writer and a
+   verifier: the writer runs `catherd run-file write <run> notes.md` (stdin) and a verifier `catherd gate pass
+   <run> …`. Look for: both succeed on their own run, `echo $TMPDIR` in the role prints `<run>/scratch/<name>`,
+   and the same commands from a non-isolated opencode role behave as from your terminal (its brief names no
+   `$TMPDIR`).
 6. **Scratch.** After any dispatch, `ls <run>/scratch/<name>/` holds what the role wrote to `$TMPDIR` and `/tmp`
    holds nothing new from it; `catherd runs clean <run>` removes the scratch once no role is live.

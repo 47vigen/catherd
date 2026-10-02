@@ -9,7 +9,7 @@ import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { composeBrief } from "../domain/brief.ts";
 import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
-import { ROLE_SERVER_BACKENDS, SCRATCH_BACKENDS } from "../domain/role-tools.ts";
+import { grantsScratch, ROLE_SERVER_BACKENDS } from "../domain/role-tools.ts";
 import type { Role } from "../domain/roles.ts";
 import { formatRoleScope, ROLE_ENV } from "../domain/role-scope.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
@@ -60,8 +60,8 @@ export const KILL_GRACE_MS = 10_000;
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
 /** The role's scratch folder, created (0700) and by its real path, on a backend that grants it; else null. */
-function roleScratch(run: Run, name: string, backend: string): string | null {
-  if (!SCRATCH_BACKENDS.includes(backend)) return null;
+function roleScratch(run: Run, name: string, backend: string, isolated: boolean): string | null {
+  if (!grantsScratch(backend, isolated)) return null;
   const dir = scratchDir(run, name);
   ensurePrivateDir(dir);
   return realpathSync(dir);
@@ -205,7 +205,7 @@ export async function admit(
   // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
   // role is refused for isolation, and a thread an isolated run started resumes as it started
   const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
-  const scratch = roleScratch(run, i.name, rung.backend);
+  const scratch = roleScratch(run, i.name, rung.backend, isolated);
   await prepared(adapter, {
     rung,
     access: rc.access,
