@@ -76,12 +76,13 @@ export const CLAUDE_ACCESS: Record<Access, string[]> = {
  * them Docker: the socket and `docker *` are network grants) and sets `allowLocalBinding: false`, so the
  * user's own `true` does not carry over (their allowedDomains and other array grants merge in and stay;
  * doctor says `network: false` is not enforced by claude-code's shell). With the user's sandbox on, `enabled: true`
- * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off.
+ * goes in too, so a merge that replaces the whole `sandbox` object cannot turn it off. A `repo` of null reads the
+ * user's settings only: a run that drops the project's settings files (`--setting-sources ""`).
  */
 export function claudeAccessArgs(
   access: Access,
   network = true,
-  repo?: string,
+  repo?: string | null,
   extra: string[] = [],
 ): string[] {
   const base = CLAUDE_ACCESS[access];
@@ -120,12 +121,14 @@ function sandboxEnabledIn(file: string): boolean | undefined {
  * Whether Claude Code's Bash sandbox is on for a worker in `repo` (`sandbox.enabled`): the most specific
  * settings file that says wins, as Claude Code layers them: the user's settings.json, then the project's
  * .claude/settings.json and .claude/settings.local.json (Claude Code has no user-level settings.local.json).
+ * A `repo` of null reads the user's settings.json only.
  */
-export function claudeSandboxOn(repo: string = process.cwd()): boolean {
+export function claudeSandboxOn(repo: string | null = process.cwd()): boolean {
   const files = [
     join(claudeHome(), "settings.json"),
-    join(repo, ".claude", "settings.json"),
-    join(repo, ".claude", "settings.local.json"),
+    ...(repo === null
+      ? []
+      : [join(repo, ".claude", "settings.json"), join(repo, ".claude", "settings.local.json")]),
   ];
   return files.map(sandboxEnabledIn).findLast((on) => on !== undefined) ?? false;
 }
@@ -224,8 +227,11 @@ function plan(r: RunRequest): SpawnPlan {
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
       fix: "pass the thread from the earlier RunRecord",
     });
-  const access = claudeAccessArgs(r.access, r.network, r.repo, r.scratch ? [r.scratch] : []);
-  const accessArgs = r.isolated && r.roleMcp ? withCarriedSettings(access) : [...access];
+  // isolated with the role server, `--setting-sources ""` drops the project's settings (its network grants too),
+  // so only the user's carried settings.json decides whether the sandbox is on (PR #46)
+  const carried = r.isolated && !!r.roleMcp;
+  const access = claudeAccessArgs(r.access, r.network, carried ? null : r.repo, r.scratch ? [r.scratch] : []);
+  const accessArgs = carried ? withCarriedSettings(access) : [...access];
   if (r.roleMcp) {
     const tools = roleMcpTools(r.roleMcp.role).map((tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`);
     const allowed = accessArgs.indexOf("--allowedTools");

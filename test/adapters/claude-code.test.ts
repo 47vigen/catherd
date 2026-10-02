@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FinishedRun, RunRequest } from "../../src/adapters/backend.ts";
 import {
@@ -143,6 +143,32 @@ describe("claude-code plan", () => {
     // not isolated, or isolated without the role server (--safe-mode keeps settings): nothing carried
     const plain = claudeCodeAdapter.plan(req({ isolated: true })).args;
     expect(JSON.parse(plain[plain.indexOf("--settings") + 1] as string).apiKeyHelper).toBeUndefined();
+  });
+
+  it("reads the sandbox state from the user's settings only when isolated with the role server (PR #46)", () => {
+    // --setting-sources "" drops the project's settings, its network grants with them, so its sandbox.enabled must
+    // not turn Claude Code's sandbox on either
+    const home = tempDir("catherd-claude-home-");
+    process.env.CLAUDE_CONFIG_DIR = home;
+    const repo = tempDir("catherd-repo-");
+    mkdirSync(join(repo, ".claude"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "settings.json"), JSON.stringify({ sandbox: { enabled: true } }));
+    const enabled = (over: Partial<RunRequest>) => {
+      const args = claudeCodeAdapter.plan(req({ repo, ...over })).args;
+      return JSON.parse(args[args.indexOf("--settings") + 1] as string).sandbox.enabled;
+    };
+    const roleMcp = { run: "r1", role: "worker" as const };
+    expect(enabled({ isolated: true, roleMcp })).toBeUndefined();
+    // a run that keeps the project's settings still keeps its sandbox on
+    expect(enabled({ isolated: false, roleMcp })).toBe(true);
+    expect(enabled({ isolated: true })).toBe(true);
+    // the user's own settings.json is carried, so its sandbox.enabled still counts
+    writeFileSync(join(home, "settings.json"), JSON.stringify({ sandbox: { enabled: true } }));
+    writeFileSync(
+      join(repo, ".claude", "settings.local.json"),
+      JSON.stringify({ sandbox: { enabled: false } }),
+    );
+    expect(enabled({ isolated: true, roleMcp })).toBe(true);
   });
 
   it.each([
