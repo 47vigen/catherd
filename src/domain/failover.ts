@@ -45,10 +45,18 @@ export function barDims(c: Catalog, rung: string): Dim[] {
  * well: no downgrade.
  */
 export function downgradeDims(c: Catalog, rung: string, standIn: string): Dim[] {
-  const a = valuesOf(c, rung);
+  return downgradeAgainst(valuesOf(c, rung), barDims(c, rung), valuesOf(c, standIn));
+}
+
+/** downgradeDims with the rung's values and bar dims computed once, for a pool of stand-ins. */
+function downgradeAgainst(
+  a: Partial<Record<Dim, number>> | null,
+  dims: Dim[],
+  standIn: Partial<Record<Dim, number>> | null,
+): Dim[] {
   if (!a) return [];
-  const b = valuesOf(c, standIn) ?? {};
-  return barDims(c, rung).filter((d) => (b[d] ?? Number.NEGATIVE_INFINITY) < (a[d] as number));
+  const b = standIn ?? {};
+  return dims.filter((d) => (b[d] ?? Number.NEGATIVE_INFINITY) < (a[d] as number));
 }
 
 /**
@@ -85,11 +93,15 @@ export function rankStandIns(
 ): string[] {
   const from = tryParseRung(rung);
   if (!from) return [];
+  // the rung's own values and bar dims, once for the whole pool
+  const own = valuesOf(c, rung);
+  const dims = barDims(c, rung);
   const fits = [...new Set(pool)].filter((x) => {
     const r = tryParseRung(x);
-    if (!r || r.backend === "claude" || quotaOf(r) === quotaOf(from) || !valuesOf(c, x)) return false;
+    const values = r ? valuesOf(c, x) : null;
+    if (!r || r.backend === "claude" || quotaOf(r) === quotaOf(from) || !values) return false;
     if (costFor(c, billing, x).tier === 1) return false;
-    return downgradeDims(c, rung, x).length === 0;
+    return downgradeAgainst(own, dims, values).length === 0;
   });
   const gap = (x: string) => effortGap(from.effort, tryParseRung(x)?.effort ?? "");
   return fits.sort(

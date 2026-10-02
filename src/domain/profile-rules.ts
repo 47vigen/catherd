@@ -197,6 +197,13 @@ export function validateProfile(
         message: `${role} runs ${rc.access}; catherd's default for it is ${DEFAULT_ACCESS[role]}`,
       });
     if (!rc.enabled) continue;
+    // spec §5: network: false takes a workspace-write role's network grants; read-only and full have none to take
+    if (rc.network === false && rc.access !== "workspace-write")
+      warnings.push({
+        path: `${at}.network`,
+        message: `network: false does nothing here: it applies to workspace-write roles, and ${role} runs ${rc.access}`,
+        fix: `catherd profile set ${at}.network null`,
+      });
     for (const rung of rc.rungs) {
       const native = nativeClaudeIssue(rung, host, `${at}.rungs`);
       if (native) errors.push(native);
@@ -312,10 +319,18 @@ export function validateProfile(
   }
 
   const ladders = new Set(ROLES.filter((r) => p.roles[r].enabled).flatMap((r) => p.roles[r].rungs));
-  // the stand-ins catherd could run here, for the fixes below
+  // the stand-ins the fixes below may suggest: on a backend catherd runs and the profile already names (a
+  // ladder or a failover entry), never one this machine may not have (Cursor on a machine without it); a
+  // native claude: rung names claude-code too, the same Claude Code CLI
+  const named = new Set(
+    [...ladders, ...Object.keys(p.failover), ...Object.values(p.failover)].flatMap((x) => {
+      const b = tryParseRung(x)?.backend;
+      return b === undefined ? [] : b === "claude" ? [b, "claude-code"] : [b];
+    }),
+  );
   const pool = catalogRungs(c).filter((x) => {
     const r = tryParseRung(x);
-    return r !== null && backends.includes(r.backend);
+    return r !== null && backends.includes(r.backend) && named.has(r.backend);
   });
   for (const [from, to] of Object.entries(p.failover)) {
     const at = `failover.${from}`;
@@ -335,7 +350,8 @@ export function validateProfile(
       errors.push({ path: at, message: `stand-in ${to}: catherd cannot run ${b.backend} yet` });
       continue;
     }
-    if (!scoresOf(c, rungInfo(c, to).canonical))
+    const unscored = !scoresOf(c, rungInfo(c, to).canonical);
+    if (unscored)
       warnings.push({
         path: at,
         message: `stand-in ${to} is unscored and no rung is near enough to stand in for it`,
@@ -348,7 +364,8 @@ export function validateProfile(
         fix: "name a stand-in on another backend or plan",
       });
     const ranked = rankStandIns(c, p.billing, from, pool);
-    const down = downgradeDims(c, from, to);
+    // an unscored stand-in has its own warning above: no "downgrade" on every bar dim besides
+    const down = unscored ? [] : downgradeDims(c, from, to);
     if (down.length)
       warnings.push({
         path: at,

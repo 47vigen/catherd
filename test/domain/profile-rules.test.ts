@@ -266,6 +266,52 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
     expect(messages(metered).some((m) => m.includes("spends Claude quota"))).toBe(false);
   });
 
+  it("says an unscored stand-in is unscored once, with no downgrade on every bar dim beside it", () => {
+    const MYSTERY = "opencode:opencode-go/mystery-1#high";
+    const v = check({ failover: { [XHIGH]: MYSTERY } });
+    expect(v.warnings.filter((w) => w.path === `failover.${XHIGH}`).map((w) => w.message)).toEqual([
+      `stand-in ${MYSTERY} is unscored and no rung is near enough to stand in for it`,
+    ]);
+  });
+
+  it("suggests a stand-in only on a backend the profile already names (1.3 follow-ups)", () => {
+    const c = catalog();
+    const validate = (patch: ProfilePatch) =>
+      validateProfile(
+        resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+        c,
+        [...BACKENDS, "cursor", "grok", "antigravity"],
+        undefined,
+        "claude-code",
+      );
+    // Sol 5.6 high's best stand-in anywhere is Cursor's Opus once Cursor bills a subscription; this profile
+    // names no Cursor rung, so the fix never sends the user there
+    const SOL56 = "codex:gpt-5.6-sol#high";
+    const billing = { cursor: "subscription" } as const;
+    const fixes = validate({ billing, failover: { [SOL56]: KIMI } })
+      .warnings.filter((w) => w.message.startsWith("downgrade:"))
+      .map((w) => w.fix);
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]).not.toContain("cursor:");
+    // named once (here as a failover stand-in elsewhere), Cursor's rungs may be suggested
+    const named = validate({ billing, failover: { [SOL56]: KIMI, [LUNA]: "cursor:claude-opus-5-5#high" } });
+    expect(named.warnings.find((w) => w.path === `failover.${SOL56}`)?.fix).toBe(
+      `catherd profile set failover.${SOL56} cursor:claude-opus-5-5#high`,
+    );
+  });
+
+  it("warns that network: false does nothing on a read-only or full role (1.1 follow-ups)", () => {
+    const v = check({ roles: { reviewer: { network: false }, worker: { network: false } } });
+    expect(v.warnings).toContainEqual({
+      path: "roles.reviewer.network",
+      message:
+        "network: false does nothing here: it applies to workspace-write roles, and reviewer runs read-only",
+      fix: "catherd profile set roles.reviewer.network null",
+    });
+    // a workspace-write role's network: false takes its grants: no warning
+    expect(v.warnings.some((w) => w.path === "roles.worker.network")).toBe(false);
+  });
+
   it("warns where a ladder goes down: a rung scoring below the one before it and above it nowhere", () => {
     const worker = ["codex:gpt-6-sol#medium", XHIGH, LUNA];
     const v = check({ roles: { worker: { rungs: worker, defaultRung: null } } });
