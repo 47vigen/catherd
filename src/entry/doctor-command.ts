@@ -6,6 +6,7 @@ import { type DoctorReport, doctor } from "../services/doctor.ts";
 import type { Check } from "../services/doctor-checks.ts";
 import { EXIT, JSON_ARG, mark, printJson } from "./cli-kit.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
+import { probeRoleServer } from "../infra/role-mcp.ts";
 
 /**
  * One row per check: `✓ ready  Bun — 1.4.2`, then the full fix on its own line; a fix of several lines
@@ -51,6 +52,7 @@ export const doctorCommand = defineCommand({
       bunVersion: Bun.version,
       version: VERSION,
       handshake: () => mcpHandshake(),
+      roleServerStart: () => probeRoleServer(),
       testPush: args["test-push"] === true,
     });
     if (args.json) printJson(r);

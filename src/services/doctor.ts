@@ -7,6 +7,7 @@ import { BUILTIN_ROLES, type Profile } from "../domain/profile.ts";
 import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { JevTransport } from "../infra/jev-client.ts";
+import type { RoleServerStart } from "../infra/role-mcp.ts";
 import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
@@ -69,6 +70,8 @@ export interface DoctorDeps {
   testPush?: boolean;
   env?: Record<string, string | undefined>;
   jev?: JevTransport;
+  /** spec 1.5 plan 21: a cold start of the role server, timed; absent, doctor does not probe it */
+  roleServerStart?: () => Promise<RoleServerStart>;
 }
 
 /**
@@ -171,7 +174,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const used = usedBackends(profiles);
   const installed = new Set<string>();
   checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
-  checks.push(...roleMcpChecks(profiles));
+  checks.push(...roleMcpChecks(active, await d.roleServerStart?.()));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({

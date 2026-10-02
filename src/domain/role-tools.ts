@@ -14,7 +14,3 @@ export function roleMcpTools(role: Role): string[] {
   if (role === "verifier") tools.push("gate_check", "gate_pass");
   return tools;
 }
-
-/** These role prompts require artifacts or gate records to complete their work. */
-export const roleRequiresMcp = (role: Role): boolean =>
-  role === "architect" || role === "researcher" || role === "worker" || role === "verifier";
