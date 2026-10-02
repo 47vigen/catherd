@@ -67,10 +67,6 @@ Plan 21 (roles and ownership) review:
   `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
   owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
   attempt is already a role-thread refusal (`ROLE_THREAD_REFUSAL`) for the same target. (Minor 5.)
-- **`runs clean` can race admission.** `cleanScratch` checks for live dispatches and then `rmSync`s the scratch, but
-  admission creates the role's scratch (`roleScratch`) before it writes `admit.json`, so a dispatch admitted in
-  between loses its fresh TMPDIR. Evidence: `src/services/scratch.ts:37-43`, `src/services/admission.ts:208`. Fix:
-  take the run's admission lock in `cleanScratch`, or create the scratch after the admit record. (Minor 6.)
 - **A role's shell still reaches the coordinator CLI forms.** Under `CATHERD_ROLE`, `catherd runs cancel` and
   `catherd profile set` (the CLI forms of the `cancel` and `profile_set` tools) still run. Evidence:
   `src/entry/runs-command.ts:279`, `src/entry/profile-command.ts`; only `src/entry/role-cli-command.ts:16` reads
