@@ -214,8 +214,13 @@ function record(
   };
 }
 
-/** Evidence that the lane's own ownership is the problem: a design question, never a capability one. */
-const OWNERSHIP = /outside (the )?lane('s)? ownership|owned by/i;
+/**
+ * Evidence that the lane's own ownership is the problem: a design question, never a capability one. "owned by"
+ * counts only for a lane (another lane, lane X, Mx.Ly), never for a user or a process: a socket "owned by root"
+ * is the environment's.
+ */
+const OWNERSHIP =
+  /outside (the )?lane('s)? ownership|owned by (?:another |a different |the other )?lane\b|owned by [A-Za-z0-9_-]+\.L\d+\b/i;
 
 const CLIMB_DESIGN_FIX = "send it to the architect (ask/architect delta), not up the ladder";
 
@@ -411,12 +416,17 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
           `a verifier verdict (record_agent_run with role verifier named exactly verifier-${m}, status ok; a headless verifier-${m}'s reply opening VERDICT: PASS)${verdict ? `: the latest, ${verdict.name}${verdict.headless ? " (headless)" : ""}, is ${verdict.verdict}` : ""}`,
         ]),
   ];
+  // a headless verifier that wrapped its verdict in markdown (**VERDICT: PASS**) gave no verdict: fail safe, and say why
+  const marked =
+    verdict?.headless === true && !verdict.passed && /VERDICT:\s*PASS\b/.test(verdict.verdict)
+      ? `the reply's first line must be the bare VERDICT: PASS, and ${verdict.name}'s is "${verdict.verdict}", which counts as no verdict (markdown around it, or text before it): dispatch the verifier again; otherwise `
+      : "";
   if (missing.length)
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: missing ${missing.join(" and ")}, since its lanes started`,
       {
-        fix: `run reviewer-${m} (a dispatch, or a Claude subagent recorded with record_agent_run(name: "reviewer-${m}")) and the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}") (a FAIL with status "failed"), then land again; a docs-only milestone passes skip: "docs-only"`,
+        fix: `${marked}run reviewer-${m} (a dispatch, or a Claude subagent recorded with record_agent_run(name: "reviewer-${m}")) and the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}") (a FAIL with status "failed"), then land again; a docs-only milestone passes skip: "docs-only"`,
       },
     );
 }
