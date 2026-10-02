@@ -55,7 +55,6 @@ import {
   sessionRows,
 } from "../../services/runs-page.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
-import { orchestratorWait } from "../../services/orchestrator-wait.ts";
 import { defaultDeps } from "../deps.ts";
 import { mcpHandshake } from "../mcp/handshake.ts";
 
@@ -236,12 +235,8 @@ export function memoRuns(compute: (run: Run) => RunRow, stamp: (dir: string) => 
     runs.map((r) => {
       const s = stamp(r.dir);
       const hit = cache.get(r.dir);
-      if (hit && hit.stamp === s && hit.row.live === 0) {
-        // A dead collection lease can restore unread status without changing any file's mtime.
-        const waiting = orchestratorWait(r, Date.now());
-        if (waiting || hit.row.waiting) hit.row = { ...hit.row, waiting };
-        return hit.row;
-      }
+      // the wait is computed with the row, once per stamp change; the views age it (waitingLine)
+      if (hit && hit.stamp === s && hit.row.live === 0) return hit.row;
       const row = compute(r);
       cache.set(r.dir, { stamp: s, row });
       return row;

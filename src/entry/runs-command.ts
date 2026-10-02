@@ -120,11 +120,12 @@ async function printStatus(runId: string | undefined, asJson: boolean, live = fa
   for (const w of r.warnings) console.log(`${mark("warn")} ${w}`);
 }
 
-/** `catherd status [run] [--json]`: that run, else live or waiting runs, else the newest. */
+/** `catherd status [run] [--json]`: that run, else the live runs, else the runs waiting for their orchestrator, else the newest. */
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
-    description: "A run at a glance (default: live or waiting runs, else the newest)",
+    description:
+      "A run at a glance (default: live runs, else runs waiting for their orchestrator, else the newest)",
   },
   args: { run: { type: "positional", required: false, description: "run id" }, ...json },
   run({ args }) {

@@ -136,7 +136,10 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   };
 }
 
-/** `status(run?)`: that run; without one, live or waiting runs, else the newest run. */
+/**
+ * `status(run?)`: that run; without one, the live runs, else the runs waiting for their orchestrator (a current
+ * owner, a recent unread record: plan 22), else the newest run.
+ */
 export function status(
   deps: Deps,
   runId?: string,
@@ -159,12 +162,13 @@ export function status(
   const { runs, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
   const all = runs.map((r) => summarizeRun(deps, r));
-  const active = all.filter((s) => s.live.length > 0 || s.waiting);
+  const live = all.filter((s) => s.live.length > 0);
+  const waiting = all.filter((s) => s.waiting);
   return {
     host: inspectionHost(deps.host),
     queue,
     version: deps.version,
-    runs: active.length ? active : all.slice(0, 1),
+    runs: live.length ? live : waiting.length ? waiting : all.slice(0, 1),
     warnings,
   };
 }
