@@ -181,17 +181,23 @@ export const rolePrompt = (role: Role, version: string): string => BODIES[role](
 export const NATIVE_TOOL_PREFIX = "mcp__plugin_catherd_catherd__";
 
 /**
- * Spec 1.5 plan 21: a native Claude subagent shares the orchestrator's MCP server, so it has no env of its own to
- * refuse it by. Its agent file forbids the coordinator tools, and its prompt says why.
+ * The catherd tools a native subagent may never call: the coordinator tools, and record_agent_run, which only the
+ * orchestrator calls (a native verifier recording its own `ok` would satisfy land's evidence).
  */
-export const NOT_THE_ORCHESTRATOR = `You are a role of a catherd run, not its orchestrator. Never call catherd's ${COORDINATOR_TOOLS.join(", ")}: they belong to the orchestrator, which reads your reply.`;
+const NATIVE_FORBIDDEN = [...COORDINATOR_TOOLS, "record_agent_run"] as const;
+
+/**
+ * Spec 1.5 plan 21: a native Claude subagent shares the orchestrator's MCP server, so it has no env of its own to
+ * refuse it by. Its agent file forbids the coordinator tools and record_agent_run, and its prompt says why.
+ */
+export const NOT_THE_ORCHESTRATOR = `You are a role of a catherd run, not its orchestrator. Never call catherd's ${NATIVE_FORBIDDEN.join(", ")}: they belong to the orchestrator, which reads your reply.`;
 
 /**
  * Spec D10 for native subagents, whose only lever is the agent file's tool list: read-only drops the
  * editing tools (its Bash stays, for inspection, so enforcement is advisory); every role drops Agent,
- * so a role never spawns its own subagents, and catherd's coordinator tools (spec 1.5 plan 21).
+ * so a role never spawns its own subagents, and catherd's coordinator tools and record_agent_run (spec 1.5 plan 21).
  */
 export const nativeDisallowedTools = (access: Access): string[] => [
   ...(access === "read-only" ? ["Write", "Edit", "NotebookEdit", "Agent"] : ["Agent"]),
-  ...COORDINATOR_TOOLS.map((tool) => `${NATIVE_TOOL_PREFIX}${tool}`),
+  ...NATIVE_FORBIDDEN.map((tool) => `${NATIVE_TOOL_PREFIX}${tool}`),
 ];

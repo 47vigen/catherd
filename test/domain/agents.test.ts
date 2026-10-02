@@ -9,8 +9,10 @@ import {
 import { NATIVE_TOOL_PREFIX, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
 
-/** spec 1.5 plan 21: every native role's agent file also forbids catherd's coordinator tools */
-const COORDINATOR = COORDINATOR_TOOLS.map((t) => `${NATIVE_TOOL_PREFIX}${t}`).join(", ");
+/** spec 1.5 plan 21: every native role's agent file also forbids catherd's coordinator tools and record_agent_run */
+const COORDINATOR = [...COORDINATOR_TOOLS, "record_agent_run"]
+  .map((t) => `${NATIVE_TOOL_PREFIX}${t}`)
+  .join(", ");
 
 const profile = (patch: ProfilePatch = {}, name = "default") =>
   resolveProfile(applyPatch(defaultProfileDoc(name), patch), name, "claude-code");
@@ -68,6 +70,21 @@ describe("agentFiles", () => {
     );
     for (const tool of ["peek", "result", "dispatch", "run_start", "land", "workspace_child_start"])
       expect(architect?.text).toContain(`${NATIVE_TOOL_PREFIX}${tool}`);
+  });
+
+  it("forbids a native role record_agent_run, which only the orchestrator calls (PR #46 P1)", () => {
+    for (const access of ["full", "read-only"] as const) {
+      const text = renderAgent({
+        profile: "p",
+        role: "verifier",
+        rung: "claude:claude-opus-5-5#low",
+        access,
+        version: "1.0.0",
+      });
+      const line = text.split("\n").find((l) => l.startsWith("disallowedTools: "));
+      expect(line?.split(", ")).toContain(`${NATIVE_TOOL_PREFIX}record_agent_run`);
+      expect(text).toContain("record_agent_run: they belong to the orchestrator");
+    }
   });
 
   it("leaves the effort out for a model that takes none", () => {
