@@ -138,9 +138,13 @@ export function claudeSandboxOn(repo: string | null = process.cwd()): boolean {
  * shell, which doctor probes as is. With it on, only a model turn runs inside it, so doctor says what to
  * check instead of spending one.
  */
-async function accessShell(): Promise<AccessShell | string> {
-  if (claudeSandboxOn())
-    return "Claude Code's own sandbox is on (sandbox.enabled): catherd passes the lock, temp, loopback and Docker grants in --settings; outbound HTTPS reaches only sandbox.network.allowedDomains, so add registry.npmjs.org and the hosts your checks need there";
+async function accessShell(o: { repos?: string[] } = {}): Promise<AccessShell | string> {
+  // the setting is per repo (its .claude/settings*.json over the user's): each repo a worker runs in counts,
+  // not only the directory doctor runs in
+  const repos = o.repos?.length ? o.repos : [process.cwd()];
+  const on = repos.filter((r) => claudeSandboxOn(r));
+  if (on.length)
+    return `Claude Code's own sandbox is on (sandbox.enabled)${o.repos?.length ? ` in ${on.join(", ")}` : ""}: catherd passes the lock, temp, loopback and Docker grants in --settings; outbound HTTPS reaches only sandbox.network.allowedDomains, so add registry.npmjs.org and the hosts your checks need there`;
   return scratchShell("an unsandboxed shell (Claude Code's sandbox is off)", []);
 }
 

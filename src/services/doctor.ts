@@ -303,7 +303,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   checks.push(cachesCheck());
   checks.push(...(await dockerChecks({ probe: d.docker === true })));
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
-  checks.push(...(await accessChecks(profiles, installed)));
+  let repos: string[] = d.repo ? [d.repo] : [];
+  try {
+    repos = [...new Set([...repos, ...Object.keys(readProjects().bindings)])];
+  } catch {
+    // the config row above already reports an unreadable projects.json
+  }
+  checks.push(...(await accessChecks(profiles, installed, repos)));
 
   // spec 1.1 §13: what the shipped defaults do is info; a warning only for what a profile changed
   const full = { changed: [] as string[], shipped: [] as string[] };

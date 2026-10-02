@@ -82,6 +82,10 @@ export function formatProfile(
     `objective ${p.objective} · jev ${p.jev.use} · heavy slots ${p.lock.heavy} · notify ${p.notify.join(", ") || "none"}`,
     "roles",
   ];
+  const accessOf = (role: Role) =>
+    `${p.roles[role].access}${p.roles[role].network === false ? " (no network)" : ""}, ${o.enforcement[role]}`;
+  // the ladders start in one column, however long the longest access text ("(no network)" included)
+  const accessWidth = Math.max(27, ...ROLES.filter((r) => p.roles[r].enabled).map((r) => accessOf(r).length));
   for (const role of ROLES) {
     const rc = p.roles[role];
     if (!rc.enabled) {
@@ -89,9 +93,7 @@ export function formatProfile(
       continue;
     }
     const ladder = rc.rungs.map((r) => (r === rc.defaultRung ? `${r} (default)` : r)).join(" → ");
-    lines.push(
-      `  ${role.padEnd(width)}  ${`${rc.access}${rc.network === false ? " (no network)" : ""}, ${o.enforcement[role]}`.padEnd(27)}  ${ladder || "no rungs"}`,
-    );
+    lines.push(`  ${role.padEnd(width)}  ${accessOf(role).padEnd(accessWidth)}  ${ladder || "no rungs"}`);
   }
   // only what catherd can run today: a backend without an adapter has nothing to bill or isolate
   const runs = ([key]: [string, unknown]) => keyRunnable(key, o.backends);

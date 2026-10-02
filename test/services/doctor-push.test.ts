@@ -54,6 +54,20 @@ describe("explicit push smoke", () => {
     expect(pushCheck(probe).word).toBe("enqueue accepted");
   });
 
+  it("reports a queue that refuses the smoke as a failed row, from a real send (1.1 follow-ups)", async () => {
+    withHome();
+    process.env.PATH = simPath();
+    const s = withScenario({ queue: "unsupported" });
+    const probe = await probePush(codex, s.env);
+    expect(probe).toMatchObject({ outcome: "failed", enqueue: "not-submitted", msgId: null });
+    expect(pushCheck(probe)).toMatchObject({
+      id: "push",
+      state: "fail",
+      word: "not submitted",
+      fix: "Check native host transport; peek/result keeps the unread record available.",
+    });
+  });
+
   it("terminal_has_no_session and conflicts invoke no sender", async () => {
     withHome();
     process.env.PATH = simPath();

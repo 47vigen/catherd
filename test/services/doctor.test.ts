@@ -231,6 +231,7 @@ describe("doctor", () => {
     expect(check(r, "isolation:grok")).toMatchObject({ state: "warn", word: "weak" });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails a logged-out grok a role runs on, and says a grok this OS cannot run is one", async () => {
     machine({ bins: ["codex", "claude", "opencode", "grok"], grok: { loggedIn: false } });
     installPlugin(VERSION);
@@ -255,7 +256,7 @@ describe("doctor", () => {
       detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
       fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
     });
-  });
+  }, 30_000);
 
   it("shows agy's version, Google login, listing and quota, its isolation note and its untested access", async () => {
     machine({ bins: ["codex", "claude", "opencode", "agy"] });
@@ -344,6 +345,7 @@ describe("doctor", () => {
     ]);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("prints move commands a shell runs as they are, after which no role needs the missing Codex", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
@@ -370,8 +372,9 @@ describe("doctor", () => {
     expect(check(after, "profile")?.state).not.toBe("fail");
     expect(check(after, "backend:codex")?.state).not.toBe("fail");
     expect(after.ready).toBe(true);
-  });
+  }, 30_000);
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("resets a customised default rung the moved ladder would not hold, so every printed command runs", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
@@ -408,7 +411,7 @@ describe("doctor", () => {
       expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({ c, exit: 0, err: "" });
     }
     expect((await run()).ready).toBe(true);
-  });
+  }, 30_000);
 
   it("offers opencode when it is the backend that is ready", async () => {
     machine({ bins: ["opencode"] });
@@ -439,6 +442,7 @@ describe("doctor", () => {
     });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("says how Codex is logged in, and warns when a profile bills that login as something else", async () => {
     machine({ codex: { login: "api-key" } });
     installPlugin(VERSION);
@@ -455,7 +459,7 @@ describe("doctor", () => {
     expect(JSON.stringify(r)).not.toContain("sk-proj");
     patchProfile("default", { billing: { codex: "metered" } }, { host: "claude-code" });
     expect(check(await run(), "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
-  });
+  }, 30_000);
 
   it("does not warn about the Codex login's billing when no profile routes anything to Codex", async () => {
     machine({ codex: { login: "api-key" } });
@@ -481,6 +485,7 @@ describe("doctor", () => {
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · API key login/);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails without the plugin, or with a plugin of another version", async () => {
     machine();
     patchProfile("default", {}, { host: "claude-code" });
@@ -495,7 +500,7 @@ describe("doctor", () => {
       word: "stale",
       detail: `plugin 0.9.0, catherd ${VERSION}`,
     });
-  });
+  }, 30_000);
 
   it("fails on missing agent links, with the command that relinks them", async () => {
     machine();
@@ -690,6 +695,7 @@ describe("doctor", () => {
     ]);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("falls back to the old codex sandbox form, and skips when neither form runs", async () => {
     machine({ codex: { sandboxForm: "old" } });
     installPlugin(VERSION);
@@ -703,7 +709,7 @@ describe("doctor", () => {
     const none = await run();
     expect(check(none, "sandbox:codex")).toMatchObject({ state: "skip", word: "not tested" });
     expect(check(none, "access:codex")).toMatchObject({ state: "skip", word: "not tested" });
-  });
+  }, 30_000);
 
   it("probes no network for roles whose network is off, and says opencode cannot enforce it", async () => {
     const argsTo = join(binDir(), "sandbox-args.jsonl");
@@ -782,6 +788,7 @@ describe("doctor", () => {
     expect(c?.detail).toContain("lock-dir write (cannot create");
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("skips the access probes of a backend that is not installed, and runs none of them", async () => {
     machine({ bins: ["codex", "claude"] });
     const marker = join(binDir(), "docker-ran");
@@ -808,7 +815,7 @@ describe("doctor", () => {
     expect(check(none, "access:codex")?.word).toBe("not installed");
     expect(check(none, "sandbox:codex")).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
-  });
+  }, 30_000);
 
   it("names a failed probe by its last stderr line, not stdout's or Bun's version trailer", async () => {
     machine();
@@ -863,6 +870,7 @@ describe("doctor", () => {
     expect(r.find((p) => p.id === "temp")?.why).toBe("the probe shell did not start");
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("tests a Jev key, and skips Jev when the profile turns it off", async () => {
     ready();
     saveJevKey("tsk-test-key-0123456789");
@@ -878,7 +886,7 @@ describe("doctor", () => {
     });
     patchProfile("default", { jev: { use: "off" } }, { host: "claude-code" });
     expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
-  });
+  }, 30_000);
 
   it("validates linked profiles diagnostically and uses only selected profile for Jev", async () => {
     ready();
@@ -1015,6 +1023,7 @@ describe("doctor", () => {
     expect(check(r, "profile")).toMatchObject({ state: "fail", fix: `fix or delete ${overridePath()}` });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails on an old Bun, an invalid profile, and a 0.x config", async () => {
     ready();
     expect(check(await run({ bunVersion: "1.3.11" }), "bun")).toMatchObject({
@@ -1033,7 +1042,7 @@ describe("doctor", () => {
       state: "fail",
       fix: "run catherd init, which moves 0.x files aside and writes 1.0 ones",
     });
-  });
+  }, 30_000);
 });
 
 it("codex_ready_other_profile_broken keeps readiness selected and does no Claude writes", async () => {

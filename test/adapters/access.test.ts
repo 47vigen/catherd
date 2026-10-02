@@ -245,6 +245,21 @@ describe("worker access grants (spec §5)", () => {
     );
   });
 
+  it("reads the sandbox setting of each repo workers run in, not only doctor's own directory", async () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const plain = tempDir("catherd-plain-");
+    const boxed = tempDir("catherd-boxed-");
+    mkdirSync(join(boxed, ".claude"), { recursive: true });
+    writeFileSync(join(boxed, ".claude", "settings.json"), JSON.stringify({ sandbox: { enabled: true } }));
+    const off = await claudeCodeAdapter.accessShell?.({ network: true, repos: [plain] });
+    if (typeof off !== "object") throw new Error("expected a shell");
+    off.close();
+    expect(await claudeCodeAdapter.accessShell?.({ network: true, repos: [plain, boxed] })).toStartWith(
+      `Claude Code's own sandbox is on (sandbox.enabled) in ${boxed}: `,
+    );
+  });
+
   it("reads and patches roles.<role>.network", () => {
     const doc = applyPatch(defaultProfileDoc(), patchAt("roles.worker.network", "false"));
     const p = resolveProfile(doc, "default", "claude-code");
