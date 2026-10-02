@@ -174,6 +174,28 @@ describe("supervise", () => {
     expect(asked).toBeGreaterThan(0);
   });
 
+  it("forgets a stream retry once the session's own retry field says none (plan 23 review I2)", async () => {
+    const step = (l: string) => ({ step: l.includes("step_start") });
+    // a 503, then the retry that worked; then a quiet tool run the stream does not show until it completes
+    const s = spec(`echo '{"type":"step_start"}'; echo '{"type":"step_start"}'; sleep 30`, {
+      idleMs: 60_000,
+      wallMs: 1_000,
+      killGraceMs: 20,
+      providerRetry: { pollMs: 50, ms: 300, attempts: 1_000 },
+    });
+    let asked = 0;
+    const exit = await supervise(s, {
+      onLine: step,
+      isBusy: async () => true,
+      providerRetry: async () => {
+        asked++;
+        return null;
+      },
+    });
+    expect(asked).toBeGreaterThan(0);
+    expect(exit?.reason).toBe("wall-timeout");
+  });
+
   it("kills a CLI that lingers after its final event", async () => {
     const s = spec(`echo '{"type":"result"}'; sleep 30`, { graceAfterFinalMs: 100 });
     const exit = await supervise(s, { onLine: (l) => ({ final: l.includes("result") }) });

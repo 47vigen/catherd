@@ -282,6 +282,11 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         if (attempt !== null) {
           retrySince ??= Date.now();
           retries = Math.max(retries, attempt);
+        } else {
+          // the session says it is not retrying: the steps seen were a retry that worked, and the quiet since
+          // is work the stream does not show yet (a long tool call), never a provider outage
+          retries = 0;
+          retrySince = null;
         }
       }
       // a worker that ended on its own is recorded as it ended, even if a cancel or a limit arrived meanwhile
