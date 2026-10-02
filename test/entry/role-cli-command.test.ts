@@ -85,10 +85,18 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
     const verifier = `${run.id}/verifier-M1`;
     const first = catherd(["gate", "check", run.id, ...gate, "--milestone", "M1"], { role: verifier });
     expect(first.code).toBe(0);
-    expect(JSON.parse(first.out)).toEqual({ carried: false });
+    // plan 23: with a milestone, the answer lists the milestone's recorded items
+    expect(JSON.parse(first.out)).toEqual({
+      carried: false,
+      recorded: [{ item: "unit", command: "bun test", passed: false }],
+    });
     expect(catherd(["gate", "pass", run.id, ...gate, "--evidence", "12 pass"], { role: verifier }).code).toBe(
       0,
     );
+    // the list alone, as gate_check gives it
+    expect(
+      JSON.parse(catherd(["gate", "check", run.id, "--milestone", "M1"], { role: verifier }).out),
+    ).toMatchObject({ recorded: [{ item: "unit", command: "bun test", passed: true }] });
     expect(JSON.parse(catherd(["gate", "check", run.id, ...gate], { role: verifier }).out)).toMatchObject({
       carried: true,
     });

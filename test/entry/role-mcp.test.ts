@@ -103,6 +103,7 @@ describe("dispatch-scoped role MCP", () => {
     try {
       expect((await call(client, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
         recorded: [],
+        env: [],
       });
       expect((await call(client, "gate_check", { run: other.id, milestone: "M1" })).error?.code).toBe(
         "E_INPUT_INVALID",

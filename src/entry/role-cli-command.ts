@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { ID_PATTERN } from "../domain/ids.ts";
 import { roleScopeFromEnv } from "../domain/role-scope.ts";
-import { gateCheck, gatePass } from "../services/gate-service.ts";
+import { gateCheckOrList, gatePass } from "../services/gate-service.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
 import { printJson } from "./cli-kit.ts";
@@ -66,7 +66,14 @@ const pathsOf = (s: string): string[] => {
 
 const check = defineCommand({
   meta: { name: "check", description: "Whether a gate item passed on unchanged content (gate_check)" },
-  args: { ...GATE, milestone: { type: "string", description: "the milestone you verify, like M1" } },
+  // plan 23: with only the run and --milestone, it lists the milestone's recorded items (as gate_check does)
+  args: {
+    run: GATE.run,
+    item: { ...GATE.item, required: false },
+    command: { ...GATE.command, required: false },
+    paths: { ...GATE.paths, required: false },
+    milestone: { type: "string", description: "the milestone you verify, like M1" },
+  },
   async run({ args }) {
     assertRoleMay(scope(), args.run, "gate_check");
     if (args.milestone !== undefined && !ID_PATTERN.test(args.milestone))
@@ -74,11 +81,11 @@ const check = defineCommand({
         fix: "pass --milestone M1",
       });
     printJson(
-      await gateCheck(defaultDeps(), {
+      await gateCheckOrList(defaultDeps(), {
         run: args.run,
         item: args.item,
         command: args.command,
-        paths: pathsOf(args.paths),
+        paths: args.paths === undefined ? undefined : pathsOf(args.paths),
         ...(args.milestone ? { milestone: args.milestone } : {}),
       }),
     );
