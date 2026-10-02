@@ -140,6 +140,22 @@ Plan 25 (runs, programs and lanes) review:
   `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass
   checkout-independent. (Controller carry-over.)
 
+Plan 26 (the minors sweep) review:
+
+- **The `marked` hint fires on a failed verifier.** It fires on any non-passed headless verdict whose reply holds
+  `VERDICT: PASS`, including a verifier whose CLI exited failed or hit its limit. Evidence:
+  `src/services/lane-service.ts:419-423`. Fix: count only records with status `ok`. (Minor 1.)
+- **A skipped first landing says "changed nothing".** When the first milestone lands with skip and its commit equals
+  the run's start head, the range is empty and the message reads "<commit> changed nothing" instead of "nothing
+  committed since the run started" (it fails safe). Evidence: `src/services/lane-service.ts:368-373`,
+  `milestoneFiles`. Fix: special-case commit == startHead with the clearer message. (Minor 2.)
+- **`versionOf` can hang init.** It has no timeout and now also runs on the "current" path (`pathVersion`), so a
+  wedged `catherd` first on PATH hangs `init`. Evidence: `src/services/global-install.ts:64`. Fix: pass a
+  short timeout to the spawn. (Minor 3.)
+- **RoleView's `done` outlives its role.** `done` is component state and RoleView has no key, so a future
+  role-to-role navigation would carry `done=true` to a live role and stop polling. Evidence: `src/entry/tui/views/runs.tsx:375,597`
+  (`RoleView`). Fix: render it with `key={role.dispatchId}`. (Minor 4.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
