@@ -49,6 +49,45 @@ export interface PeekRun extends Reentry {
   native: { name: string; role: string; rung: string; status: string; at: string } | null;
   /** the run's next step (state.md's last line) */
   next: string;
+  /** plan 22, goal mode: whether anything in this run is the coordinator's to do now, and why (not) */
+  actionable: boolean;
+  reason: string;
+}
+
+/**
+ * Plan 22, goal mode: whether the run holds anything for the coordinator. An unread record is its to read; with
+ * roles live, a protocol step one of them is doing (lanes running, the reviewer or verifier step with that role
+ * live, the plan while an architect or researcher runs) or the owner's question is nobody's to act on, so the
+ * coordinator ends its turn with no tool call and the next catherd message wakes it.
+ */
+export function actionability(
+  live: { name: string; role: string }[],
+  unread: { name: string }[],
+  protocolNext: string,
+): { actionable: boolean; reason: string } {
+  if (unread.length)
+    return {
+      actionable: true,
+      reason: `unread: ${unread.map((u) => `result(run, "${u.name}")`).join(", ")}`,
+    };
+  if (protocolNext.endsWith(" parked: wait for the owner"))
+    return {
+      actionable: false,
+      reason: `${protocolNext.replace(/: wait for the owner$/, "")}: the owner's answer comes first; end the turn with no tool call`,
+    };
+  const running = (role: string) => live.some((l) => l.role === role);
+  const covered =
+    /: lanes running \(/.test(protocolNext) ||
+    (protocolNext.endsWith(": reviewer") && running("reviewer")) ||
+    (protocolNext.endsWith(": verifier") && running("verifier")) ||
+    (protocolNext.startsWith("plan:") && (running("architect") || running("researcher"))) ||
+    (protocolNext.startsWith("finish:") && (running("verifier") || running("writer")));
+  if (live.length && covered)
+    return {
+      actionable: false,
+      reason: `only roles are live (${live.map((l) => l.name).join(", ")}): their results arrive as catherd messages; end the turn with no tool call`,
+    };
+  return { actionable: true, reason: protocolNext };
 }
 
 function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
@@ -58,22 +97,29 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
   const agents = readAgentRuns(run).filter((a) => name === undefined || a.name === name);
   const native = agents.at(-1);
   const r = reentry(run, now);
+  const live = liveDispatches(run, now);
+  // the whole run decides it, whatever `name` narrows the view to
+  const act = actionability(
+    live.map((d) => ({ name: d.admit.name, role: d.admit.role })),
+    listDispatches(run).flatMap((d) =>
+      records.has(d.admit.dispatchId) && awaitsCollect(d.dir) ? [{ name: d.admit.name }] : [],
+    ),
+    r.protocol.next,
+  );
   return {
     questions: r.questions,
     run: run.id,
     title: run.meta.title,
     owner: runOwner(run)?.sessionId ?? null,
     ownerHost: runOwner(run)?.host ?? null,
-    live: liveDispatches(run, now)
-      .filter(mine)
-      .map((d) => ({
-        name: d.admit.name,
-        role: d.admit.role,
-        rung: d.admit.rung,
-        state: d.state,
-        secs: Math.max(0, Math.round((now - Date.parse(d.admit.admittedAt)) / 1000)),
-        lastEvent: lastActivity(d),
-      })),
+    live: live.filter(mine).map((d) => ({
+      name: d.admit.name,
+      role: d.admit.role,
+      rung: d.admit.rung,
+      state: d.state,
+      secs: Math.max(0, Math.round((now - Date.parse(d.admit.admittedAt)) / 1000)),
+      lastEvent: lastActivity(d),
+    })),
     delivery: listDispatches(run)
       .filter(mine)
       .flatMap((d) =>
@@ -106,6 +152,7 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
     next: readNotes(run).next,
     protocol: r.protocol,
     verifier: r.verifier,
+    ...act,
   };
 }
 
@@ -117,7 +164,15 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
 export async function peek(
   deps: Deps,
   i: { run?: string; name?: string },
-): Promise<{ runs: PeekRun[]; hints: string[]; host: HostContext; queue: QueueCapability | null }> {
+): Promise<{
+  /** plan 22, goal mode: false when no run holds anything for the coordinator; `reason` says why either way */
+  actionable: boolean;
+  reason: string;
+  runs: PeekRun[];
+  hints: string[];
+  host: HostContext;
+  queue: QueueCapability | null;
+}> {
   if (i.name !== undefined) assertId("role name", i.name);
   let runs: Run[];
   if (i.run) {
@@ -131,8 +186,14 @@ export async function peek(
     runs = owned.length ? owned : all.slice(0, 1);
   }
   const hints = runs.length === 0 ? ["no runs yet: run_start(repo, title, a_lines) starts one"] : [];
+  const views = runs.map((r) => peekRun(deps, r, i.name));
+  const doing = views.filter((v) => v.actionable);
+  const shown = (vs: PeekRun[]) =>
+    vs.map((v) => (views.length > 1 ? `${v.title}: ${v.reason}` : v.reason)).join("; ");
   return {
-    runs: runs.map((r) => peekRun(deps, r, i.name)),
+    actionable: views.length === 0 || doing.length > 0,
+    reason: views.length === 0 ? "no runs yet" : shown(doing.length ? doing : views),
+    runs: views,
     hints,
     host: inspectionHost(deps.host),
     queue: deps.host.host === "codex" && !deps.host.conflict ? knownQueueCapability(process.env) : null,

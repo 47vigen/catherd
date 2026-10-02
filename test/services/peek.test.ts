@@ -11,7 +11,7 @@ import { dispatchPaths, awaitsCollect } from "../../src/infra/dispatch-dir.ts";
 import { watchersSettled } from "../../src/services/dispatch-service.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { lastActivity } from "../../src/services/finalize.ts";
-import { peek } from "../../src/services/peek.ts";
+import { actionability, peek } from "../../src/services/peek.ts";
 import { appendAgentRun, createRun } from "../../src/services/run-store.ts";
 import { claimRun, runOwner } from "../../src/services/sessions.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -233,4 +233,57 @@ it("queued and ambiguous remain unread; only result collects, and old owner rece
   expect(awaitsCollect(d.dir)).toBe(true);
   await result(other, { run: run.id, name: d.admit.name });
   expect((await peek(other, {})).runs[0]?.unread).toEqual([]);
+});
+
+describe("goal mode: peek says when nothing is the coordinator's to do (plan 22)", () => {
+  const worker = { name: "worker-M1.L1", role: "worker" };
+  it("is not actionable while only roles are live on the step", () => {
+    expect(actionability([worker], [], "M1: lanes running (worker-M1.L1)")).toEqual({
+      actionable: false,
+      reason:
+        "only roles are live (worker-M1.L1): their results arrive as catherd messages; end the turn with no tool call",
+    });
+    expect(actionability([{ name: "verifier-M1", role: "verifier" }], [], "M1: verifier").actionable).toBe(
+      false,
+    );
+    expect(
+      actionability([{ name: "architect", role: "architect" }], [], "plan: the architect writes").actionable,
+    ).toBe(false);
+    expect(actionability([], [], "M2 parked: wait for the owner")).toEqual({
+      actionable: false,
+      reason: "M2 parked: the owner's answer comes first; end the turn with no tool call",
+    });
+  });
+
+  it("is actionable for an unread record, a step no live role covers, or no live role at all", () => {
+    expect(actionability([worker], [{ name: "worker-M1.L2" }], "M1: lanes running (worker-M1.L1)")).toEqual({
+      actionable: true,
+      reason: 'unread: result(run, "worker-M1.L2")',
+    });
+    expect(actionability([worker], [], "dispatch M1.L3")).toEqual({
+      actionable: true,
+      reason: "dispatch M1.L3",
+    });
+    expect(actionability([worker], [], "M1: reviewer").actionable).toBe(true);
+    expect(actionability([], [], "land M1")).toEqual({ actionable: true, reason: "land M1" });
+  });
+
+  it("answers in one call, for the whole run even when narrowed to one role", async () => {
+    const { run } = freshRun("Goal");
+    await fakeDispatch(run, { name: "architect", role: "architect", lane: null }, { proc: "self" });
+    const quiet = await peek(fakeDeps(), { run: run.id, name: "nobody" });
+    expect(quiet).toMatchObject({ actionable: false, runs: [{ actionable: false }] });
+    expect(quiet.reason).toContain("only roles are live (architect)");
+    const ended = { ...exit, endedAt: new Date().toISOString() };
+    const done = await fakeDispatch(
+      run,
+      { name: "researcher", role: "researcher", lane: null },
+      { proc: "dead", exit: ended, reply: "Map.\nSTATUS: complete — ok", collect: true },
+    );
+    await finalizeDispatch(run, done);
+    expect(await peek(fakeDeps(), {})).toMatchObject({
+      actionable: true,
+      reason: 'unread: result(run, "researcher")',
+    });
+  });
 });

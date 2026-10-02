@@ -209,6 +209,11 @@ Only you, the orchestrator, call the coordinator tools: `peek` (of another role)
 
 Nothing else pushes: a phone that buzzes for progress teaches the user to ignore it.
 
+### On Codex
+
+- **Run inside tmux.** When `$TMUX` and `$STY` are both empty, tell the user once, at the run's start, to run the coordinator inside `tmux` (or `screen`): Codex's app-server stops a thread's MCP servers once no client is attached, so an SSH drop detaches you. Each role's supervisor also queues its result to your thread when it ends, and the queued input waits for the next attach.
+- **Goal mode.** A goal continuation while only roles are live ends the turn with no tool call: no `peek`, no `sleep`, no `pidwait` or other wait cell, no role work of your own. When unsure, one `peek(run)` answers it: `actionable: false` and its `reason` mean nothing is yours to do until the next catherd message.
+
 ## The run folder
 
 `run_start` creates `R` under catherd's data directory, outside the repo. It outlives the session. `R` holds:
