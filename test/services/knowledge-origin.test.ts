@@ -33,6 +33,25 @@ it("names one repository the same however it is cloned", () => {
     expect(normalizeOrigin(url)).toBe("github.com/Acme/platform");
 });
 
+it("drops only the scheme's default port: two servers on one host on other ports stay two repos", () => {
+  for (const url of [
+    "ssh://git@example.com:22/acme/app.git",
+    "https://example.com:443/acme/app",
+    "http://example.com:80/acme/app",
+    "git://example.com:9418/acme/app.git",
+    "git@example.com:acme/app.git",
+  ])
+    expect(normalizeOrigin(url)).toBe("example.com/acme/app");
+  expect(normalizeOrigin("ssh://git@example.com:2222/acme/app.git")).toBe("example.com:2222/acme/app");
+  expect(normalizeOrigin("ssh://git@example.com:3333/acme/app.git")).toBe("example.com:3333/acme/app");
+  expect(normalizeOrigin("https://example.com:8443/acme/app")).toBe("example.com:8443/acme/app");
+  // a default port of another scheme is no default here
+  expect(normalizeOrigin("https://example.com:22/acme/app")).toBe("example.com:22/acme/app");
+  expect(originDir("ssh://git@example.com:2222/acme/app.git")).not.toBe(
+    originDir("ssh://git@example.com:3333/acme/app.git"),
+  );
+});
+
 it("shares what one worktree learned with every other worktree of the repo", async () => {
   const { main, other } = worktrees();
   await addKnowledge(main, "the auth suite needs DOCKER_HOST", new Date("2026-10-02T00:00:00Z"));

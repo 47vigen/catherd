@@ -45,12 +45,26 @@ export function normalizeOrigin(url: string): string {
     .trim()
     .replace(/\/+$/, "")
     .replace(/\.git$/, "");
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(s)?.[1]?.toLowerCase() ?? null;
   const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(s);
-  if (scp && !/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `${scp[1]}/${scp[2]}`;
+  if (scp && !scheme) s = `${scp[1]}/${scp[2]}`;
   else s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^@/]+@/, "");
   const [host = "", ...path] = s.split("/");
-  return [host.toLowerCase().replace(/:\d+$/, ""), ...path].join("/");
+  // only the scheme's own default port goes: two servers on one host on other ports are two repos (PR #50)
+  const port = /:(\d+)$/.exec(host)?.[1];
+  const bare = port !== undefined && scheme !== null && DEFAULT_PORTS[scheme] === port;
+  return [(bare ? host.slice(0, -port.length - 1) : host).toLowerCase(), ...path].join("/");
 }
+
+/** Each git URL scheme's default port, which a URL may name or leave out for the same server. */
+const DEFAULT_PORTS: Record<string, string> = {
+  ssh: "22",
+  "git+ssh": "22",
+  "ssh+git": "22",
+  https: "443",
+  http: "80",
+  git: "9418",
+};
 
 /** Where what runs of one repository learned lives, keyed by its origin, whatever worktree it runs in. */
 export const originDir = (url: string): string =>
