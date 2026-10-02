@@ -1,7 +1,17 @@
 import { afterEach, expect, it } from "bun:test";
-import { appendFileSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
+import { runsDir } from "../../src/infra/paths.ts";
 import { appendRecord, createRun, listRuns, runPaths } from "../../src/services/run-store.ts";
+import { withWorkspaceAdmission } from "../../src/services/workspace-admission.ts";
 import {
   inspectWorkspace,
   startWorkspace,
@@ -302,4 +312,56 @@ it("accepts transitive same-repository ordering and rejects unordered reuse", as
   await expect(
     startWorkspace(deps, { ...input, steps: [steps[0]!, { ...steps[2]!, dependsOn: [] }] }),
   ).rejects.toMatchObject({ code: "E_INPUT_INVALID" });
+});
+
+it("skips a member run folder without meta.json and names it, instead of blocking the workspace (#43 finding 1)", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, input);
+  // a run_start in progress, or one a crash left: createRun writes meta.json last
+  const half = join(runsDir(input.repos.api), "20261002-000000-half-made");
+  mkdirSync(half, { recursive: true });
+  const api = await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  expect(workspaceChildren(workspace).map((r) => r.id)).toEqual([api.run]);
+  const status = await workspaceStatus(deps, workspace.id);
+  expect(status.steps[0]?.run).toBe(api.run);
+  expect(status.warnings).toEqual([expect.stringContaining(half)]);
+});
+
+it("keeps siblings and status working when one child has a torn records line (#43 finding 2)", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, {
+    ...input,
+    steps: [input.steps[0]!, { ...input.steps[1]!, dependsOn: [] }],
+  });
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  const api = workspaceChildren(workspace)[0]!;
+  appendFileSync(runPaths(api.dir).runs, "{torn\n");
+  const web = await startWorkspaceChild(deps, { workspace: workspace.id, step: "web" });
+  expect(web.run).not.toBe(api.id);
+  const sibling = workspaceChildren(workspace).find((r) => r.id === web.run)!;
+  expect(await withWorkspaceAdmission(sibling, deps.now(), async () => "admitted")).toBe("admitted");
+  const status = await workspaceStatus(deps, workspace.id);
+  expect(status.steps.map((s) => s.state)).toEqual(["active", "active"]);
+  expect(status.warnings).toContainEqual(`api: run ${api.id} has unreadable dispatch records`);
+});
+
+it("admission and child start wait on a dependency for the same reasons (#43 finding 8)", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, input);
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  const api = workspaceChildren(workspace)[0]!;
+  appendFileSync(runPaths(api.dir).ledger, "M1 | API | abcdef1 | 1 | checked\n");
+  await fakeDispatch(api, { name: "late-fix" }, { proc: "dead" });
+  const recovered = createRun({
+    repo: input.repos.web,
+    title: "Recovered web",
+    aLines: [],
+    version: "test",
+    workspace: { id: workspace.id, step: "web" },
+  });
+  const why = "api has 1 dispatch(es) not collected (late-fix)";
+  await expect(withWorkspaceAdmission(recovered, deps.now(), async () => "admitted")).rejects.toThrow(why);
+  rmSync(recovered.dir, { recursive: true });
+  await expect(startWorkspaceChild(deps, { workspace: workspace.id, step: "web" })).rejects.toThrow(why);
+  expect((await workspaceStatus(deps, workspace.id)).steps[1]?.waitingFor).toEqual([why]);
 });

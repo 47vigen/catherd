@@ -14,12 +14,14 @@ import { createRun, readRecords, type Run } from "./run-store.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { refreshState } from "./state.ts";
 import { summarizeRun } from "./summary.ts";
-import { workspaceSpend } from "./workspace-admission.ts";
+import { assertWorkspaceBudget, dependencyBlockers, workspaceSpend } from "./workspace-admission.ts";
 import {
   createWorkspace,
   findWorkspace,
+  unreadableWarning,
   workspaceChildren,
   workspaceDirectory,
+  workspaceListing,
   workspacePaths,
 } from "./workspace-store.ts";
 
@@ -120,38 +122,16 @@ export async function startWorkspace(
   return { workspace, dir: workspaceDirectory(workspace.id) };
 }
 
-function pending(run: Run): boolean {
+/** Whether a child still has dispatches nobody collected; null when its records cannot be read. */
+function ownPending(run: Run): boolean | null {
   const { records, corrupt } = readRecords(run);
-  if (corrupt) throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has unreadable cost records`);
+  if (corrupt) return null;
   const recorded = new Set(records.map((r) => r.dispatchId));
-  return listDispatches(run, true).some((d) => !recorded.has(d.admit.dispatchId));
-}
-
-function completion(children: Run[]): Map<string, { landed: string[]; pending: boolean }> {
-  return new Map(
-    children.map((child) => [
-      child.meta.workspace!.step,
-      {
-        landed: landedMilestones(child),
-        pending: pending(child),
-      },
-    ]),
-  );
-}
-
-export function workspaceStepBlockedBy(
-  workspace: Workspace,
-  stepId: string,
-  children = workspaceChildren(workspace),
-  evidence = completion(children),
-): string[] {
-  const step = workspace.steps.find((s) => s.id === stepId);
-  if (!step) throw invalid(`unknown workspace step ${stepId}`);
-  return step.dependsOn.filter((id) => {
-    const predecessor = workspace.steps.find((s) => s.id === id)!;
-    const child = evidence.get(id);
-    return !child || !child.landed.includes(predecessor.milestone) || child.pending;
-  });
+  try {
+    return listDispatches(run, true).some((d) => !recorded.has(d.admit.dispatchId));
+  } catch {
+    return null;
+  }
 }
 
 export async function startWorkspaceChild(
@@ -173,10 +153,10 @@ export async function startWorkspaceChild(
       );
     let run = children.find((r) => r.meta.workspace?.step === step.id);
     if (!run) {
-      const blockedBy = workspaceStepBlockedBy(workspace, step.id, children);
-      if (blockedBy.length) throw invalid(`workspace step ${step.id} waits for ${blockedBy.join(", ")}`);
-      const budget = budgetStatus(await workspaceSpend(workspace, deps.now(), children), workspace.budget);
-      if (budget && budget.fraction >= 1) throw new CatherdError("E_RUN_BUDGET", "workspace budget is spent");
+      const blockers = await dependencyBlockers(workspace, step, children, deps.now());
+      if (blockers.length)
+        throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
+      await assertWorkspaceBudget(workspace, deps.now(), children);
       run = createRun({
         repo,
         title: step.title,
@@ -197,27 +177,36 @@ export async function startWorkspaceChild(
 
 export async function workspaceStatus(deps: Deps, id: string) {
   const workspace = findWorkspace(id);
-  const children = workspaceChildren(workspace);
-  const evidence = completion(children);
-  const steps = workspace.steps.map((step) => {
+  const { children, unreadable } = workspaceListing(workspace);
+  // #43 finding 2: a corrupt child is a warning here, never a failed status
+  const warnings = unreadable.map(unreadableWarning);
+  const steps = [];
+  for (const step of workspace.steps) {
     const child = children.find((r) => r.meta.workspace?.step === step.id);
     const summary = child ? summarizeRun(deps, child) : null;
-    const facts = evidence.get(step.id);
-    const landed = facts?.landed ?? [];
-    const blockedBy = workspaceStepBlockedBy(workspace, step.id, children, evidence);
+    const landed = child ? landedMilestones(child) : [];
+    const pending = child ? ownPending(child) : false;
+    if (child && pending === null)
+      warnings.push(`${step.id}: run ${child.id} has unreadable dispatch records`);
+    // #43 finding 7: a milestone that differs only by case never releases the dependents
+    const twin = landed.find((m) => m !== step.milestone && m.toLowerCase() === step.milestone.toLowerCase());
+    if (twin && !landed.includes(step.milestone))
+      warnings.push(`${step.id} completes on ${step.milestone}, but its run landed ${twin}`);
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now());
     const state: "waiting" | "ready" | "active" | "landed" = child
-      ? landed.includes(step.milestone) && !facts?.pending
+      ? landed.includes(step.milestone) && pending === false
         ? "landed"
         : "active"
-      : blockedBy.length
+      : blockers.length
         ? "waiting"
         : "ready";
-    return {
+    steps.push({
       id: step.id,
       repo: step.repo,
       state,
       run: child?.id ?? null,
-      blockedBy,
+      blockedBy: blockers.map((b) => b.step),
+      waitingFor: blockers.map((b) => b.why),
       landedMilestones: landed,
       landedCommits: child ? landedCommits(child) : [],
       failures: summary?.totals.notOk ?? [],
@@ -225,14 +214,15 @@ export async function workspaceStatus(deps: Deps, id: string) {
       live: summary?.live ?? [],
       childBudget: summary?.budget ?? null,
       warnings: summary?.warnings ?? [],
-    };
-  });
-  const spend = await workspaceSpend(workspace, deps.now(), children);
+    });
+  }
+  const spend = await workspaceSpend(workspace, deps.now(), children, warnings);
   return {
     workspace,
     dir: workspaceDirectory(id),
     steps,
     spend,
     budget: budgetStatus(spend, workspace.budget),
+    warnings,
   };
 }

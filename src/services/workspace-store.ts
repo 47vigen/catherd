@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type Workspace, WorkspaceSchema } from "../domain/workspace.ts";
-import { dataDir, runsDir } from "../infra/paths.ts";
+import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import { listRuns, type Run } from "./run-store.ts";
 
@@ -45,16 +45,20 @@ export function findWorkspace(id: string): Workspace {
   return workspace;
 }
 
-/** Linkage is in the child's atomic meta write: a crash cannot orphan a completed child creation. */
-export function workspaceChildren(workspace: Workspace): Run[] {
+export interface WorkspaceListing {
+  /** the runs linked to this workspace, each with a readable meta.json */
+  children: Run[];
+  /** run folders in a member repository whose meta.json cannot be read (#43 finding 1): skipped, named */
+  unreadable: { id: string; dir: string; reason: string }[];
+}
+
+/**
+ * Linkage is in the child's atomic meta write, so a folder without a readable meta.json is never a child:
+ * `createRun` writes meta last, and a run being created, or left by a crash, is skipped and named, never
+ * fatal (#43 finding 1). Two children of one step, or a child in the wrong repository, still throw.
+ */
+export function workspaceListing(workspace: Workspace): WorkspaceListing {
   const listing = listRuns(Object.values(workspace.repos));
-  // An unreadable child cannot be proven unrelated. Refuse admission instead of silently recreating it.
-  const roots = Object.values(workspace.repos).map(runsDir);
-  if (listing.corrupt.some((bad) => roots.includes(dirname(bad.dir))))
-    throw new CatherdError(
-      "E_RUN_CORRUPT",
-      "a workspace repository has an unreadable run; repair its metadata before continuing",
-    );
   const children = listing.runs.filter((r) => r.meta.workspace?.id === workspace.id);
   const seen = new Set<string>();
   for (const run of children) {
@@ -63,8 +67,16 @@ export function workspaceChildren(workspace: Workspace): Run[] {
       throw new CatherdError(
         "E_RUN_CORRUPT",
         `workspace ${workspace.id} has duplicate or mismatched child ${run.id}`,
+        { fix: `fix or delete ${run.dir}` },
       );
     seen.add(step.id);
   }
-  return children;
+  return { children, unreadable: listing.corrupt };
 }
+
+/** The workspace's children (see workspaceListing); folders without a readable meta.json are skipped. */
+export const workspaceChildren = (workspace: Workspace): Run[] => workspaceListing(workspace).children;
+
+/** What `workspace_status` says about a skipped folder: its path and why. */
+export const unreadableWarning = (u: { dir: string; reason: string }): string =>
+  `skipped run folder ${u.dir}: ${u.reason}`;
