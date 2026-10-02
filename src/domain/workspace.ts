@@ -12,14 +12,31 @@ export const WorkspaceBudgetSchema = z.strictObject({
   tokens: z.number().finite().nonnegative().optional(),
   usd: z.number().finite().nonnegative().optional(),
 });
-export const WorkspaceStepSchema = z.strictObject({
-  id: WorkspaceIdSchema,
-  repo: WorkspaceIdSchema,
-  title: z.string().min(1),
-  aLines: z.array(z.string()),
-  dependsOn: z.array(WorkspaceIdSchema).max(WORKSPACE_LIMIT).default([]),
-  milestone: WorkspaceIdSchema.default("M1"),
-});
+/** A git ref a release waits on (`origin/main`): no option, no range, no whitespace. */
+export const BaseRefSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_][A-Za-z0-9._/-]*$/)
+  .refine((s) => !s.includes("..") && !s.endsWith("/") && !s.endsWith(".lock"));
+export const RELEASES = ["land", "merge"] as const;
+export const WorkspaceStepSchema = z
+  .strictObject({
+    id: WorkspaceIdSchema,
+    repo: WorkspaceIdSchema,
+    title: z.string().min(1),
+    aLines: z.array(z.string()),
+    dependsOn: z.array(WorkspaceIdSchema).max(WORKSPACE_LIMIT).default([]),
+    milestone: WorkspaceIdSchema.default("M1"),
+    /**
+     * When the step releases its dependents: once its milestone lands (the default), or once the landed
+     * commit is an ancestor of `base` in its repository (`git merge-base --is-ancestor`), checked when a
+     * dependent asks, never polled.
+     */
+    release: z.enum(RELEASES).default("land"),
+    base: BaseRefSchema.optional(),
+  })
+  .refine((s) => (s.release === "merge") === (s.base !== undefined), {
+    message: 'release "merge" needs a base ref (e.g. origin/main), and only it takes one',
+  });
 export type WorkspaceStep = z.infer<typeof WorkspaceStepSchema>;
 export const WorkspaceSchema = z
   .strictObject({

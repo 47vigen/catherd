@@ -1,6 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { WORKSPACE_LIMIT, WorkspaceBudgetSchema, WorkspaceIdSchema } from "../../domain/workspace.ts";
+import {
+  BaseRefSchema,
+  RELEASES,
+  WORKSPACE_LIMIT,
+  WorkspaceBudgetSchema,
+  WorkspaceIdSchema,
+} from "../../domain/workspace.ts";
 import type { Deps } from "../../services/ports.ts";
 import { setWorkspaceBudget, workspaceContract } from "../../services/workspace-admission.ts";
 import {
@@ -32,7 +38,7 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
     "workspace_start",
     {
       description:
-        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget (no cap unless given; raise it later with workspace_budget). Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
+        "Snapshot a workspace's selected repositories, step dependency graph and optional shared budget (no cap unless given; raise it later with workspace_budget). A step releases its dependents when its milestone lands, or with release: 'merge' and base (e.g. origin/main) once its landed commit is an ancestor of that ref, checked when a dependent asks. Returns workspace.id and dir. Child single-repo runs are created later with workspace_child_start; no commits or pushes are performed.",
       inputSchema: {
         root: z.string().min(1),
         title: z.string().min(1),
@@ -48,6 +54,8 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
               a_lines: aLines,
               depends_on: z.array(id).max(WORKSPACE_LIMIT).optional(),
               milestone: id.optional(),
+              release: z.enum(RELEASES).optional(),
+              base: BaseRefSchema.optional(),
             }),
           )
           .min(1)
@@ -70,6 +78,8 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
             aLines: s.a_lines,
             dependsOn: s.depends_on,
             milestone: s.milestone,
+            release: s.release,
+            base: s.base,
           })),
         }),
       ),
@@ -87,7 +97,7 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
     "workspace_child_start",
     {
       description:
-        "Create or return a step's single-repo run once its dependencies have landed their declared milestone. Returns run, dir and the frozen contract path. Use the existing route, dispatch, verification and land tools on this child run.",
+        "Create or return a step's single-repo run once its dependencies have landed their declared milestone, every dispatch of theirs is collected, and each 'merge' release's commit is in its base ref (fetch first; nothing is polled). Returns run, dir and the frozen contract path. Use the existing route, dispatch, verification and land tools on this child run.",
       inputSchema: { workspace: z.string().min(1), step: id },
     },
     (a) => handle(() => startWorkspaceChild(deps, a)),

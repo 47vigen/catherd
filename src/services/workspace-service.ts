@@ -91,6 +91,8 @@ export async function startWorkspace(
       aLines: string[];
       dependsOn?: string[];
       milestone?: string;
+      release?: "land" | "merge";
+      base?: string;
     }>;
     budget?: Budget;
   },
@@ -117,7 +119,7 @@ export async function startWorkspace(
   });
   if (!snapshot.success)
     throw invalid(
-      "workspace requires unique step ids, ordered repository reuse, valid budget, and an acyclic dependency graph",
+      `workspace requires unique step ids, ordered repository reuse, valid budget, and an acyclic dependency graph: ${snapshot.error.issues[0]?.message ?? "invalid"}`,
     );
   const canonical = await inspectWorkspace(root, selected);
   const workspace = createWorkspace({ ...snapshot.data, repos: canonical.repos }, new Date(deps.now()));
@@ -174,7 +176,7 @@ async function childFor(
   const children = workspaceChildren(workspace);
   let run = children.find((r) => r.meta.workspace?.step === step.id);
   if (!run) {
-    const blockers = await dependencyBlockers(workspace, step, children, deps.now());
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
     if (blockers.length)
       throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
     await assertWorkspaceBudget(workspace, deps.now(), children);
@@ -210,7 +212,7 @@ export async function workspaceStatus(deps: Deps, id: string) {
     const twin = landed.find((m) => m !== step.milestone && m.toLowerCase() === step.milestone.toLowerCase());
     if (twin && !landed.includes(step.milestone))
       warnings.push(`${step.id} completes on ${step.milestone}, but its run landed ${twin}`);
-    const blockers = await dependencyBlockers(workspace, step, children, deps.now());
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
     const state: "waiting" | "ready" | "active" | "landed" = child
       ? landed.includes(step.milestone) && pending === false
         ? "landed"

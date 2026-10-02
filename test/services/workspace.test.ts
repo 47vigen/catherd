@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
   mkdirSync,
@@ -343,6 +344,45 @@ it("keeps siblings and status working when one child has a torn records line (#4
   const status = await workspaceStatus(deps, workspace.id);
   expect(status.steps.map((s) => s.state)).toEqual(["active", "active"]);
   expect(status.warnings).toContainEqual(`api: run ${api.id} has unreadable dispatch records`);
+});
+
+it("releases a merge step's dependents only once its landed commit is in the base ref", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, {
+    ...input,
+    steps: [{ ...input.steps[0]!, release: "merge", base: "staging" }, input.steps[1]!],
+  });
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+      cwd: input.repos.api,
+      encoding: "utf8",
+    }).trim();
+  git("branch", "staging");
+  git("checkout", "-q", "-b", "feature");
+  git("commit", "-q", "--allow-empty", "-m", "api work");
+  const commit = git("rev-parse", "HEAD");
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  const api = workspaceChildren(workspace)[0]!;
+  appendFileSync(runPaths(api.dir).ledger, `M1 | API | ${commit} | 1 | checked\n`);
+  await expect(startWorkspaceChild(deps, { workspace: workspace.id, step: "web" })).rejects.toThrow(
+    `api's M1 (${commit.slice(0, 7)}) is not merged into staging yet`,
+  );
+  expect((await workspaceStatus(deps, workspace.id)).steps[1]?.state).toBe("waiting");
+  git("checkout", "-q", "staging");
+  git("merge", "-q", "--ff-only", "feature");
+  const web = await startWorkspaceChild(deps, { workspace: workspace.id, step: "web" });
+  expect(web.run).not.toBe(api.id);
+});
+
+it("refuses a merge release without a base ref, and a base that looks like an option", async () => {
+  const { deps, input } = setup();
+  for (const step of [
+    { ...input.steps[0]!, release: "merge" as const },
+    { ...input.steps[0]!, release: "merge" as const, base: "--upload-pack=x" },
+  ])
+    await expect(startWorkspace(deps, { ...input, steps: [step, input.steps[1]!] })).rejects.toMatchObject({
+      code: "E_INPUT_INVALID",
+    });
 });
 
 it("admission and child start wait on a dependency for the same reasons (#43 finding 8)", async () => {
