@@ -238,6 +238,16 @@ export function adopt(deps: Deps, run: Run): void {
  */
 export async function claim(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
   if (!(await claimRun(deps, run)) && !ownsRun(deps, run)) return;
+  await recoverOwned(deps, run, o);
+}
+
+/**
+ * What `claim` does for a run this session already owns, without taking it: watch its live roles, record and
+ * settle what finished unrecorded, settle its unsettled limits and unannounced records. A server that does not
+ * lead the boot runs it for each run its session owns (PR #47 P1: a role that finished while that server was
+ * away has no live process to watch and no record to scan).
+ */
+export async function recoverOwned(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
   adopt(deps, run);
   let r = recovering.get(run.id);
   if (!r) {

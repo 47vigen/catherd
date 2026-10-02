@@ -138,6 +138,33 @@ describe("one MCP server runs the boot sync and reconcile (plan 22, single-fligh
     }
   });
 
+  it("records the roles of its own session's runs that finished while it was away when another server leads (PR #47 P1)", async () => {
+    const { repo, run } = freshRun();
+    const deps = fakeDeps({
+      session: { sessionId: "s-me", hostSessionId: null, socketPath: null, token: null },
+    });
+    expect(await claimRun(deps, run)).toBe(true);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const files = { proc: "dead" as const, exit, collect: true, reply: "Done.\nSTATUS: complete — ok" };
+    // finished, unrecorded: its server died before it finalized, and the lead reconciled only at its own boot
+    const mine = await fakeDispatch(run, {}, files);
+    // a run this session does not own is the lead's to reconcile
+    const other = createRun({ repo, title: "theirs", aLines: ["A1 it works"], version: "0.0.0-test" });
+    await fakeDispatch(other, {}, files);
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await startMcpServer({ transport: serverSide, deps, sync: async () => {}, bootLock: () => null });
+    const client = new Client({ name: "claude-code", version: "0.0.0" });
+    await client.connect(clientSide);
+    try {
+      await waitFor(() => readRecords(run).records.length > 0);
+      await watchersSettled();
+      expect(readRecords(run).records.map((r) => r.dispatchId)).toEqual([mine.admit.dispatchId]);
+      expect(readRecords(other).records).toEqual([]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("takes the lock over from a server that died holding it", async () => {
     withHome();
     mkdirSync(locksDir(), { recursive: true });
