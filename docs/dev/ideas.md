@@ -4,15 +4,68 @@ Improvements collected from real catherd runs and from designing it, not yet pla
 into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
 (the evidence), and where it would live.
 
-## Role access and orchestration wait ruling (2026-10-02)
+## From the reviews of #42 and #43 (2026-10-02)
 
-Three owner-reported runs exposed unread completed records after queue acceptance and headless architects denied
-run-file MCP calls. Queue acceptance is not evidence that the host started a turn. The fix provides bounded
-completion waiting for Codex orchestration and a dedicated role MCP server for native headless Codex/Claude Code
-roles, preserving project access controls and the user's config. Claude Code's push flow stays unchanged.
-No tests, E2E, gates or live acceptance were run for this contribution at the owner's request; wake behavior
-and performance improvements remain unverified. Per-host custom ladders, plan-width warnings, cheaper fix rungs
-and multi-repo support remain separate enhancements.
+Both PRs were merged as they stood (owner decision); the findings below are fixed in the next autopilot run, not by
+the contributor. Owner rulings:
+
+- **`wait` goes.** A 50 s bounded wait makes the Codex coordinator re-read its whole context about every 50 s (about
+  100 rounds for a 90-min gate), the goal-mode polling problem in a blessed form, and it dies with the turn when the
+  daemon drops the thread. Remove the tool and its skill text; deliver instead from where a role ends (the
+  supervisor's `codex queue` push in "A completion is lost once the daemon drops the thread" below). Keep the
+  "waiting for orchestrator" line from #42, with the fix in finding 3.
+
+#42 (role MCP server, `wait`), review findings:
+
+1. **The isolated refusal is unnecessary and reopens P1.** `admission.ts` refuses isolated codex/claude-code
+   architect, researcher, worker and verifier with `E_ADMIT_RUNG`, whose fix says to turn isolation off. Verified:
+   `-c mcp_servers.*` overrides still apply under `--ignore-user-config` and an empty `CODEX_HOME` (`codex mcp list`
+   showed `catherd_role` enabled). Isolation is today the only thing that keeps a role from loading the full
+   catherd plugin and stealing the run with `peek`. Fix: inject the role server in isolated mode too; for Claude,
+   check whether `--mcp-config` survives `--safe-mode`, else `--strict-mcp-config --mcp-config`.
+2. **Runs started isolated break on resume.** A resumed thread keeps its record's `isolated`, so fix rounds,
+   verifier re-checks and failover stand-ins on an isolated backend are refused even after the user turns isolation
+   off. Goes away with finding 1.
+3. **"waiting for orchestrator · stalled" never clears.** `runOwner` is never cleared and a dashboard `cancel` or an
+   abandoned run leaves a record unread forever, so old runs show stalled forever and `status()` with no run returns
+   all of them into the coordinator's context. Fix: only for a current owner and recent unread records; `status()`
+   keeps defaulting to live runs, else the newest.
+4. **`read_knowledge` on the role server takes `z.literal(run.meta.repo)`**, refusing `.`, the pwd, or
+   `/tmp` vs `/private/tmp`. Make `repo` optional and use the run's.
+5. **`RUN_FILES` tells every role to write with `write_run_file`**, which workers and verifiers do not get.
+6. **doctor's role-MCP row:** fails inactive profiles; `existsSync(ROLE_MCP_ENTRY)` is always true; `profile
+   validate` should say it instead.
+7. **The TUI memo calls `orchestratorWait` on every tick for every idle run** (defeats the mtime memo), and
+   `runs.tsx` uses the precomputed `stalled` while `status.tsx` recomputes it.
+8. **`required=true` on the role server** aborts the whole role when a cold Bun start beats Codex's MCP startup
+   timeout on a loaded machine. Check the timeout; set `startup_timeout_sec` or drop `required`.
+9. **`docs/dev/reports/role-access-orchestration-wait-pr.md`** is a PR description, not a run report; delete it.
+
+#43 (workspace runs), review findings:
+
+1. **One unrelated broken run blocks the whole workspace.** `workspaceChildren` (`workspace-store.ts`) reads every
+   run in each member repo and throws `E_RUN_CORRUPT` on any folder without `meta.json`; `createRun` writes meta
+   last, so a concurrent `run_start` or a crash bricks child start, admission, land, route and `workspace_status`,
+   with no folder named. Reproduced with one empty run folder. Fix: only workspace-linked runs with a meta; skip or
+   warn on the rest, and name the folder.
+2. **Strict reads of every child for every operation.** One torn jsonl line in one child stops every sibling and
+   makes `workspace_status` throw. Read only the evidence the operation needs; status reports a corrupt child as a
+   warning. Reproduced.
+3. **A child cannot land any milestone while any dispatch is pending** (`lane-service.ts`), not only its completion
+   milestone: landing M1 while an M2 lane runs gives `E_LAND_GATE`. Apply the rule only when
+   `milestone === step.milestone`.
+4. **The default workspace budget is the profile's per-run budget over all children**, with minutes from the
+   workspace's creation and no way to raise it: one night parked on a question refuses every later child. Default
+   no cap, or start the clock at the first child, and allow raising it.
+5. **The workspace lock is held across slow git work** (admission's status snapshot, land's diffs and state
+   refresh; up to 15 s each) while waiters give up at 10 s, so dispatches in other repos fail `E_IO_LOCK`.
+6. **MCP step objects use `z.object`**, which drops `dependsOn` silently; use `z.strictObject`.
+7. **A landed step's child can never admit again** (a post-land fix needs a new workspace), and a `milestone` that
+   never lands (`m1` vs `M1`) leaves dependents waiting with no warning.
+8. **Admission and child start check dependencies differently** (lenient without the runs lock vs strict).
+9. **Dependencies release on `land`, not on merge.** The payment run's need was "M1 of run B after M1 of run A is
+   merged, then rebase"; worktrees of one repo count as distinct members, so it fits otherwise. Also still open
+   from the same evidence: a group-level environment pause and verifier contention across runs.
 
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
 report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
