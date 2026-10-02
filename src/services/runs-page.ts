@@ -52,7 +52,7 @@ export interface RoleRow {
 export interface Milestone {
   name: string;
   landed: boolean;
-  /** the ledger's "what" once landed */
+  /** the ledger's "what" once landed; before that, plan.md's line for the milestone ("" when it has none) */
   what: string;
 }
 
@@ -128,18 +128,50 @@ export function sessionRows(deps: Deps): { rows: SessionRow[]; warnings: string[
   };
 }
 
-/** The ledger's landed milestones, then each milestone a lane file names that has not landed. */
+/**
+ * A milestone's line in plan.md: a heading, list item or plain line that opens with its id and a separator
+ * (`## M1 — the jobs list`, `- **M2:** export`). The id stops at the separator, so `M1.L1 — …` is a lane's.
+ */
+const PLAN_LINE =
+  /^\s*(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)?(?:\*\*)?([A-Za-z0-9_-]+)(?::\*\*|(?:\*\*)?\s*(?:—|–|:|-))\s*(.+?)\s*$/;
+
+/** The description plan.md gives each of `names`, from the first line that opens with it; none for the rest. */
+function planWhat(run: Run, names: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const file = runPaths(run.dir).plan;
+  if (names.length === 0 || !existsSync(file)) return out;
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const m = PLAN_LINE.exec(line);
+    const name = m?.[1];
+    if (m && name && names.includes(name) && !out.has(name)) out.set(name, (m[2] ?? "").trim());
+  }
+  return out;
+}
+
+const byNumber = (a: string, b: string) => a.localeCompare(b, "en", { numeric: true });
+
+/**
+ * The ledger's landed milestones, then each milestone a lane file names that has not landed, whatever its id:
+ * lane `<milestone>.<lane>` belongs to the milestone before its first dot, as protocol.ts reads it. An open
+ * milestone's description is plan.md's line for it, when there is one.
+ */
 function milestonesOf(run: Run): Milestone[] {
   const landed = nonBlankLines(runPaths(run.dir).ledger)
     .slice(1)
     .map((l) => l.split(" | "))
     .map(([name, what]) => ({ name: (name ?? "").trim(), landed: true, what: (what ?? "").trim() }));
   const lanes = existsSync(runPaths(run.dir).lanes) ? readdirSync(runPaths(run.dir).lanes) : [];
-  const open = [...new Set(lanes.map((f) => /^(M\d+)\./.exec(f)?.[1]).filter((m): m is string => !!m))]
-    .filter((m) => !landed.some((l) => l.name === m))
-    .map((name) => ({ name, landed: false, what: "" }));
-  const n = (m: string) => Number(/\d+/.exec(m)?.[0] ?? 0);
-  return [...landed, ...open.sort((a, b) => n(a.name) - n(b.name))];
+  const names = [
+    ...new Set(
+      lanes
+        .filter((f) => f.endsWith(".md") && f.slice(0, -".md".length).includes("."))
+        .map((f) => f.split(".")[0] as string),
+    ),
+  ]
+    .filter((m) => m !== "" && !landed.some((l) => l.name === m))
+    .sort(byNumber);
+  const what = planWhat(run, names);
+  return [...landed, ...names.map((name) => ({ name, landed: false, what: what.get(name) ?? "" }))];
 }
 
 /** Each role's latest dispatch, live ones first, then the newest finished first. */

@@ -7,7 +7,7 @@ import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
-import { gitToplevel } from "../infra/git.ts";
+import { git, gitToplevel } from "../infra/git.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import {
   dispatchState,
@@ -121,12 +121,15 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
+  // where the first milestone's commit range starts; a repo with no commit yet has none
+  const head = await git(top, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   const open = async (): Promise<Run> => {
     const run = createRun({
       repo: top,
       title: i.title,
       aLines: i.aLines,
       version: deps.version,
+      startHead: head.kind === "ok" ? head.out.trim() || null : null,
       now: new Date(deps.now()),
       startedBy: currentSession(deps),
     });

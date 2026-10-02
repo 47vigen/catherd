@@ -389,6 +389,18 @@ describe("dispatch returns at launch; its watcher settles it; result reads it (p
     expect(readRecords(run).records).toHaveLength(1);
   });
 
+  it("admits a name whose last dispatch exited unrecorded, on a new unrouted lane (plan 26 review)", async () => {
+    const { run, deps } = setup(OK);
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    const exit = { code: 0, signal: null, reason: "exited" as const, endedAt: new Date().toISOString() };
+    const old = await fakeDispatch(run, {}, { proc: "dead", exit, reply: "ok\nSTATUS: complete — ok" });
+    await dispatch(deps, input(run.id, { lane: "M1.L2", brief: "Read lanes/M1.L2.md" }));
+    await watchersSettled();
+    const ids = readRecords(run).records.map((r) => r.dispatchId);
+    expect(ids).toContain(old.admit.dispatchId);
+    expect(listDispatches(run)).toHaveLength(2);
+  });
+
   it("duplicate completion input and repeated result reads never admit a second dispatch", async () => {
     const { run } = setup(OK);
     const target = {

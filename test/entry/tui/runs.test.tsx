@@ -181,7 +181,7 @@ describe("the Runs tab (spec §4)", () => {
 
   it("cancels a live role only on a second ctrl+d within 5 s", async () => {
     const fx = await runs();
-    await h!.s.press("return");
+    await h!.s.press("return", "g");
     // a milestone row has nothing to cancel
     await h!.s.press("ctrl+d", "ctrl+d");
     expect(h!.s.frame()).not.toContain("press ctrl+d again to cancel");
@@ -253,10 +253,77 @@ describe("the Runs tab (spec §4)", () => {
     expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
     await h!.s.press("escape", "return");
     expect(h!.s.frame()).toContain("worker-M1.L1 worker · gpt-6-luna#high · ok · Jobs screen");
-    // another session starts on its first row (its first milestone), not on a role the last one had open
+    // another session starts on its start row (its first live role), not on a role the last one had open
     await h!.s.press("escape", "escape", "j", "j", "return", "escape", "k", "k", "return", "return");
-    expect(h!.s.frame()).toContain("M0 scaffold the jobs screen · landed · Jobs screen");
+    expect(h!.s.frame()).toContain("worker-M1.L2 worker · gpt-6-sol#medium · running · Jobs screen");
     expect(h!.s.frame()).not.toContain("worker-M1.L1 worker");
+  });
+
+  it("opens a session on its first live role, below its milestones (1.1 follow-ups)", async () => {
+    await runs();
+    await h!.s.press("return");
+    expect(selectedLine(h!)).toContain("worker-M1.L2");
+    // a session with no live role starts on its first row
+    await h!.s.press("escape", "j", "return");
+    expect(selectedLine(h!)).toContain("M1");
+  });
+
+  it("opens a session for one of its runs on that run's first row (a recent run from Status)", async () => {
+    await runs();
+    const key = sessionKey({ host: "claude-code", sessionId: "s-auth" });
+    await h!.run(() => h!.app().dispatch({ type: "session", key, run: "20260924-080000-auth-plan-4" }));
+    await h!.advance(0);
+    // the session's second run: its first milestone, not the first run's first row
+    expect(selectedLine(h!)).toContain("M1");
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("Auth plan 4");
+    expect(h!.s.frame()).not.toContain("Auth refactor");
+  });
+
+  it("shows an open milestone's description from the plan beside not landed (1.1 follow-ups)", async () => {
+    const fx = fixtureEffects();
+    const read = fx.session;
+    fx.session = (key) => {
+      const d = read(key);
+      return {
+        ...d,
+        runs: d.runs.map((r) => ({
+          ...r,
+          milestones: r.milestones.map((m) => (m.landed ? m : { ...m, what: "the jobs list" })),
+        })),
+      };
+    };
+    await runs(fx);
+    await h!.s.press("return");
+    expect(h!.s.frame()).toContain("◌ M1  not landed · the jobs list");
+  });
+
+  it("stops reading a finished role's screen, and reads it again on r (1.1 follow-ups)", async () => {
+    const fx = fixtureEffects();
+    let roleReads = 0;
+    const role = fx.role;
+    fx.role = (run, id) => {
+      roleReads++;
+      return role(run, id);
+    };
+    await runs(fx);
+    await h!.s.press("return");
+    await select(h!, "worker-M1.L1");
+    await h!.s.press("return");
+    await h!.advance(0);
+    const r0 = roleReads;
+    await h!.advance(RUN_EVERY_MS * 5);
+    expect(roleReads).toBe(r0);
+    await h!.s.press("r");
+    expect(roleReads).toBe(r0 + 1);
+    // a live role keeps being read
+    await h!.s.press("escape", "g");
+    await select(h!, "worker-M1.L2");
+    await h!.s.press("return");
+    await h!.advance(0);
+    const l0 = roleReads;
+    await h!.advance(RUN_EVERY_MS * 3);
+    expect(roleReads).toBe(l0 + 3);
   });
 
   it("reads an opened session once, and again on r; pausing reads nothing", async () => {
@@ -287,8 +354,8 @@ describe("the Runs tab (spec §4)", () => {
       milestoneReads++;
       return milestone(run, name);
     };
-    // the session opens on its first milestone: r there reads the milestone
-    await h!.s.press("p", "return");
+    // on the session's first milestone, r reads the milestone
+    await h!.s.press("p", "g", "return");
     const m0 = milestoneReads;
     await h!.s.press("r");
     expect(milestoneReads).toBe(m0 + 1);
@@ -308,7 +375,7 @@ describe("the Runs tab (spec §4)", () => {
 
   it("opens a milestone on its digest; esc goes back to its row, then to the list", async () => {
     await runs();
-    await h!.s.press("return", "j", "k");
+    await h!.s.press("return", "g", "j", "k");
     expect(selectedLine(h!)).toContain("✓ M0  scaffold the jobs screen");
     await h!.s.press("return");
     const f = h!.s.frame();
@@ -325,7 +392,7 @@ describe("the Runs tab (spec §4)", () => {
 
   it("says no digest yet for a milestone that has not landed", async () => {
     await runs();
-    await h!.s.press("return");
+    await h!.s.press("return", "g");
     await select(h!, "M1  not landed");
     await h!.s.press("return");
     const f = h!.s.frame();

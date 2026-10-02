@@ -207,6 +207,32 @@ describe("the runs page (spec §4)", () => {
     expect(() => milestoneDetail(jobs.id, "a..b")).toThrow(/no milestone "a\.\.b"/);
   });
 
+  it("lists an open milestone whatever its id, with plan.md's line for it (1.1 follow-ups)", async () => {
+    const { jobs } = await twoRuns();
+    writeLane(jobs, "auth.L1", ["src/auth.ts"]);
+    writeLane(jobs, "M10.L1", ["src/ten.ts"]);
+    writeFileSync(
+      runPaths(jobs.dir).plan,
+      [
+        "# Plan",
+        "2. Milestones M1…Mn: each one is shippable",
+        "## M1 — the jobs list",
+        "M1.L1 — the list component",
+        "- **M2:** export to CSV",
+        "### auth: sign-in flow",
+      ].join("\n"),
+    );
+    const s = sessionDetail(fakeDeps(), sessionKey({ host: "claude-code", sessionId: "s-auth" }));
+    expect(s.runs[0]?.milestones).toEqual([
+      { name: "M0", landed: true, what: "scaffold the jobs screen" },
+      { name: "auth", landed: false, what: "sign-in flow" },
+      { name: "M1", landed: false, what: "the jobs list" },
+      { name: "M2", landed: false, what: "export to CSV" },
+      { name: "M10", landed: false, what: "" },
+    ]);
+    expect(milestoneDetail(jobs.id, "auth")).toMatchObject({ landed: false, what: "sign-in flow" });
+  });
+
   it("puts 1.0 runs under earlier runs, last", async () => {
     await twoRuns();
     const repo = tempRepo();

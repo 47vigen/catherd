@@ -28,7 +28,10 @@ if (args[0] === "models") {
   say("Fetching available models...");
   if (!loggedIn)
     fail("Error: Please sign in to view available models. Launch the CLI without arguments to sign in.");
-  if (s.modelsFile) process.stdout.write(readFileSync(s.modelsFile, "utf8"));
+  // signed in by GEMINI_API_KEY (its HOME's settings say gemini), the key's project may list other models
+  const byKey = !!process.env.GEMINI_API_KEY && settings?.modelProvider === "gemini";
+  const file = (byKey ? s.keyModelsFile : undefined) ?? s.modelsFile;
+  if (file) process.stdout.write(readFileSync(file, "utf8"));
   process.exit(s.modelsExit ?? 0);
 }
 

@@ -16,7 +16,7 @@ import { realTmpdir } from "../../src/adapters/access.ts";
 import { claudeAgentsDir, locksDir } from "../../src/infra/paths.ts";
 import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import { type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
+import { accessRepos, type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
 import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
 import { overridePath } from "../../src/services/catalog-service.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
@@ -40,7 +40,11 @@ import {
 afterEach(snapshotEnv());
 
 /** What the HTTPS probe reaches in tests: a local server, so no test leaves the machine. */
-const ping = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("{}") });
+const ping = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch: () => new Response("{}"),
+});
 afterAll(() => ping.stop(true));
 
 /** The simulator bin folders a test made, removed after it. */
@@ -85,12 +89,25 @@ function machine(
   process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   Object.assign(
     process.env,
-    withScenario({ models: fx("codex/models.json"), sandbox: "allow", ...o.codex }).env,
+    withScenario({
+      models: fx("codex/models.json"),
+      sandbox: "allow",
+      ...o.codex,
+    }).env,
     withClaudeScenario({}).env,
-    withOpencodeScenario({ models: fx("opencode/models.json").data, ...o.opencode }).env,
-    withCursorScenario({ modelsFile: join(FX, "cursor", "models.txt"), ...o.cursor }).env,
+    withOpencodeScenario({
+      models: fx("opencode/models.json").data,
+      ...o.opencode,
+    }).env,
+    withCursorScenario({
+      modelsFile: join(FX, "cursor", "models.txt"),
+      ...o.cursor,
+    }).env,
     withGrokScenario({ ...o.grok }).env,
-    withAgyScenario({ modelsFile: join(FX, "antigravity", "models.txt"), ...o.agy }).env,
+    withAgyScenario({
+      modelsFile: join(FX, "antigravity", "models.txt"),
+      ...o.agy,
+    }).env,
   );
   delete process.env.CURSOR_API_KEY;
   delete process.env.XAI_API_KEY;
@@ -103,13 +120,21 @@ function installPlugin(version: string): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "installed_plugins.json"),
-    JSON.stringify({ version: 2, plugins: { "catherd@catherd": [{ scope: "user", version }] } }),
+    JSON.stringify({
+      version: 2,
+      plugins: { "catherd@catherd": [{ scope: "user", version }] },
+    }),
   );
 }
 
-const answers = async (): Promise<Handshake> => ({ ok: true, tools: ["status", "dispatch"] });
+const answers = async (): Promise<Handshake> => ({
+  ok: true,
+  tools: ["status", "dispatch"],
+});
 /** Jev answers from a fake: a test that saves a key must never reach the real API. */
-const offlineJev = () => ({ fetchImpl: fakeFetch({ status: 200, body: { data: [] } }).impl });
+const offlineJev = () => ({
+  fetchImpl: fakeFetch({ status: 200, body: { data: [] } }).impl,
+});
 const run = (over: Partial<Parameters<typeof doctor>[0]> = {}) =>
   doctor({
     host: { host: "claude-code", session: null, conflict: null },
@@ -188,7 +213,10 @@ describe("doctor", () => {
   });
 
   it("fails a logged-out Cursor a role runs on, with the login fix", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "cursor-agent"], cursor: { loggedIn: false } });
+    machine({
+      bins: ["codex", "claude", "opencode", "cursor-agent"],
+      cursor: { loggedIn: false },
+    });
     installPlugin(VERSION);
     // Composer is unscored: its inferred stand-ins let the role run (spec 1.3 §7.2)
     const saved = patchProfile(
@@ -227,12 +255,22 @@ describe("doctor", () => {
       state: "info",
       detail: "grok's read-only profile applies here; catherd runs a read-only role in it (enforced)",
     });
-    expect(check(r, "access:grok")).toMatchObject({ state: "skip", word: "not tested" });
-    expect(check(r, "isolation:grok")).toMatchObject({ state: "warn", word: "weak" });
+    expect(check(r, "access:grok")).toMatchObject({
+      state: "skip",
+      word: "not tested",
+    });
+    expect(check(r, "isolation:grok")).toMatchObject({
+      state: "warn",
+      word: "weak",
+    });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails a logged-out grok a role runs on, and says a grok this OS cannot run is one", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "grok"], grok: { loggedIn: false } });
+    machine({
+      bins: ["codex", "claude", "opencode", "grok"],
+      grok: { loggedIn: false },
+    });
     installPlugin(VERSION);
     patchProfile(
       "default",
@@ -255,7 +293,7 @@ describe("doctor", () => {
       detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
       fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
     });
-  });
+  }, 30_000);
 
   it("shows agy's version, Google login, listing and quota, its isolation note and its untested access", async () => {
     machine({ bins: ["codex", "claude", "opencode", "agy"] });
@@ -285,13 +323,19 @@ describe("doctor", () => {
     expect(check(r, "isolation:antigravity")?.detail).toBe(
       "native Antigravity shares its settings and permission rules with the Antigravity desktop app",
     );
-    expect(check(r, "access:antigravity")).toMatchObject({ state: "skip", word: "not tested" });
+    expect(check(r, "access:antigravity")).toMatchObject({
+      state: "skip",
+      word: "not tested",
+    });
     expect(r.ready).toBe(true);
   });
 
   it("fails a logged-out agy a role runs on, with the login fix, and asks it no quota", async () => {
     const usageTo = join(tempDir("catherd-usage-"), "args");
-    machine({ bins: ["codex", "claude", "opencode", "agy"], agy: { loggedIn: false, usageTo } });
+    machine({
+      bins: ["codex", "claude", "opencode", "agy"],
+      agy: { loggedIn: false, usageTo },
+    });
     process.env.HOME = tempDir("catherd-userhome-");
     installPlugin(VERSION);
     patchProfile(
@@ -300,7 +344,10 @@ describe("doctor", () => {
       { host: "claude-code" },
     );
     const r = await run();
-    expect(check(r, "backend:antigravity")).toMatchObject({ state: "fail", word: "not logged in" });
+    expect(check(r, "backend:antigravity")).toMatchObject({
+      state: "fail",
+      word: "not logged in",
+    });
     expect(check(r, "quota:antigravity")).toBeUndefined();
     expect(existsSync(usageTo)).toBe(false);
   });
@@ -314,7 +361,10 @@ describe("doctor", () => {
     });
     const r = await run();
     expect(r.ready).toBe(false);
-    expect(check(r, "backend:codex")).toMatchObject({ state: "fail", word: "missing" });
+    expect(check(r, "backend:codex")).toMatchObject({
+      state: "fail",
+      word: "missing",
+    });
     expect(check(r, "backend:codex")?.fix).toStartWith(
       "npm i -g @openai/codex\nor move its roles to claude-code",
     );
@@ -344,6 +394,7 @@ describe("doctor", () => {
     ]);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("prints move commands a shell runs as they are, after which no role needs the missing Codex", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
@@ -362,16 +413,25 @@ describe("doctor", () => {
       ANTHROPIC_API_KEY: "",
     };
     for (const c of commands) {
-      const p = Bun.spawnSync(["sh", "-c", c], { env, stdout: "pipe", stderr: "pipe" });
-      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({ c, exit: 0, err: "" });
+      const p = Bun.spawnSync(["sh", "-c", c], {
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({
+        c,
+        exit: 0,
+        err: "",
+      });
     }
     const after = await run();
     // stale failover entries may warn; nothing blocks a save
     expect(check(after, "profile")?.state).not.toBe("fail");
     expect(check(after, "backend:codex")?.state).not.toBe("fail");
     expect(after.ready).toBe(true);
-  });
+  }, 30_000);
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("resets a customised default rung the moved ladder would not hold, so every printed command runs", async () => {
     machine({ bins: ["claude"] });
     installPlugin(VERSION);
@@ -404,11 +464,19 @@ describe("doctor", () => {
       ANTHROPIC_API_KEY: "",
     };
     for (const c of commands) {
-      const p = Bun.spawnSync(["sh", "-c", c], { env, stdout: "pipe", stderr: "pipe" });
-      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({ c, exit: 0, err: "" });
+      const p = Bun.spawnSync(["sh", "-c", c], {
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect({ c, exit: p.exitCode, err: p.stderr.toString() }).toEqual({
+        c,
+        exit: 0,
+        err: "",
+      });
     }
     expect((await run()).ready).toBe(true);
-  });
+  }, 30_000);
 
   it("offers opencode when it is the backend that is ready", async () => {
     machine({ bins: ["opencode"] });
@@ -439,6 +507,7 @@ describe("doctor", () => {
     });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("says how Codex is logged in, and warns when a profile bills that login as something else", async () => {
     machine({ codex: { login: "api-key" } });
     installPlugin(VERSION);
@@ -454,8 +523,11 @@ describe("doctor", () => {
     });
     expect(JSON.stringify(r)).not.toContain("sk-proj");
     patchProfile("default", { billing: { codex: "metered" } }, { host: "claude-code" });
-    expect(check(await run(), "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
-  });
+    expect(check(await run(), "backend:codex")).toMatchObject({
+      state: "ok",
+      word: "ready",
+    });
+  }, 30_000);
 
   it("does not warn about the Codex login's billing when no profile routes anything to Codex", async () => {
     machine({ codex: { login: "api-key" } });
@@ -477,10 +549,14 @@ describe("doctor", () => {
     );
     expect(r0).toMatchObject({ saved: true, errors: [] });
     const r = await run();
-    expect(check(r, "backend:codex")).toMatchObject({ state: "ok", word: "ready" });
+    expect(check(r, "backend:codex")).toMatchObject({
+      state: "ok",
+      word: "ready",
+    });
     expect(check(r, "backend:codex")?.detail).toMatch(/^0\.157\.0 · API key login/);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails without the plugin, or with a plugin of another version", async () => {
     machine();
     patchProfile("default", {}, { host: "claude-code" });
@@ -495,7 +571,7 @@ describe("doctor", () => {
       word: "stale",
       detail: `plugin 0.9.0, catherd ${VERSION}`,
     });
-  });
+  }, 30_000);
 
   it("fails on missing agent links, with the command that relinks them", async () => {
     machine();
@@ -527,7 +603,9 @@ describe("doctor", () => {
       {
         roles: {
           reviewer: { access: "full" },
-          worker: { rungs: ["codex:gpt-6-sol#medium", "opencode:opencode-go/gpt-6-luna#high"] },
+          worker: {
+            rungs: ["codex:gpt-6-sol#medium", "opencode:opencode-go/gpt-6-luna#high"],
+          },
         },
       },
       { host: "claude-code" },
@@ -576,7 +654,11 @@ describe("doctor", () => {
   it("fails when the MCP server does not answer tools/list", async () => {
     ready();
     const r = await run({
-      handshake: async () => ({ ok: false, tools: [], error: "no answer within 20 s" }),
+      handshake: async () => ({
+        ok: false,
+        tools: [],
+        error: "no answer within 20 s",
+      }),
     });
     expect([r.ready, check(r, "mcp")?.detail]).toEqual([false, "no answer within 20 s"]);
   });
@@ -626,7 +708,10 @@ describe("doctor", () => {
     installPlugin(VERSION);
     patchProfile("default", {}, { host: "claude-code" });
     const r = await run();
-    expect(check(r, "sandbox:codex")).toMatchObject({ state: "ok", detail: "codex sandbox" });
+    expect(check(r, "sandbox:codex")).toMatchObject({
+      state: "ok",
+      detail: "codex sandbox",
+    });
     expect(check(r, "access:codex")).toMatchObject({
       state: "ok",
       detail: "lock-dir write, temp write, loopback bind, outbound HTTPS in codex sandbox · no docker",
@@ -690,6 +775,7 @@ describe("doctor", () => {
     ]);
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("falls back to the old codex sandbox form, and skips when neither form runs", async () => {
     machine({ codex: { sandboxForm: "old" } });
     installPlugin(VERSION);
@@ -701,9 +787,15 @@ describe("doctor", () => {
     installPlugin(VERSION);
     patchProfile("default", {}, { host: "claude-code" });
     const none = await run();
-    expect(check(none, "sandbox:codex")).toMatchObject({ state: "skip", word: "not tested" });
-    expect(check(none, "access:codex")).toMatchObject({ state: "skip", word: "not tested" });
-  });
+    expect(check(none, "sandbox:codex")).toMatchObject({
+      state: "skip",
+      word: "not tested",
+    });
+    expect(check(none, "access:codex")).toMatchObject({
+      state: "skip",
+      word: "not tested",
+    });
+  }, 30_000);
 
   it("probes no network for roles whose network is off, and says opencode cannot enforce it", async () => {
     const argsTo = join(binDir(), "sandbox-args.jsonl");
@@ -712,7 +804,11 @@ describe("doctor", () => {
     patchProfile(
       "default",
       {
-        roles: { worker: { network: false }, writer: { network: false }, artist: { network: false } },
+        roles: {
+          worker: { network: false },
+          writer: { network: false },
+          artist: { network: false },
+        },
       },
       { host: "claude-code" },
     );
@@ -742,7 +838,11 @@ describe("doctor", () => {
     patchProfile(
       "default",
       {
-        roles: { worker: { network: false }, writer: { network: false }, artist: { network: false } },
+        roles: {
+          worker: { network: false },
+          writer: { network: false },
+          artist: { network: false },
+        },
       },
       { host: "claude-code" },
     );
@@ -776,12 +876,16 @@ describe("doctor", () => {
     mkdirSync(dirname(locksDir()), { recursive: true });
     writeFileSync(locksDir(), "not a dir");
     const r = await run();
-    expect(check(r, "locks")).toMatchObject({ state: "fail", word: "not writable" });
+    expect(check(r, "locks")).toMatchObject({
+      state: "fail",
+      word: "not writable",
+    });
     const c = check(r, "access:opencode");
     expect(c).toMatchObject({ state: "warn", word: "blocked" });
     expect(c?.detail).toContain("lock-dir write (cannot create");
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("skips the access probes of a backend that is not installed, and runs none of them", async () => {
     machine({ bins: ["codex", "claude"] });
     const marker = join(binDir(), "docker-ran");
@@ -808,7 +912,7 @@ describe("doctor", () => {
     expect(check(none, "access:codex")?.word).toBe("not installed");
     expect(check(none, "sandbox:codex")).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
-  });
+  }, 30_000);
 
   it("names a failed probe by its last stderr line, not stdout's or Bun's version trailer", async () => {
     machine();
@@ -832,7 +936,11 @@ describe("doctor", () => {
 
   it("counts a proxy's 407 or 403 as blocked HTTPS, not reachable", async () => {
     for (const status of [407, 403]) {
-      const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("", { status }) });
+      const proxy = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch: () => new Response("", { status }),
+      });
       try {
         machine();
         process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${proxy.port}/-/ping`;
@@ -863,6 +971,7 @@ describe("doctor", () => {
     expect(r.find((p) => p.id === "temp")?.why).toBe("the probe shell did not start");
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("tests a Jev key, and skips Jev when the profile turns it off", async () => {
     ready();
     saveJevKey("tsk-test-key-0123456789");
@@ -877,8 +986,11 @@ describe("doctor", () => {
       word: "no answer",
     });
     patchProfile("default", { jev: { use: "off" } }, { host: "claude-code" });
-    expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
-  });
+    expect(check(await run(), "jev")).toMatchObject({
+      state: "skip",
+      word: "off",
+    });
+  }, 30_000);
 
   it("validates linked profiles diagnostically and uses only selected profile for Jev", async () => {
     ready();
@@ -888,10 +1000,19 @@ describe("doctor", () => {
     const doc = JSON.parse(readFileSync(file, "utf8"));
     writeFileSync(
       file,
-      JSON.stringify({ ...doc, roles: { ...doc.roles, worker: { ...doc.roles.worker, enabled: false } } }),
+      JSON.stringify({
+        ...doc,
+        roles: {
+          ...doc.roles,
+          worker: { ...doc.roles.worker, enabled: false },
+        },
+      }),
     );
     const r = await run();
-    expect(check(r, "profile")).toMatchObject({ state: "ok", label: "profile default" });
+    expect(check(r, "profile")).toMatchObject({
+      state: "ok",
+      label: "profile default",
+    });
     expect(check(r, "profile:team")).toMatchObject({
       state: "warn",
       word: "invalid",
@@ -899,9 +1020,15 @@ describe("doctor", () => {
       fix: "catherd profile set --profile team --host claude-code roles.worker.enabled true",
     });
     patchProfile("default", { jev: { use: "off" } }, { host: "claude-code" });
-    expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
+    expect(check(await run(), "jev")).toMatchObject({
+      state: "skip",
+      word: "off",
+    });
     writeFileSync(file, JSON.stringify({ ...doc, jev: { use: "off" } }));
-    expect(check(await run(), "jev")).toMatchObject({ state: "skip", word: "off" });
+    expect(check(await run(), "jev")).toMatchObject({
+      state: "skip",
+      word: "off",
+    });
     // three whole doctor runs, each probing every simulated CLI: a slow macOS runner outlasts the 5 s default
   }, 30_000);
 
@@ -961,7 +1088,10 @@ describe("doctor", () => {
       return only;
     });
     const r = await run();
-    expect(check(r, "backend:codex")).toMatchObject({ state: "fail", word: "missing" });
+    expect(check(r, "backend:codex")).toMatchObject({
+      state: "fail",
+      word: "missing",
+    });
     expect(check(r, "profile:team")).toMatchObject({ state: "warn" });
   });
 
@@ -1012,9 +1142,13 @@ describe("doctor", () => {
     writeFileSync(overridePath(), "{ not json");
     const r = await run();
     expect(r.ready).toBe(false);
-    expect(check(r, "profile")).toMatchObject({ state: "fail", fix: `fix or delete ${overridePath()}` });
+    expect(check(r, "profile")).toMatchObject({
+      state: "fail",
+      fix: `fix or delete ${overridePath()}`,
+    });
   });
 
+  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
   it("fails on an old Bun, an invalid profile, and a 0.x config", async () => {
     ready();
     expect(check(await run({ bunVersion: "1.3.11" }), "bun")).toMatchObject({
@@ -1025,15 +1159,24 @@ describe("doctor", () => {
     const doc = JSON.parse(readFileSync(join(dirname(configFile()), "profiles", "default.json"), "utf8"));
     writeFileSync(
       join(dirname(configFile()), "profiles", "default.json"),
-      JSON.stringify({ ...doc, roles: { ...doc.roles, worker: { ...doc.roles.worker, enabled: false } } }),
+      JSON.stringify({
+        ...doc,
+        roles: {
+          ...doc.roles,
+          worker: { ...doc.roles.worker, enabled: false },
+        },
+      }),
     );
-    expect(check(await run(), "profile")).toMatchObject({ state: "fail", word: "invalid" });
+    expect(check(await run(), "profile")).toMatchObject({
+      state: "fail",
+      word: "invalid",
+    });
     writeFileSync(configFile(), JSON.stringify({ activeProfile: "default" }));
     expect(check(await run(), "config")).toMatchObject({
       state: "fail",
       fix: "run catherd init, which moves 0.x files aside and writes 1.0 ones",
     });
-  });
+  }, 30_000);
 });
 
 it("codex_ready_other_profile_broken keeps readiness selected and does no Claude writes", async () => {
@@ -1048,19 +1191,27 @@ it("codex_ready_other_profile_broken keeps readiness selected and does no Claude
   const bindings = JSON.parse(readFileSync(projectsFile(), "utf8"));
   bindings.bindings["/other/repo"] = "broken";
   writeFileSync(projectsFile(), JSON.stringify(bindings));
-  const r = await run({ host: { host: "codex", session: null, conflict: null }, repo });
+  const r = await run({
+    host: { host: "codex", session: null, conflict: null },
+    repo,
+  });
   expect(r.ready).toBe(true);
   expect(check(r, "profile:broken")?.state).toBe("warn");
   expect(check(r, "plugin")?.state).toBe("skip");
   expect(check(r, "backend:claude-code")?.state).toBe("skip");
   expect(existsSync(join(process.env.CLAUDE_CONFIG_DIR!, "agents"))).toBe(false);
   expect(existsSync(process.env.CATHERD_CLAUDE_AGENTS_DIR!)).toBe(false);
-  const ctx = { host: { host: "codex" as const, session: null, conflict: null }, repo };
+  const ctx = {
+    host: { host: "codex" as const, session: null, conflict: null },
+    repo,
+  };
   expect(
     patchProfile(
       "team",
       {
-        roles: { writer: { enabled: false, rungs: ["claude:claude-opus-5-5#high"] } },
+        roles: {
+          writer: { enabled: false, rungs: ["claude:claude-opus-5-5#high"] },
+        },
         failover: { "codex:unused-model#high": "claude:claude-opus-5-5#low" },
       },
       { host: "codex" },
@@ -1070,7 +1221,11 @@ it("codex_ready_other_profile_broken keeps readiness selected and does no Claude
   expect(
     patchProfile(
       "team",
-      { failover: { "codex:gpt-6-luna#high": "claude-code:claude-opus-5-5#high" } },
+      {
+        failover: {
+          "codex:gpt-6-luna#high": "claude-code:claude-opus-5-5#high",
+        },
+      },
       { host: "codex" },
     ).saved,
   ).toBe(true);
@@ -1088,7 +1243,7 @@ it("codex_ready_other_profile_broken keeps readiness selected and does no Claude
   expect(required.ready).toBe(false);
   expect(check(required, "backend:claude-code")?.state).toBe("fail");
   expect(existsSync(process.env.CATHERD_CLAUDE_AGENTS_DIR!)).toBe(false);
-});
+}, 30_000);
 
 it("native failover-only missing managed links warn while the Claude host still requires its plugin", async () => {
   machine({ bins: ["codex"] });
@@ -1103,11 +1258,17 @@ it("native failover-only missing managed links warn while the Claude host still 
       { host: "claude-code" },
     ).saved,
   ).toBe(true);
-  rmSync(process.env.CATHERD_CLAUDE_AGENTS_DIR!, { recursive: true, force: true });
+  rmSync(process.env.CATHERD_CLAUDE_AGENTS_DIR!, {
+    recursive: true,
+    force: true,
+  });
   const r = await run();
   expect(check(r, "agents")?.state).toBe("warn");
   expect(r.ready).toBe(true);
-  rmSync(join(process.env.CLAUDE_CONFIG_DIR!, "plugins"), { recursive: true, force: true });
+  rmSync(join(process.env.CLAUDE_CONFIG_DIR!, "plugins"), {
+    recursive: true,
+    force: true,
+  });
   expect(check(await run(), "plugin")?.state).toBe("fail");
 });
 
@@ -1128,7 +1289,10 @@ it("default_doctor_sends_nothing even when a smoke callback is available", async
   expect(sent).toBe(0);
   const explicit = await run({ testPush: true, push });
   expect(sent).toBe(1);
-  expect(explicit.push).toMatchObject({ enqueue: "accepted", processing: "unconfirmed" });
+  expect(explicit.push).toMatchObject({
+    enqueue: "accepted",
+    processing: "unconfirmed",
+  });
 });
 
 it("Codex-only doctor never invokes an unused Claude CLI that writes configuration, but selected headless roles still probe", async () => {
@@ -1143,9 +1307,14 @@ it("Codex-only doctor never invokes an unused Claude CLI that writes configurati
     { mode: 0o755 },
   );
   process.env.PATH = `${bin}:${process.env.PATH}`;
-  const ctx = { host: { host: "codex" as const, session: null, conflict: null } };
+  const ctx = {
+    host: { host: "codex" as const, session: null, conflict: null },
+  };
   const unused = await run(ctx);
-  expect(check(unused, "backend:claude-code")).toMatchObject({ state: "skip", word: "not required" });
+  expect(check(unused, "backend:claude-code")).toMatchObject({
+    state: "skip",
+    word: "not required",
+  });
   expect(existsSync(calls)).toBe(false);
   expect(existsSync(join(process.env.CLAUDE_CONFIG_DIR!, "probe-sentinel"))).toBe(false);
   expect(
@@ -1164,11 +1333,22 @@ it("Codex-only doctor never invokes an unused Claude CLI that writes configurati
       "default",
       {
         roles: { architect: { rungs: ["codex:gpt-6.1-sol#high"] } },
-        failover: { "codex:gpt-6-luna#high": "claude-code:claude-opus-5-5#high" },
+        failover: {
+          "codex:gpt-6-luna#high": "claude-code:claude-opus-5-5#high",
+        },
       },
       { host: "codex" },
     ).saved,
   ).toBe(true);
   expect(check(await run(ctx), "backend:claude-code")?.state).toBe("warn");
   expect(readFileSync(calls, "utf8")).toContain("auth status --json");
+});
+
+describe("accessRepos (Codex P2: only the checked profiles' repos)", () => {
+  it("keeps the current repo and the repos bound to a checked profile, and drops the others", () => {
+    const bindings = { "/a": "default", "/b": "other", "/c": "default" };
+    expect(accessRepos("/here", bindings, ["default"])).toEqual(["/here", "/a", "/c"]);
+    expect(accessRepos(null, bindings, ["other"])).toEqual(["/b"]);
+    expect(accessRepos("/a", bindings, [])).toEqual(["/a"]);
+  });
 });

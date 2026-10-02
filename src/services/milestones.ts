@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import type { RunRecord } from "../domain/record.ts";
-import { git } from "../infra/git.ts";
+import { commitExists, git } from "../infra/git.ts";
 import { nonBlankLines } from "../infra/store.ts";
 import { listDispatches } from "./dispatches.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -259,12 +259,16 @@ export function landedMilestones(run: Run): string[] {
 }
 
 /**
- * The files the milestone's commit range changed: from the previous landed commit (else the commit's own
- * parent) to `commit`. Throws E_IO_UNEXPECTED when git cannot say.
+ * The files the milestone's commit range changed: from the previous landed commit, else the HEAD the run
+ * started on (meta.json `startHead`, when that commit is still there), else the commit's own parent, to
+ * `commit`. Throws E_IO_UNEXPECTED when git cannot say.
  */
 export async function milestoneFiles(run: Run, commit: string): Promise<string[]> {
-  const base = landedCommits(run).at(-1);
   const repo = run.meta.repo;
+  const start = run.meta.startHead;
+  const base =
+    landedCommits(run).at(-1) ??
+    (start && (await commitExists(repo, start).catch(() => false)) ? start : undefined);
   const r = base
     ? await git(repo, ["diff", "--name-only", base, commit])
     : await git(repo, ["show", "--name-only", "--format=", "--first-parent", commit]);

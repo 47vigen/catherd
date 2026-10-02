@@ -100,7 +100,13 @@ function plan(r: RunRequest): SpawnPlan {
 }
 
 async function listModels(): Promise<DiscoveredModel[]> {
-  const r = await runCli(cursorBin(), ["models"], { ...cursorShell, env: { NO_OPEN_BROWSER: "1" } });
+  const bin = cursorBin();
+  // an `agent` that is not Cursor's (grok's, say) is never asked for models: nothing to list, as when absent
+  if (bin === "agent") {
+    const v = await runCli(bin, ["--version"], cursorShell).catch(() => null);
+    if (!v || !CURSOR_VERSION.test(v.out)) return [];
+  }
+  const r = await runCli(bin, ["models"], { ...cursorShell, env: { NO_OPEN_BROWSER: "1" } });
   return r?.ok ? parseCursorModels(r.out) : [];
 }
 

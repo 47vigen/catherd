@@ -364,8 +364,9 @@ Look for, one at a time:
    `jq -r 'select(.role) | "\(.role) \(.name) \(.status)"' "$run/agents.jsonl"` a verifier row naming each
    milestone.
 5. A worker ran `bun install` and its tests itself:
-   `grep -l 'bun test' "$run"/roles/*/*/events.jsonl` names three dispatch folders
-   (`roles/<name>/<dispatch>/events.jsonl`: the folder above each is a worker's name), and no `bun test` appears
+   `grep -l 'bun test' "$run"/roles/*/*/events.jsonl` names at least three dispatch folders, one per worker lane
+   (a reviewer or verifier that runs `bun test` adds its own; `roles/<name>/<dispatch>/events.jsonl`: the folder
+   above each is the role's name), and no `bun test` appears
    in the orchestrator's own tool calls in `run.jsonl`.
 6. Replies carry STATUS: `catherd runs show "$(basename "$run")" --json | jq -r '.records[].replyStatus'` prints
    no `null`.
@@ -386,8 +387,10 @@ then, since `totals.wallMinutes` counts from the run's start to the moment you a
 ```sh
 run="$(catherd runs list --json | jq -r '.runs[0].id')"
 catherd status "$run" --json | jq '.runs[0] | {wallMinutes: .totals.wallMinutes, notOk: .totals.notOk, milestones}'
+dir="$(ls -dt ~/.local/share/catherd/repos/*/runs/"$run"/ | head -1)"
+# a native verifier (a Claude subagent) is in agents.jsonl, a headless one (claude-code:, codex:) in runs.jsonl
 jq -r 'select(.role == "verifier") | "\(.name) \(.status) \((.secs // 0) / 60 | floor) min"' \
-  "$(ls -dt ~/.local/share/catherd/repos/*/runs/"$run"/ | head -1)agents.jsonl"
+  "${dir}agents.jsonl" "${dir}runs.jsonl"
 ```
 
 Write down: the total minutes, the verifier's minutes and how many gate items it carried over (`carried over
@@ -1006,3 +1009,18 @@ What the simulator cannot show. Record each observation, with the versions, in t
 | opencode provider outage | On an opencode rung whose provider answers 503 (or with the network to it blocked), the stream shows `step_start` events with nothing between, or the session message carries `retry.attempt`. Within 3 retries or 3 minutes the attempt ends `provider-unavailable`, its record is a `limit` with `error.code: provider-unavailable`, and failover starts the rung's stand-in on another backend. Record whether opencode emits a `step_start` per retry on the version in use. |
 | doctor --docker | On a machine whose `~/.docker/config.json` has a `proxies` block, plain `catherd doctor` warns `docker-proxies`; `catherd doctor --docker` reports `compose network` blocked after two tries 5 s apart, and ready once the block is removed. With less than 10 GB free in Docker's data root on Linux, `docker-disk` warns; on macOS (Docker in a VM) the row is absent. |
 | Long gate behind catherd lock | A verifier whose root gate runs longer than its `wallMin` behind `catherd lock`, printing as it goes, is not stopped at `wallMin`; with the gate silent for `wallMin`, it is. `roles.verifier.timeouts.wallMin` raises the wall for that role alone. |
+
+## 18. Install checks from the minors sweep (1.5, plan 26)
+
+Two behaviours only a real install shows. On a machine with a published catherd:
+
+1. **`bunx` and the global install.** With an older global catherd first on PATH (or none), run
+   `bunx catherd-cli@latest init --no-input`. `init` must check the catherd in bun's global bin
+   (`bun pm bin -g`), not the one bunx puts first on PATH from its own `node_modules/.bin`: it installs or
+   reports the global one as current, and says `installed globally, but the catherd first on PATH is <older>`
+   (shadowed) while the older one comes first. Then `which catherd && catherd --version` shows what the plugin's
+   launcher will start.
+2. **A blackholed registry.** In the release candidate checkout (§9), with `bun remove -g catherd-cli` first:
+   `BUN_CONFIG_REGISTRY=http://10.255.255.1 bun src/cli.ts init --no-input`. `init` says `installing catherd…`,
+   then within about two minutes `could not install catherd globally: add -g catherd-cli@<version> timed out after
+   120 s` with the retry command, and goes on. Reinstall the candidate afterwards as §9 does.

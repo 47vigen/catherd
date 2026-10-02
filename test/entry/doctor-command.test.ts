@@ -145,7 +145,7 @@ describe("catherd doctor", () => {
     expect(text).toContain("✓ ready              Bun");
     expect(text).not.toContain("+ ready");
     expect(doctor("--plain").out).toContain("+ ready              Bun");
-  });
+  }, 30_000);
 
   it("never prints or logs a bare key pasted into credentials.json, and names the file (B1)", () => {
     machine();

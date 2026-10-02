@@ -19,10 +19,13 @@ import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
-import { noPosixModes, openModes, snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { noPosixModes, openModes, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
+
+/** The spawned init's BUN_INSTALL: never the user's own global folder (1.1 follow-ups). */
+const INIT_BUN_INSTALL = tempDir("catherd-bun-install-");
 
 function init(args: string[], stdin = "", cwd?: string) {
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), "init", ...args], {
@@ -34,6 +37,9 @@ function init(args: string[], stdin = "", cwd?: string) {
       PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
       // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
       BUN_INSTALL_BIN: join(import.meta.dir, "..", "bin"),
+      // and should that ever miss, bun add -g lands in a scratch folder and its registry refuses at once
+      BUN_INSTALL: INIT_BUN_INSTALL,
+      BUN_CONFIG_REGISTRY: "http://127.0.0.1:9",
       TYPESAFE_API_KEY: "",
       ARTIFICIAL_ANALYSIS_API_KEY: "",
       ANTHROPIC_API_KEY: "",

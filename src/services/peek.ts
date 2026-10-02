@@ -96,7 +96,8 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
   const agents = readAgentRuns(run).filter((a) => name === undefined || a.name === name);
   const native = agents.at(-1);
-  const r = reentry(run, now);
+  const notes = readNotes(run);
+  const re = reentry(run, now, notes);
   const live = liveDispatches(run, now);
   // the whole run decides it, whatever `name` narrows the view to
   const act = actionability(
@@ -104,10 +105,10 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
     listDispatches(run).flatMap((d) =>
       records.has(d.admit.dispatchId) && awaitsCollect(d.dir) ? [{ name: d.admit.name }] : [],
     ),
-    r.protocol.next,
+    re.protocol.next,
   );
   return {
-    questions: r.questions,
+    questions: re.questions,
     run: run.id,
     title: run.meta.title,
     owner: runOwner(run)?.sessionId ?? null,
@@ -149,9 +150,9 @@ function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
     native: native
       ? { name: native.name, role: native.role, rung: native.rung, status: native.status, at: native.at }
       : null,
-    next: readNotes(run).next,
-    protocol: r.protocol,
-    verifier: r.verifier,
+    next: notes.next,
+    protocol: re.protocol,
+    verifier: re.verifier,
     ...act,
   };
 }

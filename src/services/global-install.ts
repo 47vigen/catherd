@@ -23,25 +23,51 @@ export type GlobalInstall =
   | { state: "shadowed"; onPath: string | null }
   | { state: "failed"; reason: string };
 
-async function run(cmd: string[]): Promise<{ ok: boolean; stdout: string; output: string }> {
+/** How long `bun add -g` may take: a blackholed or proxied registry would otherwise hold `init` for as long as Bun retries. */
+export const installLimits = { timeoutMs: 120_000 };
+
+/** How long a `catherd --version` probe may take before its version counts as unknown. */
+export const versionLimits = { timeoutMs: 10_000 };
+
+/**
+ * `cmd` with its output. Past `timeoutMs` it is killed and reported as failed with the reason; its output is
+ * not awaited then, since a child it started may still hold the pipes open.
+ */
+export async function run(
+  cmd: string[],
+  timeoutMs?: number,
+): Promise<{ ok: boolean; stdout: string; output: string }> {
   const p = Bun.spawn(cmd, {
     env: scrubSecrets(process.env),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [out, err, code] = await Promise.all([
-    new Response(p.stdout).text(),
-    new Response(p.stderr).text(),
-    p.exited,
-  ]);
-  return { ok: code === 0, stdout: out, output: `${err}${out}` };
+  const out = new Response(p.stdout).text().catch(() => "");
+  const err = new Response(p.stderr).text().catch(() => "");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => {
+    if (timeoutMs !== undefined) timer = setTimeout(() => resolve("late"), timeoutMs);
+  });
+  const code = await Promise.race([p.exited, late]).finally(() => clearTimeout(timer));
+  if (code === "late") {
+    p.kill("SIGKILL");
+    const what = cmd.slice(1).join(" ");
+    return {
+      ok: false,
+      stdout: "",
+      output: `${what} timed out after ${Math.round((timeoutMs ?? 0) / 1000)} s`,
+    };
+  }
+  const [stdout, stderr] = await Promise.all([out, err]);
+  return { ok: code === 0, stdout, output: `${stderr}${stdout}` };
 }
 
 /** what `bin --version` prints on stdout (a warning on stderr must not make it look like another version) */
 async function versionOf(bin: string | null): Promise<string | null> {
   if (!bin) return null;
-  const r = await run([bin, "--version"]).catch(() => null);
+  // a wedged `catherd` on PATH must not hold `init`: past the limit its version is unknown
+  const r = await run([bin, "--version"], versionLimits.timeoutMs).catch(() => null);
   return r?.ok ? r.stdout.trim() || null : null;
 }
 
@@ -71,10 +97,12 @@ export const realGlobalInstall: GlobalInstallDeps = {
     return versionOf(Bun.which("catherd", { PATH }));
   },
   install: (version) =>
-    run([process.execPath, "add", "-g", `catherd-cli@${version}`]).catch((e: unknown) => ({
-      ok: false,
-      output: errorMessage(e),
-    })),
+    run([process.execPath, "add", "-g", `catherd-cli@${version}`], installLimits.timeoutMs).catch(
+      (e: unknown) => ({
+        ok: false,
+        output: errorMessage(e),
+      }),
+    ),
 };
 
 /**
@@ -86,7 +114,12 @@ export async function ensureGlobal(
   deps: GlobalInstallDeps,
   installing: () => void,
 ): Promise<GlobalInstall> {
-  if ((await deps.globalVersion()) === version) return { state: "current" };
+  if ((await deps.globalVersion()) === version) {
+    // current, but the launcher runs the catherd PATH finds first: another version there (or none) still
+    // makes it fall back to bunx, so say so as after an install
+    const onPath = await deps.pathVersion().catch(() => null);
+    return onPath === version ? { state: "current" } : { state: "shadowed", onPath };
+  }
   installing();
   // never rejects: a failed install is reported, and init goes on
   const r = await deps.install(version).catch((e: unknown) => ({ ok: false, output: errorMessage(e) }));

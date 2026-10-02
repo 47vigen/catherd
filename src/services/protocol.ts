@@ -50,30 +50,48 @@ function laneIds(run: Run): string[] {
     .sort(byNumber);
 }
 
+/** What laneDone reads of the run, read once for every lane of the milestone. */
+interface LaneEvidence {
+  routes: RouteRow[];
+  live: Dispatch[];
+  records: Map<string, RunRecord>;
+  dispatches: Dispatch[];
+  agents: ReturnType<typeof readAgentRuns>;
+}
+
+function laneEvidence(run: Run, routes: RouteRow[], live: Dispatch[]): LaneEvidence {
+  return {
+    routes,
+    live,
+    records: new Map(readRecords(run).records.map((r) => [r.dispatchId, r])),
+    dispatches: listDispatches(run),
+    agents: readAgentRuns(run),
+  };
+}
+
 /**
  * Whether `lane` needs no dispatch now: its latest dispatch or native agent run since its latest climb is
  * still running, or ended ok with no blocked or refused reply. A lane whose last try failed, hit a limit,
  * was blocked, or was climbed since goes back to dispatch; a plain re-route leaves an ok try standing.
  */
-function laneDone(run: Run, lane: string, routes: RouteRow[], live: Dispatch[]): boolean {
+function laneDone(lane: string, e: LaneEvidence): boolean {
   const from = Math.max(
-    ...routes.filter((r) => r.lane === lane && r.source === "climb").map((r) => Date.parse(r.at)),
+    ...e.routes.filter((r) => r.lane === lane && r.source === "climb").map((r) => Date.parse(r.at)),
   );
   // a dispatch routes its lane first, so a try at the route's own time counts as after it
   const after = (t: string) => !(Date.parse(t) < from);
-  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
-  const running = new Set(live.map((d) => d.admit.dispatchId));
+  const running = new Set(e.live.map((d) => d.admit.dispatchId));
   const tries = [
-    ...listDispatches(run)
+    ...e.dispatches
       .filter((d) => d.admit.lane === lane && after(d.admit.admittedAt))
       .map((d) => {
-        const r = records.get(d.admit.dispatchId);
+        const r = e.records.get(d.admit.dispatchId);
         const ok = r
           ? r.status === "ok" && r.replyStatus !== "blocked" && r.replyStatus !== "refused"
           : running.has(d.admit.dispatchId);
         return { at: Date.parse(d.admit.admittedAt), ok };
       }),
-    ...readAgentRuns(run)
+    ...e.agents
       .filter((a) => a.lane === lane && after(a.at))
       .map((a) => ({ at: Date.parse(a.at), ok: a.status === "ok" })),
   ];
@@ -99,7 +117,10 @@ function afterOf(run: Run, lane: string): string[] {
  */
 export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = readRoutes(run)): string[] {
   const landed = new Set(landedMilestones(run));
-  return afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)) && !laneDone(run, a, routes, []));
+  const after = afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)));
+  if (after.length === 0) return [];
+  const evidence = laneEvidence(run, routes, []);
+  return after.filter((a) => !laneDone(a, evidence));
 }
 
 /**
@@ -122,7 +143,8 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
   const routed = new Set(routes.map((r) => r.lane));
   if (mine.some((l) => !routed.has(l))) return `route and preflight ${m}'s lanes`;
   const live = liveDispatches(run, now);
-  const notDone = mine.filter((l) => !laneDone(run, l, routes, live));
+  const evidence = laneEvidence(run, routes, live);
+  const notDone = mine.filter((l) => !laneDone(l, evidence));
   // spec 1.1 §9: a climb past the top rung (from === rung) leaves nothing to climb to; that is a decision
   const spent = notDone.filter((l) => {
     const last = routes.findLast((r) => r.lane === l);

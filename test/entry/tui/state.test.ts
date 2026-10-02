@@ -265,6 +265,28 @@ describe("dialogs and armed keys", () => {
     expect(run(s, { type: "session", key: "s2" }).milestone).toBeNull();
     expect(initialState("runs", "claude-code").milestone).toBeNull();
   });
+
+  it("keeps where esc lands in the state: the session, and the last role or milestone opened in it", () => {
+    const s = run(
+      initialState("runs", "claude-code"),
+      { type: "session", key: "s1" },
+      { type: "role", run: "r1", dispatchId: "d1" },
+      { type: "up" },
+      { type: "milestone", run: "r1", name: "M0" },
+      { type: "up" },
+      { type: "up" },
+    );
+    expect(s.back).toEqual({ session: "s1", role: null, milestone: { run: "r1", name: "M0" } });
+    // the same session again keeps that row; another one, or one opened for a run, starts afresh
+    expect(run(s, { type: "session", key: "s1" }).back?.milestone).toEqual({ run: "r1", name: "M0" });
+    expect(run(s, { type: "session", key: "s2" }).back).toEqual({
+      session: "s2",
+      role: null,
+      milestone: null,
+    });
+    const forRun = run(s, { type: "session", key: "s1", run: "r2" });
+    expect([forRun.session, forRun.back?.milestone]).toEqual([{ key: "s1", run: "r2" }, null]);
+  });
 });
 
 it("tui_host_preview_save counts draft changes under one pinned host with no unknown fallback", () => {

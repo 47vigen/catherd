@@ -50,6 +50,13 @@ describe("catherd profile show", () => {
       .out.split("\n")
       .find((l) => l.startsWith("  writer"));
     expect(writer).toContain("workspace-write (no network), enforced");
+    // every ladder still starts in one column (1.1 follow-ups)
+    const ladderAt = (l: string) => l.length - l.replace(/^ {2}\S+ +\S.*?, (enforced|advisory) +/, "").length;
+    const roles = catherd(["show"])
+      .out.split("\n")
+      .filter((l) => /, (enforced|advisory) /.test(l));
+    expect(roles.length).toBeGreaterThan(3);
+    expect(new Set(roles.map(ladderAt)).size).toBe(1);
   });
 
   it("sets and shows a role's own wall timeout under the profile's (plan 23)", () => {

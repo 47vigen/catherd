@@ -1,4 +1,4 @@
-import { type MutableRefObject, useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import { waitingLine } from "../../../services/orchestrator-wait.ts";
 import { useApp, useBack, useNow } from "../providers/app.tsx";
 import { useData, usePoll } from "../providers/data.tsx";
@@ -8,7 +8,7 @@ import { useUi } from "../providers/theme.tsx";
 import { isArmed } from "../state.ts";
 import { ago, clock, plural, shortRung, wrap, wrapHanging } from "../text.ts";
 import { glyph, mascot, type Token } from "../theme.ts";
-import type { RoleRow, SessionRow, SessionRun } from "../effects.ts";
+import type { RoleRow, SessionDetail, SessionRow, SessionRun } from "../effects.ts";
 import { Line, type Part } from "../widgets/line.tsx";
 import { List, type ListItem, useSelected } from "../widgets/list.tsx";
 
@@ -184,8 +184,11 @@ function useLiveRead<T extends { dirs: string[] }>(read: () => T, key: string) {
   const app = useApp();
   const [watching, setWatching] = useState(false);
   const polled = usePoll(read, watching ? WATCHED_EVERY_MS : RUN_EVERY_MS, { paused: app.state.paused, key });
+  // the watch calls the latest refresh; the ref moves after each commit, never during a render
   const refresh = useRef(polled.refresh);
-  refresh.current = polled.refresh;
+  useEffect(() => {
+    refresh.current = polled.refresh;
+  });
   const dirs = polled.value?.dirs.join("\n") ?? "";
   useEffect(() => {
     if (app.state.paused || dirs === "") {
@@ -199,8 +202,26 @@ function useLiveRead<T extends { dirs: string[] }>(read: () => T, key: string) {
   return { ...polled, watching };
 }
 
+/**
+ * The row a session's screen starts on before the cursor moves: the first row of the run it was opened for,
+ * else its first live role (live roles can sit below many landed milestones), else its first row.
+ */
+function startRow(d: SessionDetail, run: string | undefined): string | null {
+  const rows = (r: SessionDetail["runs"][number]) => [
+    ...r.milestones.map((m) => milestoneKey(r.id, m.name)),
+    ...r.roles.map((x) => roleKey(x.run, x.dispatchId)),
+  ];
+  const asked = run === undefined ? undefined : d.runs.find((r) => r.id === run);
+  const first = asked ? rows(asked)[0] : undefined;
+  if (first) return first;
+  const live = d.runs.flatMap((r) => r.roles).find((x) => x.live);
+  if (live) return roleKey(live.run, live.dispatchId);
+  return d.runs.flatMap(rows)[0] ?? null;
+}
+
 function SessionView(props: {
   sessionKey: string | null;
+  run: string | undefined;
   width: number;
   height: number;
   initial: string | null;
@@ -209,17 +230,26 @@ function SessionView(props: {
   const app = useApp();
   const ui = useUi();
   const now = useNow(1_000);
-  const [selected, setSelected, selectedNow] = useSelection(props.initial);
+  const [chosen, setSelected, chosenNow] = useSelection(props.initial);
   const polled = useLiveRead(() => app.effects.session(props.sessionKey), String(props.sessionKey));
   useRefresher(props.refresher, polled.refresh);
   useBack(true, "view", () => app.dispatch({ type: "up" }));
   const d = polled.value;
-  const roleAt = (key: string | null) =>
-    d?.runs.flatMap((r) => r.roles).find((x) => key === roleKey(x.run, x.dispatchId)) ?? null;
-  const milestoneAt = (key: string | null) =>
-    d?.runs
-      .flatMap((r) => r.milestones.map((m) => ({ run: r.id, name: m.name })))
-      .find((x) => key === milestoneKey(x.run, x.name)) ?? null;
+  // each row's role or milestone by its key, built once per read rather than on every key
+  const byKey = useMemo(() => {
+    const roles = new Map<string, RoleRow>();
+    const milestones = new Map<string, { run: string; name: string }>();
+    for (const r of d?.runs ?? []) {
+      for (const m of r.milestones) milestones.set(milestoneKey(r.id, m.name), { run: r.id, name: m.name });
+      for (const x of r.roles) roles.set(roleKey(x.run, x.dispatchId), x);
+    }
+    return { roles, milestones, start: d ? startRow(d, props.run) : null };
+  }, [d, props.run]);
+  // until the cursor moves, it stands on the start row
+  const selected = chosen ?? byKey.start;
+  const selectedNow = () => chosenNow() ?? byKey.start;
+  const roleAt = (key: string | null) => (key === null ? null : (byKey.roles.get(key) ?? null));
+  const milestoneAt = (key: string | null) => (key === null ? null : (byKey.milestones.get(key) ?? null));
   useCommandLayer("row.runs", {
     "runs.open": () => {
       const k = selectedNow();
@@ -278,7 +308,7 @@ function SessionView(props: {
                 : { text: `${glyph("waiting", ui.plain)} ${m.name}`, tone: "muted" },
               m.landed
                 ? { text: m.what ? `  ${m.what}` : "", tone: "muted" }
-                : { text: "  not landed", tone: "muted" },
+                : { text: `  not landed${m.what ? ` · ${m.what}` : ""}`, tone: "muted" },
             ]}
           />
         ),
@@ -352,10 +382,17 @@ function RoleView(props: {
   const app = useApp();
   const ui = useUi();
   const [selected, setSelected] = useSelection();
+  // a role with its record is finished for good: nothing on its screen changes, so it is read no more
+  // (r still reads it again)
+  const [done, setDone] = useState(false);
   const polled = usePoll(() => app.effects.role(props.run, props.dispatchId), RUN_EVERY_MS, {
-    paused: app.state.paused,
+    paused: app.state.paused || done,
     key: `${props.run}/${props.dispatchId}`,
   });
+  const recorded = polled.value?.record != null;
+  useEffect(() => {
+    if (recorded) setDone(true);
+  }, [recorded]);
   useRefresher(props.refresher, polled.refresh);
   useBack(true, "view", () => app.dispatch({ type: "up" }));
   const d = polled.value;
@@ -535,13 +572,16 @@ export function RunsView(props: { width: number; height: number }) {
       app.toast({ variant: "info", message: app.getState().paused ? "Updates paused" : "Updates resumed" });
     },
   });
-  const { milestone, role, session } = app.state;
+  const { milestone, role, session, back } = app.state;
   // esc lands on the row it came from: the last session opened, and the last milestone or role opened in it
-  const back = useRef<{ session: string | null; row: string | null }>({ session: null, row: null });
-  if (session && back.current.session !== keyOf(session.key))
-    back.current = { session: keyOf(session.key), row: null };
-  if (milestone) back.current.row = milestoneKey(milestone.run, milestone.name);
-  if (role) back.current.row = roleKey(role.run, role.dispatchId);
+  const backRow =
+    back && session && back.session === session.key
+      ? back.milestone
+        ? milestoneKey(back.milestone.run, back.milestone.name)
+        : back.role
+          ? roleKey(back.role.run, back.role.dispatchId)
+          : null
+      : null;
   if (milestone)
     return (
       <MilestoneView
@@ -566,11 +606,14 @@ export function RunsView(props: { width: number; height: number }) {
     return (
       <SessionView
         sessionKey={session.key}
+        run={session.run}
         width={props.width}
         height={props.height}
-        initial={back.current.row}
+        initial={backRow}
         refresher={refresher}
       />
     );
-  return <SessionList width={props.width} height={props.height} initial={back.current.session} />;
+  return (
+    <SessionList width={props.width} height={props.height} initial={back ? keyOf(back.session) : null} />
+  );
 }

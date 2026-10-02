@@ -127,12 +127,21 @@ export interface AppState {
   drafts: Record<string, Draft>;
   /** the open dialogs; only the top one is drawn and takes keys */
   dialogs: Dialog[];
-  /** spec §4: the session the Runs tab has open (`key` null: "earlier runs"); null shows the sessions */
-  session: { key: string | null } | null;
+  /**
+   * spec §4: the session the Runs tab has open (`key` null: "earlier runs"); null shows the sessions. `run`: the
+   * run it was opened for (a recent run on the Status tab), whose first row the cursor starts on
+   */
+  session: { key: string | null; run?: string } | null;
   /** the role the open session shows, by its dispatch */
   role: { run: string; dispatchId: string } | null;
   /** spec 1.1 §10: the milestone the open session shows, its digest */
   milestone: { run: string; name: string } | null;
+  /** where esc lands: the last session opened, and the last role or milestone opened in it */
+  back: {
+    session: string | null;
+    role: { run: string; dispatchId: string } | null;
+    milestone: { run: string; name: string } | null;
+  } | null;
   paused: boolean;
   armed: Armed | null;
 }
@@ -156,8 +165,8 @@ export type Action =
   | { type: "saving"; name: string; on: boolean }
   | { type: "input"; value: string }
   | { type: "invalid"; error: string | null }
-  /** opens a session of the Runs tab (`key` null: "earlier runs") */
-  | { type: "session"; key: string | null }
+  /** opens a session of the Runs tab (`key` null: "earlier runs"), on `run`'s first row when given */
+  | { type: "session"; key: string | null; run?: string }
   /** opens one role of the open session */
   | { type: "role"; run: string; dispatchId: string }
   /** opens one milestone of the open session, on its digest */
@@ -177,6 +186,7 @@ export const initialState = (tab: Tab = "status", host: OrchestrationHost = "unk
   session: null,
   role: null,
   milestone: null,
+  back: null,
   paused: false,
   armed: null,
 });
@@ -354,12 +364,29 @@ export function reduce(s: AppState, a: Action): AppState {
       else if (top.kind === "save" && a.type === "invalid") next = { ...top, error: a.error };
       return next === top ? s : { ...s, dialogs: [...s.dialogs.slice(0, -1), next] };
     }
-    case "session":
-      return { ...s, session: { key: a.key }, role: null, milestone: null, armed: null };
-    case "role":
-      return { ...s, role: { run: a.run, dispatchId: a.dispatchId }, milestone: null, armed: null };
-    case "milestone":
-      return { ...s, milestone: { run: a.run, name: a.name }, role: null, armed: null };
+    case "session": {
+      // a run asked for starts the cursor on that run; reopening the same session keeps the row esc lands on
+      const back =
+        !a.run && s.back?.session === a.key ? s.back : { session: a.key, role: null, milestone: null };
+      return {
+        ...s,
+        session: { key: a.key, ...(a.run ? { run: a.run } : {}) },
+        role: null,
+        milestone: null,
+        back,
+        armed: null,
+      };
+    }
+    case "role": {
+      const role = { run: a.run, dispatchId: a.dispatchId };
+      const back = { session: s.session?.key ?? null, role, milestone: null };
+      return { ...s, role, milestone: null, back, armed: null };
+    }
+    case "milestone": {
+      const milestone = { run: a.run, name: a.name };
+      const back = { session: s.session?.key ?? null, role: null, milestone };
+      return { ...s, milestone, role: null, back, armed: null };
+    }
     case "up":
       if (s.milestone) return { ...s, milestone: null, armed: null };
       return s.role ? { ...s, role: null, armed: null } : { ...s, session: null, armed: null };

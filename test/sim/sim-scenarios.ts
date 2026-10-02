@@ -118,6 +118,10 @@ export interface GrokScenario extends Common {
   loggedIn?: boolean;
   /** the ids `grok models` lists, the first as the default (default: grok-4.6, grok-4.5) */
   models?: string[];
+  /** what `grok models` lists when only XAI_API_KEY signs it in (default: `models`) */
+  keyModels?: string[];
+  /** every call appends `{ args, home, vars }` here first, vars being GROK_* and XAI_API_KEY */
+  callsTo?: string;
   /** this "Mac"'s /var/run/docker.sock is a symlink: read-only and strict refuse to start (research §3.6) */
   socketSymlink?: boolean;
   /** the sandbox a resumed session started with; another `--sandbox` on `-r` is refused */
@@ -133,6 +137,8 @@ export interface AgyScenario extends Common {
   loggedIn?: boolean;
   /** what `agy models` prints after its first line: this file's text */
   modelsFile?: string;
+  /** what it prints instead when GEMINI_API_KEY signs it in (its HOME's settings say gemini) */
+  keyModelsFile?: string;
   /** the exit code of a logged-in `agy models` (default 0) */
   modelsExit?: number;
   /** flags this "older" agy does not know (`--disable-slash-commands`) */

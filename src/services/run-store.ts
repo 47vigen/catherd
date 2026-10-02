@@ -41,6 +41,8 @@ const RunMetaSchema = z.looseObject({
   catherdVersion: z.string(),
   startedBy: StartedBySchema.nullable().optional(),
   workspace: z.strictObject({ id: z.string(), step: z.string() }).optional(),
+  /** the repo's HEAD when run_start ran: where the first milestone's commit range starts (absent before 1.5) */
+  startHead: z.string().optional(),
 });
 type RunMeta = z.infer<typeof RunMetaSchema>;
 
@@ -89,6 +91,8 @@ export function createRun(o: {
   version: string;
   now?: Date;
   workspace?: { id: string; step: string };
+  /** the repo's full HEAD at the start, when it has a commit */
+  startHead?: string | null;
   startedBy?: {
     host?: StartedBy["host"];
     sessionId: string;
@@ -140,6 +144,7 @@ export function createRun(o: {
     catherdVersion: o.version,
     ...(o.startedBy ? { startedBy: StartedBySchema.parse(o.startedBy) } : {}),
     ...(workspace ? { workspace } : {}),
+    ...(o.startHead ? { startHead: o.startHead } : {}),
   };
   writeJsonAtomic(p.meta, meta);
   return { id, dir, meta };

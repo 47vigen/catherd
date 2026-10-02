@@ -96,9 +96,18 @@ describe("climb only for capability (spec 1.1 §9)", () => {
 
   it("refuses ownership evidence on a blocked climb without Jev, and never asks Jev when it is off", async () => {
     const { run, deps, asked } = await routed("off");
-    for (const evidence of ["needs src/b.ts, outside lane ownership", "src/b.ts is owned by M1.L2"])
+    for (const evidence of [
+      "needs src/b.ts, outside lane ownership",
+      "src/b.ts is owned by M1.L2",
+      "src/b.ts is owned by another lane",
+    ])
       expect(await code(climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked", evidence }))).toBe(
         REFUSED,
+      );
+    // an environment error that says "owned by" is no ownership finding, even without env: true (1.1 follow-ups)
+    for (const evidence of ["/var/run/docker.sock is owned by root", "lock dir owned by another user"])
+      expect(await code(climb(deps, { run: run.id, lane: "M1.L1", reason: "blocked", evidence }))).toBe(
+        "climbed",
       );
     expect(
       await code(

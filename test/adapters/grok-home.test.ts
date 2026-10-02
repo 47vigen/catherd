@@ -106,8 +106,9 @@ describe("catherd's tables in a sandbox.toml (spec 1.3 §5.3, §9 Q3)", () => {
     const text = "text" in once ? once.text : "";
     const after = `${text}[profiles.late]\nextends = "strict"\n`;
     const twice = withCatherdProfiles(after, { "catherd-ws": { extends: "workspace", read_write: ["/b"] } });
+    // rewritten where it stands (1.3 follow-ups); /a no longer exists, so it does not stay
     expect("text" in twice && twice.text).toBe(
-      `${mine}[profiles.late]\nextends = "strict"\n\n# >>> catherd's sandbox profiles for its grok workers: catherd rewrites this block, so edit outside it\n[profiles.catherd-ws]\nextends = "workspace"\nread_write = ["/b"]\n# <<< catherd\n`,
+      `${mine}\n# >>> catherd's sandbox profiles for its grok workers: catherd rewrites this block, so edit outside it\n[profiles.catherd-ws]\nextends = "workspace"\nread_write = ["/b"]\n# <<< catherd\n[profiles.late]\nextends = "strict"\n`,
     );
     expect(Bun.TOML.parse("text" in twice ? twice.text : "")).toMatchObject({
       profiles: {
@@ -116,6 +117,23 @@ describe("catherd's tables in a sandbox.toml (spec 1.3 §5.3, §9 Q3)", () => {
         "catherd-ws": { read_write: ["/b"] },
       },
     });
+  });
+
+  it("keeps a bare key after the block in the table it was in, and two catherd homes' roots in one block", () => {
+    const a = tempDir("catherd-root-a-");
+    const b = tempDir("catherd-root-b-");
+    const ws = (roots: string[]) => ({ "catherd-ws": { extends: "workspace", read_write: roots } });
+    const first = withCatherdProfiles('[profiles.dev]\nextends = "devbox"\n', ws([a]));
+    const text = `${"text" in first ? first.text : ""}note = "mine"\n`;
+    const before = Bun.TOML.parse(text) as { profiles: Record<string, Record<string, unknown>> };
+    // another catherd home rewrites the block: its roots join ours, and the user's key stays where it was
+    const second = withCatherdProfiles(text, ws([b]));
+    const out = "text" in second ? second.text : "";
+    const parsed = Bun.TOML.parse(out) as { profiles: Record<string, Record<string, unknown>> };
+    expect(parsed.profiles["catherd-ws"]).toEqual({ ...before.profiles["catherd-ws"], read_write: [a, b] });
+    expect(parsed.profiles.dev).toEqual(before.profiles.dev);
+    // and the first home finds nothing to change: no back-and-forth
+    expect(withCatherdProfiles(out, ws([a]))).toEqual({ text: out });
   });
 
   it("refuses a file that is not TOML, a catherd- profile of the user's own, and a lost block marker", () => {
@@ -174,5 +192,45 @@ describe("a sandbox.toml that is a link (plan 16 final review, Important 1)", ()
     const text = readFileSync(target, "utf8");
     expect(text).toContain("[profiles.mine]");
     expect(text).toContain("catherd-ws");
+  });
+
+  it("refuses a link it cannot follow or a file it cannot write with E_CONFIG_INVALID and the isolate fix", () => {
+    withHome();
+    const refusal = (home: string) => {
+      try {
+        writeGrokProfiles(home);
+      } catch (e) {
+        return isCatherdError(e) ? [e.code, e.message, e.fix] : [String(e)];
+      }
+      return ["wrote"];
+    };
+    const dangling = tempDir("catherd-grok-dangling-");
+    symlinkSync(join(dangling, "gone", "sandbox.toml"), join(dangling, "sandbox.toml"));
+    expect(refusal(dangling)).toEqual([
+      "E_CONFIG_INVALID",
+      `catherd will not edit ${join(dangling, "sandbox.toml")}: it is a link catherd cannot follow (ENOENT)`,
+      `fix ${join(dangling, "sandbox.toml")}, or isolate grok (catherd profile set harness.grok.isolated true)`,
+    ]);
+    // a link to something that is not a file
+    const odd = tempDir("catherd-grok-odd-");
+    symlinkSync(tempDir("catherd-grok-dir-"), join(odd, "sandbox.toml"));
+    expect(refusal(odd)[0]).toBe("E_CONFIG_INVALID");
+    expect(refusal(odd)[1]).toEndWith(": catherd cannot read it (EISDIR)");
+    // a link into a read-only store: catherd's atomic write cannot replace the file there
+    const store = tempDir("catherd-grok-store-");
+    writeFileSync(join(store, "sandbox.toml"), "");
+    chmodSync(store, 0o555);
+    const home = tempDir("catherd-grok-ro-");
+    symlinkSync(join(store, "sandbox.toml"), join(home, "sandbox.toml"));
+    try {
+      const [code, message] = refusal(home);
+      // root writes anywhere: then the write goes through, as it would for that user
+      if (code !== "wrote") {
+        expect(code).toBe("E_CONFIG_INVALID");
+        expect(message).toMatch(/: catherd cannot write it \(E[A-Z]+\)$/);
+      }
+    } finally {
+      chmodSync(store, 0o755);
+    }
   });
 });

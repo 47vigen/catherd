@@ -5,6 +5,7 @@ import {
   catalogRungs,
   claudeBilled,
   downgradeDims,
+  ladderDropDims,
   rankStandIns,
 } from "../../src/domain/failover.ts";
 import { BUILTIN_ROLES, DEFAULT_FAILOVER, PAIRED_FAILOVER } from "../../src/domain/profile.ts";
@@ -41,6 +42,26 @@ describe("downgradeDims", () => {
       "terminal",
       "frontend",
     ]);
+  });
+});
+
+describe("ladderDropDims (spec 1.1 §11)", () => {
+  it("names the shared dims an upper rung scores below on, only when it scores above on none", () => {
+    const c = shipped();
+    // Luna high after Sol xhigh: below it on every shared dim but repo_code, where they tie or Luna leads
+    expect(ladderDropDims(c, SOL("xhigh"), LUNA)).toEqual([
+      "terminal",
+      "honesty",
+      "agentic",
+      "steer",
+      "frontend",
+    ]);
+    // Sol medium after Luna high: lower on repo_code, higher on honesty: not down
+    expect(ladderDropDims(c, LUNA, SOL("medium"))).toEqual([]);
+    // the same rung twice, and a rung with no scores, never go down
+    expect(ladderDropDims(c, LUNA, LUNA)).toEqual([]);
+    expect(ladderDropDims(c, LUNA, "codex:not-a-model#high")).toEqual([]);
+    expect(ladderDropDims(c, "codex:not-a-model#high", LUNA)).toEqual([]);
   });
 });
 

@@ -75,7 +75,7 @@ function roleScratch(run: Run, name: string, backend: string, isolated: boolean)
   return realpathSync(dir);
 }
 
-function laneOwns(run: Run, lane: string): string[] {
+export function laneOwns(run: Run, lane: string): string[] {
   const file = laneFile(run, lane);
   if (!existsSync(file))
     throw new CatherdError("E_LANE_INVALID", `no lane file lanes/${lane}.md`, {

@@ -172,9 +172,14 @@ export function workspaceWriteNetwork(profiles: Profile[]): Map<string, boolean>
 
 /**
  * The `sandbox:codex` row (which `codex sandbox` form runs) and one `access:<backend>` row per backend; a
- * backend not in `installed` (its CLI is not on PATH) is skipped without running a probe.
+ * backend not in `installed` (its CLI is not on PATH) is skipped without running a probe. `repos`: where
+ * workers run (doctor's repo and every bound one), for a sandbox set per repo.
  */
-export async function accessChecks(profiles: Profile[], installed: ReadonlySet<string>): Promise<Check[]> {
+export async function accessChecks(
+  profiles: Profile[],
+  installed: ReadonlySet<string>,
+  repos: string[] = [],
+): Promise<Check[]> {
   const checks: Check[] = [];
   for (const [id, network] of workspaceWriteNetwork(profiles)) {
     const a = adapterFor(id);
@@ -190,7 +195,7 @@ export async function accessChecks(profiles: Profile[], installed: ReadonlySet<s
       continue;
     }
     const shell = a.accessShell
-      ? await a.accessShell({ network }).catch((e: unknown) => String(e))
+      ? await a.accessShell({ network, repos }).catch((e: unknown) => String(e))
       : `no way to run a shell in ${id}'s sandbox without a model turn; the live kit (docs/dev/live-verification.md) runs the five probes as one worker turn`;
     if (id === "codex")
       checks.push(

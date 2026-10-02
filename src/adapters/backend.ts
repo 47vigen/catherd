@@ -167,9 +167,10 @@ export interface BackendAdapter {
   /**
    * Spec §5 and §12: a shell that runs a command the way this backend's workspace-write worker runs one,
    * with the grants the worker gets, for doctor's access probes; a string says why it cannot be tested here.
-   * Absent: the CLI has no way to run a shell in its sandbox without a model turn (spec 1.3 §3.4).
+   * Absent: the CLI has no way to run a shell in its sandbox without a model turn (spec 1.3 §3.4). `repos`: the
+   * repositories workers run in (doctor's own and every bound one), for a backend whose sandbox is set per repo.
    */
-  accessShell?(o: { network: boolean }): Promise<AccessShell | string>;
+  accessShell?(o: { network: boolean; repos?: string[] }): Promise<AccessShell | string>;
   /** Spec §10.3: why this backend's isolation is weak; doctor warns when a profile uses it. */
   isolationNote?: string;
   /**

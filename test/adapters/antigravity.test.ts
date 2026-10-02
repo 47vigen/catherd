@@ -7,6 +7,7 @@ import {
   agyPrompt,
   agyShell,
   antigravityAdapter,
+  ISOLATED_LISTING,
   isolatedAgyHome,
   isolatedAgyRoot,
 } from "../../src/adapters/antigravity/index.ts";
@@ -353,6 +354,22 @@ describe("agy models, prepare and quota (spec 1.3 §6.3, §6.4, §6.6)", () => {
     expect(await prep("antigravity:gemini-3.8-flash#high")).toBe("E_BACKEND_NOT_LOGGED_IN");
     // isolated, the key signs it in
     expect(await prep("antigravity:gemini-3.8-flash#high", "workspace-write", true)).toBe("ok");
+  });
+
+  it("checks an isolated rung against the key's own listing, cached apart from the login's (1.3 follow-ups)", async () => {
+    withHome();
+    const keyModelsFile = join(tempDir("catherd-agy-key-"), "models.txt");
+    writeFileSync(keyModelsFile, "\nAvailable models:\n  * gemini-3.7-flash (default)\n");
+    sim({ keyModelsFile });
+    process.env.GEMINI_API_KEY = "key-for-test";
+    await antigravityAdapter.probe();
+    expect(await prep("antigravity:gemini-3.8-flash#high")).toBe("ok");
+    expect(await prep("antigravity:gemini-3.8-flash#high", "workspace-write", true)).toBe(
+      "E_BACKEND_MODEL_UNKNOWN",
+    );
+    expect(await prep("antigravity:gemini-3.7-flash#max", "workspace-write", true)).toBe("ok");
+    expect(readDiscovery("antigravity")?.models.length).toBe(6);
+    expect(readDiscovery(ISOLATED_LISTING)?.models.map((m) => m.id)).toEqual(["gemini-3.7-flash"]);
   });
 
   it("needs GEMINI_API_KEY to isolate, and writes each isolated home's settings: the provider and the access rules", async () => {

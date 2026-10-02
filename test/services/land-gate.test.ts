@@ -13,9 +13,9 @@ import {
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
 import { protocolNext } from "../../src/services/protocol.ts";
-import { appendAgentRun, appendRecord, readAgentRuns } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendRecord, findRun, readAgentRuns } from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
-import { result, recordAgentRun } from "../../src/services/run-service.ts";
+import { result, recordAgentRun, startRun } from "../../src/services/run-service.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
 
@@ -217,6 +217,14 @@ describe("the land gate (spec 1.1 §6)", () => {
     await verifier("All good, I think.\nVERDICT: PASS\n");
     const e = await refusal(land(fakeDeps(), landing(run.id, c)));
     expect(e.message).toContain("a verifier verdict");
+    expect(e.fix).not.toContain("bare VERDICT: PASS");
+    // a verdict in markdown fails safe, and the fix says why (1.1 follow-ups)
+    await verifier("**VERDICT: PASS**\nA1 PASS bun test\n");
+    const md = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(md.message).toContain("is **VERDICT: PASS**");
+    expect(md.fix).toStartWith(
+      `the reply's first line must be the bare VERDICT: PASS, and verifier-M1's is "**VERDICT: PASS**", which counts as no verdict`,
+    );
     await verifier("\nVERDICT: PASS\nA1 PASS bun test\nSTATUS: complete — all pass\n");
     expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
     // the digest names the verdict the gate took, not "none" for want of a record_agent_run row
@@ -449,6 +457,21 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
       "Reviewer: reviewer-M1-fix · a Claude subagent (findings in its reply)",
     );
+  });
+
+  it("judges the first milestone's skip from the HEAD the run started on, not its last commit only", async () => {
+    const { repo } = freshRun();
+    const { run: id } = await startRun(fakeDeps(), { repo, title: "t", aLines: ["A1"] });
+    expect(findRun(id).meta.startHead).toMatch(/^[0-9a-f]{40}$/);
+    commitFiles(repo, ["src/a.ts"]);
+    const docs = commitFiles(repo, ["docs/a.md"]);
+    const e = await refusal(land(fakeDeps(), landing(id, docs, { skip: "docs-only" })));
+    expect(e.message).toBe('land M1: skip "docs-only" refused: files outside the docs changed: src/a.ts');
+    // a run from before 1.5 (no startHead) keeps the commit's own parent
+    const { run: old } = freshRun();
+    commitFiles(old.meta.repo, ["src/a.ts"]);
+    const only = commitFiles(old.meta.repo, ["docs/a.md"]);
+    expect((await land(fakeDeps(), landing(old.id, only, { skip: "docs-only" }))).ledger).toStartWith("M1 |");
   });
 
   it("refuses a skip over an empty commit range: nothing to land", async () => {
