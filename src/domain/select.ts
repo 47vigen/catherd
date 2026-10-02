@@ -162,9 +162,10 @@ function breakTie(
 
 /**
  * Spec 1.5 plan 24, "climb ladders only go up": the start (after a tie on equal scores goes to the quota with
- * the most headroom), then every other candidate that scores at least the start on `dims`, in `order`'s order.
- * A stronger rung is on the ladder wherever cost puts it, and a weaker one never is, so a climb never lands on
- * a rung below the one it leaves.
+ * the most headroom), then, in `order`'s order, every other candidate that scores at least the last rung kept
+ * on `dims`. A stronger rung is on the ladder wherever cost puts it, and one weaker than the rung before it
+ * never is (checking each against the start alone let a cheaper, weaker rung follow a stronger one), so a
+ * climb never lands on a rung below the one it leaves.
  */
 function ladderFrom(
   first: Candidate,
@@ -173,8 +174,9 @@ function ladderFrom(
   usage: Partial<Record<string, number>> = {},
 ): Pick {
   const { start, tie } = breakTie(first, order, dims, usage);
-  const rest = order.filter((x) => x !== start && atLeast(x, start, dims));
-  return { rung: start.rung, ladder: [start, ...rest].map((x) => x.rung), ...(tie ? { tie } : {}) };
+  const kept = [start];
+  for (const x of order) if (x !== start && atLeast(x, kept.at(-1) as Candidate, dims)) kept.push(x);
+  return { rung: start.rung, ladder: kept.map((x) => x.rung), ...(tie ? { tie } : {}) };
 }
 
 /**

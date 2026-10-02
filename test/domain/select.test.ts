@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { Dim } from "../../src/domain/catalog.ts";
+import { ladderDropDims } from "../../src/domain/failover.ts";
 import { DIFFICULTIES, type Difficulty, KINDS, type Kind } from "../../src/domain/lane.ts";
 import {
   candidates,
@@ -261,6 +263,46 @@ describe("climb ladders only go up (spec 1.5 plan 24)", () => {
       rung: "claude-code:claude-sonnet-5#medium",
       ladder: ["claude-code:claude-sonnet-5#medium", "claude-code:claude-opus-5-5#low"],
     });
+  });
+
+  it("never steps down between two rungs above the start, on a mixed Codex and Claude ladder", () => {
+    // final review Important 1: each rung was checked only against the start, so Sol xhigh (cheapest by cost
+    // after the Claude plan's Opus) followed Opus medium, scoring below it on every dimension
+    const c = shipped();
+    const rungs = [
+      ...LADDER,
+      "claude-code:claude-opus-5-5#low",
+      "claude-code:claude-opus-5-5#medium",
+      "claude-code:claude-sonnet-5-5#high",
+      "codex:gpt-6-luna#xhigh",
+      "codex:gpt-6-luna#max",
+    ];
+    const p = worker({}, rungs);
+    const scores = new Map(candidates(c, p, "worker").map((x) => [x.rung, x.scores]));
+    for (const kind of KINDS)
+      for (const d of DIFFICULTIES) {
+        const { ladder } = select(c, p, "worker", kind, d);
+        const dims = Object.keys(c.bars[kind][d]) as Dim[];
+        for (const [i, upper] of ladder.slice(1).entries()) {
+          const lower = ladder[i] as string;
+          expect({ kind, d, lower, upper, down: ladderDropDims(c, lower, upper) }).toEqual({
+            kind,
+            d,
+            lower,
+            upper,
+            down: [],
+          });
+          const below = dims.filter(
+            (dim) => (scores.get(upper)?.[dim] ?? -Infinity) < (scores.get(lower)?.[dim] ?? -Infinity),
+          );
+          expect({ kind, d, lower, upper, below }).toEqual({ kind, d, lower, upper, below: [] });
+        }
+      }
+    // the shape of the repro: Sol xhigh is no longer above Opus medium on repo_code copy
+    expect(select(c, p, "worker", "repo_code", "copy").ladder.slice(-2)).toEqual([
+      "claude-code:claude-opus-5-5#low",
+      "claude-code:claude-opus-5-5#medium",
+    ]);
   });
 
   it("starts a lane no lower than an easier difficulty's start that scores at least the default on its bar", () => {
