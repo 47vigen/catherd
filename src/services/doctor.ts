@@ -81,6 +81,21 @@ export interface DoctorDeps {
  * Spec §10.3: the readiness report. Reads and probes; it writes discovery and a lock probe itself, and the
  * handshake starts `catherd mcp`, which reconciles runs as it starts. A check that throws becomes a `fail` row.
  */
+/**
+ * Where the access probes look for a per-repo sandbox: the current repo and each repo bound to a checked
+ * profile. A repo bound to another profile never runs these roles, so its settings must not decide the probes.
+ */
+export function accessRepos(
+  repo: string | null,
+  bindings: Record<string, string>,
+  checked: string[],
+): string[] {
+  const bound = Object.entries(bindings)
+    .filter(([, name]) => checked.includes(name))
+    .map(([r]) => r);
+  return [...new Set([...(repo ? [repo] : []), ...bound])];
+}
+
 export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const checks: Check[] = [];
   checks.push(
@@ -93,7 +108,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
           detail: `${d.bunVersion}, needs ${MIN_BUN}`,
           fix: "bun upgrade",
         }
-      : { id: "bun", label: "Bun", state: "ok", word: "ready", detail: d.bunVersion },
+      : {
+          id: "bun",
+          label: "Bun",
+          state: "ok",
+          word: "ready",
+          detail: d.bunVersion,
+        },
   );
 
   // every fix names the host doctor judged with: run elsewhere (a plain terminal), it must judge the same way
@@ -202,7 +223,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       const ok = await testJevKey(key, d.jev).catch(() => false);
       checks.push(
         ok
-          ? { id: "jev", label: "Jev", state: "ok", word: "ready", detail: "the key answers" }
+          ? {
+              id: "jev",
+              label: "Jev",
+              state: "ok",
+              word: "ready",
+              detail: "the key answers",
+            }
           : {
               id: "jev",
               label: "Jev",
@@ -283,7 +310,9 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       word: !queue.cli ? "unavailable" : queue.server,
       detail: queue.reason ?? "Native server advertises queue support",
       ...(!queue.cli || queue.server === "unsupported"
-        ? { fix: "Update native Codex/server; use peek/result while push is unavailable." }
+        ? {
+            fix: "Update native Codex/server; use peek/result while push is unavailable.",
+          }
         : {}),
     });
   let push: PushProbe | null = null;
@@ -305,7 +334,11 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // spec §5 and §12: which codex sandbox form runs, and the five access probes per workspace-write backend
   let repos: string[] = d.repo ? [d.repo] : [];
   try {
-    repos = [...new Set([...repos, ...Object.keys(readProjects().bindings)])];
+    repos = accessRepos(
+      d.repo,
+      readProjects().bindings,
+      profiles.map((p) => p.name),
+    );
   } catch {
     // the config row above already reports an unreadable projects.json
   }
@@ -346,7 +379,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
           word: "warning",
           detail: `${what}: ${rows.changed.join(", ")}${shipped ? `; as shipped: ${shipped}` : ""}`,
         }
-      : { id, label, state: "info", word: "default", detail: `${what}: ${shipped}` };
+      : {
+          id,
+          label,
+          state: "info",
+          word: "default",
+          detail: `${what}: ${shipped}`,
+        };
   };
   for (const row of [
     accessRow("access:full", "full access", full, "no sandbox for"),
@@ -389,7 +428,13 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
               detail: unreadable.message,
               fix: unreadable.fix ?? `fix or delete ${creds}, then catherd init`,
             }
-          : { id: "credentials", label: "credentials.json", state: "ok", word: "ready", detail: "mode 600" },
+          : {
+              id: "credentials",
+              label: "credentials.json",
+              state: "ok",
+              word: "ready",
+              detail: "mode 600",
+            },
     );
   }
 
