@@ -5,7 +5,7 @@ import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLE_MCP_SERVER, type RoleMcpContext, roleMcpTools } from "../../domain/role-tools.ts";
 import { log } from "../../infra/log.ts";
-import { gateCheck, gatePass } from "../../services/gate-service.ts";
+import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
 import type { Deps } from "../../services/ports.ts";
 import { readKnowledge, readRunFile, writeRunFile } from "../../services/run-service.ts";
 import { findRun } from "../../services/run-store.ts";
@@ -81,11 +81,17 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
       "gate_check",
       {
         description:
-          "Check whether this run's gate item passed on unchanged content; records the current step.",
-        inputSchema: { ...gate, milestone: z.string().regex(ID_PATTERN).optional() },
+          "Check whether this run's gate item passed on unchanged content; records the current step. With only run and milestone, lists the items already checked for that milestone in this run, each with its command and whether it passed: reuse those names and re-check the failed ones first.",
+        inputSchema: {
+          run: boundRun,
+          item: gate.item.optional(),
+          command: gate.command.optional(),
+          paths: gate.paths.optional(),
+          milestone: z.string().regex(ID_PATTERN).optional(),
+        },
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       },
-      (a) => call("gate_check", () => gateCheck(deps, a)),
+      (a) => call("gate_check", () => gateCheckOrList(deps, a)),
     );
     server.registerTool(
       "gate_pass",

@@ -1,8 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { CatherdError } from "../../domain/errors.ts";
 import { ID_PATTERN } from "../../domain/ids.ts";
-import { gateCheck, gateList, gatePass } from "../../services/gate-service.ts";
+import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
 import { answer, park } from "../../services/questions.ts";
 import type { Deps } from "../../services/ports.ts";
 import { handle } from "./result.ts";
@@ -29,21 +28,7 @@ export function registerProtocolTools(server: McpServer, deps: Deps): void {
         milestone: z.string().regex(ID_PATTERN).optional(),
       },
     },
-    (a) =>
-      handle(async () => {
-        if (a.item === undefined && a.command === undefined && a.paths === undefined) {
-          if (!a.milestone)
-            throw new CatherdError("E_INPUT_INVALID", "gate_check needs an item, or a milestone to list", {
-              fix: "pass item, command and paths to check an item, or only run and milestone to list the recorded items",
-            });
-          return gateList({ run: a.run, milestone: a.milestone });
-        }
-        if (a.item === undefined || a.command === undefined || a.paths === undefined)
-          throw new CatherdError("E_INPUT_INVALID", "gate_check needs item, command and paths together", {
-            fix: "pass all three to check an item, or none of them (with milestone) to list the recorded items",
-          });
-        return gateCheck(deps, { ...a, item: a.item, command: a.command, paths: a.paths });
-      }),
+    (a) => handle(() => gateCheckOrList(deps, a)),
   );
 
   server.registerTool(

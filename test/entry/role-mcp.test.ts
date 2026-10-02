@@ -91,6 +91,28 @@ describe("dispatch-scoped role MCP", () => {
     }
   });
 
+  it("lists the verifier's own run's recorded items for a milestone, and only that run's (plan 23)", async () => {
+    const { run } = freshRun();
+    const other = createRun({
+      repo: tempRepo(),
+      title: "other",
+      aLines: ["A1 works"],
+      version: "0.0.0-test",
+    });
+    const client = await roleClient(run.id, "verifier");
+    try {
+      expect((await call(client, "gate_check", { run: run.id, milestone: "M1" })).data).toEqual({
+        recorded: [],
+      });
+      expect((await call(client, "gate_check", { run: other.id, milestone: "M1" })).error?.code).toBe(
+        "E_INPUT_INVALID",
+      );
+      expect((await call(client, "gate_check", { run: run.id })).error?.code).toBe("E_INPUT_INVALID");
+    } finally {
+      await client.close();
+    }
+  });
+
   it("rejects another run before recording verifier gate evidence", async () => {
     const { run } = freshRun();
     const other = createRun({

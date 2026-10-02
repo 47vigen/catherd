@@ -354,6 +354,26 @@ export function gateList(i: { run: string; milestone: string }): { recorded: Rec
   return { recorded: recordedItems(findRun(i.run), i.milestone) };
 }
 
+/** `gate_check` as both MCP servers expose it: item, command and paths together check an item; none of them,
+ * with a milestone, lists the milestone's recorded items. */
+export async function gateCheckOrList(
+  deps: Deps,
+  a: { run: string; item?: string; command?: string; paths?: string[]; milestone?: string },
+): Promise<unknown> {
+  if (a.item === undefined && a.command === undefined && a.paths === undefined) {
+    if (!a.milestone)
+      throw new CatherdError("E_INPUT_INVALID", "gate_check needs an item, or a milestone to list", {
+        fix: "pass item, command and paths to check an item, or only run and milestone to list the recorded items",
+      });
+    return gateList({ run: a.run, milestone: a.milestone });
+  }
+  if (a.item === undefined || a.command === undefined || a.paths === undefined)
+    throw new CatherdError("E_INPUT_INVALID", "gate_check needs item, command and paths together", {
+      fix: "pass all three to check an item, or none of them (with milestone) to list the recorded items",
+    });
+  return gateCheck(deps, { ...a, item: a.item, command: a.command, paths: a.paths });
+}
+
 /** `gate_pass`: records that `command` passed on the current content of `paths`, with its evidence. */
 export async function gatePass(
   deps: Deps,
