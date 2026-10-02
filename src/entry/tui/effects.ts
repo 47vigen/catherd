@@ -55,7 +55,7 @@ import {
   sessionRows,
 } from "../../services/runs-page.ts";
 import { type RunSummary, summarizeRun } from "../../services/summary.ts";
-import { orchestratorWait } from "../../services/wait-service.ts";
+import { orchestratorWait } from "../../services/orchestrator-wait.ts";
 import { defaultDeps } from "../deps.ts";
 import { mcpHandshake } from "../mcp/handshake.ts";
 
