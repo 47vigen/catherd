@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
-import { assertLaneHeader, type Difficulty, type Kind } from "../domain/lane.ts";
+import { quotaUsage } from "../domain/select.ts";
+import { assertLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
 import { cell } from "../domain/util.ts";
 import {
@@ -10,8 +11,9 @@ import {
   currentRoute,
   laneOutcome,
   nextRung,
-  type RouteJev,
-  type RouteSource,
+  type OutcomeRow,
+  outcomeRouteRow,
+  type RouteRow,
 } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
@@ -51,20 +53,20 @@ import { type Notes, type NotesPatch, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
+/**
+ * Spec 1.5 plan 24: what `route` returns: little, since every call lands in the coordinator's context. The
+ * decision's source, kind, difficulty, Jev's answer and the provenance go to routes.jsonl.
+ */
 export interface RouteResult {
   lane: string | null;
   role: Role;
   rung: string;
   ladder: string[];
-  source: RouteSource;
-  kind: Kind | null;
-  difficulty: Difficulty | null;
   backend: string;
   /** the native agent to run a `claude:` rung as */
   agent: string | null;
-  /** the Jev question set asked, and what it said, when Jev was asked */
-  questionSet: string | null;
-  jev: RouteJev | null;
+  /** the decision in one line */
+  why: string;
 }
 
 function readLaneFile(run: Run, path: string): { lane: string; text: string } {
@@ -85,15 +87,50 @@ function readLaneFile(run: Run, path: string): { lane: string; text: string } {
   return { lane, text };
 }
 
-/** Spec §5.4 through the routing port; a lane's route is recorded in routes.jsonl. */
+/**
+ * Spec 1.5 plan 24: the run's dispatches per quota, plus each lane routed but not dispatched yet at its current
+ * rung, so a tie between quotas goes to the one the run will have used least.
+ */
+function runUsage(run: Run): Record<string, number> {
+  const records = readRecords(run).records;
+  const dispatched = new Set(records.flatMap((r) => (r.lane ? [r.lane] : [])));
+  const routes = readRoutes(run);
+  const waiting = [...new Set(routes.map((r) => r.lane))]
+    .filter((l) => !dispatched.has(l))
+    .flatMap((l) => currentRoute(routes, l)?.rung ?? []);
+  return quotaUsage([...records.map((r) => r.rung), ...waiting]);
+}
+
+/** Spec §5.4 through the routing port; every decision is recorded in routes.jsonl. */
 export async function route(
   deps: Deps,
   i: { run: string; laneFile?: string; role: Role },
 ): Promise<RouteResult> {
+  const [one] = await routeLanes(deps, { run: i.run, laneFiles: [i.laneFile], role: i.role });
+  return one as RouteResult;
+}
+
+/**
+ * Spec 1.5 plan 24, batch `route`: several lanes of one role in one call (Jev asked about all at once), each
+ * recorded as `route` records one. `laneFiles` holds `undefined` for a role routed without a lane.
+ */
+export async function routeLanes(
+  deps: Deps,
+  i: { run: string; laneFiles: (string | undefined)[]; role: Role },
+): Promise<RouteResult[]> {
   const run = findRun(i.run);
-  const lane = i.laneFile === undefined ? null : readLaneFile(run, i.laneFile);
+  const lanes = i.laneFiles.map((f) => (f === undefined ? null : readLaneFile(run, f)));
+  const dup = lanes.find((l, n) => l && lanes.findIndex((x) => x?.lane === l.lane) !== n);
+  if (dup)
+    throw new CatherdError("E_INPUT_INVALID", `route: lane ${dup.lane} is named twice`, {
+      fix: "name each lane file once",
+    });
   const profile = deps.profiles.forRepo(run.meta.repo);
-  const a = await deps.routing.route({
+  const spentFraction = Math.max(
+    budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
+    (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
+  );
+  const reqs = lanes.map((lane) => ({
     host: deps.host.host,
     runDir: run.dir,
     repo: run.meta.repo,
@@ -101,16 +138,37 @@ export async function route(
     role: i.role,
     lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
-    spentFraction: Math.max(
-      budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
-      (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
-    ),
-  });
+    usage: runUsage(run),
+    spentFraction,
+  }));
+  const answers =
+    reqs.length === 1
+      ? [await deps.routing.route(reqs[0] as (typeof reqs)[number])]
+      : await deps.routing.routeMany(reqs);
+  return answers.map((a, n) => record(deps, run, i.role, lanes[n] ?? null, a));
+}
+
+/** One decision into routes.jsonl (spec 1.5 plan 24: every role's, with its source, ladder and provenance). */
+function record(
+  deps: Deps,
+  run: Run,
+  role: Role,
+  lane: { lane: string } | null,
+  a: Awaited<ReturnType<Deps["routing"]["route"]>>,
+): RouteResult {
+  const at = new Date(deps.now()).toISOString();
+  const detail = {
+    why: a.why,
+    ...(a.jevSaid ? { jevSaid: a.jevSaid } : {}),
+    ...(a.noClear ? { noClear: a.noClear } : {}),
+    ...(a.tie ? { tie: a.tie } : {}),
+    ...(a.provenance ? { provenance: a.provenance } : {}),
+  };
   if (lane)
     appendRoute(run, {
-      at: new Date(deps.now()).toISOString(),
+      at,
       lane: lane.lane,
-      role: i.role,
+      role,
       rung: a.rung,
       ladder: a.ladder,
       source: "route",
@@ -121,13 +179,28 @@ export async function route(
       difficulty: a.difficulty,
       questionSet: a.questionSet,
       jev: a.jev,
+      ...detail,
+    });
+  else
+    appendRoute(run, {
+      at,
+      lane: null,
+      role,
+      name: null,
+      rung: a.rung,
+      ladder: a.ladder,
+      source: "route",
+      decidedBy: a.source,
+      ...detail,
     });
   return {
     lane: lane?.lane ?? null,
-    role: i.role,
-    ...a,
+    role,
+    rung: a.rung,
+    ladder: a.ladder,
     backend: parseRung(a.rung).backend,
-    agent: deps.profiles.agentFor(run.meta.repo, i.role, a.rung),
+    agent: deps.profiles.agentFor(run.meta.repo, role, a.rung),
+    why: a.why,
   };
 }
 
@@ -163,6 +236,15 @@ async function refuseDesign(
     throw new CatherdError("E_CLIMB_DESIGN", `climb ${i.lane}: Jev calls the evidence a design finding`, {
       fix: CLIMB_DESIGN_FIX,
     });
+}
+
+/**
+ * A lane's final outcome: its outcomes.jsonl row (spec §5.6) and, beside Jev's answer, its routes.jsonl row
+ * (spec 1.5 plan 24). Called under the routes lock.
+ */
+function writeOutcome(run: Run, routes: RouteRow[], o: OutcomeRow): void {
+  appendOutcome(run, o);
+  appendRoute(run, outcomeRouteRow(routes, o));
 }
 
 /** Spec §4.5: one rung up the lane's ladder, on a fresh thread; the reason goes to routes.jsonl. */
@@ -213,8 +295,9 @@ export async function climb(
     });
     // spec §5.6: a climb past the top rung ends the lane open
     if (!next) {
-      const o = laneOutcome(readRoutes(run), i.lane, false, new Date(deps.now()).toISOString());
-      if (o) appendOutcome(run, o);
+      const routes = readRoutes(run);
+      const o = laneOutcome(routes, i.lane, false, new Date(deps.now()).toISOString());
+      if (o) writeOutcome(run, routes, o);
     }
     return { cur, next };
   });
@@ -407,7 +490,7 @@ async function landRun(
       if (lane.startsWith(`${i.milestone}.`)) {
         landed++;
         const o = laneOutcome(routes, lane, true, now.toISOString());
-        if (o) appendOutcome(run, o);
+        if (o) writeOutcome(run, routes, o);
       }
   });
   // a milestone name no routed lane starts with is most likely a typo: say so rather than record nothing

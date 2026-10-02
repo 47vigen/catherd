@@ -34,6 +34,13 @@ export const DIM_SOURCES: Record<Dim, { anchor: FieldRef | "shipped"; others: Fi
         benchmark: "Artificial Analysis Coding Index",
       },
       { source: "epoch", field: "frontiercode", benchmark: "FrontierCode (Epoch AI)" },
+      // spec 1.5 plan 24: per model and effort, it scores a new release the day it ships (the identity run's
+      // GPT-6.1 Sol: medium 47.8, about Astra low)
+      {
+        source: "artificial-analysis",
+        field: "artificial_analysis_intelligence_index",
+        benchmark: "Artificial Analysis Intelligence Index",
+      },
     ],
   },
   // plan 14 Ruling C-2: the vendors' Terminal-Bench 4.0 values, not Epoch's Terminal-Bench 2.0, which shares

@@ -97,12 +97,9 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
     // GPT-6 Luna has no Arena agent row in the recorded answers: this one gives Luna high its first agentic value
     const r = await syncSources({ transport: c.transport(withLunaAgent()), now: c.now, aaKey: null });
     // Gemini 3.8 Flash's family is new in 1.3: the weekly refresh ships its values, the recorded file has none.
-    // Both backends list low, medium and high, so Arena's value at high spreads to those and not to #default.
-    expect(r.newlyScored).toEqual([
-      "gemini-3-8-flash#high",
-      "gemini-3-8-flash#low",
-      "gemini-3-8-flash#medium",
-    ]);
+    // Arena scores it at high only, and a sync carries a value only up (1.2 minor): low and medium stay to a
+    // stand-in, never high's value.
+    expect(r.newlyScored).toEqual(["gemini-3-8-flash#high"]);
     expect(loadCatalog({ timings: false }).scores["gpt-6-luna#high"]?.agentic).toMatchObject({
       value: 0.03,
       confidence: "measured",
@@ -254,6 +251,46 @@ describe("the sync (spec 1.2 §3.2, §3.3)", () => {
       rateLimitRemaining: 98,
       rateLimitAt: "2026-09-28T10:00:00.000Z",
     });
+  });
+});
+
+describe("the 1.2 minors in the sync", () => {
+  it("keeps the requests-left count with the time it was read when a later attempt fails without one", async () => {
+    withHome();
+    const c = clock();
+    await syncSources({
+      transport: c.transport(recordedFetch().impl),
+      now: c.now,
+      aaKey: "aa-key-0123456789",
+    });
+    c.advance(3_600_000);
+    const base = recordedFetch().impl;
+    const failing = (async (input: RequestInfo | URL) =>
+      String(input) === AA_MODELS_URL ? new Response("{}", { status: 500 }) : base(input)) as typeof fetch;
+    const r = await syncSources({
+      transport: c.transport(failing),
+      now: c.now,
+      aaKey: "aa-key-0123456789",
+      force: true,
+    });
+    expect(r.failed.map((f) => f.source)).toContain("artificial-analysis");
+    process.env.ARTIFICIAL_ANALYSIS_API_KEY = "aa-key-0123456789";
+    expect(sourcesStatus()).toMatchObject({
+      rateLimitRemaining: 98,
+      rateLimitAt: "2026-09-28T10:00:00.000Z",
+    });
+  });
+
+  it("answers busy at once, without waiting, when told not to wait and another sync holds the lock", async () => {
+    withHome();
+    const release = tryLockSync();
+    if (!release) throw new Error("the sync lock should be free");
+    try {
+      const r = await syncSources({ wait: false, aaKey: null });
+      expect(r).toMatchObject({ busy: true, sources: [] });
+    } finally {
+      release();
+    }
   });
 });
 

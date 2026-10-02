@@ -17,6 +17,8 @@ export interface ValueUsed {
   inferred: boolean;
   /** the rung the value belongs to, when it is not this one */
   from: string | null;
+  /** what lent it: a treat-like (a mapping, `like X`) or an inferred stand-in (a guess); null for its own */
+  lent: "treat-like" | "stand-in" | null;
 }
 
 /** Spec 1.2 §5.3: one threshold of the lane's bar, the value used against it, and whether it clears. */
@@ -40,8 +42,11 @@ export interface Provenance {
   /** facts that never carry a bar (spec 1.2 §4.1): `<source>.<field>` → value */
   speed: Record<string, number>;
   cost: Cost;
-  /** spec 1.2 §8: its runs for the lane's kind (or every kind) and over every kind; never used for routing */
-  evidence: { kind: string | null; all: string | null };
+  /**
+   * spec 1.2 §8: its runs for the lane's kind (or every kind) and over every kind; never used for routing;
+   * null when the runs could not be read
+   */
+  evidence: { kind: string | null; all: string | null } | null;
 }
 
 /** Spec 1.2 §5.3: each value a canonical rung has, with its confidence and source, borrowed ones marked. */
@@ -51,7 +56,8 @@ export function valuesUsed(c: Catalog, canonical: string): ValueUsed[] {
   return DIMS.flatMap((dim) => {
     const r = s.records[dim];
     if (!r) return [];
-    const from = s.borrowed.includes(dim) ? s.via : (s.standIns[dim] ?? null);
+    const borrowed = s.borrowed.includes(dim);
+    const from = borrowed ? s.via : (s.standIns[dim] ?? null);
     return [
       {
         dim,
@@ -63,6 +69,7 @@ export function valuesUsed(c: Catalog, canonical: string): ValueUsed[] {
         url: r.url,
         inferred: from !== null,
         from,
+        lent: from === null ? null : borrowed ? "treat-like" : "stand-in",
       },
     ];
   });
@@ -75,7 +82,7 @@ export function provenanceOf(
   kind: Kind | null,
   difficulty: Difficulty | null,
   billing: Partial<Record<string, BillingMode>>,
-  evidence: EvidenceTable,
+  evidence: EvidenceTable | null,
 ): Provenance {
   const info = rungInfo(c, rung);
   const values = valuesUsed(c, info.canonical);
@@ -90,7 +97,10 @@ export function provenanceOf(
         min,
         used,
         clears: used !== null && used.value >= min,
-        why: c.barsWhy[dim]?.[difficulty] ?? null,
+        // a threshold the user's override set is theirs, whatever the default's why says (1.2 minor)
+        why: c.userBars?.includes(`${kind}/${difficulty}/${dim}`)
+          ? "your override"
+          : (c.barsWhy[dim]?.[difficulty] ?? null),
       },
     ];
   });
@@ -101,15 +111,9 @@ export function provenanceOf(
     values,
     speed: info.family?.speed ?? {},
     cost: costOf(info.family, info.parsed.effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
-    evidence: {
+    evidence: evidence && {
       kind: evidenceLine(evidenceOf(evidence, info.canonical, kind)),
       all: evidenceLine(evidenceOf(evidence, info.canonical)),
     },
   };
-}
-
-/** A value as one line: `repo_code 66.6 (adjacent, shipped DeepSWE 1.1, 2026-09-22)`, marking a guess. */
-export function valueWords(v: ValueUsed): string {
-  const lent = v.inferred ? `, inferred from ${v.from}` : "";
-  return `${v.dim} ${v.value} (${v.confidence}, ${v.source} ${v.benchmark}, ${v.date}${lent})`;
 }

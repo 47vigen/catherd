@@ -101,7 +101,13 @@ export function fakeDeps(
         difficulty: null,
         questionSet: null,
         jev: null,
+        jevSaid: null,
+        why: "the role's default rung",
       };
+    },
+    // a test that replaces route gets it for every lane of a batch too
+    async routeMany(reqs) {
+      return Promise.all(reqs.map((r) => routing.route(r)));
     },
     finding: async (_runDir, _laneText, _finding, _use) => ({
       value: "code",

@@ -299,6 +299,13 @@ describe("inferredScores", () => {
     expect(inferredScores(c, rungInfo(c, "codex:gpt-5.6-terra#high"))).toMatchObject({
       inferred: true,
       via: null,
+      note: expect.stringMatching(/^repo_code(, \S+)* inferred from \S+/),
+    });
+    // (1.2 minor) a rung scored partly by an inferred stand-in says so, as the tree and profile show print it
+    expect(inferredScores(c, rungInfo(c, "claude-code:claude-opus-5-5#high"))).toEqual({
+      inferred: true,
+      via: null,
+      note: "honesty inferred from gpt-6-sol#high",
     });
   });
 });
@@ -334,4 +341,106 @@ it("rejects native Claude on Codex including reachable failover without converti
     fix: "use claude-code:claude-opus-5-5#low for headless execution, or --host claude-code",
   });
   expect(p.failover[rung]).toBe("claude:claude-opus-5-5#low");
+});
+
+describe("validateProfile: what a role can never start or reach (spec 1.5 plan 24)", () => {
+  const LUNA = "codex:gpt-6-luna#high";
+  const SOL = "codex:gpt-6-sol#medium";
+  const GO_KIMI = "opencode:opencode-go/kimi-k3#default";
+  /** Kimi treated like Sol medium: on its subscription it ties Sol, metered it is never first */
+  const c = () =>
+    catalog({
+      override: {
+        schema: 1,
+        treatLike: { "opencode-go/kimi-k3#default": "gpt-6-sol#medium" },
+        scores: [],
+        bars: {},
+      },
+    });
+  const explicit = (patch: ProfilePatch = {}) =>
+    validateProfile(
+      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+      catalog(),
+      BACKENDS,
+      undefined,
+      "claude-code",
+      { reach: true },
+    );
+
+  it("warns about a quota none of whose rungs ever starts a lane", () => {
+    const v = check(
+      {
+        billing: { "opencode-go": "metered" },
+        roles: { worker: { rungs: [LUNA, SOL, GO_KIMI], defaultRung: SOL } },
+      },
+      c(),
+    );
+    expect(v.warnings).toContainEqual({
+      path: "roles.worker.rungs",
+      message: `opencode-go never starts a worker lane: ${GO_KIMI} runs only on a climb, since another rung starts every lane`,
+      fix: "check billing.opencode-go (a metered rung starts only where nothing paid from a plan clears the bar), or order roles.worker.rungs so its rungs come first among equals",
+    });
+  });
+
+  it("does not tell a lane-less role that a quota runs only on a climb (final review Important 4)", () => {
+    // a reviewer routes without a lane: no kind or difficulty ever starts it, and it never climbs
+    const v = check({
+      roles: { reviewer: { rungs: ["codex:gpt-6-sol#xhigh", "claude-code:claude-sonnet-5-5#high"] } },
+    });
+    expect(messages(v.warnings).filter((m) => m.includes("never starts"))).toEqual([]);
+  });
+
+  it("names the billing key, not the quota, in the fix for an idle native Claude rung", () => {
+    const sonnet = "claude:claude-sonnet-5#medium";
+    const v = check({
+      billing: { claude: "metered" },
+      roles: { worker: { rungs: [LUNA, SOL, sonnet], defaultRung: SOL } },
+    });
+    const idle = v.warnings.filter((w) => w.message.includes("never starts"));
+    expect(idle.map((w) => w.fix)).toEqual([
+      "check billing.claude (a metered rung starts only where nothing paid from a plan clears the bar), or order roles.worker.rungs so its rungs come first among equals",
+    ]);
+  });
+
+  it("counts a quota that wins a tie on headroom as one that starts", () => {
+    const v = check({ roles: { worker: { rungs: [LUNA, SOL, GO_KIMI], defaultRung: SOL } } }, c());
+    expect(messages(v.warnings).some((m) => m.includes("never starts"))).toBe(false);
+  });
+
+  it("names what an unscored default rung falls back to", () => {
+    const nobody = "opencode:opencode-go/nobody-1#default";
+    const v = check({ roles: { worker: { rungs: [LUNA, SOL, nobody], defaultRung: nobody } } });
+    expect(messages(v.warnings)).toContain(
+      `${nobody} is unscored and no rung is near enough to stand in for it: routing skips it; it is the worker's default rung, so routing falls back to ${LUNA}`,
+    );
+  });
+
+  it("lists, on an explicit validate only, every kind and difficulty no worker rung clears", () => {
+    expect(explicit().warnings).toEqual([
+      {
+        path: "roles.worker.rungs",
+        message:
+          "no worker rung clears repo_code logic, hard; terminal build, logic, hard; ui logic, hard; prose logic, hard; research logic, hard: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)",
+      },
+    ]);
+    // a save, doctor and the TUI validate without it: the default profile stays clean there
+    expect(check().warnings).toEqual([]);
+    // Astra medium (Terminal-Bench 57.9, agentic 0.1031) reaches every bar but the hard ones of three kinds
+    const astra = explicit({
+      roles: {
+        worker: {
+          rungs: [
+            "codex:gpt-6-luna#high",
+            "codex:gpt-6-sol#medium",
+            "codex:gpt-6-sol#high",
+            "codex:gpt-6-sol#xhigh",
+            "codex:gpt-6-astra#medium",
+          ],
+        },
+      },
+    });
+    expect(messages(astra.warnings).find((m) => m.startsWith("no worker rung clears"))).toBe(
+      "no worker rung clears repo_code hard; terminal hard; ui hard: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)",
+    );
+  });
 });

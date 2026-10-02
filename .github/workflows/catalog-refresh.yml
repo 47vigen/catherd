@@ -21,9 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # a push by GITHUB_TOKEN triggers no workflow: the PR gets CI only through RELEASE_TOKEN, as the
-          # release PR does
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # no token in .git/config while bun install runs package scripts: the PR step pushes with it
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -40,6 +39,8 @@ jobs:
       - name: Open or update the refresh PR
         if: steps.refresh.outputs.changed == 'true'
         env:
+          # a push by GITHUB_TOKEN triggers no workflow: the PR gets CI only through RELEASE_TOKEN, as the
+          # release PR does
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
@@ -47,7 +48,7 @@ jobs:
           git switch -C catalog-refresh
           git add catalog/scores.json .changeset/catalog-refresh.md
           git commit -m "chore(catalog): refresh scores"
-          git push --force origin catalog-refresh
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" catalog-refresh
           if [ "$(gh pr view catalog-refresh --json state -q .state 2>/dev/null)" = "OPEN" ]; then
             gh pr edit catalog-refresh --title "chore(catalog): refresh scores" --body-file "$RUNNER_TEMP/body.md"
           else

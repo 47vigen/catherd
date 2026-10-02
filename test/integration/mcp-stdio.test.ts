@@ -172,7 +172,20 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
 
       // route: no Jev key, so the lane file's Kind/Difficulty decide: Track A.
       const routed = await call(c, "route", { run, lane_file: "lanes/M1.L1.md" });
-      expect(routed.data).toMatchObject({ source: "lane", rung: "codex:gpt-6-luna#high", backend: "codex" });
+      expect(routed.data).toMatchObject({
+        rung: "codex:gpt-6-luna#high",
+        backend: "codex",
+        why: expect.stringMatching(/^the lane's Kind\/Difficulty, repo_code\/build/),
+      });
+      expect(Object.keys(routed.data).sort()).toEqual([
+        "agent",
+        "backend",
+        "ladder",
+        "lane",
+        "role",
+        "rung",
+        "why",
+      ]);
 
       // preflight: M1.L1 checks a file it creates; M1.L2's check runs and fails as expected.
       const pre = await call(c, "preflight", { run });

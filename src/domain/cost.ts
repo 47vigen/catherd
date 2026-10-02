@@ -51,19 +51,24 @@ export const CHATGPT_UNIT_USD = 0.019;
 export interface Cost {
   /** 0: paid from a subscription; 1: metered. Every tier-0 rung ranks before any tier-1 rung. */
   tier: 0 | 1;
-  /** comparable across billing modes, in list-price dollars per task; null when unknown */
+  /**
+   * comparable across billing modes, in list-price dollars per task; 0 for an unpriced rung paid from a plan or
+   * subscription (it spends nothing beyond the flat fee); null for an unpriced metered one
+   */
   value: number | null;
   mode: BillingMode;
 }
 
 /**
- * Spec §5.3. Every mode yields list-price dollars per task, so plans compare with each other:
+ * Spec §5.3. Every mode yields list-price dollars per task, so plans compare with each other. Spec 1.5 plan 24:
+ * a rung catherd has no price for costs 0 within its tier when a plan or subscription pays for it, so it can
+ * start a lane (the profile's ladder order then breaks the tie); a metered one stays unknown, last in its tier.
  * chatgpt-plan scales the official quota weight (Luna 1, Sol 20, Astra 60) by the effort factor;
  * claude-plan uses API prices as the proxy, with Fable metered (catherd cannot tell Pro from Max);
  * Go's share of its monthly dollar limit is dollars / limit, which orders the same as dollars.
  */
 export function costOf(family: Family | null, effort: string, mode: BillingMode): Cost {
-  if (!family) return { tier: mode === "metered" ? 1 : 0, value: null, mode };
+  if (!family) return mode === "metered" ? { tier: 1, value: null, mode } : { tier: 0, value: 0, mode };
   const usd = taskUsd(family.price, effort);
   switch (mode) {
     case "chatgpt-plan":

@@ -99,7 +99,7 @@ export function formatModel(m: CatalogModel): string {
     // spec 1.2 §5.3: each value with its confidence and source, as `route` reports it; a guess names its rung
     const values = Object.entries(r.scores).map(
       ([dim, v]) =>
-        `${dim} ${Number(v.value.toPrecision(4))} (${v.from ? `inferred from ${v.from}` : v.confidence}, ${v.source})`,
+        `${dim} ${Number(v.value.toPrecision(4))} (${v.from ? (v.lent === "treat-like" ? `like ${v.from}` : `inferred from ${v.from}`) : v.confidence}, ${v.source})`,
     );
     if (values.length === 0 && !r.evidence) continue;
     lines.push(`  #${r.rung.slice(r.rung.lastIndexOf("#") + 1)}  ${values.join(" · ") || "unscored"}`);
@@ -163,10 +163,17 @@ const list = defineCommand({
 
 /** Spec 1.2 §6.4: the profile rungs a removal leaves on an inferred stand-in or unscored, one line each. */
 export function leftLines(left: LeftOnStandIn[], plain = false): string[] {
-  return left.map(
-    (l) =>
-      `${mark("warn", plain)} ${l.profile}: ${l.rung} is left ${l.unscored ? "unscored: routing skips it" : `on an inferred stand-in for ${l.dims.join(", ")}`}`,
-  );
+  return left.map((l) => {
+    const what = l.unscored
+      ? ["unscored: routing skips it"]
+      : [
+          ...(l.dims.length ? [`on an inferred stand-in for ${l.dims.join(", ")}`] : []),
+          ...(l.missing?.length
+            ? [`with no ${l.missing.join(", ")} value: it clears no bar that needs one`]
+            : []),
+        ];
+    return `${mark("warn", plain)} ${l.profile}: ${l.rung} is left ${what.join(", and ")}`;
+  });
 }
 
 /** Spec 1.2 §6.4 `--suggest`: the three nearest stand-ins, each with its distance and the features it rests on. */

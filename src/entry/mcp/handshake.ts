@@ -12,11 +12,15 @@ export const LAUNCHER = fileURLToPath(new URL("../../../plugin/bin/catherd-mcp",
 const TIMEOUT_MS = 60_000;
 const STDERR_TAIL = 4_000;
 
-/** The env the doctor's MCP server starts with: catherd's own secrets scrubbed, as for every process it starts. */
+/**
+ * The env the doctor's MCP server starts with: catherd's own secrets scrubbed, as for every process it starts,
+ * and no boot sync (1.2 minor): the server lives for one tools/list, so a sync there spends fetches (AA's
+ * included) and records nothing.
+ */
 export const handshakeEnv = (
   base: Record<string, string | undefined> = process.env,
 ): Record<string, string> => {
-  return scrubSecrets(base);
+  return { ...scrubSecrets(base), CATHERD_NO_SYNC: "1" };
 };
 
 /**

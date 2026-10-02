@@ -94,6 +94,8 @@ export interface RouteRequest {
   lane: string | null;
   laneText: string | null;
   spentFraction: number;
+  /** spec 1.5 plan 24: the run's dispatches so far per quota, for a tie between rungs of equal scores */
+  usage?: Record<string, number>;
 }
 
 export interface RouteAnswer {
@@ -105,6 +107,14 @@ export interface RouteAnswer {
   /** the Jev question set asked, and its summed probabilities, for outcomes.jsonl (spec §5.6) */
   questionSet: string | null;
   jev: RouteJev | null;
+  /** spec 1.5 plan 24: where Jev disagreed with a declared lane header (`Jev said logic/hard`), else null */
+  jevSaid: string | null;
+  /** spec 1.5 plan 24: no rung clears the lane's bar, and the closest one */
+  noClear?: string;
+  /** spec 1.5 plan 24: rungs of equal scores on other quotas competed for the start, and what decided */
+  tie?: string;
+  /** spec 1.5 plan 24: the decision in one line, for the coordinator */
+  why: string;
   /** spec 1.2 §5.3, §8: the chosen rung's thresholds, values, sources, facts and run evidence */
   provenance?: Provenance;
 }
@@ -123,6 +133,8 @@ export interface CatalogFilter {
 
 export interface RoutingPort {
   route(req: RouteRequest): Promise<RouteAnswer>;
+  /** spec 1.5 plan 24: the lanes of one role in one call; Jev is asked about all of them at once */
+  routeMany(reqs: RouteRequest[]): Promise<RouteAnswer[]>;
   /** `use` is the repo profile's `jev.use`: "off" answers with the rule's default and never asks Jev */
   finding(
     runDir: string,
@@ -155,7 +167,7 @@ export interface Deps {
   session: SessionEnv | null;
   now: () => number;
   /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
-  sync?: (o: { force: boolean }) => Promise<SyncReport>;
+  sync?: (o: { force: boolean; wait?: boolean }) => Promise<SyncReport>;
   /**
    * Spec 1.5 plan 21: the role this process works for (CATHERD_ROLE, or a role's scratch TMPDIR); null or
    * absent for the orchestrator's own server. A role never claims a run and never reaches a coordinator tool.

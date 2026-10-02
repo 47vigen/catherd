@@ -352,6 +352,7 @@ const validate = defineCommand({
       args.name === undefined ? activeName(repo) : requireProfile(args.name),
       repo,
       terminalHost(args.host).host,
+      { reach: true },
     );
     if (args.json) printJson({ valid: v.errors.length === 0, ...v });
     else if (v.errors.length === 0 && v.warnings.length === 0) console.log(`${mark("ok")} valid`);

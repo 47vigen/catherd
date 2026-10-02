@@ -8,9 +8,11 @@ import {
   type ModelsFile,
   outranks,
   type Score,
+  ScoreSchema,
   type ScoresFile,
 } from "../domain/catalog.ts";
 import {
+  EFFORT_ORDER,
   defaultEffortOf,
   type Derived,
   familyEfforts,
@@ -55,6 +57,18 @@ interface Keyed {
   row: SourceRow;
 }
 
+/**
+ * (1.2 minor) the fields where less is better: when two of a source's rows land on one rung, the lower one
+ * stands for it. Every other field keeps the higher.
+ */
+export const LOWER_IS_BETTER: ReadonlySet<string> = new Set([
+  "cost_per_task",
+  "median_time_to_first_token_seconds",
+]);
+
+/** Whether `a` should stand for a rung over `b` on `field`. */
+const better = (field: string, a: number, b: number): boolean => (LOWER_IS_BETTER.has(field) ? a < b : a > b);
+
 /** The score sources' rows, by source (spec 1.2 §3.3). */
 function scoreRows(raw: RawAnswers): [SourceId, SourceRow[]][] {
   const out: [SourceId, SourceRow[]][] = [];
@@ -93,7 +107,7 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
       const at = table.get(field) ?? new Map<string, Keyed>();
       table.set(field, at);
       const had = at.get(key);
-      if (!had || row.value > had.row.value)
+      if (!had || better(row.field, row.value, had.row.value))
         at.set(key, {
           key,
           family,
@@ -171,15 +185,19 @@ export function derive(raw: RawAnswers, ctx: DeriveContext): Derived {
       const family = map.family(id);
       if (family && effort !== null) shipped.add(`${family.id}#${effort}|${s.dim}`);
     }
+  // (1.2 minor) a sync carries a value only up to a stronger effort: a low effort never takes a high one's
   scores.push(
-    ...adjacent(ctx.models.families, scores, shipped, ctx.now, (f) => defaultEffortOf(ctx.sources, f)),
+    ...adjacent(ctx.models.families, scores, shipped, ctx.now, (f) => defaultEffortOf(ctx.sources, f), {
+      upwardOnly: true,
+    }),
   );
 
   const { facts, warnings } = factsOf(raw, ctx, map);
   return {
     schema: 1,
     builtAt: new Date(ctx.now).toISOString(),
-    scores,
+    // (1.2 minor) readDerived validates every score: one bad row would make the whole file unreadable
+    scores: scores.filter((s) => ScoreSchema.safeParse(s).success),
     facts,
     fits,
     unmatched: Object.fromEntries(Object.entries(unmatched).map(([s, ids]) => [s, [...ids].sort()])),
@@ -212,7 +230,8 @@ function aaFeatures(table: Map<string, Map<string, Keyed>>): Derived["features"]
 /**
  * Spec 1.2 §4.3 `adjacent`: for each family effort a dimension has no value at (neither one in `direct` nor
  * one `shipped` names, as `<family>#<effort>|<dim>`), the best value in `direct` at the nearest effort that
- * has one (the weaker on a tie). A sync spreads only its own values, and never onto a value the shipped file
+ * has one (the weaker on a tie); with `upwardOnly` (a sync's values, 1.2 minor), only a weaker effort's value
+ * is carried, so Luna none never takes Luna max's. A sync spreads only its own values, and never onto a value the shipped file
  * carries; `rebuildShipped` spreads the shipped file's published values, with an empty `shipped`. A family that
  * one backend runs without an effort (Cursor's bare slug, spec 1.3 §7.1) also gets `#default`, carried from the
  * value nearest `defaultEffort(family)`.
@@ -223,7 +242,9 @@ export function adjacent(
   shipped: ReadonlySet<string>,
   now: number,
   defaultEffort: (f: Family) => string = () => "high",
+  o: { upwardOnly?: boolean } = {},
 ): Score[] {
+  const rank = (e: string) => (EFFORT_ORDER as readonly string[]).indexOf(e);
   const out: Score[] = [];
   for (const f of families)
     for (const dim of DIMS) {
@@ -239,7 +260,9 @@ export function adjacent(
       const bare = efforts.length > 0 && Object.values(f.on).some((o) => o && o.efforts.length === 0);
       for (const e of bare ? [...efforts, "default"] : efforts) {
         if (byEffort.has(e) || shipped.has(`${f.id}#${e}|${dim}`)) continue;
-        const near = nearestEffort(e === "default" ? defaultEffort(f) : e, [...byEffort.keys()]);
+        const target = e === "default" ? defaultEffort(f) : e;
+        const from_ = [...byEffort.keys()].filter((x) => !o.upwardOnly || rank(x) <= rank(target));
+        const near = nearestEffort(target, from_);
         const from = near ? byEffort.get(near) : undefined;
         if (!near || !from) continue;
         out.push({

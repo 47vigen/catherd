@@ -3,7 +3,13 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { laneOutcome, latestOutcomes, type RouteRow } from "../../src/domain/route.ts";
 import { climb, land, route } from "../../src/services/lane-service.ts";
-import { readOutcomes, readRoutes, type Run, runPaths } from "../../src/services/run-store.ts";
+import {
+  readOutcomeRoutes,
+  readOutcomes,
+  readRoutes,
+  type Run,
+  runPaths,
+} from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, LADDER, passGate, writeLane } from "./helpers.ts";
 
@@ -24,6 +30,8 @@ function jevDeps() {
     difficulty: "build",
     questionSet: "route-v2#0123abcd",
     jev: JEV,
+    jevSaid: null,
+    why: "Jev: repo_code/build",
   });
   return deps;
 }
@@ -38,11 +46,21 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     const r = await route(jevDeps(), { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
-    expect(r).toMatchObject({ questionSet: "route-v2#0123abcd", jev: JEV });
+    // spec 1.5 plan 24: route returns little; Jev's answer stays in routes.jsonl
+    expect(r).toEqual({
+      lane: "M1.L1",
+      role: "worker",
+      rung: LADDER[0] as string,
+      ladder: LADDER,
+      backend: "codex",
+      agent: null,
+      why: "Jev: repo_code/build",
+    });
     expect(readRoutes(run)[0]).toMatchObject({
       decidedBy: "jev",
       questionSet: "route-v2#0123abcd",
       jev: JEV,
+      why: "Jev: repo_code/build",
     });
   });
 
@@ -190,5 +208,54 @@ describe("outcomes.jsonl (spec §5.6)", () => {
     });
     const capability = [row({}), row({ source: "climb", from: "b", rung: "b", reason: "refused" })];
     expect(laneOutcome(capability, "M1.L1", true, "t")).toMatchObject({ start_ok: false, envCaused: false });
+  });
+});
+
+describe("the outcome beside Jev's answer in routes.jsonl (spec 1.5 plan 24)", () => {
+  it("writes each landed lane's outcome, climbed or not, with Jev's probabilities and the route's kind", async () => {
+    const { repo, run } = freshRun();
+    const deps = jevDeps();
+    for (const id of ["M1.L1", "M1.L2"]) {
+      writeLane(run, id, [`src/${id}.ts`]);
+      await route(deps, { run: run.id, laneFile: `lanes/${id}.md`, role: "worker" });
+    }
+    await climb(deps, { run: run.id, lane: "M1.L2", reason: "check-failed-twice" });
+    await landM1(deps, run, head(repo));
+    expect(
+      readOutcomeRoutes(run).map((r) => [r.lane, r.climbed, r.landed, r.kind, r.difficulty, r.jev]),
+    ).toEqual([
+      ["M1.L1", false, true, "repo_code", "build", JEV],
+      ["M1.L2", true, true, "repo_code", "build", JEV],
+    ]);
+    // the lane readers never see an outcome row: the lane's current route is still its last climb
+    expect(readRoutes(run).map((r) => r.source)).toEqual(["route", "route", "climb"]);
+  });
+
+  it("writes a lane that ended open on its top rung", async () => {
+    const { run } = freshRun();
+    const deps = jevDeps();
+    deps.routing.route = async () => ({
+      rung: LADDER[3] as string,
+      ladder: [LADDER[3] as string],
+      source: "jev",
+      kind: "repo_code",
+      difficulty: "hard",
+      questionSet: "route-v2#0123abcd",
+      jev: JEV,
+      jevSaid: null,
+      why: "Jev: repo_code/hard",
+    });
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await climb(deps, { run: run.id, lane: "M1.L1", reason: "check-failed-twice" });
+    expect(readOutcomeRoutes(run)).toEqual([
+      expect.objectContaining({
+        lane: "M1.L1",
+        source: "outcome",
+        landed: false,
+        climbed: false,
+        difficulty: "hard",
+      }),
+    ]);
   });
 });

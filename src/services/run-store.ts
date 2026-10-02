@@ -4,7 +4,7 @@ import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
-import type { OutcomeRow, RouteRow } from "../domain/route.ts";
+import type { OutcomeRouteRow, OutcomeRow, RoleRouteRow, RouteRow } from "../domain/route.ts";
 import { cell, slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -232,13 +232,32 @@ export function appendRecord(run: Run, r: RunRecord): Promise<RunRecord> {
   });
 }
 
+/** The run's lane rows (routes and climbs); a role's rows outside a lane are left out (`readRoleRoutes`). */
 export function readRoutes(run: Run): RouteRow[] {
   return readJsonl<RouteRow>(runPaths(run.dir).routes).rows.filter(
-    (r) => typeof r?.lane === "string" && Array.isArray(r.ladder) && typeof r.rung === "string",
+    (r) =>
+      typeof r?.lane === "string" &&
+      (r.source === "route" || r.source === "climb") &&
+      Array.isArray(r.ladder) &&
+      typeof r.rung === "string",
   );
 }
 
-export function appendRoute(run: Run, row: RouteRow): void {
+/** Spec 1.5 plan 24: the lanes' outcome rows of routes.jsonl, oldest first (the last per lane wins). */
+export function readOutcomeRoutes(run: Run): OutcomeRouteRow[] {
+  return readJsonl<OutcomeRouteRow>(runPaths(run.dir).routes).rows.filter(
+    (r) => typeof r?.lane === "string" && r.source === "outcome",
+  );
+}
+
+/** Spec 1.5 plan 24: the run's role decisions outside a lane, oldest first. */
+export function readRoleRoutes(run: Run): RoleRouteRow[] {
+  return readJsonl<RoleRouteRow>(runPaths(run.dir).routes).rows.filter(
+    (r) => r?.lane === null && typeof r.role === "string" && typeof r.rung === "string",
+  );
+}
+
+export function appendRoute(run: Run, row: RouteRow | RoleRouteRow | OutcomeRouteRow): void {
   const file = runPaths(run.dir).routes;
   ensureJsonlHeader(file, "routes");
   appendJsonl(file, row);

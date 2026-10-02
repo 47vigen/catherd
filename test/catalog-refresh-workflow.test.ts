@@ -22,6 +22,14 @@ describe(".github/workflows/catalog-refresh.yml (spec 1.2 §7)", () => {
     expect(script).toContain("process.env.CATHERD_HOME = home;");
   });
 
+  it("keeps the token out of .git/config while bun install runs, and pushes with it in the PR step (1.2 minor)", () => {
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).not.toMatch(/^\s+token: /m);
+    expect(workflow).toContain(
+      'git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" catalog-refresh',
+    );
+  });
+
   it("opens or updates one PR, chore(catalog): refresh scores, with a patch changeset, only on a change", () => {
     expect(workflow).toContain("if: steps.refresh.outputs.changed == 'true'");
     expect(workflow.match(/--title "chore\(catalog\): refresh scores"/g)).toHaveLength(2);

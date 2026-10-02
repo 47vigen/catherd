@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { readJsonl } from "../../src/infra/store.ts";
-import { resetFreshen } from "../../src/services/catalog-service.ts";
+import { overridePath, resetFreshen } from "../../src/services/catalog-service.ts";
+import { runPaths } from "../../src/services/run-store.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { routingService } from "../../src/services/routing-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { LADDER, testView } from "./helpers.ts";
+import { freshRun, LADDER, testView } from "./helpers.ts";
+
+/** the PATH a real run needs (it is a repository); beforeEach takes every CLI off PATH */
+const PATH_AT_LOAD = process.env.PATH;
 
 afterEach(snapshotEnv());
 beforeEach(() => {
@@ -28,9 +32,10 @@ beforeEach(() => {
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
 // spec 1.2 §5: build lanes need DeepSWE 66.6 (the median), which Luna high (carried from max) and Sol xhigh
-// clear; copy needs 60.95, which Sol high clears too; no Sol rung clears a logic or hard bar
+// clear; copy needs 60.95, which Sol high clears too, but it scores below Luna high, so a ladder that only goes
+// up (spec 1.5 plan 24) leaves it off; no Sol rung clears a logic or hard bar
 const TRACK_A = { rung: LADDER[0] as string, ladder: [LADDER[0] as string, LADDER[3] as string] };
-const COPY = { rung: LADDER[0] as string, ladder: [LADDER[0], LADDER[2], LADDER[3]] as string[] };
+const COPY = TRACK_A;
 const TRACK_B = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 
@@ -87,6 +92,8 @@ describe("route without Jev", () => {
       difficulty: "build",
       questionSet: null,
       jev: null,
+      jevSaid: null,
+      why: "the lane's Kind/Difficulty, repo_code/build; the first rung in objective order that clears it",
       provenance: expect.objectContaining({ rung: TRACK_A.rung }),
     });
     expect(jevRows(r.runDir)).toEqual([
@@ -121,8 +128,25 @@ describe("route without Jev", () => {
     const r = req(lane("repo_code", "build"), { role: "reviewer" });
     expect(await routingService({ key: "k", fetchImpl: f.impl }).route(r)).toMatchObject({
       rung: "codex:gpt-6-sol#high",
-      source: "default",
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "build",
     });
+    expect(f.sent).toHaveLength(0);
+  });
+
+  it("keeps a one-rung role's declared Kind/Difficulty and says when its rung misses the bar", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-track-a.json") });
+    const r = req(lane("repo_code", "hard"), { role: "reviewer" });
+    const a = await routingService({ key: "k", fetchImpl: f.impl }).route(r);
+    expect(a).toMatchObject({
+      rung: "codex:gpt-6-sol#high",
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "hard",
+      noClear: expect.stringContaining("no rung clears repo_code/hard; best is codex:gpt-6-sol#high"),
+    });
+    expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears");
     expect(f.sent).toHaveLength(0);
   });
 
@@ -177,6 +201,30 @@ describe("route's provenance (spec 1.2 §5.3)", () => {
     ]);
   });
 
+  it("says a threshold is the user's override, not the default's why (1.2 minor)", async () => {
+    mkdirSync(join(overridePath(), ".."), { recursive: true });
+    writeFileSync(
+      overridePath(),
+      JSON.stringify({ schema: 1, bars: { repo_code: { build: { repo_code: 60 } } } }),
+    );
+    const a = await routingService().route(req(lane("repo_code", "build")));
+    expect(a.provenance?.thresholds).toEqual([
+      expect.objectContaining({ dim: "repo_code", min: 60, why: "your override" }),
+    ]);
+  });
+
+  it("routes with no evidence when a run on this machine cannot be read (1.2 minor)", async () => {
+    process.env.PATH = PATH_AT_LOAD;
+    const { run } = freshRun();
+    process.env.PATH = "/nonexistent";
+    // a routes.jsonl that is a directory: reading it throws
+    rmSync(runPaths(run.dir).routes, { force: true });
+    mkdirSync(runPaths(run.dir).routes);
+    const a = await routingService().route(req(lane("repo_code", "build")));
+    expect(a.rung).toBe(TRACK_A.rung);
+    expect(a.provenance?.evidence).toBeNull();
+  });
+
   it("shows the default rung's values with no thresholds when the route reads no bar", async () => {
     const a = await routingService().route(req(null));
     expect(a.source).toBe("default");
@@ -186,7 +234,7 @@ describe("route's provenance (spec 1.2 §5.3)", () => {
 });
 
 describe("route with Jev", () => {
-  it("takes a confident track over the lane's declaration, and logs the decision but never the lane", async () => {
+  it("keeps the lane's declaration over a confident track, says Jev disagreed, and logs it but never the lane", async () => {
     const f = fakeFetch({
       status: 200,
       body: fx("route-v2-track-b.json"),
@@ -200,7 +248,17 @@ describe("route with Jev", () => {
       ),
     );
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    expect(a).toMatchObject({ ...TRACK_B, source: "jev", kind: "repo_code", difficulty: "hard" });
+    // spec 1.5 plan 24: a declared header wins; the route says where Jev disagreed
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "build",
+      jevSaid: "Jev said repo_code/hard",
+    });
+    expect(a.why).toBe(
+      "the lane's Kind/Difficulty, repo_code/build; Jev said repo_code/hard; the first rung in objective order that clears it",
+    );
     expect(a.questionSet).toMatch(/^route-v2#[0-9a-f]{8}$/);
     expect(a.jev).toMatchObject({ pA: 0.05, pB: 0.95, pKind: 0.96, nouls: { unclear_cause: 0.88 } });
     const sent = JSON.stringify(f.sent[0]?.body);
@@ -210,7 +268,7 @@ describe("route with Jev", () => {
     expect(sent).not.toContain("drainAll");
     const [row] = jevRows(r.runDir);
     expect(row).toMatchObject({
-      source: "jev",
+      source: "lane",
       requestId: "req_1",
       model: "jev-1.13.0",
       why: "P(B) 0.95 ≥ 0.8",
@@ -226,20 +284,40 @@ describe("route with Jev", () => {
     expect(jevRows(r.runDir)[0]?.why).toBe("P(A) 0.55, P(B) 0.45: both below 0.8");
   });
 
-  it("keeps a sure kind in the dead band, with the lane's Difficulty", async () => {
+  it("keeps the lane's Kind over a sure kind in the dead band, and says Jev's", async () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
     const r = req(lane("prose", "build"));
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
-    expect(jevRows(r.runDir)[0]).toMatchObject({ source: "jev-kind", used: `worker ${TRACK_A.rung}` });
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "lane",
+      kind: "prose",
+      difficulty: "build",
+      jevSaid: "Jev said repo_code/no sure difficulty",
+    });
+    expect(jevRows(r.runDir)[0]).toMatchObject({ source: "lane", used: `worker ${TRACK_A.rung}` });
+  });
+
+  it("keeps a sure kind in the dead band when the lane declares only its Difficulty", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
+    const r = req(lane(null, "build"));
+    const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
+    expect(a).toMatchObject({
+      ...TRACK_A,
+      source: "jev-kind",
+      kind: "repo_code",
+      difficulty: "build",
+      jevSaid: null,
+    });
   });
 
   it("keeps a sure kind in the dead band without a Difficulty line, at the default rung's difficulty", async () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-kind-only.json") });
     const r = req(lane("prose", null));
     const a = await routingService({ key: "k", fetchImpl: f.impl, ...noWait }).route(r);
-    // the default rung, gpt-6-sol#medium, clears no repo_code bar: the default difficulty is build
-    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "repo_code", difficulty: "build" });
+    // the lane's Kind wins; the default rung, gpt-6-sol#medium, clears no prose bar: the default difficulty is build
+    expect(a).toMatchObject({ ...TRACK_A, source: "jev-kind", kind: "prose", difficulty: "build" });
+    expect(a.jevSaid).toBe("Jev said repo_code/no sure difficulty");
     expect(jevRows(r.runDir)[0]?.source).toBe("jev-kind");
   });
 
@@ -327,13 +405,14 @@ describe("route and a repository's listing", () => {
     });
     const rungs = ["opencode:opencode/gpt-6-luna#high", "opencode:opencode/gpt-6-sol#high"];
     const profile = view({
-      roles: { worker: { enabled: true, access: "workspace-write", rungs, defaultRung: rungs[0] } },
+      roles: { worker: { enabled: true, access: "workspace-write", rungs, defaultRung: rungs[1] } },
     });
     const r = routingService();
+    // /work/a does not list the default rung, so the role falls back to the one it lists
     const inA = await r.route(req(null, { repo: "/work/a", profile }));
     expect(inA.ladder).toEqual(["opencode:opencode/gpt-6-luna#high"]);
     const inB = await r.route(req(null, { repo: "/work/b", profile }));
-    expect(inB.ladder).toContain("opencode:opencode/gpt-6-sol#high");
+    expect(inB.rung).toBe("opencode:opencode/gpt-6-sol#high");
   });
 });
 
@@ -468,5 +547,74 @@ it("refuses native dispatch without host evidence while explicit profile stays i
   await expect(routingService().route(r)).rejects.toMatchObject({
     code: "E_CONFIG_INVALID",
     fix: expect.stringContaining("claude-code:claude-opus-5-5#high"),
+  });
+});
+
+describe("route and quota headroom (spec 1.5 plan 24)", () => {
+  // Luna high on Codex and on OpenCode Go is one model: equal scores on two quotas
+  const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+  const rungs = [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)];
+  const profile = () =>
+    view({
+      roles: {
+        ...testView().roles,
+        worker: { enabled: true, access: "workspace-write", rungs, defaultRung: "codex:gpt-6-sol#medium" },
+      },
+    });
+
+  it("starts a tie on the quota the run has used least", async () => {
+    const r = routingService();
+    const a = await r.route(
+      req(lane("repo_code", "copy"), { profile: profile(), usage: { "opencode-go": 2 } }),
+    );
+    expect(a.rung).toBe(LADDER[0] as string);
+    const b = await r.route(req(lane("repo_code", "copy"), { profile: profile(), usage: { codex: 2 } }));
+    expect(b.rung).toBe(GO_LUNA);
+    expect(b.ladder).toContain(LADDER[0] as string);
+  });
+});
+
+describe("batch route (spec 1.5 plan 24)", () => {
+  it("asks Jev about every lane at once, and decides each one", async () => {
+    // each answer is held until both questions are in flight: asked one after the other, the first would hang
+    const held: (() => void)[] = [];
+    let asked = 0;
+    const impl = (async () => {
+      asked++;
+      if (asked < 2) await new Promise<void>((resolve) => held.push(resolve));
+      else for (const go of held) go();
+      return new Response(JSON.stringify(fx("route-v2-track-a.json")), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = routingService({ key: "k", fetchImpl: impl, attemptMs: 2_000, ...noWait });
+    const dir = runDir();
+    const one = (id: string) => ({ ...req(lane(null, null)), runDir: dir, lane: id });
+    const out = await svc.routeMany([one("M1.L1"), one("M1.L2")]);
+    expect(asked).toBe(2);
+    expect(out.map((a) => [a.source, a.rung])).toEqual([
+      ["jev", TRACK_A.rung],
+      ["jev", TRACK_A.rung],
+    ]);
+    expect(jevRows(dir).map((r) => r.lane)).toEqual(["M1.L1", "M1.L2"]);
+  });
+
+  it("spreads lanes that tie over the quotas, each routed start counting as a use", async () => {
+    const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+    const profile = view({
+      roles: {
+        ...testView().roles,
+        worker: {
+          enabled: true,
+          access: "workspace-write",
+          rungs: [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)],
+          defaultRung: "codex:gpt-6-sol#medium",
+        },
+      },
+    });
+    const one = () => req(lane("repo_code", "copy"), { profile });
+    const out = await routingService().routeMany([one(), one(), one()]);
+    expect(out.map((a) => a.rung)).toEqual([LADDER[0] as string, GO_LUNA, LADDER[0] as string]);
+    expect(out[1]?.tie).toMatch(
+      /opencode-go has the most headroom \(dispatches in this run: codex 1, opencode-go 0\)$/,
+    );
   });
 });

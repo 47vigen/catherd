@@ -75,6 +75,23 @@ describe("Artificial Analysis (spec 1.2 §3.1; fixtures synthetic, see their REA
     });
   });
 
+  it("tests a key with one request, never a retry (1.2 minor)", async () => {
+    const busy = fakeFetch({ status: 503, body: {} }, { status: 200, body: { data: [] } });
+    expect((await testAaKey("k", { fetchImpl: busy.impl, ...clock() })).result).toBe("unchecked");
+    expect(busy.sent).toHaveLength(1);
+  });
+
+  it("refuses an answer with no models, on either path, so the last good one stays (1.2 minor)", async () => {
+    const empty = fakeFetch({ status: 200, body: { data: [] }, headers: limit(9) });
+    await expect(fetchArtificialAnalysis("k", { fetchImpl: empty.impl, ...clock() })).rejects.toThrow(
+      "Artificial Analysis answered no models",
+    );
+    const free = fakeFetch({ status: 403, body: {} }, { status: 200, body: { data: [] } });
+    await expect(fetchArtificialAnalysis("k", { fetchImpl: free.impl, ...clock() })).rejects.toThrow(
+      "Artificial Analysis answered an empty first page",
+    );
+  });
+
   it("gives a row per slug and number: evaluations, prices, speed and cost per task", () => {
     const rows = parseArtificialAnalysis(
       { path: "models", pages: [fixture("artificial-analysis-models.json")], rateLimitRemaining: null },

@@ -5,7 +5,7 @@ import { tryParseRung } from "../domain/ids.ts";
 import { ROLES } from "../domain/roles.ts";
 import { canonicalRung, loadCatalog, readOverride, removeTreatLikes } from "./catalog-service.ts";
 import { getProfile, listProfiles } from "./profile-store.ts";
-import { type Suggestion, suggestStandIns } from "./standins.ts";
+import { barDimsIn, type Suggestion, suggestStandIns } from "./standins.ts";
 
 /** A profile's rung that would lean on an inferred stand-in, or be left with no value at all (spec 1.2 §6.4). */
 export interface LeftOnStandIn {
@@ -15,6 +15,11 @@ export interface LeftOnStandIn {
   dims: Dim[];
   /** no value of its own and no stand-in near enough: routing skips it */
   unscored: boolean;
+  /**
+   * (1.2 minor) the bar dimensions it keeps no value on at all, though it keeps others: present only when some
+   * are; no bar that needs one is cleared
+   */
+  missing?: Dim[];
 }
 
 /**
@@ -50,8 +55,19 @@ export function leftOnStandIns(
       const canonical = rungInfo(c, rung).canonical;
       if (!gone.includes(canonical)) continue;
       const s = scoresOf(c, canonical);
-      if (!s) out.push({ profile, rung, dims: [], unscored: true });
-      else if (s.inferred.length) out.push({ profile, rung, dims: s.inferred, unscored: false });
+      if (!s) {
+        out.push({ profile, rung, dims: [], unscored: true });
+        continue;
+      }
+      const missing = barDimsIn(c).filter((d) => s.values[d] === undefined);
+      if (s.inferred.length || missing.length)
+        out.push({
+          profile,
+          rung,
+          dims: s.inferred,
+          unscored: false,
+          ...(missing.length ? { missing } : {}),
+        });
     }
   }
   return out;

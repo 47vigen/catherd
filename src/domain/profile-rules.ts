@@ -21,9 +21,24 @@ import { tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, KINDS } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
-import { candidates, clearsBar, type RoutingProfile } from "./select.ts";
+import {
+  type Candidate,
+  candidates,
+  clearsBar,
+  defaultLadder,
+  type RoutingProfile,
+  select,
+} from "./select.ts";
 
 export { quotaOf };
+
+/**
+ * `reach`: also warn about the kinds and difficulties no worker rung clears (spec 1.5 plan 24), which only an
+ * explicit `profile validate` asks for.
+ */
+export interface ValidateOptions {
+  reach?: boolean;
+}
 
 /** One finding of `validate`: where in the profile, what is wrong, and the action that fixes it. */
 export interface Issue {
@@ -114,7 +129,8 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
 /**
  * Whether a rung's scores are catherd's guess: borrowed through a treat-like, filled by an inferred stand-in
  * (spec 1.2 §6.1), or only `inferred` ones. `note` says what a treat-like lends: "scores borrowed from X"
- * when the rung has no value of its own, else the dimensions it borrows (a rung a sync scored on some).
+ * when every value is borrowed, else the dimensions it borrows (a rung a sync scored on some); and (1.2
+ * minor) what each inferred stand-in lends: "honesty inferred from Y".
  */
 export function inferredScores(
   c: Catalog,
@@ -125,9 +141,17 @@ export function inferredScores(
   const records = Object.values(s.records);
   const guessed =
     s.via !== null || s.inferred.length > 0 || records.every((r) => r.confidence === "inferred");
-  const all = s.borrowed.length + s.inferred.length === records.length;
-  const note = s.via ? `${all ? "scores" : s.borrowed.join(", ")} borrowed from ${s.via}` : null;
-  return { inferred: guessed, via: s.via, note };
+  const all = s.borrowed.length === records.length;
+  const byStandIn = new Map<string, Dim[]>();
+  for (const d of s.inferred) {
+    const like = s.standIns[d] as string;
+    byStandIn.set(like, [...(byStandIn.get(like) ?? []), d]);
+  }
+  const parts = [
+    ...(s.via ? [`${all ? "scores" : s.borrowed.join(", ")} borrowed from ${s.via}`] : []),
+    ...[...byStandIn].map(([like, dims]) => `${dims.join(", ")} inferred from ${like}`),
+  ];
+  return { inferred: guessed, via: s.via, note: parts.length ? parts.join("; ") : null };
 }
 
 /**
@@ -147,6 +171,7 @@ export function validateProfile(
   backends: readonly string[],
   doc?: ProfileDoc,
   host: OrchestrationHost = "unknown",
+  o: ValidateOptions = {},
 ): Validation {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
@@ -218,7 +243,7 @@ export function validateProfile(
       if (!scoresOf(c, info.canonical))
         warnings.push({
           path: `${at}.rungs`,
-          message: `${rung} is unscored and no rung is near enough to stand in for it: routing skips it`,
+          message: `${rung} is unscored and no rung is near enough to stand in for it: routing skips it${rung === rc.defaultRung ? `; it is the ${role}'s default rung, so ${defaultFallback(c, p, role)}` : ""}`,
           fix: TREAT_LIKE_FIX(rung),
         });
     }
@@ -257,16 +282,32 @@ export function validateProfile(
             path: `${at}.rungs`,
             message: `${x.rung} clears no routing bar, so a lane starts on it only as the role's default rung and never climbs onto it`,
           });
-    // spec 1.2 §5.2: the logic and hard bars sit at the 60th and 75th percentiles, which a cost-minded ladder
-    // may never reach, and those lanes start at the default rung and climb; only a kind whose every bar the
-    // ladder misses routes blind (plan 14 Ruling 12)
-    if (role === "worker" && usable.length > 1) {
-      const blind = KINDS.filter((k) => !DIFFICULTIES.some((d) => usable.some((x) => clearsBar(c, x, k, d))));
-      if (blind.length)
+    // spec 1.5 plan 24: every kind and difficulty no worker rung clears, in one warning; those lanes start at the
+    // default rung (or an easier difficulty's start) and climb only onto rungs at least as strong. Only an
+    // explicit validate says it (Ruling 3): the shipped bars put logic and hard above every Sol rung, the
+    // owner's call, so every save and doctor would repeat it
+    if (o.reach && role === "worker" && usable.length > 1) {
+      const unreached = unreachable(c, usable);
+      if (unreached.length)
         warnings.push({
           path: `${at}.rungs`,
-          message: `no worker rung clears any bar for ${blind.join(", ")}; those lanes always start at the default rung`,
+          message: `no worker rung clears ${unreached.join("; ")}: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)`,
         });
+    }
+    // spec 1.5 plan 24: a quota whose rungs never start a lane sits idle but for climbs (the identity run's Go).
+    // Only the worker routes lanes and climbs (Ruling 9); another role routes lane-less to one rung, so a rung
+    // on a second quota is a deliberate spare there, not an idle quota (final review Important 4, Ruling 8)
+    if (role === "worker" && usable.length > 1) {
+      const idle = idleQuotas(c, p, role, usable);
+      for (const [q, rungs] of idle) {
+        // the billing key, not the quota, is what billing is set on (`claude:` and `claude-code:` share one)
+        const keys = [...new Set(usable.filter((x) => rungs.includes(x.rung)).map((x) => x.info.key))];
+        warnings.push({
+          path: `${at}.rungs`,
+          message: `${q} never starts a ${role} lane: ${rungs.join(", ")} ${rungs.length > 1 ? "run" : "runs"} only on a climb, since another rung starts every lane`,
+          fix: `check ${keys.map((k) => `billing.${k}`).join(" and ")} (a metered rung starts only where nothing paid from a plan clears the bar), or order ${at}.rungs so its rungs come first among equals`,
+        });
+      }
     }
   }
 
@@ -332,6 +373,44 @@ export function validateProfile(
   for (const x of standInsToConfirm(p, c, backends))
     warnings.push({ path: x.path, message: standInMessage(x), fix: SUGGEST_FIX(x.rungs[0] as string) });
   return { errors, warnings };
+}
+
+/** The role's default rung when it is unscored: what routing starts on instead. */
+function defaultFallback(c: Catalog, p: Profile, role: Role): string {
+  try {
+    return `routing falls back to ${defaultLadder(c, routingProfileOf(p, role), role).rung}`;
+  } catch {
+    return "routing has no rung to fall back to";
+  }
+}
+
+/** `repo_code logic, hard` per kind: the kinds and difficulties no rung of `usable` clears. */
+function unreachable(c: Catalog, usable: Candidate[]): string[] {
+  return KINDS.flatMap((k) => {
+    const ds = DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(c, x, k, d)));
+    return ds.length ? [`${k} ${ds.join(", ")}`] : [];
+  });
+}
+
+/**
+ * Spec 1.5 plan 24: each quota of the role's usable rungs that no kind and difficulty (nor a lane-less route)
+ * ever starts on, whichever quota the run has used least, with its rungs.
+ */
+function idleQuotas(c: Catalog, p: Profile, role: Role, usable: Candidate[]): [string, string[]][] {
+  const quotas = [...new Set(usable.map((x) => quotaOf(x.info.parsed)))];
+  if (quotas.length < 2) return [];
+  const starts = new Set<string>();
+  // every quota gets its turn as the least used, so a tie it could win counts as a start
+  for (const fresh of [null, ...quotas]) {
+    const usage = Object.fromEntries(quotas.map((q) => [q, q === fresh ? 0 : 1]));
+    const rp = { ...routingProfileOf(p, role), usage };
+    starts.add(defaultLadder(c, rp, role).rung);
+    for (const k of KINDS) for (const d of DIFFICULTIES) starts.add(select(c, rp, role, k, d).rung);
+  }
+  const started = new Set(usable.filter((x) => starts.has(x.rung)).map((x) => quotaOf(x.info.parsed)));
+  return quotas
+    .filter((q) => !started.has(q))
+    .map((q) => [q, usable.filter((x) => quotaOf(x.info.parsed) === q).map((x) => x.rung)]);
 }
 
 export function nativeClaudeIssue(rung: string, host: OrchestrationHost, path: string): Issue | null {

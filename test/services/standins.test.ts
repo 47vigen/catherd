@@ -11,7 +11,7 @@ import {
   suggestStandIns,
   withStandIns,
 } from "../../src/services/standins.ts";
-import { shipped } from "../domain/shipped.ts";
+import { shipped, shippedModels, shippedScores } from "../domain/shipped.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { rawAnswers, shippedContext } from "./source-fixtures.ts";
 
@@ -131,5 +131,74 @@ describe("inferred values in the catalog (spec 1.2 §6.1)", () => {
     const c = loadCatalog({ timings: false });
     expect(c.inferred).toEqual(inferStandIns({ ...c, inferred: {} }));
     expect(scoresOf(c, "gpt-5.6-terra#high")?.values.repo_code).toBeDefined();
+  });
+});
+
+describe("sparse rungs never stand in (spec 1.5 plan 24)", () => {
+  const sparse = (value: number) => ({
+    rung: "sparse-1#high",
+    dim: "honesty" as const,
+    value,
+    benchmark: "Broken Search Tool",
+    version: "1",
+    url: "https://example.com/sparse",
+    date: "2026-09-28",
+    confidence: "measured" as const,
+  });
+
+  it("refuses a rung with values on fewer than three dimensions as anyone's stand-in", () => {
+    // GPT-6.1 Sol's one honesty figure, shipped as its own row, would have lent 97.92 to unrelated rungs
+    const c = withStandIns(
+      shipped({ override: { schema: 1, treatLike: {}, scores: [sparse(97.92)], bars: {} } }),
+    );
+    const lenders = Object.values(c.inferred).flatMap((m) => Object.values(m).map((x) => x?.like));
+    expect(lenders).not.toContain("sparse-1#high");
+    expect(lenders.length).toBeGreaterThan(0);
+    expect(suggestStandIns(c, "gpt-5.6-terra#high", 50).map((s) => s.like)).not.toContain("sparse-1#high");
+  });
+
+  it("infers steer only once a user's bar uses it (plan 14 Ruling 7, as aligned)", () => {
+    const none = withStandIns(shipped());
+    expect(Object.values(none.inferred).some((x) => x.steer)).toBe(false);
+    const steerBar = withStandIns(
+      shipped({
+        override: { schema: 1, treatLike: {}, scores: [], bars: { repo_code: { build: { steer: 0.05 } } } },
+      }),
+    );
+    expect(Object.values(steerBar.inferred).some((x) => x.steer)).toBe(true);
+  });
+});
+
+describe("a new release of a family line (spec 1.5 plan 24)", () => {
+  it("takes at least its predecessor's value at the same effort until a value of its own arrives", () => {
+    const models = shippedModels();
+    // as if GPT-5.6 Terra succeeded GPT-5.6 Luna
+    for (const f of models.families) if (f.id === "gpt-5.6-terra") f.predecessor = "gpt-5.6-luna";
+    const c = withStandIns(buildCatalog({ models, scores: shippedScores() }));
+    const terra = scoresOf(c, "gpt-5.6-terra#high");
+    // repo_code: Luna's 67 beats the nearest stand-in's guess, so the predecessor stands in
+    expect(c.inferred["gpt-5.6-terra#high"]?.repo_code).toEqual({
+      like: "gpt-5.6-luna#high",
+      distance: 0,
+      features: ["predecessor"],
+    });
+    expect(terra?.values.repo_code).toBe(67);
+    // terminal and honesty: the nearest stand-in's values are higher than Luna's (13, 21.8), so they stay
+    expect(terra?.standIns.terminal).not.toBe("gpt-5.6-luna#high");
+    expect(terra?.values.terminal).toBeGreaterThan(13);
+    expect(terra?.standIns.honesty).not.toBe("gpt-5.6-luna#high");
+  });
+
+  it("ships GPT-6.1 Sol as GPT-6 Sol's successor, which stands in for it without the treat-like", () => {
+    expect(shippedModels().families.find((f) => f.id === "gpt-6.1-sol")?.predecessor).toBe("gpt-6-sol");
+    const scores = shippedScores();
+    const treatLike = Object.fromEntries(
+      Object.entries(scores.treatLike).filter(([rung]) => !rung.startsWith("gpt-6.1-sol#")),
+    );
+    const c = withStandIns(buildCatalog({ models: shippedModels(), scores: { ...scores, treatLike } }));
+    expect(scoresOf(c, "gpt-6.1-sol#high")?.standIns.repo_code).toBe("gpt-6-sol#high");
+    expect(scoresOf(c, "gpt-6.1-sol#high")?.values.repo_code).toBe(
+      scoresOf(c, "gpt-6-sol#high")?.values.repo_code,
+    );
   });
 });

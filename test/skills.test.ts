@@ -258,9 +258,14 @@ describe("orchestrator skill, run findings", () => {
     expect(md()).toContain('`source: "jev-kind"`');
   });
 
-  it("no longer claims the routes run at once", () => {
+  it("routes a milestone's lanes in one call (spec 1.5 plan 24)", () => {
     expect(md()).not.toContain("all in one message");
-    expect(md()).toContain('`route(run, "lanes/Mx.Ly.md")` for every lane, one call per lane');
+    expect(md()).toContain('`route(run, lanes: ["lanes/Mx.L1.md", …])` once for the milestone\'s lanes');
+  });
+
+  it("says the lane's header decides and a ladder only goes up (spec 1.5 plan 24)", () => {
+    expect(md()).toContain("A lane file that declares both `Kind:` and `Difficulty:` routes on them");
+    expect(md()).toContain("A ladder holds only rungs at least as strong as its start");
   });
 
   it("offers no Codex harness figure", () => {

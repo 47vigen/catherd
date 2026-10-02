@@ -267,7 +267,7 @@ export function ProfilesView(props: { width: number; height: number }) {
             value: v.dim,
             title: `${v.dim} ${v.value}`,
             group: "values",
-            detail: `${v.inferred ? `inferred from ${v.from}` : v.confidence} · ${v.source} ${v.benchmark} · ${v.date}`,
+            detail: `${v.lent === "treat-like" ? `like ${v.from}` : v.inferred ? `inferred from ${v.from}` : v.confidence} · ${v.source} ${v.benchmark} · ${v.date}`,
           })),
           {
             value: "runs",

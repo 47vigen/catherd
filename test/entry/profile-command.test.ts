@@ -223,7 +223,7 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect(getProfile("fast", "claude-code").budget.minutes).toBe(7);
     expect(getProfile("default", "claude-code").budget.minutes).toBeUndefined();
     expect(catherd(["diff", "default"], repo).out).toBe("budget.minutes: 7 → none\n");
-    expect(catherd(["validate"], repo).out).toBe("✓ valid\n");
+    expect(catherd(["validate"], repo).out).toStartWith("! roles.worker.rungs: no worker rung clears ");
   });
 });
 
@@ -271,7 +271,12 @@ describe("names the user types, and unbinding", () => {
 describe("catherd profile validate", () => {
   it("prints errors and warnings, and exits 1 on an error", () => {
     withHome();
-    expect(catherd(["validate"])).toEqual({ code: 0, out: "✓ valid\n", err: "" });
+    // spec 1.5 plan 24: the default worker reaches no logic or hard bar, which only validate says
+    expect(catherd(["validate"])).toEqual({
+      code: 0,
+      out: "! roles.worker.rungs: no worker rung clears repo_code logic, hard; terminal build, logic, hard; ui logic, hard; prose logic, hard; research logic, hard: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)\n",
+      err: "",
+    });
     mkdirSync(profilesDir(), { recursive: true });
     const doc = JSON.parse(readFileSync(join(SRC, "..", "test", "fixtures", "profiles", "bad.json"), "utf8"));
     writeFileSync(join(profilesDir(), "bad.json"), JSON.stringify(doc));

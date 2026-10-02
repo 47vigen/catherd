@@ -48,7 +48,7 @@ export interface SavePreview {
  */
 function previewSave(
   d: Draft,
-  fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile">,
+  fx: Pick<Effects, "catalog" | "validate" | "agents" | "readProfile" | "profiles">,
   now: ProfileDoc = fx.readProfile(d.name),
 ): SavePreview {
   const before = resolveProfile(now, d.name, d.host);
@@ -62,7 +62,11 @@ function previewSave(
     changes: diffProfiles(before, after),
     treatLikes: Object.entries(d.treatLikes),
     validation,
-    repair: validation.errors.length > 0 && repairs(fx.validate(before, staged), validation),
+    // as the ProfileService rules: a profile with no stored file has no errors a save could repair (1.2 minor)
+    repair:
+      validation.errors.length > 0 &&
+      fx.profiles().names.includes(d.name) &&
+      repairs(fx.validate(before, staged), validation),
     agentsAdded: [...b].filter((x) => !a.has(x)),
     agentsRemoved: [...a].filter((x) => !b.has(x)),
   };
