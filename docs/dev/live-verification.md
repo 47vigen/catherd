@@ -1,6 +1,6 @@
 # Live verification
 
-The native Codex candidate is unreleased and held. Its current acceptance is local only: do not request, trigger or re-enable CI, publish, push or change the remote release tag. Sections 1–13 retain historical backend/release procedures; their CI and publication examples are not instructions for this feature. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
+Native Codex shipped in 1.4.0, and CI (`.github/workflows/ci.yml`) runs on every PR. Sections 1–13 keep the per-backend and release procedures of earlier releases. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
 
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker

@@ -5,8 +5,8 @@ into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and
 (the evidence), and where it would live.
 
 After 1.5 the list holds only what the 1.5 spec (`docs/specs/2026-10-02-catherd-1.5-design.md`) names under "Not in
-1.5" (the "1.2 follow-ups", "Routing and cost", "Orchestration", "Later" and "Live coverage" sections) and the
-1.5 follow-ups below.
+1.5" (the "1.2 follow-ups", "Routing and cost", "Orchestration", "Later" and "Live coverage" sections), the 1.5 follow-ups below, and the open entries of the older sections
+that no 1.5 plan fixed (under "Found while releasing 1.5").
 
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
 report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
@@ -195,6 +195,9 @@ does not name):
   while `gate_check`'s listing and the verifier brief use `recordedItems`, which also re-opens a pass whose content
   changed since. So the re-check step can name fewer items than the fresh verifier is given. Evidence: plan 23
   ledger (Codex fixes for PR 48). Fix: make `protocol.next` async and use `recordedItems`, or cache its result.
+- **Stacked pushes need `-o ci.skip` (branch pipelines held the runner).** About the user's CI practice, not
+  catherd. In the payment run, pushing five stacked branches started five branch pipelines on the single runner, and
+  plan 5's MR pipeline sat pending for about 30 min. Stacked pushes need `-o ci.skip`.
 
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 

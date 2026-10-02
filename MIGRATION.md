@@ -44,7 +44,7 @@ catherd sets `CATHERD_ROLE=<run>/<name>` in every role's environment. A process 
 `TMPDIR` is a role's scratch folder) never becomes the run's owner, and its catherd MCP server refuses the
 coordinator tools with the new error `E_ROLE_SCOPE`: `peek` of another role, `result`, `dispatch`, `run_start`,
 `climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set`, `test_push`, `run_pin`, `lane_set`,
-`owns_add`, and the workspace writers (`workspace_start`, `workspace_contract` with `content`,
+`owns_add`, `record_agent_run`, and the workspace writers (`workspace_start`, `workspace_contract` with `content`,
 `workspace_child_start`, `workspace_budget`, `workspace_pause`, `workspace_resume`). Their descriptions now start
 "Orchestrator only". A role may still `peek` its own dispatch.
 
@@ -105,7 +105,7 @@ named in its brief; `catherd runs clean [<id>]` removes the scratch of runs with
   role's wall clock alive.
 - **`catherd doctor --docker`** probes a two-container compose network by service name and Docker's free disk;
   every `doctor` now warns about a Docker client `proxies` block and toolchain caches you cannot write.
-- **`catherd pause --machine "<reason>"`** (or `--workspace <id>`) and **`catherd resume`**: while paused, every
+- **`catherd pause --machine "<reason>"`** (or `--workspace <id>`) and **`catherd resume --machine`** (or `--workspace <id>`): while paused, every
   `dispatch` is refused with the new `E_ADMIT_PAUSED` naming the reason; running roles finish.
 - **`catherd runs supersede <id> --by <id>`** (or `run_start`'s `from`) closes a run with a pointer to the one that
   took over; `status` hides it, and a `dispatch` into it is refused with `E_RUN_NOT_LIVE`.
