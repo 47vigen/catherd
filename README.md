@@ -112,7 +112,7 @@ route is the one meant for automation; check the terms before you rely on a plan
 
 ## Install
 
-The published `v1.3.0` marketplace and global `catherd-cli@1.3.0` remain the stable Claude integration. The native Codex feature in this checkout is unreleased and held pending actual packaged CLI/Desktop/Claude acceptance. A matching version alone does not prove that the feature core ran. Use the [local packaged acceptance procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance) for this candidate; do not publish or update the remote tag to test it.
+catherd runs from Claude Code or, since 1.4, from native Codex; one global `catherd` and one plugin version serve both. To check a packaged build before you rely on it, follow the [local packaged acceptance procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance); a matching version alone does not prove that the feature core ran.
 
 ### Claude Code
 
@@ -142,9 +142,7 @@ claude plugin install catherd@catherd
 Start a new Claude Code session so the plugin, its MCP server and the agent files load, then check with
 `catherd doctor --host claude-code`. From inside that session, explicit `catherd doctor --test-push` sends a labeled smoke notice; inspect actual processing separately from transport acceptance.
 
-### Native Codex — after the feature release
-
-These remote commands become feature installation guidance only after the held release is published:
+### Native Codex
 
 ```sh
 bun add -g catherd-cli
@@ -179,6 +177,10 @@ It removes only architect/verifier `rungs` and `defaultRung`; every other settin
 
 Completion never uses `await_results` or model polling. Codex sends through `codex queue --remote unix://` to the validated original thread: idle wake and ordered busy follow-up are the native semantics, without Claude's urgent tool-round priority. A receipt proves queue acceptance, not observed generation or collection; unloaded/interrupted hosts may retain input. Only `result` collects the actual stored record. Explicit `peek(run)` adopts the run for the current host/session; `status` and `result` do not. Unknown/conflicting identity never owns or pushes.
 
+When a role ends, its own supervisor also queues the notice to a Codex owner's thread, under the same receipt as the server's push, so a thread whose MCP server Codex has stopped still hears, and nothing arrives twice. Run a Codex coordinator inside `tmux` (or `screen`): Codex stops a thread's MCP servers once no client is attached, and the queued input waits for the next attach. Every catherd message names the role's `thread:`; resume it with `dispatch(…, thread: "latest")` under the same name.
+
+Roles get catherd's tools too. Headless Codex and Claude Code roles get a `catherd_role` MCP server, isolated or not, without any change to your config; roles on other backends run `catherd run-file read|write <run> <path>` and `catherd gate check|pass <run> …` from their shell, bound to their own run and to their role's tools: every role may read run files, only the architect and researcher write them, and only the verifier runs `gate check|pass` (anything else is `E_ROLE_SCOPE`). The coordinator tools (`dispatch`, `result`, `land`, `climb`, `peek` of another role, `run_start`, `park`, `answer`, `cancel`, `set_next`, `profile_set`, `test_push`, `run_pin`, `lane_set`, `owns_add`, `record_agent_run` and the workspace writers) are the orchestrator's: a role's process gets `E_ROLE_SCOPE` for them, so a role can never take the run over.
+
 Recover unread work with `peek` and `result`. Accepted or ambiguous attempts are not automatically resent. When ambiguity needs a deliberate retry, run from the current owner's validated host session:
 
 ```sh
@@ -189,30 +191,30 @@ This acknowledges possible duplicate native input; an accepted receipt still sup
 
 In a terminal:
 
-| Command                                                                                                | What it does                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catherd`                                                                                              | The dashboard: Status, Profiles and Runs (below)                                                                                                |
-| `catherd init [--host codex\|claude-code\|auto] [--no-input] [--no-global] [--profile <p>]`            | First-run setup; installs the global `catherd` at its own version unless `--no-global`                                                          |
-| `catherd doctor [--host codex\|claude-code\|auto] [--test-push [--thread <uuid>]] [--docker] [--json]` | Readiness and capability report; no send unless explicit smoke; `--docker` probes a compose network and the Docker disk; exits 3 when not ready |
-| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`                 | Profiles; `use --repo` binds one to the repo you are in                                                                                         |
-| `catherd profile use --repo --clear`                                                                   | Unbinds the repo you are in; it runs on the active profile again                                                                                |
-| `catherd profile set <path> <value> [--profile <p>]`                                                   | One field, e.g. `roles.verifier.access read-only`, `roles.worker.network false`, `budget.usd 20`                                                |
-| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                                      | Where runs stand, grouped by host and session; read-only ownership                                                                              |
-| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>`              | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's                                             |
-| `catherd runs clean [<id>]`                                                                            | Removes the roles' scratch folders (each role's `$TMPDIR`) of runs with no live role                                                            |
-| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`                   | The models catherd can place, filtered                                                                                                          |
-| `catherd catalog sync [--force] [--unmatched]`                                                         | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched                                                 |
-| `catherd catalog treat-like <rung> <like>`                                                             | Scores an unscored rung as a scored one                                                                                                         |
-| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                                 | The three nearest stand-ins for a rung; removes one or every mapping of yours                                                                   |
-| `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                           | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"                                                   |
-| `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`                     | The repo's gate environment, which the verifier and preflight run with; a secret by reference only                                              |
-| `catherd runs supersede <id> --by <id>`, `catherd runs pin <id>`                                       | Closes a run with a pointer to the one that took over; re-pins a run to the repo's profile now                                                  |
-| `catherd pause --machine\|--workspace <id> "<reason>"`, `catherd resume --machine\|--workspace <id>`   | Pauses every run on the machine (or in a workspace) on one blocker; dispatch is refused until resume                                            |
-| `catherd lock [--slots N] [--role verifier [--run <id>]] -- <cmd>`                                     | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty); `--role verifier` keeps two runs' verifiers apart     |
-| `catherd run-file read\|write <run> <path>`                                                            | A run's plan, lanes and notes (`write` reads stdin); in a role, its own run only                                                                |
-| `catherd gate check\|pass <run> --item <i> --command <c> --paths <p,…> [--evidence <e>]`               | A verifier's gate evidence, as `gate_check`/`gate_pass`; in a role, its own run only                                                            |
-| `catherd mcp`                                                                                          | The MCP server on stdio; the plugin starts it, you never need to                                                                                |
-| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                               | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                                                              |
+| Command                                                                                                                                                                | What it does                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `catherd`                                                                                                                                                              | The dashboard: Status, Profiles and Runs (below)                                                                                                       |
+| `catherd init [--host codex\|claude-code\|auto] [--no-input] [--no-global] [--profile <p>]`                                                                            | First-run setup; installs the global `catherd` at its own version unless `--no-global`                                                                 |
+| `catherd doctor [--host codex\|claude-code\|auto] [--test-push [--thread <uuid>]] [--docker] [--json]`                                                                 | Readiness and capability report; no send unless explicit smoke; `--docker` probes a compose network and the Docker disk; exits 3 when not ready        |
+| `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`                                                                                 | Profiles; `use --repo` binds one to the repo you are in                                                                                                |
+| `catherd profile use --repo --clear`                                                                                                                                   | Unbinds the repo you are in; it runs on the active profile again                                                                                       |
+| `catherd profile set <path> <value> [--profile <p>]`                                                                                                                   | One field, e.g. `roles.verifier.access read-only`, `roles.worker.network false`, `budget.usd 20`                                                       |
+| `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                                                                                                      | Where runs stand, grouped by host and session; read-only ownership                                                                                     |
+| `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>`                                                                              | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's                                                    |
+| `catherd runs clean [<id>]`                                                                                                                                            | Removes the roles' scratch folders (each role's `$TMPDIR`) of runs with no live role                                                                   |
+| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`                                                                                   | The models catherd can place, filtered                                                                                                                 |
+| `catherd catalog sync [--force] [--unmatched]`                                                                                                                         | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched                                                        |
+| `catherd catalog treat-like <rung> <like>`                                                                                                                             | Scores an unscored rung as a scored one                                                                                                                |
+| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                                                                                                 | The three nearest stand-ins for a rung; removes one or every mapping of yours                                                                          |
+| `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                                                                                           | The repo's knowledge.md, keyed by its git origin (its toplevel when it has none), which new runs read; `add` appends a fact of yours, marked "by hand" |
+| `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`                                                                                     | The repo's gate environment, which the verifier and preflight run with; a secret by reference only                                                     |
+| `catherd runs supersede <id> --by <id>`, `catherd runs pin <id>`                                                                                                       | Closes a run with a pointer to the one that took over; re-pins a run to the repo's profile now                                                         |
+| `catherd pause --machine\|--workspace <id> "<reason>"`, `catherd resume --machine\|--workspace <id>`                                                                   | Pauses every run on the machine (or in a workspace) on one blocker; dispatch is refused until resume                                                   |
+| `catherd lock [--slots N] [--role verifier [--run <id>]] -- <cmd>`                                                                                                     | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty); `--role verifier` keeps two runs' verifiers apart            |
+| `catherd run-file read\|write <run> <path>`                                                                                                                            | A run's plan, lanes and notes (`write` reads stdin); in a role, its own run only                                                                       |
+| `catherd gate check <run> [--item <i> --command <c> --paths <p,…>] [--milestone <M>]`, `catherd gate pass <run> --item <i> --command <c> --paths <p,…> --evidence <e>` | A verifier's gate evidence, as `gate_check`/`gate_pass`; in a role, its own run only                                                                   |
+| `catherd mcp`                                                                                                                                                          | The MCP server on stdio; the plugin starts it, you never need to                                                                                       |
+| `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                                                                                               | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                                                                     |
 
 A profile command without a profile name (`show`, `set`, `diff`, `validate`), like the MCP profile tools, acts
 on the profile the repo you are in runs on: the one bound to it, else the active one. Pass `repo` explicitly to MCP tools; profile CLI commands accept `--host` for effective defaults. Run them as
@@ -337,6 +339,12 @@ opens on its brief, reply and record; the open screen redraws as run files chang
 
 ## Upgrading
 
+From 1.4: `bun add -g catherd-cli@latest && catherd doctor`, update the plugin and start a new session; `doctor`
+names the Claude agent links to refresh. There is still no `wait` tool (it never shipped and is gone): end the
+turn, and on Codex run the coordinator inside `tmux`. A role calling a coordinator tool now gets `E_ROLE_SCOPE`,
+knowledge is keyed by the git origin, and `route` returns seven keys with the rest in `routes.jsonl`.
+[MIGRATION.md](MIGRATION.md), "From 1.4 to 1.5", has the rest.
+
 From 1.0: install 1.1 and run its `init` (`bun add -g catherd-cli@latest && catherd init`, or
 `bunx catherd-cli@latest init`; 1.0's own `catherd init` does not upgrade), update the plugin
 (`claude plugin marketplace update catherd && claude plugin update catherd@catherd`) and start a new Claude Code
@@ -357,10 +365,11 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 | Where                                                                                              | What                                                                  |
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [MIGRATION.md](MIGRATION.md)                                                                       | Upgrading from 1.0 and from 0.x                                       |
+| [MIGRATION.md](MIGRATION.md)                                                                       | Upgrading from each release to the next, and from 0.x                 |
 | [CHANGELOG.md](CHANGELOG.md)                                                                       | Releases                                                              |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                 | Development setup, the checks, commits, changesets, live tests        |
 | [SECURITY.md](SECURITY.md)                                                                         | Reporting a vulnerability; what catherd stores and how                |
+| [`docs/specs/2026-10-02-catherd-1.5-design.md`](docs/specs/2026-10-02-catherd-1.5-design.md)       | The 1.5 design (binding where it differs from the earlier ones)       |
 | [`docs/specs/2026-09-28-catherd-1.1-design.md`](docs/specs/2026-09-28-catherd-1.1-design.md)       | The 1.1 design (binding; builds on 1.0's)                             |
 | [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design                                                        |
 | [`docs/dev/`](docs/dev/)                                                                           | Maintainer docs: live verification, manual tests, dependencies, ideas |
@@ -371,7 +380,7 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). This feature's checks and acceptance are local, with release held; do not request or re-enable CI for it. The documented historical CI matrix uses Linux/macOS and Bun 1.4.0/latest;
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the checks on every pull request on Linux and macOS, with Bun 1.4.0 and the latest Bun (the full matrix nightly);
 live verification is in [`docs/dev/live-verification.md`](docs/dev/live-verification.md). Report security issues
 privately, as [SECURITY.md](SECURITY.md) describes. Everyone taking part follows the
 [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -243,7 +243,7 @@ Nothing else pushes: a phone that buzzes for progress teaches the user to ignore
 - **`runs.jsonl`, `agents.jsonl`, `jev.jsonl`, `routes.jsonl`, `outcomes.jsonl`, `harness.jsonl`, `verifier.jsonl`, `questions.jsonl`:** the record.
 - **`digests/<milestone>.md`:** each landed milestone's digest, written by `land`.
 - **`roles/<name>/<dispatchId>/`** (each dispatch's brief, reply, events and stderr) and **`shots/`** (screenshots).
-- **The repo's `knowledge.md`** (beside the runs, per repo, not per run): what past runs learned. `land`'s `learned` appends to it; `read_knowledge` reads it.
+- **The repo's `knowledge.md`** (per repo, not per run, keyed by its git origin, so every worktree and clone of it shares one): what past runs learned, beside the repo's gate environment (`catherd knowledge env`). `land`'s `learned` appends to it; `read_knowledge` reads it.
 
 **Pause** (on the user's word, a usage limit, or `E_RUN_BUDGET`): dispatch nothing new, `cancel(run, name)` each live role the user wants stopped, and bring down only this run's stack. Leave the tree as it is, call `set_next(run, "paused: <why>; resume with <step>")`, then stop. On a usage limit with no stand-in, catherd has already written the pause.
 
