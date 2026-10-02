@@ -73,6 +73,8 @@ export const COORDINATOR_TOOLS = [
   "workspace_budget",
   "workspace_pause",
   "workspace_resume",
+  "lane_set",
+  "owns_add",
 ] as const;
 
 const COORDINATOR = new Set<string>(COORDINATOR_TOOLS);

@@ -4,6 +4,7 @@ import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { CatherdError } from "../../domain/errors.ts";
 import { CLIMB_REASONS } from "../../domain/route.ts";
+import { LANE_FIELDS, type LaneField, laneSet, ownsAdd } from "../../services/lane-edit.ts";
 import { ask, climb, LAND_SKIPS, land, route, routeLanes } from "../../services/lane-service.ts";
 import type { Deps } from "../../services/ports.ts";
 import { preflight } from "../../services/preflight.ts";
@@ -32,6 +33,37 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
           ? { routes: await routeLanes(deps, { run: a.run, laneFiles: a.lanes, role: a.role }) }
           : route(deps, { run: a.run, laneFile: a.lane_file, role: a.role });
       }),
+  );
+
+  const lane = z.string().regex(ID_PATTERN);
+  server.registerTool(
+    "lane_set",
+    {
+      description:
+        "Set one header line of a lane file (owns, fast_check, kind, difficulty, after, allow), validated as write_run_file validates a lane: an unknown Kind or Difficulty, an Owns path outside the repo, or a malformed After:/Allow: is refused with E_LANE_INVALID, and an Owns that a running lane holds with E_ADMIT_OVERLAP. after names lanes that must finish first; allow lists path or path:line hits the lane's absence check may report. Returns the line and the header as it now reads. Orchestrator only.",
+      inputSchema: {
+        run: z.string(),
+        lane,
+        field: z.enum(Object.keys(LANE_FIELDS) as [LaneField, ...LaneField[]]),
+        value: z.string(),
+      },
+    },
+    (a) => handle(() => laneSet(deps, a)),
+  );
+
+  server.registerTool(
+    "owns_add",
+    {
+      description:
+        "Grow a lane's Owns mid-lane, with why (kept in the lane file): a running lane that owns one of the paths refuses it with E_ADMIT_OVERLAP; another lane file that lists one comes back as a hint. A dispatch of the lane still running is held to the new list when it finishes, so its edits there are not violations. Orchestrator only.",
+      inputSchema: {
+        run: z.string(),
+        lane,
+        paths: z.array(z.string().min(1)).min(1).max(100),
+        why: z.string().min(1),
+      },
+    },
+    (a) => handle(() => ownsAdd(deps, a)),
   );
 
   server.registerTool(
