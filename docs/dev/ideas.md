@@ -661,6 +661,16 @@ owner turned isolation off (the host is itself a sandbox).
   binary, and logs copied between roles. This host's `/tmp` is a 5.9 GiB tmpfs with a per-user quota that had
   already broken a TUI once. Fix: each dispatch gets `TMPDIR=<run>/scratch/<role>/`, the brief names it, and
   evidence goes through `write_run_file`. `runs` cleanup removes the scratch with the run.
+- **A provider outage looks like progress.** `researcher-M1-signin-failures` on
+  `opencode-go/muse-spark-1.3-contributor#xhigh` (10:29:39) produced no tool call and no text in 4.5 minutes. The
+  session held one assistant message with `retry.attempt: 6` and `503 service_overloaded: The backend is
+  temporarily overloaded`. Each opencode retry emitted a `step_start`, which reset the 15-minute idle timer, and
+  `failover` covers only usage limits. The role would have sat until `wallMin`. The owner cancelled it by hand
+  (`runs cancel` interrupted the server session cleanly: `aborted: Step interrupted`). Fix: the opencode adapter
+  reads the session's `retry` field (or counts consecutive `step_start` with no part between them). After N
+  provider retries (say 3) or about 3 minutes of retry-only events, it fails the attempt as `provider-unavailable`,
+  and `climb`/failover treats that like a usage limit: the next rung on another backend. A retry-only stretch
+  does not count as activity for `idleMin`.
 - **Investigate: three MCP servers for one Codex session.** At 09:36 one Codex TUI started `catherd mcp` three times
   (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
   Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
