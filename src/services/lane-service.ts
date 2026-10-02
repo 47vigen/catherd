@@ -21,7 +21,13 @@ import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
 import { workspaceBudget } from "./workspace-admission.ts";
-import { findWorkspace, workspaceChildren, workspaceDirectory, workspacePaths } from "./workspace-store.ts";
+import {
+  findWorkspace,
+  WORKSPACE_LOCK_WAIT_MS,
+  workspaceChildren,
+  workspaceDirectory,
+  workspacePaths,
+} from "./workspace-store.ts";
 import {
   isDocPath,
   isSourcePath,
@@ -49,7 +55,7 @@ import {
 } from "./run-store.ts";
 import { writeDigest } from "./protocol.ts";
 import { openQuestions } from "./questions.ts";
-import { type Notes, type NotesPatch, refreshState } from "./state.ts";
+import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
 const withHints = (hints: string[]) => (hints.length ? { hints } : {});
 
@@ -426,37 +432,61 @@ type LandInput = {
   skip?: LandSkip;
 };
 
-export async function land(deps: Deps, i: LandInput) {
+type LandResult = { ledger: string; minutes: number; digest: string; hints?: string[] };
+
+export async function land(deps: Deps, i: LandInput): Promise<LandResult> {
   const run = findRun(i.run);
-  if (!run.meta.workspace) return landRun(deps, i, run);
-  const workspace = findWorkspace(run.meta.workspace.id);
-  // Completion and dispatch admission share a boundary. Landing remains available at a spent budget.
-  return withFileLock(workspacePaths(workspaceDirectory(workspace.id)).admission, async () => {
-    if (!workspaceChildren(workspace).some((child) => child.dir === run.dir))
-      throw new CatherdError("E_RUN_CORRUPT", "the run is not a member of its workspace execution");
-    const pending = await withFileLock(runPaths(run.dir).runs, () => {
-      const { records, corrupt } = readRecords(run);
-      if (corrupt)
-        throw new CatherdError("E_RUN_CORRUPT", "workspace completion has unreadable dispatch records", {
-          fix: "repair the child's dispatch records before landing its milestone",
+  const link = run.meta.workspace;
+  if (!link) return landRun(deps, i, run);
+  const workspace = findWorkspace(link.id);
+  const step = workspace.steps.find((s) => s.id === link.step);
+  if (!step || !workspaceChildren(workspace).some((child) => child.dir === run.dir))
+    throw new CatherdError("E_RUN_CORRUPT", "the run is not a member of its workspace execution");
+  // #43 finding 3: only the step's completion milestone waits for the child's dispatches
+  if (i.milestone !== step.milestone) {
+    const landed = await landRun(deps, i, run);
+    if (i.milestone.toLowerCase() !== step.milestone.toLowerCase()) return landed;
+    // #43 finding 7: m1 is not M1; the dependents wait on the step's own milestone
+    const hint = `${i.milestone} is not ${step.milestone}, the milestone workspace step ${step.id} completes on: its dependents still wait`;
+    return { ...landed, hints: [...(landed.hints ?? []), hint] };
+  }
+  // An unreadable newer native verdict must not leave an older PASS standing.
+  readAgentRuns(run, true);
+  // Completion and dispatch admission share a boundary, held only for the check and the ledger row: the git
+  // work runs outside it (#43 finding 5). Landing remains available at a spent budget.
+  return landRun(deps, i, run, (write) =>
+    withFileLock(
+      workspacePaths(workspaceDirectory(workspace.id)).admission,
+      async () => {
+        const pending = await withFileLock(runPaths(run.dir).runs, () => {
+          const { records, corrupt } = readRecords(run);
+          if (corrupt)
+            throw new CatherdError("E_RUN_CORRUPT", "workspace completion has unreadable dispatch records", {
+              fix: "repair the child's dispatch records before landing its milestone",
+            });
+          return pendingDispatches(run, deps.now(), records, true);
         });
-      return pendingDispatches(run, deps.now(), records, true);
-    });
-    if (pending.length)
-      throw new CatherdError("E_LAND_GATE", "workspace completion waits for all admitted dispatches", {
-        fix: "finish and collect the child's dispatches before landing its milestone",
-      });
-    // An unreadable newer native verdict must not leave an older PASS standing.
-    readAgentRuns(run, true);
-    return landRun(deps, i, run);
-  });
+        if (pending.length)
+          throw new CatherdError("E_LAND_GATE", "workspace completion waits for all admitted dispatches", {
+            fix: "finish and collect the child's dispatches before landing its milestone",
+          });
+        return write();
+      },
+      { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+    ),
+  );
 }
 
+/**
+ * The checks (commit, gate) first, then the ledger row and the notes, inside `critical` (a workspace
+ * completion's lock), with no git; then state.md, the lane outcomes, knowledge and the digest.
+ */
 async function landRun(
   deps: Deps,
   i: LandInput,
   run: Run,
-): Promise<{ ledger: string; minutes: number; digest: string; hints?: string[] }> {
+  critical: (write: () => Promise<Notes>) => Promise<Notes> = (write) => write(),
+): Promise<LandResult> {
   // the digest is named after the milestone: an id, checked before anything is written
   assertId("milestone", i.milestone);
   // commitExists throws E_IO_UNEXPECTED on a timeout, which reaches the caller as is
@@ -477,8 +507,9 @@ async function landRun(
     appendLedger(run, row);
     return { lastCheck: cell(i.evidence), next: i.next, lastLandedAt: now.toISOString() };
   };
-  // on a failed refresh the notes still reach state.json, so the next landing counts its minutes from this one
-  const { hints } = await refreshState(run, landRow);
+  // the notes reach state.json first, with no git: the next landing counts its minutes from this one
+  await critical(() => patchNotes(run, landRow));
+  const { hints } = await refreshState(run);
   // spec §5.6: every routed lane of the milestone lands with it
   // under the routes lock, so a racing climb cannot slip between the read and the rows
   let routed: string[] = [];

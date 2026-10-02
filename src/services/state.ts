@@ -77,6 +77,24 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
 }
 
 /**
+ * Writes state.json's notes only, with no git, under the state lock; for a writer that must not wait on git
+ * while it holds another lock (`land` in a workspace, #43 finding 5). It waits out a refresh's git (15 s).
+ */
+export function patchNotes(run: Run, change: (n: Notes) => NotesPatch): Promise<Notes> {
+  const stateJson = runPaths(run.dir).stateJson;
+  return withFileLock(
+    stateJson,
+    () => {
+      const notes = readNotes(run);
+      const next = parkedNext({ ...notes, ...change(notes) });
+      writeJsonAtomic(stateJson, next);
+      return next;
+    },
+    { timeoutMs: 30_000 },
+  );
+}
+
+/**
  * Ruling (b): a failed state.md refresh (git broken) never fails the call. The notes still go to state.json
  * under the state lock (state.md stays as it was), and the message comes back as a hint.
  */

@@ -9,7 +9,13 @@ import { spendOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
 import { landedMilestones } from "./milestones.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
-import { findWorkspace, workspaceChildren, workspaceDirectory, workspacePaths } from "./workspace-store.ts";
+import {
+  findWorkspace,
+  WORKSPACE_LOCK_WAIT_MS,
+  workspaceChildren,
+  workspaceDirectory,
+  workspacePaths,
+} from "./workspace-store.ts";
 
 /**
  * Count each recorded or unrecorded dispatch once; elapsed minutes belong to the parent. With `warnings`,
@@ -126,35 +132,37 @@ export async function withWorkspaceAdmission<T>(
   const link = run.meta.workspace;
   if (!link) return admit();
   const workspace = findWorkspace(link.id);
-  return withFileLock(workspacePaths(workspaceDirectory(workspace.id)).admission, async () => {
-    const now = typeof clock === "function" ? clock() : clock;
-    const children = workspaceChildren(workspace);
-    const step = workspace.steps.find((s) => s.id === link.step);
-    if (!step || !children.some((c) => c.id === run.id))
-      throw new CatherdError("E_INPUT_INVALID", "the run is not a member of this workspace execution", {
-        fix: "start the child with workspace_child_start",
-      });
-    if ((await gitToplevel(run.meta.repo)) !== run.meta.repo)
-      throw new CatherdError(
-        "E_IO_PATH",
-        `workspace repository ${step.repo} is no longer the captured git root`,
-      );
-    if (landedMilestones(run).includes(step.milestone))
-      throw new CatherdError("E_INPUT_INVALID", `${step.id} has already landed its completion milestone`, {
-        fix: "start a new workspace execution for further changes",
-      });
-    const blockers = await dependencyBlockers(workspace, step, children, now);
-    if (blockers.length)
-      throw new CatherdError(
-        "E_INPUT_INVALID",
-        `${step.id} is waiting: ${blockers.map((b) => b.why).join("; ")}`,
-        {
-          fix: "land the dependency's completion milestone and collect its finished dispatches first",
-        },
-      );
-    await assertWorkspaceBudget(workspace, now, children);
-    return admit();
-  });
+  // git outside the workspace lock (#43 finding 5): the checkout check needs no sibling to wait
+  if ((await gitToplevel(run.meta.repo)) !== run.meta.repo)
+    throw new CatherdError(
+      "E_IO_PATH",
+      `workspace repository of ${link.step} is no longer the captured git root`,
+    );
+  return withFileLock(
+    workspacePaths(workspaceDirectory(workspace.id)).admission,
+    async () => {
+      const now = typeof clock === "function" ? clock() : clock;
+      const children = workspaceChildren(workspace);
+      const step = workspace.steps.find((s) => s.id === link.step);
+      if (!step || !children.some((c) => c.id === run.id))
+        throw new CatherdError("E_INPUT_INVALID", "the run is not a member of this workspace execution", {
+          fix: "start the child with workspace_child_start",
+        });
+      // #43 finding 7: a landed step's child admits again (a post-land fix); its dependents wait for it
+      const blockers = await dependencyBlockers(workspace, step, children, now);
+      if (blockers.length)
+        throw new CatherdError(
+          "E_INPUT_INVALID",
+          `${step.id} is waiting: ${blockers.map((b) => b.why).join("; ")}`,
+          {
+            fix: "land the dependency's completion milestone and collect its finished dispatches first",
+          },
+        );
+      await assertWorkspaceBudget(workspace, now, children);
+      return admit();
+    },
+    { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+  );
 }
 
 /** Whether the budget caps anything: without a cap, no sibling's evidence is read (#43 finding 2). */
@@ -187,16 +195,20 @@ export async function workspaceContract(i: {
       path: paths.contract,
       content: existsSync(paths.contract) ? readFileSync(paths.contract, "utf8") : "",
     };
-  return withFileLock(paths.admission, () => {
-    if (workspaceChildren(workspace).length)
-      throw new CatherdError(
-        "E_INPUT_INVALID",
-        "the workspace contract is frozen because a child has started",
-        {
-          fix: "start a new workspace execution to change the shared contract",
-        },
-      );
-    writeTextAtomic(paths.contract, i.content as string);
-    return { path: paths.contract, content: i.content as string };
-  });
+  return withFileLock(
+    paths.admission,
+    () => {
+      if (workspaceChildren(workspace).length)
+        throw new CatherdError(
+          "E_INPUT_INVALID",
+          "the workspace contract is frozen because a child has started",
+          {
+            fix: "start a new workspace execution to change the shared contract",
+          },
+        );
+      writeTextAtomic(paths.contract, i.content as string);
+      return { path: paths.contract, content: i.content as string };
+    },
+    { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+  );
 }

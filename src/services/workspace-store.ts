@@ -21,6 +21,12 @@ export function workspacePaths(dir: string) {
   };
 }
 
+/**
+ * How long a workspace-lock waiter waits (#43 finding 5): longer than the slowest holder, an admission
+ * whose git status snapshot may take up to 15 s, so a dispatch in another repository never fails E_IO_LOCK.
+ */
+export const WORKSPACE_LOCK_WAIT_MS = 120_000;
+
 export function createWorkspace(
   input: Omit<Workspace, "schema" | "id" | "createdAt">,
   now = new Date(),

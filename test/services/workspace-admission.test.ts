@@ -137,12 +137,10 @@ it("serializes sibling admission and rejects the second after aggregate budget i
   expect(rejected?.status === "rejected" && rejected.reason.code).toBe("E_RUN_BUDGET");
 });
 
-it("refuses more dispatches into a completed step and preserves ordinary run admission", async () => {
+it("admits a post-land fix into a completed step and preserves ordinary run admission (#43 finding 7)", async () => {
   const { deps, producer } = await setup();
   appendLedger(producer, "M1 | Finished | abcdef1 | 1 | passed");
-  await expect(withWorkspaceAdmission(producer, deps.now(), async () => "admitted")).rejects.toMatchObject({
-    code: "E_INPUT_INVALID",
-  });
+  expect(await withWorkspaceAdmission(producer, deps.now(), async () => "admitted")).toBe("admitted");
   const ordinary = createRun({ repo: tempRepo(), title: "Ordinary", aLines: [], version: "test" });
   expect(await withWorkspaceAdmission(ordinary, deps.now(), async () => "admitted")).toBe("admitted");
 });

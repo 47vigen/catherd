@@ -19,6 +19,7 @@ import {
   createWorkspace,
   findWorkspace,
   unreadableWarning,
+  WORKSPACE_LOCK_WAIT_MS,
   workspaceChildren,
   workspaceDirectory,
   workspaceListing,
@@ -140,39 +141,55 @@ export async function startWorkspaceChild(
 ): Promise<{ run: string; dir: string; contract: string | null }> {
   const workspace = findWorkspace(input.workspace);
   const paths = workspacePaths(workspaceDirectory(workspace.id));
-  return withFileLock(paths.admission, async () => {
-    const children = workspaceChildren(workspace);
-    const step = workspace.steps.find((s) => s.id === input.step);
-    if (!step) throw invalid(`unknown workspace step ${input.step}`);
-    // Recovery must validate the checkout too; stored status remains readable without it.
-    const repo = workspace.repos[step.repo]!;
-    if ((await gitToplevel(repo)) !== repo)
-      throw new CatherdError(
-        "E_IO_PATH",
-        `workspace repository ${step.repo} is no longer the captured git root`,
-      );
-    let run = children.find((r) => r.meta.workspace?.step === step.id);
-    if (!run) {
-      const blockers = await dependencyBlockers(workspace, step, children, deps.now());
-      if (blockers.length)
-        throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
-      await assertWorkspaceBudget(workspace, deps.now(), children);
-      run = createRun({
-        repo,
-        title: step.title,
-        aLines: step.aLines,
-        version: deps.version,
-        now: new Date(deps.now()),
-        startedBy: currentSession(deps),
-        workspace: { id: workspace.id, step: step.id },
-      });
-    }
-    const contract = existsSync(paths.contract) ? join(run.dir, "workspace-contract.md") : null;
-    if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(paths.contract, "utf8"));
-    await claimRun(deps, run);
-    await refreshState(run);
-    return { run: run.id, dir: run.dir, contract };
-  });
+  const step = workspace.steps.find((s) => s.id === input.step);
+  if (!step) throw invalid(`unknown workspace step ${input.step}`);
+  // Recovery must validate the checkout too; stored status remains readable without it. The git work runs
+  // outside the workspace lock (#43 finding 5).
+  const repo = workspace.repos[step.repo]!;
+  if ((await gitToplevel(repo)) !== repo)
+    throw new CatherdError(
+      "E_IO_PATH",
+      `workspace repository ${step.repo} is no longer the captured git root`,
+    );
+  const run = await withFileLock(
+    paths.admission,
+    () => childFor(deps, workspace, step, repo, paths.contract),
+    { timeoutMs: WORKSPACE_LOCK_WAIT_MS },
+  );
+  const contract = existsSync(paths.contract) ? join(run.dir, "workspace-contract.md") : null;
+  await claimRun(deps, run);
+  await refreshState(run);
+  return { run: run.id, dir: run.dir, contract };
+}
+
+/** Under the workspace lock: the step's child, created once its dependencies release it. */
+async function childFor(
+  deps: Deps,
+  workspace: Workspace,
+  step: Workspace["steps"][number],
+  repo: string,
+  contractFile: string,
+): Promise<Run> {
+  const children = workspaceChildren(workspace);
+  let run = children.find((r) => r.meta.workspace?.step === step.id);
+  if (!run) {
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now());
+    if (blockers.length)
+      throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
+    await assertWorkspaceBudget(workspace, deps.now(), children);
+    run = createRun({
+      repo,
+      title: step.title,
+      aLines: step.aLines,
+      version: deps.version,
+      now: new Date(deps.now()),
+      startedBy: currentSession(deps),
+      workspace: { id: workspace.id, step: step.id },
+    });
+  }
+  const contract = existsSync(contractFile) ? join(run.dir, "workspace-contract.md") : null;
+  if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(contractFile, "utf8"));
+  return run;
 }
 
 export async function workspaceStatus(deps: Deps, id: string) {
