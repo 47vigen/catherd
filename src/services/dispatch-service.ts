@@ -16,6 +16,7 @@ import {
 import { lockHeld, withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
+import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
 import { admit, KILL_GRACE_MS, laneFile, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
@@ -316,6 +317,30 @@ function threadFor(run: Run, name: string, thread: string | undefined): string |
 }
 
 /**
+ * Plan 22, resume hygiene: what an earlier turn on `thread` left running in its process group (a server, a
+ * watcher, a background command) is stopped before the thread is resumed, so it never ends the resumed CLI
+ * (exit 143). Only a finished dispatch whose group leader is gone is touched: a live group with no process of the
+ * leader's pid can only be that dispatch's leftovers (a pid is never reused while its group lives), and a pid
+ * that answers belongs to someone else by now. Returns a hint per group stopped.
+ */
+async function stopLeftovers(deps: Deps, run: Run, thread: string): Promise<string[]> {
+  const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
+  const hints: string[] = [];
+  for (const d of listDispatches(run)) {
+    const on = d.admit.thread ?? records.get(d.admit.dispatchId)?.thread ?? null;
+    if (on?.toLowerCase() !== thread.toLowerCase()) continue;
+    const proc = readProc(d.dir);
+    const pgid = proc?.pgid ?? proc?.pid;
+    if (!proc || pgid === undefined || pgid !== proc.pid || readExit(d.dir) === null) continue;
+    if (isAlive(proc.pid, null) || !groupAlive(pgid)) continue;
+    await stopGroup(pgid, orphanLimits.killGraceMs, deps.pollMs);
+    log("info", "dispatch", { run: run.id, name: d.admit.name, thread, stoppedGroup: pgid });
+    hints.push(`resume: stopped what ${d.admit.name}'s earlier turn left running on thread ${thread}`);
+  }
+  return hints;
+}
+
+/**
  * Spec §4.4, plan 9 ruling 1: admit and launch one role, start its watcher, then refresh state.md with
  * `next` (after the launch, so nothing delays it). Returns at once; catherd announces the record (spec §3).
  */
@@ -325,6 +350,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
   const thread = threadFor(run, i.name, i.thread);
   await claim(deps, run);
   const hints: string[] = [];
+  if (thread !== null) hints.push(...(await stopLeftovers(deps, run, thread)));
   let rung = i.rung;
   // spec 1.1 §6: a lane is routed before its first dispatch; a rung off the routed ladder starts at the routed one
   if (i.lane !== undefined && !readRoutes(run).some((r) => r.lane === i.lane)) {

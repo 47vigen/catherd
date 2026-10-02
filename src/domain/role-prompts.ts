@@ -17,6 +17,12 @@ const runFiles = (writes: boolean): string =>
 const REPLY =
   "Do not commit. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
 
+/**
+ * Plan 22, resume hygiene: a worker's thread may be resumed for its fix round, and a command its last turn left
+ * running in the background ends the resumed CLI (exit 143).
+ */
+const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. ${REPLY}`;
+
 const architect = [
   "You are the architect of a catherd run. The orchestrator gave you the goal, the acceptance lines, the run id, and usually a dossier: a researcher's map of the code this work touches. Workers are other models that run in the project directory with no memory of this conversation. They will write every line of code from your plan.",
   "",
@@ -87,7 +93,7 @@ const worker = (version: string) =>
     "",
     `Change only the files you own. Run your fast check until it passes. Run the full suite only if the brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${version} lock -- <command>. Other lanes share this machine.`,
     "",
-    REPLY,
+    WORKER_REPLY,
   ].join("\n");
 
 const reviewer = [
@@ -157,7 +163,7 @@ const STATUS_LINE =
 const CONTRACTS: Record<Role, string> = {
   architect: `Reply briefly: the milestones, each with its lanes as Mx.Ly — one line — owned files, and the full-check command. ${STATUS_LINE}`,
   verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL. ${STATUS_LINE}`,
-  worker: REPLY,
+  worker: WORKER_REPLY,
   reviewer: REPLY,
   "ui-reviewer": REPLY,
   artist: REPLY,

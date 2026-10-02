@@ -33,7 +33,8 @@ describe("the reply contract (spec 1.1 §6)", () => {
       expect(replyContract(role)).toEndWith(
         "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
       );
-    expect(replyContract("worker")).toStartWith("Do not commit. Reply in at most 15 lines");
+    expect(replyContract("worker")).toStartWith("Before you reply, leave nothing running");
+    expect(replyContract("worker")).toContain("Do not commit. Reply in at most 15 lines");
     expect(replyContract("verifier")).toStartWith(
       "The first line of your reply is VERDICT: PASS or VERDICT: FAIL.",
     );
