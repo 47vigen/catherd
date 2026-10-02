@@ -5,7 +5,9 @@ import { join } from "node:path";
 import {
   ensureGlobal,
   type GlobalInstallDeps,
+  installLimits,
   realGlobalInstall,
+  run,
 } from "../../src/services/global-install.ts";
 import { snapshotEnv } from "../helpers.ts";
 
@@ -46,8 +48,18 @@ describe("ensureGlobal (spec 1.1 §12)", () => {
     const { d, calls } = deps("1.1.0");
     const said: string[] = [];
     expect(await ensureGlobal("1.1.0", d, () => said.push("installing"))).toEqual({ state: "current" });
-    expect(calls).toEqual(["global"]);
+    expect(calls).toEqual(["global", "path"]);
     expect(said).toEqual([]);
+  });
+
+  it("says shadowed, installing nothing, when it is current but an older catherd comes first on PATH", async () => {
+    const { d, calls } = deps("1.1.0", undefined, undefined, "1.0.0");
+    const said: string[] = [];
+    expect(await ensureGlobal("1.1.0", d, () => said.push("installing"))).toEqual({
+      state: "shadowed",
+      onPath: "1.0.0",
+    });
+    expect([calls, said]).toEqual([["global", "path"], []]);
   });
 
   it("says it is installing before it resolves anything, installs this version, then checks PATH again", async () => {
@@ -132,7 +144,7 @@ describe("realGlobalInstall.globalVersion (Codex P1: under bunx, PATH finds bunx
 
   it("is current when the catherd in the global bin is this version", async () => {
     process.env.BUN_INSTALL_BIN = fakeCatherdDir("echo 1.1.0");
-    process.env.PATH = `${join(process.execPath, "..")}:/usr/bin:/bin`;
+    process.env.PATH = `${process.env.BUN_INSTALL_BIN}:${join(process.execPath, "..")}:/usr/bin:/bin`;
     expect(await realGlobalInstall.globalVersion()).toBe("1.1.0");
     const d: GlobalInstallDeps = {
       ...realGlobalInstall,
@@ -164,5 +176,14 @@ describe("realGlobalInstall.pathVersion", () => {
     expect(await realGlobalInstall.pathVersion()).toBe("1.0.0");
     process.env.PATH = `${bunxBin("1.1.0")}:/usr/bin:/bin`;
     expect(await realGlobalInstall.pathVersion()).toBeNull();
+  });
+});
+
+describe("the install's time limit (1.1 follow-ups)", () => {
+  it("kills a command past its limit and reports it failed, without waiting on its output", async () => {
+    const r = await run(["sh", "-c", "sleep 30"], 50);
+    expect(r).toEqual({ ok: false, stdout: "", output: "-c sleep 30 timed out after 0 s" });
+    expect(await run(["sh", "-c", "echo hi"], 5_000)).toEqual({ ok: true, stdout: "hi\n", output: "hi\n" });
+    expect(installLimits.timeoutMs).toBe(120_000);
   });
 });
