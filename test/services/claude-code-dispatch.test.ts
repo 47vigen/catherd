@@ -8,7 +8,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import { type ClaudeScenario, withClaudeScenario } from "../sim/sim-scenarios.ts";
-import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
+import { briefFor, fakeDeps, freshRun, runRole, seedThread, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 beforeEach(() => resetReadiness());
@@ -72,6 +72,7 @@ describe("dispatch on claude-code (simulator)", () => {
   it("resumes a fix round on the same session", async () => {
     const thread = "670d1ec2-db2b-471f-a1a5-3cda1416c061";
     const { run, sim, deps } = setup({ eventsFile: join(FX, "resume.jsonl") });
+    await seedThread(run, "worker-M1.L1", thread, { backend: "claude-code", rung: RUNG });
     const { record } = await runRole(deps, input(run.id, { thread, brief: "Fix: BUG src/a.ts:1" }));
     expect(record).toMatchObject({ status: "ok", thread });
     expect(sim.recorded().args).toContain("--resume");

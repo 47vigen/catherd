@@ -289,11 +289,40 @@ function unannounced(run: Run): { d: Dispatch; record: RunRecord }[] {
 }
 
 /**
+ * Plan 22: the thread a dispatch resumes. `"latest"` is the name's last recorded thread; any other id must be one
+ * the name's records in this run hold (`runs.jsonl`), in any case, so a wrong id is refused before a CLI starts
+ * and fails on it. Null for a fresh thread.
+ */
+function threadFor(run: Run, name: string, thread: string | undefined): string | null {
+  if (thread === undefined) return null;
+  assertId("role name", name);
+  const mine = readRecords(run)
+    .records.filter((r) => r.name === name && r.thread !== null)
+    .map((r) => r.thread as string);
+  const last = mine.at(-1);
+  if (thread === "latest") {
+    if (last) return last;
+    throw new CatherdError("E_ADMIT_THREAD", `${name} has no earlier thread in this run`, {
+      fix: "omit thread for a fresh thread",
+    });
+  }
+  const known = mine.findLast((t) => t.toLowerCase() === thread.toLowerCase());
+  if (known) return known;
+  throw new CatherdError("E_ADMIT_THREAD", `${thread} is not a thread of ${name} in this run`, {
+    fix: last
+      ? `pass thread: "latest" for ${name}'s last thread (${last}), or omit thread for a fresh one`
+      : "omit thread for a fresh thread",
+  });
+}
+
+/**
  * Spec §4.4, plan 9 ruling 1: admit and launch one role, start its watcher, then refresh state.md with
  * `next` (after the launch, so nothing delays it). Returns at once; catherd announces the record (spec §3).
  */
 export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchStarted> {
   const run = findRun(i.run);
+  // refused before the claim, so a wrong thread changes nothing
+  const thread = threadFor(run, i.name, i.thread);
   await claim(deps, run);
   const hints: string[] = [];
   let rung = i.rung;
@@ -316,7 +345,7 @@ export async function dispatch(deps: Deps, i: DispatchInput): Promise<DispatchSt
       name: i.name,
       brief: i.brief,
       rung,
-      thread: i.thread ?? null,
+      thread,
       lane: i.lane ?? null,
       failoverFrom: null,
     },

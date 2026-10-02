@@ -169,7 +169,7 @@ A failure on the top rung (`top: true`) goes to the architect when Jev calls it 
 
 A resumed thread replays its whole history on every tool call. In the first real run, one worker thread cost 20–25M input tokens per resume, and threads were 90% of the Codex spend.
 
-- **Resume a thread only for its own fix round:** the reviewer's findings on that piece, or the verifier's FAIL, at the same rung. That is `dispatch(…, thread: <record.thread>)`, with the fix as the brief.
+- **Resume a thread only for its own fix round:** the reviewer's findings on that piece, or the verifier's FAIL, at the same rung. That is `dispatch(…, thread: <record.thread>)`, with the fix as the brief: the `thread:` the first line of its catherd message names, or `thread: "latest"` for that name's last thread. A thread that name never ran on in the run is refused (`E_ADMIT_THREAD`).
 - **A new piece of work gets a fresh thread,** even for the same worker role: a new bug, a cleanup slice, a docs pass, a re-run, a climb to the next rung. Its brief carries what it needs, from its lane file and the ledger.
 - A `thread-heavy` hint means that thread is spent. Its next piece starts fresh.
 

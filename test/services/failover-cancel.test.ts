@@ -48,6 +48,7 @@ import {
   fakeGit,
   freshRun,
   runRole,
+  seedThread,
   testView,
   waitFor,
   writeLane,
@@ -221,6 +222,7 @@ describe("failover (spec §3.4: it runs as soon as a limit is settled)", () => {
 
   it("hands a fix round's stand-in the lane file and the fix brief by path, both of which exist", async () => {
     const { run, deps } = setup({ byRung: { "gpt-6-sol#medium": LIMIT, "gpt-6-sol#high": DONE } });
+    await seedThread(run, "worker-M1.L1", "t-earlier-thread");
     const { record } = await runRole(
       deps,
       input(run.id, { thread: "t-earlier-thread", brief: "Fix: BUG src/a.ts:3 — off by one" }),

@@ -170,6 +170,30 @@ export function writeLane(
   return file;
 }
 
+/**
+ * A finished, read record of `name` on `thread`, so `dispatch(…, thread)` may resume it (plan 22: a thread must
+ * be one of the name's records in this run).
+ */
+export async function seedThread(
+  run: Run,
+  name: string,
+  thread: string,
+  over: Partial<RunRecord> = {},
+): Promise<RunRecord> {
+  const dispatchId = newDispatchId();
+  return appendRecord(
+    run,
+    makeRecord({
+      runId: run.id,
+      dispatchId,
+      name,
+      thread,
+      replyPath: `roles/${name}/${dispatchId}/reply.md`,
+      ...over,
+    }),
+  );
+}
+
 export async function waitFor<T>(f: () => T | null | undefined | false, ms = 15_000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {

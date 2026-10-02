@@ -88,15 +88,13 @@ describe("dispatch on grok (simulator)", () => {
     const { run, sim, deps } = setup({ eventsFile: join(FX, "ok.jsonl") });
     const first = (await runRole(deps, input(run.id))).record;
     sim.rewrite({ eventsFile: join(FX, "resume.jsonl"), sessionSandbox: "catherd-ws" });
-    const again = await runRole(deps, input(run.id, { name: "worker-M1.L1b", thread: first.thread ?? "" }));
+    const again = await runRole(deps, input(run.id, { thread: first.thread ?? "" }));
     expect(again.record).toMatchObject({ status: "ok", thread: first.thread });
     expect(sim.recorded().args.slice(-2)).toEqual(["-r", first.thread as string]);
     expect(sim.recorded().args).not.toContain("--sandbox");
     // spec 1.3 §3.2: grok refuses another sandbox on resume, so admission refuses it first
     deps.view.roles.worker = { enabled: true, access: "read-only", rungs: [RUNG] };
-    expect(
-      await code(dispatch(deps, input(run.id, { name: "worker-M1.L1c", thread: first.thread ?? "" }))),
-    ).toBe("E_ADMIT_THREAD");
+    expect(await code(dispatch(deps, input(run.id, { thread: first.thread ?? "" })))).toBe("E_ADMIT_THREAD");
   });
 
   it("refuses an isolated run without XAI_API_KEY, and runs one with it under catherd's HOME", async () => {
