@@ -292,6 +292,18 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(await gateCheck(deps, built)).toEqual({ carried: false });
   });
 
+  it("names a pass HEAD+uncommitted when only a lockfile outside its paths is dirty", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    write(repo, "bun.lock", "v1");
+    const c1 = commit(repo);
+    const deps = fakeDeps();
+    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    // a worker's uncommitted `bun add`: the pass ran on a lockfile HEAD does not hold
+    write(repo, "bun.lock", "v2");
+    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(`${c1}+uncommitted`);
+  });
+
   it("covers dependencies through the tracked lockfiles, never walking node_modules under a named path", async () => {
     const { repo, run } = freshRun();
     write(repo, ".gitignore", "node_modules/\n");
