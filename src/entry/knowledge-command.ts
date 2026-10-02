@@ -96,7 +96,7 @@ const envList = defineCommand({
   args: { ...REPO_ARG, ...JSON_ARG },
   async run({ args }) {
     const at = await knowledgePath(repoOf(args.repo));
-    const vars = readGateEnv(at.repo);
+    const vars = await readGateEnv(at.repo);
     if (args.json) return printJson({ repo: at.repo, vars });
     const lines = gateEnvLines(vars);
     console.log(lines.length ? lines.join("\n") : "catherd: no gate environment set for this repo");

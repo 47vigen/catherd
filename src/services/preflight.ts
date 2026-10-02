@@ -223,14 +223,14 @@ export const preflightLimits = { lockWaitMs: 60_000 };
  * Plan 23: a check runs in the user's login environment (DOCKER_HOST and the rest a login shell sets), through
  * the allowlist, plus the repo's gate environment. A login PATH comes first, with the server's own after it.
  */
-export function checkEnvFor(repo: string): Record<string, string> {
+export async function checkEnvFor(repo: string): Promise<Record<string, string>> {
   const login = loginEnv();
   const base: Record<string, string | undefined> = { ...process.env, ...login };
   const path = [
     ...new Set([...(login.PATH ?? "").split(":"), ...(process.env.PATH ?? "").split(":")].filter(Boolean)),
   ];
   if (path.length) base.PATH = path.join(":");
-  return { ...checkEnv(base, repo), ...resolveGateEnv(readGateEnv(repo), base).env };
+  return { ...checkEnv(base, repo), ...resolveGateEnv(await readGateEnv(repo), base).env };
 }
 
 /** What a fast check names when it lints: a lint script, or a linter by name. */
@@ -310,7 +310,7 @@ export async function preflight(
       results.push({ lane: l.lane, check, outcome: "skipped", exitCode: null, tail: [], note });
       continue;
     }
-    env ??= checkEnvFor(run.meta.repo);
+    env ??= await checkEnvFor(run.meta.repo);
     const checkEnvironment = env;
     // plan 23: each check waits for its slot within its own budget, and says lock-busy past it
     const slot = await withHeavySlotWithin(heavySlots(profile.heavy), preflightLimits.lockWaitMs, () =>

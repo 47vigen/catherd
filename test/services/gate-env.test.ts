@@ -25,14 +25,14 @@ describe("the gate environment (plan 23)", () => {
     await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///Users/me/.orbstack/run/docker.sock" });
     await setGateEnv(repo, "HTTPS_PROXY", { value: "http://proxy:3128" });
     await setGateEnv(repo, "GITLAB_TOKEN", { from: "MY_GITLAB_TOKEN" });
-    expect(gateEnvLines(readGateEnv(repo))).toEqual([
+    expect(gateEnvLines(await readGateEnv(repo))).toEqual([
       "DOCKER_HOST=unix:///Users/me/.orbstack/run/docker.sock",
       "GITLAB_TOKEN=$MY_GITLAB_TOKEN",
       "HTTPS_PROXY=http://proxy:3128",
     ]);
     expect(statSync(gateEnvFile(repo)).mode & 0o777).toBe(0o600);
     await removeGateEnv(repo, "HTTPS_PROXY");
-    expect(Object.keys(readGateEnv(repo))).toEqual(["DOCKER_HOST", "GITLAB_TOKEN"]);
+    expect(Object.keys(await readGateEnv(repo))).toEqual(["DOCKER_HOST", "GITLAB_TOKEN"]);
   });
 
   it("refuses a secret-looking name by value, a bad name, and removing what is not set", async () => {

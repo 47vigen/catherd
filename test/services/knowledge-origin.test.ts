@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeOrigin, originDir } from "../../src/infra/paths.ts";
 import { addKnowledge, knowledgePath, readKnowledge } from "../../src/services/run-service.ts";
+import { gateEnvFile, gateEnvFor, readGateEnv, setGateEnv } from "../../src/services/gate-env.ts";
 import { knowledgeFile } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
@@ -57,4 +58,28 @@ it("migrates a worktree's toplevel-keyed knowledge on read, once", async () => {
   expect(existsSync(`${legacy}.migrated`)).toBe(true);
   expect(await readKnowledge(main)).toBe(text);
   expect(readFileSync(join(originDir(ORIGIN), "knowledge.md"), "utf8")).toBe(text);
+});
+
+it("keeps the gate environment beside the shared knowledge, and migrates a worktree's own on read", async () => {
+  const { main, other } = worktrees();
+  await setGateEnv(main, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
+  expect(Object.keys(await readGateEnv(other))).toEqual(["DOCKER_HOST"]);
+  expect(await gateEnvFor(other)).toBe(join(originDir(ORIGIN), "gate-env.json"));
+  // written by plan 23 under the worktree's own toplevel key
+  const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: other, encoding: "utf8" }).trim();
+  const legacy = gateEnvFile(top);
+  mkdirSync(join(legacy, ".."), { recursive: true });
+  writeFileSync(
+    legacy,
+    JSON.stringify({
+      schema: 1,
+      vars: { DOCKER_HOST: { value: "old" }, HTTPS_PROXY: { value: "http://p:3128" } },
+    }),
+  );
+  expect(await readGateEnv(other)).toEqual({
+    DOCKER_HOST: { value: "unix:///tmp/d.sock" },
+    HTTPS_PROXY: { value: "http://p:3128" },
+  });
+  expect(existsSync(legacy)).toBe(false);
+  expect(existsSync(`${legacy}.migrated`)).toBe(true);
 });

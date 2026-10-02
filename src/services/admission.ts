@@ -321,7 +321,8 @@ export async function admit(
     };
     ensurePrivateDir(dir);
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
-    const gate = i.role === "verifier" ? gateEnvParts(readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
+    const gate =
+      i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
     // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
     // a verifier's brief also carries the gate's rules and the run's recorded items
