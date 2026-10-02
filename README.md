@@ -202,7 +202,9 @@ In a terminal:
 | `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                                 | The three nearest stand-ins for a rung; removes one or every mapping of yours                                                                   |
 | `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                           | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"                                                   |
 | `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`                     | The repo's gate environment, which the verifier and preflight run with; a secret by reference only                                              |
-| `catherd lock [--slots N] -- <cmd>`                                                                    | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)                                                        |
+| `catherd runs supersede <id> --by <id>`, `catherd runs pin <id>`                                       | Closes a run with a pointer to the one that took over; re-pins a run to the repo's profile now                                                  |
+| `catherd pause --machine\|--workspace <id> "<reason>"`, `catherd resume --machine\|--workspace <id>`   | Pauses every run on the machine (or in a workspace) on one blocker; dispatch is refused until resume                                            |
+| `catherd lock [--slots N] [--role verifier [--run <id>]] -- <cmd>`                                     | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty); `--role verifier` keeps two runs' verifiers apart     |
 | `catherd run-file read\|write <run> <path>`                                                            | A run's plan, lanes and notes (`write` reads stdin); in a role, its own run only                                                                |
 | `catherd gate check\|pass <run> --item <i> --command <c> --paths <p,…> [--evidence <e>]`               | A verifier's gate evidence, as `gate_check`/`gate_pass`; in a role, its own run only                                                            |
 | `catherd mcp`                                                                                          | The MCP server on stdio; the plugin starts it, you never need to                                                                                |
@@ -255,6 +257,9 @@ in `catherd.workspace.json`; catherd does not scan neighboring folders:
 Run `catherd workspace inspect /path/to/workspace --json` to check the resolved members. Through MCP,
 `workspace_start` takes `root`, `title`, `a_lines`, and `steps`: each step has `id`, a member `repo`, `title`,
 `a_lines`, optional `depends_on` step ids, and the `milestone` that releases its dependents (default `M1`).
+A step with `release: "merge"` and a `base` ref (`origin/main`) releases them only once its landed commit is
+an ancestor of that ref (`git merge-base --is-ancestor`), checked when a dependent asks; fetch first, nothing
+is polled.
 An explicit `repos` map can replace the manifest. Only members used by the steps enter the run snapshot.
 Steps reusing one member must be ordered by dependencies. A final verification step can reuse a member
 after both parallel producer steps land; unordered steps in the same repository are refused.
@@ -266,12 +271,15 @@ Use the existing route, dispatch, verification and land workflow with that child
 its own profile, knowledge and repository rules; workers write within their own repository.
 
 `workspace_status(workspace)` and `catherd workspace status <id> --json` show the shared view and spending.
-The optional workspace `budget` (`minutes`, `tokens`, `usd`) stops new admissions when aggregate observed
-spending reaches its cap, alongside each child's budget. Running workers may overshoot; native subagent
-usage is reported after execution. Dependency readiness requires a recorded landing and finalized
-dispatches, not just a finished worker. Landing and dispatch admission share the parent lock.
-Workspaces support at most 100 repositories and 100 steps. Unreadable or negative usage evidence blocks
-continuation until repaired. Stored status remains available after a checkout disappears, while child
+The optional workspace `budget` (`minutes`, `tokens`, `usd`; no cap unless given, minutes from the first
+child) stops new admissions when aggregate observed spending reaches its cap, alongside each child's budget;
+`workspace_budget(workspace, …)` raises it. Running workers may overshoot; native subagent usage is reported
+after execution. Dependency readiness requires a recorded landing and finalized dispatches, not just a
+finished worker. Landing a step's completion milestone and dispatch admission share the parent lock; other
+milestones land freely, and a landed step admits a post-land fix. `workspace_pause(workspace, reason)` stops
+every child's admission on one blocker until `workspace_resume`. Workspaces support at most 100 repositories
+and 100 steps. A run folder without a readable `meta.json` is skipped and named in `workspace_status`; with a
+cap set, unreadable or negative usage evidence blocks admission until repaired. Stored status remains available after a checkout disappears, while child
 recovery and admission require the captured Git root. catherd never automatically commits, pushes,
 rolls back repositories or starts the next child.
 

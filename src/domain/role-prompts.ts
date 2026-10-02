@@ -58,6 +58,8 @@ const architect = [
   "",
   "catherd reads the Owns: line to keep two running lanes off the same file, and to tell a refusal (owned files unchanged) from work. It reads Kind: and Difficulty: to pick the lane's model when its router is unsure.",
   "",
+  "Two optional lines follow the five when they apply: `After: Mx.Ly, …` when the lane compiles against another lane's changes (catherd dispatches it only once those finish), and `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions. Write such greps with word boundaries.",
+  "",
   "Signatures, data shapes and test case names are yours. Function bodies are the worker's. A plan that contains the implementation turns the worker into a typist and spends the most expensive model on typing.",
   "",
   "Prefer the smallest design that meets the acceptance lines: no abstraction with one implementation, no config for a value that never changes, no comments restating code.",
