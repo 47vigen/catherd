@@ -681,6 +681,23 @@ owner turned isolation off (the host is itself a sandbox).
   medium 47.8 ≈ Astra low, high 50.2 ≈ Astra medium. GLM 5.3 Flash max (41.8) and DeepSeek 4.1 Flash max (39.5)
   were mapped the same way. Fix: read the AA Intelligence Index per model and effort as a calibration source. Until
   a value arrives, a release of the same family takes at least its predecessor's values at the same effort.
+- **A native role steals the run, and every later result goes to it (P1).** Isolation was turned off, so roles
+  launched with `codex exec` load the user's config, including the catherd plugin. At 11:08:37
+  `verifier-M1-verification` called `peek({run})`. Its prompt included the coordinator section of AGENTS.md, and
+  "skip this section" was not enough to stop it. `claimRun` (spec §3.3: `run_start`, `dispatch` and `peek` claim)
+  made the verifier's exec thread `01a0fc4b` the run's owner. The deliveries of `verifier-M1` (11:22:49) and
+  `verifier-M1-notification` (11:23:40) were then queued to that thread
+  (`~/.codex/queue_1.sqlite`, `enqueue-accepted`, status `unread`), and the coordinator never saw them. A
+  `codex exec` thread exits after its turn, so those items stay orphaned. Found 15 minutes later only because the
+  owner noticed silence. Fixed by hand: the coordinator called `peek` to reclaim ownership, and AGENTS.md now forbids
+  roles the claiming and steering tools. Fix in catherd:
+  - The supervisor sets `CATHERD_ROLE=<run>/<role>` in every role's env, Codex and opencode alike.
+  - `claimRun` never claims from a process that carries it.
+  - In a role process the MCP server refuses the coordinator tools (`peek` on another role, `result`, `dispatch`,
+    `run_start`, `climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set`) with a clear error.
+  - A test pins all three.
+  - Also: a delivery whose target thread is a `codex exec` thread, or a thread that is not the owner of record at
+    enqueue time, should fail loudly instead of going `enqueue-accepted`.
 
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 
