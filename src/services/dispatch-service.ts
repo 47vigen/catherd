@@ -36,7 +36,8 @@ import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize
 import type { Deps } from "./ports.ts";
 import { route } from "./lane-service.ts";
 import { findRun, readRecords, readRoutes, type Run } from "./run-store.ts";
-import { claimRun, currentSession, ownsRun, runOwner } from "./sessions.ts";
+import { sessionKey } from "../domain/host.ts";
+import { claimRun, currentSession, ownsRun, runOwner, type SessionRef } from "./sessions.ts";
 import { type NotesPatch, refreshState } from "./state.ts";
 
 export interface DispatchInput {
@@ -175,12 +176,15 @@ export async function watchersSettled(): Promise<void> {
  */
 export function watch(deps: Deps, run: Run, d: Dispatch): void {
   watching.add(d.admit.dispatchId);
+  // the session this watcher started under, kept apart from its live identity: an MCP connection that closes
+  // invalidates the scoped host (no session), yet the watcher still came from that session (PR #47 P1)
+  const origin = currentSession(deps);
   const w = (async () => {
     await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now, onPoll: stallPoll(run, d) });
     const record = await finalizeDispatch(run, d);
     // a session that lost the run since it dispatched leaves a limit to the owner's claim (1.1 push minors):
     // only the run's owner starts a stand-in. A process with no session (a terminal) settles as before.
-    if (record.status === "limit" && currentSession(deps) !== null && !ownsRun(deps, run)) {
+    if (record.status === "limit" && !limitIsMine(deps, run, origin)) {
       log("info", "dispatch", { run: run.id, name: d.admit.name, limit: "left to the run's owner" });
       return;
     }
@@ -195,6 +199,18 @@ export function watch(deps: Deps, run: Run, d: Dispatch): void {
       watching.delete(d.admit.dispatchId);
     });
   watchers.add(w);
+}
+
+/**
+ * Whether a watcher settles a limit (fails it over): a watcher with no session, then or now (a terminal, a
+ * test), always does; one that started under a session does only while that session, or its live one, owns
+ * the run.
+ */
+function limitIsMine(deps: Deps, run: Run, origin: SessionRef | null): boolean {
+  if (origin === null && currentSession(deps) === null) return true;
+  if (ownsRun(deps, run)) return true;
+  const owner = runOwner(run);
+  return origin !== null && owner !== null && sessionKey(owner) === sessionKey(origin);
 }
 
 /**
