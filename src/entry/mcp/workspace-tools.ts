@@ -7,6 +7,7 @@ import {
   WorkspaceBudgetSchema,
   WorkspaceIdSchema,
 } from "../../domain/workspace.ts";
+import { pauseWorkspace, resumeWorkspace } from "../../services/pause.ts";
 import type { Deps } from "../../services/ports.ts";
 import { setWorkspaceBudget, workspaceContract } from "../../services/workspace-admission.ts";
 import {
@@ -101,6 +102,23 @@ export function registerWorkspaceTools(server: McpServer, deps: Deps): void {
       inputSchema: { workspace: z.string().min(1), step: id },
     },
     (a) => handle(() => startWorkspaceChild(deps, a)),
+  );
+  server.registerTool(
+    "workspace_pause",
+    {
+      description:
+        "Pause every child of a workspace on one blocker (a VPN, Docker down): admission refuses each dispatch and child start with E_ADMIT_PAUSED and the reason until workspace_resume. Running roles finish. status shows the pause first. Push the reason to the owner once.",
+      inputSchema: { workspace: z.string().min(1), reason: z.string().min(1) },
+    },
+    (a) => handle(() => pauseWorkspace(deps.now(), a)),
+  );
+  server.registerTool(
+    "workspace_resume",
+    {
+      description: "Lift a workspace's pause. Returns the pause it lifted, or null when none was in force.",
+      inputSchema: { workspace: z.string().min(1) },
+    },
+    (a) => handle(() => resumeWorkspace(deps.now(), a)),
   );
   const cap = z.number().finite().nonnegative().nullable().optional();
   server.registerTool(

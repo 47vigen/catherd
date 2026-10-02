@@ -9,6 +9,7 @@ import { gitToplevel } from "../infra/git.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
 import { listDispatches } from "./dispatches.ts";
 import { landedCommits, landedMilestones } from "./milestones.ts";
+import { assertNotPaused, pausesOver } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { createRun, readRecords, type Run } from "./run-store.ts";
 import { claimRun, currentSession } from "./sessions.ts";
@@ -176,6 +177,7 @@ async function childFor(
   const children = workspaceChildren(workspace);
   let run = children.find((r) => r.meta.workspace?.step === step.id);
   if (!run) {
+    assertNotPaused({ meta: { workspace: { id: workspace.id, step: step.id } } });
     const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
     if (blockers.length)
       throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
@@ -238,6 +240,8 @@ export async function workspaceStatus(deps: Deps, id: string) {
   }
   const spend = await workspaceSpend(workspace, deps.now(), children, warnings);
   return {
+    // spec 1.5 "Group pause": a pause over the workspace comes first
+    paused: pausesOver([{ meta: { workspace: { id, step: workspace.steps[0]!.id } } }]),
     workspace,
     dir: workspaceDirectory(id),
     steps,

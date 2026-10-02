@@ -9,6 +9,7 @@ import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
+import { type Pause, pausesOver } from "./pause.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
@@ -145,30 +146,37 @@ export function status(
   runId?: string,
   queue: QueueCapability | null = null,
 ): {
+  /** spec 1.5 "Group pause": the machine's pause and the listed runs' workspace pauses, shown first */
+  paused: Pause[];
   version: string;
   runs: RunSummary[];
   warnings: string[];
   host: HostContext;
   queue: QueueCapability | null;
 } {
-  if (runId)
+  if (runId) {
+    const run = findRun(runId);
     return {
+      paused: pausesOver([run]),
       host: inspectionHost(deps.host),
       queue,
       version: deps.version,
-      runs: [summarizeRun(deps, findRun(runId))],
+      runs: [summarizeRun(deps, run)],
       warnings: [],
     };
+  }
   const { runs, corrupt } = listRuns();
   const warnings = corrupt.map((c) => `skipped run ${c.id}: ${c.reason}`);
   const all = runs.map((r) => summarizeRun(deps, r));
   const live = all.filter((s) => s.live.length > 0);
   const waiting = all.filter((s) => s.waiting);
+  const shown = live.length ? live : waiting.length ? waiting : all.slice(0, 1);
   return {
+    paused: pausesOver(runs.filter((r) => shown.some((s) => s.id === r.id))),
     host: inspectionHost(deps.host),
     queue,
     version: deps.version,
-    runs: live.length ? live : waiting.length ? waiting : all.slice(0, 1),
+    runs: shown,
     warnings,
   };
 }

@@ -37,6 +37,7 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
+import { assertNotPaused } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
@@ -153,6 +154,8 @@ export async function admit(
 ): Promise<{ d: Dispatch; specPath: string }> {
   assertId("role name", i.name);
   if (i.lane !== null) assertId("lane", i.lane);
+  // a machine or workspace pause refuses every dispatch it covers, with its reason (spec 1.5 "Group pause")
+  assertNotPaused(run);
   const rung = parseRung(i.rung);
   const profile = deps.profiles.forRepo(run.meta.repo);
   const rc = profile.roles[i.role];

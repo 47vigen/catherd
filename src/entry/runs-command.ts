@@ -4,6 +4,7 @@ import { assertId } from "../domain/ids.ts";
 import { knownQueueCapability, UNCHECKED_QUEUE } from "../infra/codex-queue.ts";
 import { listDispatches } from "../services/dispatches.ts";
 import { retryDelivery } from "../services/notifier.ts";
+import { pauseLine } from "../services/pause.ts";
 import { inspectDelivery } from "../services/run-debug.ts";
 import { terminalHost } from "./host-arg.ts";
 import { formatBudget } from "../domain/budget.ts";
@@ -88,6 +89,8 @@ async function printStatus(runId: string | undefined, asJson: boolean, live = fa
       : null;
   const r = redact(status(defaultDeps(host), runId, queue));
   if (asJson) return printJson(r);
+  // spec 1.5 "Group pause": a pause comes first, before any run
+  for (const p of r.paused) console.log(`${mark("warn")} ${pauseLine(p)}`);
   if (r.runs.length === 0) console.log("no runs yet");
   // grouped by session, as the runs page is (spec §4); a run shows once, under the session that started it
   const byId = new Map(r.runs.map((s) => [s.id, s]));

@@ -54,6 +54,8 @@ export const main: Command = defineCommand({
     lock: () => import("./entry/lock-command.ts").then((m) => m.lockCommand),
     "run-file": () => import("./entry/role-cli-command.ts").then((m) => m.runFileCommand),
     gate: () => import("./entry/role-cli-command.ts").then((m) => m.gateCommand),
+    pause: () => import("./entry/pause-command.ts").then((m) => m.pauseCommand),
+    resume: () => import("./entry/pause-command.ts").then((m) => m.resumeCommand),
     "capture-fixtures": () =>
       import("./entry/capture-fixtures-command.ts").then((m) => m.captureFixturesCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
