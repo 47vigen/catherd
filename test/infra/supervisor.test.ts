@@ -12,6 +12,24 @@ afterEach(snapshotEnv());
 // the supervisor logs each spawn (spec §10.2): keep the rows out of the real data dir
 beforeEach(() => void withHome());
 
+/**
+ * A poll-loop clock the test drives: each poll's sleep moves time on by exactly its length, runs `onSleep`
+ * (the test's view of the world at that moment), then yields one real turn so the child's exit can land.
+ */
+function fakeClock(start = Date.now()) {
+  let t = start;
+  const clock = {
+    onSleep: () => {},
+    now: () => t,
+    sleep: async (ms: number) => {
+      t += ms;
+      clock.onSleep();
+      await new Promise((r) => setImmediate(r));
+    },
+  };
+  return clock;
+}
+
 function spec(script: string, over: Partial<SuperviseSpec> = {}): SuperviseSpec {
   const dir = tempDir("catherd-sup-");
   return {
@@ -82,50 +100,55 @@ describe("supervise", () => {
     expect(interrupted).toBe(true);
   });
 
+  // The lock tests drive the poll loop's time and the lock's output from one fake clock. On real timers, the
+  // lock's 20 ms ticks and the supervisor share one event loop, and each tick's atomic write fsyncs: under CI
+  // load one write blocked the loop ~200 ms, a whole wall, and the role ended as if the lock had gone quiet.
   it("counts the wall from a live catherd lock's last output while it writes (plan 23)", async () => {
     const s = spec("sleep 30", { idleMs: 60_000, wallMs: 200 });
-    const lock = activityReporter(basename(s.dispatchDir), Date.now, 0);
+    const clock = fakeClock();
+    const lock = activityReporter(basename(s.dispatchDir), clock.now, 0);
     if (!lock) throw new Error("no reporter");
-    const begun = Date.now();
-    // output for 600 ms, three times the wall; then silence, and the wall ends it 200 ms after the last line
-    const timer = setInterval(() => {
-      if (Date.now() - begun < 600) lock.tick();
-    }, 20);
+    const begun = clock.now();
+    // output on every poll for 600 ms, three times the wall; then silence
+    clock.onSleep = () => {
+      if (clock.now() - begun < 600) lock.tick();
+    };
     try {
-      const exit = await supervise(s, { isBusy: async () => true });
+      const exit = await supervise(s, { isBusy: async () => true, clock });
       expect(exit?.reason).toBe("wall-timeout");
-      expect(Date.now() - begun).toBeGreaterThanOrEqual(600);
+      // the last output was at 580 ms (the last poll before 600): the wall ends it one wall later
+      expect(clock.now() - begun).toBe(780);
     } finally {
-      clearInterval(timer);
       lock.done();
     }
-    // with no live lock, the wall counts from the start
-    const plain = spec("sleep 30", { idleMs: 60_000, wallMs: 200 });
-    const at = Date.now();
-    expect((await supervise(plain, { isBusy: async () => true }))?.reason).toBe("wall-timeout");
-    expect(Date.now() - at).toBeLessThan(5_000);
+  });
+
+  it("counts the wall from the role's start when no catherd lock is live (plan 23)", async () => {
+    const s = spec("sleep 30", { idleMs: 60_000, wallMs: 200 });
+    const clock = fakeClock();
+    const begun = clock.now();
+    const exit = await supervise(s, { isBusy: async () => true, clock });
+    expect(exit?.reason).toBe("wall-timeout");
+    expect(clock.now() - begun).toBe(200);
   });
 
   it("keeps the wall counting from a lock's last output after the lock exits (plan 23 review C1)", async () => {
     const s = spec("sleep 30", { idleMs: 60_000, wallMs: 200, killGraceMs: 20 });
-    const lock = activityReporter(basename(s.dispatchDir), Date.now, 0);
+    const clock = fakeClock();
+    const lock = activityReporter(basename(s.dispatchDir), clock.now, 0);
     if (!lock) throw new Error("no reporter");
-    const begun = Date.now();
+    const begun = clock.now();
     // output for 600 ms, three times the wall; then the lock's command exits and its file goes
-    const timer = setInterval(() => {
-      if (Date.now() - begun < 600) lock.tick();
-      else {
-        clearInterval(timer);
-        lock.done();
-      }
-    }, 20);
+    clock.onSleep = () => {
+      if (clock.now() - begun < 600) lock.tick();
+      else lock.done();
+    };
     try {
-      const exit = await supervise(s, { isBusy: async () => true });
+      const exit = await supervise(s, { isBusy: async () => true, clock });
       expect(exit?.reason).toBe("wall-timeout");
-      // the role gets up to a wall after the last output it saw, not an immediate timeout at the lock's exit
-      expect(Date.now() - begun).toBeGreaterThanOrEqual(740);
+      // a wall after the last output it saw (580 ms), not an immediate timeout at the lock's exit (600 ms)
+      expect(clock.now() - begun).toBe(780);
     } finally {
-      clearInterval(timer);
       lock.done();
     }
   });

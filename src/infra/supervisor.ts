@@ -59,7 +59,20 @@ export interface SuperviseHooks {
   interrupt?(thread: string | null): Promise<void>;
   /** plan 23: the provider retry attempt the session waits out (its own retry field), or null */
   providerRetry?(thread: string | null, sinceMs: number): Promise<number | null>;
+  /**
+   * The poll loop's time: what it reads as now and how it waits a poll. The real clock when absent; a test
+   * passes its own so the wall, idle and retry limits are decided by the time it drives, never by how fast a
+   * loaded runner happens to schedule timers.
+   */
+  clock?: SuperviseClock;
 }
+
+export interface SuperviseClock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+const REAL_CLOCK: SuperviseClock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
 
 /** Reads whatever the child appended to `file` since `offset`, as complete lines. */
 function readNew(file: string, state: { offset: number; rest: string; decoder: TextDecoder }): string[] {
@@ -187,6 +200,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
   }
 
   const hookMs = Math.min(10_000, spec.idleMs);
+  const clock = hooks.clock ?? REAL_CLOCK;
   let reason: ExitReason | null = null;
   let thread: string | null = null;
   let failure: { error: unknown } | null = null;
@@ -206,7 +220,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
       startedAt: new Date().toISOString(),
     });
 
-    const started = Date.now();
+    const started = clock.now();
     const dispatchId = basename(spec.dispatchDir);
     let lastActivity = started;
     // plan 23: the last output seen from a `catherd lock` of the role, kept after the lock exits (its file goes),
@@ -228,7 +242,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
     const retry = { ...PROVIDER_RETRY, ...spec.providerRetry };
 
     while (!done && reason === null) {
-      await Bun.sleep(spec.pollMs);
+      await clock.sleep(spec.pollMs);
       const lines = readNew(p.events, stream);
       let progress = false;
       for (const line of lines) {
@@ -243,7 +257,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         }
         if (d?.step && lastWasStep) {
           retries++;
-          retrySince ??= Date.now();
+          retrySince ??= clock.now();
         } else {
           progress = true;
           if (!d?.step) {
@@ -261,26 +275,26 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
             log("warn", "supervise", { dispatch: spec.dispatchDir, error: errorMessage(e) });
           }
         }
-        if (d?.final) finalAt ??= Date.now();
+        if (d?.final) finalAt ??= clock.now();
         if (d?.item) {
           if (d.item.open) open.add(d.item.id);
           else open.delete(d.item.id);
         }
       }
       if (progress) {
-        lastActivity = Date.now();
+        lastActivity = clock.now();
         stallChecked = false;
       }
       // plan 23: a session quiet for a while may be waiting out a provider retry the stream does not show
       if (
         hooks.providerRetry &&
-        Date.now() - lastActivity >= retry.pollMs &&
-        Date.now() - lastRetryPoll >= retry.pollMs
+        clock.now() - lastActivity >= retry.pollMs &&
+        clock.now() - lastRetryPoll >= retry.pollMs
       ) {
-        lastRetryPoll = Date.now();
+        lastRetryPoll = clock.now();
         const attempt = await bounded(() => hooks.providerRetry?.(thread, started), hookMs, null);
         if (attempt !== null) {
-          retrySince ??= Date.now();
+          retrySince ??= clock.now();
           retries = Math.max(retries, attempt);
         } else {
           // the session says it is not retrying: the steps seen were a retry that worked, and the quiet since
@@ -291,7 +305,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
       }
       // a worker that ended on its own is recorded as it ended, even if a cancel or a limit arrived meanwhile
       if (done) break;
-      const now = Date.now();
+      const now = clock.now();
       lockAt = Math.max(lockAt, lastLockOutput(dispatchId) ?? lockAt);
       if (existsSync(p.cancel)) reason = "cancelled";
       else if (now - lockAt >= spec.wallMs)
@@ -308,7 +322,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         if (done || child.exitCode !== null || child.signalCode !== null) break;
         if (busy) {
           // a new quiet stretch starts: it gets its own stall check
-          lastActivity = Date.now();
+          lastActivity = clock.now();
           stallChecked = false;
         } else reason = "idle-timeout";
       } else if (!stalled && !stallChecked && now - lastActivity >= spec.idleMs / 2) {
@@ -317,7 +331,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         stallChecked = true;
         const busy = open.size > 0 || (await bounded(() => hooks.isBusy?.(thread, started), hookMs, false));
         if (busy) {
-          lastActivity = Date.now();
+          lastActivity = clock.now();
           stallChecked = false;
         } else if (!done) {
           stalled = true;
@@ -326,7 +340,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
             writeJsonAtomic(p.stall, {
               schema: 1,
               at: new Date().toISOString(),
-              quietMs: Date.now() - lastActivity,
+              quietMs: clock.now() - lastActivity,
             });
           } catch (e) {
             log("warn", "stall", { dispatch: spec.dispatchDir, error: errorMessage(e) });
