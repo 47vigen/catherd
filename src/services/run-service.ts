@@ -24,7 +24,7 @@ import {
   appendKnowledge,
   createRun,
   findRun,
-  knowledgeFile,
+  knowledgeFor,
   readRecords,
   runFile,
   type Run,
@@ -278,7 +278,7 @@ async function repoTop(repo: string): Promise<string> {
 
 /** What past runs of the repo learned; `repo` may be any path inside it. */
 export async function readKnowledge(repo: string): Promise<string> {
-  const file = knowledgeFile(await repoTop(repo));
+  const file = await knowledgeFor(await repoTop(repo));
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
   return text.trim() ? text : "catherd: no knowledge recorded yet for this repo";
 }
@@ -286,7 +286,7 @@ export async function readKnowledge(repo: string): Promise<string> {
 /** Where the repo's knowledge.md is (it may not exist yet); `repo` may be any path inside it. */
 export async function knowledgePath(repo: string): Promise<{ repo: string; path: string }> {
   const top = await repoTop(repo);
-  return { repo: top, path: knowledgeFile(top) };
+  return { repo: top, path: await knowledgeFor(top) };
 }
 
 /** The repo's knowledge.md as its lines, none when it is missing or blank; `repo` may be any path inside it. */

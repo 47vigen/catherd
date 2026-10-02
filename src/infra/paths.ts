@@ -34,6 +34,27 @@ export function repoKey(toplevel: string): string {
 }
 
 export const repoDir = (toplevel: string): string => join(dataDir(), "repos", repoKey(toplevel));
+
+/**
+ * One repository however it is cloned or checked out (spec 1.5 "Knowledge keyed by git origin"):
+ * `git@github.com:a/b.git`, `https://user@github.com/a/b` and `ssh://git@github.com/a/b.git/` are all
+ * `github.com/a/b`. The host is lower-cased; the path keeps its case.
+ */
+export function normalizeOrigin(url: string): string {
+  let s = url
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "");
+  const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(s);
+  if (scp && !/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `${scp[1]}/${scp[2]}`;
+  else s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^@/]+@/, "");
+  const [host = "", ...path] = s.split("/");
+  return [host.toLowerCase().replace(/:\d+$/, ""), ...path].join("/");
+}
+
+/** Where what runs of one repository learned lives, keyed by its origin, whatever worktree it runs in. */
+export const originDir = (url: string): string =>
+  join(dataDir(), "repos", `origin-${repoKey(normalizeOrigin(url))}`);
 export const runsDir = (toplevel: string): string => join(repoDir(toplevel), "runs");
 export const logsDir = (): string => join(dataDir(), "logs");
 export const discoveryDir = (): string => join(dataDir(), "discovery");

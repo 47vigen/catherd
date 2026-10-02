@@ -536,7 +536,7 @@ async function landRun(
     hints.push(
       `land: no routed lane is in milestone "${i.milestone}" (routed: ${routed.slice(0, 5).join(", ")}${routed.length > 5 ? ", …" : ""}); check its name: no lane outcome was recorded`,
     );
-  if (i.learned) appendKnowledge(run.meta.repo, now, `${run.meta.title} ${i.milestone}`, i.learned);
+  if (i.learned) await appendKnowledge(run.meta.repo, now, `${run.meta.title} ${i.milestone}`, i.learned);
   // spec 1.1 §10: the milestone's digest, which the milestone push links
   const digest = writeDigest(run, {
     milestone: i.milestone,

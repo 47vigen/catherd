@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
@@ -7,13 +7,15 @@ import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type { OutcomeRouteRow, OutcomeRow, RoleRouteRow, RouteRow } from "../domain/route.ts";
 import { cell, slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
-import { dataDir, repoDir, runsDir } from "../infra/paths.ts";
+import { gitOrigin } from "../infra/git.ts";
+import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
   ensurePrivateDir,
   PRIVATE_DIR,
   appendPrivate,
+  nonBlankLines,
   readJsonl,
   readVersioned,
   writeJsonAtomic,
@@ -316,16 +318,43 @@ export function appendLedger(run: Run, row: string): void {
   appendPrivate(runPaths(run.dir).ledger, `${row}\n`);
 }
 
-/** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel. */
+/** Spec §4.7: what past runs of a repo learned, keyed by its git toplevel (before 1.5, and with no origin). */
 export const knowledgeFile = (toplevel: string): string => join(repoDir(toplevel), "knowledge.md");
+
+/**
+ * Spec 1.5 "Knowledge keyed by git origin": the knowledge.md every worktree and clone of one repository
+ * shares, keyed by its `origin` remote, else by its toplevel. A toplevel-keyed file this worktree left before
+ * is migrated on read: its lines not there yet are appended, and it is renamed `knowledge.md.migrated`.
+ */
+export async function knowledgeFor(toplevel: string): Promise<string> {
+  const origin = await gitOrigin(toplevel);
+  const legacy = knowledgeFile(toplevel);
+  if (!origin) return legacy;
+  const file = join(originDir(origin), "knowledge.md");
+  if (!existsSync(legacy)) return file;
+  ensurePrivateDir(dirname(file));
+  await withFileLock(file, () => {
+    if (!existsSync(legacy)) return;
+    const have = new Set(existsSync(file) ? nonBlankLines(file) : []);
+    const add = nonBlankLines(legacy).filter((l) => !have.has(l));
+    if (add.length) appendPrivate(file, `${add.join("\n")}\n`);
+    renameSync(legacy, `${legacy}.migrated`);
+  });
+  return file;
+}
 
 /**
  * Appends one line to the repo's knowledge.md, `- <date> <source>: <text>` with `text` on one line, and returns
  * it. The single writer of knowledge.md: `land`'s `learned` and `catherd knowledge add` both come through here.
  */
-export function appendKnowledge(toplevel: string, at: Date, source: string, text: string): string {
+export async function appendKnowledge(
+  toplevel: string,
+  at: Date,
+  source: string,
+  text: string,
+): Promise<string> {
   const line = `- ${at.toISOString().slice(0, 10)} ${source}: ${cell(text)}`;
-  appendPrivate(knowledgeFile(toplevel), `${line}\n`);
+  appendPrivate(await knowledgeFor(toplevel), `${line}\n`);
   return line;
 }
 
