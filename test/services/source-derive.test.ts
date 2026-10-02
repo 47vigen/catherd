@@ -277,3 +277,16 @@ describe("catalog facts (spec 1.2 §3.5)", () => {
     ]);
   });
 });
+
+describe("the Artificial Analysis Intelligence Index (spec 1.5 plan 24)", () => {
+  it("is fitted onto repo_code per model and effort, like AA's other coding numbers", () => {
+    const d = derive(rawAnswers(AT, { aa: true }), shippedContext(NOW));
+    expect(d.fits).toContainEqual(
+      expect.objectContaining({
+        dim: "repo_code",
+        source: "artificial-analysis",
+        field: "artificial_analysis_intelligence_index",
+      }),
+    );
+  });
+});

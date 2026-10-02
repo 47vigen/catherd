@@ -84,6 +84,11 @@ const FamilySchema = z.looseObject({
   notes: z.record(z.string(), z.string()).default({}),
   /** the day the vendor released it (models.dev), a stand-in feature (spec 1.2 §6.3) */
   releaseDate: z.iso.date().optional(),
+  /**
+   * spec 1.5 plan 24: the family this one succeeds in the same line (GPT-6.1 Sol after GPT-6 Sol): until a
+   * value of its own arrives, a rung takes at least its predecessor's value at the same effort
+   */
+  predecessor: z.string().min(1).optional(),
   /** a sync's speed facts (spec 1.2 §4.1), `<source>.<field>` → value; they never carry a bar */
   speed: z.record(z.string(), z.number()).optional(),
 });

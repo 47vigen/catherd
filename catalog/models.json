@@ -45,6 +45,7 @@
     {
       "id": "gpt-6.1-sol",
       "name": "GPT-6.1 Sol",
+      "predecessor": "gpt-6-sol",
       "vendor": "openai",
       "releaseDate": "2026-09-29",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -63,6 +64,7 @@
     {
       "id": "gpt-6-sol",
       "name": "GPT-6 Sol",
+      "predecessor": "gpt-5.6-sol",
       "vendor": "openai",
       "releaseDate": "2026-09-22",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -88,6 +90,7 @@
     {
       "id": "gpt-6-luna",
       "name": "GPT-6 Luna",
+      "predecessor": "gpt-5.6-luna",
       "vendor": "openai",
       "releaseDate": "2026-09-22",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -239,6 +242,7 @@
     {
       "id": "claude-sonnet-5-5",
       "name": "Claude Sonnet 5.5",
+      "predecessor": "claude-sonnet-5",
       "vendor": "anthropic",
       "releaseDate": "2026-09-28",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -292,6 +296,7 @@
     {
       "id": "grok-4-7",
       "name": "Grok 4.7",
+      "predecessor": "grok-4-6",
       "vendor": "xai",
       "releaseDate": "2026-09-21",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -308,6 +313,7 @@
     {
       "id": "grok-4-6",
       "name": "Grok 4.6",
+      "predecessor": "grok-4-5",
       "vendor": "xai",
       "releaseDate": "2026-08-12",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -356,6 +362,7 @@
     {
       "id": "gemini-3-8-flash",
       "name": "Gemini 3.8 Flash",
+      "predecessor": "gemini-3-7-flash",
       "vendor": "google",
       "releaseDate": "2026-09-02",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
@@ -368,6 +375,7 @@
     {
       "id": "gemini-3-7-flash",
       "name": "Gemini 3.7 Flash",
+      "predecessor": "gemini-3-6-flash",
       "vendor": "google",
       "releaseDate": "2026-08-13",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },

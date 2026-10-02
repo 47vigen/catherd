@@ -174,9 +174,23 @@ export function suggestStandIns(c: Catalog, canonical: string, limit = 3): Sugge
 }
 
 /**
+ * Spec 1.5 plan 24: the same effort of the family's predecessor (`Family.predecessor`), when it has a value on
+ * `d` of its own; null otherwise.
+ */
+function predecessorOf(c: Catalog, canonical: string, d: Dim): { like: string; value: number } | null {
+  const pred = family(c, canonical)?.predecessor;
+  if (!pred) return null;
+  const like = `${pred}${canonical.slice(canonical.lastIndexOf("#"))}`;
+  const s = c.scores[like]?.[d];
+  return s ? { like, value: s.value } : null;
+}
+
+/**
  * Spec 1.2 §6.1: for every rung the catalog can name, per dimension the bars use that it has no value for
  * (of its own or through a treat-like), its nearest stand-in with a value there. A rung no rung is near
- * enough to (fewer than MIN_SHARED_FEATURES shared) gets none on that dimension.
+ * enough to (fewer than MIN_SHARED_FEATURES shared) gets none on that dimension. Spec 1.5 plan 24: a new
+ * release of a family line takes at least its predecessor's value at the same effort, so a guess never puts it
+ * below the model it replaces (the identity run's GPT-6.1 Sol at 37.2, under GPT-6 Luna).
  */
 export function inferStandIns(c: Catalog): Catalog["inferred"] {
   const dims = barDimsIn(c);
@@ -186,9 +200,14 @@ export function inferStandIns(c: Catalog): Catalog["inferred"] {
     const lacking = missingDims(c, canonical, dims);
     for (const d of lacking) {
       const best = ranker.rank(canonical, [d])[0];
-      if (!best) continue;
-      const entry: InferredStandIn = { like: best.like, distance: best.distance, features: best.features };
-      (out[canonical] ??= {})[d] = entry;
+      const pred = predecessorOf(c, canonical, d);
+      const nearest = best ? c.scores[best.like]?.[d]?.value : undefined;
+      let entry: InferredStandIn | null = best
+        ? { like: best.like, distance: best.distance, features: best.features }
+        : null;
+      if (pred && (nearest === undefined || pred.value >= nearest))
+        entry = { like: pred.like, distance: 0, features: ["predecessor"] };
+      if (entry) (out[canonical] ??= {})[d] = entry;
     }
   }
   return out;
