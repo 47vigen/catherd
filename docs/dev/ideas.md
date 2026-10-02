@@ -612,6 +612,13 @@ owner turned isolation off (the host is itself a sandbox).
   ChatGPT plan carried everything while the OpenCode Go subscription sat idle. Fix: break ties on quota headroom
   across billing keys, starting the lane on the less used subscription when scores tie. Or add an objective that
   balances subscriptions. `route` says when a tie decided the pick.
+  Root cause, found after the run: the profile's ladder order is never read. `candidates` sorts by cost
+  (`compareCost`), or by measured seconds first under `speed`. The three opencode-go models have no catalog family,
+  so `costOf(null, …)` returns `value: null` and they have no `secs` yet, and both sorts put them after every Codex
+  rung. Only `billing.codex: metered` (tier 1) together with `objective: cost` put them first. A dry run of
+  `select` then started worker copy/build/prose lanes, and every writer and researcher lane, on DeepSeek or Muse.
+  Fix: an unpriced subscription rung costs 0 within its tier, not "unknown, last". The profile's ladder order breaks
+  ties. `profile validate` warns about a subscription rung that can never start.
 - **The climb ladder goes down above the top rung.** `M1.L2` (repo_code/hard) got the ladder
   `gpt-6.1-sol#medium → deepseek-v4.1-flash#max → glm-5.3-flash#max`: no rung cleared the hard bar, so the "climb"
   was all weaker rungs. Fix: a climb ladder holds only rungs that score at least the start. When nothing clears the
