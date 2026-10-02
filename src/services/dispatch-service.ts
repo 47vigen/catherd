@@ -334,7 +334,8 @@ function refuseBeforeRouting(deps: Deps, run: Run, i: DispatchInput & { lane: st
       fix: "skip the role, or turn it on with profile_set",
     });
   laneOwns(run, i.lane);
-  const pending = pendingDispatches(run, deps.now());
+  // live only: a finished, unrecorded dispatch is recorded by admission (finalizeFinished), not refused here
+  const pending = liveDispatches(run, deps.now());
   const same = pending.find((d) => d.admit.name === i.name);
   if (same)
     throw new CatherdError("E_ADMIT_DUPLICATE", `${i.name} is already running on ${same.admit.rung}`, {
