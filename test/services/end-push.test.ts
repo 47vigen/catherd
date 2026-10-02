@@ -15,7 +15,8 @@ import type { Run } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { fakeDeps, fakeDispatch, freshRun, waitFor, writeLane } from "./helpers.ts";
+import { ROLE_THREAD_REFUSAL } from "../../src/infra/delivery.ts";
+import { fakeDeps, fakeDispatch, freshRun, seedThread, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
@@ -107,6 +108,19 @@ describe("push from where a role ends (plan 22)", () => {
     const r = recorder();
     expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("delivered");
     expect(r.sent).toEqual([]);
+  });
+
+  it("never queues to a role's own thread (plan 21): the attempt fails with the role-thread refusal", async () => {
+    const { run, d } = await ended();
+    // the run's owner of record is the thread a role ran on
+    await seedThread(run, "worker-M9.L9", OWNER, { backend: "codex" });
+    const r = recorder();
+    expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("failed");
+    expect(r.sent).toEqual([]);
+    const last = readDelivery(d.dir).at(-1);
+    expect(last?.status).toBe("failed");
+    expect(last?.reason?.startsWith(ROLE_THREAD_REFUSAL)).toBe(true);
+    expect(last?.reason).toContain("worker-M9.L9");
   });
 
   it("leaves a usage limit to the owner's server, which fails it over first", async () => {

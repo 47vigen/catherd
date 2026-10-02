@@ -3,11 +3,16 @@ import { errorMessage } from "../domain/errors.ts";
 import type { HostSessionRef } from "../domain/host.ts";
 import { envelope, formatNotices } from "../domain/notice.ts";
 import { type QueueSendResult, sendToCodexQueue } from "../infra/codex-queue.ts";
-import { type DeliveryAttempt, deliveryState, writeDeliveryAttempt } from "../infra/delivery.ts";
+import {
+  type DeliveryAttempt,
+  deliveryState,
+  ROLE_THREAD_REFUSAL,
+  writeDeliveryAttempt,
+} from "../infra/delivery.ts";
 import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
 import { tryLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
-import { admitPath, listDispatches } from "./dispatches.ts";
+import { admitPath, listDispatches, roleThreadOf } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
 import { finishedNotice, recoverSubmission } from "./notifier.ts";
 import { findRun } from "./run-store.ts";
@@ -86,6 +91,23 @@ export async function pushFromEnd(dispatchDir: string, o: EndPushOptions = {}): 
     try {
       recoverSubmission(d.dir, notice.eventId);
       if (deliveryState(d.dir, target, notice.eventId) !== "pending") return "delivered";
+      // spec 1.5 plan 21: never to a role's own thread (a `codex exec` thread exits after its turn, so what is
+      // queued there is lost); it fails loudly, with the notifier's reason, which `status` shows
+      const role = roleThreadOf(run, target.sessionId);
+      if (role !== null) {
+        const reason = `${ROLE_THREAD_REFUSAL} (${role}, ${target.host} ${target.sessionId}), not the orchestrator's; peek(run) from the orchestrator's session takes the run back`;
+        log("error", "notify", { from: "supervisor", run: run.id, dispatch: notice.dispatchId, reason });
+        writeDeliveryAttempt(d.dir, {
+          attemptId: crypto.randomUUID(),
+          target,
+          eventIds: [notice.eventId],
+          at: new Date((o.now ?? Date.now)()).toISOString(),
+          status: "failed",
+          msgId: null,
+          reason,
+        });
+        return "failed";
+      }
       const attempt: DeliveryAttempt = {
         attemptId: crypto.randomUUID(),
         target,
