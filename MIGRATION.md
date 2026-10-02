@@ -1,9 +1,126 @@
 # Upgrading catherd
 
+- [From 1.4 to 1.5](#from-14-to-15)
 - [From 1.2 to 1.3](#from-12-to-13)
 - [From 1.1 to 1.2](#from-11-to-12)
 - [From 1.0 to 1.1](#from-10-to-11)
 - [From 0.x to 1.0](#from-0x-to-10)
+
+## From 1.4 to 1.5
+
+1.5 reads 1.4's profiles, runs, credentials and catalog as they are, and `init` asks nothing new. Upgrade, check,
+update the plugin, then start a new session:
+
+```sh
+bun add -g catherd-cli@latest && catherd doctor
+claude plugin marketplace update catherd && claude plugin update catherd@catherd
+```
+
+On Codex, install the plugin again from the marketplace (the README's "Native Codex" commands) and restart the
+host. The native Claude agent files changed (they now forbid the coordinator tools): `catherd doctor` shows the
+`Claude agents` row as `stale` and names the fix, `catherd profile use <profile>`.
+
+### `wait` stays gone: end the turn
+
+1.4.0 had no `wait` tool, and 1.5 adds none: a bounded `wait` that sat on `main` after 1.4.0 never reached a
+release and is removed, from the tools, the skill and the prompts. After `dispatch`, end the turn. Each finished
+role's result comes to you as a message; `peek` shows how a run stands and `result` reads a record.
+
+- **On Codex** the result is now also pushed from where the role ends: its supervisor queues the notice to your
+  thread (`codex queue --remote unix://…`) when the role exits, so a result reaches you even after Codex stopped
+  your thread's MCP server. The server's own push stays the fast path; one receipt covers both, so nothing arrives
+  twice.
+- **Run a Codex coordinator inside tmux** (or screen). Codex's app-server stops a thread's MCP servers once no
+  client is attached, so an SSH drop detaches you; the queued input waits for the next attach. The skill says so
+  once when `$TMUX` and `$STY` are empty.
+- **A goal continuation** while only roles are live ends with no tool call. `peek` answers `actionable: false`
+  with its `reason` when nothing is the coordinator's to do.
+- `catherd doctor --test-push --thread <uuid>` tests the push to a Codex thread from a shell, and the new
+  `test_push` tool from inside the thread.
+
+### Roles never steer the run: `E_ROLE_SCOPE`
+
+catherd sets `CATHERD_ROLE=<run>/<name>` in every role's environment. A process that carries it (or whose
+`TMPDIR` is a role's scratch folder) never becomes the run's owner, and its catherd MCP server refuses the
+coordinator tools with the new error `E_ROLE_SCOPE`: `peek` of another role, `result`, `dispatch`, `run_start`,
+`climb`, `land`, `park`, `cancel`, `set_next`, `answer`, `profile_set`, `test_push`, `run_pin`, `lane_set`,
+`owns_add`, and the workspace writers (`workspace_start`, `workspace_contract` with `content`,
+`workspace_child_start`, `workspace_budget`, `workspace_pause`, `workspace_resume`). Their descriptions now start
+"Orchestrator only". A role may still `peek` its own dispatch.
+
+- **What triggers it:** a brief that asks a role to dispatch, land, read another role's result or change the
+  profile, or a role whose shell calls catherd's plugin server for those. In 1.4 such a call could make the role
+  the run's owner, and catherd's messages then went to the role's thread.
+- **The fix:** call the coordinator tools only from the orchestrator, and let a role report through its reply.
+  A role reads and writes its run's files and records its gate evidence with its own tools: the `catherd_role`
+  server's tools (headless Codex and Claude Code roles), or `catherd run-file read|write <run> <path>` and
+  `catherd gate check|pass <run> …` from its shell, which in a role act on its own run only and refuse the rest
+  with `E_ROLE_SCOPE` too.
+- A native Claude subagent's agent file now lists those tools (and `record_agent_run`) under `disallowedTools`.
+- A catherd notice is never sent to a role's thread: a run whose owner of record is a role's thread (left by 1.4)
+  logs a failed delivery and `status` warns. Take the run back with one `peek(run)` from the orchestrator.
+
+### Isolated roles keep catherd's tools
+
+The `catherd_role` server now reaches headless Codex and Claude Code roles whether isolated or not, and a role is
+never refused for being isolated. An isolated Claude Code role with that server runs with
+`--strict-mcp-config --setting-sources "" --disable-slash-commands` (and CLAUDE.md and auto-memory off) instead of
+`--safe-mode`, which dropped every `--mcp-config` server. From your `~/.claude/settings.json` it carries over the
+login and provider keys (`apiKeyHelper`, `env`, `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`),
+`model`, `permissions.deny` and `sandbox.network`; never hooks, plugins, allow rules or project settings. Your own
+agents and output styles still load. A run without the role server (fixture capture) keeps `--safe-mode`.
+
+Each role also gets its own `TMPDIR`, `<run>/scratch/<name>/` (Codex, Claude Code and isolated opencode roles),
+named in its brief; `catherd runs clean [<id>]` removes the scratch of runs with no live role. `dispatch` with
+`lane` inlines the lane file into the brief, so a brief no longer needs to paste it.
+
+### Other changes you will notice
+
+- **`route` returns seven keys:** `lane`, `role`, `rung`, `ladder`, `backend`, `agent` and a one-line `why`. The
+  provenance 1.2 added to `route` (each threshold, the value used, its source, the cost and run evidence), the
+  source, kind, difficulty and Jev's answer are now in the run's `routes.jsonl`, which also records every role's
+  decision (rows with `lane: null`) and each lane's final outcome (`source: "outcome"`). A script that reads
+  `routes.jsonl` itself should filter on `source`. `route(run, lanes: [...])` routes a milestone's lanes at once.
+- **Routing starts lower or differently on some profiles.** An unpriced rung on a plan or subscription now costs 0
+  and can start lanes; the ladder order breaks ties; a climb ladder holds only rungs at least as strong as the one
+  before it, so on the default profile copy lanes climb Luna high → Sol xhigh, and `ui` logic and hard lanes start
+  at Sol xhigh. `catherd profile validate` now warns about a quota no worker rung starts on and a kind and
+  difficulty no worker rung reaches.
+- **Lane headers live in one block** under the `# ` title (blank lines right after it are skipped), up to the first
+  blank line or heading. A `Kind:`, `Owns:` or `After:` line further down is body text, not a header.
+  `write_run_file` refuses a lane whose header values are wrong (an unknown Kind or Difficulty, an Owns path
+  outside the repo, a malformed `After:` or `Allow:`); `lane_set` and `owns_add` edit a lane's header in place.
+- **Lane order:** `After: <lane id>` holds a lane until the named lanes finished (`E_ADMIT_ORDER`).
+- **A run keeps its profile.** `run_start` pins the profile name, each role's access and each backend's isolation
+  in the run. Binding the repo to another profile, or changing a role's access or a backend's isolation, no longer
+  changes a running run: `state.md` and `status` name the difference, and `catherd runs pin <id>` (or `run_pin`) re-pins it to the repo's profile now.
+- **Knowledge is keyed by the git origin:** `<data>/repos/origin-<key>/knowledge.md`, shared by every worktree and
+  clone of one repository (a repository with no origin keeps its toplevel key). A worktree's old file is merged in
+  on its first read and renamed `knowledge.md.migrated`. `catherd knowledge path` shows where it is.
+- **The gate environment:** `catherd knowledge env set NAME=value` (or `NAME --from VAR` for a secret, which is
+  never stored by value), `env rm NAME`, `env list`. The verifier and preflight run with it; it lives beside
+  `knowledge.md`.
+- **Per-role timeouts:** `catherd profile set roles.verifier.timeouts.wallMin 240` (and `idleMin`) over the
+  profile's own; `null` clears it. A `catherd lock` command still writing output, or waiting for a slot, keeps its
+  role's wall clock alive.
+- **`catherd doctor --docker`** probes a two-container compose network by service name and Docker's free disk;
+  every `doctor` now warns about a Docker client `proxies` block and toolchain caches you cannot write.
+- **`catherd pause --machine "<reason>"`** (or `--workspace <id>`) and **`catherd resume`**: while paused, every
+  `dispatch` is refused with the new `E_ADMIT_PAUSED` naming the reason; running roles finish.
+- **`catherd runs supersede <id> --by <id>`** (or `run_start`'s `from`) closes a run with a pointer to the one that
+  took over; `status` hides it, and a `dispatch` into it is refused with `E_RUN_NOT_LIVE`.
+- **`thread`:** `dispatch` refuses a thread that name never ran on in the run (`E_ADMIT_THREAD`), so a fix round
+  under another name (`worker-x-fix` on `worker-x`'s thread) is refused: resume by the same name, or pass
+  `thread: "latest"`.
+- **`land` counts only a verifier named exactly `verifier-<M>`** (`verifier-M1-recheck` does not count), refuses a
+  `STATUS: partial` review, and leaves parked and paused time out of the minutes.
+- **Verifier and worker outcomes:** `VERDICT: BLOCKED: environment — <probe>` is a blocker for you, not a fix
+  round; an `ENV:` line in a reply makes `climb` refuse that lane with the new `E_CLIMB_ENV`; `STATUS: flaky` is a
+  worker outcome. `gate_pass` records `<HEAD>+uncommitted` as its commit when an uncommitted change lies under its
+  paths.
+- **New error codes:** `E_ROLE_SCOPE`, `E_ADMIT_PAUSED`, `E_ADMIT_ORDER` and `E_CLIMB_ENV`. `E_RUN_NOT_LIVE` and
+  `E_ADMIT_THREAD` are not new, but refuse the new cases above.
+- MCP: 38 tools (`test_push`, `run_pin`, `lane_set`, `owns_add` and the workspace tools added).
 
 ## From 1.2 to 1.3
 
