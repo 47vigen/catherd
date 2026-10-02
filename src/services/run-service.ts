@@ -74,19 +74,37 @@ export async function supersedeRun(
   }
   // under the run's admission lock: a dispatch admitted meanwhile is either live here, or sees the pointer
   const at = await withFileLock(runPaths(run.dir).admission, () => {
-    const live = liveDispatches(run, deps.now());
-    if (live.length)
-      throw new CatherdError(
-        "E_INPUT_INVALID",
-        `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
-        { fix: `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}` },
-      );
-    const when = new Date(deps.now()).toISOString();
-    writeJsonAtomic(supersededFile(run), { schema: 1, by: by.id, at: when });
-    return when;
+    assertNoLiveRoles(
+      deps,
+      run,
+      `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}`,
+    );
+    return writeSuperseded(deps, run, by.id);
   });
-  const { hints } = await refreshState(run, { next: `superseded by ${by.id}: continue there` });
-  return { run: run.id, by: by.id, at, ...(hints.length ? { hints } : {}) };
+  return { run: run.id, by: by.id, at, ...(await supersededHints(run, by.id)) };
+}
+
+/** Held under `run`'s admission lock: no role of it may be live when it closes. */
+function assertNoLiveRoles(deps: Deps, run: Run, fix: string): void {
+  const live = liveDispatches(run, deps.now());
+  if (live.length)
+    throw new CatherdError(
+      "E_INPUT_INVALID",
+      `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
+      { fix },
+    );
+}
+
+/** Held under `run`'s admission lock: the pointer to the run that took it over; its time. */
+function writeSuperseded(deps: Deps, run: Run, by: string): string {
+  const when = new Date(deps.now()).toISOString();
+  writeJsonAtomic(supersededFile(run), { schema: 1, by, at: when });
+  return when;
+}
+
+async function supersededHints(run: Run, by: string): Promise<{ hints?: string[] }> {
+  const { hints } = await refreshState(run, { next: `superseded by ${by}: continue there` });
+  return hints.length ? { hints } : {};
 }
 
 export async function startRun(
@@ -103,27 +121,36 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
-  // the run this one takes over must exist and be free to close before anything is created
-  const from = i.from === undefined ? null : findRun(i.from);
-  if (from && liveDispatches(from, deps.now()).length)
-    throw new CatherdError("E_INPUT_INVALID", `run ${from.id} still has live roles`, {
-      fix: `cancel them or let them finish, then run_start with from: ${from.id}`,
+  const open = async (): Promise<Run> => {
+    const run = createRun({
+      repo: top,
+      title: i.title,
+      aLines: i.aLines,
+      version: deps.version,
+      now: new Date(deps.now()),
+      startedBy: currentSession(deps),
     });
-  const run = createRun({
-    repo: top,
-    title: i.title,
-    aLines: i.aLines,
-    version: deps.version,
-    now: new Date(deps.now()),
-    startedBy: currentSession(deps),
-  });
-  // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
-  writePin(deps, run);
-  await claimRun(deps, run);
-  const superseded = from ? await supersedeRun(deps, { run: from.id, by: run.id }) : null;
+    // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
+    writePin(deps, run);
+    await claimRun(deps, run);
+    return run;
+  };
+  // the run this one takes over must be free to close before anything is created, and stay so until its pointer
+  // is written: its admission lock is held from the check to the pointer, so no dispatch gets in between and
+  // leaves the new run open beside it (PR #50). It is the only lock taken first: the new run's are uncontended.
+  const from = i.from === undefined ? null : findRun(i.from);
+  const run = from
+    ? await withFileLock(runPaths(from.dir).admission, async () => {
+        assertNoLiveRoles(deps, from, `cancel them or let them finish, then run_start with from: ${from.id}`);
+        const opened = await open();
+        writeSuperseded(deps, from, opened.id);
+        return opened;
+      })
+    : await open();
+  const superseded = from ? await supersededHints(from, run.id) : {};
   // a failed state.md refresh never fails the start: the run exists and is usable, so a retry would orphan it
   const { hints } = await refreshState(run);
-  hints.push(...(superseded?.hints ?? []));
+  hints.push(...(superseded.hints ?? []));
   // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
   return { run: run.id, dir: run.dir, protocol: protocolView(run, []), ...(hints.length ? { hints } : {}) };
 }

@@ -1,9 +1,14 @@
 import { afterEach, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
+import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { tryLock } from "../../src/infra/filelock.ts";
+import { processStartTime } from "../../src/infra/proc.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { admit } from "../../src/services/admission.ts";
+import { latestDispatch } from "../../src/services/dispatches.ts";
 import { startRun, supersedeRun } from "../../src/services/run-service.ts";
 import * as runStore from "../../src/services/run-store.ts";
-import { createRun, supersededBy } from "../../src/services/run-store.ts";
+import { createRun, runPaths, supersededBy } from "../../src/services/run-store.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { status } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -100,6 +105,45 @@ it("re-checks the supersede under the run's admission lock, so a dispatch never 
   } finally {
     spy.mockRestore();
   }
+});
+
+it("run_start with from holds the source run's admission from its check to the pointer: no orphan run", async () => {
+  const { repo, run: planning } = freshRun("planning");
+  const deps = fakeDeps();
+  const real = runStore.createRun;
+  let admittedMeanwhile = false;
+  // a dispatch into the source run tries to get in while the replacement is being created
+  const spy = spyOn(runStore, "createRun").mockImplementationOnce((o) => {
+    const release = tryLock(runPaths(planning.dir).admission);
+    if (release) {
+      try {
+        void fakeDispatch(planning, { name: "worker-M1.L1" });
+        const d = latestDispatch(planning, "worker-M1.L1");
+        if (!d) throw new Error("no dispatch");
+        writeJsonAtomic(dispatchPaths(d.dir).proc, {
+          schema: 1,
+          pid: process.pid,
+          startTime: processStartTime(process.pid),
+          supervisorPid: process.pid,
+          supervisorStartTime: processStartTime(process.pid),
+          pgid: process.pid,
+          startedAt: new Date().toISOString(),
+        });
+        admittedMeanwhile = true;
+      } finally {
+        release();
+      }
+    }
+    return real(o);
+  });
+  try {
+    const started = await startRun(deps, { repo, title: "execution", aLines: ["A1"], from: planning.id });
+    expect(supersededBy(planning)).toMatchObject({ by: started.run });
+  } finally {
+    spy.mockRestore();
+  }
+  expect(admittedMeanwhile).toBe(false);
+  expect(runStore.listRuns().runs).toHaveLength(2);
 });
 
 it("catherd runs supersede closes a run, and runs list says by which", () => {
