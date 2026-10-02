@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
-import { assertLaneHeader, LANE_HEADER_FIX, parseLaneHeader } from "../domain/lane.ts";
+import { assertLaneHeader, LANE_HEADER_FIX, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlotWithin } from "../infra/heavy-lock.ts";
 import { loginEnv } from "../infra/login-env.ts";
@@ -52,6 +52,8 @@ interface LaneCheck {
   lane: string;
   check: string | null;
   owns: string[];
+  /** spec 1.5: the Allow: exceptions of the lane's absence check */
+  allow: string[];
   problem: string | null;
   /** spec 1.1 §6: why its Kind: or Difficulty: line is refused */
   invalid: string | null;
@@ -78,14 +80,18 @@ function laneChecks(run: Run): LaneCheck[] {
           lane,
           check: h.fastCheck,
           owns: h.owns,
+          allow: h.allow,
           problem: h.fastCheck ? null : `lanes/${f} has no Fast check: line`,
           invalid,
         };
       } catch (e) {
-        return { lane, check: null, owns: [], problem: (e as Error).message, invalid };
+        return { lane, check: null, owns: [], allow: [], problem: (e as Error).message, invalid };
       }
     });
 }
+
+/** How many output lines a check's Allow: exceptions are matched against; past it, the check fails as before. */
+const ALLOW_LINES = 1_000;
 
 /** How long the pipes may stay open after the check's own process exits. */
 export const DRAIN_MS = 500;
@@ -122,7 +128,7 @@ export async function runCheck(
   check: string,
   timeoutMs: number,
   env: Record<string, string> = checkEnv(process.env, repo),
-): Promise<{ code: number | null; timedOut: boolean; tail: string[] }> {
+): Promise<{ code: number | null; timedOut: boolean; tail: string[]; lines: string[] }> {
   const p = Bun.spawn(["sh", "-c", check], {
     cwd: repo,
     env,
@@ -147,11 +153,10 @@ export async function runCheck(
       Bun.sleep(DRAIN_MS).then(() => false),
     ]);
     if (!drained) killGroup(p.pid, "SIGKILL"); // leftovers still in the check's group
-    const tail = `${out.text()}${err.text()}`
-      .split("\n")
-      .filter((l) => l.trim())
-      .slice(-TAIL_LINES);
-    return { code: timedOut ? null : code, timedOut, tail };
+    // every line, up to a bound, for a lane's Allow: exceptions; the tail is what the report shows
+    const all = `${out.text()}${err.text()}`.split("\n").filter((l) => l.trim());
+    const lines = all.length <= ALLOW_LINES ? all : [];
+    return { code: timedOut ? null : code, timedOut, tail: all.slice(-TAIL_LINES), lines };
   } finally {
     clearTimeout(timer);
     out.stop();
@@ -317,14 +322,17 @@ export async function preflight(
       continue;
     }
     const r = slot.value;
-    const outcome = classify(r, check);
+    // spec 1.5: an absence check whose every hit is one of the lane's Allow: exceptions has passed
+    const classified = classify(r, check);
+    const allowed = classified === "fails-as-expected" && onlyAllowedHits(r.lines, l.allow);
+    const outcome = allowed ? "pass" : classified;
     results.push({
       lane: l.lane,
       check,
       outcome,
       exitCode: r.code,
       tail: r.tail,
-      note: noteOf(r, outcome, timeoutMs),
+      note: allowed ? `every hit is an Allow: exception (${r.lines.length})` : noteOf(r, outcome, timeoutMs),
     });
   }
   // plan 23: lint reaches the worker only through its fast check

@@ -38,6 +38,7 @@ import {
 import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
+import { unfinishedAfter } from "./protocol.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
@@ -210,6 +211,14 @@ export async function admit(
   const owns = i.lane === null ? [] : laneOwns(run, i.lane);
   // spec 1.5 plan 21: the writer's implicit docs lane, for attribution only
   const ownsImplicit = i.role === "writer" && i.lane === null ? (briefOwns(i.brief) ?? DOCS_OWNS) : null;
+  // spec 1.5 "Lane editing": an After: line orders lanes that compile against each other
+  const before = i.lane === null ? [] : unfinishedAfter(run, i.lane);
+  if (before.length)
+    throw new CatherdError(
+      "E_ADMIT_ORDER",
+      `${i.lane} runs after ${before.join(", ")} (its After: line), which ${before.length > 1 ? "have" : "has"} not finished`,
+      { fix: `dispatch ${i.lane} once ${before.join(", ")} ${before.length > 1 ? "end" : "ends"} ok` },
+    );
   const id = newDispatchId();
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);

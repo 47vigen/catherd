@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
+import { assertLaneValues } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
@@ -107,7 +108,11 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
   path: string;
   bytes: number;
 } {
-  const file = runFile(findRun(i.run), i.path, "write");
+  const run = findRun(i.run);
+  const file = runFile(run, i.path, "write");
+  // spec 1.5 "Lane editing": a lane's header values are checked when it is written, not first at preflight
+  const lane = /^lanes\/([^/]+)\.md$/.exec(relative(run.dir, file).split(sep).join("/"));
+  if (lane) assertLaneValues(i.content, `lanes/${lane[1]}.md`);
   writeTextAtomic(file, i.content);
   return { path: file, bytes: Buffer.byteLength(i.content) };
 }

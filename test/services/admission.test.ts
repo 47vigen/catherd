@@ -10,10 +10,19 @@ import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
-import { readRecords } from "../../src/services/run-store.ts";
+import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
-import { briefFor, fakeDeps, fakeDispatch, fakeGit, freshRun, testView, writeLane } from "./helpers.ts";
+import {
+  briefFor,
+  fakeDeps,
+  fakeDispatch,
+  fakeGit,
+  freshRun,
+  makeRecord,
+  testView,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // a test that needs a backend with no adapter unregisters a real one (plan 17 Ruling X2)
@@ -97,6 +106,24 @@ describe("admission", () => {
       idleMs: 15 * 60_000,
       wallMs: 240 * 60_000,
     });
+  });
+
+  it("refuses a lane whose After: lane has not finished, naming it (spec 1.5 lane order)", async () => {
+    const { run } = setup();
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
+    const e = await admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })).catch((x) => x);
+    expect(e).toMatchObject({
+      code: "E_ADMIT_ORDER",
+      message: "M1.L2 runs after M1.L1 (its After: line), which has not finished",
+    });
+    const first = await admit(fakeDeps(), run, input());
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: first.d.admit.dispatchId, name: "worker-M1.L1" }),
+    );
+    expect(await refusal(admit(fakeDeps(), run, input({ name: "worker-M1.L2", lane: "M1.L2" })))).toBe(
+      "admitted",
+    );
   });
 
   it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {

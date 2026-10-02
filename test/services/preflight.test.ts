@@ -55,6 +55,31 @@ describe("preflight", () => {
     expect(r.results[4]?.note).toBe("lanes/M1.L5.md has no Fast check: line");
   });
 
+  it("passes an absence check whose every hit is one of the lane's Allow: exceptions", async () => {
+    const { run } = freshRun();
+    const grep = (hits: string) => `printf '${hits}'; exit 1`;
+    writeLane(
+      run,
+      "M1.L1",
+      ["src/a.go"],
+      grep("src/job/command.go:120:func Allowed()\\n"),
+      "Kind: repo_code\nDifficulty: build\nAllow: src/job/command.go:120\n",
+    );
+    writeLane(
+      run,
+      "M1.L2",
+      ["src/a.go"],
+      grep("src/job/command.go:121:func Allowed()\\n"),
+      "Kind: repo_code\nDifficulty: build\nAllow: src/job/command.go:120\n",
+    );
+    const r = await preflight(fakeDeps(), { run: run.id });
+    expect(outcomes(r)).toEqual([
+      ["M1.L1", "pass"],
+      ["M1.L2", "fails-as-expected"],
+    ]);
+    if (!r.needsConfirmation) expect(r.results[0]?.note).toBe("every hit is an Allow: exception (1)");
+  });
+
   it("stops a check at its timeout and calls it cannot-start", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"], "sleep 5");

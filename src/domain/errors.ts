@@ -18,6 +18,7 @@ export type ErrorCode =
   | "E_ADMIT_ID"
   | "E_ADMIT_THREAD"
   | "E_ADMIT_PAUSED"
+  | "E_ADMIT_ORDER"
   | "E_LANE_INVALID"
   | "E_LAND_GATE"
   | "E_CLIMB_DESIGN"

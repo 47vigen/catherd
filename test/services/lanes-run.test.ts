@@ -328,6 +328,17 @@ describe("run files, result and agent runs", () => {
     expect(nextLine(runPaths(run.dir).state)).toBe("Next: paused: user asked");
   });
 
+  it("refuses a lane whose header values are wrong when it is written, not at preflight", async () => {
+    const { run } = freshRun();
+    const lane = "# M1.L1\nOwns: src/a.ts\nKind: repo_code\nDifficulty: medium\n";
+    expect(await codeOf(() => writeRunFile({ run: run.id, path: "lanes/M1.L1.md", content: lane }))).toBe(
+      "E_LANE_INVALID",
+    );
+    expect(existsSync(join(run.dir, "lanes", "M1.L1.md"))).toBe(false);
+    // only a lane is checked: a plan may quote the word
+    writeRunFile({ run: run.id, path: "plan.md", content: lane });
+  });
+
   it("returns a live role's state, then its record, capped reply and hints", async () => {
     const { run } = freshRun();
     const deps = fakeDeps();

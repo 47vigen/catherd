@@ -145,6 +145,27 @@ describe("Protocol next (spec 1.1 §10)", () => {
     expect(protocolNext(run, [])).toBe("M1: reviewer");
   });
 
+  it("keeps a lane back until the lanes its After: line names have finished ok", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["kit/"]);
+    writeLane(run, "M1.L2", ["web/"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
+    writeLane(run, "M1.L3", ["api/"]);
+    for (const l of ["M1.L1", "M1.L2", "M1.L3"])
+      await route(deps, { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L3; then M1.L2 after M1.L1");
+    worked(run, "M1.L3");
+    const kit = await fakeDispatch(run, { name: "worker-M1.L1", lane: "M1.L1" }, { proc: "self" });
+    expect(protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L1); then M1.L2 after M1.L1");
+    await appendRecord(
+      run,
+      makeRecord({ runId: run.id, dispatchId: kit.admit.dispatchId, name: "worker-M1.L1", status: "failed" }),
+    );
+    expect(protocolNext(run, [])).toBe("dispatch M1.L1; then M1.L2 after M1.L1");
+    worked(run, "M1.L1");
+    expect(protocolNext(run, [])).toBe("dispatch M1.L2");
+  });
+
   it("says finish once every milestone landed", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

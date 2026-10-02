@@ -1,7 +1,8 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
+import { parseLaneHeader } from "../domain/lane.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
@@ -81,6 +82,24 @@ function laneDone(run: Run, lane: string, routes: RouteRow[], live: Dispatch[]):
   return latest?.ok ?? false;
 }
 
+/** The lane's After: lanes, from its file; none when it has none or cannot be read. */
+function afterOf(run: Run, lane: string): string[] {
+  try {
+    return parseLaneHeader(readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8")).after;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Spec 1.5 "Lane editing": the lanes `lane`'s After: line names that have not finished: their milestone has
+ * not landed and their latest try since the latest climb is still running, or did not end ok.
+ */
+export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = readRoutes(run)): string[] {
+  const landed = new Set(landedMilestones(run));
+  return afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)) && !laneDone(run, a, routes, []));
+}
+
 /**
  * The step the milestone loop is at: the first milestone neither landed nor parked, and within it the
  * first of route, dispatch, collect, reviewer, verifier and land that is still to do.
@@ -108,10 +127,19 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
     return last?.source === "climb" && last.from === last.rung;
   });
   const waiting = notDone.filter((l) => !spent.includes(l));
-  if (waiting.length) return `dispatch ${waiting.join(", ")}`;
+  // an After: line keeps a lane back until the lanes it names have finished
+  const held = new Map(waiting.map((l) => [l, unfinishedAfter(run, l, routes)]));
+  const ready = waiting.filter((l) => held.get(l)?.length === 0);
+  const order = waiting
+    .filter((l) => !ready.includes(l))
+    .map((l) => `${l} after ${held.get(l)?.join(", ")}`)
+    .join("; ");
+  if (ready.length) return `dispatch ${ready.join(", ")}${order ? `; then ${order}` : ""}`;
   if (spent.length) return `${spent.join(", ")}: out of rungs — ask finding, then the architect or park ${m}`;
   const running = live.filter((d) => d.admit.lane !== null && mine.includes(d.admit.lane));
-  if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
+  if (running.length)
+    return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})${order ? `; then ${order}` : ""}`;
+  if (order) return `${m}: ${order} (After:), not done: finish those lanes first`;
   const start = milestoneStart(run, m);
   if (!reviewerPassed(run, m, start)) {
     // plan 23: a partial review is not the review: a second pass, scoped to what it did not read
