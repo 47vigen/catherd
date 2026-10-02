@@ -102,6 +102,48 @@ Plan 24 (routing and cost) review:
   a large batch sends that many Jev requests in parallel. Evidence: `src/entry/mcp/lane-tools.ts:21`,
   `src/services/routing-service.ts:237`. Fix: cap `lanes` (`.max(n)`) or judge with bounded concurrency. (Minor 10.)
 
+Plan 25 (runs, programs and lanes) review:
+
+- **A merge release's git check runs inside the workspace lock.** `workspace_child_start` calls
+  `dependencyBlockers(…, { merge: true })`, whose `git merge-base --is-ancestor` runs while the workspace lock is
+  held, against Ruling 4 (git outside the lock); bounded only by git's 15 s timeout. Evidence:
+  `src/services/workspace-service.ts:182`, `:219`. Fix: compute the merge blockers before taking the lock and re-check
+  only the cheap record rule inside it. (Minor 1.)
+- **Two open questions on one milestone share one parked span.** `parkedSpans` opens a span on a question only when
+  none is open, so a second question asked while the first is open is closed by the first answer, and the minutes
+  after it stop being excluded. Evidence: `src/services/questions.ts:43-54`. Fix: count open questions (a span ends
+  when the last open one is answered), or pair each answer with its question id. (Minor 2.)
+- **Some readers still use the repo's profile, not the run's pin.** Preflight, `jev.use` in lane routing, and the
+  budget `status` and the runs page show read `forRepo`, so admission enforces the pinned budget while status shows
+  the repo's. Evidence: `src/services/preflight.ts:260`, `src/services/lane-service.ts:240`, `:573`,
+  `src/services/summary.ts:81`, `src/services/runs-page.ts:180`. Fix: read `runProfile(deps, run)` there. (Minor 3.)
+- **An unreadable profile leaves an orphan run folder.** `startRun` and `startWorkspaceChild` call `writePin`
+  (`forRepo`) after `createRun`, so a profile that does not read throws with the run folder already made. Evidence:
+  `src/services/run-service.ts:121`, `src/services/workspace-service.ts:195`. Fix: resolve the pin before
+  `createRun`, or catch and remove the folder. (Minor 4.)
+- **The role lock's state file has no schema field.** `role-<role>.json` is written as `{ owner, holders }`, unlike
+  every other store file; pause rows rely only on the jsonl header. Evidence: `src/infra/heavy-lock.ts:96-115`. Fix:
+  add `schema: 1` and read it through `readVersioned`. (Minor 5.)
+- **`Allow:` misses a hit printed as `./path`.** `onlyAllowedHits` compares the hit's path verbatim, so
+  `./src/x.ts:12:` (a grep under `./`) does not match `Allow: src/x.ts`. Evidence: `src/domain/lane.ts:143-158`. Fix:
+  normalize both sides with `normalizeOwned`. (Minor 6.)
+- **A bad `After:` blocks a lane forever.** `After:` is not checked for a cycle, the lane itself, or a lane with no
+  file, so such a lane is refused `E_ADMIT_ORDER` for good. Evidence: `src/services/admission.ts:226`,
+  `src/services/protocol.ts:90`. Fix: refuse them in `assertLaneValues` where the run is known (`write_run_file`,
+  `lane_set`), or at least name them in `protocol.next` or a status warning. (Minor 7.)
+- **`landedCommitOf` lines up two separately filtered arrays.** It indexes `landedCommits` by the position of the
+  milestone in `landedMilestones`; a ledger row one filter keeps and the other drops shifts every later commit.
+  Evidence: `src/services/workspace-admission.ts:127-132`. Fix: parse each ledger row once into
+  `{ milestone, commit }`. (Minor 8.)
+- **The docs still describe slug-keyed knowledge.** Knowledge is now keyed by the normalized origin (Ruling 20), but
+  the README's knowledge row and the "Shipped in 1.0" line here still say `<data>/repos/<slug>-<hash8>/knowledge.md`
+  or "the repo's". Evidence: `README.md:203`, `docs/dev/ideas.md:9`. Fix: say "keyed by the repository's origin URL
+  (its toplevel when it has none)". (Controller carry-over.)
+- **Carried gate passes are not shared between worktrees of one repo.** `gates.jsonl` stays keyed by the toplevel
+  (Ruling 20), so a worktree never reuses a pass recorded in another worktree of the same origin. Evidence:
+  `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass
+  checkout-independent. (Controller carry-over.)
+
 ## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
 
 Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 13 final review
