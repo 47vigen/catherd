@@ -247,6 +247,42 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     }
   });
 
+  it("hashes an absent ignored output as absent, not as an error, and its build as new content", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "dist/\n");
+    write(repo, "apps/checkout/src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    const built = item(run.id, { paths: ["apps/checkout/", "apps/checkout/dist"] });
+    expect(await gateCheck(deps, built)).toEqual({ carried: false });
+    await gatePass(deps, { ...built, evidence: "ok" });
+    expect(await gateCheck(deps, built)).toMatchObject({ carried: true });
+    write(repo, "apps/checkout/dist/index.js", "x");
+    expect(await gateCheck(deps, built)).toEqual({ carried: false });
+  });
+
+  it("covers dependencies through the tracked lockfiles, never walking node_modules under a named path", async () => {
+    const { repo, run } = freshRun();
+    write(repo, ".gitignore", "node_modules/\n");
+    write(repo, "apps/web/src/a.ts", "a");
+    write(repo, "bun.lock", "v1");
+    write(repo, "apps/web/package.json", "{}");
+    commit(repo);
+    // more files than a walk takes, under an ignored folder inside the gate's paths
+    for (let i = 0; i < 10_001; i++) write(repo, `node_modules/.bun/p${i % 10}/f${i}`, "");
+    const deps = fakeDeps();
+    const whole = item(run.id, { paths: ["."] });
+    const web = item(run.id, { paths: ["apps/web/"] });
+    await gatePass(deps, { ...whole, evidence: "ok" });
+    await gatePass(deps, { ...web, evidence: "ok" });
+    expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
+    // a lockfile change outside apps/web/ still reaches the apps/web/ item
+    write(repo, "bun.lock", "v2");
+    commit(repo);
+    expect(await gateCheck(deps, web)).toEqual({ carried: false });
+    expect(await gateCheck(deps, whole)).toEqual({ carried: false });
+  });
+
   it("records each check as the verifier's step, which status shows", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");

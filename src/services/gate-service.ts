@@ -1,12 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  readdirSync,
-  readlinkSync,
-  realpathSync,
-  type Stats,
-  statSync,
-} from "node:fs";
+import { lstatSync, readdirSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
@@ -148,7 +140,10 @@ const isLink = (file: string): boolean => {
 
 /** Whether git ignores `p` (a tracked file never is). */
 async function ignored(repo: string, p: string): Promise<boolean> {
-  return (await git(repo, ["check-ignore", "-q", "--", p.replace(/\/$/, "")])).kind === "ok";
+  const bare = p.replace(/\/$/, "");
+  const asked = async (q: string) => (await git(repo, ["check-ignore", "-q", "--", q])).kind === "ok";
+  // a directory pattern (`dist/`) matches a path that is not on disk yet only through a child of it
+  return (await asked(bare)) || (!onDisk(join(repo, bare)) && (await asked(`${bare}/.catherd`)));
 }
 
 /** The most files a gate path's on-disk walk hashes. */
@@ -179,37 +174,85 @@ function walk(repo: string, p: string): string[] {
 }
 
 /**
- * The content hash of `paths`: each one's tree entry at HEAD (mode, type and object id), plus the content of every
- * uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of what it ran.
- * A path git ignores, or one not at HEAD, is also hashed file by file from disk; ignored files under `.` or
- * under a tracked directory are not, so an ignored input is covered only when it is named.
+ * The lockfiles a gate item's dependencies come from, wherever the repo tracks them: they stand in for
+ * `node_modules` and the toolchain caches, which a gate path never needs to name (plan 23).
+ */
+export const LOCKFILES = [
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "go.sum",
+  "Cargo.lock",
+  "poetry.lock",
+  "uv.lock",
+  "Gemfile.lock",
+  "composer.lock",
+];
+
+/** `git ls-files -s -z` for `pathspecs`: each tracked file's mode, object id, stage and path, as the index holds them. */
+async function tracked(repo: string, pathspecs: string[]): Promise<string> {
+  const r = await git(repo, ["ls-files", "-s", "-z", "--", ...pathspecs]);
+  if (r.kind !== "ok")
+    throw new CatherdError(
+      "E_IO_UNEXPECTED",
+      `git ls-files ${r.kind === "timed-out" ? "timed out" : "failed"} in ${repo}`,
+      { fix: `check that git works in ${repo}` },
+    );
+  return r.out;
+}
+
+/** Whether anything is at `file` on disk, a dangling symlink included. */
+const onDisk = (file: string): boolean => {
+  try {
+    lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The content hash of `paths` (plan 23, a monorepo gate): the tracked files under each one, from `git ls-files -s`
+ * (mode, object id and path, so a committed chmod -x is new content), the repo's tracked lockfiles, and the
+ * content of every uncommitted change under them, so a verifier checking a tree not yet committed gets a hash of
+ * what it ran. An ignored path named explicitly (a `.env`, a build output, a `node_modules` folder) is hashed
+ * from disk, file by file within GATE_WALK_MAX, and as "absent" while it is not there; ignored files under `.`
+ * or under a tracked directory are never walked. A named symlink is hashed by what it points at too.
  */
 async function contentHash(repo: string, paths: string[]): Promise<string> {
   const h = new Bun.CryptoHasher("sha256");
+  // a dependency bump reaches every gate item through its lockfile
+  h.update(
+    `locks=${sha(
+      await tracked(
+        repo,
+        LOCKFILES.map((l) => `:(glob)**/${l}`),
+      ),
+    )}\n`,
+  );
   for (const p of paths) {
-    // the tree entry, mode and type with the object id (`100755 blob <sha>`), so a committed chmod -x is new
-    // content; a directory's tree id already covers its children's modes
-    const entry = await git(
-      repo,
-      p === "."
-        ? ["rev-parse", "HEAD^{tree}"]
-        : ["ls-tree", "--full-tree", "HEAD", "--", p.replace(/\/$/, "")],
-    );
-    const at = entry.kind === "ok" ? entry.out.trim() : "";
-    // a mistyped path (or a glob) would hash as a constant and carry a pass forever
-    if (!at && !existsSync(join(repo, p)))
+    const bare = p.replace(/\/$/, "");
+    const listed = await tracked(repo, [p === "." ? "." : bare]);
+    const there = p === "." || onDisk(join(repo, bare));
+    const isIgnored = p !== "." && listed === "" && (await ignored(repo, p));
+    // a mistyped path (or a glob) would hash as a constant and carry a pass forever; an ignored output that
+    // is not built yet is part of the content, as "absent"
+    if (listed === "" && !there && !isIgnored)
       throw new CatherdError(
         "E_INPUT_INVALID",
         `gate path ${p} exists neither at HEAD nor in the working tree`,
         {
-          fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs)",
+          fix: "check the spelling: pass repo-relative files or directories that exist, like src/ or package.json (no globs); a git-ignored output not built yet is fine",
         },
       );
-    h.update(`${p}=${at || "missing"}\n`);
-    // git status leaves ignored files out, so an ignored path (.env, a build output) or one not at HEAD is
-    // hashed by what is on disk; "." keeps to HEAD and the not-ignored status. A symlink's HEAD entry is only
-    // its link text, so a named symlink is hashed from disk too, by what it points at
-    if (p !== "." && (!at || isLink(join(repo, p)) || (await ignored(repo, p)))) {
+    h.update(`${p}=${listed ? sha(listed) : there ? "untracked" : "absent"}\n`);
+    // git status leaves ignored files out, so an ignored path named here is hashed by what is on disk; "."
+    // keeps to the index and the not-ignored status. A tracked symlink's index entry is only its link text,
+    // so a named symlink is hashed from disk too, by what it points at
+    if (p !== "." && there && (isIgnored || isLink(join(repo, bare)))) {
       // one budget per gate path: its walk and every symlink target it follows count against GATE_WALK_MAX
       const budget: Budget = { path: p, files: 0, seen: new Set() };
       for (const f of walk(repo, p)) h.update(`disk ${f}=${await diskEntry(join(repo, f), budget)}\n`);
