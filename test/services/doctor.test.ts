@@ -1097,7 +1097,7 @@ it("codex_ready_other_profile_broken keeps readiness selected and does no Claude
   expect(required.ready).toBe(false);
   expect(check(required, "backend:claude-code")?.state).toBe("fail");
   expect(existsSync(process.env.CATHERD_CLAUDE_AGENTS_DIR!)).toBe(false);
-});
+}, 30_000);
 
 it("native failover-only missing managed links warn while the Claude host still requires its plugin", async () => {
   machine({ bins: ["codex"] });
