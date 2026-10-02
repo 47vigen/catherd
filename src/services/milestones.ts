@@ -50,27 +50,95 @@ export interface MilestoneReviewer {
   record: RunRecord | null;
 }
 
+/** Every reviewer attempt of the milestone since its lanes started that ended ok, oldest first, partial or not. */
+function reviewerAttempts(
+  run: Run,
+  m: string,
+  start: string | null,
+): (MilestoneReviewer & { partial: boolean })[] {
+  return [
+    ...readRecords(run)
+      .records.filter((r) => reviewsMilestone(r.name, m) && r.status === "ok" && since(r.endedAt, start))
+      .map((r) => ({ name: r.name, at: r.endedAt, record: r, partial: r.replyStatus === "partial" })),
+    ...readAgentRuns(run)
+      .filter(
+        (a) =>
+          a.role === "reviewer" && reviewsMilestone(a.name, m) && a.status === "ok" && since(a.at, start),
+      )
+      .map((a) => ({ name: a.name, at: a.at, record: null, partial: a.replyStatus === "partial" })),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 /**
  * The milestone's latest passing reviewer since its lanes started: a dispatch named reviewer-<m>…, status
- * ok; or a record_agent_run row with role reviewer and the same name, status ok. Null when there is none.
+ * ok; or a record_agent_run row with role reviewer and the same name, status ok. A reply of STATUS: partial
+ * read only part of the diff and is not the milestone's review (plan 23). Null when there is none.
  */
 export function milestoneReviewer(
   run: Run,
   m: string,
   start = milestoneStart(run, m),
 ): MilestoneReviewer | null {
-  const found: MilestoneReviewer[] = [
-    ...readRecords(run)
-      .records.filter((r) => reviewsMilestone(r.name, m) && r.status === "ok" && since(r.endedAt, start))
-      .map((r) => ({ name: r.name, at: r.endedAt, record: r })),
-    ...readAgentRuns(run)
-      .filter(
-        (a) =>
-          a.role === "reviewer" && reviewsMilestone(a.name, m) && a.status === "ok" && since(a.at, start),
-      )
-      .map((a) => ({ name: a.name, at: a.at, record: null })),
-  ];
-  return found.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1) ?? null;
+  const full = reviewerAttempts(run, m, start).filter((a) => !a.partial);
+  const last = full.at(-1);
+  return last ? { name: last.name, at: last.at, record: last.record } : null;
+}
+
+/** Plan 23: the milestone's latest reviewer that stopped at STATUS: partial, when no full review stands; else null. */
+export function partialReviewer(
+  run: Run,
+  m: string,
+  start = milestoneStart(run, m),
+): MilestoneReviewer | null {
+  if (milestoneReviewer(run, m, start)) return null;
+  const last = reviewerAttempts(run, m, start)
+    .filter((a) => a.partial)
+    .at(-1);
+  return last ? { name: last.name, at: last.at, record: last.record } : null;
+}
+
+const FINDING = /^\s*(?:[-*]\s*)?(BLOCKER|BUG|NIT)\b/;
+
+/** A reviewer reply's findings by severity; null when there is no reply to read. */
+export function countFindings(run: Run, r: RunRecord): { BLOCKER: number; BUG: number; NIT: number } | null {
+  const file = join(run.dir, r.replyPath);
+  if (!r.replyPath || !existsSync(file)) return null;
+  const n = { BLOCKER: 0, BUG: 0, NIT: 0 };
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const k = FINDING.exec(line)?.[1] as keyof typeof n | undefined;
+    if (k) n[k]++;
+  }
+  return n;
+}
+
+/** The roles a fix round runs as. */
+const FIX_ROLES = new Set(["worker", "writer", "artist"]);
+
+/**
+ * Plan 23: the milestone reviewer's BLOCKER and BUG lines while no fix round has ended since (a worker,
+ * writer or artist of the milestone, ended ok after the review); null when there are none, or for a native
+ * reviewer, whose reply catherd does not keep.
+ */
+export function openFindings(
+  run: Run,
+  m: string,
+  start = milestoneStart(run, m),
+): { name: string; blocker: number; bug: number } | null {
+  const reviewer = milestoneReviewer(run, m, start);
+  if (!reviewer?.record) return null;
+  const n = countFindings(run, reviewer.record);
+  if (!n || n.BLOCKER + n.BUG === 0) return null;
+  const after = (at: string) => Date.parse(at) > Date.parse(reviewer.at);
+  const ofM = (name: string, lane: string | null | undefined) =>
+    inMilestone(lane, m) || namesMilestone(name, m);
+  const fixed =
+    readRecords(run).records.some(
+      (r) => FIX_ROLES.has(r.role) && r.status === "ok" && ofM(r.name, r.lane) && after(r.endedAt),
+    ) ||
+    readAgentRuns(run).some(
+      (a) => FIX_ROLES.has(a.role) && a.status === "ok" && ofM(a.name, a.lane) && after(a.at),
+    );
+  return fixed ? null : { name: reviewer.name, blocker: n.BLOCKER, bug: n.BUG };
 }
 
 /** A reviewer record for the milestone since its lanes started (see milestoneReviewer). */

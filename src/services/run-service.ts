@@ -185,6 +185,8 @@ export function recordAgentRun(
     lane?: string;
     /** plan 23: a native verifier's first reply line, so a VERDICT: BLOCKED: environment is told from a FAIL */
     verdict?: string;
+    /** plan 23: the STATUS word of the subagent's reply */
+    replyStatus?: NonNullable<AgentRun["replyStatus"]>;
   },
 ): AgentRun {
   const run = findRun(i.run);
@@ -207,6 +209,7 @@ export function recordAgentRun(
     status: i.status ?? "ok",
     lane: i.lane ?? null,
     ...(i.verdict ? { verdict: i.verdict.trim().split("\n")[0] } : {}),
+    ...(i.replyStatus ? { replyStatus: i.replyStatus } : {}),
   };
   appendAgentRun(run, row);
   return row;

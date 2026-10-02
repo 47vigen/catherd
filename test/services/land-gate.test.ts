@@ -370,6 +370,41 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(protocolNext(run, [])).toStartWith("M1: verifier-M1 failed: the owning lanes fix it");
   });
 
+  it("refuses a native reviewer recorded with reply_status partial, until a full pass (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const claude = { host: "claude-code" as const, session: null, conflict: null };
+    const t0 = Date.now();
+    const review = (name: string, at: number, replyStatus?: "partial" | "complete") =>
+      recordAgentRun(fakeDeps({ host: claude, now: () => at }), {
+        run: run.id,
+        name,
+        role: "reviewer",
+        rung: "claude:claude-opus-5-5#low",
+        totalTokens: 1,
+        ...(replyStatus ? { replyStatus } : {}),
+      });
+    review("reviewer-M1", t0, "partial");
+    appendAgentRun(run, {
+      at: new Date(t0 + 100).toISOString(),
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 0,
+      costUsd: null,
+      secs: null,
+      status: "ok",
+    });
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.message).toBe(
+      "land M1: reviewer-M1 replied STATUS: partial, which is not the milestone's review",
+    );
+    expect(e.fix).toContain("reviewer-M1-2");
+    review("reviewer-M1-2", t0 + 200, "complete");
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+  });
+
   it("takes a native reviewer (record_agent_run, role reviewer, reviewer-<M>, ok) since the milestone started", async () => {
     const { repo, run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RunRecord } from "../domain/record.ts";
 import type { RouteRow } from "../domain/route.ts";
@@ -6,11 +6,14 @@ import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts"
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import { failedItems, RECHECK_COMMAND_MIN, type VerifierStep } from "./gate-service.ts";
 import {
+  countFindings,
   landedMilestones,
   milestoneReviewer,
   milestoneVerifier,
   milestoneStart,
   namesMilestone,
+  openFindings,
+  partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -109,7 +112,17 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
   const running = live.filter((d) => d.admit.lane !== null && mine.includes(d.admit.lane));
   if (running.length) return `${m}: lanes running (${running.map((d) => d.admit.name).join(", ")})`;
   const start = milestoneStart(run, m);
-  if (!reviewerPassed(run, m, start)) return `${m}: reviewer`;
+  if (!reviewerPassed(run, m, start)) {
+    // plan 23: a partial review is not the review: a second pass, scoped to what it did not read
+    const partial = partialReviewer(run, m, start);
+    return partial
+      ? `${m}: ${partial.name} stopped partial: a scoped second pass (reviewer-${m}-2) over the files it did not read`
+      : `${m}: reviewer`;
+  }
+  // plan 23: open BLOCKER and BUG lines go to the fix round before the verifier
+  const open = openFindings(run, m, start);
+  if (open)
+    return `${m}: fix round for ${open.name}'s findings (${open.blocker} BLOCKER, ${open.bug} BUG), then the verifier`;
   const verdict = milestoneVerifier(run, m, start);
   if (!verdict) return `${m}: verifier`;
   // plan 23: the machine, not the work: the owner hears of it, and no fix round runs
@@ -129,17 +142,9 @@ export const protocolView = (run: Run, parked: string[], now?: number) => ({
   checklist: PROTOCOL_CHECKLIST,
 });
 
-const FINDING = /^\s*(?:[-*]\s*)?(BLOCKER|BUG|NIT)\b/;
-
 function findingCounts(run: Run, r: RunRecord | undefined): string {
   if (!r?.replyPath) return "no reply";
-  const file = join(run.dir, r.replyPath);
-  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const n = { BLOCKER: 0, BUG: 0, NIT: 0 };
-  for (const line of text.split("\n")) {
-    const k = FINDING.exec(line)?.[1] as keyof typeof n | undefined;
-    if (k) n[k]++;
-  }
+  const n = countFindings(run, r) ?? { BLOCKER: 0, BUG: 0, NIT: 0 };
   const total = n.BLOCKER + n.BUG + n.NIT;
   return `${total} finding(s): ${n.BLOCKER} BLOCKER, ${n.BUG} BUG, ${n.NIT} NIT`;
 }

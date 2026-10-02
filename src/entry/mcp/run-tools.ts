@@ -92,7 +92,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "record_agent_run",
     {
       description:
-        'After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane\'s kind in the catalog timings. status says how the subagent\'s work ended: for a verifier it is the verdict, so pass status: "failed" when its verdict is FAIL; only a PASS is recorded ok. For a verifier, pass verdict: the first line of its reply; a VERDICT: BLOCKED: environment — <probe> (status "failed") is then a blocker to surface to the owner, not a fix round.',
+        'After every native Claude subagent (Agent tool) of a run, record what the Agent result reported: total_tokens and duration_ms. The budget counts it. Pass lane (e.g. M1.L1) when the subagent worked a lane, so its time counts toward that lane\'s kind in the catalog timings. status says how the subagent\'s work ended: for a verifier it is the verdict, so pass status: "failed" when its verdict is FAIL; only a PASS is recorded ok. For a verifier, pass verdict: the first line of its reply; a VERDICT: BLOCKED: environment — <probe> (status "failed") is then a blocker to surface to the owner, not a fix round. Pass reply_status, the STATUS word its reply ends with: a reviewer that stopped partial is not the milestone review.',
       inputSchema: {
         run: z.string(),
         name: z.string().regex(ID_PATTERN),
@@ -104,6 +104,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
         status: z.enum(["ok", "failed", "cancelled"]).default("ok"),
         lane: z.string().regex(ID_PATTERN).optional(),
         verdict: z.string().min(1).optional(),
+        reply_status: z.enum(["complete", "partial", "blocked", "refused"]).optional(),
       },
     },
     (a) =>
@@ -119,6 +120,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
           costUsd: a.cost_usd,
           status: a.status,
           verdict: a.verdict,
+          replyStatus: a.reply_status,
         }),
       ),
   );

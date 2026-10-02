@@ -204,6 +204,87 @@ describe("Protocol next (spec 1.1 §10)", () => {
     );
   });
 
+  it("refuses a partial review, and names the fix round while BLOCKER or BUG lines are open (plan 23)", async () => {
+    const { repo, run } = freshRun();
+    const deps = fakeDeps();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    worked(run, "M1.L1");
+    const t0 = Date.now() + 1000;
+    const reviewer = async (name: string, reply: string, status: "complete" | "partial", at: number) => {
+      const dispatchId = newDispatchId();
+      const replyPath = `roles/${name}/${dispatchId}/reply.md`;
+      mkdirSync(join(run.dir, "roles", name, dispatchId), { recursive: true });
+      writeFileSync(join(run.dir, replyPath), reply);
+      await appendRecord(
+        run,
+        makeRecord({
+          runId: run.id,
+          dispatchId,
+          name,
+          role: "reviewer",
+          lane: null,
+          replyPath,
+          replyStatus: status,
+          endedAt: new Date(at).toISOString(),
+        }),
+      );
+    };
+    await reviewer("reviewer-M1", "read the core only\nSTATUS: partial — 4 files unread", "partial", t0);
+    expect(protocolNext(run, [])).toBe(
+      "M1: reviewer-M1 stopped partial: a scoped second pass (reviewer-M1-2) over the files it did not read",
+    );
+    appendAgentRun(run, {
+      at: new Date(t0 + 500).toISOString(),
+      name: "verifier-M1",
+      role: "verifier",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 0,
+      costUsd: null,
+      secs: null,
+      status: "ok",
+    });
+    const e = await land(deps, {
+      run: run.id,
+      milestone: "M1",
+      what: "w",
+      commit: head(repo),
+      evidence: "ok",
+      next: "M2",
+    }).then(
+      () => null,
+      (x: unknown) => x as { code: string; message: string },
+    );
+    expect(e?.code).toBe("E_LAND_GATE");
+    expect(e?.message).toBe(
+      "land M1: reviewer-M1 replied STATUS: partial, which is not the milestone's review",
+    );
+    await reviewer(
+      "reviewer-M1-2",
+      "- BLOCKER src/a.ts:3 — wrong sign — flip it\n- BUG src/a.ts:9 — off by one — <=\n- NIT src/a.ts:1 — name\nSTATUS: complete — 3 findings",
+      "complete",
+      t0 + 1000,
+    );
+    expect(protocolNext(run, [])).toBe(
+      "M1: fix round for reviewer-M1-2's findings (1 BLOCKER, 1 BUG), then the verifier",
+    );
+    // the fix round ends ok after the review: the next step moves on
+    appendAgentRun(run, {
+      at: new Date(t0 + 2000).toISOString(),
+      name: "worker-M1.L1",
+      role: "worker",
+      rung: "claude:claude-opus-5-5#low",
+      agent: null,
+      totalTokens: 1,
+      costUsd: null,
+      secs: 1,
+      status: "ok",
+      lane: "M1.L1",
+    });
+    expect(protocolNext(run, [])).not.toStartWith("M1: fix round");
+  });
+
   it("run_start returns the step and the six-line checklist", async () => {
     withHome();
     const r = await startRun(fakeDeps(), { repo: tempRepo(), title: "t", aLines: ["A1 x"] });
