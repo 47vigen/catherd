@@ -38,6 +38,7 @@ const RunMetaSchema = z.looseObject({
   createdAt: z.string(),
   catherdVersion: z.string(),
   startedBy: StartedBySchema.nullable().optional(),
+  workspace: z.strictObject({ id: z.string(), step: z.string() }).optional(),
 });
 type RunMeta = z.infer<typeof RunMetaSchema>;
 
@@ -83,6 +84,7 @@ export function createRun(o: {
   aLines: string[];
   version: string;
   now?: Date;
+  workspace?: { id: string; step: string };
   startedBy?: {
     host?: StartedBy["host"];
     sessionId: string;
@@ -90,6 +92,9 @@ export function createRun(o: {
     name: string | null;
   } | null;
 }): Run {
+  const workspace = o.workspace
+    ? { id: assertId("workspace", o.workspace.id), step: assertId("workspace step", o.workspace.step) }
+    : undefined;
   const now = o.now ?? new Date();
   const root = runsDir(o.repo);
   ensurePrivateDir(root);
@@ -130,6 +135,7 @@ export function createRun(o: {
     createdAt: now.toISOString(),
     catherdVersion: o.version,
     ...(o.startedBy ? { startedBy: StartedBySchema.parse(o.startedBy) } : {}),
+    ...(workspace ? { workspace } : {}),
   };
   writeJsonAtomic(p.meta, meta);
   return { id, dir, meta };
@@ -141,14 +147,18 @@ export interface RunListing {
   corrupt: { id: string; dir: string; reason: string }[];
 }
 
-/** Every run of every repo, newest first. */
-export function listRuns(): RunListing {
+/** Every run, newest first; an explicit repo scope avoids reading unrelated histories. */
+export function listRuns(repos?: readonly string[]): RunListing {
   const root = join(dataDir(), "repos");
   const out: RunListing = { runs: [], corrupt: [] };
   if (!existsSync(root)) return out;
-  for (const repo of readdirSync(root, { withFileTypes: true })) {
-    const runs = join(root, repo.name, "runs");
-    if (!repo.isDirectory() || !existsSync(runs)) continue;
+  const directories = repos
+    ? [...new Set(repos.map(runsDir))]
+    : readdirSync(root, { withFileTypes: true })
+        .filter((repo) => repo.isDirectory())
+        .map((repo) => join(root, repo.name, "runs"));
+  for (const runs of directories) {
+    if (!existsSync(runs)) continue;
     for (const e of readdirSync(runs, { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
       const dir = join(runs, e.name);
@@ -259,9 +269,14 @@ const AgentRunSchema = z.looseObject({
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
 /** Native Claude subagent runs, as the orchestrator reported them through record_agent_run. */
-export function readAgentRuns(run: Run): AgentRun[] {
-  return readJsonl<unknown>(runPaths(run.dir).agents).rows.flatMap((row) => {
+export function readAgentRuns(run: Run, strict = false): AgentRun[] {
+  const { rows, corrupt } = readJsonl<unknown>(runPaths(run.dir).agents);
+  if (strict && corrupt)
+    throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has unreadable native cost records`);
+  return rows.flatMap((row) => {
     const r = AgentRunSchema.safeParse(row);
+    if (strict && !r.success)
+      throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has invalid native cost records`);
     return r.success ? [r.data] : [];
   });
 }
@@ -290,6 +305,7 @@ export function appendKnowledge(toplevel: string, at: Date, source: string, text
 }
 
 const SERVER_OWNED = new Set([
+  "workspace-contract.md",
   "meta.json",
   "state.md",
   "state.json",

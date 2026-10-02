@@ -19,6 +19,7 @@ import { registerProtocolTools } from "./protocol-tools.ts";
 import { sdkToolError, toolOf } from "./result.ts";
 import { registerRunTools } from "./run-tools.ts";
 import { registerSetupTools } from "./setup-tools.ts";
+import { registerWorkspaceTools } from "./workspace-tools.ts";
 
 type ObserveSession = (context: Deps) => (() => void) | undefined;
 
@@ -102,6 +103,7 @@ export function buildServer(deps: Deps = defaultDeps(), observe?: ObserveSession
     return r;
   };
   registerRunTools(server, scoped);
+  registerWorkspaceTools(server, scoped);
   registerLaneTools(server, scoped);
   registerDispatchTools(server, scoped);
   registerSetupTools(server, scoped);

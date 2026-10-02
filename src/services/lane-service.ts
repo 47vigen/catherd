@@ -17,6 +17,9 @@ import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
 import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
+import { pendingDispatches } from "./dispatches.ts";
+import { workspaceBudget } from "./workspace-admission.ts";
+import { findWorkspace, workspaceChildren, workspaceDirectory, workspacePaths } from "./workspace-store.ts";
 import {
   isDocPath,
   isSourcePath,
@@ -34,6 +37,8 @@ import {
   appendOutcome,
   appendRoute,
   findRun,
+  readAgentRuns,
+  readRecords,
   readRoutes,
   type Run,
   runFile,
@@ -95,7 +100,10 @@ export async function route(
     role: i.role,
     lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
-    spentFraction: budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
+    spentFraction: Math.max(
+      budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
+      (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
+    ),
   });
   if (lane)
     appendRoute(run, {
@@ -292,20 +300,48 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
  * Spec §4.7: the full five-column ledger row, with the minutes since the previous landing (or the
  * run's start), and `learned` appended to the repo's knowledge.md.
  */
-export async function land(
-  deps: Deps,
-  i: {
-    run: string;
-    milestone: string;
-    what: string;
-    commit: string;
-    evidence: string;
-    next: string;
-    learned?: string;
-    skip?: LandSkip;
-  },
-): Promise<{ ledger: string; minutes: number; digest: string; hints?: string[] }> {
+type LandInput = {
+  run: string;
+  milestone: string;
+  what: string;
+  commit: string;
+  evidence: string;
+  next: string;
+  learned?: string;
+  skip?: LandSkip;
+};
+
+export async function land(deps: Deps, i: LandInput) {
   const run = findRun(i.run);
+  if (!run.meta.workspace) return landRun(deps, i, run);
+  const workspace = findWorkspace(run.meta.workspace.id);
+  // Completion and dispatch admission share a boundary. Landing remains available at a spent budget.
+  return withFileLock(workspacePaths(workspaceDirectory(workspace.id)).admission, async () => {
+    if (!workspaceChildren(workspace).some((child) => child.dir === run.dir))
+      throw new CatherdError("E_RUN_CORRUPT", "the run is not a member of its workspace execution");
+    const pending = await withFileLock(runPaths(run.dir).runs, () => {
+      const { records, corrupt } = readRecords(run);
+      if (corrupt)
+        throw new CatherdError("E_RUN_CORRUPT", "workspace completion has unreadable dispatch records", {
+          fix: "repair the child's dispatch records before landing its milestone",
+        });
+      return pendingDispatches(run, deps.now(), records, true);
+    });
+    if (pending.length)
+      throw new CatherdError("E_LAND_GATE", "workspace completion waits for all admitted dispatches", {
+        fix: "finish and collect the child's dispatches before landing its milestone",
+      });
+    // An unreadable newer native verdict must not leave an older PASS standing.
+    readAgentRuns(run, true);
+    return landRun(deps, i, run);
+  });
+}
+
+async function landRun(
+  deps: Deps,
+  i: LandInput,
+  run: Run,
+): Promise<{ ledger: string; minutes: number; digest: string; hints?: string[] }> {
   // the digest is named after the milestone: an id, checked before anything is written
   assertId("milestone", i.milestone);
   // commitExists throws E_IO_UNEXPECTED on a timeout, which reaches the caller as is
