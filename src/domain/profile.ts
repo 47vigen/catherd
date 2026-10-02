@@ -45,6 +45,7 @@ const RoleDocSchema = z.looseObject({
   rungs: z.array(z.string()).optional(),
   defaultRung: z.string().optional(),
   network: z.boolean().optional(),
+  timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
 });
 
 export const ProfileDocSchema = z.looseObject({
@@ -117,7 +118,18 @@ export type RoleConfig = {
   defaultRung?: string;
   /** spec §5: false drops a workspace-write role's network, loopback and Docker grants; absent means granted */
   network?: false;
+  /** plan 23: this role's own idle and wall timeouts, over the profile's `timeouts` (a long gate, a slow model) */
+  timeouts?: { idleMin?: number; wallMin?: number };
 };
+
+/** The idle and wall timeouts a role runs under: its own `timeouts`, else the profile's. */
+export const roleTimeouts = (
+  profile: { timeouts: { idleMin: number; wallMin: number } },
+  role: { timeouts?: { idleMin?: number; wallMin?: number } } | undefined,
+): { idleMin: number; wallMin: number } => ({
+  idleMin: role?.timeouts?.idleMin ?? profile.timeouts.idleMin,
+  wallMin: role?.timeouts?.wallMin ?? profile.timeouts.wallMin,
+});
 
 /** A profile with every default filled in: what the run engine, the CLI and the agent files read. */
 export interface Profile {
@@ -298,6 +310,14 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
       rungs: [...(d?.rungs ?? omitted)],
       ...(defaultRung ? { defaultRung } : {}),
       ...(d?.network === false ? { network: false as const } : {}),
+      ...(d?.timeouts?.idleMin !== undefined || d?.timeouts?.wallMin !== undefined
+        ? {
+            timeouts: {
+              ...(d.timeouts.idleMin !== undefined ? { idleMin: d.timeouts.idleMin } : {}),
+              ...(d.timeouts.wallMin !== undefined ? { wallMin: d.timeouts.wallMin } : {}),
+            },
+          }
+        : {}),
     };
   }
   const harness: Profile["harness"] = {};
@@ -344,6 +364,10 @@ const RolePatchSchema = z
     rungs: z.array(RungSchema),
     defaultRung: RungSchema.nullable(),
     network: z.boolean().nullable(),
+    timeouts: z
+      .strictObject({ idleMin: positive.nullable(), wallMin: positive.nullable() })
+      .partial()
+      .nullable(),
   })
   .partial();
 

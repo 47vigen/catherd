@@ -86,6 +86,19 @@ describe("admission", () => {
     expect(latestDispatch(run, "worker-M1.L1")?.admit.dispatchId).toBe(d.admit.dispatchId);
   });
 
+  it("gives a role its own timeouts over the profile's (plan 23)", async () => {
+    const { run } = setup();
+    const view = testView();
+    const worker = view.roles.worker;
+    if (!worker) throw new Error("no worker role");
+    view.roles.worker = { ...worker, timeouts: { wallMin: 240 } };
+    const { specPath } = await admit(fakeDeps({ view }), run, input());
+    expect(JSON.parse(readFileSync(specPath, "utf8"))).toMatchObject({
+      idleMs: 15 * 60_000,
+      wallMs: 240 * 60_000,
+    });
+  });
+
   it("keeps the server's environment out of spec.json, which only its owner can read (spec §10.4)", async () => {
     const { repo, run } = setup();
     process.env.FOO_API_KEY = "s3cret";

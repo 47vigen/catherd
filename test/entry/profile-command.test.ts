@@ -52,6 +52,13 @@ describe("catherd profile show", () => {
     expect(writer).toContain("workspace-write (no network), enforced");
   });
 
+  it("sets and shows a role's own wall timeout under the profile's (plan 23)", () => {
+    withHome();
+    expect(catherd(["set", "roles.verifier.timeouts.wallMin", "240"]).code).toBe(0);
+    const out = catherd(["show"]).out;
+    expect(out).toContain("timeouts idle 15 min · wall 90 min\n  verifier wall 240 min\n");
+  });
+
   it("prints JSON with every default filled in", () => {
     withHome();
     const j = JSON.parse(catherd(["show", "--json"]).out);

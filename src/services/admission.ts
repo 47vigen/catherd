@@ -6,6 +6,7 @@ import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
+import { roleTimeouts } from "../domain/profile.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { composeBrief } from "../domain/brief.ts";
 import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
@@ -329,8 +330,9 @@ export async function admit(
         },
         cwd: plan.cwd,
         stdinPath: plan.stdinPath,
-        idleMs: profile.timeouts.idleMin * 60_000,
-        wallMs: profile.timeouts.wallMin * 60_000,
+        // plan 23: a role's own timeouts win over the profile's (a verifier's long gate)
+        idleMs: roleTimeouts(profile, rc).idleMin * 60_000,
+        wallMs: roleTimeouts(profile, rc).wallMin * 60_000,
         killGraceMs: KILL_GRACE_MS,
         graceAfterFinalMs: adapter.graceAfterFinalMs,
         pollMs: deps.pollMs,

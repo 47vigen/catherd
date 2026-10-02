@@ -104,6 +104,16 @@ export function formatProfile(
   const budget = Object.entries(p.budget).map(([k, v]) => (k === "usd" ? `$${v}` : `${v} ${k}`));
   lines.push(`budget ${budget.join(" · ") || "no cap"}`);
   lines.push(`timeouts idle ${p.timeouts.idleMin} min · wall ${p.timeouts.wallMin} min`);
+  // plan 23: a role's own timeouts, under the profile's
+  for (const role of ROLES) {
+    const t = p.roles[role].timeouts;
+    if (!t) continue;
+    const parts = [
+      ...(t.idleMin !== undefined ? [`idle ${t.idleMin} min`] : []),
+      ...(t.wallMin !== undefined ? [`wall ${t.wallMin} min`] : []),
+    ];
+    lines.push(`  ${role} ${parts.join(" · ")}`);
+  }
   lines.push(
     `preflight ${p.preflight.confirm ? "shows its commands and asks first" : "runs the checks without asking"}`,
   );

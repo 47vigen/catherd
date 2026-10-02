@@ -19,7 +19,18 @@ export interface ProfileView {
   objective: "cost" | "speed";
   /** `defaultRung`, when set, is where a lane starts without a kind and difficulty (spec §5.4) */
   roles: Partial<
-    Record<Role, { enabled: boolean; access: Access; rungs: string[]; defaultRung?: string; network?: false }>
+    Record<
+      Role,
+      {
+        enabled: boolean;
+        access: Access;
+        rungs: string[];
+        defaultRung?: string;
+        network?: false;
+        /** plan 23: the role's own timeouts over the profile's */
+        timeouts?: { idleMin?: number; wallMin?: number };
+      }
+    >
   >;
   /** per billing key (spec §7.1); a missing key bills as DEFAULT_BILLING */
   billing: Partial<Record<string, BillingMode>>;
