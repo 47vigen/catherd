@@ -19,6 +19,7 @@ import {
   defaultDifficulty,
   defaultLadder,
   type Pick,
+  quotaUsage,
   type RoutingProfile,
   select,
 } from "../domain/select.ts";
@@ -132,6 +133,32 @@ async function freshenWithin(rungs: string[], repo: string, ms: number): Promise
   clearTimeout(timer);
 }
 
+/** What every route of one call shares: the role's routing profile and the catalog. */
+interface Prepared {
+  p: RoutingProfile;
+  c: Catalog;
+}
+
+async function prepare(req: RouteRequest, o: RoutingOpts): Promise<Prepared> {
+  const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
+  await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
+  return { p, c: loadCatalog({ repo: req.repo }) };
+}
+
+/** Jev's answer about a lane; null when the route reads no lane or asks nothing (one usable rung). */
+interface Judged {
+  asked: Asked | null;
+  judged: ReturnType<typeof judgeRoute> | null;
+}
+
+async function judge(req: RouteRequest, { p, c }: Prepared, o: RoutingOpts): Promise<Judged | null> {
+  if (req.laneText === null || candidates(c, p, req.role).length <= 1) return null;
+  if (req.profile.jev.use === "off") return { asked: null, judged: null };
+  const asked = await askJev(req.runDir, "route-v2", laneState(req.laneText), o);
+  const judged = asked.answers ? judgeRoute(jevQuestions().sets["route-v2"].rule, asked.answers) : null;
+  return { asked, judged };
+}
+
 /**
  * Spec §5.4: kind and difficulty from the lane file's `Kind:`/`Difficulty:` when it declares both (spec 1.5
  * plan 24: a declared header wins, and `jevSaid` names where Jev disagreed), else from Jev (§5.5's rule), else
@@ -139,25 +166,17 @@ async function freshenWithin(rungs: string[], repo: string, ms: number): Promise
  * comes from the lane, else the role's default difficulty (`jev-kind`). A role with one usable rung never asks
  * Jev.
  */
-async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
-  const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
-  await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
-  const c = loadCatalog({ repo: req.repo });
+function decide(req: RouteRequest, { p, c }: Prepared, j: Judged | null): RouteAnswer {
   const fallback = () => defaultLadder(c, p, req.role);
   const finish = (out: RouteAnswer): RouteAnswer => {
     out.why = whyOf(out, req.laneText !== null);
     out.provenance = provenanceOf(c, out.rung, out.kind, out.difficulty, p.billing, evidenceOrNone(c));
     return out;
   };
-  if (req.laneText === null || candidates(c, p, req.role).length <= 1)
+  if (req.laneText === null || j === null)
     return finish(answer(fallback(), "default", null, null, null, null));
   const lane = parseLaneHeader(req.laneText);
-  let asked: Asked | null = null;
-  let judged: ReturnType<typeof judgeRoute> | null = null;
-  if (req.profile.jev.use !== "off") {
-    asked = await askJev(req.runDir, "route-v2", laneState(req.laneText), o);
-    if (asked.answers) judged = judgeRoute(jevQuestions().sets["route-v2"].rule, asked.answers);
-  }
+  const { asked, judged } = j;
   const jev: RouteJev | null = judged
     ? { pKind: judged.pKind, pA: judged.pA, pB: judged.pB, nouls: judged.nouls }
     : null;
@@ -200,6 +219,31 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
   return out;
 }
 
+async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
+  const prep = await prepare(req, o);
+  return decide(req, prep, await judge(req, prep, o));
+}
+
+/**
+ * Spec 1.5 plan 24, batch `route`: the lanes of one role (one run, one profile) share one discovery refresh and
+ * one catalog, and Jev is asked about all of them at once (Ruling 6: one request per lane, all in flight
+ * together, so each keeps its own cache key and jev.jsonl row). Then each lane is decided in order, every
+ * routed start counting as a use of its quota, so lanes that tie spread over the quotas.
+ */
+async function routeMany(reqs: RouteRequest[], o: RoutingOpts): Promise<RouteAnswer[]> {
+  const first = reqs[0];
+  if (!first) return [];
+  const prep = await prepare(first, o);
+  const judged = await Promise.all(reqs.map((r) => judge(r, prep, o)));
+  const usage: Record<string, number> = { ...first.usage };
+  return reqs.map((req, i) => {
+    const out = decide(req, { ...prep, p: { ...prep.p, usage: { ...usage } } }, judged[i] ?? null);
+    const q = quotaUsage([out.rung]);
+    for (const [k, n] of Object.entries(q)) usage[k] = (usage[k] ?? 0) + n;
+    return out;
+  });
+}
+
 async function verdict<T extends string>(
   runDir: string,
   set: Extract<SetName, "finding" | "same-defect">,
@@ -233,6 +277,11 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
       const result = await route(req, o);
       assertNativeHost(result.rung, req.host ?? "unknown");
       return result;
+    },
+    routeMany: async (reqs) => {
+      const results = await routeMany(reqs, o);
+      results.forEach((r, i) => assertNativeHost(r.rung, reqs[i]?.host ?? "unknown"));
+      return results;
     },
     finding: (runDir, laneText, finding, use) =>
       verdict(

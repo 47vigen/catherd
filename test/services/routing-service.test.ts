@@ -556,3 +556,48 @@ describe("route and quota headroom (spec 1.5 plan 24)", () => {
     expect(b.ladder).toContain(LADDER[0] as string);
   });
 });
+
+describe("batch route (spec 1.5 plan 24)", () => {
+  it("asks Jev about every lane at once, and decides each one", async () => {
+    // each answer is held until both questions are in flight: asked one after the other, the first would hang
+    const held: (() => void)[] = [];
+    let asked = 0;
+    const impl = (async () => {
+      asked++;
+      if (asked < 2) await new Promise<void>((resolve) => held.push(resolve));
+      else for (const go of held) go();
+      return new Response(JSON.stringify(fx("route-v2-track-a.json")), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = routingService({ key: "k", fetchImpl: impl, attemptMs: 2_000, ...noWait });
+    const dir = runDir();
+    const one = (id: string) => ({ ...req(lane(null, null)), runDir: dir, lane: id });
+    const out = await svc.routeMany([one("M1.L1"), one("M1.L2")]);
+    expect(asked).toBe(2);
+    expect(out.map((a) => [a.source, a.rung])).toEqual([
+      ["jev", TRACK_A.rung],
+      ["jev", TRACK_A.rung],
+    ]);
+    expect(jevRows(dir).map((r) => r.lane)).toEqual(["M1.L1", "M1.L2"]);
+  });
+
+  it("spreads lanes that tie over the quotas, each routed start counting as a use", async () => {
+    const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+    const profile = view({
+      roles: {
+        ...testView().roles,
+        worker: {
+          enabled: true,
+          access: "workspace-write",
+          rungs: [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)],
+          defaultRung: "codex:gpt-6-sol#medium",
+        },
+      },
+    });
+    const one = () => req(lane("repo_code", "copy"), { profile });
+    const out = await routingService().routeMany([one(), one(), one()]);
+    expect(out.map((a) => a.rung)).toEqual([LADDER[0] as string, GO_LUNA, LADDER[0] as string]);
+    expect(out[1]?.tie).toMatch(
+      /opencode-go has the most headroom \(dispatches in this run: codex 1, opencode-go 0\)$/,
+    );
+  });
+});

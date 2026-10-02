@@ -79,15 +79,50 @@ function readLaneFile(run: Run, path: string): { lane: string; text: string } {
   return { lane, text };
 }
 
-/** Spec §5.4 through the routing port; a lane's route is recorded in routes.jsonl. */
+/**
+ * Spec 1.5 plan 24: the run's dispatches per quota, plus each lane routed but not dispatched yet at its current
+ * rung, so a tie between quotas goes to the one the run will have used least.
+ */
+function runUsage(run: Run): Record<string, number> {
+  const records = readRecords(run).records;
+  const dispatched = new Set(records.flatMap((r) => (r.lane ? [r.lane] : [])));
+  const routes = readRoutes(run);
+  const waiting = [...new Set(routes.map((r) => r.lane))]
+    .filter((l) => !dispatched.has(l))
+    .flatMap((l) => currentRoute(routes, l)?.rung ?? []);
+  return quotaUsage([...records.map((r) => r.rung), ...waiting]);
+}
+
+/** Spec §5.4 through the routing port; every decision is recorded in routes.jsonl. */
 export async function route(
   deps: Deps,
   i: { run: string; laneFile?: string; role: Role },
 ): Promise<RouteResult> {
+  const [one] = await routeLanes(deps, { run: i.run, laneFiles: [i.laneFile], role: i.role });
+  return one as RouteResult;
+}
+
+/**
+ * Spec 1.5 plan 24, batch `route`: several lanes of one role in one call (Jev asked about all at once), each
+ * recorded as `route` records one. `laneFiles` holds `undefined` for a role routed without a lane.
+ */
+export async function routeLanes(
+  deps: Deps,
+  i: { run: string; laneFiles: (string | undefined)[]; role: Role },
+): Promise<RouteResult[]> {
   const run = findRun(i.run);
-  const lane = i.laneFile === undefined ? null : readLaneFile(run, i.laneFile);
+  const lanes = i.laneFiles.map((f) => (f === undefined ? null : readLaneFile(run, f)));
+  const dup = lanes.find((l, n) => l && lanes.findIndex((x) => x?.lane === l.lane) !== n);
+  if (dup)
+    throw new CatherdError("E_INPUT_INVALID", `route: lane ${dup.lane} is named twice`, {
+      fix: "name each lane file once",
+    });
   const profile = deps.profiles.forRepo(run.meta.repo);
-  const a = await deps.routing.route({
+  const spentFraction = Math.max(
+    budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
+    (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
+  );
+  const reqs = lanes.map((lane) => ({
     host: deps.host.host,
     runDir: run.dir,
     repo: run.meta.repo,
@@ -95,14 +130,25 @@ export async function route(
     role: i.role,
     lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
-    usage: quotaUsage(readRecords(run).records.map((r) => r.rung)),
-    spentFraction: Math.max(
-      budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
-      (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
-    ),
-  });
+    usage: runUsage(run),
+    spentFraction,
+  }));
+  const answers =
+    reqs.length === 1
+      ? [await deps.routing.route(reqs[0] as (typeof reqs)[number])]
+      : await deps.routing.routeMany(reqs);
+  return answers.map((a, n) => record(deps, run, i.role, lanes[n] ?? null, a));
+}
+
+/** One decision into routes.jsonl (spec 1.5 plan 24: every role's, with its source, ladder and provenance). */
+function record(
+  deps: Deps,
+  run: Run,
+  role: Role,
+  lane: { lane: string } | null,
+  a: Awaited<ReturnType<Deps["routing"]["route"]>>,
+): RouteResult {
   const at = new Date(deps.now()).toISOString();
-  // spec 1.5 plan 24: every role's decision is recorded, with its source, ladder and provenance
   const detail = {
     why: a.why,
     ...(a.jevSaid ? { jevSaid: a.jevSaid } : {}),
@@ -114,7 +160,7 @@ export async function route(
     appendRoute(run, {
       at,
       lane: lane.lane,
-      role: i.role,
+      role,
       rung: a.rung,
       ladder: a.ladder,
       source: "route",
@@ -131,7 +177,7 @@ export async function route(
     appendRoute(run, {
       at,
       lane: null,
-      role: i.role,
+      role,
       name: null,
       rung: a.rung,
       ladder: a.ladder,
@@ -141,11 +187,11 @@ export async function route(
     });
   return {
     lane: lane?.lane ?? null,
-    role: i.role,
+    role,
     rung: a.rung,
     ladder: a.ladder,
     backend: parseRung(a.rung).backend,
-    agent: deps.profiles.agentFor(run.meta.repo, i.role, a.rung),
+    agent: deps.profiles.agentFor(run.meta.repo, role, a.rung),
     why: a.why,
   };
 }

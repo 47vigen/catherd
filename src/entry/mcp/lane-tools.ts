@@ -2,8 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLES } from "../../domain/roles.ts";
+import { CatherdError } from "../../domain/errors.ts";
 import { CLIMB_REASONS } from "../../domain/route.ts";
-import { ask, climb, LAND_SKIPS, land, route } from "../../services/lane-service.ts";
+import { ask, climb, LAND_SKIPS, land, route, routeLanes } from "../../services/lane-service.ts";
 import type { Deps } from "../../services/ports.ts";
 import { preflight } from "../../services/preflight.ts";
 import { handle } from "./result.ts";
@@ -13,14 +14,24 @@ export function registerLaneTools(server: McpServer, deps: Deps): void {
     "route",
     {
       description:
-        "The rung for a lane (from the lane file's Kind/Difficulty lines when it declares both, else Jev, else the profile default) or, without a lane file, a role's default rung, with the ladder above it: only rungs at least as strong as the start. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as. Returns rung, ladder, backend, agent and why: one line naming the decision, where Jev disagreed with the lane's header, when no rung clears the bar (and the closest), and when a tie between quotas decided. Every decision, with its provenance (each threshold, the value used, its source and date, the rung's cost and run evidence), is written to the run's routes.jsonl. A lane whose Kind: or Difficulty: the catalog does not know is refused with E_LANE_INVALID.",
+        "The rung for a lane (from the lane file's Kind/Difficulty lines when it declares both, else Jev, else the profile default), or with lanes (several lane files) for each of them in one call, Jev asked about all at once ({ routes: [...] }, in order), or, without a lane file, a role's default rung, with the ladder above it: only rungs at least as strong as the start. Rungs are backend:model#effort; a claude: rung comes with the agent to run it as. Returns rung, ladder, backend, agent and why: one line naming the decision, where Jev disagreed with the lane's header, when no rung clears the bar (and the closest), and when a tie between quotas decided. Every decision, with its provenance (each threshold, the value used, its source and date, the rung's cost and run evidence), is written to the run's routes.jsonl. A lane whose Kind: or Difficulty: the catalog does not know is refused with E_LANE_INVALID.",
       inputSchema: {
         run: z.string(),
         lane_file: z.string().optional(),
+        lanes: z.array(z.string()).min(1).optional(),
         role: z.enum(ROLES).default("worker"),
       },
     },
-    (a) => handle(() => route(deps, { run: a.run, laneFile: a.lane_file, role: a.role })),
+    (a) =>
+      handle(async () => {
+        if (a.lanes && a.lane_file !== undefined)
+          throw new CatherdError("E_INPUT_INVALID", "route takes lane_file or lanes, not both", {
+            fix: "pass every lane file in lanes",
+          });
+        return a.lanes
+          ? { routes: await routeLanes(deps, { run: a.run, laneFiles: a.lanes, role: a.role }) }
+          : route(deps, { run: a.run, laneFile: a.lane_file, role: a.role });
+      }),
   );
 
   server.registerTool(

@@ -133,6 +133,8 @@ export interface CatalogFilter {
 
 export interface RoutingPort {
   route(req: RouteRequest): Promise<RouteAnswer>;
+  /** spec 1.5 plan 24: the lanes of one role in one call; Jev is asked about all of them at once */
+  routeMany(reqs: RouteRequest[]): Promise<RouteAnswer[]>;
   /** `use` is the repo profile's `jev.use`: "off" answers with the rule's default and never asks Jev */
   finding(
     runDir: string,

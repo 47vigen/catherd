@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { route } from "../../src/services/lane-service.ts";
+import { route, routeLanes } from "../../src/services/lane-service.ts";
 import { readRoleRoutes, readRoutes } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, LADDER, writeLane } from "./helpers.ts";
@@ -66,5 +66,57 @@ describe("every role's decision in routes.jsonl (spec 1.5 plan 24)", () => {
       provenance: { rung: LADDER[1] },
     });
     expect(readRoleRoutes(run)).toEqual([]);
+  });
+});
+
+describe("batch route through the lane service (spec 1.5 plan 24)", () => {
+  it("routes and records each lane in order, in one call to the routing port", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    let batches = 0;
+    const single = deps.routing.route;
+    deps.routing.routeMany = async (reqs) => {
+      batches++;
+      return Promise.all(reqs.map((r) => single(r)));
+    };
+    for (const id of ["M1.L1", "M1.L2"]) writeLane(run, id, [`src/${id}.ts`]);
+    const out = await routeLanes(deps, {
+      run: run.id,
+      laneFiles: ["lanes/M1.L1.md", "lanes/M1.L2.md"],
+      role: "worker",
+    });
+    expect(batches).toBe(1);
+    expect(out.map((r) => r.lane)).toEqual(["M1.L1", "M1.L2"]);
+    expect(readRoutes(run).map((r) => [r.lane, r.source])).toEqual([
+      ["M1.L1", "route"],
+      ["M1.L2", "route"],
+    ]);
+  });
+
+  it("refuses a lane named twice, before asking anything", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const err = await routeLanes(fakeDeps(), {
+      run: run.id,
+      laneFiles: ["lanes/M1.L1.md", "lanes/M1.L1.md"],
+      role: "worker",
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "E_INPUT_INVALID", message: "route: lane M1.L1 is named twice" });
+    expect(readRoutes(run)).toEqual([]);
+  });
+
+  it("counts a lane routed but not dispatched as a use of its quota", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    const seen: Record<string, number>[] = [];
+    const single = deps.routing.route;
+    deps.routing.route = async (r) => {
+      seen.push(r.usage ?? {});
+      return single(r);
+    };
+    for (const id of ["M1.L1", "M1.L2"]) writeLane(run, id, [`src/${id}.ts`]);
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await route(deps, { run: run.id, laneFile: "lanes/M1.L2.md", role: "worker" });
+    expect(seen).toEqual([{}, { codex: 1 }]);
   });
 });
