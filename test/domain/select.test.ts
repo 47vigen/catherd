@@ -344,3 +344,59 @@ describe("quotaUsage", () => {
     ).toEqual({ codex: 2, "claude-code": 2, "opencode-go": 1 });
   });
 });
+
+describe("the just-claude ladders (spec 1.5 plan 24, the payment run)", () => {
+  // Sonnet 5.5 with no published value: the payment run's Claude rungs scored only by Sol's values
+  const score = (effort: string, dim: "repo_code" | "honesty" | "agentic", value: number) => ({
+    rung: `claude-sonnet-5-5#${effort}`,
+    dim,
+    value,
+    benchmark: "b",
+    version: "1",
+    url: "https://example.com/b",
+    date: "2026-09-28",
+    confidence: "inferred" as const,
+  });
+  const values: [string, number][] = [
+    ["low", 50],
+    ["medium", 56.6],
+    ["high", 66.6],
+    ["xhigh", 68.8],
+  ];
+  const c = () =>
+    shipped({
+      override: {
+        schema: 1,
+        treatLike: {},
+        scores: values.flatMap(([e, repo]) => [
+          score(e, "repo_code", repo),
+          score(e, "honesty", 95.1),
+          score(e, "agentic", 0.0818),
+        ]),
+        bars: {},
+      },
+    });
+  const rung = (e: string) => `claude-code:claude-sonnet-5-5#${e}`;
+  const rungs = values.map(([e]) => rung(e));
+  const p = (): RoutingProfile => ({
+    objective: "cost",
+    billing: {},
+    role: { enabled: true, rungs, defaultRung: rung("medium") },
+  });
+
+  it("gives a build lane, the difficulty a sure kind defaults to, every stronger rung to climb onto", () => {
+    // jev-kind with no Difficulty line: the default rung clears no bar, so the lane routes as build
+    expect(defaultDifficulty(c(), p(), "worker", "repo_code")).toBe("build");
+    expect(select(c(), p(), "worker", "repo_code", "build")).toEqual({
+      rung: rung("high"),
+      ladder: [rung("high"), rung("xhigh")],
+    });
+  });
+
+  it("starts a logic lane no lower than build's start, not at the default rung below it", () => {
+    const pick = select(c(), p(), "worker", "repo_code", "logic");
+    expect(pick.rung).toBe(rung("high"));
+    expect(pick.ladder).toEqual([rung("high"), rung("xhigh")]);
+    expect(pick.noClear).toMatch(/^no rung clears repo_code\/logic; best is /);
+  });
+});
