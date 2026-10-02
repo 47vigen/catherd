@@ -86,7 +86,8 @@ and steer from GPT-5.6 Luna at the same effort until Arena scores it.
 
 - `route` returns `provenance`: each threshold, the value used, its confidence, source and date, the rung's speed
   and cost facts and its run evidence. `catalog_query` and `catherd catalog list` show values' sources and each
-  rung's run evidence.
+  rung's run evidence. The text `catherd catalog list` prints changed shape (a values line, then `runs:`): a script
+  that scraped it should read `catherd catalog list --json` instead.
 - In the dashboard's Profiles tab, `r` syncs the sources (and lists the backends' models) and shows each source's
   age and last error, `i` shows a rung's values and runs, and `t` opens the treat-like picker with the three
   nearest stand-ins first.

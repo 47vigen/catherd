@@ -92,7 +92,9 @@ grok keeps a session on the access it started with, so catherd refuses to resume
 An Antigravity rung names the model `agy models` lists, without an effort suffix; the effort is agy's `--effort`
 (`low`, `medium`, `high` or `max`), and `#default` passes none: `antigravity:gemini-3.8-flash#low`. No profile uses
 Antigravity until you put a rung on it. catherd never runs `agy -p` while agy is signed out, since agy would open a
-browser and wait; `catherd doctor` says so, with the fix. A Google login draws on your plan's quota (doctor shows
+browser and wait; `catherd doctor` says so, with the fix. A sign-in check that passed is kept for 10 minutes, so
+after you sign agy out, restart the catherd MCP server (or wait those minutes) before the next Antigravity dispatch.
+A Google login draws on your plan's quota (doctor shows
 what is left); `GEMINI_API_KEY` bills the Gemini API project. Gemini rungs fail over between Antigravity and Cursor
 when either runs out, unless your profile names another stand-in.
 
@@ -122,7 +124,9 @@ catherd init --host claude-code
 The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init --host claude-code`
 works too (a terminal with no host evidence cannot pick the architect/verifier defaults, so name the host): `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
-it does, though the first `bunx` resolve itself prints nothing for up to half a minute. `init` asks for the
+it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches about a
+hundred packages before catherd's first line, TypeScript among them (a peer dependency of OpenTUI's native
+layer, which Bun installs), so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
 optional Jev key and the optional Artificial Analysis key, syncs the public model sources, writes the default
 profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
 asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
