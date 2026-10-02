@@ -30,15 +30,40 @@ export const composeProbe = { timeoutMs: 120_000 };
 export const dockerConfigFile = (env = process.env): string =>
   join(env.DOCKER_CONFIG || join(env.HOME || homedir(), ".docker"), "config.json");
 
-/** A `proxies` block in the Docker client's config: every container then gets HTTP_PROXY and its siblings. */
-export function proxiesCheck(file = dockerConfigFile()): Check | null {
+/** The keys of a proxies entry the Docker client turns into container environment variables. */
+const PROXY_KEYS = ["httpProxy", "httpsProxy", "noProxy", "ftpProxy", "allProxy"];
+
+/** The Docker client's default daemon host, which its proxies block may key an entry by. */
+const DEFAULT_DOCKER_HOST = "unix:///var/run/docker.sock";
+
+/**
+ * A `proxies` block in the Docker client's config that sets a value: every container then gets HTTP_PROXY and its
+ * siblings. The Docker client applies the current daemon host's entry, else `default`; an entry with no value
+ * (or an empty block) injects nothing.
+ */
+export function proxiesCheck(
+  file = dockerConfigFile(),
+  env: Record<string, string | undefined> = process.env,
+): Check | null {
   let config: { proxies?: unknown };
   try {
     config = JSON.parse(readFileSync(file, "utf8")) as { proxies?: unknown };
   } catch {
     return null;
   }
-  if (!config.proxies || typeof config.proxies !== "object") return null;
+  const proxies = config.proxies;
+  if (!proxies || typeof proxies !== "object") return null;
+  const entries = proxies as Record<string, unknown>;
+  const host = env.DOCKER_HOST || DEFAULT_DOCKER_HOST;
+  const entry = Object.hasOwn(entries, host) ? entries[host] : entries.default;
+  const sets =
+    !!entry &&
+    typeof entry === "object" &&
+    PROXY_KEYS.some((k) => {
+      const v = (entry as Record<string, unknown>)[k];
+      return typeof v === "string" && v.trim() !== "";
+    });
+  if (!sets) return null;
   return {
     id: "docker-proxies",
     label: "Docker client proxies",

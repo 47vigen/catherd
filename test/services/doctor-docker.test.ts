@@ -55,10 +55,35 @@ describe("doctor's Docker rows (plan 23)", () => {
     expect(proxiesCheck(join(dir, "missing.json"))).toBeNull();
   });
 
+  it("warns only when the applicable proxies entry sets a proxy value", () => {
+    const dir = tempDir("catherd-dockercfg-");
+    const file = join(dir, "config.json");
+    const proxies = (p: unknown) => writeFileSync(file, JSON.stringify({ proxies: p }));
+    // an empty block, or entries with no proxy value, inject nothing
+    proxies({});
+    expect(proxiesCheck(file, {})).toBeNull();
+    proxies({ default: {} });
+    expect(proxiesCheck(file, {})).toBeNull();
+    proxies({ default: { httpProxy: "", noProxy: "" } });
+    expect(proxiesCheck(file, {})).toBeNull();
+    // the current docker host's entry wins over default, as the Docker client picks it
+    proxies({ "tcp://remote:2376": { httpsProxy: "http://p:3128" } });
+    expect(proxiesCheck(file, {})).toBeNull();
+    expect(proxiesCheck(file, { DOCKER_HOST: "tcp://remote:2376" })?.id).toBe("docker-proxies");
+    proxies({ default: { httpProxy: "http://p:3128" }, "tcp://remote:2376": {} });
+    expect(proxiesCheck(file, { DOCKER_HOST: "tcp://remote:2376" })).toBeNull();
+    expect(proxiesCheck(file, { DOCKER_HOST: "unix:///other.sock" })?.id).toBe("docker-proxies");
+    proxies({ default: { noProxy: "localhost" } });
+    expect(proxiesCheck(file, {})?.id).toBe("docker-proxies");
+  });
+
   it("runs no docker without --docker, and reads the proxies block from DOCKER_CONFIG", async () => {
     const { log } = fakeDocker({ failures: 0, root: "/nonexistent" });
     const cfg = tempDir("catherd-dockercfg-");
-    writeFileSync(join(cfg, "config.json"), JSON.stringify({ proxies: {} }));
+    writeFileSync(
+      join(cfg, "config.json"),
+      JSON.stringify({ proxies: { default: { httpProxy: "http://proxy:3128" } } }),
+    );
     process.env.DOCKER_CONFIG = cfg;
     const rows = await dockerChecks({ probe: false });
     expect(rows.map((c) => c.id)).toEqual(["docker-proxies"]);
