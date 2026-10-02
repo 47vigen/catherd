@@ -145,15 +145,17 @@ async function prepare(req: RouteRequest, o: RoutingOpts): Promise<Prepared> {
   return { p, c: loadCatalog({ repo: req.repo }) };
 }
 
-/** Jev's answer about a lane; null when the route reads no lane or asks nothing (one usable rung). */
+/** Jev's answer about a lane; null when the route reads no lane, empty when it asks nothing (Jev off, one usable rung). */
 interface Judged {
   asked: Asked | null;
   judged: ReturnType<typeof judgeRoute> | null;
 }
 
 async function judge(req: RouteRequest, { p, c }: Prepared, o: RoutingOpts): Promise<Judged | null> {
-  if (req.laneText === null || candidates(c, p, req.role).length <= 1) return null;
-  if (req.profile.jev.use === "off") return { asked: null, judged: null };
+  if (req.laneText === null) return null;
+  // one usable rung: nothing for Jev to choose, but the lane's header still names its kind and difficulty
+  if (req.profile.jev.use === "off" || candidates(c, p, req.role).length <= 1)
+    return { asked: null, judged: null };
   const asked = await askJev(req.runDir, "route-v2", laneState(req.laneText), o);
   const judged = asked.answers ? judgeRoute(jevQuestions().sets["route-v2"].rule, asked.answers) : null;
   return { asked, judged };

@@ -259,8 +259,14 @@ export function noClearLine(
 export function select(c: Catalog, p: RoutingProfile, role: Role, kind: Kind, difficulty: Difficulty): Pick {
   const all = candidates(c, p, role, kind);
   if (all.length === 0) throw noRung(role);
-  if (all.length === 1) return { rung: all[0]?.rung as string, ladder: [all[0]?.rung as string] };
   const bar = c.bars[kind][difficulty];
+  if (all.length === 1) {
+    const only = all[0] as Candidate;
+    const one = { rung: only.rung, ladder: [only.rung] };
+    return clearsBar(c, only, kind, difficulty)
+      ? one
+      : { ...one, noClear: noClearLine(all, bar, kind, difficulty) };
+  }
   const first = all.find((x) => clearsBar(c, x, kind, difficulty));
   if (first) {
     const dims = compareDims(first, bar);

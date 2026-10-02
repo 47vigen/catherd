@@ -128,8 +128,25 @@ describe("route without Jev", () => {
     const r = req(lane("repo_code", "build"), { role: "reviewer" });
     expect(await routingService({ key: "k", fetchImpl: f.impl }).route(r)).toMatchObject({
       rung: "codex:gpt-6-sol#high",
-      source: "default",
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "build",
     });
+    expect(f.sent).toHaveLength(0);
+  });
+
+  it("keeps a one-rung role's declared Kind/Difficulty and says when its rung misses the bar", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-track-a.json") });
+    const r = req(lane("repo_code", "hard"), { role: "reviewer" });
+    const a = await routingService({ key: "k", fetchImpl: f.impl }).route(r);
+    expect(a).toMatchObject({
+      rung: "codex:gpt-6-sol#high",
+      source: "lane",
+      kind: "repo_code",
+      difficulty: "hard",
+      noClear: expect.stringContaining("no rung clears repo_code/hard; best is codex:gpt-6-sol#high"),
+    });
+    expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears");
     expect(f.sent).toHaveLength(0);
   });
 

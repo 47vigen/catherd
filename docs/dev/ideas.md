@@ -111,11 +111,6 @@ Plan 24 (routing and cost) review:
   reaches the outcome rows used to calibrate Jev; with Jev off or failing, a `Kind:`-only lane falls to the default
   and its declared kind is ignored. Evidence: `src/services/routing-service.ts:196` (`judged && lane.kind`). Fix:
   label it `lane` (or a new source) and use `lane.kind` whether or not Jev answered. (Minor 2.)
-- **A one-rung role hides what it cannot clear.** A role with one usable rung returns no `noClear` even when that rung
-  clears nothing, and Jev is never asked, so a lane that declared `Kind:` and `Difficulty:` still gets the why "neither
-  Jev nor the lane file gave a kind and difficulty" and null kind and difficulty in its row. Evidence:
-  `src/domain/select.ts:262`, `src/services/routing-service.ts:155`, `src/services/routing-service.ts:98`. Fix: take a
-  declared header before the one-rung shortcut, and run the bar check (and `noClear`) for one rung too. (Minor 3.)
 - **An explicit rung on a routed lane goes unchecked and unrecorded.** A lane dispatch with an explicit `rung` on a
   lane already routed is neither checked against the lane's ladder nor written to `routes.jsonl`. Evidence:
   `src/services/dispatch-service.ts:364-366`. Fix: refuse (or warn on) a rung off the ladder, and record the rung
