@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tryLock } from "../../src/infra/filelock.ts";
 import { scratchDir } from "../../src/services/dispatches.ts";
 import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { cleanScratch } from "../../src/services/scratch.ts";
@@ -29,5 +30,23 @@ describe("catherd runs clean (spec 1.5 plan 21)", () => {
     expect(existsSync(join(scratchDir(live, "worker-M1.L1"), "payment"))).toBe(true);
     // one run by id; nothing left to remove is not an error
     expect(cleanScratch({ run: done.id })).toEqual({ removed: [], kept: [] });
+  });
+
+  it("never removes the scratch of a dispatch being admitted: cleanup waits out the run's admission (PR #46)", () => {
+    const { run } = freshRun("admitting");
+    // an admission in its critical section: it holds the run's admission lock and has created the role's scratch
+    const release = tryLock(runPaths(run.dir).admission);
+    expect(release).not.toBeNull();
+    try {
+      mkdirSync(scratchDir(run, "worker-M1.L1"), { recursive: true });
+      const r = cleanScratch();
+      expect(r.removed).toEqual([]);
+      expect(r.kept).toEqual([{ run: run.id, why: "a dispatch is being admitted" }]);
+      expect(existsSync(scratchDir(run, "worker-M1.L1"))).toBe(true);
+    } finally {
+      release?.();
+    }
+    // once the admission is over (here, it admitted nothing), the scratch is the run's to clean
+    expect(cleanScratch({ run: run.id }).removed.map((x) => x.run)).toEqual([run.id]);
   });
 });

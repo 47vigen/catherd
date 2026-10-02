@@ -205,7 +205,6 @@ export async function admit(
   // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
   // role is refused for isolation, and a thread an isolated run started resumes as it started
   const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
-  const scratch = roleScratch(run, i.name, rung.backend, isolated);
   await prepared(adapter, {
     rung,
     access: rc.access,
@@ -213,22 +212,25 @@ export async function admit(
     repo: run.meta.repo,
     network,
   });
-  const plan = adapter.plan({
-    rung,
-    access: rc.access,
-    network,
-    thread: i.thread,
-    isolated,
-    repo: run.meta.repo,
-    briefPath: p.brief,
-    replyPath: p.reply,
-    dispatchDir: dir,
-    ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
-    ...(scratch ? { scratch } : {}),
-  });
 
   await finalizeFinished(run, deps.now(), onRecorded);
   return withRunAdmission(run, deps.now, async () => {
+    // the scratch is created under the admission lock `catherd runs clean` takes too, so cleanup never removes
+    // the scratch of a dispatch it does not see live yet (PR #46)
+    const scratch = roleScratch(run, i.name, rung.backend, isolated);
+    const plan = adapter.plan({
+      rung,
+      access: rc.access,
+      network,
+      thread: i.thread,
+      isolated,
+      repo: run.meta.repo,
+      briefPath: p.brief,
+      replyPath: p.reply,
+      dispatchDir: dir,
+      ...(roleServer ? { roleMcp: { run: run.id, role: i.role } } : {}),
+      ...(scratch ? { scratch } : {}),
+    });
     // A dispatch blocks until its record is written, not only while it runs: its finalizer diffs the
     // tree after the exit, so a later dispatch's writes must not land in between. A finished one here
     // could not be recorded just now. The records and the pending dispatches are one snapshot, taken
