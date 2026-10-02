@@ -6,6 +6,7 @@ import { assertLaneValues } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import type { Role } from "../domain/roles.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import {
@@ -28,6 +29,7 @@ import {
   readRecords,
   runFile,
   type Run,
+  runPaths,
   supersededBy,
   supersededFile,
 } from "./run-store.ts";
@@ -35,6 +37,15 @@ import { protocolNext, protocolView } from "./protocol.ts";
 import { writePin } from "./run-pin.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { readNotes, refreshState } from "./state.ts";
+
+/** The run `id` was superseded by, or undefined: an open run, or one that cannot be found. */
+function nextInChain(id: string): string | undefined {
+  try {
+    return supersededBy(findRun(id))?.by;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * `runs supersede <run> --by <run>`: closes `run` with a pointer to the run that took it over (a planning
@@ -51,19 +62,29 @@ export async function supersedeRun(
     throw new CatherdError("E_INPUT_INVALID", `run ${run.id} cannot supersede itself`, {
       fix: "pass the run that took over as --by",
     });
-  if (supersededBy(by)?.by === run.id)
-    throw new CatherdError("E_INPUT_INVALID", `run ${by.id} is itself superseded by ${run.id}`, {
-      fix: "supersede the older run by the newer one",
-    });
-  const live = liveDispatches(run, deps.now());
-  if (live.length)
-    throw new CatherdError(
-      "E_INPUT_INVALID",
-      `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
-      { fix: `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}` },
-    );
-  const at = new Date(deps.now()).toISOString();
-  writeJsonAtomic(supersededFile(run), { schema: 1, by: by.id, at });
+  // walk the chain the new pointer would join: any run it reaches back to `run` closes a cycle
+  const seen = new Set<string>([by.id]);
+  for (let hop = supersededBy(by)?.by; hop !== undefined && !seen.has(hop);) {
+    if (hop === run.id)
+      throw new CatherdError("E_INPUT_INVALID", `run ${by.id} is itself superseded by ${run.id}`, {
+        fix: "supersede the older run by the newer one",
+      });
+    seen.add(hop);
+    hop = nextInChain(hop);
+  }
+  // under the run's admission lock: a dispatch admitted meanwhile is either live here, or sees the pointer
+  const at = await withFileLock(runPaths(run.dir).admission, () => {
+    const live = liveDispatches(run, deps.now());
+    if (live.length)
+      throw new CatherdError(
+        "E_INPUT_INVALID",
+        `run ${run.id} still has live roles: ${live.map((d) => d.admit.name).join(", ")}`,
+        { fix: `cancel them (cancel(run, name)) or let them finish, then supersede ${run.id}` },
+      );
+    const when = new Date(deps.now()).toISOString();
+    writeJsonAtomic(supersededFile(run), { schema: 1, by: by.id, at: when });
+    return when;
+  });
   const { hints } = await refreshState(run, { next: `superseded by ${by.id}: continue there` });
   return { run: run.id, by: by.id, at, ...(hints.length ? { hints } : {}) };
 }

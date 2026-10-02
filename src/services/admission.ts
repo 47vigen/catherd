@@ -145,6 +145,15 @@ async function prepared(adapter: BackendAdapter, req: Parameters<NonNullable<Bac
   }
 }
 
+/** Refuses a dispatch into a run `runs supersede` closed, naming the run that took over. */
+function assertNotSuperseded(run: Run): void {
+  const closed = supersededBy(run);
+  if (closed)
+    throw new CatherdError("E_RUN_NOT_LIVE", `run ${run.id} is superseded by ${closed.by}`, {
+      fix: `dispatch in run ${closed.by}`,
+    });
+}
+
 /**
  * Spec §4.4 step 1. The checks that read shared state and the write that makes the dispatch live
  * happen under the run's admission lock, so parallel dispatches always see each other (audit C1).
@@ -159,11 +168,7 @@ export async function admit(
   if (i.lane !== null) assertId("lane", i.lane);
   // a machine or workspace pause refuses every dispatch it covers, with its reason (spec 1.5 "Group pause")
   assertNotPaused(run);
-  const closed = supersededBy(run);
-  if (closed)
-    throw new CatherdError("E_RUN_NOT_LIVE", `run ${run.id} is superseded by ${closed.by}`, {
-      fix: `dispatch in run ${closed.by}`,
-    });
+  assertNotSuperseded(run);
   const rung = parseRung(i.rung);
   // spec 1.5: the run's pinned profile, access and isolation, whatever the repo runs on now
   const profile = runProfile(deps, run);
@@ -239,6 +244,8 @@ export async function admit(
 
   await finalizeFinished(run, deps.now(), onRecorded);
   return withRunAdmission(run, deps.now, async () => {
+    // again under the lock `runs supersede` writes under: a supersede that landed since the check above wins
+    assertNotSuperseded(run);
     // the scratch is created under the admission lock `catherd runs clean` takes too, so cleanup never removes
     // the scratch of a dispatch it does not see live yet (PR #46)
     const scratch = roleScratch(run, i.name, rung.backend, isolated);

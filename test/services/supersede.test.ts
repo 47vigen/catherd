@@ -1,8 +1,10 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
 import { admit } from "../../src/services/admission.ts";
 import { startRun, supersedeRun } from "../../src/services/run-service.ts";
+import * as runStore from "../../src/services/run-store.ts";
 import { createRun, supersededBy } from "../../src/services/run-store.ts";
+import { simPath, withScenario } from "../sim/scenario.ts";
 import { status } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -59,6 +61,45 @@ it("refuses a dispatch into a superseded run, naming the run that took over", as
       failoverFrom: null,
     }),
   ).rejects.toMatchObject({ code: "E_RUN_NOT_LIVE", fix: `dispatch in run ${other.id}` });
+});
+
+it("refuses a supersede that closes a cycle of any length", async () => {
+  const { repo, run: a } = freshRun();
+  const deps = fakeDeps();
+  const b = createRun({ repo, title: "b", aLines: [], version: "t" });
+  const c = createRun({ repo, title: "c", aLines: [], version: "t" });
+  await supersedeRun(deps, { run: a.id, by: b.id });
+  await supersedeRun(deps, { run: b.id, by: c.id });
+  await expect(supersedeRun(deps, { run: c.id, by: a.id })).rejects.toThrow(
+    `run ${a.id} is itself superseded by ${c.id}`,
+  );
+  expect(supersededBy(c)).toBeNull();
+});
+
+it("re-checks the supersede under the run's admission lock, so a dispatch never lands in a closed run", async () => {
+  const { repo, run } = freshRun();
+  process.env.PATH = simPath();
+  Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
+  const deps = fakeDeps();
+  const other = createRun({ repo, title: "other", aLines: [], version: "t" });
+  await supersedeRun(deps, { run: run.id, by: other.id });
+  // the early check ran before the supersede landed: only the one under the lock can see it
+  const spy = spyOn(runStore, "supersededBy").mockImplementationOnce(() => null);
+  try {
+    await expect(
+      admit(deps, run, {
+        role: "worker",
+        name: "worker-M1.L1",
+        brief: "b",
+        rung: "codex:gpt-6-luna#high",
+        thread: null,
+        lane: null,
+        failoverFrom: null,
+      }),
+    ).rejects.toMatchObject({ code: "E_RUN_NOT_LIVE" });
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 it("catherd runs supersede closes a run, and runs list says by which", () => {
