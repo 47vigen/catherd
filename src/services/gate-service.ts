@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { normalizeOwned, overlaps } from "../domain/lane.ts";
@@ -261,8 +261,14 @@ async function contentHash(repo: string, paths: string[]): Promise<string> {
       for (const f of walk(repo, p)) h.update(`disk ${f}=${await diskEntry(join(repo, f), budget)}\n`);
     }
   }
+  // an uncommitted lockfile change (a worker's `bun add`) reaches every item, as a committed one does
   const dirty = Object.keys(await statusSnapshot(repo))
-    .filter((f) => paths.includes(".") || overlaps([f], paths).length > 0)
+    .filter(
+      (f) =>
+        paths.includes(".") ||
+        LOCKFILES.includes(basename(f.replace(/\/$/, ""))) ||
+        overlaps([f], paths).length > 0,
+    )
     .sort();
   for (const f of dirty) h.update(`dirty ${f}=${await dirtyEntry(join(repo, f), f)}\n`);
   return h.digest("hex");

@@ -288,6 +288,11 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     commit(repo);
     expect(await gateCheck(deps, web)).toEqual({ carried: false });
     expect(await gateCheck(deps, whole)).toEqual({ carried: false });
+    // and an uncommitted one does too (a worker's `bun add` it has not committed; plan 23 review I3)
+    await gatePass(deps, { ...web, evidence: "ok" });
+    expect(await gateCheck(deps, web)).toMatchObject({ carried: true });
+    write(repo, "bun.lock", "v3");
+    expect(await gateCheck(deps, web)).toEqual({ carried: false });
   });
 
   it("records each check as the verifier's step, which status shows", async () => {
