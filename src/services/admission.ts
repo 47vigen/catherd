@@ -9,6 +9,7 @@ import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { withReplyContract } from "../domain/role-prompts.ts";
 import type { Role } from "../domain/roles.ts";
+import { roleRequiresMcp } from "../domain/role-tools.ts";
 import { dispatchPaths, markForCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { statusSnapshot } from "../infra/git.ts";
@@ -187,6 +188,15 @@ export async function admit(
   const dir = join(roleDir(run, i.name), id);
   const p = dispatchPaths(dir);
   const isolated = started?.isolated ?? profile.isolated[rung.backend] ?? false;
+  const needsRoleMcp = rung.backend === "codex" || rung.backend === "claude-code";
+  if (needsRoleMcp && isolated && roleRequiresMcp(i.role))
+    throw new CatherdError(
+      "E_ADMIT_RUNG",
+      `${i.role} needs catherd's run tools, which are not available in an isolated ${rung.backend} harness`,
+      {
+        fix: `set harness.${rung.backend}.isolated to false in profile ${profile.name}, then dispatch a fresh thread`,
+      },
+    );
   await prepared(adapter, {
     rung,
     access: rc.access,
@@ -204,6 +214,7 @@ export async function admit(
     briefPath: p.brief,
     replyPath: p.reply,
     dispatchDir: dir,
+    ...(needsRoleMcp && !isolated ? { roleMcp: { run: run.id, role: i.role } } : {}),
   });
 
   await finalizeFinished(run, deps.now(), onRecorded);

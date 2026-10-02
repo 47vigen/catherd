@@ -3,6 +3,7 @@ import type { ADAPTER_IDS, Rung } from "../domain/ids.ts";
 import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
 import type { CliResult } from "./cli.ts";
+import type { RoleMcpContext } from "../domain/role-tools.ts";
 type AdapterId = (typeof ADAPTER_IDS)[number];
 
 export interface Probe {
@@ -43,6 +44,8 @@ export interface DiscoveredModel {
 export interface RunRequest {
   rung: Rung;
   access: Access;
+  /** Native catherd roles receive a dedicated, run-bound control-plane server. */
+  roleMcp?: RoleMcpContext;
   /** spec §5: a workspace-write role's network and loopback grants; false only when the profile says `network: false` */
   network?: boolean;
   thread: string | null;

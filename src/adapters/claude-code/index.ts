@@ -16,6 +16,8 @@ import {
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeHome } from "../../infra/paths.ts";
+import { ROLE_MCP_SERVER, roleMcpTools } from "../../domain/role-tools.ts";
+import { roleMcpConfig } from "../../infra/role-mcp.ts";
 import { dockerSocket, scratchShell, writableRoots } from "../access.ts";
 import { jsonOf, runCli } from "../cli.ts";
 import {
@@ -139,6 +141,17 @@ function plan(r: RunRequest): SpawnPlan {
     throw new CatherdError("E_ADMIT_THREAD", `"${r.thread}" is not a Claude Code session id`, {
       fix: "pass the thread from the earlier RunRecord",
     });
+  const accessArgs = [...claudeAccessArgs(r.access, r.network, r.repo)];
+  if (r.roleMcp) {
+    const tools = roleMcpTools(r.roleMcp.role).map((tool) => `mcp__${ROLE_MCP_SERVER}__${tool}`);
+    const allowed = accessArgs.indexOf("--allowedTools");
+    if (allowed >= 0) accessArgs[allowed + 1] = [accessArgs[allowed + 1], ...tools].join(",");
+    else accessArgs.push("--allowedTools", tools.join(","));
+    accessArgs.push(
+      "--mcp-config",
+      JSON.stringify({ mcpServers: { [ROLE_MCP_SERVER]: roleMcpConfig(r.roleMcp) } }),
+    );
+  }
   return {
     cmd: "claude",
     args: [
@@ -154,7 +167,7 @@ function plan(r: RunRequest): SpawnPlan {
       ...(r.thread === null ? ["--session-id", crypto.randomUUID()] : ["--resume", r.thread]),
       "--permission-prompts",
       "none",
-      ...claudeAccessArgs(r.access, r.network, r.repo),
+      ...accessArgs,
       // --bare would also drop OAuth, so a Claude plan could not log in; --safe-mode keeps auth
       ...(r.isolated ? ["--safe-mode"] : []),
     ],

@@ -56,7 +56,7 @@ export function registerRunTools(server: McpServer, deps: Deps): void {
     "status",
     {
       description:
-        "catherd's version, and one screen per run: the state.md tail, live roles, totals, reported Claude subagents, Jev fallbacks, per backend how many dispatches ran native and isolated, budget and landed milestones. Without a run: every run with live roles, else the newest. Reads only.",
+        "catherd's version, and one screen per run: the state.md tail, live roles, unread results waiting for the orchestrator, totals, reported Claude subagents, Jev fallbacks, per backend how many dispatches ran native and isolated, budget and landed milestones. Without a run: every run with live roles or unread completions waiting for its orchestrator, else the newest. Reads only.",
       inputSchema: { run: z.string().optional() },
     },
     (a) =>

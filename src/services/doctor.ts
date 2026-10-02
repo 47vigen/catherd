@@ -12,6 +12,7 @@ import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
 import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
+import { roleMcpChecks } from "./doctor-role-mcp.ts";
 import {
   agentsCheck,
   hostFlag,
@@ -170,6 +171,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   const used = usedBackends(profiles);
   const installed = new Set<string>();
   checks.push(...(await backendChecks(used, profiles, installed, d.host.host)));
+  checks.push(...roleMcpChecks(profiles));
 
   if (active && [active, ...profiles].every((p) => p.jev.use === "off"))
     checks.push({
