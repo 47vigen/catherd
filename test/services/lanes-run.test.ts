@@ -171,6 +171,7 @@ describe("land", () => {
       ledger: `M1 | login / form | ${c1} | 12 | bun test/12/12`,
       minutes: 12,
       digest: "digests/M1.md",
+      digestPath: join(run.dir, "digests", "M1.md"),
     });
     now += 5 * 60_000;
     const second = await land(deps, {
@@ -241,6 +242,7 @@ describe("a failed state.md refresh", () => {
       ledger: `M1 | x | ${c1} | 3 | ok`,
       minutes: 3,
       digest: "digests/M1.md",
+      digestPath: join(run.dir, "digests", "M1.md"),
       hints: [hint],
     });
     expect(readFileSync(runPaths(run.dir).state, "utf8")).toBe(state);

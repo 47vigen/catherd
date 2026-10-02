@@ -372,6 +372,11 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       "- M1.L1 · codex:gpt-6-luna#high → codex:gpt-6-sol#medium · climbs: check-failed-twice",
     );
     expect(text).toContain("Reviewer: reviewer-M1 · 2 finding(s): 0 BLOCKER, 1 BUG, 1 NIT");
+    // spec 1.5: the commits, the review's BLOCKER and BUG lines, and what is still open
+    expect(text).toContain(`Commits: ${head(repo)} init`);
+    expect(text).toContain("Findings: BUG src/a.ts:3 — x — y");
+    expect(text).toContain("Open: none");
+    expect(landed.digestPath).toBe(join(r.dir, "digests", "M1.md"));
     expect(text.find((l) => l.startsWith("Verifier: "))).toMatch(
       /^Verifier: PASS \(verifier-M1\) · carried: unit tests from [0-9a-f]+$/,
     );

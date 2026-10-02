@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import { quotaUsage } from "../domain/select.ts";
@@ -37,6 +37,7 @@ import {
   milestoneStart,
   partialReviewer,
   reviewerPassed,
+  milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
 import type { Deps, Verdict } from "./ports.ts";
@@ -435,7 +436,7 @@ type LandInput = {
   skip?: LandSkip;
 };
 
-type LandResult = { ledger: string; minutes: number; digest: string; hints?: string[] };
+type LandResult = { ledger: string; minutes: number; digest: string; digestPath: string; hints?: string[] };
 
 export async function land(deps: Deps, i: LandInput): Promise<LandResult> {
   const run = findRun(i.run);
@@ -498,18 +499,20 @@ async function landRun(
       fix: "commit the milestone first, then pass its hash",
     });
   await gate(run, i.milestone, i.commit, i.skip);
+  // read before the ledger row: the range runs from the previous landing to this commit
+  const commits = await milestoneCommits(run, i.commit);
   const now = new Date(deps.now());
   let row = "";
   let minutes = 0;
+  let pausedMinutes = 0;
   // spec 1.5 "The ledger": the minutes leave out the time the milestone was parked and any machine or
   // workspace pause, so a night parked on a question does not count
   const paused = [...parkedSpans(run, i.milestone), ...pauseSpans(run)];
   const landRow = (notes: Notes): NotesPatch => {
     const from = Date.parse(notes.lastLandedAt ?? run.meta.createdAt);
-    minutes = Math.max(
-      0,
-      Math.round((now.getTime() - from - coveredMs(from, now.getTime(), paused)) / 60_000),
-    );
+    const left = coveredMs(from, now.getTime(), paused);
+    pausedMinutes = Math.round(left / 60_000);
+    minutes = Math.max(0, Math.round((now.getTime() - from - left) / 60_000));
     row = [i.milestone, i.what, i.commit, String(minutes), i.evidence].map(cell).join(" | ");
     appendLedger(run, row);
     return { lastCheck: cell(i.evidence), next: i.next, lastLandedAt: now.toISOString() };
@@ -545,8 +548,11 @@ async function landRun(
     evidence: i.evidence,
     minutes,
     at: now.toISOString(),
+    commits,
+    pausedMinutes,
   });
-  return { ledger: row, minutes, digest, ...withHints(hints) };
+  // spec 1.5: the digest's full path, for the milestone push to link
+  return { ledger: row, minutes, digest, digestPath: join(run.dir, digest), ...withHints(hints) };
 }
 
 /** Jev's `finding` or `same-defect` answer, through the routing port. */

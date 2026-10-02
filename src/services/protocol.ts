@@ -9,6 +9,7 @@ import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
 import { failedItems, type VerifierStep } from "./gate-service.ts";
 import {
   countFindings,
+  FINDING,
   landedMilestones,
   milestoneReviewer,
   milestoneVerifier,
@@ -18,6 +19,7 @@ import {
   partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
+import { openQuestions } from "./questions.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
 // Spec 1.1 §10: the protocol's next step, derived from the run's own files so a session that lost its
@@ -178,6 +180,17 @@ function findingCounts(run: Run, r: RunRecord | undefined): string {
   return `${total} finding(s): ${n.BLOCKER} BLOCKER, ${n.BUG} BUG, ${n.NIT} NIT`;
 }
 
+/** The reviewer's BLOCKER and BUG lines, as it wrote them: what the digest lists as findings. */
+function findingLines(run: Run, r: RunRecord | null | undefined): string[] {
+  if (!r?.replyPath) return [];
+  const file = join(run.dir, r.replyPath);
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  return text
+    .split("\n")
+    .filter((l) => /^(BLOCKER|BUG)$/.test(FINDING.exec(l)?.[1] ?? ""))
+    .map((l) => l.trim().replace(/^[-*]\s*/, ""));
+}
+
 const k = (x: number) => (x >= 1000 ? `${Math.round(x / 1000)}k` : String(x));
 
 /**
@@ -187,7 +200,18 @@ const k = (x: number) => (x >= 1000 ? `${Math.round(x / 1000)}k` : String(x));
  */
 export function writeDigest(
   run: Run,
-  i: { milestone: string; what: string; commit: string; evidence: string; minutes: number; at: string },
+  i: {
+    milestone: string;
+    what: string;
+    commit: string;
+    evidence: string;
+    minutes: number;
+    at: string;
+    /** spec 1.5: the commits the milestone landed, `<hash> <subject>`, oldest first */
+    commits?: string[];
+    /** spec 1.5: the parked and paused minutes `minutes` leaves out */
+    pausedMinutes?: number;
+  },
 ): string {
   const m = i.milestone;
   const start = milestoneStart(run, m);
@@ -205,6 +229,9 @@ export function writeDigest(
   const records = readRecords(run).records;
   // the reviewer the gate counted: since the milestone's lanes started, a dispatch or a native subagent
   const reviewer = milestoneReviewer(run, m, start);
+  // spec 1.5: the review's BLOCKER and BUG lines, and the owner questions still open in the run
+  const findings = findingLines(run, reviewer?.record);
+  const open = openQuestions(run);
   const agents = readAgentRuns(run);
   // the verdict the gate counted: the latest attempt, native or headless, a FAIL shown as such
   const verdict = milestoneVerifier(run, m, start);
@@ -235,7 +262,8 @@ export function writeDigest(
   const text = [
     `# ${m} — ${i.what}`,
     "",
-    `Commit ${i.commit} · ${i.minutes} min · landed ${i.at}`,
+    `Commit ${i.commit} · ${i.minutes} min${i.pausedMinutes ? ` (${i.pausedMinutes} min parked or paused left out)` : ""} · landed ${i.at}`,
+    ...(i.commits?.length ? [`Commits: ${i.commits.join("; ")}`] : []),
     `A-lines: ${aLines.length ? aLines.join("; ") : "none named in what or evidence"}`,
     "",
     "Lanes:",
@@ -243,6 +271,8 @@ export function writeDigest(
     "",
     `Reviewer: ${reviewer ? `${reviewer.name} · ${reviewer.record ? findingCounts(run, reviewer.record) : "a Claude subagent (findings in its reply)"}` : "none"}`,
     `Verifier: ${verdict ? `${verdict.passed ? "PASS" : `FAIL: ${verdict.verdict}`} (${verdict.name}${verdict.headless ? ", headless" : ""})` : "none"}${steps.length ? ` · carried: ${steps.map((s) => `${s.item}${s.commit ? ` from ${s.commit}` : ""}`).join(", ")}` : ""}`,
+    `Findings: ${findings.length ? findings.join(" · ") : "no BLOCKER or BUG lines"}`,
+    `Open: ${open.length ? open.map((q) => `${q.milestone} parked: ${q.question}`).join(" · ") : "none"}`,
     `Evidence: ${i.evidence}`,
     `Tokens: ${k(tokens.input)} in (${k(tokens.cached)} cached) · ${k(tokens.output)} out · Claude subagents ${k(reported)} (reported)`,
     "",

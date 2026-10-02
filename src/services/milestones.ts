@@ -97,7 +97,7 @@ export function partialReviewer(
   return last ? { name: last.name, at: last.at, record: last.record } : null;
 }
 
-const FINDING = /^\s*(?:[-*]\s*)?(BLOCKER|BUG|NIT)\b/;
+export const FINDING = /^\s*(?:[-*]\s*)?(BLOCKER|BUG|NIT)\b/;
 
 /** A reviewer reply's findings by severity; null when there is no reply to read. */
 export function countFindings(run: Run, r: RunRecord): { BLOCKER: number; BUG: number; NIT: number } | null {
@@ -273,6 +273,24 @@ export async function milestoneFiles(run: Run, commit: string): Promise<string[]
       fix: `check that git works in ${repo}`,
     });
   return r.out.split("\n").filter(Boolean);
+}
+
+/** The most commits a digest lists; the rest are counted. */
+const DIGEST_COMMITS = 20;
+
+/**
+ * The commits the milestone lands, `<short hash> <subject>`, oldest first: from the previous landed commit
+ * (else the commit alone) to `commit`. Just the hash when git cannot say: a digest never fails a landing.
+ */
+export async function milestoneCommits(run: Run, commit: string): Promise<string[]> {
+  const base = landedCommits(run).at(-1);
+  const range = base ? [`${base}..${commit}`] : ["-1", commit];
+  const r = await git(run.meta.repo, ["log", "--reverse", "--format=%h %s", ...range]);
+  if (r.kind !== "ok") return [commit.slice(0, 7)];
+  const all = r.out.split("\n").filter(Boolean);
+  return all.length > DIGEST_COMMITS
+    ? [...all.slice(-DIGEST_COMMITS), `and ${all.length - DIGEST_COMMITS} earlier`]
+    : all;
 }
 
 /** `rev`'s full commit hash in the run's repo. Throws E_IO_UNEXPECTED when git cannot say. */
