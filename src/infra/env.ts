@@ -17,6 +17,9 @@ const SECRET_ENV = new Set([
   "CLAUDE_CODE_HOST_SESSION_ID",
 ]);
 
+/** Whether `name` is one of catherd's own secrets, which no process catherd starts ever gets. */
+export const isCatherdSecret = (name: string): boolean => SECRET_ENV.has(name);
+
 /** `base` without catherd's own secrets and without unset keys; for every process catherd starts. */
 export function scrubSecrets(base: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};

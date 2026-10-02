@@ -2,8 +2,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
+import { ROLE_ENV } from "../domain/role-scope.ts";
+import { isCatherdSecret } from "../infra/env.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitToplevel } from "../infra/git.ts";
+import { DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { repoDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 
@@ -29,6 +32,31 @@ export const gateEnvFile = (toplevel: string): string => join(repoDir(toplevel),
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A name a secret goes by: such a variable is set by reference (--from), never by value. */
 const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
+
+/**
+ * The names catherd sets in a dispatch itself: the role's identity, dispatch id, testcontainers session, scratch
+ * and working dir, the process basics, catherd's own dirs, and the homes an isolated CLI is moved to (codex,
+ * grok, cursor, agy, opencode, claude). A gate env entry under one would take the role's identity or isolation.
+ */
+const RESERVED = new Set([
+  ROLE_ENV,
+  DISPATCH_ID_ENV,
+  "TESTCONTAINERS_SESSION_ID",
+  "TMPDIR",
+  "PWD",
+  "PATH",
+  "HOME",
+  "CATHERD_HOME",
+  "CATHERD_CONFIG_DIR",
+  "CATHERD_DATA_DIR",
+  "CODEX_HOME",
+  "GROK_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CURSOR_CONFIG_DIR",
+  "CURSOR_DATA_DIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+]);
 
 /** The repo's gate environment, by name; empty when none is set. */
 export function readGateEnv(toplevel: string): Record<string, GateEnvEntry> {
@@ -78,8 +106,17 @@ export async function setGateEnv(
   entry: GateEnvEntry,
 ): Promise<{ repo: string; vars: Record<string, GateEnvEntry> }> {
   assertName(name);
-  if ("from" in entry) assertName(entry.from);
-  else if (SECRET_NAME.test(name))
+  if (RESERVED.has(name))
+    throw new CatherdError("E_INPUT_INVALID", `${name} is set by catherd for every role`, {
+      fix: "the gate environment holds what a gate needs (DOCKER_HOST, a proxy, a TESTCONTAINERS_* setting), not a role's identity, scratch or home",
+    });
+  if ("from" in entry) {
+    assertName(entry.from);
+    if (isCatherdSecret(entry.from))
+      throw new CatherdError("E_INPUT_INVALID", `${entry.from} is catherd's own secret: no role gets it`, {
+        fix: "reference the env var that holds the gate's own secret",
+      });
+  } else if (SECRET_NAME.test(name))
     throw new CatherdError(
       "E_INPUT_INVALID",
       `${name} looks like a secret: catherd stores it by reference only`,

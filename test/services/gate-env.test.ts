@@ -52,6 +52,39 @@ describe("the gate environment (plan 23)", () => {
     expect(existsSync(gateEnvFile(repo))).toBe(false);
   });
 
+  it("refuses a name catherd sets itself, and a reference to one of catherd's secrets (plan 23 review I4)", async () => {
+    const { repo } = freshRun();
+    for (const name of [
+      "CATHERD_ROLE",
+      "CATHERD_DISPATCH_ID",
+      "TESTCONTAINERS_SESSION_ID",
+      "TMPDIR",
+      "PWD",
+      "PATH",
+      "HOME",
+      "CODEX_HOME",
+      "GROK_HOME",
+      "CLAUDE_CONFIG_DIR",
+      "CURSOR_CONFIG_DIR",
+      "XDG_CONFIG_HOME",
+      "CATHERD_DATA_DIR",
+    ]) {
+      for (const entry of [{ value: "x" }, { from: "SOME_VAR" }]) {
+        const e = await setGateEnv(repo, name, entry).then(
+          () => null,
+          (x: unknown) => x,
+        );
+        expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+      }
+    }
+    const e = await setGateEnv(repo, "MY_KEY", { from: "TYPESAFE_API_KEY" }).then(
+      () => null,
+      (x: unknown) => x,
+    );
+    expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+    expect(existsSync(gateEnvFile(repo))).toBe(false);
+  });
+
   it("resolves a reference from the env, else the login env, and names one neither holds", () => {
     const vars = {
       A: { value: "1" },

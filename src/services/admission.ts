@@ -330,10 +330,10 @@ export async function admit(
         // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR;
         // plan 23: a `catherd lock` in the role reports to this dispatch, so a long gate keeps its wall alive
         // plan 23: each dispatch its own testcontainers session, so parallel lanes never share a reaper;
-        // the gate env never overrides the role's identity, scratch, dispatch id or PWD
+        // the gate env never overrides the role's identity, scratch, dispatch id, PWD or isolated home
         env: {
-          ...plan.env,
           ...gate.values,
+          ...plan.env,
           [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
           ...(scratch ? { TMPDIR: scratch } : {}),
           [DISPATCH_ID_ENV]: id,
