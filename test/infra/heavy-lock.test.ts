@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
-import { heavySlots, withHeavySlot } from "../../src/infra/heavy-lock.ts";
+import { heavySlots, roleLockOwner, withHeavySlot, withRoleLock } from "../../src/infra/heavy-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
@@ -64,6 +64,49 @@ describe("heavy lock", () => {
     const old = new Date(Date.now() - 6_000);
     utimesSync(join(locksDir(), "slot-0.lock"), old, old);
     expect(await withHeavySlot(1, (slot) => slot, { pollMs: 5 })).toBe(0);
+  });
+
+  it("keeps another run's verifier out until the last command of the holding run ends", async () => {
+    withHome();
+    const log: string[] = [];
+    let releaseA!: () => void;
+    const heldA = new Promise<void>((resolve) => (releaseA = resolve));
+    let enteredA!: () => void;
+    const insideA = new Promise<void>((resolve) => (enteredA = resolve));
+    const a = withRoleLock(
+      "verifier",
+      "run:A",
+      async () => {
+        log.push("A+");
+        enteredA();
+        await heldA;
+        log.push("A-");
+      },
+      { pollMs: 5 },
+    );
+    await insideA;
+    expect(roleLockOwner("verifier")).toBe("run:A");
+    // the same run shares it: its second command runs side by side
+    await withRoleLock("verifier", "run:A", () => log.push("A2"), { pollMs: 5 });
+    const b = withRoleLock("verifier", "run:B", () => log.push("B"), { pollMs: 5 });
+    await Bun.sleep(50);
+    expect(log).toEqual(["A+", "A2"]);
+    releaseA();
+    await Promise.all([a, b]);
+    expect(log).toEqual(["A+", "A2", "A-", "B"]);
+    expect(roleLockOwner("verifier")).toBeNull();
+  });
+
+  it("drops a role-lock holder that died", async () => {
+    withHome();
+    mkdirSync(locksDir(), { recursive: true });
+    const dead = Bun.spawn(["true"]);
+    await dead.exited;
+    writeFileSync(
+      join(locksDir(), "role-verifier.json"),
+      JSON.stringify({ owner: "run:A", holders: [{ pid: dead.pid, startTime: "gone", token: "t" }] }),
+    );
+    expect(await withRoleLock("verifier", "run:B", () => "in", { pollMs: 5 })).toBe("in");
   });
 
   it("tryLock refuses a lock this live process already holds, and releases only its own", () => {

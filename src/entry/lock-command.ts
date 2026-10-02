@@ -3,7 +3,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
-import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
+import { heavySlots, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
 import { activityReporter, DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { killGroup } from "../infra/proc.ts";
 import { activeName, readProfileDoc } from "../services/profile-store.ts";
@@ -45,14 +45,17 @@ export const DOUBLE_INTERRUPT_MS = 2_000;
  * a terminal's Ctrl-C reaches catherd only, so the command sees it exactly once, and so does every
  * process it started. A second Ctrl-C within 2 s kills the group. Resolves to the command's exit code.
  */
-export async function runForwarding(argv: string[], o: { onOutput?: () => void } = {}): Promise<number> {
+export async function runForwarding(
+  argv: string[],
+  o: { onOutput?: () => void; extraEnv?: Record<string, string> } = {},
+): Promise<number> {
   // plan 23: inside a dispatch the output passes through catherd, which notes when the command last wrote
   const piped = o.onOutput !== undefined;
   const child = Bun.spawn(argv, {
     stdin: "inherit",
     stdout: piped ? "pipe" : "inherit",
     stderr: piped ? "pipe" : "inherit",
-    env: scrubSecrets(process.env),
+    env: { ...scrubSecrets(process.env), ...o.extraEnv },
     detached: true,
   });
   const pumps =
@@ -120,7 +123,23 @@ async function pump(
 }
 
 /** Spec §8: what `--help` and the usage error show; the command runs after `--`. */
-export const LOCK_USAGE = "catherd lock [--slots N] -- <command> [args...]";
+export const LOCK_USAGE = "catherd lock [--slots N] [--role verifier [--run <run>]] -- <command> [args...]";
+
+/** The roles that take a machine-wide role lock besides their slot (spec 1.5 "Cross-run verifier contention"). */
+export const ROLE_LOCKS = ["verifier"] as const;
+
+/**
+ * Whose a role lock is: `--run`, else the run in `CATHERD_ROLE` (`<run>/<role-name>`, which the supervisor
+ * sets in every role's env), else this process alone. Commands of one run share the lock.
+ */
+export function roleLockOwnerOf(run: string | undefined, env: NodeJS.ProcessEnv): string {
+  if (run) return `run:${run}`;
+  const fromRole = env.CATHERD_ROLE?.split("/")[0];
+  return fromRole ? `run:${fromRole}` : `process:${process.pid}`;
+}
+
+/** Set in a locked command's env: a `catherd lock` inside it runs at once, holding nothing more. */
+export const LOCK_HELD_ENV = "CATHERD_LOCK_HELD";
 
 export const lockCommand = defineCommand({
   meta: {
@@ -133,6 +152,15 @@ export const lockCommand = defineCommand({
     slots: {
       type: "string",
       description: "Slots (default: CATHERD_LOCK_SLOTS, else the profile's lock.heavy, else half the cores)",
+    },
+    role: {
+      type: "string",
+      description:
+        "verifier: also hold the machine-wide verifier lock, shared by one run's commands, so two runs' verifiers never overlap",
+    },
+    run: {
+      type: "string",
+      description: "with --role: the run whose commands share it (default: CATHERD_ROLE's)",
     },
   },
   async run({ args, rawArgs }) {
@@ -147,6 +175,33 @@ export const lockCommand = defineCommand({
       process.exitCode = 2;
       return;
     }
+    if (args.role !== undefined && !(ROLE_LOCKS as readonly string[]).includes(args.role)) {
+      printError(
+        new CatherdError("E_INPUT_INVALID", `no role lock "${args.role}"`, {
+          fix: "catherd lock --role verifier -- <command>",
+        }),
+      );
+      process.exitCode = 2;
+      return;
+    }
+    // already inside a locked command: run at once, so a nested lock never waits on its own parent's slot
+    if (process.env[LOCK_HELD_ENV] === "1") {
+      process.exitCode = await runForwarding(argv);
+      return;
+    }
+    const run = async () => {
+      // plan 23: a role's lock reports its output, so the role's wall timeout counts from its last line
+      const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
+      try {
+        return await runForwarding(argv, {
+          extraEnv: { [LOCK_HELD_ENV]: "1" },
+          ...(activity ? { onOutput: activity.tick } : {}),
+        });
+      } finally {
+        activity?.done();
+      }
+    };
+    const role = args.role;
     const repo = await gitToplevel(process.cwd());
     const slots = resolveSlots(
       args.slots,
@@ -155,14 +210,8 @@ export const lockCommand = defineCommand({
       () => readProfileDoc(activeName(repo)).lock?.heavy ?? "cpus/2",
       (m) => console.error(m),
     );
-    process.exitCode = await withHeavySlot(slots, async () => {
-      // plan 23: a role's lock reports its output, so the role's wall timeout counts from its last line
-      const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
-      try {
-        return await runForwarding(argv, activity ? { onOutput: activity.tick } : {});
-      } finally {
-        activity?.done();
-      }
-    });
+    process.exitCode = role
+      ? await withRoleLock(role, roleLockOwnerOf(args.run, process.env), () => withHeavySlot(slots, run))
+      : await withHeavySlot(slots, run);
   },
 });
