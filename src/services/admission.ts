@@ -36,6 +36,7 @@ import {
   setLatest,
 } from "./dispatches.ts";
 import { finalizeDispatch } from "./finalize.ts";
+import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
@@ -299,6 +300,8 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
+    // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
+    const gate = i.role === "verifier" ? gateEnvParts(readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
     // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools
     writeTextAtomic(
@@ -324,13 +327,17 @@ export async function admit(
         args: plan.args,
         // spec 1.5 plan 21: the supervisor gives the role its identity and, where granted, its scratch TMPDIR;
         // plan 23: a `catherd lock` in the role reports to this dispatch, so a long gate keeps its wall alive
+        // the gate env never overrides the role's identity, scratch, dispatch id or PWD
         env: {
           ...plan.env,
+          ...gate.values,
           [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),
           ...(scratch ? { TMPDIR: scratch } : {}),
           [DISPATCH_ID_ENV]: id,
           PWD: plan.cwd,
         },
+        // a secret of the gate env by reference only: the supervisor reads it from its own env at spawn
+        ...(Object.keys(gate.refs).length ? { envFrom: gate.refs } : {}),
         cwd: plan.cwd,
         stdinPath: plan.stdinPath,
         // plan 23: a role's own timeouts win over the profile's (a verifier's long gate)

@@ -1,8 +1,11 @@
 import { defineCommand } from "citty";
 import { adapterFor } from "../adapters/registry.ts";
 import { workerEnv } from "../infra/env.ts";
+import { log } from "../infra/log.ts";
+import { loginEnv } from "../infra/login-env.ts";
 import { readVersioned } from "../infra/store.ts";
 import { SuperviseSpecSchema, supervise } from "../infra/supervisor.ts";
+import { resolveRefs } from "../services/gate-env.ts";
 import "../adapters/all.ts";
 
 /**
@@ -12,7 +15,10 @@ import "../adapters/all.ts";
  */
 export async function runSupervise(specPath: string): Promise<void> {
   const read = readVersioned(specPath, SuperviseSpecSchema, 1);
-  const spec = { ...read, env: workerEnv(process.env, read.env, read.cwd) };
+  // plan 23: a gate env secret by reference, read here from this env, else the user's login env
+  const refs = resolveRefs({}, read.envFrom ?? {}, process.env, loginEnv);
+  if (refs.missing.length) log("warn", "gate-env", { dispatch: read.dispatchDir, unset: refs.missing });
+  const spec = { ...read, env: workerEnv(process.env, { ...read.env, ...refs.env }, read.cwd) };
   const a = adapterFor(spec.backend);
   const busy = a?.isBusy?.bind(a);
   const stop = a?.interrupt?.bind(a);

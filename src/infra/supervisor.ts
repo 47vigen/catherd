@@ -19,6 +19,8 @@ export const SuperviseSpecSchema = z.looseObject({
   cmd: z.string(),
   args: z.array(z.string()),
   env: z.record(z.string(), z.string()),
+  /** plan 23: env vars set from another one at spawn (a gate env secret by reference): name → source name */
+  envFrom: z.record(z.string(), z.string()).optional(),
   cwd: z.string(),
   stdinPath: z.string().nullable(),
   idleMs: z.number().positive(),

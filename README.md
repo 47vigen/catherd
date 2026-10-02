@@ -201,6 +201,7 @@ In a terminal:
 | `catherd catalog treat-like <rung> <like>`                                                  | Scores an unscored rung as a scored one                                                             |
 | `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                      | The three nearest stand-ins for a rung; removes one or every mapping of yours                       |
 | `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                | The repo's knowledge.md, which new runs read; `add` appends a fact of yours, marked "by hand"       |
+| `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`          | The repo's gate environment, which the verifier and preflight run with; a secret by reference only  |
 | `catherd lock [--slots N] -- <cmd>`                                                         | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty)            |
 | `catherd run-file read\|write <run> <path>`                                                 | A run's plan, lanes and notes (`write` reads stdin); in a role, its own run only                    |
 | `catherd gate check\|pass <run> --item <i> --command <c> --paths <p,…> [--evidence <e>]`    | A verifier's gate evidence, as `gate_check`/`gate_pass`; in a role, its own run only                |
