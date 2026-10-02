@@ -13,7 +13,7 @@ import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
 import type { Deps } from "./ports.ts";
-import { orchestratorWait, type OrchestratorWait } from "./wait-service.ts";
+import { orchestratorWait, type OrchestratorWait } from "./orchestrator-wait.ts";
 import {
   findRun,
   listRuns,

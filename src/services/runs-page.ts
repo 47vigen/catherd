@@ -12,7 +12,7 @@ import { lastActivity } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, listRuns, readRecords, type Run, runPaths } from "./run-store.ts";
 import { groupRuns, type SessionGroup } from "./session-view.ts";
-import { orchestratorWait, type OrchestratorWait } from "./wait-service.ts";
+import { orchestratorWait, type OrchestratorWait } from "./orchestrator-wait.ts";
 
 /**
  * Spec §4: what the Runs tab shows. The top level is the sessions; a session's screen holds its runs, each with its

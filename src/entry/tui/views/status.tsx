@@ -1,5 +1,5 @@
 import type { Check } from "../../../services/doctor-checks.ts";
-import { ORCHESTRATOR_STALL_MS } from "../../../services/wait-service.ts";
+import { ORCHESTRATOR_STALL_MS } from "../../../services/orchestrator-wait.ts";
 import { useApp, useNow } from "../providers/app.tsx";
 import { useData } from "../providers/data.tsx";
 import { useCommandLayer } from "../providers/keymap.tsx";

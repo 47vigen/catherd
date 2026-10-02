@@ -18,7 +18,6 @@ const TOOLS = [
   "route",
   "preflight",
   "dispatch",
-  "wait",
   "cancel",
   "peek",
   "climb",
@@ -49,10 +48,10 @@ const TOOLS = [
 ];
 
 describe("MCP server", () => {
-  it("lists exactly the run and workspace tools, 32 of them", async () => {
+  it("lists exactly the run and workspace tools, 31 of them", async () => {
     freshRun();
     const c = await mcpClient();
-    expect(TOOLS).toHaveLength(32);
+    expect(TOOLS).toHaveLength(31);
     expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
     const described = (name: string) =>
       c.listTools().then((l) => l.tools.find((t) => t.name === name)?.description ?? "");

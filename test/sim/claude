@@ -32,6 +32,7 @@ const VALUE = [
   "--allowedTools",
   "--disallowedTools",
   "--settings",
+  "--mcp-config",
 ];
 const BOOL = ["-p", "--print", "--verbose", "--safe-mode"];
 const opts: Record<string, string> = {};
