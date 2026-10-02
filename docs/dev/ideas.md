@@ -562,6 +562,92 @@ catherd 1.2.1, sanitell/platform review-fix plans 1–7, one run per plan and it
 - **A verifier resumed with SendMessage hangs.** More than once, the resumed verifier never returned. The workaround was a fresh verifier with a 10-minute cap on each command. Fix: re-checks go to a fresh verifier by default, with the failed items named and a per-command timeout in its brief; `gate_check` already carries over what passed.
 - **`preflight` times out at 300 s behind the lock.** With testcontainers suites from other lanes holding the lock slots, preflight waited past its own timeout. Fix: preflight takes a lock slot per check with its own wait budget, or reports `lock-busy` instead of a timeout.
 
+## From the agentic-machine identity run (2026-10-02)
+
+catherd 1.4.0 on a Codex-only Linux host (Ubuntu 26.04, Codex CLI 0.160.0, opencode 2.0.21). Codex was the
+coordinator, first on GPT-6.1 Sol medium and later on GPT-6 Astra medium. Run
+`20261002-005043-identity-implementation-m1-through-m5` on sanitell/platform: five sequential MRs, full autopilot.
+After 9 h 15 min it had 34 role dispatches and 496 role minutes, and M1 had not landed. Its code was reviewed and
+clean by 03:30. The six and a half hours after that went to seven verifier attempts, mostly on environment
+failures. The coordinator read 26.7 M input tokens (97 % cached). The harnesses were isolated until 10:20, when the
+owner turned isolation off (the host is itself a sandbox).
+
+- **A completion is lost while the host is gone.** The coordinator ran straight on SSH, not in tmux. Its MCP server
+  (pid 345390) logged its last event at 08:47:57. `researcher-M1-notification-fake` ended at 09:03:32. The next
+  `notify` came at 09:38:04, after the owner restarted Codex and a new server reconciled (09:36:46). The run sat
+  idle for 35 minutes. The roles are detached and survived, but only the MCP server pushes. Fix: on a role's exit,
+  the detached supervisor sends `codex queue --remote unix://` itself. The app-server daemon outlives the TUI, so
+  queued input waits for the thread. Alternatively, a server at boot pushes every unread record of the runs that
+  session owns. The skill tells a Codex coordinator to run inside tmux and says so once when `$TMUX` is empty.
+  (`src/infra/codex-queue.ts`, the supervisor, `plugin/skills/catherd`.)
+- **Isolated roles cannot reach catherd's own tools.** The isolated `CODEX_HOME` has no catherd MCP server. The
+  verifier was told to call `gate_check`/`gate_pass`, so it wrote a stdio MCP client (`/tmp/m1-verifier-mcp.py`),
+  wrapped it in `/tmp/m1-gate.py`, and drove `catherd mcp` by hand for every gate item. Fix: add CLI forms any role
+  can run (`catherd gate check|pass`, `catherd run-file write`), name them in the verifier's brief, and stop
+  telling an isolated role to call MCP tools. Or write a catherd-only `[mcp_servers]` entry into the isolated
+  config. Isolation per role, not only per harness, would also have kept the verifier native here.
+- **`gate_check` paths do not fit a monorepo gate.** The log has six `E_INPUT_INVALID` (03:32–08:33):
+  `gate path apps/checkout/dist exists neither at HEAD nor in the working tree`, and
+  `gate path node_modules/.bun/@adobe+react-spectrum@… holds more than 10000 files to hash`. A full
+  `turbo run check` really does read `.`, `node_modules` and ignored build outputs. Fix: hash tracked content from
+  `git ls-files -s` plus the lockfiles for dependencies. Treat an absent ignored path as part of the hash ("absent"),
+  not as an error. Leave `node_modules` and the gitignored outputs out of the walk unless a path names them.
+  (`src/services/gate-service.ts`.)
+- **The wall timeout kills a long gate.** Verifier attempt 3 hit `wall-timeout, exit SIGTERM` at 90 minutes inside
+  the root gate (55 turbo tasks plus testcontainers). Attempt 4 took 85 minutes for that gate alone. The
+  coordinator then split the gate and acceptance into separate continuations by hand. Fix: per-role `timeouts`
+  (`roles.verifier.timeouts.wallMin`). Or count the wall from the last output, not from the start, while a
+  `catherd lock` child of the role is alive and writing. The verifier brief also splits the root gate from the
+  per-service acceptance items by default.
+- **Codex goal mode turns into polling.** After the owner set a thread goal ("never stop again…"), Codex started a
+  goal-continuation turn about once a minute. There were 11 such turns in 21 minutes, which read 7.2 M input
+  tokens on Astra. They ran `pidwait`, `write_stdin` with 55 s yields and `wait` cells, and the coordinator also did
+  role work itself (browser preflight, GitLab docs research). Fix: the Codex half of the catherd skill says that a
+  goal continuation while only roles are live ends the turn with no tool call. `peek` returns
+  `actionable: false` with the reason, so the coordinator has a one-call answer. Also consider `run_start` warning
+  when the thread has an active goal.
+- **Equal scores never reach the second quota.** In 34 dispatches there were 0 opencode rungs and 0 climbs. Under
+  `objective: speed`, DeepSeek 4.1 Flash max (treat-like GPT-6 Luna xhigh, the same values as Luna high) sits
+  second in the worker ladder, so Luna always won. The writer and researcher ladders behaved the same way. The
+  ChatGPT plan carried everything while the OpenCode Go subscription sat idle. Fix: break ties on quota headroom
+  across billing keys, starting the lane on the less used subscription when scores tie. Or add an objective that
+  balances subscriptions. `route` says when a tie decided the pick.
+- **The climb ladder goes down above the top rung.** `M1.L2` (repo_code/hard) got the ladder
+  `gpt-6.1-sol#medium → deepseek-v4.1-flash#max → glm-5.3-flash#max`: no rung cleared the hard bar, so the "climb"
+  was all weaker rungs. Fix: a climb ladder holds only rungs that score at least the start. When nothing clears the
+  bar, `route` says so (`no rung clears repo_code/hard; best is …`), and `profile validate` warns about a kind and
+  difficulty no rung of a role can reach.
+- **Only worker dispatches leave a route record.** `routes.jsonl` has 11 entries for 34 dispatches. The writer,
+  researcher, reviewer, verifier and architect rungs (for example writer on Luna high instead of the ladder's first
+  rung) cannot be audited. Fix: `route` and `dispatch` record every role's decision, its source and the ladder.
+- **A superseded run stays open.** Planning run `20261002-002615-…` (main checkout) handed over to the execution run
+  in the worktree, because there is one run per worktree. It still lists as `idle`, with
+  `Protocol next: route and preflight M1's lanes`. Fix: `runs supersede <run> --by <run>` (or a field set by
+  `run_start` with a `from:` line) closes it with a pointer, and `status` hides it.
+- **doctor misses a Docker client that injects proxies.** `access:codex` passed `docker version`, but
+  `~/.docker/config.json` had a `proxies` block, so every container got `HTTP_PROXY`. That broke a compose stack's
+  internal names (`minio-buckets` could not reach `minio`) and a BusyBox `wget` loopback health check
+  (`notification-fake`). Three of the seven verifier attempts failed on it. Fix: doctor warns when the client config
+  has `proxies`, and probes a two-container compose network by service name with a loopback `wget` health check.
+- **`doctor --test-push` cannot find a Codex thread from a shell.** Codex does not export `CODEX_THREAD_ID` to the
+  commands it runs. The thread reaches catherd only as `_meta.threadId` on MCP calls, so the smoke always reports
+  `no session` even inside a live thread. Fix: a `test_push` MCP tool, or `--thread <uuid>`, or resolve the cwd's
+  latest thread from `~/.codex/session_index.jsonl`.
+- **Roles litter `/tmp`.** The run left about 250 files there: drivers, observers, ledgers, a 51 MB `payment`
+  binary, and logs copied between roles. This host's `/tmp` is a 5.9 GiB tmpfs with a per-user quota that had
+  already broken a TUI once. Fix: each dispatch gets `TMPDIR=<run>/scratch/<role>/`, the brief names it, and
+  evidence goes through `write_run_file`. `runs` cleanup removes the scratch with the run.
+- **Investigate: three MCP servers for one Codex session.** At 09:36 one Codex TUI started `catherd mcp` three times
+  (pids 633954 and 634083 as host codex, and 634148 as host `unknown`). Each reconciled the runs. Check whether
+  Codex spawns the plugin server per tool context. If so, make boot sync and reconcile single-flight across
+  processes.
+- **Scores of a new same-family release start absurd.** With no public numbers, GPT-6.1 Sol was inferred at
+  repo_code 37.2 (low) and 56.6 (medium), below GPT-6 Luna, so the router would have avoided it. It was fixed
+  locally with `treat-like` from the Artificial Analysis Intelligence Index per effort (slopalytics.com): Sol 6.1
+  medium 47.8 ≈ Astra low, high 50.2 ≈ Astra medium. GLM 5.3 Flash max (41.8) and DeepSeek 4.1 Flash max (39.5)
+  were mapped the same way. Fix: read the AA Intelligence Index per model and effort as a calibration source. Until
+  a value arrives, a release of the same family takes at least its predecessor's values at the same effort.
+
 ## 1.3 follow-ups (plan reviews, 2026-09-29)
 
 - **Discovery runs a non-Cursor `agent`.** `refreshDiscovery` calls `listModels()` without a probe, so with only
