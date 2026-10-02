@@ -104,7 +104,7 @@ describe("select", () => {
     );
   });
 
-  it("places a treat-like rung with the scores it borrows", () => {
+  it("places a treat-like rung with the scores it borrows; unpriced on Go, it costs 0 and starts first", () => {
     const c = shipped({
       override: {
         schema: 1,
@@ -113,13 +113,38 @@ describe("select", () => {
         bars: {},
       },
     });
-    const p = worker({}, [...LADDER, "opencode:opencode-go/kimi-k3#default"]);
-    expect(select(c, p, "worker", "repo_code", "logic").ladder).toEqual([
-      "codex:gpt-6-sol#medium",
-      "codex:gpt-6-sol#high",
-      "codex:gpt-6-sol#xhigh",
-      "opencode:opencode-go/kimi-k3#default",
-    ]);
+    const kimi = "opencode:opencode-go/kimi-k3#default";
+    const p = worker({}, [...LADDER, kimi]);
+    expect(candidates(c, p, "worker")[0]?.rung).toBe(kimi);
+    // terminal copy: Sol's borrowed Terminal-Bench 43 clears 40.15, and the unpriced Go rung is the cheapest
+    expect(select(c, p, "worker", "terminal", "copy")).toEqual({
+      rung: kimi,
+      ladder: [kimi, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH],
+    });
+  });
+
+  it("breaks a cost tie on the profile's ladder order (spec 1.5 plan 24)", () => {
+    const c = shipped({
+      override: {
+        schema: 1,
+        treatLike: {
+          "opencode-go/kimi-k3#default": "gpt-6-sol#medium",
+          "opencode-go/glm-5#default": "gpt-6-sol#medium",
+        },
+        scores: [],
+        bars: {},
+      },
+    });
+    const kimi = "opencode:opencode-go/kimi-k3#default";
+    const glm = "opencode:opencode-go/glm-5#default";
+    const first = (rungs: string[]) => candidates(c, worker({}, rungs), "worker").map((x) => x.rung);
+    expect(first([glm, kimi, SOL_MEDIUM])).toEqual([glm, kimi, SOL_MEDIUM]);
+    expect(first([kimi, glm, SOL_MEDIUM])).toEqual([kimi, glm, SOL_MEDIUM]);
+    expect(first([kimi, glm, SOL_MEDIUM]).slice(0, 2)).toEqual(
+      candidates(c, worker({ objective: "speed" }, [kimi, glm, SOL_MEDIUM]), "worker")
+        .map((x) => x.rung)
+        .slice(0, 2),
+    );
   });
 
   it("ranks subscription rungs before metered ones, then by cost", () => {

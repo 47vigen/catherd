@@ -44,12 +44,14 @@ function secsOf(c: Catalog, canonical: string, kind: Kind | null): number | null
  * The role's enabled rungs that the catalog can place: parseable, offered by their model, listed by
  * the backend when it has a listing, capable for the role, and scored (their own or a treat-like).
  * Ordered by cost (spec §5.3), or by measured speed with cost breaking ties; with fewer than 5
- * samples a rung has no speed, and cost orders it, which within a model is effort order.
+ * samples a rung has no speed, and cost orders it, which within a model is effort order. The profile's
+ * ladder order breaks every remaining tie (spec 1.5 plan 24), so equal rungs start in the order the user wrote.
  */
 export function candidates(c: Catalog, p: RoutingProfile, role: Role, kind: Kind | null = null): Candidate[] {
   if (!p.role.enabled) return [];
   const out: Candidate[] = [];
-  for (const rung of new Set(p.role.rungs)) {
+  const order = [...new Set(p.role.rungs)];
+  for (const rung of order) {
     let info: RungInfo;
     try {
       info = rungInfo(c, rung);
@@ -68,8 +70,11 @@ export function candidates(c: Catalog, p: RoutingProfile, role: Role, kind: Kind
       secs: secsOf(c, info.canonical, kind),
     });
   }
-  const cost = (a: Candidate, b: Candidate) => compareCost(a.cost, b.cost) || byNull(a.secs, b.secs);
-  const speed = (a: Candidate, b: Candidate) => byNull(a.secs, b.secs) || compareCost(a.cost, b.cost);
+  const written = (a: Candidate, b: Candidate) => order.indexOf(a.rung) - order.indexOf(b.rung);
+  const cost = (a: Candidate, b: Candidate) =>
+    compareCost(a.cost, b.cost) || byNull(a.secs, b.secs) || written(a, b);
+  const speed = (a: Candidate, b: Candidate) =>
+    byNull(a.secs, b.secs) || compareCost(a.cost, b.cost) || written(a, b);
   return out.sort(p.objective === "speed" ? speed : cost);
 }
 

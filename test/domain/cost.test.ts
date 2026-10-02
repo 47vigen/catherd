@@ -44,11 +44,19 @@ describe("cost rank (spec §5.3)", () => {
     expect(compareCost(goLuna, zenLuna)).toBeLessThan(0);
   });
 
-  it("orders an unknown model last in its tier, and an unknown effort as medium", () => {
-    const unknown = costOf(null, "high", "subscription");
-    expect(unknown).toEqual({ tier: 0, value: null, mode: "subscription" });
-    expect(compareCost(costOf(fam("gpt-6-sol"), "max", "subscription"), unknown)).toBeLessThan(0);
+  it("prices an unpriced plan or subscription rung at 0 in its tier, and an unknown effort as medium", () => {
+    for (const mode of ["subscription", "chatgpt-plan", "claude-plan"] as const)
+      expect(costOf(null, "high", mode)).toEqual({ tier: 0, value: 0, mode });
+    const unpriced = costOf(null, "max", "subscription");
+    expect(compareCost(unpriced, costOf(fam("gpt-6-luna"), "low", "subscription"))).toBeLessThan(0);
+    expect(compareCost(unpriced, costOf(fam("gpt-6-luna"), "low", "metered"))).toBeLessThan(0);
     expect(effortFactor("thinking")).toBe(1);
+  });
+
+  it("orders an unpriced metered rung last in its tier", () => {
+    const unknown = costOf(null, "high", "metered");
+    expect(unknown).toEqual({ tier: 1, value: null, mode: "metered" });
+    expect(compareCost(costOf(fam("gpt-6-sol"), "max", "metered"), unknown)).toBeLessThan(0);
   });
 
   it("bills the spec's default keys", () => {
