@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { DEFAULT_MAX_EFFORT } from "../../src/domain/profile.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
+import { writeRunIndex } from "../../src/services/catalog-service.ts";
 import { configuredBackends, failoverRung, indexedPairs } from "../../src/services/failover-rungs.ts";
 import { profileFile } from "../../src/services/profile-store.ts";
+import { indexOf } from "../domain/shipped.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { fakeDeps, freshRun, testView } from "./helpers.ts";
 
@@ -78,5 +81,63 @@ describe("indexedPairs", () => {
     const pairs = indexedPairs(deps);
     expect(pairs.find((p) => p.rung === LUNA)?.intelligence).toBeGreaterThan(30);
     expect(pairs.every((p) => typeof p.intelligence === "number")).toBe(true);
+  });
+});
+
+describe("failoverRung and the effort ceiling and floor (plan 33)", () => {
+  const SOL_MED = "codex:gpt-6-sol#medium";
+  // Go serves GPT-6 Luna at every effort; the shipped catalog knows no Kimi, so the pool cannot list it
+  const GO = "opencode:opencode-go/gpt-6-luna";
+  const roles = (worker: string[], other: string[]) => ({
+    ...testView().roles,
+    worker: { enabled: true, access: "workspace-write" as const, rungs: worker },
+    writer: { enabled: true, access: "workspace-write" as const, rungs: other },
+  });
+  // both Kimi rungs and Sol medium are configured, so both backends are failover targets
+  const standIns = (over: Parameters<typeof testView>[0] = {}) => {
+    const s = setup({ roles: roles([SOL_MED], [`${GO}#low`, `${GO}#xhigh`]), ...over });
+    writeRunIndex(
+      s.run.dir,
+      indexOf({ "gpt-6-sol#medium": 36, "gpt-6-luna#low": 38, "gpt-6-luna#xhigh": 45 }),
+    );
+    return s;
+  };
+
+  it("never fails over above maxEffort, nor a worker below medium", () => {
+    const a = standIns();
+    expect(failoverRung(a.deps, a.run, "reviewer", SOL_MED, ["codex"])).toBe(`${GO}#low`);
+    expect(failoverRung(a.deps, a.run, "worker", SOL_MED, ["codex"])).toBe(`${GO}#xhigh`);
+    const b = standIns({ maxEffort: { [GO]: "high" } });
+    expect(failoverRung(b.deps, b.run, "reviewer", SOL_MED, ["codex"])).toBe(`${GO}#low`);
+    expect(failoverRung(b.deps, b.run, "worker", SOL_MED, ["codex"])).toBeNull();
+  });
+
+  it("skips an explicit stand-in above maxEffort and takes the next", () => {
+    const s = standIns({ failover: { [SOL_MED]: `${GO}#xhigh` }, maxEffort: { [GO]: "low" } });
+    expect(failoverRung(s.deps, s.run, "reviewer", SOL_MED, ["codex"])).toBe(`${GO}#low`);
+  });
+
+  it("never fails over above the default profile's shipped caps", () => {
+    const OPUS_HIGH = "claude-code:claude-opus-5-5#high";
+    const view = {
+      roles: roles(["codex:gpt-6-sol#xhigh"], [OPUS_HIGH]),
+      maxEffort: { ...DEFAULT_MAX_EFFORT } as Record<string, string>,
+    };
+    const make = (maxEffort: Record<string, string>) => {
+      const s = setup({ ...view, maxEffort });
+      writeRunIndex(
+        s.run.dir,
+        indexOf({ "gpt-6-sol#xhigh": 46, "claude-opus-5-5#high": 44, "claude-opus-5-5#max": 48 }),
+      );
+      return s;
+    };
+    const capped = make(view.maxEffort);
+    // only Opus max is at least as intelligent as 46, and the default profile caps Opus at high
+    expect(failoverRung(capped.deps, capped.run, "worker", "codex:gpt-6-sol#xhigh", ["codex"])).toBeNull();
+    // the same run after `maxEffort.claude-code:claude-opus-5-5 null`
+    const open = make({ ...view.maxEffort, "claude-code:claude-opus-5-5": "max" });
+    expect(failoverRung(open.deps, open.run, "worker", "codex:gpt-6-sol#xhigh", ["codex"])).toBe(
+      "claude-code:claude-opus-5-5#max",
+    );
   });
 });
