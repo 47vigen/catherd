@@ -12,7 +12,7 @@ import { isDaemonRun, readEvents, replayRun, tailEvents } from "./run-events-sto
 import { findRun, listRuns, type Run } from "./run-store.ts";
 
 /**
- * The read side of a run, for the panel (plan 31), the TUI and the session's `status`: each shape has a zod
+ * The read side of a run, for the panel (plan 31) and the session's `status`: each shape has a zod
  * schema, which is its contract. A 1.5 run reads as `engine: "1.5"`, with what its folder says.
  */
 export const ParkedViewSchema = z.object({

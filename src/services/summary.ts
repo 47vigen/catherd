@@ -67,7 +67,7 @@ export interface RunSummary {
 export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const now = deps.now();
   const warnings: string[] = [];
-  // an unfinished 2.0 run whose daemon died gets it back from any reader: status, watch, the TUI
+  // an unfinished 2.0 run whose daemon died gets it back from any reader: status, watch, the panel
   try {
     ensureDaemon(run);
   } catch (e) {

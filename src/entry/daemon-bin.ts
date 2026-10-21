@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // The detached run daemon's entry: like the supervisor's it imports only what driving a run needs, never
-// src/cli.ts and its TUI.
+// src/cli.ts.
 import { errorMessage } from "../domain/errors.ts";
 import { runDaemon } from "../services/daemon.ts";
 import { defaultDeps } from "./deps.ts";

@@ -6,13 +6,13 @@ import { scrubSecrets } from "./env.ts";
 import { log as logRow } from "./log.ts";
 import { PRIVATE_FILE } from "./store.ts";
 
-/** A thin executable that supervises one spec; unlike src/cli.ts it never loads the TUI. */
+/** A thin executable that supervises one spec; it never loads src/cli.ts. */
 export const SUPERVISE_ENTRY = fileURLToPath(new URL("../entry/supervise-bin.ts", import.meta.url));
 
-/** The thin executable that drives one run; like the supervisor's, it never loads the TUI. */
+/** The thin executable that drives one run; like the supervisor's, it never loads src/cli.ts. */
 export const DAEMON_ENTRY = fileURLToPath(new URL("../entry/daemon-bin.ts", import.meta.url));
 
-/** The thin executable that runs one milestone check (plan 30b); like the others it never loads the TUI. */
+/** The thin executable that runs one milestone check (plan 30b); like the others it never loads src/cli.ts. */
 export const CHECK_ENTRY = fileURLToPath(new URL("../entry/check-bin.ts", import.meta.url));
 
 /**

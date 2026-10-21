@@ -213,7 +213,7 @@ does not name):
   improvements.
 - **`catherd bench`.** Replay recorded real tasks under different profiles to measure them on the user's own work.
 - **Standalone binaries.** `bun build --compile` per platform, published as optional platform packages, so users need
-  no Bun install. OpenTUI no longer blocks it; the built panel must be embedded too.
+  no Bun install. The built panel must be embedded too.
 
 ## Live coverage still missing
 

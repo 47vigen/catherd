@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The detached supervisor's entry: it imports only what supervising needs, never src/cli.ts and its TUI.
+// The detached supervisor's entry: it imports only what supervising needs, never src/cli.ts.
 import { errorMessage } from "../domain/errors.ts";
 import { runSupervise } from "./supervise-command.ts";
 

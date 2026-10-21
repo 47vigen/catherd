@@ -141,7 +141,7 @@ export function profileLines(r: InitResult, plain = false): string[] {
   return out;
 }
 
-/** Spec §8 `catherd init [--no-input]`: first-run setup without the TUI (plan 6 adds the TUI wizard). */
+/** Spec §8 `catherd init [--no-input]`: first-run setup without the panel. */
 export const initCommand = defineCommand({
   meta: {
     name: "init",
