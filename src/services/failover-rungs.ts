@@ -1,24 +1,102 @@
-import { claudeBilled, quotaOf } from "../domain/failover.ts";
+import {
+  catalogPairs,
+  claudeBilled,
+  downgrade,
+  intelligenceOf,
+  quotaOf,
+  rankStandIns,
+} from "../domain/failover.ts";
+import { pairOf } from "../domain/catalog.ts";
 import { tryParseRung } from "../domain/ids.ts";
 import type { Role } from "../domain/roles.ts";
 import { standInFor } from "./backends.ts";
-import type { Deps } from "./ports.ts";
+import { loadCatalog } from "./catalog-service.ts";
+import type { Deps, ProfileView } from "./ports.ts";
+import { listProfiles, readProfileDoc } from "./profile-store.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 
+/** The headless twin of a native Claude rung is what the daemon runs: one backend name for both. */
+const backendOf = (rung: string): string | null => {
+  const b = tryParseRung(rung)?.backend ?? null;
+  return b === "claude" ? "claude-code" : b;
+};
+
 /**
- * Where a role goes when `rung`'s quota hit a limit (plan 30; 30b widens it to every configured backend): the
- * profile's stand-in for the rung, else another rung of the role's ladder, on a quota that is not `held`; a
- * Claude rung only when nothing else is free. Null when every candidate is held.
+ * Every backend the user configured (spec 2.0 decision 6): those of every rung in every saved profile, and of
+ * every stand-in a profile's `failover` names, not only the profiles a run uses.
  */
-export function failoverRung(deps: Deps, run: Run, role: Role, rung: string, held: string[]): string | null {
+export function configuredBackends(): string[] {
+  const out = new Set<string>();
+  for (const name of listProfiles()) {
+    let doc: ReturnType<typeof readProfileDoc>;
+    try {
+      doc = readProfileDoc(name);
+    } catch {
+      continue;
+    }
+    const rungs = [
+      ...Object.values(doc.roles ?? {}).flatMap((r) => r?.rungs ?? []),
+      ...Object.values(doc.failover ?? {}),
+    ];
+    for (const r of rungs) {
+      const b = backendOf(r);
+      if (b) out.add(b);
+    }
+  }
+  return [...out].sort();
+}
+
+/** The backends a limit may move work to: every configured one, and those of the run's own profile. */
+export function failoverBackends(profile: ProfileView): Set<string> {
+  const backends = new Set(configuredBackends());
+  for (const r of [
+    ...Object.values(profile.roles).flatMap((x) => x?.rungs ?? []),
+    ...Object.values(profile.failover),
+  ]) {
+    const b = backendOf(r);
+    if (b) backends.add(b);
+  }
+  return backends;
+}
+
+const pairsOf = (c: ReturnType<typeof loadCatalog>): { rung: string; intelligence: number }[] =>
+  catalogPairs(c).map((rung) => ({
+    rung,
+    intelligence: (pairOf(c, rung) as { intelligence: number }).intelligence,
+  }));
+
+/** Plan 29's index through one adapter, so plan 33 may rank on something else: every indexed rung and its index. */
+export function indexedPairs(
+  _deps: Deps,
+  o: { repo?: string; runDir?: string } = {},
+): { rung: string; intelligence: number }[] {
+  return pairsOf(loadCatalog(o));
+}
+
+/**
+ * Where a unit goes when `rung`'s quota hit a limit (spec 2.0 decision 6): the profile's stand-in when its quota
+ * is free and it is not weaker; else the nearest indexed rung of any configured backend on a free quota that is
+ * not weaker, a Claude rung last. Never a step down: a rung with no index fails over only to its stand-in, and
+ * null means every candidate is held or weaker, so the caller waits for the hold.
+ */
+export function failoverRung(deps: Deps, run: Run, _role: Role, rung: string, held: string[]): string | null {
+  const from = tryParseRung(rung);
+  if (!from) return null;
   const profile = runProfile(deps, run);
+  const c = loadCatalog({ repo: run.meta.repo, runDir: run.dir });
+  const free = (r: string): boolean => {
+    const p = tryParseRung(r);
+    return p !== null && quotaOf(p) !== quotaOf(from) && !held.includes(quotaOf(p));
+  };
   const stand = standInFor(profile.failover, rung, run.meta.repo);
-  const candidates = [...new Set([...(stand ? [stand] : []), ...(profile.roles[role]?.rungs ?? [])])]
-    .filter((r) => r !== rung)
-    .filter((r) => {
-      const p = tryParseRung(r);
-      return p !== null && !held.includes(quotaOf(p));
-    });
-  return candidates.find((r) => !claudeBilled(r)) ?? candidates.find(claudeBilled) ?? null;
+  const explicit = stand !== null && free(stand) && !downgrade(c, rung, stand) ? stand : null;
+  if (explicit && !claudeBilled(explicit)) return explicit;
+  if (intelligenceOf(c, rung) === null) return explicit;
+  const backends = failoverBackends(profile);
+  const pool = pairsOf(c)
+    .map((p) => p.rung)
+    .filter((r) => backends.has(backendOf(r) ?? ""));
+  const ranked = rankStandIns(c, profile.billing, rung, pool).filter(free);
+  return ranked.find((r) => !claudeBilled(r)) ?? explicit ?? ranked[0] ?? null;
 }

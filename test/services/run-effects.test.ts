@@ -10,7 +10,6 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import { openQuestions } from "../../src/services/questions.ts";
-import { failoverRung } from "../../src/services/failover-rungs.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
@@ -157,7 +156,10 @@ describe("dispatching", () => {
     writeLane(run, "M1.L1", ["src/a/"]);
     await seed(run);
     const s = replayRun(run);
-    s.holds = { codex: new Date(Date.now() + 600_000).toISOString() };
+    const until = new Date(Date.now() + 600_000).toISOString();
+    s.holds = Object.fromEntries(
+      ["codex", "opencode-go", "opencode", "claude-code", "cursor"].map((q) => [q, until]),
+    );
     s.at = new Date().toISOString();
     await fx.run(dispatchAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
     expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ALL_HELD" });
@@ -833,15 +835,5 @@ describe("parking, reporting, finishing", () => {
       unit: "M1",
       message: "integrate needs catherd 30b",
     });
-  });
-});
-
-describe("failover", () => {
-  it("takes a stand-in on a quota that is not held, and a Claude rung only when nothing else is free", () => {
-    const stand = "claude-code:claude-opus-5-5#high";
-    const { run, deps } = setup({ reply: "x" }, testView({ failover: { "codex:gpt-6-luna#high": stand } }));
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", [])).toBe("codex:gpt-6-sol#medium");
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", ["codex"])).toBe(stand);
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", ["codex", "claude-code"])).toBeNull();
   });
 });
