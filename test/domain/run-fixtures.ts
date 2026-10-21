@@ -140,6 +140,7 @@ export function runningLog(
     typeof start === "object" && start !== null ? start : { ...startedFields, base: start },
   );
   log.add("plan.ready", { milestones: plan });
+  log.add("plan.approved", { by: "owner" });
   routeMilestone(log, plan[0] as MilestonePlan);
   return log;
 }

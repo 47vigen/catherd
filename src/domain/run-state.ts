@@ -25,6 +25,8 @@ export const TOP_RUNG_JUDGES = 3;
 export const DUPLICATE_LIMIT = 3;
 /** A role that fails this many times without a limit parks its unit. */
 export const MAX_TRIES = 2;
+/** A plan the check refused goes back to its architect this many times before the run parks (plan 32). */
+export const PLAN_REVISIONS = 2;
 
 /** Spec 2.0 decision 5: a soft cap of max(3, 2 + ⌈lanes/3⌉) fix rounds. */
 export const softCap = (lanes: number): number => Math.max(3, 2 + Math.ceil(lanes / 3));
@@ -205,6 +207,8 @@ export interface RunState {
   wakeAt: string | null;
   /** an architect ended and the plan was not read since */
   planDirty: boolean;
+  /** what the next architect dispatch must change in plan.md (the owner's request, a problem the plan check found); the plan's next reading clears it */
+  revise: string[];
   /** dispatch name → until: refused for now (paused, every quota held) */
   waiting: Record<string, string>;
   /** unit → what the owner must be asked: the machine parks it */
@@ -237,6 +241,7 @@ export function emptyState(run: string): RunState {
     cancelling: false,
     wakeAt: null,
     planDirty: false,
+    revise: [],
     waiting: {},
     stuck: {},
     owed: {},
@@ -295,6 +300,10 @@ export function limitedRung(s: RunState, name: string): string | null {
   const d = lastOf(s, name);
   return d?.ended?.status === "limit" ? d.rung : null;
 }
+
+/** The owner gave the run its plan: files in `run.started` or a `plan:` A-line. */
+export const hasPlanInput = (s: RunState): boolean =>
+  s.plan.length > 0 || s.aLines.some((l) => /^\s*plan:/i.test(l));
 
 const hasJudge = (s: RunState, unit: string): boolean => Object.values(s.judges).some((j) => j.unit === unit);
 
@@ -829,7 +838,10 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   const m = milestoneOf(s, e.unit);
   if (!m) {
     for (const k of Object.keys(s.failedEffects)) if (k.startsWith("ended:")) delete s.failedEffects[k];
-    if (e.unit === RUN_UNIT) s.notes.push(`The owner answered: ${e.answer}`);
+    if (e.unit === RUN_UNIT) {
+      if (q?.reason === "approval") s.revise = [`The owner asked for these changes to plan.md: ${e.answer}`];
+      else s.notes.push(`The owner answered: ${e.answer}`);
+    }
     return;
   }
   // the owner's word that a push question's milestone is merged: how a squash merge unblocks its dependants
@@ -867,13 +879,17 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);
-      if (s.phase === "planning") s.phase = "running";
+      // a plan the owner did not give waits for the owner's approval before its first lane
+      if (s.phase === "planning") s.phase = hasPlanInput(s) ? "running" : "approval";
       s.planDirty = false;
+      s.revise = [];
       ok(`readPlan@${RUN_UNIT}`);
       for (const m of s.milestones) settle(s, m);
       return;
     case "plan.approved":
       if (s.phase === "approval") s.phase = "running";
+      if (s.questions[RUN_UNIT]?.reason === "approval") delete s.questions[RUN_UNIT];
+      s.revise = [];
       return;
     case "lanes.routed": {
       for (const r of e.lanes) {
@@ -1035,6 +1051,8 @@ function apply(s: RunState, e: RunEvent): void {
       };
       const l = s.lanes[e.unit];
       const m = milestoneOf(s, e.unit);
+      // an architect change that edits an approved decision asks the owner again: no new lane until they answer
+      if (e.unit === RUN_UNIT && e.reason === "approval" && s.phase === "running") s.phase = "approval";
       if (l) l.status = "parked";
       else if (m && e.reason !== "push" && m.status !== "parked") {
         m.parkedFrom = m.status;
@@ -1115,7 +1133,11 @@ function apply(s: RunState, e: RunEvent): void {
       }
       const key = `${e.action}@${e.unit}`;
       s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
-      if ((s.failedEffects[key] as number) >= MAX_TRIES && e.action !== "report" && e.action !== "notify")
+      // a plan the check refused: its architect fixes it, PLAN_REVISIONS times, before the run parks
+      const planning = e.action === "readPlan" && (s.phase === "planning" || s.phase === "approval");
+      if (planning) s.revise = [e.message];
+      const limit = planning ? PLAN_REVISIONS + 1 : MAX_TRIES;
+      if ((s.failedEffects[key] as number) >= limit && e.action !== "report" && e.action !== "notify")
         s.stuck[e.unit] = { reason: "effect", question: `${e.action} on ${e.unit} failed: ${e.message}` };
       return;
     }

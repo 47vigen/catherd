@@ -60,6 +60,7 @@ describe("the session tools", () => {
     expect(started.data).toMatchObject({ daemon: "revived", notifyUrl: "https://ntfy.sh/catherd-test" });
     // the daemon is the fake: the test plays its part, parking a lane
     await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    await appendEvent(run, { type: "plan.approved", by: "owner" });
     await appendEvent(run, {
       type: "question.parked",
       unit: "M1.L2",
