@@ -72,6 +72,18 @@ describe("resolveTask and coverageProblems", () => {
     ]);
   });
 
+  it("refuses a task number one file holds twice, naming the file and the number", () => {
+    const twice = [
+      parsePlanDoc("p.md", "## Task 13 — a\nTest: a.test.ts\n\n### Task 13: b\nTest: b.test.ts\n"),
+    ];
+    const note = "p.md holds Task 13 twice: renumber one of them";
+    expect(resolveTask(twice, "13")).toBe(note);
+    expect(resolveTask(twice, "p.md#13")).toBe(note);
+    expect(coverageProblems(twice, [{ id: "M1.L1", tasks: ["13"] }])).toEqual([
+      { lane: "M1.L1", note: `lanes/M1.L1.md: Tasks: 13 — ${note}` },
+    ]);
+  });
+
   it("checks signature-or-test only on the tasks the lanes name", () => {
     const d = [parsePlanDoc("p.md", "### Task 1: a\nTest: a.test.ts\n\n### Task 2: publish\nprose only\n")];
     expect(coverageProblems(d, [{ id: "M1.L1", tasks: ["1"] }])).toEqual([]);

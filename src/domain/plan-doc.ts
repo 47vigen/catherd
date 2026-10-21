@@ -65,7 +65,7 @@ export function resolveTask(docs: PlanDoc[], ref: string): PlanTask | string {
   if (file !== undefined) {
     const doc = docs.find((d) => d.name === file);
     if (!doc) return `no plan file ${file}`;
-    return doc.tasks.find((t) => t.id === id) ?? `no task ${id} in ${file}`;
+    return pick(doc, id) ?? `no task ${id} in ${file}`;
   }
   const owners = docs.filter((d) => d.tasks.some((t) => t.id === id));
   if (owners.length === 0) return `no task ${id} in ${docs.map((d) => d.name).join(", ")}`;
@@ -73,7 +73,13 @@ export function resolveTask(docs: PlanDoc[], ref: string): PlanTask | string {
     const names = owners.map((d) => d.name);
     return `task ${id} is in ${and(names)}: write ${names[0]}#${id}`;
   }
-  return (owners[0] as PlanDoc).tasks.find((t) => t.id === id) as PlanTask;
+  return pick(owners[0] as PlanDoc, id) as PlanTask | string;
+}
+
+/** The one task `id` names in `doc`, or why it names none: a file that holds a number twice cannot say which. */
+function pick(doc: PlanDoc, id: string): PlanTask | string | undefined {
+  const held = doc.tasks.filter((t) => t.id === id);
+  return held.length > 1 ? `${doc.name} holds Task ${id} twice: renumber one of them` : held[0];
 }
 
 /** What is wrong between a milestone's lanes and the plan: a lane with no task, a bad ref, a task with nothing to build or test. */
