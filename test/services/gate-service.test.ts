@@ -16,7 +16,10 @@ import {
 import { createRun } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { call, mcpClient } from "../mcp-helpers.ts";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildRoleServer } from "../../src/entry/mcp/role-server.ts";
+import { call } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -349,11 +352,14 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(formatRun(s)).toContain("  verifier step boot check at 10:05 · 0 min ago · open");
   });
 
-  it("serves gate_check and gate_pass over MCP", async () => {
+  it("serves gate_check and gate_pass over a verifier's role server", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");
     commit(repo);
-    const c = await mcpClient(fakeDeps());
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await buildRoleServer({ run: run.id, role: "verifier" }, fakeDeps()).connect(serverSide);
+    const c = new Client({ name: "role-test", version: "0.0.0" });
+    await c.connect(clientSide);
     expect((await call(c, "gate_check", item(run.id))).data).toEqual({ carried: false });
     expect((await call(c, "gate_pass", { ...item(run.id), evidence: "ok" })).data.recorded).toBe(true);
     expect((await call(c, "gate_check", item(run.id))).data.carried).toBe(true);
