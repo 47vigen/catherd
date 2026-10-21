@@ -2,10 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
+import { isApproval } from "../domain/plan-doc.ts";
 import { ROLES } from "../domain/roles.ts";
+import { RUN_UNIT } from "../domain/run-events.ts";
 import { liveDispatches } from "../domain/run-state.ts";
+import { gitToplevel } from "../infra/git.ts";
+import { writeTextAtomic } from "../infra/store.ts";
 import { ensureDaemon } from "./daemon.ts";
 import type { Deps } from "./ports.ts";
+import { copyPlanInputs, planInputPaths, resolvePlanInputs } from "./plan-input.ts";
 import { answer, openQuestions } from "./questions.ts";
 import { appendEvent, isDaemonRun, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
@@ -13,6 +18,14 @@ import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
 
 /** What the session's tools, the panel and the CLI share: they only append events and read the run's state. */
+
+const readText = (file: string): string => {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+};
 
 /** A 1.5 run has no daemon: this client neither answers nor cancels it. */
 function daemonRun(id: string): Run {
@@ -24,13 +37,27 @@ function daemonRun(id: string): Run {
   return run;
 }
 
-/** Starts a 2.0 run: its folder, its pin, `run.started`, and its daemon. */
+/**
+ * Starts a 2.0 run: its folder, its pin, `run.started`, and its daemon. The owner's plan files (`plan`, and any
+ * `plan:` A-line) are checked before the run exists, copied into it, and approved as input.
+ */
 export async function runStart(
   deps: Deps,
-  i: { repo: string; title: string; aLines: string[] },
-): Promise<{ run: string; dir: string; daemon: "revived" | "alive"; notifyUrl: string; next: string }> {
-  const started = await startRun(deps, i);
+  i: { repo: string; title: string; aLines: string[]; plan?: string[] },
+): Promise<{
+  run: string;
+  dir: string;
+  daemon: "revived" | "alive";
+  notifyUrl: string;
+  plan: string[];
+  next: string;
+}> {
+  const top = await gitToplevel(i.repo);
+  // a repo outside git is startRun's refusal
+  const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
+  const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines });
   const run = findRun(started.run);
+  copyPlanInputs(run, plan);
   await appendEvent(
     run,
     {
@@ -38,13 +65,14 @@ export async function runStart(
       repo: run.meta.repo,
       title: i.title,
       aLines: i.aLines,
-      plan: [],
+      plan,
       base: null,
       engine: "2.0",
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),
   );
+  if (plan.length) await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(deps.now()));
   const notifyUrl = deps.profiles.notifyUrl();
   const daemon = ensureDaemon(run) === "alive" ? "alive" : "revived";
   return {
@@ -52,7 +80,10 @@ export async function runStart(
     dir: run.dir,
     daemon,
     notifyUrl,
-    next: `the run drives itself: status(run) shows it; parked questions reach ${notifyUrl} and this session`,
+    plan,
+    next: plan.length
+      ? `the run implements ${plan.length} plan file${plan.length === 1 ? "" : "s"} as written: status(run) shows it; parked questions reach ${notifyUrl} and this session`
+      : `the architect writes a plan first, and the run waits for your approval (answer approve): status(run) shows it; parked questions reach ${notifyUrl} and this session`,
   };
 }
 
@@ -64,13 +95,22 @@ export async function answerUnit(
   const run = daemonRun(i.run);
   // the check and the append are one step: two answers to one question never both get through
   await withEventsLock(run, async (add) => {
-    const open = Object.keys(replayRun(run).questions);
+    const state = replayRun(run);
+    const open = Object.keys(state.questions);
     if (!open.includes(i.unit))
       throw new CatherdError("E_INPUT_INVALID", `${i.unit} has no open question`, {
         fix: open.length
           ? `the open ones: ${open.join(", ")}`
           : "status(run) shows the run's state: nothing waits for an answer now",
       });
+    // the owner answers when they have fixed the plan: the roles read the copies, so copy again
+    if (state.plan.length) copyPlanInputs(run, state.plan);
+    // a bare approving word approves the plan (the first approval or a re-approval): reduce closes the question
+    if (i.unit === RUN_UNIT && state.questions[RUN_UNIT]?.reason === "approval" && isApproval(i.answer)) {
+      writeTextAtomic(join(run.dir, "plan-approved.md"), readText(join(run.dir, "plan.md")));
+      add({ type: "plan.approved", by: "owner" }, new Date(deps.now()));
+      return;
+    }
     // a milestone's park is in questions.jsonl too, which land's gate reads
     if (openQuestions(run).some((q) => q.milestone === i.unit))
       await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });

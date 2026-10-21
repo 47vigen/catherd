@@ -45,9 +45,16 @@ export function registerSessionTools(server: McpServer, deps: Deps): void {
         repo: z.string().min(1),
         title: z.string().min(1),
         a_lines: z.array(z.string().min(1)).min(1),
+        plan: z
+          .array(z.string().min(1))
+          .max(20)
+          .optional()
+          .describe(
+            "The reviewed plan files the run implements as written (paths, relative to repo or absolute). Without one, the architect writes a plan and the run waits for your approval.",
+          ),
       },
     },
-    (a) => handle(() => runStart(deps, { repo: a.repo, title: a.title, aLines: a.a_lines })),
+    (a) => handle(() => runStart(deps, { repo: a.repo, title: a.title, aLines: a.a_lines, plan: a.plan })),
   );
 
   server.registerTool(

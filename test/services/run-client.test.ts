@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
@@ -7,10 +7,11 @@ import { daemonLauncher } from "../../src/services/daemon.ts";
 import { answerUnit, cancelRun, profileTool, runResult, runStart } from "../../src/services/run-client.ts";
 import { openQuestions, park } from "../../src/services/questions.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
-import { findRun, type Run } from "../../src/services/run-store.ts";
+import { findRun, listRuns, type Run } from "../../src/services/run-store.ts";
+import { approvalQuestion } from "../../src/domain/plan-doc.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun } from "./helpers.ts";
+import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -65,6 +66,71 @@ describe("runStart", () => {
     expect(r.next).toContain("https://ntfy.sh/catherd-test");
   });
 
+  it("starts a run on its plan files: copies them, records them and approves them as input", async () => {
+    withHome();
+    const repo = tempRepo();
+    const outside = join(tempDir("rc-out-"), "q.md");
+    writeFileSync(outside, PLAN_TEXT);
+    mkdirSync(join(repo, "docs"));
+    writeFileSync(join(repo, "docs/p.md"), PLAN_TEXT);
+    const r = await runStart(fakeDeps(), {
+      repo,
+      title: "t",
+      aLines: ["A1 x"],
+      plan: ["docs/p.md", outside],
+    });
+    const run = findRun(r.run);
+    expect(r.plan).toEqual([join(repo, "docs/p.md"), outside]);
+    expect(readEvents(run).map((e) => e.type)).toEqual(["run.started", "plan.approved"]);
+    expect(readEvents(run)[0]).toMatchObject({ plan: r.plan });
+    expect(readEvents(run)[1]).toMatchObject({ by: "input" });
+    expect(readFileSync(join(run.dir, "plan-input/p.md"), "utf8")).toBe(PLAN_TEXT);
+    expect(readFileSync(join(run.dir, "plan-input/q.md"), "utf8")).toBe(PLAN_TEXT);
+    expect(r.next).toStartWith("the run implements 2 plan files as written");
+  });
+
+  it("reads an A-line plan: as plan input too", async () => {
+    withHome();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "p.md"), PLAN_TEXT);
+    const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x", "plan: p.md"] });
+    expect(r.plan).toEqual([join(repo, "p.md")]);
+    expect(readEvents(findRun(r.run))[0]).toMatchObject({ aLines: ["A1 x", "plan: p.md"] });
+  });
+
+  it("refuses a missing plan file before creating the run", async () => {
+    withHome();
+    const repo = tempRepo();
+    const e = await refusal(runStart(fakeDeps(), { repo, title: "t", aLines: [], plan: ["nope.md"] }));
+    expect([e.code, e.message]).toEqual([
+      "E_INPUT_INVALID",
+      `plan file ${join(repo, "nope.md")} does not exist`,
+    ]);
+    expect(listRuns([repo]).runs).toHaveLength(0);
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses plan files none of which has a task, and a directory", async () => {
+    withHome();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "c.md"), "# contracts\n");
+    const none = await refusal(runStart(fakeDeps(), { repo, title: "t", aLines: [], plan: ["c.md"] }));
+    expect(none.message).toContain('none of the plan files has a "### Task <n>:" heading');
+    const dir = await refusal(runStart(fakeDeps(), { repo, title: "t", aLines: [], plan: ["."] }));
+    expect(dir.message).toBe(`plan ${repo} is not a file`);
+    expect(listRuns([repo]).runs).toHaveLength(0);
+  });
+
+  it("starts a run with no plan and no approval event", async () => {
+    withHome();
+    const repo = tempRepo();
+    const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"] });
+    expect(r.plan).toEqual([]);
+    expect(readEvents(findRun(r.run)).map((e) => e.type)).toEqual(["run.started"]);
+    expect(r.next).toContain("the architect writes a plan first");
+    expect(r.next).toContain("answer approve");
+  });
+
   it("refuses a repo outside git, creating nothing", async () => {
     withHome();
     const e = await refusal(runStart(fakeDeps(), { repo: "/", title: "t", aLines: [] }));
@@ -114,6 +180,62 @@ describe("answerUnit", () => {
       parked: [],
     });
     expect(openQuestions(run)).toEqual([]);
+  });
+});
+
+describe("answerUnit and the plan approval", () => {
+  async function approvalRun(plan: string[] = []) {
+    const { run, repo } = freshRun();
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan });
+    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    await appendEvent(run, {
+      type: "question.parked",
+      unit: "run",
+      question: approvalQuestion(run.id),
+      reason: "approval",
+    });
+    writeFileSync(join(run.dir, "plan.md"), "# the architect's plan\n");
+    return { run, repo };
+  }
+
+  it("turns an approving answer into plan.approved, and any other into a change request", async () => {
+    const { run } = await approvalRun();
+    const before = readEvents(run).length;
+    expect(
+      (await answerUnit(fakeDeps(), { run: run.id, unit: "run", answer: "rename Ledger to Book" })).unit,
+    ).toBe("run");
+    expect(readEvents(run).slice(before)).toMatchObject([
+      { type: "question.answered", unit: "run", answer: "rename Ledger to Book", by: "owner" },
+    ]);
+    expect(existsSync(join(run.dir, "plan-approved.md"))).toBe(false);
+
+    const second = await approvalRun();
+    await answerUnit(fakeDeps(), { run: second.run.id, unit: "run", answer: "LGTM" });
+    const tail = readEvents(second.run).slice(-1);
+    expect(tail).toMatchObject([{ type: "plan.approved", by: "owner" }]);
+    expect(readEvents(second.run).some((e) => e.type === "question.answered")).toBe(false);
+    expect(readFileSync(join(second.run.dir, "plan-approved.md"), "utf8")).toBe("# the architect's plan\n");
+  });
+
+  it("does not approve an ordinary question of the run unit", async () => {
+    const { run } = freshRun();
+    await seed(run, { type: "question.parked", unit: "run", question: "q", reason: "effect" });
+    await answerUnit(fakeDeps(), { run: run.id, unit: "run", answer: "ok" });
+    expect(readEvents(run).at(-1)).toMatchObject({ type: "question.answered", unit: "run" });
+    expect(existsSync(join(run.dir, "plan-approved.md"))).toBe(false);
+  });
+
+  it("copies the plan files again on every answer", async () => {
+    withHome();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "p.md"), PLAN_TEXT);
+    const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"], plan: ["p.md"] });
+    const run = findRun(r.run);
+    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    await appendEvent(run, { type: "question.parked", unit: "M1", question: "q", reason: "preflight" });
+    writeFileSync(join(repo, "p.md"), `${PLAN_TEXT}fixed\n`);
+    await answerUnit(fakeDeps(), { run: run.id, unit: "M1", answer: "fixed the plan" });
+    expect(readFileSync(join(run.dir, "plan-input/p.md"), "utf8")).toBe(`${PLAN_TEXT}fixed\n`);
   });
 });
 
