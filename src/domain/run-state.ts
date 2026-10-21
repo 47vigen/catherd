@@ -303,7 +303,7 @@ export function limitedRung(s: RunState, name: string): string | null {
 
 /** The owner gave the run its plan: files in `run.started` or a `plan:` A-line. */
 export const hasPlanInput = (s: RunState): boolean =>
-  s.plan.length > 0 || s.aLines.some((l) => /^\s*plan:/i.test(l));
+  s.plan.length > 0 || s.aLines.some((l) => /^\s*plan:\s*\S/i.test(l));
 
 const hasJudge = (s: RunState, unit: string): boolean => Object.values(s.judges).some((j) => j.unit === unit);
 

@@ -79,6 +79,13 @@ describe("run state", () => {
     }
   });
 
+  it("stops for approval when a plan: A-line names no file", () => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, aLines: ["plan:"] });
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("approval");
+  });
+
   it("asks again when an approval is parked mid-run, and keeps what the owner asked for as the architect's notes", () => {
     const log = runningLog();
     log.add("question.parked", { unit: "run", question: "again?", reason: "approval" });
