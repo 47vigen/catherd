@@ -46,9 +46,10 @@ const DOT: Record<ChipColor, string> = {
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 
-export function StatusChip({ status, until }: { status: Status; until?: string }) {
+/** `label` replaces the status word when a row has a word of its own ("missing" on a failed check). */
+export function StatusChip({ status, until, label: word }: { status: Status; until?: string; label?: string }) {
   const color = COLORS[status];
-  const label = status.charAt(0).toUpperCase() + status.slice(1);
+  const label = (word ?? status).charAt(0).toUpperCase() + (word ?? status).slice(1);
   const end = status === "held" && until ? new Date(until) : undefined;
   return (
     <Chip color={color} variant="soft" size="sm" data-color={color} className="gap-1.5 pl-1.5">

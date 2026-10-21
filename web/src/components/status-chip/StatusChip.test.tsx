@@ -35,3 +35,10 @@ test("until is ignored for other states", () => {
   render(<StatusChip status="running" until="2026-10-14T10:30:00Z" />);
   expect(screen.queryByText(/until/)).toBeNull();
 });
+
+test("a label replaces the status word and keeps its colour", () => {
+  const { container } = render(<StatusChip status="fail" label="missing" />);
+  const chip = container.querySelector('[data-slot="chip"]');
+  expect(chip).toHaveAttribute("data-color", "danger");
+  expect(chip).toHaveTextContent("Missing");
+});
