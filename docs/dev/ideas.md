@@ -26,6 +26,22 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
+- **A lane-less role whose routed rung lands on a held quota fails over with no `routes.jsonl` row.** `rungFor`
+  records a failover only when `a.failoverFrom` is set (`src/services/run-effects.ts:247`), yet the same branch
+  (`:244-246`) also swaps the rung when the routed one sits on a held quota. Fix:
+  `recordFailover(a, a.failoverFrom ?? rung, stand, s)`.
+- **Bars out of order are accepted silently.** `barOk` takes any 0-100 for any difficulty
+  (`src/domain/profile.ts:96`), so a worker `hard` bar below its `build` bar passes, and validate's "no worker rung
+  clears ..." text (`src/domain/profile-rules.ts:226`) then misleads, as the cause is the order, not the rungs. Fix:
+  warn in `validateProfile` when a harder difficulty's bar is lower than an easier one's.
+- **An explicit rung for a lane-less dispatch skips the floor and the cap.** `else rung = i.rung`
+  (`src/services/dispatch-service.ts:457`) takes the caller's rung as is, while a lane's rung goes through routing,
+  which applies `CODING_FLOOR` and `maxEffort` (`effortAllowed`, `src/domain/select.ts:40-52`). Fix: refuse or warn
+  for a coding role's rung below the floor or above its cap, as validate does for the rungs.
+- **`run_start`'s refusal names the wrong cause.** It says "no usable rung on the Slopalytics index"
+  (`src/services/run-service.ts:131`) when the role's only rungs are removed by `maxEffort` or the coding floor
+  (`rolesWithoutRung`, `src/services/routing-service.ts:315`). Fix: name the cause (the cap, the floor, or the index)
+  in the message and the fix.
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
   Jev, or the judge at `readPlan`, whether each task names what its worker must build.

@@ -16,7 +16,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | merged (#62; ledger `plan30b-ledger.md`) |
 | 31 panel | `docs/plans/2026-10-21-31-panel.md` | merged (#63; ledger `plan31-ledger.md`) |
 | 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md` | in PR (final review 0 C / 3 I fixed, 2 minors fixed; ledger `plan32-ledger.md`) |
-| 33 routing | `docs/plans/2026-10-21-33-routing.md` | written |
+| 33 routing | `docs/plans/2026-10-21-33-routing.md` | in PR (final review 0 C / 0 I, 2 minors fixed; ledger `plan33-ledger.md`) |
 | 34 knowledge and digest | `docs/plans/2026-10-21-34-knowledge-digest.md` | written |
 | 35 milestone branches | `docs/plans/2026-10-21-35-milestone-branches.md` | written |
 | 36 release 2.0 | `docs/plans/2026-10-21-36-release.md` | written |
