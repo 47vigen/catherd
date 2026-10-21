@@ -244,7 +244,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const held = heldQuotas(s);
     if (a.failoverFrom || (parsed !== null && held.includes(quotaOf(parsed)))) {
       const stand = failoverRung(deps, run, a.role, rung, held);
-      if (a.failoverFrom) recordFailover(a, a.failoverFrom, stand, s);
+      recordFailover(a, a.failoverFrom ?? rung, stand, s);
       if (!stand)
         return {
           code: "E_ALL_HELD",

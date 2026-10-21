@@ -267,6 +267,31 @@ describe("dispatching", () => {
       }
     });
 
+    it("writes a failover row when a lane-less role's routed rung sits on a held quota", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(
+        "opencode:opencode-go/gpt-6-luna#high",
+      );
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ lane: null, rung: "codex:gpt-6-luna#high" }),
+          stateWithHolds(run, { codex: until() }),
+        );
+        expect(failoverRows(run)).toEqual([
+          expect.objectContaining({
+            lane: null,
+            from: "codex:gpt-6-luna#high",
+            rung: "opencode:opencode-go/gpt-6-luna#high",
+            held: ["codex"],
+          }),
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("writes no failover row for a dispatch that is not a failover", async () => {
       const { run, fx } = setup();
       writeLane(run, "M1.L1", ["src/a/"]);

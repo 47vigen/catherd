@@ -26,10 +26,6 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
-- **A lane-less role whose routed rung lands on a held quota fails over with no `routes.jsonl` row.** `rungFor`
-  records a failover only when `a.failoverFrom` is set (`src/services/run-effects.ts:247`), yet the same branch
-  (`:244-246`) also swaps the rung when the routed one sits on a held quota. Fix:
-  `recordFailover(a, a.failoverFrom ?? rung, stand, s)`.
 - **Bars out of order are accepted silently.** `barOk` takes any 0-100 for any difficulty
   (`src/domain/profile.ts:96`), so a worker `hard` bar below its `build` bar passes, and validate's "no worker rung
   clears ..." text (`src/domain/profile-rules.ts:226`) then misleads, as the cause is the order, not the rungs. Fix:
