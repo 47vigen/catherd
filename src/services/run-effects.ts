@@ -731,7 +731,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const g = await machineGate(run, m.id, m.commit).catch(() => null);
           if (g?.audit.length) audits[m.id] = g.audit;
         }
-        const reportPath = writeRunReport(run, s, readEvents(run), audits);
+        const reportPath = writeRunReport(run, s, readEvents(run), audits, a.proposals);
         return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
       }
       case "classify":

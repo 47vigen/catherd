@@ -574,7 +574,11 @@ function react(s: RunState, e: RunEvent): Action[] {
           type: "report",
           kind: e.outcome === "done" ? "finished" : e.outcome,
           unit: RUN_UNIT,
-          text: `The run ${e.outcome === "done" ? "finished" : e.outcome}${e.reportPath ? `: ${e.reportPath}` : ""}`,
+          text: `The run ${e.outcome === "done" ? "finished" : e.outcome}${e.reportPath ? `: ${e.reportPath}` : ""}${
+            s.rulesReview?.changes.length
+              ? `; ${s.rulesReview.changes.length} proposed change(s) to the standing rules wait in the report`
+              : ""
+          }`,
         },
         { type: "notify", unit: RUN_UNIT, moment: "finish" },
       ];

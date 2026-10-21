@@ -412,8 +412,20 @@ function briefBody(run: Run, s: RunState, a: DispatchAction): string {
 
 const REPLY_TAIL = 3000;
 
+/** The rules review's brief (plan 34): a finished run's judge reads its files and proposes changes to the standing rules. */
+export const RULES_REVIEW_BRIEF =
+  "Rules review: this run is over. Read its events.jsonl, digests/ and lanes/ with read_run_file, and the repo's standing rules with read_knowledge (one rule per line; a [role, …] tag after the source scopes a line to those roles). Propose at most five changes, each with the event it comes from: a one-line rule that would have prevented a review round, a failed check, a climb or a question (tagged [role, …] when it is not for every role), or the removal of a line that is stale, covers one past incident only, or repeats another. Propose no change when none would have helped. Write nothing.";
+
 /** The judge's brief: its kind and unit, the context, the numbered findings and the lanes, nothing else. */
 export function judgeBrief(run: Run, input: JudgeInput): string {
+  if (input.kind === "rules")
+    return [
+      RULES_REVIEW_BRIEF,
+      "",
+      input.context,
+      "",
+      `Kind: ${input.kind}. Unit: ${input.unit}. Your verbs: ${JUDGE_VERBS[input.kind].join(", ")}.`,
+    ].join("\n");
   const reply = /^reply: (\S+)$/m.exec(input.context)?.[1];
   const tail = reply ? read(join(run.dir, reply)).trimEnd().slice(-REPLY_TAIL) : "";
   const verbs = JUDGE_VERBS[input.kind].join(", ");

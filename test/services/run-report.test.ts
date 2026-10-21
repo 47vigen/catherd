@@ -108,4 +108,37 @@ describe("the run report (plan 34)", () => {
       "## Plan lint",
     );
   });
+
+  it("lists each proposal with its command, quoting the text (plan 34)", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const text = readFileSync(
+      writeRunReport(run, log.state(), log.events, {}, [
+        { op: "add", text: "[worker] run bun test <file>", why: "M1 round 2" },
+        { op: "remove", text: "don't use the v1 client", why: "stale" },
+      ]),
+      "utf8",
+    );
+    expect(text).toContain("## Rules review");
+    expect(text).toContain("1. ADD [worker] run bun test <file> — M1 round 2");
+    expect(text).toContain("`catherd knowledge add '[worker] run bun test <file>'`");
+    expect(text).toContain("2. REMOVE don't use the v1 client — stale");
+    expect(text).toContain("`catherd knowledge rm 'don'\\''t use the v1 client'`");
+  });
+
+  it("says when the judge proposed nothing or gave no answer, and has no section for a cancelled run (plan 34)", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const report = (proposals?: Parameters<typeof writeRunReport>[4]) =>
+      readFileSync(writeRunReport(run, log.state(), log.events, {}, proposals), "utf8");
+    expect(report([])).toContain("The judge proposed no change to the standing rules.");
+    expect(report()).not.toContain("## Rules review");
+    for (let i = 0; i < 2; i++) {
+      startDispatch(log, { name: "judge-rules", role: "judge", unit: "run", lane: null, judgeKind: "rules" });
+      log.add("judge.failed", { id: "rules", unit: "run", why: "unreadable" });
+    }
+    expect(report()).toContain("No rules review: the judge gave no readable answer.");
+  });
 });

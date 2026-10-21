@@ -6,7 +6,7 @@ import type { MilestonePlan } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
-import { briefFor, judgeBrief } from "../../src/services/run-briefs.ts";
+import { briefFor, judgeBrief, RULES_REVIEW_BRIEF } from "../../src/services/run-briefs.ts";
 import { scratchDir } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { endDispatch, runningLog, startDispatch, makeLog } from "../domain/run-fixtures.ts";
@@ -478,5 +478,24 @@ describe("research answers in a lane's brief (plan 34)", () => {
     const { run } = freshRun();
     await answered(run, "D1", "x".repeat(4100));
     expect(lane(run, "M1.L2")).toContain(`${"x".repeat(4000)}\n[… 100 more characters cut]`);
+  });
+});
+
+describe("the rules review's brief (plan 34)", () => {
+  it("gives the rules judge the review brief, its context and nothing of a lane", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
+    const text = judgeBrief(run, {
+      id: "rules",
+      kind: "rules",
+      unit: "run",
+      context: "M1 t: 2 review round(s), 1 known issue(s)",
+      findings: [],
+      lanes: [],
+    });
+    expect(text).toStartWith(RULES_REVIEW_BRIEF);
+    expect(text).toContain("M1 t: 2 review round(s), 1 known issue(s)");
+    expect(text).toContain("Your verbs: rules.");
+    expect(text).not.toContain("bun test src/a");
   });
 });

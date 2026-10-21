@@ -14,6 +14,7 @@ import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
+import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
@@ -1106,6 +1107,24 @@ describe("parking, reporting, finishing", () => {
     const ended = lastOf(run, "run.ended");
     expect(ended).toMatchObject({ outcome: "cancelled", reportPath: join(run.dir, "report.md") });
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
+  });
+
+  it("finishes with the rules proposals in the report and writes knowledge.md never (plan 34)", async () => {
+    const { run, repo, fx } = setup();
+    await addKnowledge(repo, "[worker] keep");
+    const file = (await knowledgePath(repo)).path;
+    const before = readFileSync(file, "utf8");
+    await seed(run);
+    const proposals = [
+      { op: "add" as const, text: "[worker] run bun test <file>", why: "M1 round 2" },
+      { op: "remove" as const, text: "use the v1 client", why: "stale" },
+    ];
+    await fx.run({ type: "finish", outcome: "done", proposals }, replayRun(run));
+    const text = readFileSync(join(run.dir, "report.md"), "utf8");
+    expect(text).toContain("catherd knowledge add '[worker] run bun test <file>'");
+    expect(text).toContain("catherd knowledge rm 'use the v1 client'");
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(lastOf(run, "run.ended")).toMatchObject({ outcome: "done" });
   });
 
   it("lists what a landed milestone's check passed on only through the base under Audit", async () => {

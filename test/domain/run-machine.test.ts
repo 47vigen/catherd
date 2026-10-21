@@ -1094,6 +1094,20 @@ describe("the machine: the run", () => {
     expect(of(out, "finish")).toEqual([{ type: "finish", outcome: "done", proposals: changes }]);
   });
 
+  it("says in the finished report how many proposed changes wait (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    log.add("judge.decided", {
+      id: "rules",
+      unit: "run",
+      kind: "rules",
+      decision: { verb: "rules", changes: [{ op: "add", text: "x", why: "y" }] },
+      dispatchId: j,
+    });
+    log.add("run.ended", { outcome: "done", reportPath: "report.md" });
+    expect(of(last(log), "report")[0]?.text).toContain("1 proposed change(s) to the standing rules wait");
+  });
+
   it("finishes without a review when the rules judge fails twice (plan 34)", () => {
     const log = landedAll();
     for (let i = 0; i < 2; i++) {
