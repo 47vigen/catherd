@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFindings } from "../domain/findings.ts";
 import { JUDGE_CONTRACT, type JudgeInput, JUDGE_VERBS } from "../domain/judge.ts";
+import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
@@ -217,8 +218,12 @@ function researchBrief(run: Run): string {
 /** The brief of one dispatch: what its role is to do, from the run's own facts. Admission adds the lane file and the reply contract. */
 export function briefFor(run: Run, s: RunState, a: DispatchAction): string {
   const text = briefBody(run, s, a);
-  // a lane's answers ride in its own notes; a milestone's go to every role that works on it
-  const answered = a.lane ? [] : (s.milestones.find((m) => m.id === a.unit)?.notes ?? []);
+  // a lane's answers ride in its own notes; a milestone's go to every role that works on it; the run's, to planning
+  const answered = a.lane
+    ? []
+    : a.unit === RUN_UNIT
+      ? s.notes
+      : (s.milestones.find((m) => m.id === a.unit)?.notes ?? []);
   return answered.length ? `${text}\n\n${answered.join("\n")}` : text;
 }
 

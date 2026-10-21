@@ -72,6 +72,21 @@ describe("briefs", () => {
     ).not.toContain("use postgres");
   });
 
+  it("carries the owner's answer to a parked planning role into its retried brief", () => {
+    const { run } = freshRun();
+    const log = runningLog();
+    log.add("question.parked", { unit: "run", question: "which spec?", reason: "needs_user" });
+    log.add("question.answered", { unit: "run", answer: "use the v2 spec", by: "owner" });
+    const s = log.state();
+    for (const [brief, role] of [
+      ["architect", "architect"],
+      ["dossier", "researcher"],
+    ] as const)
+      expect(briefFor(run, s, act({ brief, role, name: role, unit: "run", lane: null }))).toContain(
+        "The owner answered: use the v2 spec",
+      );
+  });
+
   it("asks a researcher for the dossier's eight parts", () => {
     const { run } = freshRun();
     const text = briefFor(

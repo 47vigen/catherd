@@ -158,6 +158,8 @@ export interface RunState {
   plan: string[];
   /** the roles the profile turns off */
   rolesOff: Role[];
+  /** what the owner answered at run level (a parked planning role): its retried briefs carry it */
+  notes: string[];
   milestones: MilestoneState[];
   lanes: Record<string, LaneState>;
   dispatches: Record<string, DispatchView>;
@@ -191,6 +193,7 @@ export function emptyState(run: string): RunState {
     aLines: [],
     plan: [],
     rolesOff: [],
+    notes: [],
     milestones: [],
     lanes: {},
     dispatches: {},
@@ -617,6 +620,7 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   const m = milestoneOf(s, e.unit);
   if (!m) {
     for (const k of Object.keys(s.failedEffects)) if (k.startsWith("ended:")) delete s.failedEffects[k];
+    if (e.unit === RUN_UNIT) s.notes.push(`The owner answered: ${e.answer}`);
     return;
   }
   m.notes.push(`The owner answered: ${e.answer}`);
