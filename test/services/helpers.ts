@@ -121,6 +121,12 @@ export function fakeDeps(
       confidence: null,
       source: "default",
     }),
+    stopCause: async (_runDir, _status, _reply, _use) => ({
+      value: "other",
+      probability: null,
+      confidence: null,
+      source: "default",
+    }),
     checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };

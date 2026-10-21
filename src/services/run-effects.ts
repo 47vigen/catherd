@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
+import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
 import { parseFailLines, parseFindings } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
@@ -55,13 +56,32 @@ const read = (file: string): string => {
   }
 };
 
+/** A lane's `Owns:` entries, and those of the other lanes of its milestone; empty when a lane file is gone. */
+function laneOwnsOf(run: Run, lane: string): { own: string[]; siblings: string[] } {
+  const dir = runPaths(run.dir).lanes;
+  const prefix = lane.slice(0, lane.indexOf(".") + 1);
+  const owns = (id: string): string[] => parseLaneHeader(read(join(dir, `${id}.md`))).owns;
+  const ids = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith(".md") && f.startsWith(prefix))
+        .map((f) => f.slice(0, -3))
+    : [];
+  return { own: owns(lane), siblings: ids.filter((id) => id !== lane).flatMap(owns) };
+}
+
+/** The sibling entries a failed lane check blames when it blames only them: the lane counts as done. */
+function foreignOf(run: Run, lane: string, log: string): string[] {
+  const { own, siblings } = laneOwnsOf(run, lane);
+  return foreignFailure(log, own, siblings);
+}
+
 const FIRST_LINE = /^VERDICT:\s*FAIL\b/i;
 const PASS_LINE = /^VERDICT: PASS\b/;
 
 /**
  * The `dispatch.ended` event of a finished dispatch: the record's status, the reply's findings (a reviewer's
- * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict. 30b adds `reason`, `head`
- * and `foreign`.
+ * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
+ * names, the HEAD a verifier checked, and the sibling files a `check_broken` lane blames.
  */
 export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
@@ -81,6 +101,8 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
         findings = [{ label: "BLOCKER", text: `no VERDICT line: ${first || "empty reply"}`, file: null }];
     }
   }
+  const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
+  const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -88,14 +110,14 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     unit,
     status: record.status,
     replyStatus: record.replyStatus,
-    reason: null,
+    reason,
     why: record.replyWhy ?? record.error?.message ?? "",
     thread: record.thread,
-    head: null,
+    head: record.head ?? null,
     environment: record.environment ?? (probe ? probe : null),
     verdict,
     findings,
-    foreign: [],
+    foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
   };
 }
@@ -391,13 +413,36 @@ export function realEffects(deps: Deps, run: Run): Effects {
     );
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
+    const failed = !allowed && r.code !== 0;
     await append({
       type: "check.ran",
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
-      foreign: [],
+      // a check that fails only in a sibling's files still counts: the sibling is not done writing them
+      foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
     });
+  }
+
+  /** Why a stop gave no reason: Jev reads the end of the reply; null when it is off, unsure or says other. */
+  async function classify(a: Extract<Action, { type: "classify" }>): Promise<void> {
+    const record = readRecords(run).records.find((r) => r.dispatchId === a.dispatchId);
+    let reason: BlockedReason | null = null;
+    if (record) {
+      const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
+      try {
+        const v = await deps.routing.stopCause(
+          run.dir,
+          `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`,
+          reply,
+          runProfile(deps, run).jev.use,
+        );
+        if (v.source === "jev" && v.value !== "other") reason = v.value;
+      } catch (e) {
+        log("warn", "daemon", { run: run.id, action: "classify", error: errorMessage(e) });
+      }
+    }
+    await append({ type: "stop.classified", dispatchId: a.dispatchId, reason });
   }
 
   async function commit(a: Extract<Action, { type: "commit" }>, s: RunState): Promise<void> {
@@ -550,6 +595,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
       }
       case "classify":
+        return classify(a);
       case "checkMerged":
       case "integrate":
         throw new Error(`${a.type} needs catherd 30b`);

@@ -1,3 +1,4 @@
+import type { BlockedReason } from "../domain/blocked.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Provenance } from "./provenance.ts";
 import type { Budget } from "../domain/budget.ts";
@@ -152,6 +153,13 @@ export interface RoutingPort {
     after: string,
     use: "auto" | "off",
   ): Promise<Verdict<"yes" | "no">>;
+  /** plan 30b: why a role stopped that gave no reason; `other` and an unsure answer are the rule's fallback */
+  stopCause(
+    runDir: string,
+    status: string,
+    reply: string,
+    use: "auto" | "off",
+  ): Promise<Verdict<BlockedReason | "other">>;
   /**
    * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
    * that no indexed pair can fill; `index` is what the run pins (null when there is none).

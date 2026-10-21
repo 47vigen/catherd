@@ -84,6 +84,24 @@
         }
       },
       "rule": { "min": 0.85, "fallback": "no" }
+    },
+    "stop": {
+      "questions": {
+        "stop": {
+          "type": "choice",
+          "instructions": "An agent stopped before finishing its task. `status` is how its process ended and `reply` is the end of its last message. Why did it stop?",
+          "criteria": {
+            "needs_user": "The agent needs a decision, a credential or a fact that only the project owner can give",
+            "too_hard": "The agent worked on the task but could not make the change work, or could not understand the code well enough",
+            "provider_error": "The model, its tools or its sandbox failed: an API, network, overload, timeout or crash error, with no judgement about the work",
+            "no_access": "The agent could not reach something it needs: a running app, a service, a host or credentials",
+            "check_broken": "The agent's check, tests or lint cannot pass for a reason outside its task",
+            "out_of_scope": "The task needs changes outside the files the agent may change",
+            "other": "None of the above"
+          }
+        }
+      },
+      "rule": { "min": 0.8, "fallback": "other" }
     }
   }
 }

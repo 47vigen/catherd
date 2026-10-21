@@ -242,7 +242,7 @@ async function routeMany(reqs: RouteRequest[], o: RoutingOpts): Promise<RouteAns
 
 async function verdict<T extends string>(
   runDir: string,
-  set: Extract<SetName, "finding" | "same-defect">,
+  set: Extract<SetName, "finding" | "same-defect" | "stop">,
   state: Record<string, unknown>,
   options: readonly T[],
   use: "auto" | "off",
@@ -297,6 +297,8 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
         use,
         o,
       ),
+    stopCause: (runDir, status, reply, use) =>
+      verdict(runDir, "stop", { status, reply: scrubFree(reply.slice(-4000)) }, VERDICT_OPTIONS.stop, use, o),
     checkStart: async (view, repo) => {
       const { catalog, index } = await startIndex(repo);
       return { unusable: rolesWithoutRung(catalog, view), index };

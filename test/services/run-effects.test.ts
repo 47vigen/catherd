@@ -387,6 +387,114 @@ describe("what a dispatch said", () => {
   });
 });
 
+describe("what a stop says (30b)", () => {
+  it("puts the reply's reason and HEAD on dispatch.ended", () => {
+    const { run } = freshRun();
+    const stopped = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "too_hard: no luck",
+      },
+      "nothing\nSTATUS: blocked — too_hard: no luck",
+    );
+    expect(endedEvent(run, stopped, "M1.L1")).toMatchObject({ reason: "too_hard", head: null });
+    const head = "0123456789abcdef0123456789abcdef01234567";
+    const verdict = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1", head },
+      `VERDICT: PASS\nHEAD: ${head}\nSTATUS: complete — ok`,
+    );
+    expect(endedEvent(run, verdict, "M1")).toMatchObject({ verdict: "pass", head, reason: null });
+    // a complete reply has no reason, whatever its why says
+    const done = withReply(run, { role: "worker", replyStatus: "complete", replyWhy: "too_hard" }, "x");
+    expect(endedEvent(run, done, "M1.L1")).toMatchObject({ reason: null });
+  });
+
+  it("names only sibling files as foreign, for a check_broken lane and for its failed fast check", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a.ts"], "echo 'src/b.ts:3 error: unused'; exit 1");
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    await seed(run);
+    const broken = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "check_broken: src/b.ts:3 fails",
+      },
+      "src/b.ts:3 error\nSTATUS: blocked — check_broken: src/b.ts:3 fails",
+    );
+    expect(endedEvent(run, broken, "M1.L1")).toMatchObject({ reason: "check_broken", foreign: ["src/b.ts"] });
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ exit: 1, foreign: ["src/b.ts"] });
+  });
+});
+
+describe("classifying a stop (30b)", () => {
+  const stoppedRun = async (deps: ReturnType<typeof setup>["deps"], run: Run) => {
+    await seed(run);
+    const r = withReply(
+      run,
+      { role: "worker", name: "worker-M1.L1", lane: "M1.L1", replyStatus: "blocked", replyWhy: "stuck" },
+      "stuck\nSTATUS: blocked — stuck",
+    );
+    await appendRecord(run, r);
+    return r.dispatchId;
+  };
+
+  it("classifies a stop with no reason through Jev, once", async () => {
+    const { run, deps, fx } = setup();
+    let calls = 0;
+    deps.routing.stopCause = async () => (
+      calls++,
+      { value: "needs_user", probability: 0.91, confidence: 0.5, source: "jev" }
+    );
+    const dispatchId = await stoppedRun(deps, run);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")).toEqual(
+      expect.objectContaining({ dispatchId, reason: "needs_user" }),
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("classifies to null with Jev off, for other, or for an unsure answer", async () => {
+    const { run, deps, fx } = setup();
+    deps.routing.stopCause = async () => ({
+      value: "other",
+      probability: 0.9,
+      confidence: 1,
+      source: "jev",
+    });
+    const dispatchId = await stoppedRun(deps, run);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    deps.routing.stopCause = async () => ({
+      value: "too_hard",
+      probability: 0.5,
+      confidence: 1,
+      source: "default",
+    });
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    // off: the routing port answers its default without a call, and the effect still appends null
+    deps.view.jev = { use: "off" };
+    let usedOff = false;
+    deps.routing.stopCause = async (_d, _s, _r, use) => {
+      usedOff = use === "off";
+      return { value: "other", probability: null, confidence: null, source: "default" };
+    };
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    expect(usedOff).toBe(true);
+  });
+});
+
 describe("planning", () => {
   it("builds the plan from lanes/*.md and plan.md's milestone headings", () => {
     const { run } = freshRun();
