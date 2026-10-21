@@ -1,8 +1,9 @@
 import { Alert, cn, Label, ListBox, Pagination as HeroPagination, SearchField, Select, Skeleton } from "@heroui/react";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
-import { errorMessage } from "../../lib/api";
+import { errorFix, errorMessage } from "../../lib/api";
 import { PAGE_SIZES, pageCount } from "../../lib/list-search";
+import { CodeBlock } from "../code-block/CodeBlock";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -135,6 +136,7 @@ function State({
         <Alert.Content>
           <Alert.Title>Could not load this list</Alert.Title>
           <Alert.Description>{errorMessage(error)}</Alert.Description>
+          {errorFix(error) ? <CodeBlock lang="text" code={errorFix(error) as string} className="mt-2" /> : null}
         </Alert.Content>
       </Alert>
     );

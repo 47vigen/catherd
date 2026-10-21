@@ -6,11 +6,12 @@ import { type ReactNode, useState } from "react";
 
 import type { RunView, TimelineEntry } from "../../../client";
 import { cancelRunMutation, getRunOptions, getRunTimelineOptions } from "../../../client/@tanstack/react-query.gen";
+import { CodeBlock } from "../../../components/code-block/CodeBlock";
 import { ConfirmDelete } from "../../../components/confirm-delete/ConfirmDelete";
 import { DataList } from "../../../components/data-list/DataList";
 import { PageHeader, SectionLabel } from "../../../components/page-header/PageHeader";
 import { StatusChip } from "../../../components/status-chip/StatusChip";
-import { errorMessage } from "../../../lib/api";
+import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch } from "../../../lib/list-search";
 import { invalidateOps } from "../../../lib/query";
 import { formatRelative } from "../../../lib/time";
@@ -170,6 +171,7 @@ function RunDetail({ runId }: { runId: string }) {
         <Alert.Content>
           <Alert.Title>Could not load this run</Alert.Title>
           <Alert.Description>{errorMessage(run.error)}</Alert.Description>
+          {errorFix(run.error) ? <CodeBlock lang="text" code={errorFix(run.error) as string} className="mt-2" /> : null}
         </Alert.Content>
       </Alert>
     );

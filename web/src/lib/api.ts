@@ -30,6 +30,15 @@ export function errorMessage(err: unknown): string {
   return "Request failed";
 }
 
+/** Reads the recovery command the server attaches to an error (`fix`), if there is one. */
+export function errorFix(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const detail = (err as { error?: unknown }).error;
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const fix = (detail as { fix?: unknown }).fix;
+  return typeof fix === "string" && fix !== "" ? fix : undefined;
+}
+
 /** Reports whether an API error body carries the given error code. */
 export function hasErrorCode(err: unknown, code: string): boolean {
   if (typeof err !== "object" || err === null) return false;

@@ -165,3 +165,23 @@ test("a role with no indexed pair says to sync the catalog", async () => {
     await screen.findByText("No indexed pair fits this role. Run catherd catalog sync, then reload."),
   ).toBeInTheDocument();
 });
+
+test("a setup that cannot load shows the server's message and its recovery command", async () => {
+  renderRoute("/setup", (_req, url) =>
+    url.pathname === "/api/setup"
+      ? Response.json(
+          {
+            error: {
+              message: "no host: catherd cannot tell which agent runs it",
+              type: "E_CONFIG_INVALID",
+              code: "E_CONFIG_INVALID",
+              fix: "catherd --host codex",
+            },
+          },
+          { status: 500 },
+        )
+      : undefined,
+  );
+  expect(await screen.findByText(/no host: catherd cannot tell/)).toBeInTheDocument();
+  expect(screen.getByText("catherd --host codex")).toBeInTheDocument();
+});

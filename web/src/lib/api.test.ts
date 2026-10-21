@@ -1,6 +1,6 @@
 import { getSession, login } from "../client";
 import { client } from "../client/client.gen";
-import { configureClient, errorMessage } from "./api";
+import { configureClient, errorFix, errorMessage } from "./api";
 
 afterEach(() => {
   client.interceptors.response.clear();
@@ -18,6 +18,16 @@ test("errorMessage reads the API error shape", () => {
   expect(errorMessage(new Error("boom"))).toBe("boom");
   expect(errorMessage(null)).toBe("Request failed");
   expect(errorMessage("plain")).toBe("Request failed");
+});
+
+test("errorFix reads the recovery command from the API error shape", () => {
+  expect(errorFix({ error: { code: "E_CONFIG_INVALID", message: "m", fix: "catherd --host codex" } })).toBe(
+    "catherd --host codex",
+  );
+  expect(errorFix({ error: { code: "x", message: "m" } })).toBeUndefined();
+  expect(errorFix({ error: { code: "x", message: "m", fix: "" } })).toBeUndefined();
+  expect(errorFix(new Error("boom"))).toBeUndefined();
+  expect(errorFix(null)).toBeUndefined();
 });
 
 test("configureClient calls onUnauthorized on a 401 outside /api/auth/login", async () => {

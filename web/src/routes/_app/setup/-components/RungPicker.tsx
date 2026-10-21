@@ -5,7 +5,8 @@ import { useState } from "react";
 import { filterPairs, pairLine } from "../-lib/rungs";
 import type { SetupView } from "../../../../client";
 import { setRoleRungsMutation } from "../../../../client/@tanstack/react-query.gen";
-import { errorMessage } from "../../../../lib/api";
+import { CodeBlock } from "../../../../components/code-block/CodeBlock";
+import { errorFix, errorMessage } from "../../../../lib/api";
 import { invalidateOps } from "../../../../lib/query";
 
 type Role = SetupView["roles"][number];
@@ -78,6 +79,9 @@ function Picker({ role, onClose }: { role: Role; onClose(): void }) {
             <Alert.Indicator />
             <Alert.Content>
               <Alert.Description>{errorMessage(save.error)}</Alert.Description>
+              {errorFix(save.error) ? (
+                <CodeBlock lang="text" code={errorFix(save.error) as string} className="mt-2" />
+              ) : null}
             </Alert.Content>
           </Alert>
         ) : null}
