@@ -66,9 +66,9 @@ describe("agentFiles", () => {
   it("tells a native role it is not the orchestrator, and forbids it the coordinator tools (spec 1.5 plan 21)", () => {
     const [architect] = agentFiles(profile(), "1.0.0");
     expect(architect?.text).toContain(
-      "You are a role of a catherd run, not its orchestrator. Never call catherd's peek, result, dispatch,",
+      "You are a role of a catherd run, not its orchestrator. Never call catherd's run_start, answer, cancel,",
     );
-    for (const tool of ["peek", "result", "dispatch", "run_start", "land", "workspace_child_start"])
+    for (const tool of ["run_start", "answer", "cancel", "result", "profile"])
       expect(architect?.text).toContain(`${NATIVE_TOOL_PREFIX}${tool}`);
   });
 
