@@ -113,6 +113,27 @@ describe("answerUnit", () => {
   });
 });
 
+describe("answerUnit, concurrently", () => {
+  it("lets one of two simultaneous answers through, and refuses the other", async () => {
+    const { run } = freshRun();
+    const deps = fakeDeps();
+    await seed(run);
+    await park(deps, { run: run.id, milestone: "M1", question: "which currency?" });
+    await appendEvent(run, {
+      type: "question.parked",
+      unit: "M1",
+      question: "which currency?",
+      reason: "needs_user",
+    });
+    const out = await Promise.allSettled([
+      answerUnit(deps, { run: run.id, unit: "M1", answer: "euros" }),
+      answerUnit(deps, { run: run.id, unit: "M1", answer: "dollars" }),
+    ]);
+    expect(out.map((o) => o.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(readEvents(run).filter((e) => e.type === "question.answered")).toHaveLength(1);
+  });
+});
+
 describe("cancelRun", () => {
   it("cancels a run once: a second cancel appends nothing", async () => {
     const { run } = freshRun();

@@ -6,7 +6,7 @@ import { liveDispatches } from "../domain/run-state.ts";
 import { ensureDaemon } from "./daemon.ts";
 import type { Deps } from "./ports.ts";
 import { answer, openQuestions } from "./questions.ts";
-import { appendEvent, isDaemonRun, readEvents, replayRun } from "./run-events-store.ts";
+import { appendEvent, isDaemonRun, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
 
@@ -59,21 +59,20 @@ export async function answerUnit(
   i: { run: string; unit: string; answer: string },
 ): Promise<{ unit: string; parked: string[] }> {
   const run = daemonRun(i.run);
-  const open = Object.keys(replayRun(run).questions);
-  if (!open.includes(i.unit))
-    throw new CatherdError("E_INPUT_INVALID", `${i.unit} has no open question`, {
-      fix: open.length
-        ? `the open ones: ${open.join(", ")}`
-        : "status(run) shows the run's state: nothing waits for an answer now",
-    });
-  // a milestone's park is in questions.jsonl too, which land's gate reads
-  if (openQuestions(run).some((q) => q.milestone === i.unit))
-    await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });
-  await appendEvent(
-    run,
-    { type: "question.answered", unit: i.unit, answer: i.answer, by: "owner" },
-    new Date(deps.now()),
-  );
+  // the check and the append are one step: two answers to one question never both get through
+  await withEventsLock(run, async (add) => {
+    const open = Object.keys(replayRun(run).questions);
+    if (!open.includes(i.unit))
+      throw new CatherdError("E_INPUT_INVALID", `${i.unit} has no open question`, {
+        fix: open.length
+          ? `the open ones: ${open.join(", ")}`
+          : "status(run) shows the run's state: nothing waits for an answer now",
+      });
+    // a milestone's park is in questions.jsonl too, which land's gate reads
+    if (openQuestions(run).some((q) => q.milestone === i.unit))
+      await answer(deps, { run: run.id, milestone: i.unit, answer: i.answer });
+    add({ type: "question.answered", unit: i.unit, answer: i.answer, by: "owner" }, new Date(deps.now()));
+  });
   ensureDaemon(run);
   return { unit: i.unit, parked: Object.keys(replayRun(run).questions) };
 }

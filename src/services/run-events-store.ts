@@ -112,19 +112,29 @@ function lastSeq(run: Run): number {
   }
 }
 
+/** Runs `fn` under the events file's lock, handing it an append that does not take the lock again. */
+export function withEventsLock<T>(
+  run: Run,
+  fn: (add: (e: RunEventInput, now?: Date) => RunEvent) => T | Promise<T>,
+): Promise<T> {
+  const file = eventsFile(run);
+  return withFileLock(file, () =>
+    fn((e, now = new Date()) => {
+      const event = RunEventSchema.parse({
+        v: EVENTS_SCHEMA,
+        seq: lastSeq(run) + 1,
+        at: now.toISOString(),
+        ...e,
+      });
+      appendJsonl(file, event);
+      return event;
+    }),
+  );
+}
+
 /** Appends one event under the file's lock, with the next dense `seq`, and returns it as written. */
 export async function appendEvent(run: Run, e: RunEventInput, now: Date = new Date()): Promise<RunEvent> {
-  const file = eventsFile(run);
-  return withFileLock(file, () => {
-    const event = RunEventSchema.parse({
-      v: EVENTS_SCHEMA,
-      seq: lastSeq(run) + 1,
-      at: now.toISOString(),
-      ...e,
-    });
-    appendJsonl(file, event);
-    return event;
-  });
+  return withEventsLock(run, (add) => add(e, now));
 }
 
 /**
