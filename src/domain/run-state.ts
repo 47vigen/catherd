@@ -156,6 +156,8 @@ export interface RunState {
   base: string | null;
   aLines: string[];
   plan: string[];
+  /** the roles the profile turns off */
+  rolesOff: Role[];
   milestones: MilestoneState[];
   lanes: Record<string, LaneState>;
   dispatches: Record<string, DispatchView>;
@@ -188,6 +190,7 @@ export function emptyState(run: string): RunState {
     base: null,
     aLines: [],
     plan: [],
+    rolesOff: [],
     milestones: [],
     lanes: {},
     dispatches: {},
@@ -320,8 +323,10 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
 }
 
 const reviewersOf = (s: RunState, m: MilestoneState): string[] => [
-  `reviewer-${m.id}`,
-  ...(lanesOf(s, m.id).some((l) => l.kind === "ui") ? [`ui-reviewer-${m.id}`] : []),
+  ...(s.rolesOff.includes("reviewer") ? [] : [`reviewer-${m.id}`]),
+  ...(!s.rolesOff.includes("ui-reviewer") && lanesOf(s, m.id).some((l) => l.kind === "ui")
+    ? [`ui-reviewer-${m.id}`]
+    : []),
 ];
 
 /** What a milestone's lanes and fix round have settled: the move to a commit, once nothing is left to do. */
@@ -639,6 +644,7 @@ function apply(s: RunState, e: RunEvent): void {
       s.base = e.base;
       s.aLines = e.aLines;
       s.plan = e.plan;
+      s.rolesOff = e.rolesOff ?? [];
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);
@@ -756,6 +762,7 @@ function apply(s: RunState, e: RunEvent): void {
       m.open = [];
       m.tries = {};
       m.awaiting = reviewersOf(s, m);
+      if (m.awaiting.length === 0) completeRound(s, m);
       return;
     }
     case "commit.failed": {

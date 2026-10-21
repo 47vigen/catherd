@@ -97,6 +97,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     plan: strings,
     base: z.string().nullable(),
     engine: z.literal("2.0"),
+    /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
+    rolesOff: z.array(role).optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("plan.ready", { milestones: z.array(MilestonePlanSchema) }),

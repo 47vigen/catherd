@@ -125,9 +125,12 @@ export function endDispatch(
 }
 
 /** A run that has its plan, routed M1 and passed its preflight: M1's lanes wait to be dispatched. */
-export function runningLog(plan: MilestonePlan[] = PLAN): Log {
+export function runningLog(
+  plan: MilestonePlan[] = PLAN,
+  started: Fields<"run.started"> = startedFields,
+): Log {
   const log = makeLog();
-  log.add("run.started", startedFields);
+  log.add("run.started", started);
   log.add("plan.ready", { milestones: plan });
   routeMilestone(log, plan[0] as MilestonePlan);
   return log;

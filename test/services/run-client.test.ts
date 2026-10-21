@@ -52,6 +52,10 @@ describe("runStart", () => {
     expect(readEvents(run)).toMatchObject([
       { type: "run.started", title: "wallet", aLines: ["A1 it works"], plan: [], base: null, engine: "2.0" },
     ]);
+    // the fake profile has no ui-reviewer: the run records it as off, and the reviewer as on
+    const off = (readEvents(run)[0] as { rolesOff?: string[] }).rolesOff;
+    expect(off).toContain("ui-reviewer");
+    expect(off).not.toContain("reviewer");
     expect(launched).toEqual([run.id]);
     expect(r).toMatchObject({
       daemon: "revived",

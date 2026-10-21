@@ -2,11 +2,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
+import { ROLES } from "../domain/roles.ts";
 import { liveDispatches } from "../domain/run-state.ts";
 import { ensureDaemon } from "./daemon.ts";
 import type { Deps } from "./ports.ts";
 import { answer, openQuestions } from "./questions.ts";
 import { appendEvent, isDaemonRun, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
+import { runProfile } from "./run-pin.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { result, startRun } from "./run-service.ts";
 
@@ -39,6 +41,7 @@ export async function runStart(
       plan: [],
       base: null,
       engine: "2.0",
+      rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),
   );

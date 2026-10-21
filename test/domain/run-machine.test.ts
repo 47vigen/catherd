@@ -356,6 +356,21 @@ describe("the machine: review rounds", () => {
     });
   });
 
+  it("skips a reviewer the profile turns off, and goes on to the verifier when none is left", () => {
+    const p = plan(2);
+    p[0]!.lanes[1]!.kind = "ui";
+    const log = runningLog(p, { ...startedFields, rolesOff: ["ui-reviewer"] });
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(names(last(log))).toEqual(["reviewer-M1"]);
+    const off = runningLog(p, { ...startedFields, rolesOff: ["reviewer", "ui-reviewer"] });
+    finishLane(off, "M1.L1");
+    finishLane(off, "M1.L2");
+    off.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(off.state().milestones[0]).toMatchObject({ status: "verifying", awaiting: [], counts: [0] });
+  });
+
   it("asks for a second pass over a partial review", () => {
     const log = runningLog();
     finishLane(log, "M1.L1");
