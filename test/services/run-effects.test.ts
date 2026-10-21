@@ -20,11 +20,15 @@ import { appendEvent, readEvents, replayRun } from "../../src/services/run-event
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
-import { createRun } from "../../src/services/run-store.ts";
+import { appendLedger, createRun } from "../../src/services/run-store.ts";
+import { next } from "../../src/domain/run-machine.ts";
+import { branchPusher, claimTree, memoryReader, treeDir } from "../../src/services/milestone-tree.ts";
+import { listDispatches } from "../../src/services/dispatches.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario, type CodexScenario } from "../sim/scenario.ts";
 import { withClaudeScenario } from "../sim/sim-scenarios.ts";
 import {
+  branchRun,
   fakeDeps,
   fakeDispatch,
   freshRun,
@@ -1190,5 +1194,249 @@ describe("parking, reporting, finishing", () => {
     expect(lastOf(run, "effect.failed")).toMatchObject({ action: "route", unit: "M1" });
     await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
     expect(lastOf(run, "effect.failed")?.message).toContain("no base branch");
+  });
+});
+
+// plan 35: a milestone per branch
+const realRead = memoryReader.read;
+const realPush = branchPusher.push;
+afterEach(() => {
+  memoryReader.read = realRead;
+  branchPusher.push = realPush;
+});
+
+/** a base run (meta.base and run.started.base) on a local bare origin, with the effects of a fake-backed profile */
+async function treesSetup(view = testView()) {
+  const s = setup(undefined, view);
+  const b = branchRun();
+  await appendEvent(b.run, { type: "run.started", ...startedFields, base: "main" });
+  await appendEvent(b.run, { type: "plan.ready", milestones: PLAN });
+  return { ...b, deps: s.deps, fx: realEffects(s.deps, b.run) };
+}
+const treeReady = (run: Run, m: string, at?: Date) =>
+  appendEvent(
+    run,
+    {
+      type: "tree.ready",
+      milestone: m,
+      tree: treeDir(run, m),
+      branch: `t-${m.toLowerCase()}`,
+      base: "main",
+      hints: [],
+    },
+    at,
+  );
+const claimM = (run: Run, m: string) => claimTree(fakeDeps(), run, m, { known: false });
+const act = (type: "claimTree" | "pushBranch", milestone: string): Action => ({ type, milestone });
+
+describe("a milestone per branch (plan 35)", () => {
+  it("claims a tree when memory allows, and defers with the numbers when it does not", async () => {
+    const { run, deps, fx } = await treesSetup();
+    await treeReady(run, "M1", new Date(deps.now() - 10 * 60_000)); // M1 has worked for ten minutes
+    memoryReader.read = () => 5000; // 5000 − 2048 < 3072
+    await fx.run(act("claimTree", "M2"), replayRun(run));
+    expect(lastOf(run, "tree.deferred")).toMatchObject({ milestone: "M2", availableMb: 5000, needMb: 5120 });
+    expect(existsSync(treeDir(run, "M2"))).toBe(false);
+    memoryReader.read = () => 9000;
+    await fx.run(act("claimTree", "M2"), replayRun(run));
+    expect(lastOf(run, "tree.ready")).toMatchObject({ milestone: "M2", branch: "t-m2", base: "main" });
+    expect(existsSync(treeDir(run, "M2"))).toBe(true);
+  });
+
+  it("always claims the first milestone, whatever the memory reads", async () => {
+    const { run, fx } = await treesSetup();
+    memoryReader.read = () => 0;
+    await fx.run(act("claimTree", "M1"), replayRun(run));
+    expect(lastOf(run, "tree.ready")).toMatchObject({ milestone: "M1", branch: "t-m1" });
+  });
+
+  it("admits by the run profile's memory limits", async () => {
+    const roomy = testView({ limits: { memory: { reserveMb: 1024, perMilestoneMb: 3072, floorMb: 3072 } } });
+    const a = await treesSetup(roomy);
+    await treeReady(a.run, "M1", new Date(a.deps.now() - 10 * 60_000));
+    memoryReader.read = () => 5000; // the defaults defer here: 5000 − 2048 < 3072
+    await a.fx.run(act("claimTree", "M2"), replayRun(a.run));
+    expect(lastOf(a.run, "tree.ready")).toMatchObject({ milestone: "M2" });
+    const tight = testView({ limits: { memory: { reserveMb: 8192, perMilestoneMb: 3072, floorMb: 3072 } } });
+    const b = await treesSetup(tight);
+    await treeReady(b.run, "M1", new Date(b.deps.now() - 10 * 60_000));
+    memoryReader.read = () => 9000;
+    await b.fx.run(act("claimTree", "M2"), replayRun(b.run));
+    expect(lastOf(b.run, "tree.deferred")).toMatchObject({ availableMb: 9000, needMb: 11264 });
+  });
+
+  it("turns a refused claim into effect.failed with its message", async () => {
+    const { repo, run, fx } = await treesSetup();
+    git(repo, "branch", "t-m1");
+    await fx.run(act("claimTree", "M1"), replayRun(run));
+    expect(lastOf(run, "effect.failed")).toMatchObject({ action: "claimTree", unit: "M1" });
+    expect(lastOf(run, "effect.failed")?.message).toMatch(/not this run's/);
+  });
+
+  it("pushes a landed milestone's branch with a fake git, and records it", async () => {
+    const { repo, origin, run, fx } = await treesSetup();
+    git(repo, "remote", "set-url", "origin", "git@github.com:o/r.git");
+    await treeReady(run, "M1");
+    await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit: "c0abcdef0123",
+      knownIssues: [],
+      digestPath: "/r/digests/M1.md",
+      branch: "t-m1",
+    });
+    const pushed: [string, string][] = [];
+    branchPusher.push = async (tree, branch) => void pushed.push([tree, branch]);
+    await fx.run(act("pushBranch", "M1"), replayRun(run));
+    expect(pushed).toEqual([[treeDir(run, "M1"), "t-m1"]]);
+    expect(lastOf(run, "branch.pushed")).toEqual(
+      expect.objectContaining({
+        milestone: "M1",
+        branch: "t-m1",
+        remote: "origin",
+        mr: "gh pr create --base main --head t-m1 --body-file /r/digests/M1.md",
+      }),
+    );
+    // a failing push records effect.failed and no branch.pushed
+    const before = types(run).filter((t) => t === "branch.pushed").length;
+    branchPusher.push = async () => {
+      throw new Error("remote refused");
+    };
+    await fx.run(act("pushBranch", "M1"), replayRun(run));
+    expect(types(run).filter((t) => t === "branch.pushed")).toHaveLength(before);
+    expect(lastOf(run, "effect.failed")).toMatchObject({ action: "pushBranch", unit: "M1" });
+    // catherd made no other git write: origin has no branch of the milestone
+    expect(git(origin, "branch", "--list", "t-m1").trim()).toBe("");
+  });
+
+  it("dispatches, fast-checks and commits a base-run milestone in its tree", async () => {
+    const { repo, run, fx } = await treesSetup();
+    writeLane(run, "M1.L1", ["src/a/"], "test -f marker");
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    writeFile(tree, "marker", "m");
+    writeFile(tree, "src/a/x.ts", "mine\n");
+    await fx.run(dispatchAction(), replayRun(run));
+    expect(listDispatches(run).map((d) => d.admit.repo)).toEqual([tree]);
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ lane: "M1.L1", exit: 0 });
+    const repoHead = git(repo, "rev-parse", "HEAD").trim();
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(lastOf(run, "commit.made")?.commit).toBe(git(tree, "rev-parse", "HEAD").trim());
+    expect(git(repo, "rev-parse", "HEAD").trim()).toBe(repoHead);
+    expect(git(tree, "show", "--name-only", "--format=", "HEAD")).toContain("src/a/x.ts");
+  });
+
+  it("integrates in the milestone's tree, on its branch", async () => {
+    const { origin, run, fx } = await treesSetup();
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    commitInClone(origin, "moved");
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "integrate.done")?.commit).toBe(git(tree, "rev-parse", "HEAD").trim());
+    expect(git(tree, "log", "-1", "--format=%s").trim()).toBe("Merge origin/main into t-m1");
+  });
+
+  it("removes a merged milestone's clean tree, keeps a dirty one, and appends milestone.merged either way", async () => {
+    const { run, fx } = await treesSetup();
+    const m1 = await claimM(run, "M1");
+    const m2 = await claimM(run, "M2");
+    await treeReady(run, "M1");
+    await treeReady(run, "M2");
+    // M1 is merged for git: its commit is in origin's base
+    writeFile(m1.tree, "one.txt", "1");
+    git(m1.tree, "add", "-A");
+    git(m1.tree, "commit", "-q", "-m", "one");
+    const c1 = git(m1.tree, "rev-parse", "HEAD").trim();
+    git(m1.tree, "push", "-q", "origin", "HEAD:main");
+    appendLedger(run, `M1 | w | ${c1} | 1 | ok`);
+    await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit: c1,
+      knownIssues: [],
+      digestPath: "d",
+    });
+    await fx.run({ type: "checkMerged", milestone: "M1" }, replayRun(run));
+    expect(existsSync(m1.tree)).toBe(false);
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1" });
+    // M2 is merged for the owner (a squash merge), and holds an untracked file
+    await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M2",
+      commit: "c2abcdef",
+      knownIssues: [],
+      digestPath: "d",
+    });
+    await appendEvent(run, { type: "question.parked", unit: "M2", question: "q", reason: "push" });
+    await appendEvent(run, {
+      type: "question.answered",
+      unit: "M2",
+      answer: "merged by squash",
+      by: "owner",
+    });
+    writeFile(m2.tree, "unsaved.txt", "mine");
+    await fx.run({ type: "checkMerged", milestone: "M2" }, replayRun(run));
+    expect(existsSync(join(m2.tree, "unsaved.txt"))).toBe(true);
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M2" });
+    expect(replayRun(run).milestones.map((m) => m.status)).toEqual(["merged", "merged"]);
+  });
+
+  it("parks a landed milestone for its push, naming its branch, the push answer, the push command, the digest and the precheck", async () => {
+    const { run, fx } = await treesSetup();
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    const landed = await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit: "c0abcdef0123456",
+      knownIssues: [],
+      digestPath: "/r/digests/M1.md",
+      branch: "t-m1",
+    });
+    const park = next(replayRun(run), landed).find((a) => a.type === "park");
+    if (park?.type !== "park") throw new Error("no park");
+    await fx.run(park, replayRun(run));
+    const q = lastOf(run, "question.parked");
+    expect(q).toMatchObject({ unit: "M1", reason: "push" });
+    for (const part of [
+      "M1 landed on t-m1 at c0abcdef0123.",
+      "Answer push and catherd pushes it",
+      `git -C ${tree} push -u origin t-m1`,
+      "/r/digests/M1.md",
+      `git -C ${tree} fetch -q origin main && git -C ${tree} merge-base --is-ancestor origin/main HEAD`,
+      "merge commit",
+    ])
+      expect(q?.question).toContain(part);
+  });
+
+  it("a run without base dispatches, checks and commits in the repo", async () => {
+    const { repo, run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "test -f marker");
+    await seed(run);
+    writeFile(repo, "marker", "m");
+    writeFile(repo, "src/a/x.ts", "mine\n");
+    await fx.run(dispatchAction(), replayRun(run));
+    expect(listDispatches(run).map((d) => d.admit.repo)).toEqual([repo]);
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ exit: 0 });
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(lastOf(run, "commit.made")?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(existsSync(join(run.dir, "trees"))).toBe(false);
+  });
+});
+
+describe("planOf with milestone dependencies (plan 35)", () => {
+  it("lists the milestones a milestone's lanes name, beside its heading's After:", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["a.ts"]);
+    writeLane(run, "M2.L1", ["b.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1\n");
+    writeLane(run, "M3.L1", ["c.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M2.L1\n");
+    writeFileSync(runPaths(run.dir).plan, "# P\n\n## M1 — a\n\n## M2 — b\n\n## M3 — c\nAfter: M1\n");
+    expect(planOf(run).map((m) => [m.id, m.after])).toEqual([
+      ["M1", []],
+      ["M2", ["M1"]],
+      ["M3", ["M1", "M2"]],
+    ]);
   });
 });

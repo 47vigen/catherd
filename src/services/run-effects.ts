@@ -1,12 +1,14 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
 import { parseFailLines, parseFindings } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
-import { onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
+import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
+import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
 import { changedDecisions, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { currentRoute } from "../domain/route.ts";
@@ -15,7 +17,7 @@ import { type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { currentBranch, fetchBase, gitRun, isAncestor } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
@@ -26,6 +28,7 @@ import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
 import { machineGate } from "./milestone-check.ts";
+import { branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
 import { planProblems } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
@@ -36,6 +39,7 @@ import { appendEvent, appendEvents, readEvents, replayRun } from "./run-events-s
 import { writeRunReport } from "./run-report.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { treeOf } from "./tree-path.ts";
 
 /**
  * What carries the machine's actions out. `run` appends the events the action produces (a long one when it is
@@ -176,7 +180,16 @@ export function planOf(run: Run): MilestonePlan[] {
       {
         id,
         title: head?.title ?? id,
-        after: (head?.after ?? []).filter((a) => a !== id),
+        // a plan.md heading's After: line, and the milestones the milestone's lanes name (plan 35 D7)
+        after: [
+          ...new Set([
+            ...(head?.after ?? []).filter((a) => a !== id),
+            ...milestoneAfter(
+              lanes.map((l) => ({ id: l.id, after: l.after })),
+              id,
+            ),
+          ]),
+        ].sort(natural),
         lanes: mine.map(({ milestone: _m, ...l }) => l),
       },
     ];
@@ -353,6 +366,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
+        // plan 35: a base run's milestone works in its own worktree
+        cwd: treeOf(run, unitMilestone(a.unit)),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -477,12 +492,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
       return;
     }
     const check = header.fastCheck;
+    const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
     const r = await withHeavySlot(
       slots,
-      (_slot, tmp) =>
-        runCheck(run.meta.repo, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
+      (_slot, tmp) => runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
       { tmpBase: process.env.TMPDIR },
     );
     // an absence check whose only hits are the lane's Allow: exceptions has passed
@@ -526,7 +541,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const paths = new Set(lanes.flatMap((l) => l.owns));
     for (const r of readRecords(run).records)
       if (r.lane && ids.has(r.lane)) for (const p of [...r.changedOwned, ...r.violations]) paths.add(p);
-    const repo = run.meta.repo;
+    // plan 35: a base run's milestone is committed in its own worktree, on its own branch
+    const repo = treeOf(run, a.milestone);
     const failed = (r: { out: string; err: string; timedOut: boolean }) =>
       append({
         type: "commit.failed",
@@ -608,7 +624,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         commit: m.commit,
         knownIssues: a.knownIssues,
         digestPath: r.digestPath,
-        ...(s.base !== null ? { branch: await currentBranch(run.meta.repo) } : {}),
+        ...(s.base !== null ? { branch: m.branch ?? (await currentBranch(treeOf(run, a.milestone))) } : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -624,11 +640,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   /** Merges origin's base into the run's branch: done with the merge commit, or the files left in conflict. */
   async function integrate(a: Extract<Action, { type: "integrate" }>, s: RunState): Promise<void> {
-    const repo = run.meta.repo;
+    const repo = treeOf(run, a.milestone);
     const base = s.base;
     if (base === null) throw new CatherdError("E_RUN_COMMIT", `${a.milestone} has no base branch to merge`);
     await fetchBase(repo, base);
-    const branch = (await currentBranch(repo)) ?? "HEAD";
+    const branch = milestoneOf(s, a.milestone)?.branch ?? (await currentBranch(repo)) ?? "HEAD";
     const r = await gitRun(
       repo,
       ["merge", "--no-ff", "-m", `Merge origin/${base} into ${branch}`, `origin/${base}`],
@@ -646,13 +662,64 @@ export function realEffects(deps: Deps, run: Run): Effects {
     await append({ type: "integrate.conflict", milestone: a.milestone, files });
   }
 
-  /** Whether origin's base holds the milestone's landed commit now; silent when it does not (or cannot be told). */
+  /**
+   * Whether the milestone is merged: origin's base holds its landed commit, or the owner's answer counted it so. A
+   * merged milestone's clean worktree goes (a dirty one stays, logged), and then `milestone.merged` follows; silent
+   * while it is not merged, or cannot be told.
+   */
   async function checkMerged(a: Extract<Action, { type: "checkMerged" }>, s: RunState): Promise<void> {
+    if (s.base === null) return;
     const commit = landedCommitOf(run, a.milestone);
-    if (s.base === null || !commit) return;
-    await fetchBase(run.meta.repo, s.base);
-    if ((await isAncestor(run.meta.repo, commit, `origin/${s.base}`)) === true)
-      await append({ type: "milestone.merged", milestone: a.milestone });
+    let merged = milestoneOf(s, a.milestone)?.status === "merged";
+    if (!merged && commit) {
+      await fetchBase(run.meta.repo, s.base);
+      merged = (await isAncestor(run.meta.repo, commit, `origin/${s.base}`)) === true;
+    }
+    if (!merged) return;
+    const gone = await removeTree(run, a.milestone);
+    if (gone.hint) log("warn", "trees", { run: run.id, milestone: a.milestone, hint: gone.hint });
+    await append({ type: "milestone.merged", milestone: a.milestone });
+  }
+
+  /** A memory check, then the milestone's worktree: `tree.deferred` while the machine has no room for another. */
+  async function claim(a: Extract<Action, { type: "claimTree" }>, s: RunState): Promise<void> {
+    const limits = memoryLimitsOf(runProfile(deps, run));
+    const load = memoryLoad(s.milestones, deps.now(), limits);
+    const availableMb = memoryReader.read();
+    if (!mayStartMilestone({ availableMb, ...load }, limits))
+      return void (await append({
+        type: "tree.deferred",
+        milestone: a.milestone,
+        availableMb,
+        needMb: neededMb(load.ramping, limits),
+      }));
+    const c = await claimTree(deps, run, a.milestone, {
+      known: milestoneOf(s, a.milestone)?.branch != null,
+    });
+    for (const hint of c.hints) log("warn", "trees", { run: run.id, milestone: a.milestone, hint });
+    await append({
+      type: "tree.ready",
+      milestone: a.milestone,
+      tree: c.tree,
+      branch: c.branch,
+      base: c.base,
+      hints: c.hints,
+    });
+  }
+
+  /** The owner's `push` answer: the one push catherd makes, of this milestone's own branch. It opens no MR. */
+  async function pushBranch(a: Extract<Action, { type: "pushBranch" }>, s: RunState): Promise<void> {
+    const m = milestoneOf(s, a.milestone);
+    if (!m?.tree || !m.branch || s.base === null)
+      throw new CatherdError("E_TREE", `${a.milestone} has no branch to push`);
+    await branchPusher.push(m.tree, m.branch);
+    const mr = mrCommand({
+      originUrl: (await gitOrigin(run.meta.repo)) ?? "",
+      base: s.base,
+      branch: m.branch,
+      body: m.digestPath ?? "",
+    });
+    await append({ type: "branch.pushed", milestone: a.milestone, branch: m.branch, remote: "origin", mr });
   }
 
   async function perform(a: Action, s: RunState): Promise<void> {
@@ -740,6 +807,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return checkMerged(a, s);
       case "integrate":
         return integrate(a, s);
+      case "claimTree":
+        return claim(a, s);
+      case "pushBranch":
+        return pushBranch(a, s);
     }
   }
 
