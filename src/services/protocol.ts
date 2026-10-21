@@ -50,6 +50,10 @@ function laneIds(run: Run): string[] {
     .sort(byNumber);
 }
 
+/** Plan 28: the milestones the run's lane files name, in number order. */
+export const runMilestones = (run: Run): string[] =>
+  [...new Set(laneIds(run).map(milestoneOf))].sort(byNumber);
+
 /** What laneDone reads of the run, read once for every lane of the milestone. */
 interface LaneEvidence {
   routes: RouteRow[];

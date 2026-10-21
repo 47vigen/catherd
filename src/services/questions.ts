@@ -29,6 +29,15 @@ const rows = (run: Run): QuestionRow[] =>
     (r) => typeof r?.milestone === "string" && typeof r.text === "string",
   );
 
+/** Plan 28: how many questions the run parked on and how many were answered. */
+export const questionCounts = (run: Run): { questions: number; answers: number } => {
+  const all = rows(run);
+  return {
+    questions: all.filter((r) => r.kind === "question").length,
+    answers: all.filter((r) => r.kind === "answer").length,
+  };
+};
+
 /** The questions not answered yet, oldest first; a milestone answered after its question is no longer open. */
 export function openQuestions(run: Run): OpenQuestion[] {
   const open = new Map<string, OpenQuestion>();
