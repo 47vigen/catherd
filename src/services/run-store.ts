@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
+import { runSlug } from "../domain/branch.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type {
@@ -11,7 +12,7 @@ import type {
   RoleRouteRow,
   RouteRow,
 } from "../domain/route.ts";
-import { cell, slug } from "../domain/util.ts";
+import { cell } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -87,7 +88,6 @@ export function runPaths(dir: string) {
 
 export const LEDGER_HEADER = "milestone | what | commit | minutes | evidence";
 
-const runSlug = (title: string) => slug(title).slice(0, 40) || "run";
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
 /** Creates a run folder under the repo's runs dir. `repo` is a git toplevel; meta.json is written last. */
