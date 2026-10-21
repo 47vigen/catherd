@@ -59,7 +59,15 @@
           "instructions": "Does the work in the lane in the state depend on something outside the repository: a running service, credentials, network access, hardware or CI configuration?"
         }
       },
-      "rule": { "kindMin": 0.8, "trackMin": 0.8, "trackA": ["0", "1"], "trackB": ["2", "3"] }
+      "rule": {
+        "kindMin": 0.8,
+        "trackMin": 0.8,
+        "trackA": ["0", "1"],
+        "trackB": ["2", "3"],
+        "noulMin": 0.8,
+        "floorLogic": ["unclear_cause", "cross_boundary", "shared_state"],
+        "capBuild": ["mechanical"]
+      }
     },
     "finding": {
       "questions": {

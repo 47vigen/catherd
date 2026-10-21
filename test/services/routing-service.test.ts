@@ -344,6 +344,19 @@ describe("route with Jev", () => {
     expect(a).toMatchObject({ ...TRACK_A, source: "jev", kind: "repo_code", difficulty: "build" });
   });
 
+  it("routes a lane with no header as logic when Jev says it crosses services (floorLogic)", async () => {
+    const body = fx("route-v2-track-a.json") as { answers: Record<string, { noul?: number }> };
+    (body.answers.cross_boundary as { noul: number }).noul = 0.9;
+    const r = req(lane(null, null));
+    const a = await routingService({
+      key: "k",
+      fetchImpl: fakeFetch({ status: 200, body }).impl,
+      ...noWait,
+    }).route(r);
+    expect(a).toMatchObject({ source: "jev", kind: "repo_code", difficulty: "logic" });
+    expect(jevRows(r.runDir)[0]?.why).toBe("P(A) 0.9 ≥ 0.8; floor logic: cross_boundary 0.9");
+  });
+
   it("falls back when Jev fails, and answers a repeated route from the run's log", async () => {
     const down = fakeFetch({ status: 401, body: fx("auth-error.json") });
     const r = req(lane(null, null));

@@ -30,6 +30,12 @@ const RouteRuleSchema = z.object({
   /** exactly two levels each, in order: copy then build, logic then hard */
   trackA: z.array(z.string()).length(2),
   trackB: z.array(z.string()).length(2),
+  /** a noul answer at or above this is a yes */
+  noulMin: z.number().min(0).max(1),
+  /** a yes to any of these lifts the lane to at least logic */
+  floorLogic: z.array(z.string()),
+  /** a yes to any of these holds the lane at build; the floor wins */
+  capBuild: z.array(z.string()),
 });
 export type RouteRule = z.infer<typeof RouteRuleSchema>;
 const VerdictRuleSchema = z.object({ min: z.number().min(0).max(1), fallback: z.string() });
@@ -39,7 +45,13 @@ export const JevFileSchema = z.looseObject({
   schema: z.literal(1),
   model: z.string(),
   sets: z.object({
-    "route-v2": z.object({ questions: z.record(z.string(), QuestionSchema), rule: RouteRuleSchema }),
+    "route-v2": z
+      .object({ questions: z.record(z.string(), QuestionSchema), rule: RouteRuleSchema })
+      .superRefine((set, ctx) => {
+        for (const id of [...set.rule.floorLogic, ...set.rule.capBuild])
+          if (set.questions[id]?.type !== "noul")
+            ctx.addIssue({ code: "custom", message: `${id} is no noul question of route-v2` });
+      }),
     finding: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
     "same-defect": z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
     stop: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
@@ -202,7 +214,7 @@ export interface RouteJudgement {
  * different option counts; the rule reads probabilities instead: the kind at p_max ≥ kindMin, the track
  * when the summed probability of its levels reaches trackMin, and neither in between (the dead band).
  */
-export function judgeRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement {
+function decideRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement {
   const k = answers.kind;
   const d = answers.difficulty;
   const nouls: Record<string, number> = {};
@@ -252,6 +264,36 @@ export function judgeRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement
     pB,
     nouls,
     rule: `P(A) ${pA}, P(B) ${pB}: both below ${rule.trackMin}`,
+  };
+}
+
+/**
+ * `decideRoute`, then Jev's yes/no answers (decision 11): a yes to a `floorLogic` question lifts the lane
+ * to logic (hard stays hard), else a yes to a `capBuild` question holds it at build (copy stays copy). The
+ * floor wins, and both apply in the dead band. The reason names the answer only when the difficulty moved.
+ */
+export function judgeRoute(rule: RouteRule, answers: JevAnswers): RouteJudgement {
+  const j = decideRoute(rule, answers);
+  const yes = (ids: string[]) => ids.find((id) => (j.nouls[id] ?? 0) >= rule.noulMin);
+  const lift = yes(rule.floorLogic);
+  const hold = lift === undefined ? yes(rule.capBuild) : undefined;
+  const now: Difficulty | null =
+    lift !== undefined
+      ? j.difficulty === "hard"
+        ? "hard"
+        : "logic"
+      : hold !== undefined
+        ? j.difficulty === "copy"
+          ? "copy"
+          : "build"
+        : j.difficulty;
+  if (now === j.difficulty) return j;
+  const [what, id] = lift !== undefined ? ["floor logic", lift] : ["cap build", hold ?? ""];
+  return {
+    ...j,
+    track: now === "logic" || now === "hard" ? "B" : "A",
+    difficulty: now,
+    rule: `${j.rule}; ${what}: ${id} ${j.nouls[id]}`,
   };
 }
 
