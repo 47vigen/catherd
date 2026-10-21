@@ -232,9 +232,14 @@ export function servePanel(o: PanelOptions): Panel {
     if (!op.public && !signedIn(req)) return errorResponse("unauthorized", "sign in first");
     if (op.method !== "GET" && !originOk(req, host))
       return errorResponse("forbidden", "cross-origin request refused");
-    const params = Object.fromEntries(
-      Object.entries(hit.m.groups ?? {}).map(([k, v]) => [k, decodeURIComponent(v)]),
-    );
+    let params: Record<string, string>;
+    try {
+      params = Object.fromEntries(
+        Object.entries(hit.m.groups ?? {}).map(([k, v]) => [k, decodeURIComponent(v)]),
+      );
+    } catch {
+      return errorResponse("E_INPUT_INVALID", "the request path has a malformed escape");
+    }
     let query: unknown;
     let body: unknown;
     if (op.query) {
@@ -304,7 +309,12 @@ export function servePanel(o: PanelOptions): Panel {
     if (live && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
       if (!signedIn(req)) return withHeaders(errorResponse("unauthorized", "sign in first"));
       if (!originOk(req, host)) return withHeaders(errorResponse("forbidden", "cross-origin socket refused"));
-      const id = decodeURIComponent(live[1] as string);
+      let id: string;
+      try {
+        id = decodeURIComponent(live[1] as string);
+      } catch {
+        return withHeaders(errorResponse("E_INPUT_INVALID", "the request path has a malformed escape"));
+      }
       try {
         findRun(id);
       } catch (e) {

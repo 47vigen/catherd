@@ -274,6 +274,14 @@ describe("the panel server", () => {
     expect((await call(cookie, "/api/setup")).status).toBe(200);
   });
 
+  it("answers 400, with the security headers, to a malformed escape in a run id", async () => {
+    const cookie = await signIn();
+    const r = await call(cookie, "/api/runs/%E0");
+    expect([r.status, r.headers.get("x-frame-options")]).toEqual([400, "DENY"]);
+    const ws = await call(cookie, "/api/runs/%E0/live", { headers: { upgrade: "websocket" } });
+    expect([ws.status, ws.headers.get("x-frame-options")]).toEqual([400, "DENY"]);
+  });
+
   it("refuses a body that does not parse, naming the field", async () => {
     const cookie = await signIn();
     const id = await start("wallet split");
