@@ -125,6 +125,20 @@ describe("briefs", () => {
     expect(fix()).not.toContain("the end of its log");
   });
 
+  it("tells the integrate worker which files are in conflict, to resolve them and to commit nothing", () => {
+    const { run } = freshRun();
+    const s = runningLog(undefined, "main").state();
+    const text = briefFor(
+      run,
+      s,
+      act({ unit: "M1", name: "worker-M1-integrate", lane: null, brief: "fix", notes: ["src/a/x.ts"] }),
+    );
+    expect(text).toContain("The base branch main moved");
+    expect(text).toContain("- src/a/x.ts");
+    expect(text).toContain("do not commit or stage anything");
+    expect(text).not.toContain("Owns:");
+  });
+
   it("asks a researcher for the dossier's eight parts", () => {
     const { run } = freshRun();
     const text = briefFor(

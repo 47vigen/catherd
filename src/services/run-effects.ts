@@ -14,7 +14,7 @@ import type { MilestonePlan, RunEventInput } from "../domain/run-events.ts";
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { gitRun } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitRun, isAncestor } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
@@ -23,7 +23,7 @@ import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
-import { blockedByEnvironment, replyVerdict } from "./milestones.ts";
+import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
 import { machineGate } from "./milestone-check.ts";
 import { sendRunNotice } from "./notify-service.ts";
 import type { Deps } from "./ports.ts";
@@ -461,31 +461,40 @@ export function realEffects(deps: Deps, run: Run): Effects {
         round: a.round,
         tail: r.timedOut ? "git timed out" : tailOf(`${r.out}\n${r.err}`),
       });
+    // a merge of the base is open: the files it left in conflict are resolved now, and the merge itself is committed
+    const merging = (m?.integrateFiles.length ?? 0) > 0;
+    for (const f of merging ? (m?.integrateFiles ?? []) : []) paths.add(f);
     for (const p of paths) {
       const r = await gitRun(repo, ["--literal-pathspecs", "add", "-A", "--", p], effectLimits.commitMs);
       // an Owns: entry the lane never created is no error
       if (r.code !== 0 && !/did not match any files/.test(r.err)) return void (await failed(r));
     }
-    // only what the milestone owns: work staged elsewhere stays staged and out of the commit
-    const staged = paths.size
-      ? await gitRun(
-          repo,
-          ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--", ...paths],
-          effectLimits.commitMs,
-        )
-      : { code: 0, out: "", err: "", timedOut: false };
-    if (staged.code !== 0) return void (await failed(staged));
-    const files = staged.out.split("\0").filter(Boolean);
-    if (files.length) {
-      const title = lower(m?.title ?? a.milestone);
-      const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
-      const subject = `${`${a.round === 0 ? "feat" : "fix"}: ${title}`.slice(0, 100 - suffix.length)}${suffix}`;
-      const c = await gitRun(
-        repo,
-        ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
-        effectLimits.commitMs,
-      );
+    if (merging) {
+      // an open merge is committed whole: a partial commit is refused while one is in progress
+      const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
       if (c.code !== 0) return void (await failed(c));
+    } else {
+      // only what the milestone owns: work staged elsewhere stays staged and out of the commit
+      const staged = paths.size
+        ? await gitRun(
+            repo,
+            ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--", ...paths],
+            effectLimits.commitMs,
+          )
+        : { code: 0, out: "", err: "", timedOut: false };
+      if (staged.code !== 0) return void (await failed(staged));
+      const files = staged.out.split("\0").filter(Boolean);
+      if (files.length) {
+        const title = lower(m?.title ?? a.milestone);
+        const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
+        const subject = `${`${a.round === 0 ? "feat" : "fix"}: ${title}`.slice(0, 100 - suffix.length)}${suffix}`;
+        const c = await gitRun(
+          repo,
+          ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
+          effectLimits.commitMs,
+        );
+        if (c.code !== 0) return void (await failed(c));
+      }
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);
     if (head.code !== 0) return void (await failed(head));
@@ -496,13 +505,22 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const m = milestoneOf(s, a.milestone);
     if (!m?.commit) throw new CatherdError("E_RUN_COMMIT", `${a.milestone} has no commit to land`);
     const issues = a.knownIssues.length ? `; ${a.knownIssues.length} known issue(s)` : "";
+    // a base run lands only what origin's base is behind; a base that moved is merged in first (spec 2.0, decision 21)
+    let stale = "";
+    if (s.base !== null) {
+      const repo = run.meta.repo;
+      const fetched = await fetchBase(repo, s.base);
+      if ((await isAncestor(repo, `origin/${s.base}`, m.commit)) === false)
+        return void (await append({ type: "base.behind", milestone: a.milestone }));
+      if (!fetched) stale = `; fetch of origin/${s.base} failed: using the copy from the last fetch`;
+    }
     try {
       const r = await land(deps, {
         run: run.id,
         milestone: a.milestone,
         what: m.title,
         commit: m.commit,
-        evidence: `verifier-${a.milestone} PASS on ${m.commit.slice(0, 12)}${issues}`,
+        evidence: `verifier-${a.milestone} PASS on ${m.commit.slice(0, 12)}${issues}${stale}`,
         next: `the daemon continues after ${a.milestone}`,
       });
       await append({
@@ -511,6 +529,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         commit: m.commit,
         knownIssues: a.knownIssues,
         digestPath: r.digestPath,
+        ...(s.base !== null ? { branch: await currentBranch(run.meta.repo) } : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -522,6 +541,39 @@ export function realEffects(deps: Deps, run: Run): Effects {
         fix: e.fix ?? "",
       });
     }
+  }
+
+  /** Merges origin's base into the run's branch: done with the merge commit, or the files left in conflict. */
+  async function integrate(a: Extract<Action, { type: "integrate" }>, s: RunState): Promise<void> {
+    const repo = run.meta.repo;
+    const base = s.base;
+    if (base === null) throw new CatherdError("E_RUN_COMMIT", `${a.milestone} has no base branch to merge`);
+    await fetchBase(repo, base);
+    const branch = (await currentBranch(repo)) ?? "HEAD";
+    const r = await gitRun(
+      repo,
+      ["merge", "--no-ff", "-m", `Merge origin/${base} into ${branch}`, `origin/${base}`],
+      effectLimits.commitMs,
+    );
+    if (r.code === 0) {
+      const head = await gitRun(repo, ["rev-parse", "HEAD"]);
+      if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
+      return void (await append({ type: "integrate.done", milestone: a.milestone, commit: head.out.trim() }));
+    }
+    const unmerged = await gitRun(repo, ["diff", "--name-only", "--diff-filter=U"]);
+    const files = unmerged.out.split("\n").filter(Boolean);
+    if (unmerged.code !== 0 || files.length === 0)
+      throw new Error(`merging origin/${base} failed: ${tailOf(`${r.out}\n${r.err}`, 5)}`);
+    await append({ type: "integrate.conflict", milestone: a.milestone, files });
+  }
+
+  /** Whether origin's base holds the milestone's landed commit now; silent when it does not (or cannot be told). */
+  async function checkMerged(a: Extract<Action, { type: "checkMerged" }>, s: RunState): Promise<void> {
+    const commit = landedCommitOf(run, a.milestone);
+    if (s.base === null || !commit) return;
+    await fetchBase(run.meta.repo, s.base);
+    if ((await isAncestor(run.meta.repo, commit, `origin/${s.base}`)) === true)
+      await append({ type: "milestone.merged", milestone: a.milestone });
   }
 
   async function perform(a: Action, s: RunState): Promise<void> {
@@ -563,7 +615,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return void (await append({ type: "lane.climbed", lane: a.lane, rung: r.rung, top: r.top }));
       }
       case "park":
-        if (milestoneOf(s, a.unit))
+        // the push question is the daemon's own: a 1.5 question would hold the run's pause and ask twice
+        if (milestoneOf(s, a.unit) && a.reason !== "push")
           await park(deps, { run: run.id, milestone: a.unit, question: a.question });
         return void (await append({
           type: "question.parked",
@@ -605,8 +658,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "classify":
         return classify(a);
       case "checkMerged":
+        return checkMerged(a, s);
       case "integrate":
-        throw new Error(`${a.type} needs catherd 30b`);
+        return integrate(a, s);
     }
   }
 

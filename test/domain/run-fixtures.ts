@@ -129,12 +129,16 @@ export function endDispatch(
 }
 
 /** A run that has its plan, routed M1 and passed its preflight: M1's lanes wait to be dispatched. */
+/** `start` is the whole `run.started` payload, or just the run's base branch. */
 export function runningLog(
   plan: MilestonePlan[] = PLAN,
-  started: Fields<"run.started"> = startedFields,
+  start: Fields<"run.started"> | string | null = null,
 ): Log {
   const log = makeLog();
-  log.add("run.started", started);
+  log.add(
+    "run.started",
+    typeof start === "object" && start !== null ? start : { ...startedFields, base: start },
+  );
   log.add("plan.ready", { milestones: plan });
   routeMilestone(log, plan[0] as MilestonePlan);
   return log;

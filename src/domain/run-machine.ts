@@ -8,12 +8,14 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
-  isDone,
+  integrateName,
+  isFinished,
   type LaneState,
   lanesOf,
   limitedRung,
   liveDispatches,
   MAX_TRIES,
+  MERGE_CHECK_MS,
   type MilestoneState,
   type RunState,
 } from "./run-state.ts";
@@ -149,6 +151,17 @@ export function confirms(e: RunEvent): string[] {
     case "judge.decided":
     case "judge.failed":
       return (["triage", "question", "unexpected"] as const).map((k) => `judge:${e.unit}:${k}`);
+    case "question.parked":
+      return [`park:${e.unit}`];
+    case "milestone.landed":
+    case "land.refused":
+    case "base.behind":
+      return [`land:${e.milestone}`];
+    case "integrate.done":
+    case "integrate.conflict":
+      return [`integrate:${e.milestone}`];
+    case "milestone.merged":
+      return [`checkMerged:${e.milestone}`];
     case "run.ended":
       return ["finish:run", "cancel:run"];
     case "effect.failed":
@@ -405,6 +418,16 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
           });
     case "landing":
       return [{ type: "land", milestone: m.id, knownIssues: m.knownIssues }];
+    case "integrating":
+      // the merge first; its conflicts, once known, go to a worker, whose clean end is a commit (reduce)
+      if (m.integrateFiles.length === 0) return [{ type: "integrate", milestone: m.id }];
+      return roleDispatch(s, {
+        unit: m.id,
+        name: integrateName(m.id),
+        role: "worker",
+        brief: "fix",
+        notes: m.integrateFiles,
+      });
     default:
       return [];
   }
@@ -426,6 +449,12 @@ function planningActions(s: RunState): Action[] {
   });
 }
 
+/** A landed milestone of a base run is the owner's to push and merge: catherd never pushes (spec 2.0, decision 21). */
+function pushQuestion(s: RunState, m: MilestoneState): string {
+  const base = s.base ?? "the base";
+  return `${m.id} landed on ${m.branch ?? "the run's branch"} at ${(m.commit ?? "").slice(0, 12)}: push it and open and merge its MR (precheck: git fetch -q origin ${base} && git merge-base --is-ancestor origin/${base} HEAD); answer once it is merged`;
+}
+
 function advance(s: RunState): Action[] {
   if (s.phase === "ended") return [];
   const live = liveDispatches(s);
@@ -436,11 +465,15 @@ function advance(s: RunState): Action[] {
   const parks: Action[] = Object.entries(s.stuck)
     .filter(([unit]) => !s.questions[unit])
     .map(([unit, q]) => ({ type: "park", unit, question: q.question, reason: q.reason }));
+  if (s.base !== null)
+    for (const m of s.milestones)
+      if (m.status === "landed" && !s.questions[m.id] && !s.stuck[m.id])
+        parks.push({ type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" });
   if (s.stuck[RUN_UNIT] || s.questions[RUN_UNIT]) return parks;
   if (s.phase === "planning") return [...parks, ...planningActions(s)];
   if (s.phase === "approval") return parks;
   if (s.planDirty) return [...parks, { type: "readPlan" }];
-  if (s.milestones.length > 0 && s.milestones.every(isDone))
+  if (s.milestones.length > 0 && s.milestones.every((m) => isFinished(s, m)))
     return [...parks, { type: "finish", outcome: "done" }];
   return [...parks, ...judgeRetries(s), ...activeMilestones(s).flatMap((m) => milestoneActions(s, m))];
 }
@@ -470,7 +503,16 @@ function react(s: RunState, e: RunEvent): Action[] {
           }: ${s.milestones.find((m) => m.id === e.milestone)?.title ?? ""}`.trimEnd(),
         },
         { type: "notify", unit: e.milestone, moment: "milestone" },
+        ...(s.base !== null ? [{ type: "checkMerged" as const, milestone: e.milestone }] : []),
       ];
+    case "tick":
+      // a landed milestone whose merge check this tick re-armed (reduce set its next look MERGE_CHECK_MS ahead)
+      return s.milestones
+        .filter(
+          (m) =>
+            m.status === "landed" && m.mergeDue === new Date(Date.parse(e.at) + MERGE_CHECK_MS).toISOString(),
+        )
+        .map((m) => ({ type: "checkMerged" as const, milestone: m.id }));
     case "run.ended":
       return [
         {

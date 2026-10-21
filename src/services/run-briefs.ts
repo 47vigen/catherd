@@ -4,7 +4,7 @@ import { parseFindings } from "../domain/findings.ts";
 import { JUDGE_CONTRACT, type JudgeInput, JUDGE_VERBS } from "../domain/judge.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
-import type { RunState } from "../domain/run-state.ts";
+import { integrateName, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
@@ -144,6 +144,21 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   ].join("\n");
 }
 
+/** The worker that finishes a merge of the base into the run's branch: git left these files in conflict. */
+function integrateBrief(run: Run, s: RunState, a: DispatchAction): string {
+  return [
+    `You are ${a.name} of catherd run ${run.id} (${run.meta.title}). The base branch ${s.base ?? ""} moved while milestone ${a.unit} was being verified, and catherd merged it into the run's branch. The merge stopped on conflicts in the repository you are in:`,
+    ...a.notes.map((n) => `- ${n}`),
+    "",
+    "Resolve every conflict, keeping both sides' intent: the base's change and this run's. Edit only those files, remove every conflict marker, and do not commit or stage anything: catherd commits the merge.",
+    "",
+    "The A-lines this run must meet:",
+    ALINES(run),
+    "",
+    READ_RULES,
+  ].join("\n");
+}
+
 function milestoneBase(run: Run): string {
   return landedCommits(run).at(-1) ?? run.meta.startHead ?? "HEAD~1";
 }
@@ -269,7 +284,7 @@ function briefBody(run: Run, s: RunState, a: DispatchAction): string {
       return architectBrief(run, s, a);
     case "lane":
     case "fix":
-      return workerBrief(run, s, a);
+      return a.name === integrateName(a.unit) ? integrateBrief(run, s, a) : workerBrief(run, s, a);
     case "review":
     case "recheck":
       return reviewBrief(run, s, a);

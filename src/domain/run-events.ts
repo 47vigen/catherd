@@ -165,6 +165,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     commit: z.string(),
     knownIssues: strings,
     digestPath: z.string(),
+    /** the branch the run works on, named in the owner's push question; absent in a run without a base */
+    branch: z.string().nullable().optional(),
   }),
   ev("land.refused", { milestone: z.string(), code: z.string(), message: z.string(), fix: z.string() }),
   ev("milestone.merged", { milestone: z.string() }),

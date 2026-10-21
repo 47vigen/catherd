@@ -15,7 +15,8 @@ import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run } from "../../src/services/run-store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
+import { createRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario, type CodexScenario } from "../sim/scenario.ts";
 import { withClaudeScenario } from "../sim/sim-scenarios.ts";
@@ -746,6 +747,105 @@ describe("routing, checking, committing, landing", () => {
   });
 });
 
+/** A run whose repo has a bare origin and whose base is main; M1's lane file and one commit of its own. */
+async function baseSetup() {
+  const { repo, origin } = repoWithOrigin();
+  const s = setup();
+  withHome();
+  const run = createRun({ repo, title: "t", aLines: ["A1 it works"], version: "0.0.0-test" });
+  const fx = realEffects(s.deps, run);
+  writeLane(run, "M1.L1", ["src/a/"]);
+  writeFile(repo, "src/a/x.ts", "mine\n");
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "c");
+  const commit = git(repo, "rev-parse", "HEAD").trim();
+  await appendEvent(run, { type: "run.started", ...startedFields, base: "main" });
+  await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+  await appendEvent(run, { type: "commit.made", milestone: "M1", round: 0, commit });
+  return { repo, origin, run, fx, commit };
+}
+const land1: Action = { type: "land", milestone: "M1", knownIssues: [] };
+
+describe("a run with a base branch (30b)", () => {
+  it("land reports base.behind when origin moved, and lands when it did not", async () => {
+    const { repo, origin, run, fx, commit } = await baseSetup();
+    commitInClone(origin, "moved");
+    await fx.run(land1, replayRun(run));
+    expect(types(run)).toContain("base.behind");
+    expect(types(run)).not.toContain("milestone.landed");
+    expect(types(run)).not.toContain("land.refused");
+    // the base is in: the merge is what lands
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    const merged = lastOf(run, "integrate.done");
+    expect(merged?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(git(repo, "log", "-1", "--format=%P").trim().split(" ")).toHaveLength(2);
+    expect(git(repo, "log", "-1", "--format=%s")).toBe("Merge origin/main into main\n");
+    await passGate(run, "M1");
+    await appendEvent(run, { type: "commit.made", milestone: "M1", round: 1, commit: merged?.commit ?? "" });
+    await fx.run(land1, replayRun(run));
+    expect(lastOf(run, "milestone.landed")).toMatchObject({
+      milestone: "M1",
+      commit: merged?.commit,
+      branch: "main",
+    });
+    expect(commit).not.toBe(merged?.commit);
+  });
+
+  it("lands without a merge when origin did not move", async () => {
+    const { run, fx, commit } = await baseSetup();
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    expect(types(run)).not.toContain("base.behind");
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1", commit });
+  });
+
+  it("works from the last fetch when origin cannot be reached, and says so", async () => {
+    const { repo, run, fx } = await baseSetup();
+    git(repo, "remote", "set-url", "origin", join(repo, "no-such-origin"));
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1" });
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).toContain(
+      "fetch of origin/main failed: using the copy from the last fetch",
+    );
+  });
+
+  it("sends conflicts to the integrate worker's files, and commits the resolved merge", async () => {
+    const { repo, origin, run, fx } = await baseSetup();
+    commitInClone(origin, "theirs", { path: "src/a/x.ts", text: "theirs\n" });
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "integrate.conflict")).toMatchObject({ milestone: "M1", files: ["src/a/x.ts"] });
+    expect(types(run)).not.toContain("integrate.done");
+    // the worker resolved it and left it uncommitted; the commit effect finishes the merge
+    writeFile(repo, "src/a/x.ts", "both\n");
+    await fx.run({ type: "commit", milestone: "M1", round: 1 }, replayRun(run));
+    const made = lastOf(run, "commit.made");
+    expect(made?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(git(repo, "log", "-1", "--format=%P").trim().split(" ")).toHaveLength(2);
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("both\n");
+    expect(replayRun(run).milestones[0]).toMatchObject({ status: "verifying", integrateFiles: [] });
+  });
+
+  it("checks whether origin's base holds the landed commit, and says nothing until it does", async () => {
+    const { repo, run, fx } = await baseSetup();
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "checkMerged", milestone: "M1" }, replayRun(run));
+    expect(types(run)).not.toContain("milestone.merged");
+    git(repo, "push", "-q", "origin", "HEAD:main");
+    await fx.run({ type: "checkMerged", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1" });
+  });
+
+  it("parks a push question by its event alone: no 1.5 question to hold the pause", async () => {
+    const { run, fx } = await baseSetup();
+    await fx.run({ type: "park", unit: "M1", question: "push it", reason: "push" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toMatchObject({ unit: "M1", reason: "push" });
+    expect(openQuestions(run)).toEqual([]);
+  });
+});
+
 describe("parking, reporting, finishing", () => {
   it("parks a milestone in questions.jsonl too, so land refuses it", async () => {
     const { run, repo, fx } = setup();
@@ -857,10 +957,6 @@ describe("parking, reporting, finishing", () => {
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "effect.failed")).toMatchObject({ action: "route", unit: "M1" });
     await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
-    expect(lastOf(run, "effect.failed")).toMatchObject({
-      action: "integrate",
-      unit: "M1",
-      message: "integrate needs catherd 30b",
-    });
+    expect(lastOf(run, "effect.failed")?.message).toContain("no base branch");
   });
 });

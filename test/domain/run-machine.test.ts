@@ -779,6 +779,132 @@ function base1(): Log {
   return log;
 }
 
+/** base1() in a run with a base branch: the verifier passed M1's commit c0 and the milestone is landing */
+function baseRun(): Log {
+  const log = runningLog(plan(1), "main");
+  finishLane(log, "M1.L1");
+  log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+  review(log, []);
+  const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+  endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+  return log;
+}
+
+const landed = (log: Log, branch?: string) =>
+  log.add("milestone.landed", {
+    milestone: "M1",
+    commit: "c0abcdef0123",
+    knownIssues: [],
+    digestPath: "d",
+    ...(branch ? { branch } : {}),
+  });
+
+describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => {
+  it("integrates a base that moved before landing, then has a fresh verifier gate the merge", () => {
+    const log = baseRun();
+    expect(of(last(log), "land")).toHaveLength(1);
+    log.add("base.behind", { milestone: "M1" });
+    let out = last(log);
+    expect(of(out, "integrate")).toEqual([{ type: "integrate", milestone: "M1" }]);
+    expect(of(out, "land")).toEqual([]);
+    log.add("integrate.done", { milestone: "M1", commit: "m1abcdef0123456" });
+    out = last(log);
+    expect(of(out, "land")).toEqual([]);
+    expect(of(out, "dispatch")).toMatchObject([
+      {
+        name: "verifier-M1",
+        role: "verifier",
+        brief: "verify",
+        notes: [expect.stringContaining("m1abcdef0123")],
+      },
+    ]);
+    expect(log.state().milestones[0]?.commit).toBe("m1abcdef0123456");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "m1abcdef0123456" });
+    expect(of(last(log), "land")).toHaveLength(1);
+  });
+
+  it("sends conflicts to an integrate worker, then commits and re-verifies", () => {
+    const log = baseRun();
+    log.add("base.behind", { milestone: "M1" });
+    log.add("integrate.conflict", { milestone: "M1", files: ["src/a/x.ts", "README.md"] });
+    const out = last(log);
+    expect(of(out, "integrate")).toEqual([]);
+    expect(of(out, "dispatch")).toMatchObject([
+      {
+        name: "worker-M1-integrate",
+        role: "worker",
+        lane: null,
+        brief: "fix",
+        notes: ["src/a/x.ts", "README.md"],
+      },
+    ]);
+    const w = startDispatch(log, { name: "worker-M1-integrate", unit: "M1", lane: null });
+    endDispatch(log, w, { name: "worker-M1-integrate", unit: "M1" });
+    expect(of(last(log), "commit")).toEqual([{ type: "commit", milestone: "M1", round: 1 }]);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "m2abcdef0123456" });
+    const after = last(log);
+    expect(of(after, "dispatch")).toMatchObject([{ name: "verifier-M1", brief: "verify" }]);
+    expect(names(after)).not.toContain("reviewer-M1");
+    expect(log.state().milestones[0]?.integrateFiles).toEqual([]);
+  });
+
+  it("parks a landed milestone for its push, and closes the question when origin's base contains it", () => {
+    const log = baseRun();
+    landed(log, "feat/wallet");
+    let out = last(log);
+    expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "push" }]);
+    const question = of(out, "park")[0]?.question ?? "";
+    expect(question).toContain("M1 landed on feat/wallet at c0abcdef0123");
+    expect(question).toContain("git merge-base --is-ancestor origin/main HEAD");
+    expect(of(out, "checkMerged")).toEqual([{ type: "checkMerged", milestone: "M1" }]);
+    // M2 comes after M1: it waits for the merge, not for the landing
+    expect(of(out, "route")).toEqual([]);
+    log.add("question.parked", { unit: "M1", question: "q", reason: "push" });
+    expect(log.state().milestones[0]?.status).toBe("landed");
+    expect(log.state().questions.M1?.reason).toBe("push");
+    // while it waits, the machine looks again every ten minutes
+    const due = log.state().wakeAt as string;
+    log.add("tick", {}, due);
+    expect(of(last(log), "checkMerged")).toEqual([{ type: "checkMerged", milestone: "M1" }]);
+    expect(Date.parse(log.state().wakeAt as string) - Date.parse(due)).toBe(600_000);
+    log.add("milestone.merged", { milestone: "M1" });
+    out = last(log);
+    expect(log.state().questions.M1).toBeUndefined();
+    expect(of(out, "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+  });
+
+  it("unblocks a dependant of a squash merge only by the owner's answer", () => {
+    const log = baseRun();
+    landed(log, "feat/wallet");
+    log.add("question.parked", { unit: "M1", question: "q", reason: "push" });
+    expect(of(last(log), "route")).toEqual([]);
+    log.add("question.answered", { unit: "M1", answer: "merged by squash", by: "owner" });
+    expect(log.state().milestones[0]?.status).toBe("merged");
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+  });
+
+  it("finishes only when every milestone is merged", () => {
+    const log = runningLog(plan(1), "main");
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    log.add("milestone.merged", { milestone: "M1" });
+    log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
+    expect(of(last(log), "finish")).toEqual([]);
+    log.add("milestone.merged", { milestone: "M2" });
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+  });
+
+  it("a run without base lands as 1.5: no push question, no merge check, dependants wait for landed only", () => {
+    const log = base1();
+    landed(log);
+    const out = last(log);
+    expect(of(out, "park")).toEqual([]);
+    expect(of(out, "checkMerged")).toEqual([]);
+    expect(of(out, "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+    expect(log.state().wakeAt).toBeNull();
+  });
+});
+
 describe("the machine: the run", () => {
   it("reports and notifies a landing, then goes on to the next milestone", () => {
     const log = base1();

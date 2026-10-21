@@ -258,6 +258,16 @@ export function landedCommits(run: Run): string[] {
     .filter((c) => /^[0-9a-f]{7,40}$/.test(c));
 }
 
+/** The commit the ledger holds for `m`, its latest landing; null when it never landed or the row has no commit. */
+export function landedCommitOf(run: Run, m: string): string | null {
+  const rows = nonBlankLines(runPaths(run.dir).ledger)
+    .slice(1)
+    .map((row) => row.split(" | "))
+    .filter((cells) => cells[0]?.trim() === m);
+  const commit = rows.at(-1)?.[2]?.trim() ?? "";
+  return /^[0-9a-f]{7,40}$/.test(commit) ? commit : null;
+}
+
 /** The milestones the ledger holds, in landing order. */
 export function landedMilestones(run: Run): string[] {
   return nonBlankLines(runPaths(run.dir).ledger)

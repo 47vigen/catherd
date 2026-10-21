@@ -136,3 +136,26 @@ export async function gitRun(repo: string, args: string[], timeoutMs = 300_000):
     timedOut,
   };
 }
+
+/**
+ * `git fetch -q origin <base>` with a cap: catherd's one network git call (spec 2.0 decision 21). True when it
+ * exits 0; a failure never throws, the caller works from the last fetch and says so.
+ */
+export async function fetchBase(repo: string, base: string, timeoutMs = 60_000): Promise<boolean> {
+  const r = await gitRun(repo, ["fetch", "-q", "origin", base], timeoutMs);
+  return r.code === 0;
+}
+
+/** Whether `commit` is an ancestor of `ref`: true on exit 0, false on 1, null when git cannot tell. */
+export async function isAncestor(repo: string, commit: string, ref: string): Promise<boolean | null> {
+  const r = await git(repo, ["merge-base", "--is-ancestor", commit, ref]);
+  if (r.kind === "ok") return true;
+  return r.kind === "failed" && r.exit === 1 ? false : null;
+}
+
+/** The checked-out branch, or null when HEAD is detached (or git cannot say). */
+export async function currentBranch(repo: string): Promise<string | null> {
+  const r = await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const name = r.kind === "ok" ? r.out.trim() : "";
+  return name && name !== "HEAD" ? name : null;
+}

@@ -49,6 +49,7 @@ export type MilestoneStatus =
   | "review"
   | "fixing"
   | "verifying"
+  | "integrating"
   | "landing"
   | "landed"
   | "merged"
@@ -137,6 +138,12 @@ export interface MilestoneState {
   verifierNotes: string[];
   /** verifier ends in a row that said check_broken */
   checkBroken: number;
+  /** a base run: the files the merge of the base left in conflict (none until it did); non-empty means committing resolves it */
+  integrateFiles: string[];
+  /** a base run: when to look again whether origin's base holds the landed commit */
+  mergeDue: string | null;
+  /** the branch the landed commit is on, for the owner's push question */
+  branch: string | null;
 }
 
 export interface DispatchView {
@@ -236,7 +243,16 @@ export function emptyState(run: string): RunState {
   };
 }
 
+/** How often a landed milestone waits between two looks at origin's base. */
+export const MERGE_CHECK_MS = 10 * 60_000;
+
+/** The lane-less worker that resolves the conflicts of merging the base into the run's branch. */
+export const integrateName = (milestone: string): string => `worker-${milestone}-integrate`;
+
 export const isDone = (m: MilestoneState): boolean => m.status === "landed" || m.status === "merged";
+/** In a base run a milestone is finished when origin's base holds it; otherwise when it landed. */
+export const isFinished = (s: RunState, m: MilestoneState): boolean =>
+  s.base === null ? isDone(m) : m.status === "merged";
 export const lanesOf = (s: RunState, milestone: string): LaneState[] =>
   Object.values(s.lanes).filter((l) => l.milestone === milestone);
 export const liveDispatches = (s: RunState): DispatchView[] =>
@@ -244,11 +260,11 @@ export const liveDispatches = (s: RunState): DispatchView[] =>
 export const milestoneOf = (s: RunState, id: string): MilestoneState | undefined =>
   s.milestones.find((m) => m.id === id);
 
-/** At most one in plan 30: the first milestone not landed, merged or parked whose `after` landed. Plan 35: several. */
+/** At most one in plan 30: the first milestone not landed, merged or parked whose `after` landed (merged, in a base run). Plan 35: several. */
 export function activeMilestones(s: RunState): MilestoneState[] {
   const finished = (id: string) => {
     const m = milestoneOf(s, id);
-    return m === undefined || isDone(m);
+    return m === undefined || isFinished(s, m);
   };
   const first = s.milestones.find((m) => !isDone(m) && m.status !== "parked" && m.after.every(finished));
   return first ? [first] : [];
@@ -285,7 +301,8 @@ const hasJudge = (s: RunState, unit: string): boolean => Object.values(s.judges)
 const isoPlus = (at: string, ms: number): string => new Date(Date.parse(at) + ms).toISOString();
 
 function recomputeWake(s: RunState): void {
-  const all = [...Object.values(s.holds), ...Object.values(s.waiting)].sort();
+  const merges = s.milestones.flatMap((m) => (m.status === "landed" && m.mergeDue ? [m.mergeDue] : []));
+  const all = [...Object.values(s.holds), ...Object.values(s.waiting), ...merges].sort();
   s.wakeAt = all[0] ?? null;
 }
 
@@ -314,6 +331,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       notes: [],
       verifierNotes: [],
       checkBroken: 0,
+      integrateFiles: [],
+      mergeDue: null,
+      branch: null,
     };
     m.title = mp.title;
     m.after = mp.after;
@@ -580,6 +600,17 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
   }
 }
 
+/** The base is merged into the milestone's branch: a fresh verifier checks the merge commit. */
+function mergedIn(m: MilestoneState, commit: string): void {
+  m.commit = commit;
+  m.integrateFiles = [];
+  m.tries = {};
+  m.verifierNotes = [
+    `The base branch was merged into the branch at ${commit.slice(0, 12)}: verify that commit.`,
+  ];
+  m.status = "verifying";
+}
+
 function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
   const dv = s.dispatches[e.dispatchId];
   if (!dv) return;
@@ -619,6 +650,12 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
   }
   if (!m) {
     failRole(s, e, undefined);
+    return;
+  }
+  if (e.name === integrateName(m.id) && m.status === "integrating") {
+    const refused = e.replyStatus === "blocked" || e.replyStatus === "refused";
+    if (e.status === "ok" && !refused) m.status = "committing";
+    else failRole(s, e, m);
     return;
   }
   if ((dv.role === "reviewer" || dv.role === "ui-reviewer") && m.status === "review") {
@@ -795,6 +832,11 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     if (e.unit === RUN_UNIT) s.notes.push(`The owner answered: ${e.answer}`);
     return;
   }
+  // the owner's word that a push question's milestone is merged: how a squash merge unblocks its dependants
+  if (q?.reason === "push") {
+    if (m.status === "landed") m.status = "merged";
+    return;
+  }
   m.notes.push(`The owner answered: ${e.answer}`);
   const from = m.parkedFrom ?? "waiting";
   m.parkedFrom = null;
@@ -934,6 +976,8 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`commit@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
       if (!m) return;
+      // the commit that finishes a merge of the base: reviews stay (by time), a fresh verifier gates the merge
+      if (m.integrateFiles.length > 0) return mergedIn(m, e.commit);
       m.status = "review";
       m.round = e.round;
       m.commit = e.commit;
@@ -981,7 +1025,7 @@ function apply(s: RunState, e: RunEvent): void {
       const l = s.lanes[e.unit];
       const m = milestoneOf(s, e.unit);
       if (l) l.status = "parked";
-      else if (m && m.status !== "parked") {
+      else if (m && e.reason !== "push" && m.status !== "parked") {
         m.parkedFrom = m.status;
         m.status = "parked";
       }
@@ -999,6 +1043,9 @@ function apply(s: RunState, e: RunEvent): void {
         m.knownIssues = e.knownIssues;
         m.open = [];
         m.awaiting = [];
+        m.branch = e.branch ?? null;
+        m.mergeDue = s.base === null ? null : isoPlus(e.at, MERGE_CHECK_MS);
+        recomputeWake(s);
       }
       s.owed[`landed:${e.milestone}`] = {
         kind: "landed",
@@ -1032,7 +1079,12 @@ function apply(s: RunState, e: RunEvent): void {
     }
     case "milestone.merged": {
       const m = milestoneOf(s, e.milestone);
-      if (m) m.status = "merged";
+      if (m) {
+        m.status = "merged";
+        m.mergeDue = null;
+      }
+      if (s.questions[e.milestone]?.reason === "push") delete s.questions[e.milestone];
+      recomputeWake(s);
       return;
     }
     case "cancel.requested":
@@ -1059,6 +1111,8 @@ function apply(s: RunState, e: RunEvent): void {
     case "tick":
       for (const [k, until] of Object.entries(s.holds)) if (until <= e.at) delete s.holds[k];
       for (const [k, until] of Object.entries(s.waiting)) if (until <= e.at) delete s.waiting[k];
+      for (const m of s.milestones)
+        if (m.mergeDue !== null && m.mergeDue <= e.at) m.mergeDue = isoPlus(e.at, MERGE_CHECK_MS);
       recomputeWake(s);
       return;
     case "run.ended":
@@ -1076,10 +1130,32 @@ function apply(s: RunState, e: RunEvent): void {
       laneEnded(s, l, x, e.reason);
       return;
     }
+    case "base.behind": {
+      // the commit under verification is behind origin's base: merge the base first
+      const m = milestoneOf(s, e.milestone);
+      ok(`land@${e.milestone}`);
+      if (m && !isDone(m)) {
+        m.status = "integrating";
+        m.integrateFiles = [];
+      }
+      return;
+    }
+    case "integrate.done": {
+      ok(`integrate@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (m?.status === "integrating") mergedIn(m, e.commit);
+      return;
+    }
+    case "integrate.conflict": {
+      ok(`integrate@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (m?.status === "integrating") {
+        m.integrateFiles = e.files;
+        m.tries = {};
+      }
+      return;
+    }
     case "daemon.started":
-    case "base.behind":
-    case "integrate.done":
-    case "integrate.conflict":
       return;
   }
 }

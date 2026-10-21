@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { indexPath } from "../src/infra/paths.ts";
 import { writeIndexFile } from "../src/infra/slopalytics.ts";
 
@@ -59,6 +68,38 @@ export function tempRepo(): string {
   git("config", "user.email", "t@t");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
   return dir;
+}
+
+/** A repo with a bare `origin` on its `main`: [repo, origin]. */
+export function repoWithOrigin(): { repo: string; origin: string } {
+  const repo = tempRepo();
+  const origin = tempDir("catherd-origin-");
+  execFileSync("git", ["clone", "-q", "--bare", repo, origin], { stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", origin], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["fetch", "-q", "origin"], { cwd: repo, stdio: "ignore" });
+  return { repo, origin };
+}
+
+/**
+ * Commits to `origin`'s main through a scratch clone (a file when `file` is given, else an empty commit), so the
+ * repo behind it has to fetch to see it. Returns the commit.
+ */
+export function commitInClone(origin: string, name: string, file?: { path: string; text: string }): string {
+  const clone = tempDir("catherd-clone-");
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+      cwd: clone,
+      stdio: "ignore",
+    });
+  execFileSync("git", ["clone", "-q", origin, clone], { stdio: "ignore" });
+  if (file) {
+    mkdirSync(dirname(join(clone, file.path)), { recursive: true });
+    writeFileSync(join(clone, file.path), file.text);
+    git("add", "-A");
+  }
+  git("commit", "-q", "--allow-empty", "-m", name);
+  git("push", "-q", "origin", "HEAD:main");
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: clone, encoding: "utf8" }).trim();
 }
 
 /**
