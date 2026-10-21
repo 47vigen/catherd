@@ -11,7 +11,8 @@ import {
   next,
 } from "../../src/domain/run-machine.ts";
 import type { Finding, MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
-import { liveDispatches, type RunState } from "../../src/domain/run-state.ts";
+import { activeMilestones, liveDispatches, type RunState } from "../../src/domain/run-state.ts";
+import { memoryLoad } from "../../src/domain/milestone-memory.ts";
 import {
   endDispatch,
   finishLane,
@@ -950,7 +951,9 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "push" }]);
     const question = of(out, "park")[0]?.question ?? "";
     expect(question).toContain("M1 landed on feat/wallet at c0abcdef0123");
-    expect(question).toContain("git merge-base --is-ancestor origin/main HEAD");
+    expect(question).toContain(
+      "git -C . fetch -q origin main && git -C . merge-base --is-ancestor origin/main HEAD",
+    );
     expect(of(out, "checkMerged")).toEqual([{ type: "checkMerged", milestone: "M1" }]);
     // M2 comes after M1: it waits for the merge, not for the landing
     expect(of(out, "route")).toEqual([]);
@@ -965,7 +968,7 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     log.add("milestone.merged", { milestone: "M1" });
     out = last(log);
     expect(log.state().questions.M1).toBeUndefined();
-    expect(of(out, "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+    expect(of(out, "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
   });
 
   it("unblocks a dependant of a squash merge only by the owner's answer", () => {
@@ -975,6 +978,9 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     expect(of(last(log), "route")).toEqual([]);
     log.add("question.answered", { unit: "M1", answer: "merged by squash", by: "owner" });
     expect(log.state().milestones[0]?.status).toBe("merged");
+    // M2 is claimed a worktree first, and routed in it
+    expect(of(last(log), "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
+    log.add("tree.ready", { milestone: "M2", tree: "/t/M2", branch: "w-m2", base: "main", hints: [] });
     expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
   });
 
@@ -1477,5 +1483,206 @@ describe("the machine: the owner's approval of the architect's plan", () => {
     log.add("plan.ready", { milestones: PLAN });
     expect(log.state().phase).toBe("running");
     expect(of(last(log), "park")).toEqual([]);
+  });
+});
+
+/** independent milestones (or with the given `after`) of one lane each, for the side-by-side tests */
+function planOf(spec: Record<string, { after?: string[]; laneAfter?: string[] }>): MilestonePlan[] {
+  return Object.entries(spec).map(([id, o]) => ({
+    id,
+    title: `milestone ${id}`,
+    after: o.after ?? [],
+    lanes: [
+      {
+        id: `${id}.L1`,
+        role: "worker" as const,
+        kind: "repo_code",
+        after: o.laneAfter ?? [],
+        owns: [`src/${id.toLowerCase()}/`],
+      },
+    ],
+  }));
+}
+
+/** a base run with its plan approved; no milestone has a tree yet */
+function sideBySide(spec: Record<string, { after?: string[]; laneAfter?: string[] }>): Log {
+  const log = makeLog();
+  log.add("run.started", { ...startedFields, base: "main" });
+  log.add("plan.ready", { milestones: planOf(spec) });
+  log.add("plan.approved", { by: "owner" });
+  return log;
+}
+const treeReady = (log: Log, m: string, at?: string) =>
+  log.add(
+    "tree.ready",
+    { milestone: m, tree: `/t/${m}`, branch: `w-${m.toLowerCase()}`, base: "main", hints: [] },
+    at,
+  );
+const claims = (as: Action[]): string[] => of(as, "claimTree").map((a) => a.milestone);
+const routes = (as: Action[]): string[] => of(as, "route").map((a) => a.milestone);
+
+describe("the machine: milestones side by side (plan 35)", () => {
+  it("a run without base never claims a tree and keeps one milestone active", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: planOf({ M1: {}, M2: {} }) });
+    log.add("plan.approved", { by: "owner" });
+    expect(claims(last(log))).toEqual([]);
+    expect(routes(last(log))).toEqual(["M1"]);
+    expect(activeMilestones(log.state()).map((m) => m.id)).toEqual(["M1"]);
+  });
+
+  it("claims a base run's first milestone, then routes it in its tree", () => {
+    const log = sideBySide({ M1: {} });
+    expect(of(last(log), "claimTree")).toEqual([{ type: "claimTree", milestone: "M1" }]);
+    expect(routes(last(log))).toEqual([]);
+    treeReady(log, "M1");
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
+    expect(log.state().milestones[0]).toMatchObject({ tree: "/t/M1", branch: "w-m1" });
+  });
+
+  it("starts independent milestones side by side, one claim at a time", () => {
+    const log = sideBySide({ M1: {}, M2: {}, M3: {} });
+    expect(claims(last(log))).toEqual(["M1"]);
+    treeReady(log, "M1");
+    expect(claims(last(log))).toEqual(["M2"]);
+    expect(activeMilestones(log.state()).map((m) => m.id)).toEqual(["M1", "M2"]);
+    treeReady(log, "M2");
+    expect(claims(last(log))).toEqual(["M3"]);
+    expect(routes(last(log)).sort()).toEqual(["M1", "M2"]);
+  });
+
+  it("holds a milestone that names another until that one is merged, and a lane entry likewise", () => {
+    const log = sideBySide({ M1: {}, M2: { after: ["M1"] }, M3: { laneAfter: ["M1.L1"] } });
+    treeReady(log, "M1");
+    // M2 waits for the merge of M1; M3 has no milestone entry, so it starts beside M1
+    expect(claims(last(log))).toEqual(["M3"]);
+    treeReady(log, "M3");
+    expect(claims(last(log))).toEqual([]);
+    // M3's lane names M1's lane: it does not run until M1 is merged, though M3 is routed and past preflight
+    routeMilestone(log, planOf({ M3: { laneAfter: ["M1.L1"] } })[0] as MilestonePlan);
+    expect(names(last(log))).not.toContain("worker-M3.L1");
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    expect(names(last(log))).not.toContain("worker-M3.L1");
+    log.add("milestone.merged", { milestone: "M1" });
+    expect(names(last(log))).toContain("worker-M3.L1");
+    expect(claims(last(log))).toEqual(["M2"]);
+  });
+
+  it("waits out a memory deferral and claims again at the recheck", () => {
+    const log = sideBySide({ M1: {}, M2: {} });
+    treeReady(log, "M1");
+    log.add(
+      "tree.deferred",
+      { milestone: "M2", availableMb: 3100, needMb: 5120 },
+      "2026-10-21T10:00:00.000Z",
+    );
+    expect(log.state().wakeAt).toBe("2026-10-21T10:02:00.000Z");
+    expect(claims(last(log))).toEqual([]);
+    log.add("tick", {}, "2026-10-21T10:02:00.000Z");
+    expect(claims(last(log))).toEqual(["M2"]);
+    expect(log.state().wakeAt).toBeNull();
+  });
+
+  it("parks a milestone whose claim failed twice, and claims it again after the answer", () => {
+    const log = sideBySide({ M1: {}, M2: {} });
+    treeReady(log, "M1");
+    for (let i = 0; i < 2; i++) log.add("effect.failed", { action: "claimTree", unit: "M2", message: "no" });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M2", reason: "effect" }]);
+    log.add("question.parked", { unit: "M2", question: "q", reason: "effect" });
+    expect(log.state().milestones[1]?.status).toBe("parked");
+    expect(claims(last(log))).toEqual([]);
+    log.add("question.answered", { unit: "M2", answer: "fixed", by: "owner" });
+    expect(claims(last(log))).toEqual(["M2"]);
+  });
+
+  it("checks a landed milestone's merge every 10 minutes while its push question is open, even when nothing waits", () => {
+    const log = sideBySide({ M1: {} });
+    treeReady(log, "M1");
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    log.add("question.parked", { unit: "M1", question: "q", reason: "push" });
+    const due = log.state().wakeAt as string;
+    expect(due).toBe(new Date(Date.parse(log.state().at) - 1000 + 600_000).toISOString());
+    log.add("tick", {}, due);
+    expect(of(last(log), "checkMerged")).toEqual([{ type: "checkMerged", milestone: "M1" }]);
+    expect(Date.parse(log.state().wakeAt as string) - Date.parse(due)).toBe(600_000);
+  });
+
+  it("pushes on a push answer, then asks again with the MR command, and counts only another answer as merged", () => {
+    const log = sideBySide({ M1: {}, M2: { after: ["M1"] } });
+    treeReady(log, "M1");
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "c0abcdef0123456",
+      knownIssues: [],
+      digestPath: "/r/digests/M1.md",
+      branch: "w-m1",
+    });
+    const first = of(last(log), "park")[0];
+    expect(first?.question).toContain("Answer push and catherd pushes it (git -C /t/M1 push -u origin w-m1)");
+    expect(first?.question).toContain("/r/digests/M1.md");
+    log.add("question.parked", { unit: "M1", question: first?.question ?? "", reason: "push" });
+    log.add("question.answered", { unit: "M1", answer: "Push", by: "owner" });
+    let out = last(log);
+    expect(of(out, "pushBranch")).toEqual([{ type: "pushBranch", milestone: "M1" }]);
+    expect(of(out, "park")).toEqual([]);
+    expect(log.state().milestones[0]?.status).toBe("landed");
+    expect(claims(out)).toEqual([]);
+    log.add("branch.pushed", {
+      milestone: "M1",
+      branch: "w-m1",
+      remote: "origin",
+      mr: "gh pr create --base main --head w-m1 --body-file /r/digests/M1.md",
+    });
+    out = last(log);
+    expect(of(out, "pushBranch")).toEqual([]);
+    expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "push" }]);
+    const again = of(out, "park")[0]?.question ?? "";
+    expect(again).toContain("M1's branch w-m1 is pushed to origin. Open its MR: gh pr create --base main");
+    expect(again).toContain(
+      "git -C /t/M1 fetch -q origin main && git -C /t/M1 merge-base --is-ancestor origin/main HEAD",
+    );
+    expect(again).not.toContain("Answer push");
+    log.add("question.parked", { unit: "M1", question: again, reason: "push" });
+    log.add("question.answered", { unit: "M1", answer: "merged", by: "owner" });
+    out = last(log);
+    expect(log.state().milestones[0]?.status).toBe("merged");
+    // its clean worktree goes, and the dependant starts
+    expect(of(out, "checkMerged")).toEqual([{ type: "checkMerged", milestone: "M1" }]);
+    expect(claims(out)).toEqual(["M2"]);
+  });
+
+  it("retries a failed push, and parks it for the owner after two failures", () => {
+    const log = sideBySide({ M1: {} });
+    treeReady(log, "M1");
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    log.add("question.parked", { unit: "M1", question: "q", reason: "push" });
+    log.add("question.answered", { unit: "M1", answer: "push", by: "owner" });
+    log.add("effect.failed", { action: "pushBranch", unit: "M1", message: "denied" });
+    expect(of(last(log), "pushBranch")).toHaveLength(1);
+    log.add("effect.failed", { action: "pushBranch", unit: "M1", message: "denied" });
+    expect(of(last(log), "pushBranch")).toEqual([]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "effect" }]);
+    log.add("question.parked", { unit: "M1", question: "q2", reason: "effect" });
+    log.add("question.answered", { unit: "M1", answer: "remote fixed", by: "owner" });
+    expect(of(last(log), "pushBranch")).toHaveLength(1);
+  });
+
+  it("a parked milestone keeps its tree and does not count as working", () => {
+    const log = sideBySide({ M1: {} });
+    treeReady(log, "M1");
+    log.add("question.parked", { unit: "M1", question: "q", reason: "environment" });
+    const m = log.state().milestones[0];
+    expect(m?.tree).toBe("/t/M1");
+    expect(memoryLoad(log.state().milestones, Date.parse(log.state().at)).working).toBe(0);
+  });
+
+  it("never returns two claimTree actions at once", () => {
+    const log = sideBySide({ M1: {}, M2: {}, M3: {} });
+    expect(claims(last(log))).toHaveLength(1);
+    treeReady(log, "M1");
+    expect(claims(last(log))).toHaveLength(1);
+    log.add("tree.deferred", { milestone: "M2", availableMb: 1, needMb: 2 });
+    expect(claims(last(log))).toHaveLength(0);
   });
 });

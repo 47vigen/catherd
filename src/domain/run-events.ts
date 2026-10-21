@@ -45,6 +45,8 @@ export const ACTION_TYPES = [
   "land",
   "checkMerged",
   "integrate",
+  "claimTree",
+  "pushBranch",
   "cancel",
   "report",
   "notify",
@@ -180,6 +182,23 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   ev("base.behind", { milestone: z.string() }),
   ev("integrate.done", { milestone: z.string(), commit: z.string() }),
   ev("integrate.conflict", { milestone: z.string(), files: strings }),
+  /** plan 35: a base run's milestone has its worktree (the tree, its branch, what the claim noted) */
+  ev("tree.ready", {
+    milestone: z.string(),
+    tree: z.string(),
+    branch: z.string(),
+    base: z.string(),
+    hints: strings,
+  }),
+  /** plan 35: no room in memory for another milestone yet; the claim is tried again later */
+  ev("tree.deferred", { milestone: z.string(), availableMb: z.number(), needMb: z.number() }),
+  /** plan 35: catherd pushed the milestone's branch on the owner's word; `mr` is the command that opens its MR */
+  ev("branch.pushed", {
+    milestone: z.string(),
+    branch: z.string(),
+    remote: z.literal("origin"),
+    mr: z.string(),
+  }),
   ev("cancel.requested", { by: z.literal("owner") }),
   ev("effect.failed", { action: z.enum(ACTION_TYPES), unit: z.string(), message: z.string() }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
@@ -259,6 +278,12 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.milestone} integrated at ${e.commit.slice(0, 7)}`;
     case "integrate.conflict":
       return `${e.milestone} integration conflict in ${e.files.length} file(s)`;
+    case "tree.ready":
+      return `${e.milestone} has its worktree on branch ${e.branch}`;
+    case "tree.deferred":
+      return `${e.milestone} waits for memory: ${e.availableMb} MB available, ${e.needMb} MB needed`;
+    case "branch.pushed":
+      return `${e.milestone}'s branch ${e.branch} is pushed to ${e.remote}`;
     case "cancel.requested":
       return `cancel requested by the ${e.by}`;
     case "effect.failed":

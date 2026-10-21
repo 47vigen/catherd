@@ -1,10 +1,12 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
+import { MEMORY_LIMITS } from "./milestone-memory.ts";
 import { tryParseRung } from "./ids.ts";
 import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
+import { isPushAnswer } from "./branch.ts";
 import type { ClimbReason } from "./route.ts";
 import {
   type Finding,
@@ -149,6 +151,18 @@ export interface MilestoneState {
   mergeDue: string | null;
   /** the branch the landed commit is on, for the owner's push question */
   branch: string | null;
+  /** plan 35, a base run: the milestone's worktree once `tree.ready` happened */
+  tree: string | null;
+  /** plan 35: when the worktree became ready, for the memory a young milestone is still to take */
+  treeAt: string | null;
+  /** plan 35: a memory deferral: no new claim before this time */
+  claimAfter: string | null;
+  /** plan 35: the owner answered `push` and catherd has not pushed the branch yet */
+  pushing: boolean;
+  /** plan 35: the digest file the owner's MR takes as its body */
+  digestPath: string | null;
+  /** plan 35: the MR command of the branch catherd pushed, named in the question that asks again */
+  mr: string | null;
 }
 
 export interface DispatchView {
@@ -271,14 +285,20 @@ export const liveDispatches = (s: RunState): DispatchView[] =>
 export const milestoneOf = (s: RunState, id: string): MilestoneState | undefined =>
   s.milestones.find((m) => m.id === id);
 
-/** At most one in plan 30: the first milestone not landed, merged or parked whose `after` landed (merged, in a base run). Plan 35: several. */
+/**
+ * The milestones the machine works on. A run without base: the first one not landed, merged or parked whose `after`
+ * landed. A base run (plan 35): every such one whose `after` milestones are merged and that has a tree, plus the
+ * first of them without one, so trees are claimed one at a time in plan order.
+ */
 export function activeMilestones(s: RunState): MilestoneState[] {
   const finished = (id: string) => {
     const m = milestoneOf(s, id);
     return m === undefined || isFinished(s, m);
   };
-  const first = s.milestones.find((m) => !isDone(m) && m.status !== "parked" && m.after.every(finished));
-  return first ? [first] : [];
+  const open = s.milestones.filter((m) => !isDone(m) && m.status !== "parked" && m.after.every(finished));
+  if (s.base === null) return open.slice(0, 1);
+  let claiming = false;
+  return open.filter((m) => m.tree !== null || (!claiming && (claiming = true)));
 }
 
 const bare = (p: string) => p.replace(/\/+$/, "");
@@ -317,7 +337,8 @@ const isoPlus = (at: string, ms: number): string => new Date(Date.parse(at) + ms
 
 function recomputeWake(s: RunState): void {
   const merges = s.milestones.flatMap((m) => (m.status === "landed" && m.mergeDue ? [m.mergeDue] : []));
-  const all = [...Object.values(s.holds), ...Object.values(s.waiting), ...merges].sort();
+  const claims = s.milestones.flatMap((m) => (m.claimAfter ? [m.claimAfter] : []));
+  const all = [...Object.values(s.holds), ...Object.values(s.waiting), ...merges, ...claims].sort();
   s.wakeAt = all[0] ?? null;
 }
 
@@ -350,6 +371,12 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       integrateFiles: [],
       mergeDue: null,
       branch: null,
+      tree: null,
+      treeAt: null,
+      claimAfter: null,
+      pushing: false,
+      digestPath: null,
+      mr: null,
     };
     m.title = mp.title;
     m.after = mp.after;
@@ -868,8 +895,11 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     return;
   }
   // the owner's word that a push question's milestone is merged: how a squash merge unblocks its dependants
+  // plan 35: the word `push` is no merge: catherd pushes the branch and asks again
   if (q?.reason === "push") {
-    if (m.status === "landed") m.status = "merged";
+    if (m.status !== "landed") return;
+    if (isPushAnswer(e.answer)) m.pushing = true;
+    else m.status = "merged";
     return;
   }
   m.notes.push(`The owner answered: ${e.answer}`);
@@ -1101,6 +1131,7 @@ function apply(s: RunState, e: RunEvent): void {
         m.open = [];
         m.awaiting = [];
         m.branch = e.branch ?? null;
+        m.digestPath = e.digestPath;
         m.mergeDue = s.base === null ? null : isoPlus(e.at, MERGE_CHECK_MS);
         recomputeWake(s);
       }
@@ -1142,6 +1173,34 @@ function apply(s: RunState, e: RunEvent): void {
       }
       if (s.questions[e.milestone]?.reason === "push") delete s.questions[e.milestone];
       recomputeWake(s);
+      return;
+    }
+    case "tree.ready": {
+      ok(`claimTree@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (m) {
+        m.tree = e.tree;
+        m.branch = e.branch;
+        m.treeAt = e.at;
+        m.claimAfter = null;
+      }
+      recomputeWake(s);
+      return;
+    }
+    case "tree.deferred": {
+      ok(`claimTree@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (m) m.claimAfter = isoPlus(e.at, MEMORY_LIMITS.recheckMs);
+      recomputeWake(s);
+      return;
+    }
+    case "branch.pushed": {
+      ok(`pushBranch@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (m) {
+        m.pushing = false;
+        m.mr = e.mr;
+      }
       return;
     }
     case "cancel.requested":
@@ -1186,8 +1245,10 @@ function apply(s: RunState, e: RunEvent): void {
     case "tick":
       for (const [k, until] of Object.entries(s.holds)) if (until <= e.at) delete s.holds[k];
       for (const [k, until] of Object.entries(s.waiting)) if (until <= e.at) delete s.waiting[k];
-      for (const m of s.milestones)
+      for (const m of s.milestones) {
         if (m.mergeDue !== null && m.mergeDue <= e.at) m.mergeDue = isoPlus(e.at, MERGE_CHECK_MS);
+        if (m.claimAfter !== null && m.claimAfter <= e.at) m.claimAfter = null;
+      }
       recomputeWake(s);
       return;
     case "run.ended":
