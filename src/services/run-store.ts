@@ -4,7 +4,13 @@ import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
-import type { OutcomeRouteRow, OutcomeRow, RoleRouteRow, RouteRow } from "../domain/route.ts";
+import type {
+  FailoverRouteRow,
+  OutcomeRouteRow,
+  OutcomeRow,
+  RoleRouteRow,
+  RouteRow,
+} from "../domain/route.ts";
 import { cell, slug } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
@@ -260,11 +266,18 @@ export function readOutcomeRoutes(run: Run): OutcomeRouteRow[] {
 /** Spec 1.5 plan 24: the run's role decisions outside a lane, oldest first. */
 export function readRoleRoutes(run: Run): RoleRouteRow[] {
   return readJsonl<RoleRouteRow>(runPaths(run.dir).routes).rows.filter(
-    (r) => r?.lane === null && typeof r.role === "string" && typeof r.rung === "string",
+    (r) =>
+      r?.lane === null &&
+      (r.source === "route" || r.source === "dispatch") &&
+      typeof r.role === "string" &&
+      typeof r.rung === "string",
   );
 }
 
-export function appendRoute(run: Run, row: RouteRow | RoleRouteRow | OutcomeRouteRow): void {
+export function appendRoute(
+  run: Run,
+  row: RouteRow | RoleRouteRow | OutcomeRouteRow | FailoverRouteRow,
+): void {
   const file = runPaths(run.dir).routes;
   ensureJsonlHeader(file, "routes");
   appendJsonl(file, row);

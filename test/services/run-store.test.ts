@@ -6,11 +6,14 @@ import { isCatherdError } from "../../src/domain/errors.ts";
 import { runsDir } from "../../src/infra/paths.ts";
 import {
   appendRecord,
+  appendRoute,
   createRun,
   findRun,
   LEDGER_HEADER,
   listRuns,
   readRecords,
+  readRoleRoutes,
+  readRoutes,
   runFile,
   runPaths,
 } from "../../src/services/run-store.ts";
@@ -109,6 +112,27 @@ describe("records", () => {
     const row = JSON.stringify(makeRecord({ dispatchId: "D1" }));
     appendFileSync(runPaths(run.dir).runs, `${row}\n${row}\n{"schema":1,"name":"no fields"}\n`);
     expect(readRecords(run)).toMatchObject({ records: [{ dispatchId: "D1" }], corrupt: 1 });
+  });
+});
+
+describe("routes", () => {
+  it("readRoleRoutes and readRoutes skip failover rows", () => {
+    const { run } = freshRun();
+    const row = {
+      at: "2026-10-21T10:00:00.000Z",
+      lane: null,
+      role: "reviewer" as const,
+      name: "reviewer-M1",
+      source: "failover" as const,
+      from: "codex:gpt-6-sol#high",
+      rung: "opencode:opencode-go/gpt-6-luna#xhigh",
+      why: "x",
+      held: ["codex"],
+    };
+    appendRoute(run, row);
+    appendRoute(run, { ...row, lane: "M1.L1", role: "worker", name: "worker-M1.L1" });
+    expect(readRoleRoutes(run)).toEqual([]);
+    expect(readRoutes(run)).toEqual([]);
   });
 });
 

@@ -35,7 +35,7 @@ import { briefFor, judgeBrief } from "./run-briefs.ts";
 import { appendEvent, appendEvents, readEvents, replayRun } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { runProfile } from "./run-pin.ts";
-import { readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
+import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
 /**
  * What carries the machine's actions out. `run` appends the events the action produces (a long one when it is
@@ -200,9 +200,35 @@ export function realEffects(deps: Deps, run: Run): Effects {
       .filter(([, until]) => until > s.at)
       .map(([q]) => q);
 
+  /** Plan 33: every failover, chosen or none, is a row in routes.jsonl; a failed append never fails the dispatch. */
+  function recordFailover(
+    a: { name: string; role: Role; lane: string | null },
+    from: string,
+    rung: string | null,
+    s: RunState,
+  ): void {
+    try {
+      appendRoute(run, {
+        at: at().toISOString(),
+        lane: a.lane,
+        role: a.role,
+        name: a.name,
+        source: "failover",
+        from,
+        rung,
+        why: rung
+          ? `failed over from ${from} to ${rung}`
+          : `no stand-in for ${from}: every candidate is held or below it`,
+        held: Object.keys(s.holds).sort(),
+      });
+    } catch (e) {
+      log("warn", "routes", { failover: errorMessage(e) });
+    }
+  }
+
   /** The rung a dispatch runs on, or a refusal's code and message. */
   async function rungFor(
-    a: { role: Role; lane: string | null; rung: string | null; failoverFrom: string | null },
+    a: { name: string; role: Role; lane: string | null; rung: string | null; failoverFrom: string | null },
     s: RunState,
   ): Promise<{ rung: string } | { code: string; message: string }> {
     const profile = runProfile(deps, run);
@@ -218,6 +244,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const held = heldQuotas(s);
     if (a.failoverFrom || (parsed !== null && held.includes(quotaOf(parsed)))) {
       const stand = failoverRung(deps, run, a.role, rung, held);
+      if (a.failoverFrom) recordFailover(a, a.failoverFrom, stand, s);
       if (!stand)
         return {
           code: "E_ALL_HELD",
