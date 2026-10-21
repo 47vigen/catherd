@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { brotliCompressSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { defaultDeps } from "../../src/entry/deps.ts";
-import { type Panel, PANEL_COOKIE, servePanel } from "../../src/entry/panel/server.ts";
+import {
+  type Panel,
+  PANEL_COOKIE,
+  panelHost,
+  panelOriginOk,
+  servePanel,
+} from "../../src/entry/panel/server.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { runStart } from "../../src/services/run-client.ts";
@@ -164,6 +170,21 @@ describe("the panel server", () => {
       },
     });
     expect(up.status).toBe(403);
+  });
+
+  it("accepts the portless Host a browser sends on port 80, and only there", () => {
+    expect(panelHost("127.0.0.1:8123", 8123)).toBe("127.0.0.1:8123");
+    expect(panelHost("127.0.0.1", 8123)).toBeNull();
+    expect(panelHost("127.0.0.1", 80)).toBe("127.0.0.1");
+    expect(panelHost("localhost", 80)).toBe("localhost");
+    expect(panelHost("localhost:80", 80)).toBe("localhost:80");
+    expect(panelHost("evil.test", 80)).toBeNull();
+    expect(panelHost(null, 80)).toBeNull();
+    // the Origin follows the Host: no :80 on either side
+    expect(panelOriginOk("http://127.0.0.1", "127.0.0.1")).toBe(true);
+    expect(panelOriginOk("http://localhost", "localhost")).toBe(true);
+    expect(panelOriginOk("http://evil.test", "127.0.0.1")).toBe(false);
+    expect(panelOriginOk(null, "127.0.0.1")).toBe(true);
   });
 
   it("lists runs paged and searched, and returns one run", async () => {

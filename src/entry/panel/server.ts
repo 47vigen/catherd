@@ -159,6 +159,16 @@ const compile = (op: Operation): RegExp => new RegExp(`^${op.path.replace(/\{(\w
 const ROUTES = OPERATIONS.map((op) => ({ op, re: compile(op) }));
 const LIVE = /^\/api\/runs\/([^/]+)\/live$/;
 
+/** The Host this panel answers to, or null. A browser omits the default port, so port 80 also takes the bare name. */
+export const panelHost = (header: string | null, port: number): string | null => {
+  const names = ["127.0.0.1", "localhost"];
+  const ok = names.flatMap((n) => (port === 80 ? [n, `${n}:80`] : [`${n}:${port}`]));
+  return header !== null && ok.includes(header) ? header : null;
+};
+/** A request without an Origin passes; one with it must come from the page this Host serves. */
+export const panelOriginOk = (origin: string | null, host: string): boolean =>
+  origin === null || origin === `http://${host}`;
+
 interface SocketData {
   run: string;
   from: number;
@@ -176,14 +186,8 @@ export function servePanel(o: PanelOptions): Panel {
     signInPage = undefined;
   };
 
-  const hostOk = (req: Request): string | null => {
-    const host = req.headers.get("host");
-    return host === `127.0.0.1:${server.port}` || host === `localhost:${server.port}` ? host : null;
-  };
-  const originOk = (req: Request, host: string): boolean => {
-    const from = req.headers.get("origin");
-    return from === null || from === `http://${host}`;
-  };
+  const hostOk = (req: Request): string | null => panelHost(req.headers.get("host"), server.port as number);
+  const originOk = (req: Request, host: string): boolean => panelOriginOk(req.headers.get("origin"), host);
   const signedIn = (req: Request): boolean => {
     const c = cookieOf(req);
     return c !== undefined && sessions.has(c);
