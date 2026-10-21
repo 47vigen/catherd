@@ -1,7 +1,8 @@
 /**
- * Spec §12's npm pack smoke: packs catherd, installs the tarball into an empty project and runs what a user
- * runs first, `catherd --version` and `catherd doctor --json`, whose `mcp` row is the MCP initialize and
- * tools/list handshake against the installed server. Not a `bun test` file: CI's package job runs it with
+ * Spec §12's npm pack smoke: packs catherd (its prepack builds the panel), installs the tarball into an empty
+ * project and runs what a user runs first, `catherd --version` and `catherd doctor --json`, whose `mcp` row is the
+ * MCP initialize and tools/list handshake against the installed server, then `catherd panel`, which must serve
+ * the shipped build. Not a `bun test` file: CI's package job runs it with
  * `bun test/pack-smoke.ts`. It needs the npm registry, to install the package's dependencies.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -24,6 +25,7 @@ const SHIPPED = [
   "src/entry/supervise-bin.ts",
   "src/entry/daemon-bin.ts",
   "src/entry/check-bin.ts",
+  "web/dist/index.html",
   "catalog/models.json",
   "catalog/jev.json",
   "plugin/.claude-plugin/plugin.json",
@@ -106,6 +108,38 @@ const report = JSON.parse(doctor.out) as { version: string; checks: { id: string
 must(report.version === pkg.version, "doctor reports the installed version");
 const mcp = report.checks.find((c) => c.id === "mcp");
 must(mcp?.state === "ok", "the installed MCP server answers initialize and tools/list", JSON.stringify(mcp));
+
+// 4. the installed panel serves the build it shipped, and wants a session for its API
+const panel = Bun.spawn([bin, "panel", "--no-open", "--port", "0"], {
+  cwd: app,
+  env: scrubSecrets({ ...process.env, ...env }),
+  stdout: "pipe",
+  stderr: "pipe",
+});
+try {
+  const reader = panel.stdout.getReader();
+  let first = "";
+  while (!first.includes("\n")) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    first += new TextDecoder().decode(value);
+  }
+  const line = first.split("\n")[0] ?? "";
+  must(
+    /^catherd panel: http:\/\/127\.0\.0\.1:\d+\/login#token=/.test(line),
+    "catherd panel prints its link",
+    line,
+  );
+  const origin = (line.match(/http:\/\/127\.0\.0\.1:\d+/) as RegExpMatchArray)[0];
+  const login = await fetch(`${origin}/login`);
+  must(
+    login.status === 200 && (await login.text()).includes('<div id="root">'),
+    "the installed panel serves its build",
+  );
+  must((await fetch(`${origin}/api/runs`)).status === 401, "the installed panel's API wants a session");
+} finally {
+  panel.kill();
+}
 
 must(
   !existsSync(join(home, ".claude")) &&

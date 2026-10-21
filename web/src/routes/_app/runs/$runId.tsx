@@ -198,7 +198,7 @@ function RunDetail({ runId }: { runId: string }) {
             title="Timeline"
             aside={
               live ? (
-                <output className="text-muted flex items-center gap-1.5 font-mono text-xs">
+                <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
                   <span
                     aria-hidden="true"
                     className={
