@@ -216,7 +216,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
       await waitForFinish(d, { pollMs: deps.pollMs, now: deps.now });
       const record = await finalizeDispatch(run, d);
       if (replayRun(run).dispatches[id]?.ended) return;
-      if (judge && record.status !== "limit") {
+      // a daemon that died between judge.decided and dispatch.ended decided it already
+      const decidedBefore = readEvents(run).some((e) => e.type === "judge.decided" && e.dispatchId === id);
+      if (judge && record.status !== "limit" && !decidedBefore) {
         const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
         const decision = record.status === "ok" ? parseJudgeReply(reply, judge.kind) : null;
         await append(

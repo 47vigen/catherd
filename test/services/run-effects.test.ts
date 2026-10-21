@@ -289,6 +289,46 @@ describe("dispatching", () => {
     expect(liveDispatches(run, deps.now())).toEqual([]);
   });
 
+  it("does not decide a judge's answer twice when the daemon died before dispatch.ended", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const d = await fakeDispatch(
+      run,
+      { name: "judge-9", role: "judge", lane: null, owns: [] },
+      {
+        proc: "dead",
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+        reply: "DECISION: answer\nANSWER: use the existing helper\nSTATUS: complete — ok",
+        events: "",
+        collect: true,
+      },
+    );
+    await seed(
+      run,
+      {
+        type: "dispatch.started",
+        dispatchId: d.admit.dispatchId,
+        name: "judge-9",
+        role: "judge",
+        unit: "M1.L1",
+        lane: null,
+        rung: d.admit.rung,
+        thread: null,
+        judgeKind: "question",
+      },
+      {
+        type: "judge.decided",
+        id: "9",
+        unit: "M1.L1",
+        kind: "question",
+        decision: { verb: "answer", answer: "use the existing helper" },
+        dispatchId: d.admit.dispatchId,
+      },
+    );
+    await fx.run({ type: "watch", dispatchId: d.admit.dispatchId }, replayRun(run));
+    expect(types(run).slice(2)).toEqual(["dispatch.started", "judge.decided", "dispatch.ended"]);
+  });
+
   it("cancels a live dispatch, which then ends cancelled", async () => {
     const { run, fx } = setup({ reply: "x", holdUntil: join(freshHold(), "never") });
     writeLane(run, "M1.L1", ["src/a/"]);
