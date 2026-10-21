@@ -1,5 +1,26 @@
 # catherd — handoff (2026-09-29, seventh session: the 1.3 backend designs)
 
+
+## catherd 2.0 (2026-10-21, autopilot): the run drives itself
+
+Binding spec: `docs/specs/2026-10-12-catherd-2.0-design.md` (owner-approved over four design rounds; decisions 1–26).
+Plans 28–36 were written on 2061e6e (1.5.0) in two waves; each executes after the previous one merges, restarted on
+`main`. The owner's answers to the plans' open questions sit in each plan's "Owner answers" section and bind over
+its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30b reuses their tests by number).
+
+| Plan | File | State |
+| ---- | ---- | ----- |
+| 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | next |
+| 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | written |
+| 30 run daemon | `docs/plans/2026-10-21-30-run-daemon.md` | written |
+| 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | written |
+| 31 panel | `docs/plans/2026-10-21-31-panel.md` | written |
+| 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md` | written |
+| 33 routing | `docs/plans/2026-10-21-33-routing.md` | written |
+| 34 knowledge and digest | `docs/plans/2026-10-21-34-knowledge-digest.md` | written |
+| 35 milestone branches | `docs/plans/2026-10-21-35-milestone-branches.md` | written |
+| 36 release 2.0 | `docs/plans/2026-10-21-36-release.md` | written |
+
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 
 Binding spec: `docs/specs/2026-10-02-catherd-1.5-design.md`. Plans 21–26 were written in parallel on main `6f2f8c7`,
