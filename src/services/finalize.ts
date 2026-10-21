@@ -8,8 +8,11 @@ import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
 import {
   type ExitInfo,
+  parseReplyDesign,
   parseReplyEnvironment,
+  parseReplyExtras,
   parseReplyHead,
+  parseReplyRejections,
   parseReplyStatus,
   type RunRecord,
   THREAD_HEAVY_INPUT,
@@ -204,6 +207,9 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const reported = parseReplyStatus(replyText);
   const environment = parseReplyEnvironment(replyText);
   const head = parseReplyHead(replyText);
+  const extras = parseReplyExtras(replyText);
+  const rejected = parseReplyRejections(replyText);
+  const design = parseReplyDesign(replyText);
   return {
     schema: 1,
     runId: run.id,
@@ -232,6 +238,9 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     replyWhy: reported.why,
     ...(environment ? { environment } : {}),
     ...(head ? { head } : {}),
+    ...(extras.length ? { extras } : {}),
+    ...(rejected.length ? { rejected } : {}),
+    ...(design.length ? { design } : {}),
     threadHeavy: o.tokens.input >= THREAD_HEAVY_INPUT,
     access: a.access,
     isolated: a.isolated,
