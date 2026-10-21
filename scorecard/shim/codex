@@ -1,0 +1,21 @@
+#!/bin/sh
+# catherd scorecard: while $CATHERD_SCORECARD_LIMITS holds a token, one `codex exec` ends in a usage limit
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "$1" = exec ] && [ -n "$CATHERD_SCORECARD_LIMITS" ]; then
+  for t in "$CATHERD_SCORECARD_LIMITS"/tokens/*; do
+    [ -e "$t" ] || break
+    if mv "$t" "$CATHERD_SCORECARD_LIMITS/taken/" 2>/dev/null; then
+      cat "$here/../../test/fixtures/adapters/codex/limit.jsonl"
+      exit 1
+    fi
+  done
+fi
+real=
+set -f; IFS=:
+for d in $PATH; do
+  [ "$d" = "$here" ] && continue
+  if [ -x "$d/codex" ]; then real=$d/codex; break; fi
+done
+unset IFS; set +f
+[ -n "$real" ] || { echo "codex: not found on PATH" >&2; exit 127; }
+exec "$real" "$@"
