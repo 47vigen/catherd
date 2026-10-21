@@ -11,9 +11,15 @@ import { ensurePrivateDir, writeJsonAtomic } from "./store.ts";
 /** Set in a locked command's env: a `catherd lock` inside it runs at once, holding nothing more. */
 export const LOCK_HELD_ENV = "CATHERD_LOCK_HELD";
 
-/** Spec 2.0 decision 18: heavy slots wait while the load is above twice the cores, up to 15 minutes (tests shorten it). */
+const envLoadWaitMs = Number(process.env.CATHERD_HEAVY_LOAD_WAIT_MS ?? 900_000);
+
+/**
+ * Spec 2.0 decision 18: heavy slots wait while the load is above twice the cores, up to 15 minutes.
+ * CATHERD_HEAVY_LOAD_WAIT_MS overrides the wait (0 = none); the test preload sets 0, since a busy CI runner
+ * would otherwise stall every lock in the suite, spawned `catherd lock` processes included.
+ */
 export const heavyLimits = {
-  loadWaitMs: 900_000,
+  loadWaitMs: envLoadWaitMs >= 0 ? envLoadWaitMs : 900_000,
   loadPollMs: 15_000,
   load: (): number => loadavg()[0] ?? 0,
   cores: (): number => availableParallelism(),

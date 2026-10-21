@@ -22,11 +22,23 @@ describe("heavy lock", () => {
   it("waits while the load is above twice the cores, then runs", async () => {
     withHome();
     let reads = 0;
-    Object.assign(heavyLimits, { cores: () => 4, load: () => (reads++ < 2 ? 9 : 1), loadPollMs: 1 });
+    Object.assign(heavyLimits, {
+      cores: () => 4,
+      load: () => (reads++ < 2 ? 9 : 1),
+      loadPollMs: 1,
+      loadWaitMs: 60_000,
+    });
     let waits = 0;
     expect(await withHeavySlot(1, () => "ran", { pollMs: 1, onWait: () => waits++ })).toBe("ran");
     expect(reads).toBeGreaterThanOrEqual(3);
     expect(waits).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not wait for the host's load under test: a busy CI runner must not stall a lock", async () => {
+    withHome();
+    Object.assign(heavyLimits, { cores: () => 1, load: () => 99 });
+    expect(heavyLimits.loadWaitMs).toBe(0);
+    expect(await withHeavySlot(1, () => "ran", { pollMs: 1 })).toBe("ran");
   });
 
   it("runs anyway once the load wait is spent", async () => {
