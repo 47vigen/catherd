@@ -12,6 +12,7 @@ import { RunViewSchema, runTimeline } from "../../src/services/run-read.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { createRun, findRun } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -267,6 +268,22 @@ describe("the panel server", () => {
     });
     await got;
     expect(frames[0]).toEqual(runTimeline(id, e.seq, 1)[0]);
+    // without `from` a socket starts at the end: the history comes over HTTP
+    const tail = new WebSocket(`${base.replace("http", "ws")}/api/runs/${id}/live`, {
+      headers: { cookie },
+    } as never);
+    const tailed: { seq: number }[] = [];
+    tail.onmessage = (m) => void tailed.push(JSON.parse(String(m.data)));
+    await new Promise<void>((r) => (tail.onopen = () => r()));
+    const e2 = await appendEvent(findRun(id), {
+      type: "question.parked",
+      unit: "M1.L3",
+      question: "q",
+      reason: "needs_user",
+    });
+    await waitFor(() => tailed.length > 0);
+    expect(tailed.map((t) => t.seq)).toEqual([e2.seq]);
+    tail.close();
     ws.close();
     const anon = await fetch(`${base}/api/runs/${id}/live`, {
       headers: {

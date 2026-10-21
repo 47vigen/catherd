@@ -12,6 +12,7 @@ import { setRoleRungs, setupView } from "../../services/panel-setup.ts";
 import type { Deps } from "../../services/ports.ts";
 import { answerUnit, cancelRun } from "../../services/run-client.ts";
 import { listRunViews, parkedQuestions, runTimeline, runView, tailEvents } from "../../services/run-read.ts";
+import { readEvents } from "../../services/run-events-store.ts";
 import { findRun } from "../../services/run-store.ts";
 import {
   AnswerBodySchema,
@@ -283,7 +284,12 @@ export function servePanel(o: PanelOptions): Panel {
             : errorResponse("internal", errorMessage(e)),
         );
       }
-      const from = Math.max(1, Number.parseInt(url.searchParams.get("from") ?? "1", 10) || 1);
+      // no `from`: only what is appended from now on (the page loads the history over HTTP)
+      const asked = url.searchParams.get("from");
+      const from =
+        asked === null
+          ? (readEvents(findRun(id)).at(-1)?.seq ?? 0) + 1
+          : Math.max(1, Number.parseInt(asked, 10) || 1);
       if (srv.upgrade(req, { data: { run: id, from } })) return undefined;
       return withHeaders(errorResponse("E_INPUT_INVALID", "not a websocket upgrade"));
     }
