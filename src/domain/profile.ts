@@ -61,7 +61,8 @@ export const ProfileDocSchema = z.looseObject({
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
   failover: z.record(z.string(), z.string()).optional(),
-  maxEffort: z.record(z.string(), z.string()).optional(),
+  // unknown values, like `bars`: an entry that is no effort word never makes the file unreadable
+  maxEffort: z.record(z.string(), z.unknown()).optional(),
   bars: z.unknown().optional(),
   budget: z
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
@@ -95,6 +96,8 @@ const STORED_FALLBACK = {
 const barOk = (k: string, v: unknown): boolean =>
   (DIFFICULTIES as readonly string[]).includes(k) && typeof v === "number" && v >= 0 && v <= 100;
 
+const isEffort = (v: unknown): v is EffortWord => typeof v === "string" && effortRank(v) >= 0;
+
 /** The entries of a stored `bars` this catherd can read; anything else is not a bar. */
 function readBars(v: unknown): Bars {
   return isPlain(v) ? (Object.fromEntries(Object.entries(v).filter((e) => barOk(e[0], e[1]))) as Bars) : {};
@@ -118,7 +121,10 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   for (const [k, v] of Object.entries(doc.billing ?? {}))
     check(`billing.${k}`, BILLING_MODES, v, STORED_FALLBACK.billing(k));
   for (const [k, v] of Object.entries(doc.maxEffort ?? {}))
-    if (effortRank(v) < 0) out.push({ path: `maxEffort.${k}`, value: v, readAs: "no ceiling" });
+    if (!isEffort(v)) {
+      const value = typeof v === "string" ? v : JSON.stringify(v);
+      out.push({ path: `maxEffort.${k}`, value, readAs: "no ceiling" });
+    }
   const checkBars = (path: string, v: unknown, readAs: string) => {
     if (v === undefined) return;
     if (!isPlain(v)) return void out.push({ path, value: JSON.stringify(v), readAs });
@@ -336,7 +342,7 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     harness,
     failover: { ...doc.failover },
     maxEffort: Object.fromEntries(
-      Object.entries(doc.maxEffort ?? {}).filter((e): e is [string, EffortWord] => effortRank(e[1]) >= 0),
+      Object.entries(doc.maxEffort ?? {}).filter((e): e is [string, EffortWord] => isEffort(e[1])),
     ),
     bars: readBars(doc.bars),
     budget,

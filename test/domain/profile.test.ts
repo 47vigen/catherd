@@ -412,6 +412,24 @@ describe("maxEffort", () => {
   });
 });
 
+describe("a stored maxEffort entry that is no effort word", () => {
+  it("is ignored, keeps the file readable, and warns", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      maxEffort: {
+        "claude-code:claude-opus-5-5": { x: 7 },
+        "codex:gpt-6-sol": 7,
+        "codex:gpt-6.1-sol": "high",
+      },
+    });
+    expect(resolveProfile(doc, "x", "claude-code").maxEffort).toEqual({ "codex:gpt-6.1-sol": "high" });
+    expect(unknownValues(doc)).toEqual([
+      { path: "maxEffort.claude-code:claude-opus-5-5", value: '{"x":7}', readAs: "no ceiling" },
+      { path: "maxEffort.codex:gpt-6-sol", value: "7", readAs: "no ceiling" },
+    ]);
+  });
+});
+
 describe("bars", () => {
   it("keeps a profile's and a role's bars, and removes them with null", () => {
     const doc = applyPatch(
