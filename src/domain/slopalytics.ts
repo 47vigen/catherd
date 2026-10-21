@@ -32,8 +32,11 @@ export const IndexFileSchema = z.looseObject({
 });
 export type IndexFile = z.infer<typeof IndexFileSchema>;
 
-/** A finite number, else null (the proxy sends prices as strings and gaps as null). */
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** A finite number or a finite numeric string (the proxy sends some prices as strings), else null. */
+const num = (v: unknown): number | null => {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+};
 
 /** The proxy's answer as the records catherd ranks on: only a record with a positive intelligence is a pair. */
 export function parseProxy(body: unknown): { fetchedAt: string | null; models: SlopRecord[] } {
