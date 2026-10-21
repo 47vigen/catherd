@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { defaultProfileDoc, type Profile, applyPatch, resolveProfile } from "../../../src/domain/profile.ts";
 import { validateProfile } from "../../../src/domain/profile-rules.ts";
-import type { CatalogModel } from "../../../src/services/catalog-service.ts";
 import { catalogQuery, loadCatalog } from "../../../src/services/catalog-service.ts";
 import {
   failoverOptions,
@@ -24,41 +23,14 @@ afterEach(snapshotEnv());
 
 const BACKENDS = ["claude", "codex", "claude-code", "opencode"];
 
-/** A model a backend listed that catherd has no scores for (spec §5.2: listed, disabled until mapped). */
-const GLM: CatalogModel = {
-  id: "opencode-go/glm-6",
-  name: null,
-  backend: "opencode",
-  model: "opencode-go/glm-6",
-  billing: "opencode-go",
-  efforts: [],
-  context: null,
-  capabilities: null,
-  roles: ["worker", "reviewer"],
-  listed: true,
-  notes: {},
-  price: null,
-  speed: {},
-  rungs: [
-    {
-      rung: "opencode:opencode-go/glm-6#default",
-      enabled: false,
-      scores: {},
-      treatLike: null,
-      cost: { kind: "metered", value: 0 } as never,
-      evidence: null,
-    },
-  ],
-};
-
 function input(o: Partial<TreeInput> & { profile?: Profile } = {}): TreeInput {
   withHome();
   const profile = o.profile ?? resolveProfile(defaultProfileDoc(), "default", "claude-code");
   const staged = o.staged ?? {};
-  const catalog = withStaged(loadCatalog({ timings: false }), staged);
+  const catalog = withStaged(loadCatalog(), staged);
   return {
     profile,
-    models: [...catalogQuery({ scoredOnly: false, limit: 1000 }, profile.billing).models, GLM],
+    models: catalogQuery({ limit: 1000 }, profile.billing).models,
     catalog,
     staged,
     expanded: new Set(),
@@ -104,43 +76,19 @@ describe("the Profiles tree (spec §9.1)", () => {
     expect(row(rows, "model:worker:codex:gpt-6-sol").value).toBe("3 of 6");
     const efforts = rows.filter((r) => r.parent === "model:worker:codex:gpt-6-sol");
     expect(efforts.map((r) => [r.label, r.check])).toEqual([
+      ["none", false],
       ["low", false],
       ["medium", true],
       ["high", true],
       ["xhigh", true],
       ["max", false],
-      ["ultra", false],
     ]);
-    // ultra carries max's published values (adjacent, spec 1.2 §4.3): scored, not dimmed
-    expect(row(rows, "rung:worker:codex:gpt-6-sol#ultra")).toMatchObject({
+    // every listed effort has an index entry, so none is dimmed
+    expect(row(rows, "rung:worker:codex:gpt-6-sol#max")).toMatchObject({
       value: "",
       dim: false,
       action: { scored: true },
     });
-  });
-
-  it("marks an unscored model, and shows a staged treat-like as usable and unsaved", () => {
-    const open = new Set(["role:worker", "model:worker:opencode:opencode-go/glm-6"]);
-    const before = buildRows(input({ expanded: open }));
-    expect(row(before, "model:worker:opencode:opencode-go/glm-6").value).toBe("0 of 1 · unscored");
-    const staged = { "opencode:opencode-go/glm-6#default": "gpt-6-sol#medium" };
-    const after = buildRows(input({ expanded: open, staged }));
-    expect(row(after, "rung:worker:opencode:opencode-go/glm-6#default")).toMatchObject({
-      value: "treated like gpt-6-sol#medium · unsaved",
-      dim: false,
-      action: { type: "rung", scored: true },
-    });
-  });
-
-  it("says whose scores a stand-in borrows, only when it has none of its own (spec 1.1 §11)", () => {
-    const rows = buildRows(input());
-    expect(row(rows, "failover:codex:gpt-6-sol#medium").value).toBe(
-      "→ kimi-k3#max (scores borrowed from gpt-6-sol#medium)",
-    );
-    expect(row(rows, "failover:codex:gpt-6-sol#high").value).toBe("none");
-    expect(row(rows, "failover:codex:gpt-6-luna#high").value).toBe(
-      "→ gpt-6-luna#high (agentic, steer borrowed from gpt-5.6-luna#high)",
-    );
   });
 
   it("puts a validation issue on the row it is about", () => {
@@ -226,25 +174,14 @@ describe("edits", () => {
       ["codex:gpt-6-sol#xhigh", false],
     ]);
     withHome();
-    const c = loadCatalog({ timings: false });
-    const models = catalogQuery({ scoredOnly: false, limit: 1000 }, p.billing).models;
+    const c = loadCatalog();
+    const models = catalogQuery({ limit: 1000 }, p.billing).models;
     const standIns = failoverOptions(p, models, c, "codex:gpt-6-sol#medium");
     expect(standIns[0]).toEqual({ value: "", title: "none", current: false });
     expect(standIns.some((o) => o.value.startsWith("codex:"))).toBe(false);
     expect(standIns.some((o) => o.value === "claude-code:claude-opus-5-5#xhigh")).toBe(true);
-    // Opus high has values of its own now (carried from xhigh and max), but no honesty: Sol's is inferred, and said
-    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe(
-      "honesty inferred from gpt-6-sol#high",
-    );
-    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#xhigh")?.detail).toBe(
-      "honesty inferred from gpt-6-sol#max",
-    );
-    expect(standIns.find((o) => o.value === "opencode:opencode-go/gpt-6-luna#high")?.detail).toBe(
-      "agentic, steer borrowed from gpt-5.6-luna#high",
-    );
-    const likes = treatLikeOptions(c);
-    expect(likes.map((o) => o.value)).toContain("gpt-6-sol#medium");
-    // a rung that borrows through a treat-like lends nothing of its own
-    expect(likes.map((o) => o.value)).not.toContain("opencode-go/kimi-k3#max");
+    // a stand-in's detail is empty: its intelligence is the one number, shown by the rung itself
+    expect(standIns.find((o) => o.value === "claude-code:claude-opus-5-5#high")?.detail).toBe("");
+    expect(treatLikeOptions(c)).toEqual([]);
   });
 });

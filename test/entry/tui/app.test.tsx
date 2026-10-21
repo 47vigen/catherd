@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { COMMANDS, DEFAULT_KEYS, isPrintable, resolveKeybinds } from "../../../src/entry/tui/commands.ts";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { ARM_MS } from "../../../src/entry/tui/state.ts";
@@ -12,6 +12,8 @@ import { type Harness, harness, PLAIN, UI } from "./harness.tsx";
 
 afterEach(snapshotEnv());
 let h: Harness | null = null;
+// fixtureEffects validates against the machine index: a test builds its effects before it draws
+beforeEach(() => void withHome());
 afterEach(async () => {
   await h?.s.close();
   h = null;

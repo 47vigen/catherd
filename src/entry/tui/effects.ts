@@ -4,7 +4,7 @@ import { realpathSync, statSync, watch } from "node:fs";
 import { adapterFor } from "../../adapters/registry.ts";
 import "../../adapters/all.ts";
 import { agentFiles } from "../../domain/agents.ts";
-import { type Catalog, rungInfo } from "../../domain/catalog.ts";
+import { type Catalog, pairOf, rungInfo } from "../../domain/catalog.ts";
 import { HARNESS_KEYS, type Profile, type ProfileDoc, type ProfilePatch } from "../../domain/profile.ts";
 import type { Validation } from "../../domain/profile-rules.ts";
 import type { Access } from "../../domain/record.ts";
@@ -13,17 +13,15 @@ import {
   type CatalogModel,
   catalogQuery,
   loadCatalog,
+  indexStatus,
   type Refreshed,
   refreshDiscovery,
-  saveTreatLike,
+  refreshIndex,
 } from "../../services/catalog-service.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type DoctorReport, doctor } from "../../services/doctor.ts";
-import { ageText } from "../../services/doctor-sources.ts";
-import { valuesUsed, type ValueUsed } from "../../services/provenance.ts";
+import { ageText } from "../../services/doctor-checks.ts";
 import { evidenceLine, evidenceOf, runEvidence } from "../../services/run-evidence.ts";
-import { type SyncReport, sourcesStatus, syncSources } from "../../services/source-sync.ts";
-import { type Suggestion, suggestStandIns } from "../../services/standins.ts";
 import type { Synced } from "../../services/agent-links.ts";
 import {
   activate,
@@ -86,6 +84,33 @@ export interface RunRow {
   session: string | null;
 }
 
+/** What a sync reports to the `r` toast: plan 31 deletes this TUI, so the Slopalytics refresh maps onto the old shape. */
+export interface SyncReport {
+  busy: boolean;
+  failed: string[];
+  newlyScored: string[];
+}
+
+/** One value the rung detail dialog shows (the index's one: intelligence). */
+export interface ValueUsed {
+  dim: string;
+  value: number;
+  confidence: string;
+  source: string;
+  benchmark: string;
+  date: string;
+  inferred: boolean;
+  from: string | null;
+  lent: "treat-like" | "stand-in" | null;
+}
+
+/** A treat-like suggestion: none any more (the treat-like picker offers nothing). */
+export interface Suggestion {
+  like: string;
+  distance: number;
+  lends: string[];
+}
+
 /**
  * Everything the TUI reads or changes, behind one seam (spec §9.4 `effects.ts`: services injected).
  * The live set calls the services; tests and the storybook pass fakes.
@@ -130,11 +155,10 @@ export interface Effects {
   /** the native agents a profile links, by name */
   agents(p: Profile): string[];
   /**
-   * writes the staged treat-likes, then the profile patch, through the ProfileService (validation reads
-   * the treat-likes, so they go first); a refused patch leaves the treat-likes written. With `shown` (the
-   * profile as the save dialog's last preview read it), the patch is written only over that profile: when
-   * another process changed it meanwhile (while a treat-like waited for the catalog lock, say), nothing
-   * is written and the result's one error has the path CHANGED_ON_DISK
+   * writes the profile patch through the ProfileService; `treatLikes` is ignored (there are none any more).
+   * With `shown` (the profile as the save dialog's last preview read it), the patch is written only over that
+   * profile: when another process changed it meanwhile, nothing is written and the result's one error has the
+   * path CHANGED_ON_DISK
    */
   save(
     name: string,
@@ -150,47 +174,59 @@ export interface Effects {
   create(name: string, from?: string): Saved;
   remove(name: string): Synced;
   refreshCatalog(): Promise<Refreshed[]>;
-  /** spec 1.2 §9 (`r`): syncs the public sources (each at most every 12 hours) */
+  /** `r`: refreshes the Slopalytics index */
   syncSources(): Promise<SyncReport>;
-  /** spec 1.2 §9: each source's name, age and last error, as the `r` dialog shows them */
+  /** the Slopalytics index's age and last error, as the `r` dialog shows them */
   sources(): { source: string; name: string; age: string; error: string | null }[];
-  /** spec 1.2 §6.3: the three nearest stand-ins for a rung, for the treat-like picker */
+  /** none: treat-likes are gone */
   suggest(c: Catalog, rung: string): Suggestion[];
   /** spec 1.2 §5.3, §8: a rung's values with confidence and source, and catherd's own runs on it */
   rungDetail(c: Catalog, rung: string): { values: ValueUsed[]; evidence: string | null };
 }
 
-/** Spec 1.2 §9: each source's age and last error, from the sync's state. */
+/** The Slopalytics index as the one source row the `r` dialog shows. */
 export function sourceRows(now = Date.now()): ReturnType<Effects["sources"]> {
-  return sourcesStatus().sources.map((s) => ({
-    source: s.source,
-    name: s.name,
-    age: s.fetchedAt ? `${ageText(now - Date.parse(s.fetchedAt))} ago` : "never fetched",
-    error: s.error,
-  }));
+  const s = indexStatus();
+  const at = s.fetchedAt ?? s.checkedAt;
+  return [
+    {
+      source: "slopalytics",
+      name: "Slopalytics",
+      age: at ? `${ageText(now - Date.parse(at))} ago` : "never fetched",
+      error: s.error,
+    },
+  ];
 }
 
-/** Spec 1.2 §5.3, §8: what the rung detail shows; an unparseable rung has nothing to show. */
+/** What the rung detail shows: the pair's intelligence, and catherd's own runs on it. */
 export function rungDetailOf(c: Catalog, rung: string): ReturnType<Effects["rungDetail"]> {
   try {
-    const canonical = rungInfo(c, rung).canonical;
+    const pair = pairOf(c, rung);
     return {
-      values: valuesUsed(c, canonical),
-      evidence: evidenceLine(evidenceOf(runEvidence(c), canonical)),
+      values: pair
+        ? [
+            {
+              dim: "intelligence",
+              value: Number(pair.intelligence.toFixed(1)),
+              confidence: "measured",
+              source: "slopalytics",
+              benchmark: "intelligence index",
+              date: c.indexedAt ?? "",
+              inferred: false,
+              from: null,
+              lent: null,
+            },
+          ]
+        : [],
+      evidence: evidenceLine(evidenceOf(runEvidence(c), rungInfo(c, rung).canonical)),
     };
   } catch {
     return { values: [], evidence: null };
   }
 }
 
-/** Spec 1.2 §6.3: a rung's nearest stand-ins; none for a rung that does not parse. */
-export function suggestFor(c: Catalog, rung: string): Suggestion[] {
-  try {
-    return suggestStandIns(c, rungInfo(c, rung).canonical);
-  } catch {
-    return [];
-  }
-}
+/** No stand-in suggestions: the treat-like picker is gone. */
+export const suggestFor = (_c: Catalog, _rung: string): Suggestion[] => [];
 
 /** The word for `here`: the bound repo's profile, or the global active one. */
 export const hereWord = (p: { repo: string | null }): string => (p.repo ? "this repo" : "active");
@@ -351,8 +387,8 @@ export function liveEffects(
     readProfile: readProfileDoc,
     catalog(billing) {
       return {
-        catalog: loadCatalog({ timings: false }),
-        models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
+        catalog: loadCatalog(),
+        models: catalogQuery({ limit: Number.MAX_SAFE_INTEGER }, billing).models,
       };
     },
     validate: (p, c) => validateHere(p, c, undefined, host.host),
@@ -366,8 +402,7 @@ export function liveEffects(
       };
     },
     agents: (p) => agentFiles(p, VERSION).map((f) => f.name),
-    async save(name, patch, treatLikes, shown) {
-      for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
+    async save(name, patch, _treatLikes, shown) {
       return patchProfile(name, patch, {
         host: host.host,
         ...(shown === undefined ? {} : { expect: shown }),
@@ -377,7 +412,10 @@ export function liveEffects(
     create: (name, from) => createProfile(name, from, host.host),
     remove: deleteProfile,
     refreshCatalog: () => refreshDiscovery(),
-    syncSources: () => syncSources(),
+    async syncSources() {
+      const s = await refreshIndex({ force: true });
+      return { busy: false, failed: s.error ? ["slopalytics"] : [], newlyScored: [] };
+    },
     sources: () => sourceRows(),
     suggest: suggestFor,
     rungDetail: rungDetailOf,

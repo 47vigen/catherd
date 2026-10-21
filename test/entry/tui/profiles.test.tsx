@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { CatherdError } from "../../../src/domain/errors.ts";
-import { applyPatch, defaultProfileDoc, resolveProfile } from "../../../src/domain/profile.ts";
+import { applyPatch, resolveProfile } from "../../../src/domain/profile.ts";
 import { fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { useApp } from "../../../src/entry/tui/providers/app.tsx";
 import { RUNS_EVERY_MS, useData } from "../../../src/entry/tui/providers/data.tsx";
@@ -13,7 +13,6 @@ import {
 } from "../../../src/entry/tui/views/profile-actions.ts";
 import { isolationAbout, ProfilesView } from "../../../src/entry/tui/views/profiles.tsx";
 import { writeDiscovery } from "../../../src/adapters/discovery.ts";
-import { saveTreatLike } from "../../../src/services/catalog-service.ts";
 import { snapshotEnv, withHome } from "../../helpers.ts";
 import { type Harness, harness } from "./harness.tsx";
 import { Shell } from "./shell.tsx";
@@ -93,44 +92,6 @@ describe("the Profiles tab", () => {
     expect(new Set(group.map((l) => l.search(/\d+ of \d+/))).size).toBe(1);
   });
 
-  it("syncs the sources and refreshes the catalog with r, then lists each source's age and last error", async () => {
-    const fx = await profiles();
-    await h!.s.press("r");
-    await h!.advance(0);
-    expect(fx.writes).toEqual(["refresh", "sync"]);
-    const f = h!.s.frame();
-    expect(f).toContain("Sources");
-    expect(f).toMatch(/models\.dev +2 h ago/);
-    expect(f).toMatch(/Epoch AI benchmarks +1 d ago · network error/);
-    await h!.s.press("escape");
-    expect(h!.app().getState().dialogs).toEqual([]);
-  });
-
-  it("shows a rung's values with confidence and source, and catherd's runs on it, with i", async () => {
-    await profiles();
-    await find("codex gpt-6-luna high");
-    await h!.s.press("i");
-    const f = h!.s.frame();
-    expect(f).toContain("codex:gpt-6-luna#high");
-    expect(f).toMatch(/repo_code 66\.6 +adjacent · shipped DeepSWE 1\.1/);
-    // a treat-like lends it: a mapping, "like X", not a stand-in's guess (1.2 minor)
-    expect(f).toMatch(/agentic -0\.0075 +like gpt-5\.6-luna#high/);
-    expect(f).toContain("no runs yet");
-  });
-
-  it("opens the treat-like picker with t, the three nearest stand-ins first (spec 1.2 §6.4)", async () => {
-    await profiles();
-    await find("codex gpt-6-sol medium");
-    await h!.s.press("t");
-    const f = h!.s.frame();
-    expect(f).toContain("Treat codex:gpt-6-sol#medium like…");
-    const lines = f.split("\n");
-    const at = lines.findIndex((l) => l.includes("Suggested"));
-    expect(at).toBeGreaterThan(-1);
-    const top = lines.slice(at + 1, at + 4);
-    expect(top.every((l) => /distance \d+\.\d\d · lends/.test(l))).toBe(true);
-  });
-
   it("cycles access with enter, and shows how strongly the backend holds it", async () => {
     const fx = await profiles();
     await find("worker access");
@@ -138,22 +99,6 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("full · enforced");
     await h!.s.press("ctrl+s", "return");
     expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
-  });
-
-  it("maps an unscored rung with the treat-like picker, stages it, and saves both", async () => {
-    const fx = await profiles();
-    await find("worker glm-5.3 high");
-    await h!.s.press("space");
-    expect(h!.s.frame()).toContain(`Treat ${GLM} like…`);
-    await h!.s.type("gpt-6-sol#xhigh");
-    await h!.s.press("return");
-    expect(h!.s.frame()).toContain("treated like gpt-6-sol#xhigh · unsaved");
-    expect(h!.s.frame()).toContain("2 unsaved");
-    await h!.s.press("ctrl+s");
-    expect(h!.s.frame()).toContain(`treat ${GLM} like gpt-6-sol#xhigh`);
-    await h!.s.press("return");
-    expect(fx.writes).toHaveLength(1);
-    expect(fx.writes[0]).toContain(`{"${GLM}":"gpt-6-sol#xhigh"}`);
   });
 
   it("picks a failover stand-in on another quota, marked inferred when it is", async () => {
@@ -165,22 +110,6 @@ describe("the Profiles tab", () => {
     await h!.s.press("return");
     await h!.s.press("ctrl+s", "return");
     expect(fx.writes).toEqual(['save default {"failover":{"codex:gpt-6-luna#high":null}}']);
-  });
-
-  it("offers a rung made usable by a staged treat-like as a failover stand-in", async () => {
-    await profiles();
-    // an unscored rung on another quota than luna's (a stand-in never shares the quota it stands in for)
-    await find("worker glm-5.3 high");
-    await h!.s.press("space");
-    expect(h!.s.frame()).toContain(`Treat ${GLM} like…`);
-    await h!.s.type("gpt-6-sol#xhigh");
-    await h!.s.press("return", "escape");
-    await find("failover luna");
-    await h!.s.press("return");
-    expect(h!.s.frame()).toContain("Stand-in for codex:gpt-6-luna#high");
-    await h!.s.type("glm-5.3#high");
-    expect(h!.s.frame()).toContain("glm-5.3#high");
-    expect(h!.s.frame()).not.toContain("No match");
   });
 
   it("refuses a bad number and keeps it in the editor; empty clears a budget cap", async () => {
@@ -372,51 +301,6 @@ describe("the Profiles tab", () => {
     expect(h!.app().getState().drafts.default?.doc.roles?.worker?.rungs).not.toContain(glm);
   });
 
-  it("shows a treat-like saved alone (the profile unchanged) as saved, from the catalog read again", async () => {
-    const glm = GLM;
-    const fx = await profiles((f) => {
-      // the profile already ticks glm, saved while it was treated like a rung (the fixture's save is
-      // synchronous up to its write), and reads back as a new object, as a file read does
-      const rungs = resolveProfile(defaultProfileDoc(), "default", "claude-code").roles.worker.rungs;
-      void f.save("default", { roles: { worker: { rungs: [...rungs, glm] } } }, { [glm]: "gpt-6-sol#xhigh" });
-      f.writes.length = 0;
-      const read = f.readProfile;
-      f.readProfile = (n) => structuredClone(read(n));
-      const save = f.save;
-      f.save = async (name, patch, treatLikes, shown) => {
-        const r = await save(name, patch, treatLikes, shown);
-        for (const [rung, like] of Object.entries(treatLikes)) await saveTreatLike(rung, like);
-        return r;
-      };
-    });
-    await find("worker glm-5.3 high");
-    // enter unticks the unscored rung; enter again maps it, ticking it back: only the treat-like is staged
-    await h!.s.press("return", "return");
-    await h!.s.type("gpt-6-sol#xhigh");
-    await h!.s.press("return");
-    expect(h!.s.frame()).toContain("treated like gpt-6-sol#xhigh · unsaved");
-    expect(h!.s.frame()).toContain("1 unsaved");
-    await h!.s.press("ctrl+s", "return");
-    await h!.advance(0);
-    expect(fx.writes).toHaveLength(1);
-    // scored through the saved treat-like, not "unscored" from the catalog read before the save
-    expect(h!.s.frame()).not.toContain("unsaved");
-    expect(h!.s.frame()).not.toContain("unscored");
-    expect(h!.s.frame()).toMatch(/\[x\] high +inferred/);
-  });
-
-  it("takes back a picked treat-like and the tick it brought in one undo", async () => {
-    await profiles();
-    await find("worker glm-5.3 high");
-    await h!.s.press("space");
-    await h!.s.type("gpt-6-sol#xhigh");
-    await h!.s.press("return");
-    expect(h!.s.frame()).toContain("2 unsaved");
-    await h!.s.press("escape", "ctrl+x", "u");
-    expect(h!.s.frame()).not.toContain("unsaved");
-    expect(h!.app().getState().drafts.default?.past).toHaveLength(0);
-  });
-
   it("says in a toast when the saved profile cannot be read back", async () => {
     const fx = await profiles();
     await find("objective");
@@ -475,41 +359,6 @@ describe("the Profiles tab", () => {
     expect(h!.s.frame()).toContain("the profile changed on disk — check the changes and choose again");
     await h!.s.press("return");
     expect(fx.writes).toEqual(['save default {"roles":{"worker":{"access":"full"}}}']);
-    expect(h!.app().getState().dialogs).toEqual([]);
-  });
-
-  it("writes nothing when the profile changes on disk while a staged treat-like is saved, and asks again", async () => {
-    const fx = await profiles();
-    await find("worker glm-5.3 high");
-    await h!.s.press("space");
-    await h!.s.type("gpt-6-sol#xhigh");
-    await h!.s.press("return", "ctrl+s");
-    expect(h!.s.frame()).toContain(`treat ${GLM} like gpt-6-sol#xhigh`);
-    // another process writes the rungs while the treat-like waits for the catalog lock
-    const theirs = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"];
-    const save = fx.save;
-    let other = true;
-    fx.save = async (name, patch, treatLikes, shown) => {
-      if (other) {
-        other = false;
-        expect((await save(name, { roles: { worker: { rungs: theirs } } }, {})).saved).toBe(true);
-        fx.writes.length = 0;
-      }
-      return save(name, patch, treatLikes, shown);
-    };
-    await h!.s.press("return");
-    expect(fx.writes).toEqual([]);
-    expect(fx.readProfile("default").roles?.worker?.rungs).toEqual(theirs);
-    expect(h!.app().getState().dialogs).toHaveLength(1);
-    expect(h!.s.frame()).toContain("Save profile default");
-    // the new preview: the rungs as the other process left them, before the draft's
-    expect(h!.s.frame()).toMatch(/roles\.worker\.rungs\s+codex:gpt-6-luna#high, codex:gpt-6-sol#medium → /);
-    expect(h!.s.frame()).toContain("the profile changed on disk — check the changes and choose again");
-    expect(h!.s.frame()).toContain("[ Save ]");
-    await h!.s.press("return");
-    expect(fx.writes).toHaveLength(1);
-    expect(fx.writes[0]).toContain(`{"${GLM}":"gpt-6-sol#xhigh"}`);
-    expect(fx.readProfile("default").roles?.worker?.rungs).toContain(GLM);
     expect(h!.app().getState().dialogs).toEqual([]);
   });
 

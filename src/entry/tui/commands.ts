@@ -211,7 +211,7 @@ export const COMMANDS = [
   },
   {
     id: "catalog.refresh",
-    title: "Sync the public sources and refresh the model catalog",
+    title: "Fetch the Slopalytics index and refresh the model catalog",
     group: "Profiles",
     scope: "tab.profiles",
     keys: ["r"],
@@ -307,7 +307,7 @@ export const COMMANDS = [
   { id: "tree.expand", title: "Expand", group: "Profiles", scope: "row.profiles", keys: ["right", "l"] },
   {
     id: "tree.detail",
-    title: "Show the rung's values, sources and runs",
+    title: "Show the rung's intelligence and runs",
     group: "Profiles",
     scope: "row.profiles",
     keys: ["i"],
@@ -321,7 +321,6 @@ export const COMMANDS = [
     scope: "row.profiles",
     keys: ["t"],
     palette: true,
-    cli: "catherd catalog treat-like --suggest <rung>",
   },
   {
     id: "tree.collapse",
