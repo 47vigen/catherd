@@ -13,6 +13,8 @@ export const HOLD_MS = 30 * 60_000;
 export const REFUSAL_WAIT_MS = 5 * 60_000;
 /** A lane parked this many times at the top rung stops asking the judge and waits for the owner. */
 export const TOP_RUNG_JUDGES = 3;
+/** A name refused as a duplicate this many times in a row parks its unit. */
+export const DUPLICATE_LIMIT = 3;
 /** A role that fails this many times without a limit parks its unit. */
 export const MAX_TRIES = 2;
 
@@ -669,6 +671,7 @@ function apply(s: RunState, e: RunEvent): void {
       delete s.waiting[e.name];
       recomputeWake(s);
       ok(`dispatch@${e.unit}`);
+      ok(`duplicate:${e.name}@${e.unit}`);
       if (e.role === "judge") {
         const id = e.name.replace(/^judge-/, "");
         s.judges[id] = { unit: e.unit, kind: e.judgeKind ?? "unexpected", tries: s.judges[id]?.tries ?? 0 };
@@ -690,8 +693,13 @@ function apply(s: RunState, e: RunEvent): void {
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
       else if (e.code === "E_ALL_HELD")
         wait(Object.values(s.holds).sort()[0] ?? isoPlus(e.at, REFUSAL_WAIT_MS));
-      else if (e.code === "E_ADMIT_DUPLICATE") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
-      else
+      else if (e.code === "E_ADMIT_DUPLICATE") {
+        const key = `duplicate:${e.name}@${e.unit}`;
+        s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+        if ((s.failedEffects[key] as number) >= DUPLICATE_LIMIT)
+          s.stuck[e.unit] = { reason: "effect", question: `${e.name} was refused (${e.code}): ${e.message}` };
+        else wait(isoPlus(e.at, REFUSAL_WAIT_MS));
+      } else
         s.stuck[e.unit] = { reason: "effect", question: `${e.name} was refused (${e.code}): ${e.message}` };
       return;
     }

@@ -18,7 +18,7 @@ import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
 import { cancel, launcher } from "./dispatch-service.ts";
-import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
+import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
@@ -246,6 +246,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     return name.startsWith("judge-") ? { id, kind: s.judges[id]?.kind ?? "unexpected" } : null;
   };
 
+  /** An admitted dispatch of `name` that the log never heard of. */
+  const orphanOf = (name: string, s: RunState): Dispatch | undefined =>
+    listDispatches(run).find((d) => d.admit.name === name && !s.dispatches[d.admit.dispatchId]);
+
   async function start(
     a: {
       unit: string;
@@ -260,9 +264,26 @@ export function realEffects(deps: Deps, run: Run): Effects {
     s: RunState,
     judge: { id: string; kind: JudgeKind } | null,
   ): Promise<void> {
-    const picked = await rungFor(a, s);
     const refuse = (code: string, message: string) =>
       append({ type: "dispatch.refused", name: a.name, unit: a.unit, code, message });
+    // the daemon died between its admission and its event: the dispatch is recorded and watched, never launched twice
+    const adopt = async (found: Dispatch): Promise<void> => {
+      await append({
+        type: "dispatch.started",
+        dispatchId: found.admit.dispatchId,
+        name: a.name,
+        role: a.role,
+        unit: a.unit,
+        lane: a.lane,
+        rung: found.admit.rung,
+        thread: found.admit.thread,
+        ...(judge ? { judgeKind: judge.kind } : {}),
+      });
+      await settle(found, a.unit, judge);
+    };
+    const orphan = orphanOf(a.name, s);
+    if (orphan) return adopt(orphan);
+    const picked = await rungFor(a, s);
     if ("code" in picked) return void (await refuse(picked.code, picked.message));
     let admitted: Awaited<ReturnType<typeof admit>>;
     try {
@@ -278,22 +299,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     } catch (e) {
       if (!isCatherdError(e)) throw e;
       if (e.code === "E_ADMIT_DUPLICATE") {
-        // a dispatch of this name that the log never heard of (the daemon died between its launch and its event)
-        const live = liveDispatches(run, deps.now()).find((d) => d.admit.name === a.name);
-        if (live && !s.dispatches[live.admit.dispatchId]) {
-          await append({
-            type: "dispatch.started",
-            dispatchId: live.admit.dispatchId,
-            name: a.name,
-            role: a.role,
-            unit: a.unit,
-            lane: a.lane,
-            rung: live.admit.rung,
-            thread: live.admit.thread,
-            ...(judge ? { judgeKind: judge.kind } : {}),
-          });
-          return await settle(live, a.unit, judge);
-        }
+        const orphan = orphanOf(a.name, s);
+        if (orphan) return await adopt(orphan);
       }
       return void (await refuse(e.code, e.message));
     }

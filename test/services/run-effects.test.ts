@@ -238,6 +238,29 @@ describe("dispatching", () => {
     expect(types(run).filter((t) => t === "dispatch.ended")).toHaveLength(1);
   });
 
+  it("adopts a finished dispatch the log never heard of instead of launching its name again", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const d = await fakeDispatch(
+      run,
+      { name: "worker-M1.L1", lane: "M1.L1", owns: ["src/a/"] },
+      {
+        proc: "dead",
+        exit: { code: 0, signal: null, reason: "exited", endedAt: new Date().toISOString() },
+        reply: "Done.\nSTATUS: complete — ok",
+        events: "",
+        collect: true,
+      },
+    );
+    await seed(run);
+    await fx.run(dispatchAction(), replayRun(run));
+    const id = d.admit.dispatchId;
+    expect(types(run).slice(2)).toEqual(["dispatch.started", "dispatch.ended"]);
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ dispatchId: id });
+    expect(lastOf(run, "dispatch.ended")).toMatchObject({ dispatchId: id, status: "ok" });
+    expect(replayRun(run).lanes["M1.L1"]?.status).toBe("checking");
+  });
+
   it("cancels a live dispatch, which then ends cancelled", async () => {
     const { run, fx } = setup({ reply: "x", holdUntil: join(freshHold(), "never") });
     writeLane(run, "M1.L1", ["src/a/"]);

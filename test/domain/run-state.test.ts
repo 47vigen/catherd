@@ -260,6 +260,22 @@ describe("run state", () => {
     expect(log.state().wakeAt).toBe("2026-10-21T10:05:00.000Z");
   });
 
+  it("parks a unit whose name is refused as a duplicate again and again", () => {
+    const log = runningLog();
+    const refuse = () =>
+      log.add("dispatch.refused", {
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        code: "E_ADMIT_DUPLICATE",
+        message: "already running",
+      });
+    refuse();
+    refuse();
+    expect(log.state().stuck["M1.L1"]).toBeUndefined();
+    refuse();
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "effect" });
+  });
+
   it("reduce is pure: the state it was given is untouched", () => {
     const log = runningLog();
     const before = log.state();
