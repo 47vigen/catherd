@@ -464,3 +464,32 @@ describe("bars", () => {
     );
   });
 });
+
+describe("limits.memory", () => {
+  it("sets, validates and removes the memory limits", () => {
+    const doc = applyPatch(defaultProfileDoc(), patchAt("limits.memory.reserveMb", "4096"));
+    expect(resolveProfile(doc, "x", "claude-code").limits).toEqual({ memory: { reserveMb: 4096 } });
+    expect(resolveProfile(defaultProfileDoc(), "x", "claude-code").limits).toEqual({ memory: {} });
+    expect(defaultProfileDoc().limits).toBeUndefined();
+    const gone = applyPatch(doc, patchAt("limits.memory.reserveMb", "null"));
+    expect(resolveProfile(gone, "x", "claude-code").limits.memory).toEqual({});
+    for (const bad of ["0", "-1", "1.5"])
+      expect(() => patchAt("limits.memory.reserveMb", bad)).toThrow("cannot set limits.memory.reserveMb");
+    expect(() => patchAt("limits.memory.swapMb", "5")).toThrow("cannot set");
+  });
+
+  it("reads a stored value it cannot use as the default, and warns", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      limits: { memory: { reserveMb: "lots", floorMb: 1024 } },
+    });
+    expect(resolveProfile(doc, "x", "claude-code").limits.memory).toEqual({ floorMb: 1024 });
+    expect(unknownValues(doc)).toContainEqual({
+      path: "limits.memory.reserveMb",
+      value: '"lots"',
+      readAs: "the default",
+    });
+    const odd = ProfileDocSchema.parse({ schema: 1, limits: "x" });
+    expect(resolveProfile(odd, "x", "claude-code").limits.memory).toEqual({});
+  });
+});

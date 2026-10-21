@@ -1,5 +1,6 @@
 import type { HostContext, OrchestrationHost } from "../domain/host.ts";
 import { agentFiles } from "../domain/agents.ts";
+import { type MemoryLimits, memoryLimitsOf } from "../domain/milestone-memory.ts";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -308,8 +309,15 @@ function viewOf(p: Profile): ProfileView {
     preflight: p.preflight,
     heavy: p.lock.heavy,
     notify: p.notify,
+    limits: { memory: pickMemory(memoryLimitsOf(p)) },
   };
 }
+
+const pickMemory = ({ reserveMb, perMilestoneMb, floorMb }: MemoryLimits) => ({
+  reserveMb,
+  perMilestoneMb,
+  floorMb,
+});
 
 /** The ProfilePort the run engine and the MCP tools use (spec §7.3: the single writer). */
 export function profileService(host: () => HostContext): ProfilePort {

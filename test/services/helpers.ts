@@ -85,6 +85,7 @@ export function testView(over: Partial<ProfileView> = {}): ProfileView {
     preflight: { confirm: false },
     heavy: 2,
     notify: [],
+    limits: { memory: { reserveMb: 2048, perMilestoneMb: 3072, floorMb: 3072 } },
     ...over,
   };
 }

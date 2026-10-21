@@ -617,6 +617,22 @@ describe("host-specific profiles", () => {
     expect(existsSync(claudeAgentsDir())).toBe(false);
   });
 
+  it("gives the view its memory limits, the defaults filled under the profile's own", () => {
+    withHome();
+    const port = profileService(() => ({ host: "claude-code", session: null, conflict: null }));
+    expect(port.forRepo(null).limits.memory).toEqual({
+      reserveMb: 2048,
+      perMilestoneMb: 3072,
+      floorMb: 3072,
+    });
+    expect(port.set(undefined, { limits: { memory: { reserveMb: 4096 } } }).saved).toBe(true);
+    expect(port.forRepo(null).limits.memory).toEqual({
+      reserveMb: 4096,
+      perMilestoneMb: 3072,
+      floorMb: 3072,
+    });
+  });
+
   it("resolves the host callback per operation and skips all Claude filesystem work on Codex saves", () => {
     withHome();
     let host: "codex" | "claude-code" | "unknown" = "unknown";
