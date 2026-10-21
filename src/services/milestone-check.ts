@@ -1,13 +1,23 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { CatherdError } from "../domain/errors.ts";
 import { checkFailLines, newFails } from "../domain/fail-lines.ts";
+import { git } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
+import { launchCheckWorker } from "../infra/launch.ts";
 import { repoDir } from "../infra/paths.ts";
-import { appendJsonl, ensureJsonlHeader, ensurePrivateDir, readJsonl } from "../infra/store.ts";
+import { isAlive, processStartTime } from "../infra/proc.ts";
+import {
+  appendJsonl,
+  ensureJsonlHeader,
+  ensurePrivateDir,
+  readJsonl,
+  writeJsonAtomic,
+} from "../infra/store.ts";
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
-import type { Run } from "./run-store.ts";
+import { findRun, type Run } from "./run-store.ts";
 
 /** One run of a milestone's full check on one commit (spec 2.0 decision 18), or of the base's own (a baseline). */
 export const CheckRecordSchema = z.looseObject({
@@ -205,4 +215,190 @@ export async function machineGate(
       );
   }
   return { missing, audit };
+}
+
+/** What a caller waits for, and how often it looks; a worker that has not written its pid yet gets `graceMs`. */
+export const checkLimits = { waitMs: 600_000, pollMs: 1_000, graceMs: 30_000 };
+
+export type GateRunResult =
+  | { running: true; log: string | null; hint: string }
+  | {
+      running: false;
+      cached: boolean;
+      record: CheckRecord;
+      missing: string[];
+      audit: string[];
+      hints?: string[];
+    };
+
+interface Flight {
+  schema: 1;
+  pid: number;
+  startTime: string | null;
+  at: string;
+  job: CheckJob;
+}
+
+const flightOf = (job: CheckJob): string =>
+  join(
+    checkLogDir(job.repo),
+    `inflight-${new Bun.CryptoHasher("sha1")
+      .update(JSON.stringify([job.run, job.milestone, job.command, job.head, job.baseline]))
+      .digest("hex")}.json`,
+  );
+
+function readFlight(file: string): Flight | null {
+  try {
+    const f = JSON.parse(readFileSync(file, "utf8")) as Flight;
+    return typeof f?.pid === "number" && typeof f.at === "string" ? f : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A flight is live while its worker is, or while a worker that has not written its pid yet is within its grace. */
+const flightLive = (f: Flight): boolean =>
+  f.pid > 0 ? isAlive(f.pid, f.startTime) : Date.now() - Date.parse(f.at) < checkLimits.graceMs;
+
+const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
+
+/**
+ * The verifier's full check of a milestone on the committed HEAD (spec 2.0 decision 18): the same run,
+ * milestone, command and HEAD answer the recorded result; else a detached worker runs it. Past `waitMs` the
+ * answer is `running`, and the next call waits for that same run.
+ */
+export async function runMilestoneCheck(
+  i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
+  o: { onWait?: () => void } = {},
+): Promise<GateRunResult> {
+  const run = findRun(i.run);
+  const repo = run.meta.repo;
+  const cwd = i.at ?? repo;
+  const baseline = i.at !== undefined;
+  const headOut = await git(cwd, ["rev-parse", "HEAD"]);
+  if (headOut.kind !== "ok" || !headOut.out.trim())
+    throw invalid(`cannot read HEAD in ${cwd}`, "run it in a git checkout with a commit");
+  const head = headOut.out.trim();
+  const base = await checkBase(run);
+  if (baseline) {
+    if (!base || head !== base)
+      throw invalid(
+        `${cwd} is at ${head.slice(0, 12)}, not at the run's base ${base ? base.slice(0, 12) : "(none)"}`,
+        `git worktree add --detach <dir> ${base ?? "<base>"}, then pass it as at`,
+      );
+  } else {
+    const dirty = await git(cwd, ["status", "--porcelain", "--untracked-files=no"]);
+    if (dirty.kind !== "ok") throw invalid(`git status failed in ${cwd}`, "check that git works there");
+    if (dirty.out.trim())
+      throw invalid(
+        "tracked files have uncommitted changes, and a check record names a commit",
+        "commit the milestone first",
+      );
+  }
+  const mine = (r: CheckRecord): boolean =>
+    r.run === i.run &&
+    r.milestone === i.milestone &&
+    r.command === i.command &&
+    r.head === head &&
+    Boolean(r.baseline) === baseline;
+  const result = async (record: CheckRecord, cached: boolean): Promise<GateRunResult> => {
+    const gate = baseline ? { missing: [], audit: [] } : await machineGate(run, i.milestone, head);
+    const hints =
+      record.exit !== 0 && !baseline && !baselineFor(repo, i.command, base) && base
+        ? [
+            `the base's own failures are not recorded: git worktree add --detach <dir> ${base.slice(0, 12)}, run gate_run with at: <dir> there, then git worktree remove <dir>`,
+          ]
+        : [];
+    return { running: false, cached, record, ...gate, ...(hints.length ? { hints } : {}) };
+  };
+  if (!i.force) {
+    const prior = readChecks(repo).filter(mine).at(-1);
+    if (prior) return result(prior, true);
+  }
+  const job: CheckJob = {
+    run: i.run,
+    repo,
+    cwd,
+    milestone: i.milestone,
+    command: i.command,
+    head,
+    base,
+    baseline,
+  };
+  const file = flightOf(job);
+  ensurePrivateDir(checkLogDir(repo));
+  let started: string | null = null;
+  for (let tries = 0; tries < 3 && started === null; tries++) {
+    const at = new Date().toISOString();
+    try {
+      writeFileSync(file, JSON.stringify({ schema: 1, pid: -1, startTime: null, at, job } satisfies Flight), {
+        flag: "wx",
+        mode: 0o600,
+      });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      const other = readFlight(file);
+      if (other && flightLive(other)) {
+        started = other.at;
+        break;
+      }
+      try {
+        unlinkSync(file);
+      } catch {
+        // another caller removed it first
+      }
+      continue;
+    }
+    const pid = launchCheckWorker(file);
+    // the worker may be done and its flight removed already: never write the file back
+    if (existsSync(file))
+      writeJsonAtomic(file, { schema: 1, pid, startTime: processStartTime(pid), at, job } satisfies Flight);
+    started = at;
+  }
+  if (started === null)
+    throw new CatherdError("E_IO_UNEXPECTED", "the check could not be started", { fix: `remove ${file}` });
+  const deadline = Date.now() + checkLimits.waitMs;
+  for (;;) {
+    const f = existsSync(file) ? readFlight(file) : null;
+    if (!f) break;
+    if (!flightLive(f)) {
+      try {
+        unlinkSync(file);
+      } catch {
+        // already gone
+      }
+      break;
+    }
+    if (Date.now() >= deadline)
+      return {
+        running: true,
+        log: checkLogDir(repo),
+        hint: "the check is still running; call gate_run again with the same arguments to wait for it",
+      };
+    o.onWait?.();
+    await Bun.sleep(Math.min(checkLimits.pollMs, Math.max(1, deadline - Date.now())));
+  }
+  const record = readChecks(repo)
+    .filter((r) => mine(r) && r.at >= started)
+    .at(-1);
+  if (!record)
+    throw new CatherdError("E_IO_UNEXPECTED", "the check worker stopped without a record", {
+      fix: `see worker.log in ${checkLogDir(repo)}`,
+    });
+  return result(record, false);
+}
+
+/** The detached worker: runs the job its flight file holds, records it, and removes the flight. */
+export async function checkWorker(flight: string): Promise<void> {
+  const f = readFlight(flight);
+  if (!f) throw new Error(`no readable flight file ${flight}`);
+  try {
+    await execMilestoneCheck(f.job);
+  } finally {
+    try {
+      unlinkSync(flight);
+    } catch {
+      // the caller removed a stale one
+    }
+  }
 }

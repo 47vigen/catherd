@@ -12,6 +12,9 @@ export const SUPERVISE_ENTRY = fileURLToPath(new URL("../entry/supervise-bin.ts"
 /** The thin executable that drives one run; like the supervisor's, it never loads the TUI. */
 export const DAEMON_ENTRY = fileURLToPath(new URL("../entry/daemon-bin.ts", import.meta.url));
 
+/** The thin executable that runs one milestone check (plan 30b); like the others it never loads the TUI. */
+export const CHECK_ENTRY = fileURLToPath(new URL("../entry/check-bin.ts", import.meta.url));
+
 /**
  * Starts `entry args` in its own session, its output appended to `logFile`, and returns at once: the process
  * outlives this one.
@@ -62,5 +65,17 @@ export function daemonEnv(base: Record<string, string | undefined> = process.env
 export function launchDaemon(runId: string, runDir: string): number {
   const pid = launchDetached(DAEMON_ENTRY, [runId], join(runDir, "daemon.log"), daemonEnv());
   logRow("info", "launch", { daemon: runId, pid });
+  return pid;
+}
+
+/** Starts `check-bin.ts <flight file>` detached, so a tool timeout that kills its caller does not lose the check. */
+export function launchCheckWorker(flight: string): number {
+  const pid = launchDetached(
+    CHECK_ENTRY,
+    [flight],
+    join(dirname(flight), "worker.log"),
+    scrubSecrets(process.env),
+  );
+  logRow("info", "launch", { check: flight, pid });
   return pid;
 }

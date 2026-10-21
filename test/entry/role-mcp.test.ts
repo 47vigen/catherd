@@ -41,7 +41,7 @@ describe("dispatch-scoped role MCP", () => {
       ["worker", ["read_run_file", "read_knowledge"]],
       ["architect", ["read_run_file", "read_knowledge", "write_run_file"]],
       ["researcher", ["read_run_file", "read_knowledge", "write_run_file"]],
-      ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass"]],
+      ["verifier", ["read_run_file", "read_knowledge", "gate_check", "gate_pass", "gate_run"]],
     ];
     for (const [role, allowed] of cases) {
       const client = await roleClient(run.id, role);
@@ -109,6 +109,22 @@ describe("dispatch-scoped role MCP", () => {
         "E_INPUT_INVALID",
       );
       expect((await call(client, "gate_check", { run: run.id })).error?.code).toBe("E_INPUT_INVALID");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("runs the verifier's milestone check through gate_run, bound to its own run", async () => {
+    const { run } = freshRun();
+    const other = createRun({ repo: tempRepo(), title: "other", aLines: ["A1"], version: "0.0.0-test" });
+    const client = await roleClient(run.id, "verifier");
+    try {
+      const r = await call(client, "gate_run", { run: run.id, milestone: "M1", command: "echo ok" });
+      expect(r.error).toBeNull();
+      expect(r.data).toMatchObject({ running: false, cached: false, record: { exit: 0 } });
+      expect(
+        (await call(client, "gate_run", { run: other.id, milestone: "M1", command: "echo ok" })).error?.code,
+      ).toBe("E_INPUT_INVALID");
     } finally {
       await client.close();
     }

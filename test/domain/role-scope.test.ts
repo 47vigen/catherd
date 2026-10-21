@@ -48,7 +48,15 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
     for (const tool of COORDINATOR_TOOLS)
       expect(refusedForRole(tool, { run: "other", content: "x" }, scope)).toBe(true);
     // the reads of a role (its run's files, its gate) are the role server's, not the session's
-    for (const tool of ["status", "read_run_file", "write_run_file", "gate_check", "gate_pass", "peek"])
+    for (const tool of [
+      "status",
+      "read_run_file",
+      "write_run_file",
+      "gate_check",
+      "gate_pass",
+      "gate_run",
+      "peek",
+    ])
       expect(refusedForRole(tool, { run: RUN }, scope)).toBe(false);
   });
 

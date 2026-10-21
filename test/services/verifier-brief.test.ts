@@ -23,6 +23,12 @@ describe("the verifier's brief (plan 23)", () => {
     expect(milestoneOfName("verifier")).toBeNull();
   });
 
+  it("tells every verifier to run the full check through gate_run on the committed HEAD", () => {
+    const rules = VERIFIER_GATE_RULES.join("\n");
+    expect(rules).toContain("gate_run");
+    expect(rules).toContain("committed HEAD");
+  });
+
   it("splits the root gate from acceptance, keeps acceptance from HEAD, says BLOCKED, and prunes images", () => {
     const rules = VERIFIER_GATE_RULES.join("\n");
     expect(rules).toContain("each per-service acceptance suite as its own item");

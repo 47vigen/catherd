@@ -3,6 +3,8 @@ import { CatherdError } from "../domain/errors.ts";
 import { ID_PATTERN } from "../domain/ids.ts";
 import { roleScopeFromEnv } from "../domain/role-scope.ts";
 import { gateCheckOrList, gatePass } from "../services/gate-service.ts";
+import { DISPATCH_ID_ENV, activityReporter } from "../infra/lock-activity.ts";
+import { runMilestoneCheck } from "../services/milestone-check.ts";
 import { assertRoleMay } from "../services/role-access.ts";
 import { readRunFile, writeRunFile } from "../services/run-service.ts";
 import { printJson } from "./cli-kit.ts";
@@ -109,7 +111,49 @@ const pass = defineCommand({
   },
 });
 
+const runCheck = defineCommand({
+  meta: {
+    name: "run",
+    description: "Run the milestone's full check on the committed HEAD, detached (gate_run)",
+  },
+  args: {
+    run: GATE.run,
+    milestone: { type: "string", required: true, description: "the milestone you verify, like M1" },
+    command: GATE.command,
+    at: { type: "string", description: "a checkout of the run's base, to record the base's own failures" },
+    force: { type: "boolean", description: "run it again although a record of this HEAD exists" },
+  },
+  async run({ args }) {
+    assertRoleMay(scope(), args.run, "gate_run");
+    if (!ID_PATTERN.test(args.milestone))
+      throw new CatherdError("E_INPUT_INVALID", `bad milestone "${args.milestone}"`, {
+        fix: "pass --milestone M1",
+      });
+    // a shell tool call may be cut off; the check goes on, and this ticks the dispatch's activity while it waits
+    const reporter = activityReporter(process.env[DISPATCH_ID_ENV]);
+    try {
+      const r = await runMilestoneCheck(
+        {
+          run: args.run,
+          milestone: args.milestone,
+          command: args.command,
+          ...(args.at ? { at: args.at } : {}),
+          ...(args.force ? { force: true } : {}),
+        },
+        reporter ? { onWait: reporter.tick } : {},
+      );
+      printJson(r);
+      if (!r.running && r.missing.length > 0) process.exitCode = 1;
+    } finally {
+      reporter?.done();
+    }
+  },
+});
+
 export const gateCommand = defineCommand({
-  meta: { name: "gate", description: "A verifier's gate evidence: check an item, record a pass" },
-  subCommands: { check, pass },
+  meta: {
+    name: "gate",
+    description: "A verifier's gate evidence: check an item, record a pass, run the check",
+  },
+  subCommands: { check, pass, run: runCheck },
 });
