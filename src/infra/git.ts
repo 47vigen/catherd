@@ -95,3 +95,44 @@ export async function statusSnapshot(repo: string, timeoutMs?: number): Promise<
   for (const { xy, path } of parsePorcelainZ(r.out)) snap[path] = fingerprint(repo, xy, path);
   return snap;
 }
+
+/** What a git command printed and how it ended, for the callers that show a failure (a commit hook's output). */
+export interface GitOutput {
+  code: number | null;
+  out: string;
+  err: string;
+  timedOut: boolean;
+}
+
+/**
+ * `git -C repo <args>` with both streams, for a command that may run hooks (a commit): a long timeout, and no
+ * optional lock avoidance, since this one writes the index.
+ */
+export async function gitRun(repo: string, args: string[], timeoutMs = 300_000): Promise<GitOutput> {
+  let p: Bun.Subprocess<"ignore", "pipe", "pipe">;
+  try {
+    p = Bun.spawn(["git", "-C", repo, ...args], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...scrubSecrets(process.env), LC_ALL: "C" },
+    });
+  } catch (e) {
+    return { code: null, out: "", err: (e as Error).message, timedOut: false };
+  }
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    p.kill("SIGKILL");
+  }, timeoutMs);
+  const out = new Response(p.stdout).text().catch(() => "");
+  const err = new Response(p.stderr).text().catch(() => "");
+  const code = await p.exited;
+  clearTimeout(timer);
+  return {
+    code: timedOut ? null : code,
+    out: timedOut ? "" : await out,
+    err: timedOut ? "" : await err,
+    timedOut,
+  };
+}
