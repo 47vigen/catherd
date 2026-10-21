@@ -26,7 +26,7 @@ import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/serv
 import { result } from "../../src/services/run-service.ts";
 import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
-import { tempRepo, withHome } from "../helpers.ts";
+import { repoWithOrigin, tempRepo, withHome } from "../helpers.ts";
 
 export { makeRecord } from "../domain/make-record.ts";
 
@@ -176,6 +176,18 @@ export function freshRun(title = "t"): { repo: string; run: Run } {
   delete process.env.TYPESAFE_API_KEY;
   const repo = tempRepo();
   return { repo, run: createRun({ repo, title, aLines: ["A1 it works"], version: "0.0.0-test" }) };
+}
+
+/** plan 35: a run with `base: "main"` over a repo whose origin is a local bare clone (never a URL). */
+export function branchRun(title = "t"): { repo: string; origin: string; run: Run } {
+  withHome();
+  delete process.env.TYPESAFE_API_KEY;
+  const { repo, origin } = repoWithOrigin();
+  return {
+    repo,
+    origin,
+    run: createRun({ repo, title, aLines: ["A1 it works"], version: "0.0.0-test", base: "main" }),
+  };
 }
 
 export function writeLane(

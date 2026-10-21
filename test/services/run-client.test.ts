@@ -10,7 +10,8 @@ import { appendEvent, readEvents } from "../../src/services/run-events-store.ts"
 import { findRun, listRuns, type Run } from "../../src/services/run-store.ts";
 import { approvalQuestion } from "../../src/domain/plan-doc.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { git } from "../../src/infra/git.ts";
 import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -64,6 +65,37 @@ describe("runStart", () => {
       notifyUrl: "https://ntfy.sh/catherd-test",
     });
     expect(r.next).toContain("https://ntfy.sh/catherd-test");
+  });
+
+  it("records base in meta and run.started, after fetching it", async () => {
+    withHome();
+    const { repo, origin } = repoWithOrigin();
+    commitInClone(origin, "x"); // origin main moves past the local copy
+    const r = await runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "main" });
+    const run = findRun(r.run);
+    expect(run.meta.base).toBe("main");
+    expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: "main" });
+    const rev = async (dir: string, ref: string) => {
+      const o = await git(dir, ["rev-parse", ref]);
+      return o.kind === "ok" ? o.out.trim() : "";
+    };
+    expect(await rev(repo, "origin/main")).toBe(await rev(origin, "main"));
+  });
+
+  it("refuses a base origin does not have, creating no run", async () => {
+    withHome();
+    const { repo } = repoWithOrigin();
+    const before = listRuns().runs.length;
+    const e = await refusal(runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "nope" }));
+    expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
+  });
+
+  it("a run without base has no meta.base and run.started.base null", async () => {
+    withHome();
+    const repo = tempRepo();
+    const run = findRun((await runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"] })).run);
+    expect(run.meta.base).toBeUndefined();
+    expect(readEvents(run)[0]).toMatchObject({ type: "run.started", base: null });
   });
 
   it("starts a run on its plan files: copies them, records them and approves them as input", async () => {
