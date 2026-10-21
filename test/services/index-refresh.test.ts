@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readIndexFile } from "../../src/infra/slopalytics.ts";
 import { indexPath } from "../../src/infra/paths.ts";
 import { indexStatus, INDEX_TTL_MS, refreshIndex } from "../../src/services/catalog-service.ts";
@@ -60,10 +60,32 @@ describe("refreshIndex", () => {
     expect(s.pairs).toBe(3);
   });
 
+  it("creates the data directory for the lock on a first fetch", async () => {
+    withHome();
+    rmSync(dirname(indexPath()), { recursive: true });
+    const s = await refreshIndex({ fetch: fakeFetch(proxy).impl });
+    expect(s.pairs).toBe(3);
+  });
+
   it("fetches inside the hour when forced", async () => {
     withHome();
     const f = fakeFetch(proxy);
     await refreshIndex({ force: true, fetch: f.impl, now: checkedAt() + 1000 });
     expect(f.sent).toHaveLength(1);
   });
+
+  for (const order of ["success first", "failure first"] as const) {
+    it(`keeps the newer good index when a slow refresh fails after another succeeds (${order})`, async () => {
+      withHome();
+      const ok = fakeFetch(proxy).impl;
+      const slow = (async () => {
+        await Bun.sleep(30);
+        throw new Error("offline");
+      }) as unknown as typeof fetch;
+      const now = checkedAt() + 1000;
+      const runs = order === "success first" ? [ok, slow] : [slow, ok];
+      await Promise.all(runs.map((fetch) => refreshIndex({ force: true, fetch, now })));
+      expect(readIndexFile(indexPath())?.models).toHaveLength(3);
+    });
+  }
 });

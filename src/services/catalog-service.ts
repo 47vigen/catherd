@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -19,10 +20,11 @@ import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { assetPath } from "../infra/assets.ts";
 import { log } from "../infra/log.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { indexPath } from "../infra/paths.ts";
 import type { IndexFile } from "../domain/slopalytics.ts";
 import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.ts";
-import { readVersioned } from "../infra/store.ts";
+import { PRIVATE_DIR, readVersioned } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
 import { type EvidenceTable, evidenceLine, evidenceOf, runEvidence } from "./run-evidence.ts";
 
@@ -302,8 +304,19 @@ export async function refreshIndex(
 ): Promise<IndexStatus> {
   if (o.auto && process.env.CATHERD_NO_SYNC === "1") return indexStatus();
   const now = o.now ?? Date.now();
+  // read, fetch and write run under one lock: a refresh that fails reads the file as the one before it left it
+  try {
+    mkdirSync(dirname(indexPath()), { recursive: true, mode: PRIVATE_DIR });
+    await withFileLock(indexPath(), () => refreshLocked(o, now), { timeoutMs: 30_000 });
+  } catch (e) {
+    log("debug", "catalog", { index: errorMessage(e) });
+  }
+  return indexStatus();
+}
+
+async function refreshLocked(o: { force?: boolean; fetch?: typeof fetch }, now: number): Promise<void> {
   const prev = readIndexFile(indexPath());
-  if (!o.force && prev && now - Date.parse(prev.checkedAt) < INDEX_TTL_MS) return indexStatus();
+  if (!o.force && prev && now - Date.parse(prev.checkedAt) < INDEX_TTL_MS) return;
   const at = new Date(now).toISOString();
   try {
     const got = await fetchProxy({ fetch: o.fetch });
@@ -317,17 +330,12 @@ export async function refreshIndex(
   } catch (e) {
     const message = errorMessage(e);
     log("debug", "catalog", { index: message });
-    try {
-      writeIndexFile(indexPath(), {
-        schema: 1,
-        checkedAt: at,
-        fetchedAt: prev?.fetchedAt ?? null,
-        error: { at, message },
-        models: prev?.models ?? [],
-      });
-    } catch (w) {
-      log("debug", "catalog", { index: errorMessage(w) });
-    }
+    writeIndexFile(indexPath(), {
+      schema: 1,
+      checkedAt: at,
+      fetchedAt: prev?.fetchedAt ?? null,
+      error: { at, message },
+      models: prev?.models ?? [],
+    });
   }
-  return indexStatus();
 }
