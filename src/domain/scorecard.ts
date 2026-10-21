@@ -92,6 +92,47 @@ export const ScorecardFileSchema = z.looseObject({
   tasks: z.record(z.string(), z.unknown()),
 });
 
+const count = z.number().int().min(0);
+
+/** The fields `passBar` and the comparison table read; the rest of a row is carried untouched. */
+const TaskScoreRowSchema = z.looseObject({
+  catherdVersion: z.string(),
+  finished: z.boolean(),
+  interventions: z.looseObject({
+    parks: count,
+    answers: count,
+    takeovers: count,
+    manualDispatches: count,
+    pauses: count,
+    superseded: count,
+    chat: count,
+    total: count,
+  }),
+  reviewRounds: count,
+  wallMinutes: z.number().min(0),
+  quota: z.looseObject({
+    backends: z.array(z.looseObject({ input: z.number().min(0), output: z.number().min(0) })),
+  }),
+  firstTry: z.boolean(),
+  injected: z.looseObject({ limits: count, standInOk: z.boolean() }).nullable(),
+});
+
+/** Checks every row `passBar` consumes; a malformed one fails naming the label, the task and the field. */
+export function assertScorecardRows(f: z.infer<typeof ScorecardFileSchema>, file: string): ScorecardFile {
+  for (const [task, row] of Object.entries(f.tasks)) {
+    const r = TaskScoreRowSchema.safeParse(row);
+    const issue = r.success ? null : r.error.issues[0];
+    const field = issue ? issue.path.join(".") || "row" : null;
+    if (!(SCORECARD_TASKS as readonly string[]).includes(task) || issue)
+      throw new CatherdError(
+        "E_INPUT_INVALID",
+        `scorecard ${f.label} (${file}): ${task}: ${field ?? "unknown task"}: ${issue?.message ?? "not one of the four tasks"}`,
+        { fix: `fix or delete ${file}, then record the task again` },
+      );
+  }
+  return f as unknown as ScorecardFile;
+}
+
 export function assertLabel(label: string): string {
   if (!/^[a-z0-9][a-z0-9.-]{0,40}$/.test(label)) {
     throw new CatherdError("E_INPUT_INVALID", `\`${label}\` is not a scorecard label`, {

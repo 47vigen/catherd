@@ -262,7 +262,26 @@ describe("scorecard score", () => {
 
 describe("scorecard results", () => {
   const row = (task: TaskScore["task"], wallMinutes: number): TaskScore =>
-    ({ task, wallMinutes }) as unknown as TaskScore;
+    ({
+      task,
+      catherdVersion: "1.5.0",
+      finished: true,
+      interventions: {
+        parks: 0,
+        answers: 0,
+        takeovers: 0,
+        manualDispatches: 0,
+        pauses: 0,
+        superseded: 0,
+        chat: 0,
+        total: 0,
+      },
+      reviewRounds: 0,
+      wallMinutes,
+      quota: { backends: [], claudeAgentTokens: 0 },
+      firstTry: true,
+      injected: null,
+    }) as unknown as TaskScore;
 
   it("writes one row per task under its label, replacing that task's earlier row; refuses a label that is not a plain name", () => {
     withHome();
@@ -276,6 +295,21 @@ describe("scorecard results", () => {
     expect(f?.tasks["raqam-myanmar"]?.wallMinutes).toBe(2);
     expect(readScorecard(join(dir, "none.json"))).toBeNull();
     expect(() => resultsFile(dir, "../x")).toThrow();
+  });
+
+  it("refuses a hand-edited row that passBar cannot read, naming the label, task and field", () => {
+    withHome();
+    const dir = tempDir("scorecard-results-");
+    const file = resultsFile(dir, "plan-9");
+    saveTaskScore(file, "plan-9", row("raqam-myanmar", 1));
+    const f = JSON.parse(readFileSync(file, "utf8"));
+    f.tasks["raqam-myanmar"].interventions.total = "0";
+    writeJsonAtomic(file, f);
+    expect(() => readScorecard(file)).toThrow(/plan-9.*raqam-myanmar: interventions\.total/);
+    f.tasks["raqam-myanmar"].interventions.total = 0;
+    f.tasks["raqam-myanmar"].wallMinutes = null;
+    writeJsonAtomic(file, f);
+    expect(() => readScorecard(file)).toThrow(/raqam-myanmar: wallMinutes/);
   });
 
   it("loads a task by its id and refuses an unknown one with the four names", () => {

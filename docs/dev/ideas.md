@@ -16,9 +16,6 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
-- **Scorecard result rows are not validated on read** (`src/services/scorecard.ts`, `readScorecard`): a hand-edited row
-  without `interventions` or `wallMinutes` crashes `compare` or makes the wall-clock sum NaN, which then passes. Parse
-  each row with a schema of the fields `passBar` reads.
 - **An unfinished baseline row makes the wall-clock bar lenient** (`passBar`): a task the operator gave up on at the
   4-hour cap still counts in the baseline's sum. Say so in the verdict.
 - **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.

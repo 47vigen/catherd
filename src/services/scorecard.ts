@@ -15,6 +15,7 @@ import { latestOutcomes } from "../domain/route.ts";
 import {
   assertLabel,
   SCORECARD_TASKS,
+  assertScorecardRows,
   type ScorecardFile,
   ScorecardFileSchema,
   type ScorecardTask,
@@ -363,7 +364,7 @@ export async function scoreTask(i: {
 export const resultsFile = (dir: string, label: string): string => join(dir, `${assertLabel(label)}.json`);
 
 export function readScorecard(file: string): ScorecardFile | null {
-  return existsSync(file) ? (readVersioned(file, ScorecardFileSchema, 1) as ScorecardFile) : null;
+  return existsSync(file) ? assertScorecardRows(readVersioned(file, ScorecardFileSchema, 1), file) : null;
 }
 
 /** Sets the task's row in the label's file (a re-record replaces it) and returns the file's contents. */

@@ -10,6 +10,7 @@ import {
 } from "../../src/domain/scorecard.ts";
 import { formatComparison, formatPrepared } from "../../src/entry/scorecard-command.ts";
 import { passBar } from "../../src/domain/scorecard.ts";
+import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { type Prepared, saveTaskScore } from "../../src/services/scorecard.ts";
 import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
@@ -155,6 +156,25 @@ describe("catherd scorecard", () => {
       JSON.parse(catherd(["scorecard", "compare", "plan-29", "--results", results, "--json"]).out).verdict
         .pass,
     ).toBe(true);
+  });
+
+  it("compare names the label, task and field of a malformed row instead of crashing or passing on NaN", () => {
+    withHome();
+    const results = tempDir("scorecard-results-");
+    const bad = file("plan-bad", 60);
+    const { interventions: _drop, ...broken } = bad.tasks["raqam-myanmar"] as TaskScore;
+    writeJsonAtomic(join(results, "plan-bad.json"), {
+      ...bad,
+      tasks: {
+        ...bad.tasks,
+        "raqam-myanmar": broken,
+      },
+    });
+    const r = catherd(["scorecard", "compare", "plan-bad", "--results", results]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("error E_INPUT_INVALID:");
+    expect(r.err).toContain("plan-bad");
+    expect(r.err).toContain("raqam-myanmar: interventions");
   });
 
   it("refuses a negative chat count, and refuses to run in a role's shell", () => {
