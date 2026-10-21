@@ -23,14 +23,18 @@ import { JSON_ARG, mark, printJson, refuseInRole } from "./cli-kit.ts";
 
 const BASELINE = "1.5.0";
 
+/** POSIX single-quote escaping; a value of plain path characters stays bare. */
+const quote = (v: string): string => (/^[\w@%+=:,./-]+$/.test(v) ? v : `'${v.replaceAll("'", `'\\''`)}'`);
+
 /** The prepared task as the operator needs it: where to start, what to paste, and how to record. */
 export function formatPrepared(p: Prepared, label = "<label>"): string[] {
-  const env = p.limits && p.shim ? `CATHERD_SCORECARD_LIMITS=${p.limits} PATH="${p.shim}:$PATH" ` : "";
+  const env =
+    p.limits && p.shim ? `CATHERD_SCORECARD_LIMITS=${quote(p.limits)} PATH=${quote(p.shim)}:"$PATH" ` : "";
   return [
     `${mark("ok")} ${p.task} prepared in ${p.dir} at ${p.startCommit.slice(0, 8)}`,
-    `  start:  cd ${p.repo} && ${env}claude`,
+    `  start:  cd ${quote(p.repo)} && ${env}claude`,
     `  prompt: ${p.prompt}`,
-    `  record: catherd scorecard record ${p.dir} --label ${label}`,
+    `  record: catherd scorecard record ${quote(p.dir)} --label ${label}`,
   ];
 }
 

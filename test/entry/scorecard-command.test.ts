@@ -93,9 +93,28 @@ describe("catherd scorecard", () => {
       prepared({ task: INJECTED_TASK, limits: "/p/d/limits", shim: "/c/scorecard/shim" }),
     );
     expect(lines[1]).toBe(
-      '  start:  cd /p/d/repo && CATHERD_SCORECARD_LIMITS=/p/d/limits PATH="/c/scorecard/shim:$PATH" claude',
+      '  start:  cd /p/d/repo && CATHERD_SCORECARD_LIMITS=/p/d/limits PATH=/c/scorecard/shim:"$PATH" claude',
     );
     expect(lines[3]).toBe("  record: catherd scorecard record /p/d --label <label>");
+  });
+
+  it("shell-quotes every path it prints, so a pasted command survives spaces and quotes", () => {
+    const dir = "/p/my dir/it's";
+    const lines = formatPrepared(
+      prepared({
+        task: INJECTED_TASK,
+        dir,
+        repo: `${dir}/repo`,
+        limits: `${dir}/limits`,
+        shim: "/c/sh im",
+      }),
+      "1.5.0",
+    );
+    const q = `'/p/my dir/it'\\''s`;
+    expect(lines[1]).toBe(
+      `  start:  cd ${q}/repo' && CATHERD_SCORECARD_LIMITS=${q}/limits' PATH='/c/sh im':"$PATH" claude`,
+    );
+    expect(lines[3]).toBe(`  record: catherd scorecard record ${q}' --label 1.5.0`);
   });
 
   it("compares a label against its baseline, row by row, and ends with the verdict", () => {
