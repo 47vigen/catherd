@@ -473,7 +473,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       // a file the worker left unresolved must not become the milestone's commit
       for (const f of m?.integrateFiles ?? []) {
         const text = existsSync(join(repo, f)) ? readFileSync(join(repo, f), "utf8") : "";
-        if (/^(<{7} |={7}$|>{7} )/m.test(text))
+        if (/^<{7} /m.test(text) && /^>{7} /m.test(text))
           return void (await failed({ out: "", err: `${f} still holds conflict markers`, timedOut: false }));
       }
       // an open merge is committed whole: a partial commit is refused while one is in progress
