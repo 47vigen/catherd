@@ -22,11 +22,17 @@
 - A model and effort the index does not list is not offered, and a profile rung or failover stand-in that names one
   fails `profile validate` (doctor shows it as a warning). A profile may need its rungs picked again:
   `catherd catalog list --role <role>` shows what is offered.
-- Bars are the 25th, 50th, 60th and 75th percentiles of the intelligence of the shipped models' indexed pairs, one
+- Bars are the 20th, 45th, 60th and 65th percentiles of the intelligence of the shipped models' indexed pairs, one
   bar per difficulty for every kind. A failover stand-in must be indexed, on another quota and at least as
   intelligent as its rung.
 - A run starts only when every enabled role has an indexed rung, and it keeps the index it started on
   (`<run>/slopalytics.json`).
+- The bars that `catalog.override.json` set are now percentiles in the profile, `bars.<difficulty>` or
+  `roles.<role>.bars.<difficulty>`; the shipped ones are copy 20, build 45, logic 60, hard 65. A new default profile
+  caps Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh; an existing profile has no caps until
+  `catherd profile set maxEffort.<backend>:<model> <effort>`. A worker rung below medium effort is never routed, and
+  `profile validate` names it. `readRoleRoutes` consumers see `failover` rows in `routes.jsonl`, which they skip by
+  `source`.
 - `init` asks one question fewer (no Artificial Analysis key): piped `init` reads three lines, the Jev key, the
   profile and whether to replace it. `catalog_query` has no `scored_only`, and `catherd catalog treat-like` and
   `catalog sync --unmatched` are removed. The provenance in `routes.jsonl` changed shape: the rung's

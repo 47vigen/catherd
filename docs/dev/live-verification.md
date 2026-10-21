@@ -767,3 +767,14 @@ On a machine with the release candidate, in a repository, with your real config:
 5. **Another host is refused.** `curl -H 'Host: evil.test' http://127.0.0.1:4317/api/runs` is 403, and so is a
    `POST` carrying `-H 'Origin: http://evil.test'`.
 6. **Cancel run stops a run.** Cancel a live run from its page: its roles stop and the run ends `cancelled`.
+
+## 21. Routing on one scale (2.0, plan 33)
+
+On a machine with the release candidate, with your real config:
+
+1. **Every failover is a row.** In a run with a forced limit, `jq 'select(.source == "failover")' <run>/routes.jsonl`
+   shows one row per failover, with the quotas in `held`; a failover with no stand-in has `"rung": null`.
+2. **A bar moves per role.** `catherd profile set roles.worker.bars.copy 10`, then a copy lane, starts the worker on
+   its lowest rung at medium or above.
+3. **A cap holds.** `catherd profile validate` on the default profile prints no warning; after `catherd profile set
+   roles.worker.rungs codex:gpt-6.1-sol#max` it says the rung is above `maxEffort xhigh` and that routing skips it.

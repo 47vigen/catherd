@@ -14,6 +14,16 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 2.0 follow-ups (plan 33)
+
+- **A lane on a held quota waits instead of failing over.** Plan 30's advance dispatches a pending lane only while
+  its quota is free, so a lane routed onto a held quota waits up to 30 minutes (plan 33, Ruling 16). _Where:_
+  dispatch it with `failoverFrom` set to its own rung, so `failoverRung` chooses a stand-in.
+- **The panel cannot show or edit `maxEffort` or `bars`** (plan 33, Ruling 17); only `catherd profile set` and the
+  session's `profile` tool do. _Where:_ the panel's Setup page (plan 31).
+- **Bars that go down are not flagged.** A role's `hard` percentile set below its `logic` one gets no warning.
+  _Where:_ `validateProfile` (`src/domain/profile-rules.ts`).
+
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
