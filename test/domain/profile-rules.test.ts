@@ -85,6 +85,30 @@ describe("validateProfile", () => {
     expect(soft.warnings).toContainEqual(issue);
   });
 
+  it("a role whose rungs are all unindexed has no usable rung: an error, and in doctor's mode a warning", () => {
+    const rung = "opencode:opencode-go/mystery-1#high";
+    const c = catalog({
+      listed: {
+        opencode: {
+          fetchedAt: "2026-10-13T00:00:00Z",
+          models: [{ id: "opencode-go/mystery-1", efforts: ["high"], context: null, imageIn: true }],
+        },
+      },
+    });
+    const p = resolveProfile(
+      applyPatch(defaultProfileDoc(), { roles: { reviewer: { rungs: [rung] } } }),
+      "p",
+      "claude-code",
+    );
+    const none = "the reviewer role has no usable rung";
+    const strict = validateProfile(p, c, BACKENDS, undefined, "claude-code");
+    expect(messages(strict.errors)).toContain(none);
+    const soft = validateProfile(p, c, BACKENDS, undefined, "claude-code", { unindexed: "warning" });
+    expect(messages(soft.errors)).not.toContain(none);
+    expect(messages(soft.warnings)).toContain(none);
+    expect(soft.errors).toEqual([]);
+  });
+
   it("says to sync when there is no index at all", () => {
     const v = check({}, catalog({ index: null }));
     const unindexed = v.errors.filter((e) => e.message.includes("has no Slopalytics intelligence index"));

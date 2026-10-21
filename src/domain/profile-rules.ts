@@ -120,6 +120,7 @@ export function validateProfile(
         message: `network: false does nothing here: it applies to workspace-write roles, and ${role} runs ${rc.access}`,
         fix: `catherd profile set ${at}.network null`,
       });
+    let unindexed = 0;
     for (const rung of rc.rungs) {
       const native = nativeClaudeIssue(rung, host, `${at}.rungs`);
       if (native) errors.push(native);
@@ -152,12 +153,14 @@ export function validateProfile(
           path: `${at}.rungs`,
           message: `${r.model} has no effort "${r.effort}" on ${r.backend} (it has ${info.efforts.join(", ")})`,
         });
-      else if (!info.pair)
+      else if (!info.pair) {
+        unindexed++;
         (o.unindexed === "warning" ? warnings : errors).push({
           path: `${at}.rungs`,
           message: unindexedMessage(rung),
           fix: c.indexedAt === null ? SYNC_FIX : `pick an indexed pair: catherd catalog list --role ${role}`,
         });
+      }
       if (info.listed === false)
         warnings.push({
           path: `${at}.rungs`,
@@ -181,7 +184,8 @@ export function validateProfile(
       });
     const usable = candidates(c, routingProfileOf(p, role), role);
     if (usable.length === 0)
-      errors.push({
+      // doctor's mode: rungs that are only unindexed are the same warning, so the role's total is one too
+      (o.unindexed === "warning" && unindexed > 0 && unindexed === rc.rungs.length ? warnings : errors).push({
         path: `${at}.rungs`,
         message: `the ${role} role has no usable rung`,
         fix: `enable an indexed rung its backend offers, or turn the role off with: catherd profile set ${at}.enabled false`,
