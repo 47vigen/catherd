@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { relative } from "node:path";
 import { DAEMON_ENTRY } from "../../src/infra/launch.ts";
+import { fileURLToPath } from "node:url";
 import { daemonAlive, readHeartbeat } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { importGraph, SRC } from "../import-graph.ts";
-import { freshRun } from "../services/helpers.ts";
+import { freshRun, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -72,5 +73,31 @@ describe("daemon-bin", () => {
     });
     expect(await p.exited).toBe(1);
     expect(await new Response(p.stderr).text()).toContain("no run");
+  });
+
+  it("a daemon outlives the process that launched it", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, {
+      type: "run.started",
+      repo: run.meta.repo,
+      title: "t",
+      aLines: [],
+      plan: [],
+      base: null,
+      engine: "2.0",
+    });
+    await appendEvent(run, { type: "cancel.requested", by: "owner" });
+    const launch = fileURLToPath(new URL("../../src/infra/launch.ts", import.meta.url));
+    const src = `import { launchDaemon } from ${JSON.stringify(launch)}; launchDaemon(${JSON.stringify(run.id)}, ${JSON.stringify(run.dir)});`;
+    const launcher = Bun.spawn([process.execPath, "-e", src], {
+      env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // the launching process is gone before the daemon has done anything
+    expect(await launcher.exited).toBe(0);
+    await waitFor(() => readEvents(run).some((e) => e.type === "run.ended"));
+    expect(readEvents(run).find((e) => e.type === "run.ended")).toMatchObject({ outcome: "cancelled" });
+    await waitFor(() => !daemonAlive(run));
   });
 });

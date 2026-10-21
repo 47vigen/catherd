@@ -9,8 +9,11 @@ import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { Deps } from "./ports.ts";
-import type { Effects } from "./run-effects.ts";
-import { appendEvent, eventsFile, isDaemonRun } from "./run-events-store.ts";
+import type { RunEvent } from "../domain/run-events.ts";
+import { type Action, actionKey, confirms, failKey, next } from "../domain/run-machine.ts";
+import { reduce, replay, type RunState } from "../domain/run-state.ts";
+import { type Effects, realEffects } from "./run-effects.ts";
+import { appendEvent, eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
 import { findRun, type Run } from "./run-store.ts";
 
 /** The daemon holds this lock for its whole life: a second holder gets none, a dead one's is reclaimed. */
@@ -96,23 +99,78 @@ export interface DaemonOptions {
   until?: () => boolean;
 }
 
+const REAL_CLOCK: SuperviseClock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
+
 /**
- * Plan 30 task 4's part of the daemon: take the run's lock (`"lost-lock"` without it), return `"ended"` for a
- * run that ended, else announce itself and beat once. The loop that drives the run follows in `drive`.
+ * Drives one run: takes its lock (`"lost-lock"` without it), returns `"ended"` at once for a run that ended,
+ * else replays the events, announces itself, and then feeds each new event to the machine: it clears the keys
+ * the event confirms, runs each action of `next` it has not issued (not awaited), appends one `tick` when a
+ * hold or wait has passed and beats. It leaves, releasing the lock, once the run has ended and every effect
+ * is done. The effects append the events, so a crash loses nothing: a new daemon replays and issues again
+ * what never got its event.
  */
 export async function runDaemon(
   deps: Deps,
   runId: string,
-  _o: DaemonOptions = {},
+  o: DaemonOptions = {},
 ): Promise<"ended" | "lost-lock"> {
   const run = findRun(runId);
   const release = tryLock(daemonLockTarget(run));
   if (!release) return "lost-lock";
   try {
     if (!isDaemonRun(run) || hasEnded(run)) return "ended";
-    const e = await appendEvent(run, { type: "daemon.started", pid: process.pid, version: deps.version });
-    beat(run, deps, e.seq);
-    log("info", "daemon", { run: run.id, pid: process.pid, seq: e.seq });
+    const clock = o.clock ?? REAL_CLOCK;
+    const effects = o.effects ?? realEffects(deps, run);
+    let state: RunState = replay(readEvents(run), run.id);
+    const hello = await appendEvent(
+      run,
+      { type: "daemon.started", pid: process.pid, version: deps.version },
+      new Date(clock.now()),
+    );
+    log("info", "daemon", { run: run.id, pid: process.pid, seq: hello.seq });
+    beat(run, deps, hello.seq);
+    /** action key → the key `effect.failed` frees it by */
+    const issued = new Map<string, string>();
+    const inFlight = new Set<Promise<void>>();
+    const issue = (a: Action): void => {
+      const key = actionKey(a);
+      if (issued.has(key)) return;
+      issued.set(key, failKey(a, state));
+      const p: Promise<void> = effects
+        .run(a, state)
+        .catch((e: unknown) =>
+          log("error", "daemon", { run: run.id, action: a.type, error: errorMessage(e) }),
+        )
+        .finally(() => {
+          inFlight.delete(p);
+          // a notice leaves no event behind, so nothing else would free its key
+          if (a.type === "notify") issued.delete(key);
+        });
+      inFlight.add(p);
+    };
+    const take = (e: RunEvent): void => {
+      state = reduce(state, e);
+      for (const k of confirms(e))
+        for (const [key, fk] of issued) if (key === k || fk === k) issued.delete(key);
+      for (const a of next(state, e)) issue(a);
+    };
+    let beatAt = clock.now();
+    while (!o.until?.()) {
+      const fresh = readEvents(run, state.seq + 1);
+      for (const e of fresh) take(e);
+      if (fresh.length > 0) continue;
+      if (state.wakeAt !== null && Date.parse(state.wakeAt) <= clock.now()) {
+        await appendEvent(run, { type: "tick" }, new Date(clock.now()));
+        continue;
+      }
+      if (clock.now() - beatAt >= daemonLimits.beatMs) {
+        beat(run, deps, state.seq);
+        beatAt = clock.now();
+      }
+      if (state.phase === "ended" && inFlight.size === 0) break;
+      await clock.sleep(daemonLimits.pollMs);
+    }
+    beat(run, deps, Math.max(state.seq, hello.seq));
     return "ended";
   } catch (e) {
     log("error", "daemon", { run: runId, error: errorMessage(e) });
