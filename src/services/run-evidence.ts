@@ -17,7 +17,7 @@ export interface Evidence {
   fails: number;
 }
 
-/** `<canonical rung>|<kind or *>` → its evidence. Shown by route, catalog list and the TUI; never routes. */
+/** `<canonical rung>|<kind or *>` → its evidence. Shown by route and catalog list; never routes. */
 export type EvidenceTable = Record<string, Evidence>;
 
 const VERDICT_FAIL = /^VERDICT: FAIL\b/;

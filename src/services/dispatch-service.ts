@@ -790,7 +790,7 @@ async function stopOrphan(deps: Deps, d: Dispatch): Promise<void> {
 /**
  * Spec §4.7: stop a live dispatch (interrupt, SIGTERM, SIGKILL) and record it as cancelled. With `read` (the MCP
  * `cancel` tool, whose caller holds the record it returns) the record is marked read, so `peek` no longer lists
- * it. Without it (the dashboard, `catherd runs cancel`) the record stays unread and catherd announces it to the
+ * it. Without it (the panel, `catherd runs cancel`) the record stays unread and catherd announces it to the
  * run's owner at `later` (spec §3.6).
  */
 export async function cancel(

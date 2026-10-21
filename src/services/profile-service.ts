@@ -105,7 +105,7 @@ function syncFor(
   return allowPrune ? pruneProfileAgents(name) : { linked: [], pruned: [], newSessionNeededFor: [] };
 }
 
-/** What a save returns: the port's ProfileSaved (one type for the CLI, the TUI and the MCP tools). */
+/** What a save returns: the port's ProfileSaved (one type for the CLI, the panel and the MCP tools). */
 export type Saved = ProfileSaved;
 
 const unsaved = (v: Validation): Saved => ({
@@ -121,7 +121,7 @@ const unsaved = (v: Validation): Saved => ({
 export const CHANGED_ON_DISK = "profile";
 
 /**
- * Spec §7.3 `patch` (profile_set, `catherd profile set`, the TUI's save): validates first and writes
+ * Spec §7.3 `patch` (profile_set, `catherd profile set`, the panel's save): validates first and writes
  * nothing when invalid, unless the save repairs the profile (spec 1.2 §6.2): it removes at least one error
  * the stored profile had and adds none. Then it saves, and the result's `errors` are those still open. A
  * profile that does not exist yet starts from the default profile. With `expect` (the profile as a preview

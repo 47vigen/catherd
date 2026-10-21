@@ -16,8 +16,7 @@ import { formatRefreshed } from "./catalog-command.ts";
 import { mark as markOf, refuseInRole } from "./cli-kit.ts";
 import { formatReport } from "./doctor-command.ts";
 import { mcpHandshake } from "./mcp/handshake.ts";
-import type { State } from "./glyphs.ts";
-import { mascot } from "./tui/theme.ts";
+import { mascot, type State } from "./glyphs.ts";
 import { type Prompter, prompter } from "./prompt.ts";
 
 /** What `init` prints last (spec §9.1): the plugin install commands, to paste into a terminal. */
@@ -28,7 +27,7 @@ export const PLUGIN_STEPS = [
   "Then start a new Claude Code session, so it loads the plugin and the catherd agents.",
 ];
 
-/** Spec §9.3: the full mascot greets `init` (and the TUI's empty states), nowhere else. */
+/** Spec §9.3: the full mascot greets `init` nowhere else. */
 export function welcomeLines(version: string): string[] {
   const [ears, face, paws] = mascot("good");
   return [ears, `${face}  catherd ${version}`, `${paws}  herds your coding agents`, ""];
@@ -142,7 +141,7 @@ export function profileLines(r: InitResult, plain = false): string[] {
   return out;
 }
 
-/** Spec §8 `catherd init [--no-input]`: first-run setup without the TUI (plan 6 adds the TUI wizard). */
+/** Spec §8 `catherd init [--no-input]`: first-run setup without the panel. */
 export const initCommand = defineCommand({
   meta: {
     name: "init",

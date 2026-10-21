@@ -38,7 +38,7 @@ describe("architecture", () => {
     expect(flagged(`import '../entry/mcp/y.ts'`)).toBe(1);
     expect(flagged(`import { a } from "../adapters/x.ts";`)).toBe(1);
     expect(flagged(`import {\n  a,\n  b,\n} from "../services/r.ts";`)).toBe(1);
-    expect(flagged(`export * from "../entry/tui/t.tsx";`)).toBe(1);
+    expect(flagged(`export * from "../entry/panel/t.ts";`)).toBe(1);
     expect(flagged(`const m = await import("../services/p.ts");`)).toBe(1);
     expect(flagged(`import { x } from "./paths.ts";`)).toBe(0);
   });

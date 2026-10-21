@@ -84,12 +84,12 @@ describe("launchSupervisor", () => {
     },
   );
 
-  it("runs a thin entry that never reaches the TUI, cli.ts or @opentui", () => {
+  it("runs a thin entry that never reaches the panel, cli.ts or react", () => {
     expect(relative(SRC, SUPERVISE_ENTRY)).toBe("entry/supervise-bin.ts");
     const g = importGraph(SUPERVISE_ENTRY);
     expect(g.files).toContain("entry/supervise-command.ts");
-    expect(g.files.filter((f) => f.startsWith("entry/tui/") || f === "cli.ts")).toEqual([]);
-    expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
+    expect(g.files.filter((f) => f.startsWith("entry/panel/") || f === "cli.ts")).toEqual([]);
+    expect(g.packages.filter((p) => p === "react")).toEqual([]);
   });
 });
 
@@ -139,16 +139,16 @@ describe("launchDetached and the daemon's launch", () => {
     expect(env).toEqual({ PATH: "/bin", TYPESAFE_API_KEY: "jev", CATHERD_HOME: "/h" });
   });
 
-  it("runs a thin daemon entry that never reaches the TUI, cli.ts or @opentui", () => {
+  it("runs a thin daemon entry that never reaches the panel, cli.ts or react", () => {
     expect(relative(SRC, DAEMON_ENTRY)).toBe("entry/daemon-bin.ts");
   });
 });
 
 describe("the check worker's launch", () => {
-  it("runs a thin entry that never reaches the TUI, cli.ts or @opentui", () => {
+  it("runs a thin entry that never reaches the panel, cli.ts or react", () => {
     expect(relative(SRC, CHECK_ENTRY)).toBe("entry/check-bin.ts");
     const g = importGraph(CHECK_ENTRY);
-    expect(g.files.filter((f) => f.startsWith("entry/tui/") || f === "cli.ts")).toEqual([]);
-    expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
+    expect(g.files.filter((f) => f.startsWith("entry/panel/") || f === "cli.ts")).toEqual([]);
+    expect(g.packages.filter((p) => p === "react")).toEqual([]);
   });
 });

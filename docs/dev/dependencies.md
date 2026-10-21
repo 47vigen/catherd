@@ -1,10 +1,10 @@
 # Dependencies
 
-TUI: OpenTUI (`@opentui/react`, `@opentui/core` and `@opentui/keymap`), all pinned to the same exact version
-(spec §9.4), in `src/entry/tui/`. Tests render through `@opentui/react/test-utils`'s `testRender` under the
-kitty keyboard protocol (a lone esc arrives at once), inside React's `act()` (`test/entry/tui/render.tsx`), on
-`@opentui/core/testing`'s `ManualClock` for anything timed. Colour: OpenTUI takes RGB only and downsamples
-itself, so `src/entry/tui/theme.ts` has one hex value per token and mode, and none at all without colour.
+The panel (`web/`, its own package, copied from remora's console): Vite 8, React 19, HeroUI v3 with
+`@heroui/styles`, Tailwind v4, TanStack Router (file routes, the committed `routeTree.gen.ts`) and Query,
+`@hey-api/openapi-ts` 0.99.0 (the client is generated from `web/openapi.json`, which catherd's zod schemas write),
+Geist fonts, `@gravity-ui/icons`, shiki, `react-aria-components`, oxlint and oxfmt, Vitest with jsdom, Playwright, and
+`vite-plugin-compression2`. The versions are in `web/package.json`; the root installs none of them.
 
 One line per dependency: what it does for catherd, and why this one.
 
@@ -13,16 +13,11 @@ One line per dependency: what it does for catherd, and why this one.
 - citty — the `catherd` main command and its subcommands — unjs, tiny, typed `defineCommand`, `--version` from `meta`
 - zod — schemas for the catalog, profiles and MCP tool inputs — the standard TS-first validator
 - @modelcontextprotocol/sdk — the MCP server (`catherd mcp`) — the official SDK
-- @opentui/core — the TUI renderer — the terminal renderer opencode itself uses (spec §3, §9)
-- @opentui/react — React bindings for the TUI — pairs with `@opentui/core`, and needs no Babel step, unlike `@opentui/solid` (spec §9.4)
-- @opentui/keymap — the TUI's key engine: layers, modes, the `ctrl+x` leader, one command catalogue — opencode's own engine, with a React binding (spec §9.2)
-- react — required by `@opentui/react`'s component model — peer dependency of the TUI layer
 
 ## Dev
 
 - typescript — `tsc --noEmit` typecheck — 7.x is the native compiler, the fastest
 - @types/bun — Bun globals and `bun:test` types for `"types": ["bun"]` — the only source of them
-- @types/react — types for the OpenTUI React components — needed alongside `react`
 - oxlint — lint — Rust, the fastest linter, sensible defaults with no config
 - oxfmt — format — Rust, Prettier-compatible output, the fastest formatter
 - lefthook — git hooks for lint, format and commit messages — a single Go binary, no shell scripts to keep

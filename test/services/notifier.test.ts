@@ -1145,7 +1145,7 @@ describe("the notifier (spec §3.4–§3.6)", () => {
     }
   });
 
-  it("announces a role cancelled from the dashboard or the CLI at later, but not one the MCP cancel returned", async () => {
+  it("announces a role cancelled from the panel or the CLI at later, but not one the MCP cancel returned", async () => {
     const { run, deps, n } = await owned();
     process.env.PATH = simPath();
     Object.assign(process.env, withScenario({ hangMs: 30_000 }).env);

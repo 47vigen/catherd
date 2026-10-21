@@ -20,29 +20,23 @@ const { VERSION } = await import("./infra/version.ts");
 
 type Command = ReturnType<typeof defineCommand>;
 
-/** The dashboard's flags, typed as any command's args so `main` stays a plain `Command`. */
-const dashboardArgs: ArgsDef = {
-  ...HOST_ARG,
-  plain: {
-    type: "boolean",
-    description: "the dashboard in ASCII without colour (NO_COLOR also drops colour)",
-  },
-  "reduced-motion": { type: "boolean", description: "the dashboard without animation" },
-};
+/** HOST_ARG typed as any command's args, so `main` stays a plain `Command`. */
+const MAIN_ARGS: ArgsDef = HOST_ARG;
 
 /**
- * Spec §8. Every subcommand loads lazily, so `mcp`, `lock` and `_supervise` never load OpenTUI or React
- * (spec §3.1); a bare `catherd` opens the TUI.
+ * Spec §8. Every subcommand loads lazily, so `mcp`, `lock` and `_supervise` never load the panel (spec §3.1);
+ * a bare `catherd` runs `catherd panel`.
  */
 export const main: Command = defineCommand({
   meta: {
     name: "catherd",
     version: VERSION,
-    description: "Herds coding agents",
+    description: "Herds coding agents. catherd (or catherd panel) opens the panel in your browser.",
   },
-  args: dashboardArgs,
+  args: MAIN_ARGS,
   subCommands: {
     init: () => import("./entry/init-command.ts").then((m) => m.initCommand),
+    panel: () => import("./entry/panel-command.ts").then((m) => m.panelCommand),
     status: () => import("./entry/runs-command.ts").then((m) => m.statusCommand),
     watch: () => import("./entry/runs-command.ts").then((m) => m.watchCommand),
     runs: () => import("./entry/runs-command.ts").then((m) => m.runsCommand),
@@ -62,11 +56,6 @@ export const main: Command = defineCommand({
     scorecard: () => import("./entry/scorecard-command.ts").then((m) => m.scorecardCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
     _supervise: () => import("./entry/supervise-command.ts").then((m) => m.superviseCommand),
-  },
-  // citty runs this after any subcommand too; only a bare `catherd` loads and opens the dashboard
-  async run(ctx) {
-    if (ctx.args._.length > 0) return;
-    await (await import("./entry/tui/run.tsx")).tuiRun(ctx);
   },
 });
 
@@ -143,13 +132,10 @@ export async function runCli(argv: string[]): Promise<number> {
     return EXIT.ok;
   }
   try {
-    const command = parseArgs(own, dashboardArgs)._[0];
-    // a bare `catherd` opens the dashboard, which takes only its own flags: a typo is not a terminal problem
+    const command = parseArgs(own, HOST_ARG)._[0];
+    // a bare `catherd` takes only --host: a typo is a usage error
     const flag = (a: string) => (a.startsWith("--") ? (a.slice(2).split("=")[0] ?? "") : "");
-    // citty negates a boolean as `--no-<name>`
-    const known = (name: string) =>
-      Object.hasOwn(dashboardArgs, name) ||
-      (name.startsWith("no-") && dashboardArgs[name.slice(3)]?.type === "boolean");
+    const known = (name: string) => Object.hasOwn(HOST_ARG, name);
     const unknown =
       command === undefined
         ? own.find((a, i) => a.startsWith("-") && !known(flag(a)) && own[i - 1] !== "--host")
@@ -159,9 +145,11 @@ export async function runCli(argv: string[]): Promise<number> {
       return EXIT.usage;
     }
     // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
-    // the first word that is not a flag: `catherd --plain lock -- …` is `lock` too.
-    if (command !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
-    const parsed = parseArgs(own, dashboardArgs);
+    // the first word that is not a flag: `catherd --host codex lock -- …` is `lock` too.
+    // the panel stops itself on Ctrl-C
+    if (command !== "lock" && command !== undefined)
+      process.once("SIGINT", () => process.exit(EXIT.interrupted));
+    const parsed = parseArgs(own, HOST_ARG);
     if (parsed.host !== undefined) {
       const forwarded = own.filter(
         (a, i) => a !== "--host" && own[i - 1] !== "--host" && !a.startsWith("--host="),
@@ -174,6 +162,11 @@ export async function runCli(argv: string[]): Promise<number> {
         String(parsed.host),
         ...(dashdash < 0 ? [] : argv.slice(dashdash)),
       );
+    }
+    if (command === undefined) {
+      const { runPanel } = await import("./entry/panel-command.ts");
+      await runPanel({ port: 4317, open: true, host: parsed.host });
+      return EXIT.ok;
     }
     await runCommand(main, { rawArgs });
     return Number(process.exitCode ?? EXIT.ok);

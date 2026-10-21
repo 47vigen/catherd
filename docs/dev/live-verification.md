@@ -748,3 +748,22 @@ On a machine with the release candidate, with your real config (these only read,
    `pick an indexed pair: catherd catalog list --role worker`.
 3. **A run pins its index.** Start a run in a scratch repository: the run's folder (`catherd runs show <id>` names it)
    holds a `slopalytics.json`, and `catherd catalog sync --force` afterwards leaves that file's `fetchedAt` as it was.
+
+## 20. The panel (2.0, plan 31)
+
+On a machine with the release candidate, in a repository, with your real config:
+
+1. **It opens signed in.** `catherd` and `catherd panel` print `catherd panel: http://127.0.0.1:4317/login#token=…`,
+   open the browser on Runs with no password asked, and leave the token out of the address bar. A second terminal's
+   `catherd panel` says `port 4317 is in use` and names `--port 0`. `catherd --help` prints the help and starts no
+   server.
+2. **Every page renders.** Runs lists your runs, and a run opens on its milestones, live roles, questions and
+   timeline, with new events arriving without a reload. Questions and Setup render; Setup shows each backend's
+   doctor status and each role's rungs.
+3. **An answer reruns the unit.** Start a run that parks a question (or use one that did), answer it from Questions:
+   the unit runs again and the question leaves the list; the daemon's next events show `question.answered`.
+4. **A Setup save shows in the profile.** Pick other rungs for a role and save; `catherd profile show` lists them in
+   rising intelligence.
+5. **Another host is refused.** `curl -H 'Host: evil.test' http://127.0.0.1:4317/api/runs` is 403, and so is a
+   `POST` carrying `-H 'Origin: http://evil.test'`.
+6. **Cancel run stops a run.** Cancel a live run from its page: its roles stop and the run ends `cancelled`.

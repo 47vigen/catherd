@@ -11,11 +11,11 @@ import { freshRun, waitFor } from "../services/helpers.ts";
 afterEach(snapshotEnv());
 
 describe("daemon-bin", () => {
-  it("runs a thin entry that never reaches the TUI, cli.ts or @opentui", () => {
+  it("runs a thin entry that never reaches the panel, cli.ts or react", () => {
     expect(relative(SRC, DAEMON_ENTRY)).toBe("entry/daemon-bin.ts");
     const g = importGraph(DAEMON_ENTRY);
-    expect(g.files.filter((f) => f.startsWith("entry/tui/") || f === "cli.ts")).toEqual([]);
-    expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
+    expect(g.files.filter((f) => f.startsWith("entry/panel/") || f === "cli.ts")).toEqual([]);
+    expect(g.packages.filter((p) => p === "react")).toEqual([]);
   });
 
   it("takes the run's lock, appends daemon.started and beats", async () => {

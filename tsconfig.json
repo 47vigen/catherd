@@ -6,8 +6,6 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
     "types": ["bun"],
     "noEmit": true,
     "allowImportingTsExtensions": true

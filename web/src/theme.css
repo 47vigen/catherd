@@ -1,0 +1,394 @@
+/*
+ * The catherd theme: a technical, quiet console. One mint accent on a cool off-white (or near-black) ground,
+ * hairline structure instead of shadows, near-square corners, Geist for words and Geist Mono for labels,
+ * identifiers and figures. Only HeroUI's own variables and BEM classes are touched, so every component keeps its
+ * behaviour and accessibility.
+ */
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@layer theme {
+  :root,
+  [data-theme="light"] {
+    color-scheme: light;
+
+    --radius: 0.125rem;
+    --field-radius: 0.125rem;
+    --field-border-width: 1px;
+
+    --background: oklch(0.985 0.002 248);
+    --foreground: oklch(0.21 0.028 265);
+
+    --surface: oklch(1 0 0);
+    --surface-foreground: var(--foreground);
+    --surface-secondary: oklch(0.975 0.002 248);
+    --surface-tertiary: oklch(0.955 0.003 248);
+
+    --overlay: oklch(1 0 0);
+    --overlay-foreground: var(--foreground);
+
+    --muted: oklch(0.53 0.02 262);
+
+    --default: oklch(0.955 0.003 248);
+    --default-foreground: var(--foreground);
+
+    /* Mint, with a deep green ink on it: the pair reads at AA where white on mint would not. */
+    --accent: oklch(0.76 0.13 170);
+    --accent-foreground: oklch(0.24 0.05 172);
+
+    --field-background: oklch(1 0 0);
+    --field-foreground: var(--foreground);
+    --field-placeholder: oklch(0.64 0.015 262);
+    --field-border: oklch(0.905 0.004 248);
+
+    --success: oklch(0.66 0.15 152);
+    --success-foreground: oklch(0.99 0 0);
+    --warning: oklch(0.78 0.15 74);
+    --warning-foreground: oklch(0.25 0.04 70);
+    --danger: oklch(0.6 0.2 26);
+    --danger-foreground: oklch(0.99 0 0);
+
+    --segment: oklch(1 0 0);
+    --segment-foreground: var(--foreground);
+
+    --border: oklch(0.915 0.004 248);
+    --separator: oklch(0.935 0.003 248);
+    --focus: oklch(0.62 0.13 170);
+    --link: oklch(0.48 0.1 172);
+
+    /* Ink tones used for marks that must not look like a status. */
+    --ink-strong: oklch(0.42 0.09 172);
+    --ink-faint: oklch(0.86 0.06 170);
+
+    --surface-shadow: 0 0 0 0 transparent;
+    --field-shadow: 0 0 0 0 transparent;
+    --overlay-shadow: 0 0 0 1px var(--border), 0 12px 32px -12px oklch(0.21 0.028 265 / 0.18);
+
+    --skeleton-animation: pulse;
+    --tooltip-delay: 500ms;
+    --tooltip-close-delay: 100ms;
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    color-scheme: dark;
+
+    --background: oklch(0.155 0.004 250);
+    --foreground: oklch(0.965 0.003 250);
+
+    --surface: oklch(0.185 0.004 250);
+    --surface-foreground: var(--foreground);
+    --surface-secondary: oklch(0.205 0.005 250);
+    --surface-tertiary: oklch(0.235 0.005 250);
+
+    --overlay: oklch(0.205 0.005 250);
+    --overlay-foreground: var(--foreground);
+
+    --muted: oklch(0.69 0.012 250);
+
+    --default: oklch(0.24 0.005 250);
+    --default-foreground: var(--foreground);
+
+    --accent: oklch(0.8 0.13 170);
+    --accent-foreground: oklch(0.2 0.04 172);
+
+    --field-background: oklch(0.175 0.004 250);
+    --field-foreground: var(--foreground);
+    --field-placeholder: oklch(0.55 0.01 250);
+    --field-border: oklch(0.29 0.005 250);
+
+    --success: oklch(0.74 0.15 152);
+    --success-foreground: oklch(0.18 0.03 152);
+    --warning: oklch(0.82 0.14 76);
+    --warning-foreground: oklch(0.22 0.04 70);
+    --danger: oklch(0.66 0.19 25);
+    --danger-foreground: oklch(0.99 0 0);
+
+    --segment: oklch(0.28 0.006 250);
+    --segment-foreground: var(--foreground);
+
+    --border: oklch(0.265 0.005 250);
+    --separator: oklch(0.235 0.005 250);
+    --focus: oklch(0.8 0.13 170);
+    --link: oklch(0.82 0.11 170);
+
+    --ink-strong: oklch(0.62 0.09 215);
+    --ink-faint: oklch(0.36 0.06 172);
+
+    --surface-shadow: 0 0 0 0 transparent;
+    --field-shadow: 0 0 0 0 transparent;
+    --overlay-shadow: 0 0 0 1px var(--border), 0 16px 40px -12px oklch(0 0 0 / 0.6);
+  }
+}
+
+@theme inline {
+  --color-ink-strong: var(--ink-strong);
+  --color-ink-faint: var(--ink-faint);
+}
+
+@layer base {
+  html {
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+}
+
+/* Syntax colours for CodeBlock (shiki's css-variables theme), quiet in light and dark. */
+@layer base {
+  :root,
+  [data-theme="light"] {
+    --code-key: oklch(0.45 0.1 172);
+    --code-string: oklch(0.5 0.12 145);
+    --code-number: oklch(0.55 0.14 55);
+    --code-literal: oklch(0.5 0.14 290);
+    --code-punct: oklch(0.6 0.015 262);
+  }
+  .dark,
+  [data-theme="dark"] {
+    --code-key: oklch(0.82 0.11 170);
+    --code-string: oklch(0.8 0.12 135);
+    --code-number: oklch(0.8 0.12 65);
+    --code-literal: oklch(0.76 0.12 290);
+    --code-punct: oklch(0.6 0.012 250);
+  }
+}
+
+@layer components {
+  .code-keyword,
+  .code-parameter,
+  .code-function {
+    color: var(--code-key);
+  }
+  .code-string,
+  .code-string-expression,
+  .code-link {
+    color: var(--code-string);
+  }
+  .code-constant {
+    color: var(--code-number);
+  }
+  .code-inserted,
+  .code-changed {
+    color: var(--code-literal);
+  }
+  .code-punctuation,
+  .code-comment {
+    color: var(--code-punct);
+  }
+}
+
+/* Moving between pages: a short fade, no travel, so frequent navigation never feels slow. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility page-enter {
+  animation: page-enter 140ms cubic-bezier(0.23, 1, 0.32, 1);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* Opened from the keyboard many times a day: appears and leaves at once. */
+@utility no-motion {
+  &,
+  & * {
+    animation: none !important;
+  }
+}
+
+/* The label voice: small mono capitals, used for column heads, section labels and stat names. */
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@layer components {
+  /* Buttons: near-square, a hairline on quiet variants, and the mint primary with ticked corners. */
+  .button,
+  .toggle-button,
+  .pagination__link {
+    border-radius: var(--radius);
+    letter-spacing: -0.005em;
+  }
+
+  .button--primary {
+    --button-bg-hover: color-mix(in oklab, var(--accent) 88%, var(--foreground) 12%);
+    --button-bg-pressed: var(--button-bg-hover);
+    --tick: color-mix(in oklab, var(--accent) 45%, var(--accent-foreground) 55%);
+    background-image:
+      linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick)),
+      linear-gradient(var(--tick), var(--tick)), linear-gradient(var(--tick), var(--tick));
+    background-size: 3px 3px;
+    background-position:
+      top left,
+      top right,
+      bottom left,
+      bottom right;
+    background-repeat: no-repeat;
+  }
+
+  .button--secondary,
+  .button--tertiary {
+    --button-bg: var(--surface);
+    --button-bg-hover: var(--surface-secondary);
+    --button-bg-pressed: var(--surface-tertiary);
+    --button-fg: var(--foreground);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  /* Segmented choices: the chosen one is a raised white tab, not a tinted pill. */
+  .toggle-button {
+    --toggle-button-bg-selected: var(--surface);
+    --toggle-button-bg-selected-hover: var(--surface);
+    --toggle-button-bg-selected-pressed: var(--surface);
+    --toggle-button-fg-selected: var(--foreground);
+  }
+
+  .toggle-button[data-selected="true"] {
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .button--danger-soft {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--danger) 22%, transparent);
+  }
+
+  /* Cards and surfaces: separated by a hairline, never by a shadow. */
+  .card {
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .card__title {
+    @apply text-sm font-medium tracking-tight;
+  }
+
+  /* Chips: rectangular tags in the label voice. */
+  .chip {
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    letter-spacing: 0.01em;
+  }
+
+  /* HeroUI leaves the trigger's items at the top; at a compact height the value must sit in the middle. */
+  .select__trigger {
+    align-items: center;
+  }
+
+  .chip--soft {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--chip-fg) 20%, transparent);
+  }
+
+  .chip--default.chip--soft {
+    --chip-bg: var(--surface-secondary);
+    --chip-fg: var(--muted);
+  }
+
+  .tag {
+    border-radius: var(--radius);
+  }
+
+  /* Tables: one bordered sheet, mono column heads, hairline rows, a quiet hover. */
+  .table-root--primary {
+    @apply bg-surface p-0;
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .table__header {
+    @apply bg-surface-secondary;
+  }
+
+  .table__column {
+    @apply label-caps text-muted py-2.5;
+    border-bottom: 1px solid var(--border);
+
+    &::after {
+      content: none;
+    }
+  }
+
+  .table__body tr:is(:first-child, :last-child) td:is(:first-child, :last-child) {
+    border-radius: 0;
+  }
+
+  .table__cell {
+    @apply bg-transparent py-2.5;
+    border-bottom: 1px solid var(--separator);
+  }
+
+  .table__row:last-child .table__cell {
+    border-bottom: 0;
+  }
+
+  .table__row {
+    transition: background-color 120ms var(--ease-out-quad);
+  }
+
+  @media (hover: hover) {
+    .table__row:hover .table__cell,
+    .table__row[data-hovered="true"] .table__cell {
+      background-color: color-mix(in oklab, var(--surface-secondary) 70%, transparent);
+    }
+  }
+
+  .table__row[data-href],
+  .table__content[data-row-action] .table__row {
+    cursor: var(--cursor-interactive);
+  }
+
+  /* Overlays */
+  .modal__dialog,
+  .alert-dialog__dialog,
+  .popover,
+  .dropdown__popover,
+  .select__popover,
+  .tooltip {
+    border-radius: calc(var(--radius) * 2);
+  }
+
+  .drawer__dialog {
+    border-radius: 0;
+  }
+
+  .menu-item,
+  .list-box-item {
+    border-radius: var(--radius);
+  }
+
+  .tabs__tab,
+  .tabs__indicator {
+    border-radius: var(--radius);
+  }
+
+  .alert {
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 14%, transparent);
+  }
+
+  .kbd {
+    @apply font-mono text-xs;
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .skeleton {
+    border-radius: var(--radius);
+  }
+}

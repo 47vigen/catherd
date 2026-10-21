@@ -1,0 +1,84 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SRC } from "../import-graph.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
+
+afterEach(snapshotEnv());
+
+const CLI = join(SRC, "cli.ts");
+const procs: Bun.Subprocess[] = [];
+afterEach(() => {
+  for (const p of procs.splice(0)) p.kill();
+});
+
+function distDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+  writeFileSync(join(dir, "index.html"), '<!doctype html><div id="root"></div>');
+  return dir;
+}
+function panel(args: string[], dist: string | undefined) {
+  const home = withHome();
+  const p = Bun.spawn([process.execPath, CLI, "panel", ...args], {
+    env: {
+      PATH: process.env.PATH,
+      CATHERD_HOME: home,
+      CATHERD_NO_SYNC: "1",
+      ANTHROPIC_API_KEY: "",
+      ...(dist ? { CATHERD_PANEL_DIST: dist } : {}),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  procs.push(p);
+  return p;
+}
+async function firstLine(p: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<string> {
+  const reader = p.stdout.getReader();
+  let text = "";
+  while (!text.includes("\n")) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+  }
+  reader.releaseLock();
+  return text.split("\n")[0] as string;
+}
+
+describe("catherd panel", () => {
+  it("prints the link with a fresh token and opens nothing with --no-open", async () => {
+    const p = panel(["--no-open", "--port", "0"], distDir());
+    const line = await firstLine(p as never);
+    expect(line).toMatch(/^catherd panel: http:\/\/127\.0\.0\.1:\d+\/login#token=[A-Za-z0-9_-]{43}$/);
+    const origin = (line.match(/http:\/\/127\.0\.0\.1:\d+/) as RegExpMatchArray)[0];
+    expect((await fetch(`${origin}/login`)).status).toBe(200);
+  });
+
+  it("says when the panel is not built", async () => {
+    const p = panel(["--no-open"], mkdtempSync(join(tmpdir(), "catherd-empty-")));
+    expect(await p.exited).toBe(1);
+    const err = await new Response(p.stderr as ReadableStream).text();
+    expect(err).toContain("the panel is not built");
+    expect(err).toContain("bun run panel:build");
+  });
+
+  it("refuses a port in use, naming --port 0", async () => {
+    const taken = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("x") });
+    try {
+      const p = panel(["--no-open", "--port", String(taken.port)], distDir());
+      expect(await p.exited).toBe(2);
+      const err = await new Response(p.stderr as ReadableStream).text();
+      expect(err).toContain(`port ${taken.port} is in use`);
+      expect(err).toContain("catherd panel --port 0");
+    } finally {
+      await taken.stop(true);
+    }
+  });
+
+  it("refuses a port that is not a number", async () => {
+    const p = panel(["--no-open", "--port", "abc"], distDir());
+    expect(await p.exited).toBe(2);
+    expect(await new Response(p.stderr as ReadableStream).text()).toContain("--port takes a number");
+  });
+});

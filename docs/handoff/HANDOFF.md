@@ -13,8 +13,8 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | in PR (final review 0 C / 0 I; one minor fixed; ledger `plan28-ledger.md`); the 1.5.0 baseline is the owner's (Task 8) |
 | 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | in PR (final review 0 C / 1 I fixed; ledger `plan29-ledger.md`) |
 | 30 run daemon | `docs/plans/2026-10-21-30-run-daemon.md` | merged (#61; ledger `plan30-ledger.md`) |
-| 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | in PR (final review 0 C / 2 I fixed, 1 minor fixed; ledger `plan30b-ledger.md`) |
-| 31 panel | `docs/plans/2026-10-21-31-panel.md` | written |
+| 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | merged (#62; ledger `plan30b-ledger.md`) |
+| 31 panel | `docs/plans/2026-10-21-31-panel.md` | in PR (final review 0 C / 2 I fixed, 2 minors fixed; ledger `plan31-ledger.md`) |
 | 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md` | written |
 | 33 routing | `docs/plans/2026-10-21-33-routing.md` | written |
 | 34 knowledge and digest | `docs/plans/2026-10-21-34-knowledge-digest.md` | written |

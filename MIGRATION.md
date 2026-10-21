@@ -63,6 +63,14 @@ out_of_scope` decides what the daemon does: climb, retry then fail over, park, o
   question, because catherd never pushes. It counts as merged when `origin/<base>` holds its commit (checked every
   ten minutes) or when you answer the question (a squash merge needs that answer). Dependants and the run's end
   wait for merged. A run without a base behaves as in 1.5.
+- **The panel replaces the TUI.** `catherd` alone runs `catherd panel`; `catherd --help` prints the help. `catherd panel
+[--port <n>] [--no-open]` serves a browser panel on `127.0.0.1` (port 4317) and opens it with a one-time token:
+  Setup (backends, the catalog, each role's rungs from indexed pairs), Runs (every run, its live timeline, Cancel run)
+  and Questions (answer a parked unit). The TUI's tabs became: Status → Setup and `catherd doctor`; Profiles → Setup
+  for rungs, `catherd profile set` for the rest; Runs → Runs. `catherd watch` prints text only. Gone: `--plain` and
+  `--reduced-motion` on `catherd` and `catherd watch`, `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`,
+  `CATHERD_STORY`, the `keybinds` config key (ignored), `E_CONFIG_KEYBIND`, `docs/tui-frames.md`. New:
+  `CATHERD_PANEL_DIST`.
 
 ## From 1.4 to 1.5
 

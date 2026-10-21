@@ -7,7 +7,7 @@ description: Use when the user wants to tune catherd — which models and effort
 
 You tune the user's catherd profile in conversation. A profile says, per role, which rungs it may run on (`backend:model#effort`, in ladder order) and what it may touch (its access mode); whether routing favours cost or speed; how each backend is billed; whether Jev picks the rung; which rung stands in when a backend hits its usage limit; the run budget and timeouts; whether each vendor harness runs with the user's customizations or isolated; how many heavy commands run at once; and when to push.
 
-**You never edit a file by hand.** Use `profile({ action: "set" })` for patches and the existing reviewed CLI reset below; both go through ProfileService, as do the `catherd profile` commands and the TUI.
+**You never edit a file by hand.** Use `profile({ action: "set" })` for patches and the existing reviewed CLI reset below; both go through ProfileService, as do the `catherd profile` commands and the panel.
 
 **Discover the host first with `status()`.** Use the host's available MCP discovery facility; names and deferred tools differ. Claude Code may use `ToolSearch`; Codex never needs invented Claude tools or native Claude agents. Pass the actual project `repo` explicitly to profile, setup and catalog calls that accept it: native Codex starts the MCP server in the installed plugin root, not the project. An unknown terminal can use `catherd init --host codex` or `--host claude-code` for setup; this does not create a conversation owner. Conflicting identity must be resolved before ownership or push.
 

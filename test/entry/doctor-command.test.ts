@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { mark } from "../../src/entry/cli-kit.ts";
 import { formatCheck, formatReport } from "../../src/entry/doctor-command.ts";
-import { glyph } from "../../src/entry/tui/theme.ts";
+import { glyph } from "../../src/entry/glyphs.ts";
 import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { credentialsPath } from "../../src/services/jev-service.ts";

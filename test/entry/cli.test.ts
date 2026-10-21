@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { killGroup } from "../../src/infra/proc.ts";
@@ -82,30 +82,27 @@ describe("catherd (spec §8)", () => {
     ]);
   });
 
-  it("takes citty's negated dashboard booleans, --no-plain and --no-reduced-motion, but no --no-<unknown>", () => {
+  it("catherd --help prints the help, naming the panel", () => {
     withHome();
-    for (const flag of ["--no-plain", "--no-reduced-motion"]) {
-      const r = catherd([flag], { ANTHROPIC_API_KEY: "" });
-      expect([flag, r.code, r.err]).toEqual([
-        flag,
-        2,
-        "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
-          "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
-      ]);
-    }
-    expect(catherd(["--no-bogus"], { ANTHROPIC_API_KEY: "" }).err).toBe(
-      "error E_INPUT_INVALID: unknown option --no-bogus\nfix: catherd --help\n",
-    );
+    const r = catherd(["--help"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.out.includes("catherd (or catherd panel) opens the panel in your browser")]).toEqual([
+      0,
+      true,
+    ]);
   });
 
-  it("says in the spec's error format that the dashboard needs a terminal (audit N4)", () => {
+  it("refuses --plain and --reduced-motion on a bare catherd as unknown options", () => {
     withHome();
-    const r = catherd(["--plain"], { ANTHROPIC_API_KEY: "" });
-    expect([r.code, r.err]).toEqual([
-      2,
-      "error E_INPUT_INVALID: the dashboard needs an interactive terminal\n" +
-        "fix: in a script, run catherd status, catherd doctor or catherd watch --once\n",
-    ]);
+    for (const flag of ["--plain", "--no-reduced-motion"])
+      expect(catherd([flag], { ANTHROPIC_API_KEY: "" }).err).toBe(
+        `error E_INPUT_INVALID: unknown option ${flag}\nfix: catherd --help\n`,
+      );
+  });
+
+  it("watch --once prints text, and ignores the --plain it no longer needs", () => {
+    withHome();
+    const r = catherd(["watch", "--plain", "--once"], { ANTHROPIC_API_KEY: "" });
+    expect([r.code, r.out.startsWith("no runs yet\n")]).toEqual([0, true]);
   });
 
   it("exits 1 on a catherd error, with one error line and a fix", () => {
@@ -193,22 +190,46 @@ describe("catherd (spec §8)", () => {
     }
   });
 
-  it("never loads OpenTUI or React for mcp, lock or _supervise (spec §3.1)", () => {
+  it("never loads the panel or React for mcp, lock or _supervise (spec §3.1)", () => {
     for (const entry of ["entry/mcp/command.ts", "entry/lock-command.ts", "entry/supervise-command.ts"]) {
       const g = importGraph(join(SRC, entry));
-      expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
-      expect(g.files.filter((f) => f.startsWith("entry/tui/"))).toEqual([]);
+      expect(g.packages.filter((p) => p === "react")).toEqual([]);
+      expect(g.files.filter((f) => f.startsWith("entry/panel/"))).toEqual([]);
     }
   });
 });
 
-it("bare --host codex reaches TUI startup and invalid host is a usage error", () => {
+it("--host codex --help prints the help and an invalid host is a usage error", () => {
   withHome();
-  const r = catherd(["--host", "codex"]);
-  expect(r.code).toBe(2);
-  expect(r.err).toContain("dashboard needs an interactive terminal");
-  const bad = catherd(["--host", "not-a-host"]);
-  expect(bad.code).toBe(2);
-  expect(bad.err).not.toContain("dashboard needs");
+  expect([catherd(["--host", "codex", "--help"]).code, catherd(["--host", "not-a-host"]).code]).toEqual([
+    0, 2,
+  ]);
   expect(catherd(["--host", "codex", "profile", "show", "--json"]).out).toContain("codex:gpt-6.1-sol#high");
+});
+
+it("a bare catherd runs the panel and opens the browser; --help only prints", async () => {
+  withHome();
+  const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+  writeFileSync(join(dist, "index.html"), "<div id=root></div>");
+  process.env.CATHERD_PANEL_DIST = dist;
+  const { runCli } = await import("../../src/cli.ts");
+  const { panelServer } = await import("../../src/entry/panel-command.ts");
+  const real = { ...panelServer };
+  const seen: { port: number; open: boolean }[] = [];
+  panelServer.serve = (o) => {
+    seen.push({ port: o.port, open: o.open });
+    return { url: "http://127.0.0.1:1", port: 1, stop: async () => {} };
+  };
+  panelServer.untilStopped = async () => {};
+  const log = console.log;
+  console.log = () => {};
+  try {
+    expect(await runCli([])).toBe(0);
+    expect(seen).toEqual([{ port: 4317, open: true }]);
+    expect(await runCli(["--help"])).toBe(0);
+    expect(seen).toHaveLength(1);
+  } finally {
+    console.log = log;
+    Object.assign(panelServer, real);
+  }
 });
