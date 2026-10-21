@@ -7,10 +7,11 @@ import { parseFailLines, parseFindings } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
+import { changedDecisions, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { currentRoute } from "../domain/route.ts";
 import type { Role } from "../domain/roles.ts";
-import type { MilestonePlan, RunEventInput } from "../domain/run-events.ts";
+import { type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
@@ -26,6 +27,7 @@ import { climb, land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
 import { machineGate } from "./milestone-check.ts";
 import { sendRunNotice } from "./notify-service.ts";
+import { planProblems } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
@@ -358,6 +360,34 @@ export function realEffects(deps: Deps, run: Run): Effects {
     await settle(d, a.unit, judge);
   }
 
+  /**
+   * The architect's plan into `plan.ready`, once the plan backs every lane. A gap is `effect.failed`: its architect
+   * is sent back with it. An edit to a decision the owner approved asks them again before the plan is read.
+   */
+  async function readPlan(): Promise<void> {
+    const milestones = planOf(run);
+    const problems = planProblems(run);
+    if (problems.length > 0) {
+      await append({
+        type: "effect.failed",
+        action: "readPlan",
+        unit: RUN_UNIT,
+        message: `the plan needs: ${problems.join("; ")}`,
+      });
+      return;
+    }
+    const approved = read(join(run.dir, "plan-approved.md"));
+    const changed = approved ? changedDecisions(approved, read(runPaths(run.dir).plan)) : [];
+    if (changed.length > 0)
+      await append({
+        type: "question.parked",
+        unit: RUN_UNIT,
+        question: reapprovalQuestion(run.id, changed),
+        reason: "approval",
+      });
+    await append({ type: "plan.ready", milestones });
+  }
+
   async function route(a: Extract<Action, { type: "route" }>, s: RunState): Promise<void> {
     const lanes = lanesOf(s, a.milestone);
     const roles = [...new Set(lanes.map((l) => l.role))];
@@ -609,7 +639,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return settle(d, v.unit, v.role === "judge" ? judgeOf(v.name, s) : null);
       }
       case "readPlan":
-        return void (await append({ type: "plan.ready", milestones: planOf(run) }));
+        return readPlan();
       case "route":
         return route(a, s);
       case "fastCheck":

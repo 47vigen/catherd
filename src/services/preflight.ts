@@ -2,13 +2,16 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
+import { coverageProblems } from "../domain/plan-doc.ts";
 import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlotWithin } from "../infra/heavy-lock.ts";
 import { loginEnv } from "../infra/login-env.ts";
 import { killGroup } from "../infra/proc.ts";
 import { readGateEnv, resolveGateEnv } from "./gate-env.ts";
 import { landedMilestones } from "./milestones.ts";
+import { planDocs } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
+import { isDaemonRun } from "./run-events-store.ts";
 import { TAIL_LINES } from "./run-debug.ts";
 import { findRun, type Run, runPaths } from "./run-store.ts";
 
@@ -57,6 +60,8 @@ interface LaneCheck {
   problem: string | null;
   /** spec 1.1 §6: why its Kind: or Difficulty: line is refused */
   invalid: string | null;
+  /** plan 32: the plan tasks it names on its `Tasks:` line */
+  tasks: string[];
 }
 
 function laneChecks(run: Run): LaneCheck[] {
@@ -83,9 +88,10 @@ function laneChecks(run: Run): LaneCheck[] {
           allow: h.allow,
           problem: h.fastCheck ? null : `lanes/${f} has no Fast check: line`,
           invalid,
+          tasks: h.tasks,
         };
       } catch (e) {
-        return { lane, check: null, owns: [], allow: [], problem: (e as Error).message, invalid };
+        return { lane, check: null, owns: [], allow: [], problem: (e as Error).message, invalid, tasks: [] };
       }
     });
 }
@@ -280,6 +286,28 @@ export async function preflight(
   const invalid = lanes.flatMap((l) => (l.invalid ? [l.invalid] : []));
   if (invalid.length) throw new CatherdError("E_LANE_INVALID", invalid.join("; "), { fix: LANE_HEADER_FIX });
   const commands = lanes.map((l) => ({ lane: l.lane, check: l.check }));
+  // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
+  if (isDaemonRun(run)) {
+    const problems = coverageProblems(
+      planDocs(run),
+      lanes.map((l) => ({ id: l.lane, tasks: l.tasks })),
+    );
+    if (problems.length)
+      return {
+        needsConfirmation: false,
+        commands,
+        results: problems.map((p) => ({
+          lane: p.lane || (i.milestone ?? "plan"),
+          check: null,
+          outcome: "cannot-start" as const,
+          exitCode: null,
+          tail: [],
+          note: p.note,
+        })),
+        blocked: true,
+        warnings: [],
+      };
+  }
   if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;
   const results: PreflightResult[] = [];

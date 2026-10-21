@@ -132,13 +132,17 @@ export function milestoneTasks(run: Run, milestone: string): PlanTask[] {
   return [...seen.values()];
 }
 
-/** What the plan does not back: every lane's coverage, and with no plan input plan.md's depth. */
+/**
+ * What the architect can fix: a lane that names no task or a missing one, and with no plan input plan.md's depth.
+ * A task of the owner's plan with neither a signature nor a test is the owner's, and preflight refuses it.
+ */
 export function planProblems(run: Run): string[] {
   const docs = planDocs(run);
   const lanes = laneIds(run).map((id) => ({ id, tasks: laneRefs(run, id) }));
-  const out = coverageProblems(docs, lanes).map((p) => p.note);
-  const written = replayRun(run).plan.length === 0 ? docs[0] : undefined;
-  if (written) out.push(...depthProblems(written));
+  const out = coverageProblems(docs, lanes)
+    .filter((p) => p.lane !== "")
+    .map((p) => p.note);
+  if (replayRun(run).plan.length === 0) out.push(...depthProblems(docs[0] ?? parsePlanDoc("plan.md", "")));
   return out;
 }
 
