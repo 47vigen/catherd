@@ -28,7 +28,18 @@ describe("parseLaneHeader", () => {
       difficulty: "build",
       after: [],
       allow: [],
+      tasks: [],
     });
+  });
+
+  it("reads a Tasks: line, and refuses a ref that is not a task number", () => {
+    const head = LANE.replace("\n\n", "\nTasks: 3, `plan.md#4a`\n\n");
+    expect(parseLaneHeader(head).tasks).toEqual(["3", "plan.md#4a"]);
+    expect(() => assertLaneValues("# x\nTasks: three\n", "lanes/x.md")).toThrow(
+      /E_LANE_INVALID|Tasks "three"/,
+    );
+    expect(() => assertLaneValues("# x\nTasks: three\n", "lanes/x.md")).toThrow('Tasks "three"');
+    expect(() => assertLaneValues(head, "lanes/x.md")).not.toThrow();
   });
 
   it("reads After: lanes and the Allow: exceptions under the check", () => {

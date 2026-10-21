@@ -52,6 +52,8 @@ export function briefFor(
         : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
     scratch: grantsScratch(backend, o.isolated ?? false) ? realpathSync(scratchDir(run, name)) : null,
     roleServer: ROLE_SERVER_BACKENDS.includes(backend),
+    version: "0.0.0-test",
+    context: null,
   });
 }
 
@@ -404,3 +406,24 @@ export async function passGate(
   );
   await passVerifier(run, m, at, head);
 }
+
+/** A reviewed plan file: three tasks, each with a signature or a test. */
+export const PLAN_TEXT = [
+  "# Plan P",
+  "Goal: a wallet.",
+  "",
+  "## M1 — core",
+  "",
+  "### Task 1: add the store",
+  "**Interfaces:** `save(u: User): void`",
+  "",
+  "### Task 2: add the test",
+  'Test: `src/a.test.ts` — "saves"',
+  "",
+  "## M2 — docs",
+  "",
+  "### Task 3: docs",
+  "Write the docs.",
+  "Test: `docs.test.ts` — links",
+  "",
+].join("\n");

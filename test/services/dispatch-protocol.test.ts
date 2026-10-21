@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BLOCKED_LINE } from "../../src/domain/blocked.ts";
-import { replyContract, withReplyContract } from "../../src/domain/role-prompts.ts";
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
@@ -48,18 +48,13 @@ describe("the reply contract (spec 1.1 §6)", () => {
     expect(worker).toStartWith("Before you reply, leave nothing running");
     expect(worker).toContain("Do not commit. Acceptance items that build from HEAD");
     expect(worker).toContain("add a line ENV: <what>");
+    expect(worker).toContain("EXTRA: <path> — <why>");
     expect(worker).toContain(
       "The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — ",
     );
     expect(replyContract("verifier")).toStartWith(
       "The first line of your reply is VERDICT: PASS or VERDICT: FAIL, or VERDICT: BLOCKED: environment",
     );
-  });
-
-  it("appends it once, as the brief's last paragraph", () => {
-    const once = withReplyContract("reviewer", "Review M1.\n\n");
-    expect(once).toBe(`Review M1.\n\n${replyContract("reviewer")}\n`);
-    expect(withReplyContract("reviewer", once)).toBe(once);
   });
 
   it("dispatch writes it into the brief the role reads", async () => {

@@ -1,4 +1,4 @@
-import { replyContract } from "./role-prompts.ts";
+import { replyContract, roleSections } from "./role-prompts.ts";
 import { ROLE_MCP_SERVER, roleMcpTools } from "./role-tools.ts";
 import type { Role } from "./roles.ts";
 
@@ -13,6 +13,10 @@ export interface BriefContext {
   scratch: string | null;
   /** whether the role's harness lists the catherd_role tools */
   roleServer: boolean;
+  /** the catherd version whose `lock` a worker's text names */
+  version: string;
+  /** the plan's preamble, which applies to every task (plan 32); null when the run has none for this role */
+  context: string | null;
 }
 
 /** The CLI form of each role server tool, which any role can run from its shell. */
@@ -68,14 +72,21 @@ export function roleNotes(c: BriefContext): string {
   return lines.join("\n");
 }
 
+const TASK_OPEN = "<task>\n";
+const TASK_CLOSE = "\n</task>";
+
 /**
- * The brief admission writes: the orchestrator's text, the lane file, the role's notes, then its reply contract,
- * each once. A failover stand-in that reruns an earlier brief gets the lane file as it stands now and its own notes,
- * never two copies.
+ * The brief admission writes: the role's sections around its task (the daemon's text, the lane file and the
+ * role's notes), each once. A failover stand-in that reruns an earlier brief gets the lane file as it stands now and
+ * its own notes, never two copies.
  */
 export function composeBrief(brief: string, c: BriefContext): string {
   const contract = replyContract(c.role);
   let body = brief.trimEnd();
+  const open = body.indexOf(TASK_OPEN);
+  const close = body.lastIndexOf(TASK_CLOSE);
+  if (open >= 0 && close > open) body = body.slice(open + TASK_OPEN.length, close).trim();
+  // a 1.5-era brief rerun ends with its contract
   if (body.endsWith(contract)) body = body.slice(0, -contract.length).trimEnd();
   if (c.lane) {
     const open = LANE_OPEN(c.lane.id);
@@ -88,6 +99,8 @@ export function composeBrief(brief: string, c: BriefContext): string {
   }
   const notesStart = body.lastIndexOf("\n\ncatherd: you are ");
   if (notesStart >= 0) body = body.slice(0, notesStart).trimEnd();
-  const parts = [body, ...(c.lane ? [laneBlock(c.lane.id, c.lane.text)] : []), roleNotes(c), contract];
-  return `${parts.filter(Boolean).join("\n\n")}\n`;
+  const task = [body, ...(c.lane ? [laneBlock(c.lane.id, c.lane.text)] : []), roleNotes(c)]
+    .filter(Boolean)
+    .join("\n\n");
+  return `${roleSections(c.role, c.version, { context: c.context, task })}\n`;
 }

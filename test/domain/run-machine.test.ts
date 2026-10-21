@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { BlockedReason } from "../../src/domain/blocked.ts";
 import { type JudgeDecision } from "../../src/domain/judge.ts";
+import { approvalQuestion, reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import {
   type Action,
   actionKey,
@@ -113,6 +114,7 @@ describe("the machine: planning", () => {
     endDispatch(log, a, { name: "architect", unit: "run" });
     expect(last(log).map((x) => x.type)).toEqual(["readPlan"]);
     log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
     expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
   });
 
@@ -156,6 +158,7 @@ describe("the machine: a milestone's lanes", () => {
     const log = makeLog();
     log.add("run.started", startedFields);
     log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
     log.add("lanes.routed", { milestone: "M1", lanes: [{ lane: "M1.L1", rung: "r", ladder: ["r"] }] });
     log.add("preflight.done", {
       milestone: "M1",
@@ -171,6 +174,7 @@ describe("the machine: a milestone's lanes", () => {
     const c = makeLog();
     c.add("run.started", startedFields);
     c.add("plan.ready", { milestones: PLAN });
+    c.add("plan.approved", { by: "owner" });
     c.add("lanes.routed", { milestone: "M1", lanes: [] });
     c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"] });
     expect(of(last(c), "park")).toMatchObject([{ unit: "M1", reason: "confirm" }]);
@@ -454,7 +458,43 @@ describe("the machine: review rounds", () => {
     endDispatch(log, a, { name: "architect-M1-1", unit: "M1" });
     expect(last(log)).toEqual([{ type: "readPlan" }]);
     log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
     expect(log.state().milestones[0]?.delta).toEqual([]);
+  });
+
+  it("tells a running milestone's architect what the plan check refused, not the old notes again", () => {
+    const log = runningLog(plan(2));
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [bug("BUG README.md — three", "README.md")]);
+    const id = of(last(log), "judge")[0]!.input.id;
+    const j = startDispatch(log, {
+      name: `judge-${id}`,
+      role: "judge",
+      unit: "M1",
+      lane: null,
+      judgeKind: "triage",
+    });
+    log.add("judge.decided", {
+      id,
+      unit: "M1",
+      kind: "triage",
+      decision: { verb: "route", routes: [{ finding: 1, to: "architect", why: "the plan misses docs" }] },
+      dispatchId: j,
+    });
+    endDispatch(log, j, { name: `judge-${id}`, unit: "M1" });
+    const a = startDispatch(log, { name: "architect-M1-1", role: "architect", unit: "M1", lane: null });
+    endDispatch(log, a, { name: "architect-M1-1", unit: "M1" });
+    log.add("effect.failed", {
+      action: "readPlan",
+      unit: "run",
+      message: "the plan needs: M1.L3 has no Tasks:",
+    });
+    expect(of(last(log), "dispatch").find((d) => d.role === "architect")).toMatchObject({
+      name: "architect-M1-1",
+      notes: ["BUG README.md — three", "the plan needs: M1.L3 has no Tasks:"],
+    });
   });
 
   it("keeps fixing while findings shrink and lands the rest as known issues when they stop", () => {
@@ -527,6 +567,7 @@ describe("the machine: review rounds", () => {
     const p = structuredClone(plan(1));
     p[1]!.after = [];
     log.add("plan.ready", { milestones: p });
+    log.add("plan.approved", { by: "owner" });
     expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
   });
 
@@ -1117,5 +1158,156 @@ describe("the machine: action keys", () => {
     expect(judgeInputFor(log.state(), out.input.id, "question", "M1.L1")).toEqual(out.input);
     expect(newId()).toMatch(/^D\d+$/);
     routeMilestone(makeLog(), PLAN[0] as MilestonePlan);
+  });
+});
+
+describe("the machine: the owner's approval of the architect's plan", () => {
+  /** a run with no plan whose architect (thread t-arch) wrote one that was read */
+  function planned(): Log {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const d = startDispatch(log, { name: "researcher-dossier", role: "researcher", unit: "run", lane: null });
+    endDispatch(log, d, { name: "researcher-dossier", unit: "run" });
+    const a = startDispatch(log, {
+      name: "architect",
+      role: "architect",
+      unit: "run",
+      lane: null,
+      thread: "t-arch",
+    });
+    endDispatch(log, a, { name: "architect", unit: "run", thread: "t-arch" });
+    log.add("plan.ready", { milestones: PLAN });
+    return log;
+  }
+  const ask = (log: Log) =>
+    log.add("question.parked", { unit: "run", question: approvalQuestion("r1"), reason: "approval" });
+  const noWork = (as: Action[]) =>
+    expect(as.filter((a) => ["route", "dispatch", "fastCheck", "commit", "land"].includes(a.type))).toEqual(
+      [],
+    );
+
+  it("waits in approval for the owner, revises on a change request and routes only after the approval", () => {
+    const log = planned();
+    expect(log.state().phase).toBe("approval");
+    expect(last(log)).toEqual([
+      { type: "park", unit: "run", question: approvalQuestion("r1"), reason: "approval" },
+    ]);
+    ask(log);
+    expect(last(log).map((a) => a.type)).toEqual(["report", "notify"]);
+    log.add("question.answered", { unit: "run", answer: "rename Ledger to Book", by: "owner" });
+    log.add("report.posted", { kind: "parked", unit: "run", text: "posted" });
+    expect(last(log).map((a) => a.type)).toEqual(["dispatch"]);
+    expect(of(last(log), "dispatch")).toEqual([
+      expect.objectContaining({
+        type: "dispatch",
+        name: "architect",
+        brief: "architect",
+        thread: "t-arch",
+        notes: ["The owner asked for these changes to plan.md: rename Ledger to Book"],
+      }),
+    ]);
+    const a = startDispatch(log, {
+      name: "architect",
+      role: "architect",
+      unit: "run",
+      lane: null,
+      thread: "t-arch",
+    });
+    expect(last(log)).toEqual([]);
+    endDispatch(log, a, { name: "architect", unit: "run", thread: "t-arch" });
+    expect(last(log).map((x) => x.type)).toEqual(["readPlan"]);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("approval");
+    expect(last(log).map((x) => x.type)).toEqual(["park"]);
+    ask(log);
+    log.add("plan.approved", { by: "owner" });
+    expect(log.state().phase).toBe("running");
+    expect(log.state().questions.run).toBeUndefined();
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
+  });
+
+  it("runs a plan given as input with no approval stop", () => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, plan: ["/p.md"] });
+    log.add("plan.approved", { by: "input" });
+    expect(names(last(log))).toEqual(["architect"]);
+    const a = startDispatch(log, { name: "architect", role: "architect", unit: "run", lane: null });
+    endDispatch(log, a, { name: "architect", unit: "run" });
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("running");
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
+  });
+
+  it("sends a plan the readPlan check refused back to the architect twice, then parks the run", () => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, plan: ["/p.md"] });
+    log.add("plan.approved", { by: "input" });
+    const a = startDispatch(log, {
+      name: "architect",
+      role: "architect",
+      unit: "run",
+      lane: null,
+      thread: "t-arch",
+    });
+    endDispatch(log, a, { name: "architect", unit: "run", thread: "t-arch" });
+    for (const n of [1, 2]) {
+      log.add("effect.failed", { action: "readPlan", unit: "run", message: `the plan needs: gap ${n}` });
+      expect(last(log)).toEqual([
+        expect.objectContaining({
+          type: "dispatch",
+          name: "architect",
+          thread: "t-arch",
+          notes: [`the plan needs: gap ${n}`],
+        }),
+      ]);
+      const b = startDispatch(log, {
+        name: "architect",
+        role: "architect",
+        unit: "run",
+        lane: null,
+        thread: "t-arch",
+      });
+      endDispatch(log, b, { name: "architect", unit: "run", thread: "t-arch" });
+    }
+    log.add("effect.failed", { action: "readPlan", unit: "run", message: "the plan needs: gap 3" });
+    expect(names(last(log))).toEqual([]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "run", reason: "effect" }]);
+  });
+
+  it("dispatches no lane and no route while the plan waits for approval, over every event", () => {
+    const log = planned();
+    noWork(last(log));
+    ask(log);
+    noWork(last(log));
+    log.add("tick", {});
+    noWork(last(log));
+    log.add("daemon.started", { pid: 1, version: "x" });
+    noWork(last(log));
+  });
+
+  it("stops new lanes on a re-approval park until the owner approves again", () => {
+    const log = runningLog();
+    expect(log.state().phase).toBe("running");
+    log.add("question.parked", {
+      unit: "run",
+      question: reapprovalQuestion("r1", ["D2"]),
+      reason: "approval",
+    });
+    expect(log.state().phase).toBe("approval");
+    noWork(last(log));
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("approval");
+    expect(last(log).map((a) => a.type)).not.toContain("park");
+    noWork(last(log));
+    log.add("plan.approved", { by: "owner" });
+    expect(log.state().phase).toBe("running");
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+  });
+
+  it("keeps a mid-run architect change that edits no decision running, with no approval stop", () => {
+    const log = runningLog();
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("running");
+    expect(of(last(log), "park")).toEqual([]);
   });
 });

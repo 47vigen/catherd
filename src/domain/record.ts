@@ -75,6 +75,12 @@ export const RunRecordSchema = z.looseObject({
     .string()
     .regex(/^[0-9a-f]{7,64}$/)
     .optional(),
+  /** a worker's `EXTRA: <path> — <why>` lines: files outside its lane it had to change */
+  extras: z.array(z.object({ path: z.string(), why: z.string() })).optional(),
+  /** a fix-round worker's `REJECTED: <finding> — <why>` lines */
+  rejected: z.array(z.object({ finding: z.string(), why: z.string() })).optional(),
+  /** a worker's `DESIGN:` lines: where its plan task conflicts with the code */
+  design: z.array(z.string()).optional(),
   threadHeavy: z.boolean(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
@@ -119,4 +125,30 @@ export function parseReplyHead(reply: string): string | null {
     }
   }
   return head;
+}
+
+/** `<LABEL>: <a> — <b>` lines (optional bullet; the separator is `—`, `–` or `-` with whitespace around it). */
+function labelled(reply: string, label: string): [string, string][] {
+  const re = new RegExp(
+    `^[ \\t]*(?:[-*][ \\t]*)?${label}:[ \\t]*(\\S.*?)(?:[ \\t]+(?:—|–|-)[ \\t]+(.*?))?[ \\t]*$`,
+    "gm",
+  );
+  return [...reply.matchAll(re)].map((m) => [m[1] as string, m[2] ?? ""]);
+}
+
+/** Every `EXTRA: <path> — <why>` line: a file outside the lane the worker had to change. */
+export function parseReplyExtras(reply: string): { path: string; why: string }[] {
+  return labelled(reply, "EXTRA").map(([path, why]) => ({ path: path.replace(/`/g, ""), why }));
+}
+
+/** Every `REJECTED: <finding> — <why>` line of a fix round. */
+export function parseReplyRejections(reply: string): { finding: string; why: string }[] {
+  return labelled(reply, "REJECTED").map(([finding, why]) => ({ finding, why }));
+}
+
+/** The trimmed value of every `DESIGN:` line: a conflict between a plan task and the code. */
+export function parseReplyDesign(reply: string): string[] {
+  return [...reply.matchAll(/^[ \t]*(?:[-*][ \t]*)?DESIGN:[ \t]*(\S.*?)[ \t]*$/gm)].map(
+    (m) => m[1] as string,
+  );
 }

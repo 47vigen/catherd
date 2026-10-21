@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { replyContract } from "../../src/domain/role-prompts.ts";
 import {
+  parseReplyDesign,
   parseReplyEnvironment,
+  parseReplyExtras,
   parseReplyHead,
+  parseReplyRejections,
   parseReplyStatus,
   type RunRecord,
   RunRecordSchema,
@@ -97,4 +100,31 @@ describe("parseReplyHead", () => {
   });
   it("asks every verifier for the HEAD it checked", () =>
     expect(replyContract("verifier")).toContain("HEAD: <the full sha"));
+});
+
+describe("parseReplyExtras, parseReplyRejections and parseReplyDesign", () => {
+  it("reads EXTRA:, REJECTED: and DESIGN: lines as loosely as STATUS", () => {
+    const reply = [
+      "did it",
+      "EXTRA: src/a-b.ts — the type moved there",
+      "- EXTRA: `go.sum` - a new module",
+      "EXTRA: lone.ts",
+      "EXTRA:   ",
+      "REJECTED: BUG src/a.ts:3 — the caller never passes an empty list – see src/b.ts:9",
+      "DESIGN: Task 3 — Post(ctx, s, e) clashes with ledger.Post(ctx, e) — take the store first",
+      "STATUS: blocked — needs_user: Task 3's signature clashes",
+    ].join("\n");
+    expect(parseReplyExtras(reply)).toEqual([
+      { path: "src/a-b.ts", why: "the type moved there" },
+      { path: "go.sum", why: "a new module" },
+      { path: "lone.ts", why: "" },
+    ]);
+    expect(parseReplyRejections(reply)).toEqual([
+      { finding: "BUG src/a.ts:3", why: "the caller never passes an empty list – see src/b.ts:9" },
+    ]);
+    expect(parseReplyDesign(reply)).toEqual([
+      "Task 3 — Post(ctx, s, e) clashes with ledger.Post(ctx, e) — take the store first",
+    ]);
+    expect(parseReplyExtras("none\nSTATUS: complete — x")).toEqual([]);
+  });
 });

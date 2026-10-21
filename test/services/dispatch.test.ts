@@ -145,6 +145,23 @@ describe("dispatch", () => {
     expect(hints).toEqual(["environment: vpn"]);
   });
 
+  it("records a reply's EXTRA:, REJECTED: and DESIGN: lines", async () => {
+    const { run, deps } = setup({
+      reply: [
+        "EXTRA: src/other.ts — needed",
+        "REJECTED: BUG a — stale diff",
+        "DESIGN: Task 2 — x — y",
+        "STATUS: blocked — needs_user: Task 2 conflicts",
+      ].join("\n"),
+    });
+    const { record } = await runRole(deps, input(run.id));
+    expect(record).toMatchObject({
+      extras: [{ path: "src/other.ts", why: "needed" }],
+      rejected: [{ finding: "BUG a", why: "stale diff" }],
+      design: ["Task 2 — x — y"],
+    });
+  });
+
   it("flags an ok run that left its owned files alone, and a write outside the lane", async () => {
     const { run, deps } = setup({
       reply: "x\nSTATUS: complete — ok",
@@ -153,6 +170,7 @@ describe("dispatch", () => {
     const { record, hints } = await runRole(deps, input(run.id));
     expect(record.changedOwned).toEqual([]);
     expect(record.violations).toEqual(["src/other.ts"]);
+    expect("extras" in record).toBe(false);
     expect(hints).toEqual(["climb: unchanged", "violation: src/other.ts"]);
   });
 

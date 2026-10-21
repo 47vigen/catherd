@@ -104,6 +104,21 @@ describe("route and climb", () => {
     expect(readRoleRoutes(run)).toMatchObject([{ lane: null, role: "architect", source: "route" }]);
   });
 
+  it("refuses a role's write under plan-input/ and to plan-approved.md", () => {
+    const { run } = freshRun();
+    for (const path of ["plan-input/p.md", "plan-approved.md"])
+      expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow(
+        `${path} holds the owner's approved plan; roles never write it`,
+      );
+    expect(writeRunFile({ run: run.id, path: "plan.md", content: "x" }).bytes).toBe(1);
+  });
+
+  it("refuses those writes under another letter case, as a case-insensitive disk would take them", () => {
+    const { run } = freshRun();
+    for (const path of ["Plan-Input/p.md", "PLAN-APPROVED.md"])
+      expect(() => writeRunFile({ run: run.id, path, content: "x" })).toThrow("roles never write it");
+  });
+
   it("refuses a lane file outside lanes/ or missing", async () => {
     const { run } = freshRun();
     writeRunFile({ run: run.id, path: "plan.md", content: "x" });

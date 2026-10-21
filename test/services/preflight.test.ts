@@ -12,9 +12,12 @@ import {
   preflightUser,
   runCheck,
 } from "../../src/services/preflight.ts";
+import { copyPlanInputs } from "../../src/services/plan-input.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
 import { runPaths } from "../../src/services/run-store.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
-import { fakeDeps, freshRun, testView, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, PLAN_TEXT, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // every other test runs its checks as a normal user, whoever runs the suite
@@ -285,5 +288,57 @@ describe("preflight", () => {
     expect(r.warnings).toEqual([
       "M1.L1: its fast check runs no linter, and the repo has one (golangci-lint): add the linter of every package the lane touches to its Fast check: line",
     ]);
+  });
+});
+
+describe("preflight of a daemon run (plan 32)", () => {
+  const BAD_PLAN = `${PLAN_TEXT}\n### Task 4: prose\nJust do it.\n`;
+  async function daemon(planText = BAD_PLAN) {
+    const { repo, run } = freshRun();
+    const file = join(repo, "p.md");
+    writeFileSync(file, planText);
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [file] });
+    copyPlanInputs(run, [file]);
+    return { repo, run };
+  }
+  const withTasks = (tasks: string) => `Kind: repo_code\nDifficulty: build\nTasks: ${tasks}\n`;
+
+  it("refuses a lane with no task and a task with neither a signature nor a test, naming each", async () => {
+    const { repo, run } = await daemon();
+    const marker = join(repo, "ran");
+    writeLane(run, "M1.L1", ["src/a.ts"], `touch ${marker}`);
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", withTasks("4"));
+    const r = await preflight(fakeDeps(), { run: run.id, milestone: "M1" });
+    expect(r).toMatchObject({ needsConfirmation: false, blocked: true });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.results.map((x) => x.note)).toEqual([
+      "lanes/M1.L1.md has no Tasks: line: name the plan tasks it implements",
+      "p.md Task 4 has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line",
+    ]);
+    expect(r.results.every((x) => x.outcome === "cannot-start")).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("refuses before the confirm list, and passes once the plan backs every lane", async () => {
+    const { repo, run } = await daemon(PLAN_TEXT);
+    const deps = fakeDeps({ view: testView({ preflight: { confirm: true } }) });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    const refused = await preflight(deps, { run: run.id, milestone: "M1" });
+    expect(refused.needsConfirmation).toBe(false);
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", withTasks("1, 2"));
+    const listed = await preflight(deps, { run: run.id, milestone: "M1" });
+    expect(listed.needsConfirmation).toBe(true);
+    const ok = await preflight(deps, { run: run.id, milestone: "M1", confirmed: true });
+    if (ok.needsConfirmation) throw new Error("unexpected");
+    expect(ok).toMatchObject({ blocked: false });
+    expect(outcomes(ok)).toEqual([["M1.L1", "pass"]]);
+    expect(existsSync(repo)).toBe(true);
+  });
+
+  it("leaves a run that is not a daemon run as 1.5 preflight", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    expect(outcomes(r)).toEqual([["M1.L1", "pass"]]);
   });
 });

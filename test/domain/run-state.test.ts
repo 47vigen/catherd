@@ -40,6 +40,7 @@ describe("run state", () => {
     const log = makeLog();
     log.add("run.started", startedFields);
     log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
     const s = log.state();
     expect(s.phase).toBe("running");
     expect(s.milestones.map((m) => [m.id, m.status])).toEqual([
@@ -55,12 +56,54 @@ describe("run state", () => {
     expect(Object.keys(s.lanes)).toEqual(["M1.L1", "M1.L2", "M2.L1"]);
   });
 
+  it("holds a plan the owner did not give in approval until it is approved", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("approval");
+    log.add("question.parked", { unit: "run", question: "approve?", reason: "approval" });
+    expect(log.state().questions.run).toMatchObject({ reason: "approval" });
+    log.add("plan.approved", { by: "owner" });
+    expect(log.state()).toMatchObject({ phase: "running", questions: {} });
+  });
+
+  it("runs a plan the owner gave, or named in a plan: A-line, without the stop", () => {
+    for (const started of [
+      { ...startedFields, plan: ["/p.md"] },
+      { ...startedFields, aLines: ["plan: p.md"] },
+    ]) {
+      const log = makeLog();
+      log.add("run.started", started);
+      log.add("plan.ready", { milestones: PLAN });
+      expect(log.state().phase).toBe("running");
+    }
+  });
+
+  it("stops for approval when a plan: A-line names no file", () => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, aLines: ["plan:"] });
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().phase).toBe("approval");
+  });
+
+  it("asks again when an approval is parked mid-run, and keeps what the owner asked for as the architect's notes", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "run", question: "again?", reason: "approval" });
+    expect(log.state().phase).toBe("approval");
+    log.add("question.answered", { unit: "run", answer: "keep D2", by: "owner" });
+    expect(log.state().revise).toEqual(["The owner asked for these changes to plan.md: keep D2"]);
+    expect(log.state().notes).toEqual([]);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().revise).toEqual([]);
+  });
+
   it("keeps a landed lane and adds a new lane as pending when the plan is read again", () => {
     const log = runningLog();
     finishLane(log, "M1.L1");
     const again = structuredClone(PLAN);
     again[0]?.lanes.push({ id: "M1.L3", role: "worker", kind: "repo_code", after: [], owns: ["src/c/"] });
     log.add("plan.ready", { milestones: again });
+    log.add("plan.approved", { by: "owner" });
     const s = log.state();
     expect(s.lanes["M1.L1"]?.status).toBe("done");
     expect(s.lanes["M1.L3"]?.status).toBe("pending");

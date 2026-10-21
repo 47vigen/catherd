@@ -83,6 +83,6 @@ describe("the verifier's brief (plan 23)", () => {
     });
     const text = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(text).toContain(GATE_NOTES_HEADING);
-    expect(text).toEndWith(`\n\n${replyContract("verifier")}\n`);
+    expect(text).toEndWith(`\n\n<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
   });
 });

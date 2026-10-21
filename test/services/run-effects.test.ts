@@ -12,6 +12,7 @@ import { liveDispatches } from "../../src/services/dispatches.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
+import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run } from "../../src/services/run-store.ts";
@@ -58,6 +59,27 @@ async function seed(run: Run, ...more: RunEventInput[]): Promise<void> {
   await appendEvent(run, { type: "run.started", ...startedFields });
   await appendEvent(run, { type: "plan.ready", milestones: PLAN });
   for (const e of more) await appendEvent(run, e);
+}
+
+const DEEP = [
+  "# P",
+  "## What already exists",
+  "- `src/a.ts` — `a(): void` — the thing",
+  "## Contracts",
+  "`b(x: number): string`",
+  "## Decisions",
+  "D1 — use a map — rejected: an array — slower",
+  "D2 — keep it flat — rejected: nesting — simpler",
+  "## M1 — core",
+  "### Task 1: do it",
+  "Test: `test/a.test.ts` — asserts a",
+  "",
+].join("\n");
+
+/** lanes that name a task of a plan.md deep enough to back them (preflight refuses any other) */
+const WITH_TASK = "Kind: repo_code\nDifficulty: build\nTasks: 1\n";
+function backed(run: Run): void {
+  writeFileSync(join(run.dir, "plan.md"), DEEP);
 }
 
 const dispatchAction = (over: Partial<Extract<Action, { type: "dispatch" }>> = {}): Action => ({
@@ -548,10 +570,53 @@ describe("planning", () => {
 
   it("reads the plan into plan.ready", async () => {
     const { run, fx } = setup();
-    writeLane(run, "M1.L1", ["src/a/"]);
+    writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    writeFileSync(join(run.dir, "plan.md"), DEEP);
     await appendEvent(run, { type: "run.started", ...startedFields });
     await fx.run({ type: "readPlan" }, replayRun(run));
     expect(lastOf(run, "plan.ready")?.milestones).toMatchObject([{ id: "M1", lanes: [{ id: "M1.L1" }] }]);
+  });
+
+  it("fails readPlan with the plan's problems, and reads it once it is deep enough", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core\n");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    const failed = lastOf(run, "effect.failed");
+    expect(failed).toMatchObject({ action: "readPlan", unit: "run" });
+    expect(failed?.message).toStartWith("the plan needs: lanes/M1.L1.md has no Tasks: line");
+    expect(failed?.message).toContain('plan.md has no "## Contracts" section');
+    expect(lastOf(run, "plan.ready")).toBeUndefined();
+    writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    writeFileSync(join(run.dir, "plan.md"), DEEP);
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "plan.ready")).toBeDefined();
+  });
+
+  it("parks again for approval when an architect change edits a decision, and not otherwise", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    writeFileSync(join(run.dir, "plan.md"), DEEP);
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    // no plan-approved.md: nothing to compare with
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(types(run).filter((t) => t === "question.parked")).toEqual([]);
+    writeFileSync(join(run.dir, "plan-approved.md"), DEEP);
+    // a task text edit: no stop
+    writeFileSync(join(run.dir, "plan.md"), DEEP.replace("asserts a", "asserts a, b"));
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(types(run).filter((t) => t === "question.parked")).toEqual([]);
+    // a decision edit: parks first, then plan.ready
+    writeFileSync(join(run.dir, "plan.md"), DEEP.replace("D2 — keep it flat", "D2 — nest it"));
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    const tail = readEvents(run).slice(-2);
+    expect(tail.map((e) => e.type)).toEqual(["question.parked", "plan.ready"]);
+    expect(tail[0]).toMatchObject({
+      unit: "run",
+      reason: "approval",
+      question: reapprovalQuestion(run.id, ["D2"]),
+    });
   });
 
   it("names a file's owning lane by its longest Owns: entry", () => {
@@ -570,8 +635,9 @@ describe("planning", () => {
 describe("routing, checking, committing, landing", () => {
   it("routes and preflights one milestone's lanes", async () => {
     const { run, fx } = setup();
-    writeLane(run, "M1.L1", ["src/a/"]);
-    writeLane(run, "M1.L2", ["src/b/"]);
+    writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
+    writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
+    backed(run);
     await seed(run);
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "lanes.routed")).toMatchObject({
@@ -583,8 +649,9 @@ describe("routing, checking, committing, landing", () => {
 
   it("asks for confirmation when the profile wants the commands confirmed first", async () => {
     const { run, fx } = setup({ reply: "x" }, testView({ preflight: { confirm: true } }));
-    writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
-    writeLane(run, "M1.L2", ["src/b/"]);
+    writeLane(run, "M1.L1", ["src/a/"], "bun test src/a", WITH_TASK);
+    writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
+    backed(run);
     await seed(run);
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "preflight.done")?.confirm).toEqual(["M1.L1: bun test src/a", "M1.L2: true"]);
@@ -592,8 +659,9 @@ describe("routing, checking, committing, landing", () => {
 
   it("names a lane whose check cannot start as blocking", async () => {
     const { run, fx } = setup();
-    writeLane(run, "M1.L1", ["src/a/"], "no-such-command-anywhere");
-    writeLane(run, "M1.L2", ["src/b/"]);
+    writeLane(run, "M1.L1", ["src/a/"], "no-such-command-anywhere", WITH_TASK);
+    writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
+    backed(run);
     await seed(run);
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "preflight.done")?.blocking).toMatchObject([{ lane: "M1.L1" }]);

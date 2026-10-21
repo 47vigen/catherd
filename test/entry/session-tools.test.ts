@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
@@ -7,7 +8,7 @@ import { findRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
-import { fakeDeps, freshRun, waitFor } from "../services/helpers.ts";
+import { fakeDeps, freshRun, PLAN_TEXT, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -34,6 +35,20 @@ describe("the session tools", () => {
       "status",
     ]));
 
+  it("passes run_start's plan to the client", async () => {
+    withHome();
+    const repo = tempRepo();
+    writeFileSync(join(repo, "p.md"), PLAN_TEXT);
+    const c = await mcpClient(fakeDeps());
+    const started = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], plan: ["p.md"] });
+    expect(started.isError).toBe(false);
+    expect(started.data.plan).toEqual([join(repo, "p.md")]);
+    expect(readEvents(findRun(started.data.run)).map((e) => e.type)).toEqual([
+      "run.started",
+      "plan.approved",
+    ]);
+  });
+
   it("starts, shows, answers, cancels and reads a run through the client", async () => {
     withHome();
     const repo = tempRepo();
@@ -45,6 +60,7 @@ describe("the session tools", () => {
     expect(started.data).toMatchObject({ daemon: "revived", notifyUrl: "https://ntfy.sh/catherd-test" });
     // the daemon is the fake: the test plays its part, parking a lane
     await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    await appendEvent(run, { type: "plan.approved", by: "owner" });
     await appendEvent(run, {
       type: "question.parked",
       unit: "M1.L2",

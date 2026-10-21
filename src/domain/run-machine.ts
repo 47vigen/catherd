@@ -1,5 +1,6 @@
 import { type JudgeInput, type JudgeKind, judgeName } from "./judge.ts";
 import { overlaps } from "./lane.ts";
+import { approvalQuestion } from "./plan-doc.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
 import type { NotifyMoment } from "./profile.ts";
@@ -16,6 +17,7 @@ import {
   liveDispatches,
   MAX_TRIES,
   MERGE_CHECK_MS,
+  hasPlanInput,
   type MilestoneState,
   type RunState,
 } from "./run-state.ts";
@@ -435,20 +437,45 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
   }
 }
 
+/** The architect of the run's plan, again: on the thread of its last dispatch when there is something to change. */
+function architectAgain(s: RunState): Action[] {
+  const thread = Object.values(s.dispatches)
+    .filter((d) => d.name === "architect")
+    .at(-1)?.thread;
+  return roleDispatch(s, {
+    unit: RUN_UNIT,
+    name: "architect",
+    role: "architect",
+    brief: "architect",
+    notes: s.revise,
+    thread: s.revise.length > 0 ? (thread ?? null) : null,
+  });
+}
+
 function planningActions(s: RunState): Action[] {
   if (s.planDirty) return [{ type: "readPlan" }];
-  const planned = s.plan.length > 0 || s.aLines.some((l) => /^\s*plan:/i.test(l));
+  const planned = hasPlanInput(s);
   const dossierOk = Object.values(s.dispatches).some(
     (d) => d.name === "researcher-dossier" && d.ended?.status === "ok" && d.ended.replyStatus !== "blocked",
   );
-  if (planned || dossierOk)
-    return roleDispatch(s, { unit: RUN_UNIT, name: "architect", role: "architect", brief: "architect" });
+  if (planned || dossierOk) return architectAgain(s);
   return roleDispatch(s, {
     unit: RUN_UNIT,
     name: "researcher-dossier",
     role: "researcher",
     brief: "dossier",
   });
+}
+
+/**
+ * The owner has not approved the plan yet: read what the architect wrote, let it revise on a change request, and
+ * otherwise ask. No lane and no route runs meanwhile.
+ */
+function approvalActions(s: RunState): Action[] {
+  if (s.planDirty) return [{ type: "readPlan" }];
+  if (hasLive(s, "architect")) return [];
+  if (s.revise.length > 0) return architectAgain(s);
+  return [{ type: "park", unit: RUN_UNIT, question: approvalQuestion(s.run), reason: "approval" }];
 }
 
 /** A landed milestone of a base run is the owner's to push and merge: catherd never pushes (spec 2.0, decision 21). */
@@ -473,7 +500,7 @@ function advance(s: RunState): Action[] {
         parks.push({ type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" });
   if (s.stuck[RUN_UNIT] || s.questions[RUN_UNIT]) return parks;
   if (s.phase === "planning") return [...parks, ...planningActions(s)];
-  if (s.phase === "approval") return parks;
+  if (s.phase === "approval") return [...parks, ...approvalActions(s)];
   if (s.planDirty) return [...parks, { type: "readPlan" }];
   if (s.milestones.length > 0 && s.milestones.every((m) => isFinished(s, m)))
     return [...parks, { type: "finish", outcome: "done" }];

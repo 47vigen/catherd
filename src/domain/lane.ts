@@ -1,4 +1,5 @@
 import { CatherdError } from "./errors.ts";
+import { TASK_REF } from "./plan-doc.ts";
 
 export const KINDS = ["repo_code", "terminal", "ui", "prose", "research"] as const;
 export type Kind = (typeof KINDS)[number];
@@ -15,6 +16,8 @@ export interface LaneHeader {
   after: string[];
   /** `Allow: path[:line], …` under the check: hits of the lane's absence check that are allowed exceptions */
   allow: string[];
+  /** `Tasks: 3, plan.md#4`: the plan tasks the lane implements (catherd inlines them into its worker's brief) */
+  tasks: string[];
 }
 
 /** A lane id in an After: line: Mx.Ly, the shape lanes/<id>.md takes. */
@@ -89,6 +92,7 @@ export function parseLaneHeader(text: string): LaneHeader {
     difficulty: oneOf(field(text, "difficulty"), DIFFICULTIES),
     after: list("after"),
     allow: list("allow"),
+    tasks: list("tasks"),
   };
 }
 
@@ -96,6 +100,8 @@ export function parseLaneHeader(text: string): LaneHeader {
 function orderProblems(h: LaneHeader): string[] {
   const out: string[] = [];
   for (const a of h.after) if (!LANE_ID.test(a)) out.push(`After "${a}" is not a lane id like M1.L1`);
+  for (const t of h.tasks)
+    if (!TASK_REF.test(t)) out.push(`Tasks "${t}" is not a task number like 3 or plan.md#3`);
   for (const a of h.allow) {
     const m = ALLOW_ENTRY.exec(a);
     try {

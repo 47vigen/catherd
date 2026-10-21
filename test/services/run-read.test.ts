@@ -37,6 +37,7 @@ const deps = () => fakeDeps({ now: () => NOW });
 async function seed(run: Run, ...more: RunEventInput[]): Promise<void> {
   await appendEvent(run, { type: "run.started", ...startedFields }, new Date(NOW - 60_000));
   await appendEvent(run, { type: "plan.ready", milestones: PLAN }, new Date(NOW - 50_000));
+  await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW - 50_000));
   for (const e of more) await appendEvent(run, e, new Date(NOW - 10_000));
 }
 
@@ -158,12 +159,13 @@ describe("the read api", () => {
     expect(all.map((e) => [e.seq, e.type])).toEqual([
       [1, "run.started"],
       [2, "plan.ready"],
-      [3, "report.posted"],
+      [3, "plan.approved"],
+      [4, "report.posted"],
     ]);
     expect(all.every((e) => TimelineEntrySchema.safeParse(e).success)).toBe(true);
     expect(all[1]?.text).toBe("plan ready: M1, M2");
-    expect(all[2]?.text).toBe("report (started) on run");
-    expect(runTimeline(run.id, 3).map((e) => e.seq)).toEqual([3]);
+    expect(all[3]?.text).toBe("report (started) on run");
+    expect(runTimeline(run.id, 4).map((e) => e.seq)).toEqual([4]);
     expect(runTimeline(run.id, 1, 2)).toHaveLength(2);
   });
 
