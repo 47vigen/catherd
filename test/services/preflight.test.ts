@@ -307,6 +307,7 @@ describe("preflight of a daemon run (plan 32)", () => {
     const { repo, run } = await daemon();
     const marker = join(repo, "ran");
     writeLane(run, "M1.L1", ["src/a.ts"], `touch ${marker}`);
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", withTasks("4"));
     const r = await preflight(fakeDeps(), { run: run.id, milestone: "M1" });
     expect(r).toMatchObject({ needsConfirmation: false, blocked: true });
     if (r.needsConfirmation) throw new Error("unexpected");

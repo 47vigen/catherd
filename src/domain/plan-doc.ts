@@ -82,6 +82,7 @@ export function coverageProblems(
   lanes: { id: string; tasks: string[] }[],
 ): { lane: string; note: string }[] {
   const out: { lane: string; note: string }[] = [];
+  const named = new Set<PlanTask>();
   for (const l of lanes) {
     if (l.tasks.length === 0) {
       out.push({
@@ -93,15 +94,16 @@ export function coverageProblems(
     for (const ref of l.tasks) {
       const r = resolveTask(docs, ref);
       if (typeof r === "string") out.push({ lane: l.id, note: `lanes/${l.id}.md: Tasks: ${ref} — ${r}` });
+      else named.add(r);
     }
   }
-  for (const d of docs)
-    for (const t of d.tasks)
-      if (!t.signature && !t.test)
-        out.push({
-          lane: "",
-          note: `${d.name} Task ${t.id} has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line`,
-        });
+  // only a task a lane builds needs something to build or test: the rest of the plan is the owner's
+  for (const t of named)
+    if (!t.signature && !t.test)
+      out.push({
+        lane: "",
+        note: `${t.doc} Task ${t.id} has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line`,
+      });
   return out;
 }
 

@@ -71,6 +71,17 @@ describe("resolveTask and coverageProblems", () => {
       },
     ]);
   });
+
+  it("checks signature-or-test only on the tasks the lanes name", () => {
+    const d = [parsePlanDoc("p.md", "### Task 1: a\nTest: a.test.ts\n\n### Task 2: publish\nprose only\n")];
+    expect(coverageProblems(d, [{ id: "M1.L1", tasks: ["1"] }])).toEqual([]);
+    expect(coverageProblems(d, [{ id: "M1.L1", tasks: ["1", "2"] }])).toEqual([
+      {
+        lane: "",
+        note: "p.md Task 2 has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line",
+      },
+    ]);
+  });
 });
 
 const FULL = [
