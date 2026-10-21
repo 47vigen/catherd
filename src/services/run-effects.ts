@@ -219,7 +219,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         why: rung
           ? `failed over from ${from} to ${rung}`
           : `no stand-in for ${from}: every candidate is held or below it`,
-        held: Object.keys(s.holds).sort(),
+        held: heldQuotas(s).sort(),
       });
     } catch (e) {
       log("warn", "routes", { failover: errorMessage(e) });

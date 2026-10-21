@@ -251,6 +251,22 @@ describe("dispatching", () => {
       }
     });
 
+    it("lists only the live holds on a failover row, not an expired one", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(null);
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ failoverFrom: "codex:gpt-6-sol#medium" }),
+          stateWithHolds(run, { codex: until(), cursor: new Date(Date.now() - 600_000).toISOString() }),
+        );
+        expect(failoverRows(run)).toEqual([expect.objectContaining({ held: ["codex"] })]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("writes no failover row for a dispatch that is not a failover", async () => {
       const { run, fx } = setup();
       writeLane(run, "M1.L1", ["src/a/"]);
