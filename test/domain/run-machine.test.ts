@@ -1123,6 +1123,40 @@ describe("the machine: the run", () => {
     expect(log.state().rulesReview).toEqual({ changes: [], failed: true });
   });
 
+  /** the review is advisory: whatever goes wrong with its judge, the run finishes with the review marked failed */
+  const finishesFailed = (log: Log) => {
+    const out = last(log);
+    expect(log.state().stuck.run).toBeUndefined();
+    expect(of(out, "park")).toEqual([]);
+    expect(of(out, "judge")).toEqual([]);
+    expect(of(out, "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    expect(log.state().rulesReview).toEqual({ changes: [], failed: true });
+  };
+  const refuse = (log: Log, code: string) =>
+    log.add("dispatch.refused", { name: "judge-rules", unit: "run", code, message: "no" });
+
+  it.each(["E_RUN_BUDGET", "E_ADMIT_RUNG", "E_ADMIT_PAUSED", "E_ALL_HELD", "E_SOMETHING_ELSE"])(
+    "finishes with the review failed when the rules judge is refused with %s (plan 34)",
+    (code) => {
+      const log = landedAll();
+      refuse(log, code);
+      finishesFailed(log);
+    },
+  );
+
+  it("finishes with the review failed when the judge effect fails twice (plan 34)", () => {
+    const log = landedAll();
+    for (let i = 0; i < 2; i++) log.add("effect.failed", { action: "judge", unit: "run", message: "boom" });
+    finishesFailed(log);
+  });
+
+  it("finishes with the review failed when the rules judge hits a usage limit (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    endDispatch(log, j, { name: "judge-rules", unit: "run", status: "limit" });
+    finishesFailed(log);
+  });
+
   it("a cancelled run gets no rules review (plan 34)", () => {
     const log = runningLog(plan(1));
     log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });

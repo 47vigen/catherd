@@ -31,6 +31,15 @@ describe("the rules review's reply (plan 34)", () => {
     expect(parseJudgeReply("DECISION: rules\nADD x — y", "triage")).toBeNull();
   });
 
+  it("reads only the contract's upper-case ADD and REMOVE, not prose that starts with the word", () => {
+    expect(
+      parseJudgeReply(
+        "DECISION: rules\nAdd a note to the report about this.\nRemove the stale lines if you agree.\nADD x — y\nSTATUS: complete — ok",
+        "rules",
+      ),
+    ).toEqual({ verb: "rules", changes: [{ op: "add", text: "x", why: "y" }] });
+  });
+
   it("lists the rules verb in the contract", () => {
     expect(JUDGE_CONTRACT).toContain("- rules: up to five lines, ADD <a one-line rule");
   });

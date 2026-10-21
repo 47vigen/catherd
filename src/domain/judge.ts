@@ -60,7 +60,7 @@ export const JUDGE_VERBS: Record<JudgeKind, readonly JudgeDecision["verb"][]> = 
 /** A line without the emphasis a model puts around it (`**DECISION: retry**`, backticks). */
 const plain = (l: string): string => l.trim().replace(/^[*_`\s]+|[*_`\s]+$/g, "");
 const STATUS = /^STATUS:\s*(complete|partial|blocked|refused|flaky)\b/i;
-const RULE_LINE = /^\s*(?:[-*]|\d+[.)])?\s*\**(ADD|REMOVE)\**:?\s+(.+)$/i;
+const RULE_LINE = /^\s*(?:[-*]|\d+[.)])?\s*\**(ADD|REMOVE)\**:?\s+(.+)$/;
 const ROUTE = /^[-*\s]*ROUTE\s+(\d+)\s*(?:->|→)\s*(\S+)\s*(?:—|–|-|:)?\s*(.*)$/;
 
 /** The text after `label:` on its line and the lines under it, up to the STATUS line. */

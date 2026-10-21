@@ -1,7 +1,7 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
-import type { JudgeKind, RuleChange } from "./judge.ts";
+import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
@@ -629,6 +629,12 @@ function mergedIn(m: MilestoneState, commit: string): void {
   m.status = "verifying";
 }
 
+/** The rules review is advisory: whatever stops its judge, the run ends without one and is never parked or held. */
+function failRulesReview(s: RunState): void {
+  delete s.judges.rules;
+  s.rulesReview = { changes: [], failed: true };
+}
+
 function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
   const dv = s.dispatches[e.dispatchId];
   if (!dv) return;
@@ -641,7 +647,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     else if (e.status === "ok" && e.replyStatus === "complete") delete s.holds[quota];
   }
   recomputeWake(s);
-  if (dv.role === "judge") return;
+  if (dv.role === "judge") {
+    if (e.status === "limit" && dv.name === judgeName("rules")) failRulesReview(s);
+    return;
+  }
   const lane = dv.lane ? s.lanes[dv.lane] : undefined;
   if (lane) {
     const x: LaneEnd = {
@@ -967,6 +976,7 @@ function apply(s: RunState, e: RunEvent): void {
         recomputeWake(s);
       };
       if (e.code === "E_RUN_CANCELLED") return;
+      if (e.name === judgeName("rules") && e.unit === RUN_UNIT) return failRulesReview(s);
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
@@ -1151,6 +1161,16 @@ function apply(s: RunState, e: RunEvent): void {
       }
       const key = `${e.action}@${e.unit}`;
       s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+      // only the rules review's judge acts on the run itself, once every milestone is finished
+      if (
+        e.action === "judge" &&
+        e.unit === RUN_UNIT &&
+        s.milestones.length > 0 &&
+        s.milestones.every((m) => isFinished(s, m))
+      ) {
+        if ((s.failedEffects[key] as number) >= MAX_TRIES) failRulesReview(s);
+        return;
+      }
       // a plan the check refused: its architect fixes it, PLAN_REVISIONS times, before the run parks
       const planning = e.action === "readPlan" && (s.phase === "planning" || s.phase === "approval");
       if (planning) s.revise = [e.message];
