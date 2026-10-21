@@ -116,6 +116,15 @@ export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boo
         `${tree} has ${have ?? "no branch"} checked out, not ${branch}`,
         "move the folder away, then answer",
       );
+    // a `git worktree add` cut off mid-checkout leaves the right HEAD and a part of the files: not complete
+    if (!existsSync(readyFile(run, m))) {
+      const r = await gitRun(tree, ["reset", "--hard", "-q", "HEAD"]);
+      if (r.code !== 0)
+        throw tree_(
+          `git reset of ${tree} failed: ${tail(`${r.out}${r.err}`)}`,
+          "fix the folder, then answer",
+        );
+    }
   } else {
     ensurePrivateDir(join(run.dir, "trees"));
     const exists = await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);

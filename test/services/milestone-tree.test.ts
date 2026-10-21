@@ -127,6 +127,19 @@ describe("claimTree", () => {
     expect(sh(repo, "branch", "--list", "t-m1*").split("\n")).toHaveLength(1);
   });
 
+  it("restores a reused tree's tracked files when its checkout was cut off (no .ready)", async () => {
+    const { origin, run } = branchRun();
+    commitInClone(origin, "f", { path: "tracked.txt", text: "t" });
+    const a = await claimTree(deps, run, "M1", { known: false });
+    rmSync(join(run.dir, "trees", "M1.ready"));
+    const tracked = "tracked.txt";
+    rmSync(join(a.tree, tracked));
+    writeFileSync(join(a.tree, "mine.txt"), "untracked");
+    await claimTree(deps, run, "M1", { known: true });
+    expect(existsSync(join(a.tree, tracked))).toBe(true);
+    expect(existsSync(join(a.tree, "mine.txt"))).toBe(true); // no git clean
+  });
+
   it("takes Setup: from the run's plan input copies when plan.md has none", async () => {
     const { run } = branchRun();
     const file = join(tempDir("tree-plan-"), "p.md");
