@@ -396,3 +396,40 @@ describe("a milestone's NITs (plan 34)", () => {
     expect(issueLine({ label: "NIT", text: "a.ts — x", file: "a.ts" })).toBe("NIT a.ts — x");
   });
 });
+
+describe("the rules review (plan 34)", () => {
+  it("keeps what the rules judge proposed, and that it failed after two tries", () => {
+    const log = runningLog();
+    expect(log.state().rulesReview).toBeNull();
+    const changes = [{ op: "add" as const, text: "[worker] x", why: "y" }];
+    const j = startDispatch(log, {
+      name: "judge-rules",
+      role: "judge",
+      unit: "run",
+      lane: null,
+      judgeKind: "rules",
+    });
+    log.add("judge.decided", {
+      id: "rules",
+      unit: "run",
+      kind: "rules",
+      decision: { verb: "rules", changes },
+      dispatchId: j,
+    });
+    expect(log.state().rulesReview).toEqual({ changes, failed: false });
+
+    const failed = runningLog();
+    for (let k = 0; k < 2; k++) {
+      startDispatch(failed, {
+        name: "judge-rules",
+        role: "judge",
+        unit: "run",
+        lane: null,
+        judgeKind: "rules",
+      });
+      failed.add("judge.failed", { id: "rules", unit: "run", why: "unreadable" });
+    }
+    expect(failed.state().rulesReview).toEqual({ changes: [], failed: true });
+    expect(failed.state().stuck.run).toBeUndefined();
+  });
+});

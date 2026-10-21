@@ -127,6 +127,18 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
         ];
       case "report":
         return [{ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }];
+      case "judge":
+        // plan 34: the finished run's rules review proposes no change
+        return [
+          {
+            type: "judge.decided",
+            id: a.input.id,
+            unit: a.input.unit,
+            kind: a.input.kind,
+            decision: { verb: "rules", changes: [] },
+            dispatchId: newId(),
+          },
+        ];
       case "finish":
         return [{ type: "run.ended", outcome: a.outcome, reportPath: null }];
       default:

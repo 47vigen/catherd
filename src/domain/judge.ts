@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BLOCKED_LINE } from "./blocked.ts";
 
-export const JUDGE_KINDS = ["triage", "question", "unexpected"] as const;
+export const JUDGE_KINDS = ["triage", "question", "unexpected", "rules"] as const;
 export type JudgeKind = (typeof JUDGE_KINDS)[number];
 
 /** What a judge call is given: its kind, the unit it is about, a context text and the numbered findings. */
@@ -15,6 +15,12 @@ export interface JudgeInput {
 }
 
 const why = z.string();
+
+/** A finished run's rules review proposes at most this many changes to the standing rules (plan 34). */
+export const MAX_RULE_CHANGES = 5;
+export const RuleChangeSchema = z.object({ op: z.enum(["add", "remove"]), text: z.string().min(1), why });
+export type RuleChange = z.infer<typeof RuleChangeSchema>;
+
 export const JudgeDecisionSchema = z.discriminatedUnion("verb", [
   z.object({
     verb: z.literal("route"),
@@ -26,6 +32,7 @@ export const JudgeDecisionSchema = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("retry"), why }),
   z.object({ verb: z.literal("climb"), why }),
   z.object({ verb: z.literal("skip"), why }),
+  z.object({ verb: z.literal("rules"), changes: z.array(RuleChangeSchema) }),
 ]);
 export type JudgeDecision = z.infer<typeof JudgeDecisionSchema>;
 
@@ -38,6 +45,7 @@ export const JUDGE_CONTRACT = [
   "- answer: ANSWER: <the answer the worker needs, from the plan and the code>",
   "- ask_owner or park: QUESTION: <one question only the owner can answer>",
   "- retry, climb or skip: WHY: <one line>",
+  "- rules: up to five lines, ADD <a one-line rule, with a [role, …] tag when it is not for every role> — <the event it comes from>, or REMOVE <the text of one line of knowledge.md> — <why>; no line when nothing should change",
   `Decide only from what the brief and the run's files show. The last line of your reply is: STATUS: complete — <one line why>. ${BLOCKED_LINE}`,
 ].join("\n");
 
@@ -46,11 +54,13 @@ export const JUDGE_VERBS: Record<JudgeKind, readonly JudgeDecision["verb"][]> = 
   triage: ["route"],
   question: ["answer", "ask_owner"],
   unexpected: ["retry", "climb", "skip", "park"],
+  rules: ["rules"],
 };
 
 /** A line without the emphasis a model puts around it (`**DECISION: retry**`, backticks). */
 const plain = (l: string): string => l.trim().replace(/^[*_`\s]+|[*_`\s]+$/g, "");
 const STATUS = /^STATUS:\s*(complete|partial|blocked|refused|flaky)\b/i;
+const RULE_LINE = /^\s*(?:[-*]|\d+[.)])?\s*\**(ADD|REMOVE)\**:?\s+(.+)$/i;
 const ROUTE = /^[-*\s]*ROUTE\s+(\d+)\s*(?:->|→)\s*(\S+)\s*(?:—|–|-|:)?\s*(.*)$/;
 
 /** The text after `label:` on its line and the lines under it, up to the STATUS line. */
@@ -88,6 +98,22 @@ export function parseJudgeReply(reply: string, kind: JudgeKind): JudgeDecision |
       case "park": {
         const question = section(lines, "QUESTION");
         return question ? { verb, question } : null;
+      }
+      case "rules": {
+        const changes = lines.flatMap((l) => {
+          const m = RULE_LINE.exec(l);
+          if (!m) return [];
+          const rest = (m[2] as string).trim();
+          const at = rest.lastIndexOf(" — ");
+          return [
+            {
+              op: (m[1] as string).toLowerCase(),
+              text: (at < 0 ? rest : rest.slice(0, at)).trim(),
+              why: at < 0 ? "" : rest.slice(at + 3).trim(),
+            },
+          ];
+        });
+        return { verb, changes: changes.slice(0, MAX_RULE_CHANGES) };
       }
       default:
         return { verb, why: section(lines, "WHY") ?? "" };

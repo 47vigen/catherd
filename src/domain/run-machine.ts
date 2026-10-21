@@ -1,4 +1,4 @@
-import { type JudgeInput, type JudgeKind, judgeName } from "./judge.ts";
+import { type JudgeInput, type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import { overlaps } from "./lane.ts";
 import { approvalQuestion } from "./plan-doc.ts";
 import { quotaOf } from "./failover.ts";
@@ -52,7 +52,7 @@ export type Action =
   | { type: "cancel"; dispatchIds: string[] }
   | { type: "report"; kind: ReportKind; unit: string; text: string }
   | { type: "notify"; unit: string; moment: NotifyMoment }
-  | { type: "finish"; outcome: "done" | "cancelled" | "failed" };
+  | { type: "finish"; outcome: "done" | "cancelled" | "failed"; proposals?: RuleChange[] };
 
 // every action type is one `effect.failed` can name, and the other way round
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -152,7 +152,7 @@ export function confirms(e: RunEvent): string[] {
       return [`climb:${e.lane}`];
     case "judge.decided":
     case "judge.failed":
-      return (["triage", "question", "unexpected"] as const).map((k) => `judge:${e.unit}:${k}`);
+      return (["triage", "question", "unexpected", "rules"] as const).map((k) => `judge:${e.unit}:${k}`);
     case "question.parked":
       return [`park:${e.unit}`];
     case "milestone.landed":
@@ -212,6 +212,20 @@ const laneName = (l: LaneState): string => `${l.role}-${l.id}`;
 
 /** The input of one judge call, rebuilt from the state: the daemon asks the same question again from it. */
 export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: string): JudgeInput {
+  if (kind === "rules")
+    return {
+      id,
+      kind,
+      unit,
+      context: s.milestones
+        .map(
+          (m) =>
+            `${m.id} ${m.title}: ${m.counts.length} review round(s), ${m.knownIssues.length} known issue(s)`,
+        )
+        .join("\n"),
+      findings: [],
+      lanes: [],
+    };
   const lane = s.lanes[unit];
   const m = lane
     ? s.milestones.find((x) => x.id === lane.milestone)
@@ -484,6 +498,18 @@ function pushQuestion(s: RunState, m: MilestoneState): string {
   return `${m.id} landed on ${m.branch ?? "the run's branch"} at ${(m.commit ?? "").slice(0, 12)}: push it and open and merge its MR (precheck: git fetch -q origin ${base} && git merge-base --is-ancestor origin/${base} HEAD); answer once it is merged`;
 }
 
+/**
+ * Plan 34: a run whose milestones all finished asks a judge to review the repo's standing rules, then finishes with
+ * its proposals. The run never waits on the owner for it, and a judge that cannot answer ends the run without one.
+ */
+function rulesReviewActions(s: RunState): Action[] {
+  const review = s.rulesReview;
+  if (review)
+    return [{ type: "finish", outcome: "done", ...(review.failed ? {} : { proposals: review.changes }) }];
+  if (Object.values(s.dispatches).some((d) => d.name === judgeName("rules"))) return judgeRetries(s);
+  return [{ type: "judge", input: judgeInputFor(s, "rules", "rules", RUN_UNIT) }];
+}
+
 function advance(s: RunState): Action[] {
   if (s.phase === "ended") return [];
   const live = liveDispatches(s);
@@ -503,7 +529,7 @@ function advance(s: RunState): Action[] {
   if (s.phase === "approval") return [...parks, ...approvalActions(s)];
   if (s.planDirty) return [...parks, { type: "readPlan" }];
   if (s.milestones.length > 0 && s.milestones.every((m) => isFinished(s, m)))
-    return [...parks, { type: "finish", outcome: "done" }];
+    return [...parks, ...rulesReviewActions(s)];
   return [...parks, ...judgeRetries(s), ...activeMilestones(s).flatMap((m) => milestoneActions(s, m))];
 }
 

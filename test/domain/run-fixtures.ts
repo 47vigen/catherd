@@ -1,4 +1,5 @@
 import type { BlockedReason } from "../../src/domain/blocked.ts";
+import type { JudgeKind } from "../../src/domain/judge.ts";
 import type { RunEvent, RunEventType, MilestonePlan } from "../../src/domain/run-events.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
@@ -70,7 +71,7 @@ export function startDispatch(
     lane?: string | null;
     rung?: string;
     thread?: string | null;
-    judgeKind?: "triage" | "question" | "unexpected";
+    judgeKind?: JudgeKind;
   },
 ): string {
   const dispatchId = newId();

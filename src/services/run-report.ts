@@ -25,6 +25,8 @@ function said(d: JudgeDecision): string {
     case "ask_owner":
     case "park":
       return d.question;
+    case "rules":
+      return `${d.changes.length} change(s) proposed`;
     default:
       return d.why;
   }

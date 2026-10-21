@@ -1,7 +1,7 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
-import type { JudgeKind } from "./judge.ts";
+import type { JudgeKind, RuleChange } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
@@ -205,6 +205,8 @@ export interface RunState {
   /** quota → until */
   holds: Record<string, string>;
   judges: Record<string, { unit: string; kind: JudgeKind; tries: number }>;
+  /** plan 34: the finished run's rules review: what the judge proposed, or that it gave no readable answer */
+  rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
   wakeAt: string | null;
@@ -240,6 +242,7 @@ export function emptyState(run: string): RunState {
     questions: {},
     holds: {},
     judges: {},
+    rulesReview: null,
     failedEffects: {},
     cancelling: false,
     wakeAt: null,
@@ -821,6 +824,9 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
         lm?.knownIssues.push(`${lane.id} skipped: ${d.why}`);
         laneDone(s, lane);
       }
+      return;
+    case "rules":
+      s.rulesReview = { changes: d.changes, failed: false };
   }
 }
 
@@ -1044,7 +1050,10 @@ function apply(s: RunState, e: RunEvent): void {
       j.tries += 1;
       if (j.tries >= MAX_TRIES) {
         delete s.judges[e.id];
-        s.stuck[e.unit] = { reason: "judge", question: `The judge could not decide ${e.unit}: ${e.why}` };
+        // the rules review is advisory: a judge that cannot answer ends the run without one, never parks it
+        if (j.kind === "rules") s.rulesReview = { changes: [], failed: true };
+        else
+          s.stuck[e.unit] = { reason: "judge", question: `The judge could not decide ${e.unit}: ${e.why}` };
       }
       return;
     }
