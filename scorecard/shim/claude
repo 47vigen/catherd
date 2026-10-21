@@ -1,0 +1,25 @@
+#!/bin/sh
+# catherd scorecard: while $CATHERD_SCORECARD_LIMITS holds a token, one headless `claude -p` ends in a usage limit
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+headless=
+for a in "$@"; do
+  case $a in -p | --print) headless=1 ;; esac
+done
+if [ -n "$headless" ] && [ -n "$CATHERD_SCORECARD_LIMITS" ]; then
+  for t in "$CATHERD_SCORECARD_LIMITS"/tokens/*; do
+    [ -e "$t" ] || break
+    if mv "$t" "$CATHERD_SCORECARD_LIMITS/taken/" 2>/dev/null; then
+      cat "$here/../../test/fixtures/adapters/claude-code/limit.jsonl"
+      exit 1
+    fi
+  done
+fi
+real=
+set -f; IFS=:
+for d in $PATH; do
+  [ "$d/claude" -ef "$0" ] && continue
+  if [ -x "$d/claude" ]; then real=$d/claude; break; fi
+done
+unset IFS; set +f
+[ -n "$real" ] || { echo "claude: not found on PATH" >&2; exit 127; }
+exec "$real" "$@"

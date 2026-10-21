@@ -4,7 +4,8 @@ import { inspectionHost, inspectDeliveries, type DeliveryInspection } from "./ru
 import { resolve } from "node:path";
 import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
 import { isCatherdError } from "../domain/errors.ts";
-import type { Tokens } from "../domain/record.ts";
+import type { RunRecord, Tokens } from "../domain/record.ts";
+import type { QuotaRow } from "../domain/scorecard.ts";
 import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
@@ -248,6 +249,21 @@ function harnessCosts(runs: Run[]): HarnessCost[] {
       extraPerRun: enough && extra > 0 ? extra : null,
     };
   });
+}
+
+/** Plan 28: tokens and usage limits per backend over `records`, sorted by backend. */
+export function quotaByBackend(records: RunRecord[]): QuotaRow[] {
+  const by = new Map<string, QuotaRow>();
+  for (const r of records) {
+    const q = by.get(r.backend) ?? { backend: r.backend, runs: 0, input: 0, cached: 0, output: 0, limits: 0 };
+    q.runs++;
+    q.input += r.tokens.input;
+    q.cached += r.tokens.cached;
+    q.output += r.tokens.output;
+    if (r.status === "limit") q.limits++;
+    by.set(r.backend, q);
+  }
+  return [...by.values()].sort((a, b) => a.backend.localeCompare(b.backend));
 }
 
 /** Per role and rung over past runs: runs, ok, refusals, climbs from it, seconds and tokens. Reads only. */

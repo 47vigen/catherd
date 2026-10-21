@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "catherd-findings",
+  "title": "catherd: two review-gate misreads",
+  "goal": "a reviewer's `BLOCKER: none` is no finding, and a `./path` hit matches its `Allow:` entry",
+  "source": "https://github.com/47vigen/catherd.git",
+  "commit": "2061e6e61c7252738869590cca37d78239dabd60",
+  "plan": {
+    "file": "plan.md"
+  },
+  "setup": [
+    "bun install --frozen-lockfile"
+  ],
+  "acceptance": "bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun test",
+  "acceptanceTimeoutMin": 30,
+  "acceptFiles": [
+    {
+      "from": "accept/findings.accept.ts",
+      "to": "test/scorecard-accept.test.ts"
+    }
+  ],
+  "prompt": "Use catherd to implement the plan at {plan} in this repository, unattended: ask me only what nobody else can answer. The gate is: {acceptance}. Do not push or open a merge request."
+}

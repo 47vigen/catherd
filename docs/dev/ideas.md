@@ -14,6 +14,14 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 2.0 follow-ups (plan reviews, 2026-10-21)
+
+- **An unfinished baseline row makes the wall-clock bar lenient** (`passBar`): a task the operator gave up on at the
+  4-hour cap still counts in the baseline's sum. Say so in the verdict.
+- **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.
+- **`saveTaskScore` writes the results file without a lock**: two concurrent `record` runs would lose a row. The
+  protocol runs one task at a time.
+
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
 Plan 21 (roles and ownership) review:
@@ -243,5 +251,7 @@ Owner rule: review Minors and non-correctness bot P2s land here, not in code. Fr
 
 An opencode lane, quota failover and a budget stop have run only in tests, never in a real orchestrated run; the
 live kit now scripts them, with parallel lanes and a forced climb (`live-verification.md` §6), and they leave this
-list once a release run records them. A climb and a multi-milestone, multi-MR build are covered live (the auth
-build, 8 climbs, 16 MRs).
+list once a release run records them. Quota failover runs live in the scorecard's `injected-lao` task
+(`docs/dev/scorecard.md`) from the 1.5.0 baseline on; it leaves this list once a recorded scorecard shows the
+stand-in ending ok. A climb and a multi-milestone, multi-MR build are covered live (the auth build, 8 climbs, 16
+MRs).

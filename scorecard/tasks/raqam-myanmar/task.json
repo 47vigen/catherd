@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "raqam-myanmar",
+  "title": "raqam: a Myanmar locale plugin",
+  "goal": "`import \"raqam/locales/my\"` makes every field read Myanmar digits",
+  "source": "https://github.com/47vigen/raqam.git",
+  "commit": "67951678b7cdb115b9f00eb63b3ea7f91a1c464d",
+  "plan": {
+    "file": "plan.md"
+  },
+  "setup": [
+    "pnpm install --frozen-lockfile"
+  ],
+  "acceptance": "pnpm typecheck && pnpm test && pnpm lint && pnpm build && test -f dist/locales/my.js",
+  "acceptanceTimeoutMin": 20,
+  "acceptFiles": [
+    {
+      "from": "accept/my.accept.ts",
+      "to": "src/locales/my.accept.test.ts"
+    }
+  ],
+  "prompt": "Use catherd to implement the plan at {plan} in this repository, unattended: ask me only what nobody else can answer. The gate is: {acceptance}. Do not push or open a merge request."
+}

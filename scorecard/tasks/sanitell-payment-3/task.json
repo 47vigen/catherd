@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "sanitell-payment-3",
+  "title": "Sanitell: payment plan 3, kit/auth apps (replayed)",
+  "goal": "a customer is signed in, never a person; an sso_session belongs to one app; the listener mounts a customer app beside the panel",
+  "source": null,
+  "commit": "0296d87585d6288998f7b845a501ebdf2a5c1cad",
+  "plan": {
+    "repoPath": "docs/plans/2026-09-28-payment-3-kit-auth-apps.md"
+  },
+  "setup": [
+    "pnpm install --frozen-lockfile"
+  ],
+  "acceptance": "export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}') TURBO_TELEMETRY_DISABLED=1 && (cd packages/kit && task check) && (cd services/auth && task check) && (cd services/notification && task check) && (cd services/verification && task check) && node tooling/dupes/dupes.mjs && node tooling/links/links.mjs && for m in packages/kit/store/migrations services/auth/internal/store/migrations services/notification/internal/store/migrations services/verification/internal/store/migrations; do test -z \"$(ls $m | sed 's/_.*//' | sort | uniq -d)\" || exit 1; done",
+  "acceptanceTimeoutMin": 90,
+  "prompt": "Use catherd to implement Tasks 1–5 of {plan} in this repository, unattended. A1 The plan is final; do not redesign: every decision in it is confirmed (contracts §12 D1–D21, §14 binding, §14.6 codes, spec decisions 25–29). A2 docs/plans/2026-09-28-payment-0-contracts.md is the source of truth for names; a plan-versus-contracts conflict is a design finding, never a worker's call. A3 Every task is implemented with its tests; skip the plan's git commit steps, the run commits. A4 The gate is: {acceptance}. A5 Heavy commands run behind catherd lock --, one at a time; no Vite dev server. A6 English in code; no secrets, no .env files. Do not push or open a merge request."
+}

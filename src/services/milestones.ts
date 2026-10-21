@@ -97,6 +97,10 @@ export function partialReviewer(
   return last ? { name: last.name, at: last.at, record: last.record } : null;
 }
 
+/** Plan 28: the milestone's full reviewer passes since its lanes started (a partial pass is not a round). */
+export const reviewRounds = (run: Run, m: string): number =>
+  reviewerAttempts(run, m, milestoneStart(run, m)).filter((a) => !a.partial).length;
+
 export const FINDING = /^\s*(?:[-*]\s*)?(BLOCKER|BUG|NIT)\b/;
 
 /** A reviewer reply's findings by severity; null when there is no reply to read. */
