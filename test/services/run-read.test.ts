@@ -55,7 +55,7 @@ describe("the read api", () => {
           { lane: "M1.L2", rung: "codex:gpt-6-sol#medium", ladder: [] },
         ],
       },
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null },
+      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       {
         type: "dispatch.started",
         dispatchId: id,

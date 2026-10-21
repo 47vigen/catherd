@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { coverageProblems } from "../domain/plan-doc.ts";
+import { lintLanes } from "../domain/plan-lint.ts";
 import { checkEnv } from "../infra/env.ts";
 import { heavySlots, withHeavySlotWithin } from "../infra/heavy-lock.ts";
 import { loginEnv } from "../infra/login-env.ts";
@@ -28,7 +29,12 @@ interface PreflightResult {
 }
 
 export type PreflightReport =
-  | { needsConfirmation: true; commands: { lane: string; check: string | null }[] }
+  | {
+      needsConfirmation: true;
+      commands: { lane: string; check: string | null }[];
+      /** plan 34: the plan lint's warnings */
+      lint: string[];
+    }
   | {
       needsConfirmation: false;
       commands: { lane: string; check: string | null }[];
@@ -36,6 +42,8 @@ export type PreflightReport =
       blocked: boolean;
       /** plan 23: lanes whose fast check runs no linter while the repo has one */
       warnings: string[];
+      /** plan 34: the plan lint's warnings */
+      lint: string[];
     };
 
 const CHECK_TIMEOUT_MS = 120_000;
@@ -62,6 +70,8 @@ interface LaneCheck {
   invalid: string | null;
   /** plan 32: the plan tasks it names on its `Tasks:` line */
   tasks: string[];
+  /** plan 34: the lane file's text; null when it cannot be read */
+  text: string | null;
 }
 
 function laneChecks(run: Run): LaneCheck[] {
@@ -89,9 +99,19 @@ function laneChecks(run: Run): LaneCheck[] {
           problem: h.fastCheck ? null : `lanes/${f} has no Fast check: line`,
           invalid,
           tasks: h.tasks,
+          text,
         };
       } catch (e) {
-        return { lane, check: null, owns: [], allow: [], problem: (e as Error).message, invalid, tasks: [] };
+        return {
+          lane,
+          check: null,
+          owns: [],
+          allow: [],
+          problem: (e as Error).message,
+          invalid,
+          tasks: [],
+          text: null,
+        };
       }
     });
 }
@@ -286,6 +306,10 @@ export async function preflight(
   const invalid = lanes.flatMap((l) => (l.invalid ? [l.invalid] : []));
   if (invalid.length) throw new CatherdError("E_LANE_INVALID", invalid.join("; "), { fix: LANE_HEADER_FIX });
   const commands = lanes.map((l) => ({ lane: l.lane, check: l.check }));
+  const { warnings: lint, stuck } = lintLanes(
+    lanes.flatMap((l) => (l.text === null ? [] : [{ id: l.lane, text: l.text }])),
+    laneChecks(run).map((l) => l.lane),
+  );
   // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
   if (isDaemonRun(run)) {
     const problems = coverageProblems(
@@ -306,9 +330,10 @@ export async function preflight(
         })),
         blocked: true,
         warnings: [],
+        lint,
       };
   }
-  if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands };
+  if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands, lint };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;
   const results: PreflightResult[] = [];
   // the login env is captured once per server; the gate env is read once per preflight
@@ -367,6 +392,16 @@ export async function preflight(
       note: allowed ? `every hit is an Allow: exception (${r.lines.length})` : noteOf(r, outcome, timeoutMs),
     });
   }
+  // plan 34: an After: that can never finish stops the milestone, so the daemon parks it instead of waiting forever
+  for (const s of stuck)
+    results.push({
+      lane: s.lane,
+      check: null,
+      outcome: "cannot-start",
+      exitCode: null,
+      tail: [],
+      note: s.note,
+    });
   // plan 23: lint reaches the worker only through its fast check
   const linter = repoLinter(run.meta.repo);
   const warnings = linter
@@ -383,5 +418,6 @@ export async function preflight(
     results,
     blocked: results.some((r) => r.outcome === "cannot-start"),
     warnings,
+    lint,
   };
 }

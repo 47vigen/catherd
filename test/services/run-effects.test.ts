@@ -759,6 +759,19 @@ describe("routing, checking, committing, landing", () => {
     expect(lastOf(run, "preflight.done")).toMatchObject({ milestone: "M1", blocking: [], confirm: null });
   });
 
+  it("copies preflight's lint onto preflight.done (plan 34)", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
+    writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
+    backed(run);
+    await seed(run);
+    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
+    expect(lastOf(run, "preflight.done")?.lint).toEqual([
+      "M1.L1: Owns names whole folders (src/a/): name the files, unless the lane creates the folder",
+      "M1.L2: Owns names whole folders (src/b/): name the files, unless the lane creates the folder",
+    ]);
+  });
+
   it("asks for confirmation when the profile wants the commands confirmed first", async () => {
     const { run, fx } = setup({ reply: "x" }, testView({ preflight: { confirm: true } }));
     writeLane(run, "M1.L1", ["src/a/"], "bun test src/a", WITH_TASK);

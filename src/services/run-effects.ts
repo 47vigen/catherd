@@ -443,6 +443,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
             milestone: a.milestone,
             blocking: [],
             confirm: rep.commands.map((c) => `${c.lane}: ${c.check ?? "(no fast check)"}`),
+            lint: rep.lint,
           }
         : {
             type: "preflight.done",
@@ -454,6 +455,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
                 note: r.note ?? (tailOf(r.tail.join("\n"), 3) || "cannot start"),
               })),
             confirm: null,
+            lint: rep.lint,
           },
     );
   }

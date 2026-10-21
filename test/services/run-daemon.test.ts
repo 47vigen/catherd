@@ -108,7 +108,7 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
               ladder: ["codex:gpt-6-sol#medium"],
             })),
           },
-          { type: "preflight.done", milestone: a.milestone, blocking: [], confirm: null },
+          { type: "preflight.done", milestone: a.milestone, blocking: [], confirm: null, lint: [] },
         ];
       }
       case "fastCheck":
@@ -187,7 +187,7 @@ describe("the daemon loop", () => {
     );
     await appendEvent(
       run,
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null },
+      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       new Date(T0),
     );
     await appendEvent(
@@ -238,7 +238,7 @@ describe("the daemon loop", () => {
     );
     await appendEvent(
       run,
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null },
+      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       new Date(T0),
     );
     const fx = scripted(run, clock, happy());

@@ -164,6 +164,7 @@ describe("the machine: a milestone's lanes", () => {
       milestone: "M1",
       blocking: [{ lane: "M1.L1", note: "no docker" }],
       confirm: null,
+      lint: [],
     });
     expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "preflight" }]);
     expect(of(last(log), "park")[0]?.question).toContain("no docker");
@@ -176,7 +177,7 @@ describe("the machine: a milestone's lanes", () => {
     c.add("plan.ready", { milestones: PLAN });
     c.add("plan.approved", { by: "owner" });
     c.add("lanes.routed", { milestone: "M1", lanes: [] });
-    c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"] });
+    c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"], lint: [] });
     expect(of(last(c), "park")).toMatchObject([{ unit: "M1", reason: "confirm" }]);
   });
 

@@ -150,7 +150,7 @@ export function routeMilestone(log: Log, mp: MilestonePlan, rung = "codex:gpt-6-
     milestone: mp.id,
     lanes: mp.lanes.map((l) => ({ lane: l.id, rung, ladder: [rung, "codex:gpt-6-sol#high"] })),
   });
-  log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null });
+  log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null, lint: [] });
 }
 
 /** Runs one lane dispatch to a passing fast check. */
