@@ -97,6 +97,8 @@ export interface CheckJob {
   baseline: boolean;
 }
 
+const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
+
 /** One logged run of the command: its merged output goes to the log, its exit code is kept. */
 async function runLogged(job: CheckJob, log: string, tmp: string | null): Promise<number> {
   const env = await checkEnvFor(job.repo);
@@ -112,6 +114,24 @@ async function runLogged(job: CheckJob, log: string, tmp: string | null): Promis
 }
 
 /**
+ * A record names the commit it ran on: the checkout must still be at `job.head`, with no tracked edits (a
+ * baseline's worktree is the base's own), or what ran is not what the record would claim.
+ */
+async function assertCheckout(job: CheckJob, when: string): Promise<void> {
+  const moved = (why: string) =>
+    invalid(
+      `the checkout moved ${when} the check (${why}); nothing is recorded for ${job.head.slice(0, 12)}`,
+      "commit the milestone, then call gate_run again",
+    );
+  const head = await git(job.cwd, ["rev-parse", "HEAD"]);
+  if (head.kind !== "ok") throw moved("HEAD is unreadable");
+  if (head.out.trim() !== job.head) throw moved(`HEAD is ${head.out.trim().slice(0, 12)}`);
+  if (job.baseline) return;
+  const dirty = await git(job.cwd, ["status", "--porcelain", "--untracked-files=no"]);
+  if (dirty.kind !== "ok" || dirty.out.trim()) throw moved("tracked files changed");
+}
+
+/**
  * Runs a milestone's check under the verifier lock and a heavy slot, records its exit code and failing lines
  * against `head`, reruns a failure with lines the base lacks once, and scans the run's commits for secrets.
  */
@@ -124,8 +144,15 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
       `${job.milestone}-${job.head.slice(0, 12)}${job.baseline ? "-base" : ""}-${Date.now()}.log`,
     );
     const start = Date.now();
+    // the locks may have been waited for while the checkout moved on, and the command may move it
+    const guarded = async (tmp: string | null): Promise<number> => {
+      await assertCheckout(job, "before");
+      const code = await runLogged(job, log, tmp);
+      await assertCheckout(job, "during");
+      return code;
+    };
     let exit: number;
-    if (process.env[LOCK_HELD_ENV] === "1") exit = await runLogged(job, log, null);
+    if (process.env[LOCK_HELD_ENV] === "1") exit = await guarded(null);
     else {
       let setting: number | "cpus/2" = "cpus/2";
       try {
@@ -134,7 +161,7 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
         // a profile that cannot be read leaves the default
       }
       exit = await withRoleLock("verifier", `run:${job.run}`, () =>
-        withHeavySlot(heavySlots(setting), (_slot, tmp) => runLogged(job, log, tmp), {
+        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp), {
           tmpBase: process.env.TMPDIR,
         }),
       );
@@ -259,8 +286,6 @@ function readFlight(file: string): Flight | null {
 /** A flight is live while its worker is, or while a worker that has not written its pid yet is within its grace. */
 const flightLive = (f: Flight): boolean =>
   f.pid > 0 ? isAlive(f.pid, f.startTime) : Date.now() - Date.parse(f.at) < checkLimits.graceMs;
-
-const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
 
 /**
  * The verifier's full check of a milestone on the committed HEAD (spec 2.0 decision 18): the same run,

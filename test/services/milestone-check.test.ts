@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendCheckRecord,
@@ -12,6 +13,7 @@ import {
   readChecks,
   secretScan,
 } from "../../src/services/milestone-check.ts";
+import { withRoleLock } from "../../src/infra/heavy-lock.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
@@ -23,10 +25,14 @@ const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
 let repo: string;
 let run: Run;
+let HEAD_REAL: string;
+const git = (cwd: string, ...a: string[]): string =>
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd, encoding: "utf8" }).trim();
 
 beforeEach(() => {
   withHome();
   repo = tempRepo();
+  HEAD_REAL = git(repo, "rev-parse", "HEAD");
   run = createRun({ repo, title: "t", aLines: ["A1"], version: "0.0.0-test", startHead: BASE });
   checkTools.gitleaks = () => null;
 });
@@ -37,7 +43,7 @@ const job = (over: Partial<CheckJob> = {}): CheckJob => ({
   cwd: repo,
   milestone: "M1",
   command: "true",
-  head: HEAD,
+  head: HEAD_REAL,
   base: BASE,
   baseline: false,
   ...over,
@@ -60,7 +66,7 @@ const rec = (over: Partial<CheckRecord> = {}): CheckRecord => ({
 describe("execMilestoneCheck", () => {
   it("records the exit code and failing lines against HEAD, with its log", async () => {
     const r = await execMilestoneCheck(job({ command: "printf 'FAIL a.test > x [3ms]\\n'; exit 1" }));
-    expect(r).toMatchObject({ exit: 1, fails: ["FAIL a.test > x"], head: HEAD, rerunOf: 1 });
+    expect(r).toMatchObject({ exit: 1, fails: ["FAIL a.test > x"], head: HEAD_REAL, rerunOf: 1 });
     expect(readFileSync(r.log, "utf8")).toContain("FAIL a.test > x");
     expect(readChecks(repo).at(-1)).toEqual(r);
   });
@@ -89,6 +95,43 @@ describe("execMilestoneCheck", () => {
     );
     expect(r.exit).toBe(0);
     expect(readFileSync(r.log, "utf8").trim()).toBe("0");
+  });
+});
+
+describe("execMilestoneCheck on a moving checkout", () => {
+  const commit = (m: string) => git(repo, "commit", "-q", "--allow-empty", "-m", m);
+
+  it("records nothing for a HEAD that moved while the command ran", async () => {
+    const e = await execMilestoneCheck(
+      job({ command: `git -c user.name=t -c user.email=t@t commit -q --allow-empty -m moved` }),
+    ).catch((x) => x);
+    expect(e.code).toBe("E_INPUT_INVALID");
+    expect(e.message).toContain("moved");
+    expect(readChecks(repo)).toEqual([]);
+  });
+
+  it("records nothing, and never runs, for a HEAD that moved while it waited for the locks", async () => {
+    const marker = join(tempDir("ran-"), "ran");
+    let release = () => {};
+    const held = withRoleLock("verifier", "run:other", () => new Promise<void>((r) => (release = r)));
+    await Bun.sleep(50);
+    const pending = execMilestoneCheck(job({ command: `touch ${marker}` })).catch((x) => x);
+    commit("moved while waiting");
+    release();
+    await held;
+    expect((await pending).code).toBe("E_INPUT_INVALID");
+    expect(existsSync(marker)).toBe(false);
+    expect(readChecks(repo)).toEqual([]);
+  });
+
+  it("refuses tracked edits made while the command ran", async () => {
+    writeFileSync(join(repo, "tracked.txt"), "one");
+    git(repo, "add", "-A");
+    commit("tracked");
+    const head = git(repo, "rev-parse", "HEAD");
+    const e = await execMilestoneCheck(job({ head, command: "echo edit > tracked.txt" })).catch((x) => x);
+    expect(e.code).toBe("E_INPUT_INVALID");
+    expect(readChecks(repo)).toEqual([]);
   });
 });
 
