@@ -655,6 +655,21 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "provider_error" }]);
   });
 
+  it("parks a lane that repeated a provider_error when no stand-in is free and nothing is held", () => {
+    const log = runningLog(plan(2));
+    stop(log, "M1.L1", blocked("provider_error"));
+    stop(log, "M1.L1", blocked("provider_error"));
+    expect(log.state().holds).toEqual({});
+    log.add("dispatch.refused", {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      code: "E_ALL_HELD",
+      message: "every stand-in is held",
+    });
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "provider_error" });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "provider_error" }]);
+  });
+
   it("counts a lane whose check fails only in a sibling's files as done", () => {
     const log = runningLog(plan(2));
     stop(log, "M1.L1", {});

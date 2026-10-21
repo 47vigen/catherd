@@ -940,9 +940,20 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
-      else if (e.code === "E_ALL_HELD")
-        wait(Object.values(s.holds).sort()[0] ?? isoPlus(e.at, REFUSAL_WAIT_MS));
-      else if (e.code === "E_ADMIT_DUPLICATE") {
+      else if (e.code === "E_ALL_HELD") {
+        const l = s.lanes[e.unit];
+        const heldUntil = Object.values(s.holds)
+          .filter((u) => u > e.at)
+          .sort()[0];
+        // a repeated provider_error holds no quota: with no stand-in free either, waiting would never end
+        if (l?.failoverNow && heldUntil === undefined) {
+          l.status = "parked";
+          s.stuck[l.id] = {
+            reason: "provider_error",
+            question: stopQuestion(l, "provider_error", "no stand-in rung is free"),
+          };
+        } else wait(heldUntil ?? isoPlus(e.at, REFUSAL_WAIT_MS));
+      } else if (e.code === "E_ADMIT_DUPLICATE") {
         const key = `duplicate:${e.name}@${e.unit}`;
         s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
         if ((s.failedEffects[key] as number) >= DUPLICATE_LIMIT)
