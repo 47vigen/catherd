@@ -48,6 +48,18 @@ describe("orchestrator skill", () => {
     expect(md).toContain("Push and the merge request only on the owner's word");
   });
 
+  it("starts a run on the owner's plan, approves the architect's, and keeps MR titles short", () => {
+    const md = skill("catherd");
+    for (const s of [
+      "`plan:`",
+      "answer approve",
+      "`catherd run-file read <run> plan.md`",
+      "DESIGN:",
+      "under 72 characters",
+    ])
+      expect(md).toContain(s);
+  });
+
   it("names no tool the daemon took over", () => {
     const md = skill("catherd");
     for (const gone of [

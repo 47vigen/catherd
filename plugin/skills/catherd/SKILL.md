@@ -27,23 +27,26 @@ isolate it (the profile's `harness.<name>.isolated` is the user's own choice, an
 
 Six tools, nothing else.
 
-| Tool                              | Use                                                                                                                                |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `run_start(repo, title, a_lines)` | Starts a run. Returns its id and the notify url its questions go to.                                                               |
-| `status(run?)`                    | Each run's phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive (a dead one is restarted). |
-| `answer(run, unit, answer)`       | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer.                                             |
-| `cancel(run)`                     | Stops the run: every live role is cancelled.                                                                                       |
-| `result(run, name?)`              | The run's report, or with `name` one role's record.                                                                                |
-| `profile(action, …)`              | Reads, validates or changes a profile, or sets `notify_url`. Tuning is the `catherd-setup` skill's.                                |
+| Tool                                     | Use                                                                                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `run_start(repo, title, a_lines, plan?)` | Starts a run. Returns its id and the notify url its questions go to.                                                               |
+| `status(run?)`                           | Each run's phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive (a dead one is restarted). |
+| `answer(run, unit, answer)`              | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer.                                             |
+| `cancel(run)`                            | Stops the run: every live role is cancelled.                                                                                       |
+| `result(run, name?)`                     | The run's report, or with `name` one role's record.                                                                                |
+| `profile(action, …)`                     | Reads, validates or changes a profile, or sets `notify_url`. Tuning is the `catherd-setup` skill's.                                |
 
 ## Starting a run
 
 1. Write the A-lines, the acceptance lines the work must meet, one per line, each checkable. Ask the owner every
    product question first, before the run starts: a daemon that must park later costs a round trip.
-2. A plan the owner already has is an A-line: `plan: <path>[, <path>…]`. The run then skips the dossier and the
-   architect translates the plan instead of designing.
-3. Call `run_start(repo, title, a_lines)` with the repo's absolute path. If it fails, `error.code` and `error.fix`
-   say what to do; relay them.
+2. A plan the owner already has ("implement the plan at …", a scorecard prompt) goes in `run_start`'s `plan:`
+   (several files, a contracts file included, as a list); an A-line `plan: <path>[, <path>…]` does the same. Write
+   only the acceptance lines the plan does not already state. The run then skips the dossier, and the architect
+   translates the plan instead of designing. With no plan, say that the architect writes one first, and the run
+   waits once for the owner's approval of it.
+3. Call `run_start(repo, title, a_lines, plan?)` with the repo's absolute path. If it fails, `error.code` and
+   `error.fix` say what to do; relay them.
 4. Tell the owner the run id and the notify url (an ntfy topic) to subscribe to on the phone: that is where a
    parked question and the final report arrive.
 5. End the turn. **The run does not need this session: it continues if the session is compacted or closed.**
@@ -59,7 +62,11 @@ phone notice and asks. Either way:
 2. A parked unit is the owner's question. Put it to them in their own language, with the daemon's context and your
    recommended answer, one question at a time. Pass their answer with `answer(run, unit, answer)` and nothing
    else: do not rephrase it into a decision of your own. The run goes on with the work that does not depend on it.
-   A question may also be a `push` (a landed milestone of a run with a base branch waits for the owner to push it
+   A question may also be the plan's approval: relay `catherd run-file read <run> plan.md` for the owner to read,
+   then pass `answer approve` (the owner's yes) or the owner's changes as the answer; the architect revises and the
+   run asks again, the same way. It asks again later only when an architect change edits an approved `D<n>`
+   decision. A parked lane whose question quotes a DESIGN: line is a conflict between the plan and the code: the
+   owner answers it (the plan or the code changes). A question may also be a `push` (a landed milestone of a run with a base branch waits for the owner to push it
    and merge its MR: catherd never pushes) or a `check_broken` (the milestone's check cannot run, so fix the
    environment, then answer).
 3. A role that failed, a gate that is red or a milestone that climbed is the daemon's to handle; report it, do not
@@ -72,7 +79,7 @@ landed, the known issues, and what the judge decided and why. `result(run, name)
 owner asks how a lane went.
 
 **Push and the merge request only on the owner's word.** The run lands milestones on its own branch and never
-pushes by itself.
+pushes by itself. A merge request title is the run's outcome, under 72 characters, never the branch name.
 
 ## Errors
 

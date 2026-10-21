@@ -16,6 +16,9 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
+- **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
+  signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
+  Jev, or the judge at `readPlan`, whether each task names what its worker must build.
 - **An unfinished baseline row makes the wall-clock bar lenient** (`passBar`): a task the operator gave up on at the
   4-hour cap still counts in the baseline's sum. Say so in the verdict.
 - **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.

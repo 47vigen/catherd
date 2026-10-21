@@ -19,7 +19,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
   session or MCP server never loses a run.
 - **Questions reach your phone.** A parked question and the final report are sent to your ntfy topic
   (`notify.url`), and answered from the session (`answer`) or the terminal (`catherd answer`).
-- **A protocol the daemon enforces.** Every lane is routed, every brief ends with the reply contract, and a
+- **A protocol the daemon enforces.** Every lane implements its plan tasks as written, and every role, whatever vendor runs it, gets its role's text and ends with the reply contract, and a
   milestone lands only after a reviewer and a verifier passed it. A judge role decides what no rule can (an
   ambiguous finding, a stuck fix round, an unmet check) from the run's facts. An owner question parks one milestone,
   not the run.

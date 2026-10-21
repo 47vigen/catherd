@@ -72,6 +72,21 @@ out_of_scope` decides what the daemon does: climb, retry then fail over, park, o
   `CATHERD_STORY`, the `keybinds` config key (ignored), `E_CONFIG_KEYBIND`, `docs/tui-frames.md`. New:
   `CATHERD_PANEL_DIST`.
 
+### The plan is the input
+
+- `run_start` takes `plan:` (the reviewed plan files; a `plan:` A-line still works). Each lane carries a `Tasks:`
+  header line naming the plan tasks it implements, and its worker gets them verbatim; preflight refuses a lane
+  without one, and a task with neither a signature nor a test.
+- Without a plan, the architect writes one (what already exists, contracts, decisions with their rejected
+  alternatives, a test per task) and the run stops once for your approval: read it with `catherd run-file read <run>
+plan.md` and answer `approve`, or say what to change. It asks again only when a later architect change edits an
+  approved decision line (`D<n>`).
+- Replies gain `EXTRA:` (a file outside the lane), `REJECTED:` (a finding a fix round rejects) and `DESIGN:` (the
+  plan task conflicts with the code; the reply ends `blocked`, `needs_user`).
+- `plan-input/` in the run folder holds the copies roles read; it and `plan-approved.md` are read-only to roles.
+- Every role's brief is its role text, team, the plan's preamble, the task, its done-when rules and its reply
+  contract, as labelled sections. The medium-effort floor for coding workers belongs to routing, not to the plan input.
+
 ## From 1.4 to 1.5
 
 1.5 reads 1.4's profiles, runs, credentials and catalog as they are, and `init` asks nothing new. Upgrade, check,
