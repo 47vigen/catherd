@@ -222,7 +222,12 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect(getProfile("fast", "claude-code").budget.minutes).toBe(7);
     expect(getProfile("default", "claude-code").budget.minutes).toBeUndefined();
     expect(catherd(["diff", "default"], repo).out).toBe("budget.minutes: 7 → none\n");
-    expect(catherd(["validate"], repo).out).toStartWith("! roles.worker.rungs: no worker rung clears ");
+    // plan 33: the shipped bars put one default worker rung at each difficulty, so only a trimmed ladder warns
+    catherd(["set", "roles.worker.rungs", "codex:gpt-6-luna#high,codex:gpt-6-sol#medium"], repo);
+    expect(catherd(["validate"], repo).out).toStartWith(
+      "! roles.worker.rungs: no worker rung clears logic, hard: ",
+    );
+    expect(catherd(["validate", "default"], repo).out).toBe("✓ valid\n");
   });
 });
 
@@ -270,12 +275,8 @@ describe("names the user types, and unbinding", () => {
 describe("catherd profile validate", () => {
   it("prints errors and warnings, and exits 1 on an error", () => {
     withHome();
-    // spec 1.5 plan 24: the default worker reaches no hard bar, which only validate says
-    expect(catherd(["validate"])).toEqual({
-      code: 0,
-      out: "! roles.worker.rungs: no worker rung clears hard: those lanes start at the default rung and climb only onto rungs at least as intelligent (route names the closest)\n",
-      err: "",
-    });
+    // plan 33: under the shipped bars (20/45/60/65) the default worker reaches every difficulty
+    expect(catherd(["validate"])).toEqual({ code: 0, out: "✓ valid\n", err: "" });
     mkdirSync(profilesDir(), { recursive: true });
     const doc = JSON.parse(readFileSync(join(SRC, "..", "test", "fixtures", "profiles", "bad.json"), "utf8"));
     writeFileSync(join(profilesDir(), "bad.json"), JSON.stringify(doc));
