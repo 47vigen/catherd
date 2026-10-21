@@ -43,6 +43,7 @@ function routingProfile(
     // spec §4.6: from 80 % of the budget on, start at the cheapest rung that clears the bar
     objective: spentFraction >= BUDGET_CHEAP_AT ? "cost" : v.objective,
     billing: v.billing,
+    maxEffort: v.maxEffort ?? {},
     role: {
       enabled: rc?.enabled ?? false,
       rungs: rc?.rungs ?? [],

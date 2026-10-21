@@ -10,13 +10,15 @@ import {
   quotaOf,
   rankStandIns,
 } from "./failover.ts";
-import { tryParseRung } from "./ids.ts";
+import { effortRank, tryParseRung } from "./ids.ts";
 import { DIFFICULTIES } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import {
   type Candidate,
   candidates,
+  CODING_FLOOR,
+  CODING_ROLES,
   clearsBar,
   defaultLadder,
   type RoutingProfile,
@@ -69,6 +71,7 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
   objective: p.objective,
   billing: p.billing,
   role: p.roles[role],
+  maxEffort: p.maxEffort,
 });
 
 /**
@@ -133,6 +136,18 @@ export function validateProfile(
         });
         continue;
       }
+      const above = aboveCeiling(p.maxEffort, rung, `${at}.rungs`);
+      if (above) warnings.push(above);
+      if (
+        CODING_ROLES.includes(role) &&
+        effortRank(r.effort) >= 0 &&
+        effortRank(r.effort) < effortRank(CODING_FLOOR)
+      )
+        warnings.push({
+          path: `${at}.rungs`,
+          message: `${rung} is below ${CODING_FLOOR} effort: a coding worker never runs it`,
+          fix: `pick #${CODING_FLOOR} or above: catherd catalog list --role ${role}`,
+        });
       if (!backends.includes(r.backend)) {
         errors.push({
           path: `${at}.rungs`,
@@ -255,6 +270,8 @@ export function validateProfile(
       });
       continue;
     }
+    const above = aboveCeiling(p.maxEffort, to, at);
+    if (above) warnings.push(above);
     if (!backends.includes(b.backend)) {
       errors.push({ path: at, message: `stand-in ${to}: catherd cannot run ${b.backend} yet` });
       continue;
@@ -296,6 +313,20 @@ export function validateProfile(
       warnings.push({ path: at, message: `${from} is on no enabled role's ladder, so this never runs` });
   }
   return { errors, warnings };
+}
+
+/** Plan 33: a warning for a rung above its model's `maxEffort`, null for any other. */
+function aboveCeiling(maxEffort: Readonly<Record<string, string>>, rung: string, path: string): Issue | null {
+  const r = tryParseRung(rung);
+  const key = r ? `${r.backend}:${r.model}` : "";
+  const cap = maxEffort[key];
+  if (!r || cap === undefined || effortRank(r.effort) <= effortRank(cap) || effortRank(r.effort) < 0)
+    return null;
+  return {
+    path,
+    message: `${rung} is above maxEffort ${cap} for ${key}: routing skips it`,
+    fix: `catherd profile set maxEffort.${key} ${r.effort}, or remove the rung`,
+  };
 }
 
 /** The difficulties no rung of `usable` clears, as `logic, hard`. */

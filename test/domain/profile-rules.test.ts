@@ -271,7 +271,8 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
   });
 
   it("warns when a stand-in spends Claude quota while another backend could stand in", () => {
-    const v = check({ failover: { [LUNA]: OPUS_MAX } });
+    // the default profile caps Opus at high; this case is about the quota, not the cap
+    const v = check({ failover: { [LUNA]: OPUS_MAX }, maxEffort: { "claude-code:claude-opus-5-5": null } });
     expect(v.errors).toEqual([]);
     expect(v.warnings).toEqual([
       {
@@ -448,5 +449,60 @@ describe("validateProfile: what a role can never start or reach (spec 1.5 plan 2
       },
     });
     expect(messages(astra.warnings).some((m) => m.startsWith("no worker rung clears"))).toBe(false);
+  });
+});
+
+describe("validateProfile: effort ceilings and the coding floor (plan 33)", () => {
+  const c = catalog({
+    index: indexOf({
+      "gpt-6-luna#high": 30,
+      "gpt-6-sol#low": 35,
+      "gpt-6-sol#medium": 36,
+      "gpt-6-sol#high": 42,
+      "gpt-6-sol#xhigh": 46,
+    }),
+  });
+  const W = [
+    "codex:gpt-6-luna#high",
+    "codex:gpt-6-sol#medium",
+    "codex:gpt-6-sol#high",
+    "codex:gpt-6-sol#xhigh",
+  ];
+
+  it("warns about a rung above its model's maxEffort, in the rungs and the failover map", () => {
+    const v = check(
+      {
+        maxEffort: { "codex:gpt-6-sol": "high" },
+        roles: { worker: { rungs: W, defaultRung: W[1] as string } },
+        failover: { "codex:gpt-6-luna#high": "codex:gpt-6-sol#xhigh" },
+      },
+      c,
+    );
+    expect(v.warnings).toContainEqual({
+      path: "roles.worker.rungs",
+      message: "codex:gpt-6-sol#xhigh is above maxEffort high for codex:gpt-6-sol: routing skips it",
+      fix: "catherd profile set maxEffort.codex:gpt-6-sol xhigh, or remove the rung",
+    });
+    expect(v.warnings).toContainEqual(expect.objectContaining({ path: "failover.codex:gpt-6-luna#high" }));
+  });
+
+  it("warns about a worker rung below medium, and not a writer's", () => {
+    const v = check(
+      {
+        roles: {
+          worker: { rungs: ["codex:gpt-6-sol#low", ...W], defaultRung: W[1] as string },
+          writer: { rungs: ["codex:gpt-6-sol#low"] },
+        },
+      },
+      c,
+    );
+    expect(v.warnings).toContainEqual({
+      path: "roles.worker.rungs",
+      message: "codex:gpt-6-sol#low is below medium effort: a coding worker never runs it",
+      fix: "pick #medium or above: catherd catalog list --role worker",
+    });
+    expect(
+      v.warnings.filter((w) => w.path === "roles.writer.rungs" && w.message.includes("below medium")),
+    ).toEqual([]);
   });
 });

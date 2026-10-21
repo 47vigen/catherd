@@ -437,6 +437,8 @@ describe("resetProfile and linkedProfiles", () => {
       {
         budget: { usd: 3 },
         roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } },
+        // the default profile caps Opus at high; these cases are about linking the agent
+        maxEffort: { "claude:claude-opus-5-5": null },
       },
       { host: "claude-code" },
     );
@@ -453,7 +455,11 @@ describe("resetProfile and linkedProfiles", () => {
     withHome();
     patchProfile(
       "default",
-      { roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } } },
+      {
+        roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } },
+        // the default profile caps Opus at high; these cases are about linking the agent
+        maxEffort: { "claude:claude-opus-5-5": null },
+      },
       { host: "claude-code" },
     );
     const user = join(claudeAgentsDir(), `${VERIFIER}.md`);

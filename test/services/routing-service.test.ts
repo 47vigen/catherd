@@ -474,6 +474,31 @@ describe("route and the profile", () => {
     expect(await r.route(req(lane("prose", "hard"), { profile }))).toMatchObject(TRACK_B);
   });
 
+  it("under budget pressure a worker still starts at medium or above", async () => {
+    writeIndexFile(
+      indexPath(),
+      indexOf({
+        "gpt-6-luna#high": 30,
+        "gpt-6-sol#low": 35,
+        "gpt-6-sol#medium": 36,
+        "gpt-6-sol#high": 42,
+        "gpt-6-sol#xhigh": 46,
+      }),
+    );
+    const r = req(lane("repo_code", "copy"), {
+      spentFraction: 0.9,
+      profile: view({
+        roles: {
+          ...view().roles,
+          worker: { ...view().roles.worker!, rungs: ["codex:gpt-6-sol#low", ...LADDER] },
+        },
+      }),
+    });
+    const a = await routingService({ ...noWait }).route(r);
+    expect(a.rung).toBe("codex:gpt-6-sol#medium");
+    expect(a.ladder).not.toContain("codex:gpt-6-sol#low");
+  });
+
   it("refuses a role with no usable rung with a fix", async () => {
     const p = view({
       roles: {

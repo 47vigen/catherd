@@ -4,7 +4,7 @@ import type { Budget } from "./budget.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
-import { ADAPTER_IDS, parseRung, tryParseRung } from "./ids.ts";
+import { ADAPTER_IDS, EFFORT_ORDER, type EffortWord, effortRank, parseRung, tryParseRung } from "./ids.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { isPlain, slug } from "./util.ts";
@@ -57,6 +57,7 @@ export const ProfileDocSchema = z.looseObject({
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
   failover: z.record(z.string(), z.string()).optional(),
+  maxEffort: z.record(z.string(), z.string()).optional(),
   budget: z
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
     .optional(),
@@ -103,6 +104,8 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   check("jev.use", JEV_USES, doc.jev?.use, STORED_FALLBACK.jevUse);
   for (const [k, v] of Object.entries(doc.billing ?? {}))
     check(`billing.${k}`, BILLING_MODES, v, STORED_FALLBACK.billing(k));
+  for (const [k, v] of Object.entries(doc.maxEffort ?? {}))
+    if (effortRank(v) < 0) out.push({ path: `maxEffort.${k}`, value: v, readAs: "no ceiling" });
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
@@ -140,6 +143,8 @@ export interface Profile {
   roles: Record<Role, RoleConfig>;
   harness: Record<string, { isolated: boolean }>;
   failover: Record<string, string>;
+  /** plan 33: `<backend>:<model>` → the highest effort routing starts it at; a model not named has no ceiling */
+  maxEffort: Record<string, EffortWord>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
@@ -183,6 +188,22 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
   [SOL("medium")]: "opencode:opencode-go/kimi-k3#max",
 };
 
+/**
+ * Plan 33 Ruling 8: t3herd's effort caps under the shipped catalog's ids, on every backend that lists the model.
+ * The default profile writes them, so a failover to any backend can never start a `#max` Opus; a profile without
+ * the key has no ceiling.
+ */
+export const DEFAULT_MAX_EFFORT: Readonly<Record<string, EffortWord>> = {
+  "claude:claude-opus-5-5": "high",
+  "claude-code:claude-opus-5-5": "high",
+  "opencode:opencode/claude-opus-5-5": "high",
+  "cursor:claude-opus-5-5": "high",
+  "claude:claude-sonnet-5-5": "high",
+  "claude-code:claude-sonnet-5-5": "high",
+  "opencode:opencode/claude-sonnet-5-5": "high",
+  "codex:gpt-6.1-sol": "xhigh",
+};
+
 /** The five billing keys spec §7.1 writes out; the rest default. */
 const WRITTEN_BILLING: BillingKey[] = ["codex", "claude", "claude-code", "opencode-go", "opencode"];
 
@@ -201,6 +222,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
       opencode: { isolated: false },
     },
     failover: { ...DEFAULT_FAILOVER },
+    maxEffort: { ...DEFAULT_MAX_EFFORT },
     budget: {},
     timeouts: { idleMin: 15, wallMin: 90 },
     preflight: { confirm: false },
@@ -287,6 +309,9 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     roles,
     harness,
     failover: { ...doc.failover },
+    maxEffort: Object.fromEntries(
+      Object.entries(doc.maxEffort ?? {}).filter((e): e is [string, EffortWord] => effortRank(e[1]) >= 0),
+    ),
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
     preflight: { confirm: doc.preflight?.confirm ?? false },
@@ -325,6 +350,12 @@ export const ProfilePatchSchema = z.strictObject({
   roles: z.partialRecord(z.enum(ROLES), RolePatchSchema).optional(),
   harness: z.partialRecord(z.enum(HARNESS_KEYS), z.strictObject({ isolated: z.boolean() })).optional(),
   failover: z.record(RungSchema, RungSchema.nullable()).optional(),
+  maxEffort: z
+    .record(
+      z.string().refine((k) => tryParseRung(`${k}#x`) !== null, "a key is <backend>:<model>"),
+      z.enum(EFFORT_ORDER).nullable(),
+    )
+    .optional(),
   budget: z
     .strictObject({ minutes: positive.nullable(), tokens: positive.nullable(), usd: positive.nullable() })
     .partial()
@@ -353,7 +384,7 @@ export function applyPatch(doc: ProfileDoc, patch: ProfilePatch): ProfileDoc {
 }
 
 /** Map fields whose keys are rungs or billing keys, which may hold dots: the rest of the path is one key. */
-const MAP_FIELDS = new Set(["failover", "billing"]);
+const MAP_FIELDS = new Set(["failover", "billing", "maxEffort"]);
 const LIST_FIELDS = (keys: string[]) =>
   (keys[0] === "roles" && keys[2] === "rungs") || (keys[0] === "notify" && keys.length === 1);
 

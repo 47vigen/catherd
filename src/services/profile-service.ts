@@ -301,6 +301,7 @@ function viewOf(p: Profile): ProfileView {
     jev: p.jev,
     isolated: Object.fromEntries(Object.entries(p.harness).map(([k, h]) => [k, h.isolated])),
     failover: p.failover,
+    maxEffort: p.maxEffort,
     budget: p.budget,
     timeouts: p.timeouts,
     preflight: p.preflight,

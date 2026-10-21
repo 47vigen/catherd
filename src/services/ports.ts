@@ -41,6 +41,8 @@ export interface ProfileView {
   isolated: Partial<Record<string, boolean>>;
   /** rung → its stand-in on a usage limit (spec §4.5) */
   failover: Record<string, string>;
+  /** `<backend>:<model>` → the highest effort routing starts it at (plan 33) */
+  maxEffort?: Record<string, string>;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };

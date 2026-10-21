@@ -3,7 +3,7 @@ import { type Catalog, capableFor, effortOffered, type RungInfo, rungInfo } from
 import { type BillingMode, type Cost, compareCost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
 import { quotaOf } from "./failover.ts";
-import { tryParseRung } from "./ids.ts";
+import { type EffortWord, effortRank, tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, type Difficulty } from "./lane.ts";
 import { ROLES, type Role } from "./roles.ts";
 
@@ -17,6 +17,8 @@ export interface RoutingProfile {
    * equal intelligence is broken on; absent, every quota counts 0 and the candidates' order breaks it
    */
   usage?: Partial<Record<string, number>>;
+  /** `<backend>:<model>` → the highest effort routing may start (plan 33); a rung above it is skipped */
+  maxEffort?: Readonly<Record<string, string>>;
 }
 
 /** What a start check reads of a profile: `ProfileView` and the resolved `Profile` both satisfy it. */
@@ -24,6 +26,29 @@ export interface ProfileLike {
   objective: "cost" | "speed";
   billing: Partial<Record<string, BillingMode>>;
   roles: Partial<Record<Role, { enabled: boolean; rungs: string[]; defaultRung?: string }>>;
+  maxEffort?: Readonly<Record<string, string>>;
+}
+
+/** Spec 2.0 decision 22: the roles that write code. The worker runs repo_code, terminal and ui lanes and every fix round. */
+export const CODING_ROLES: readonly Role[] = ["worker"];
+/** A coding role never runs below this effort, whatever the objective or the budget. */
+export const CODING_FLOOR: EffortWord = "medium";
+
+/**
+ * False for a rung above its model's `maxEffort`, or below `CODING_FLOOR` for a coding role. A rung that does not
+ * parse, one whose effort is no effort word (`default`), and a ceiling that is no effort word all allow it.
+ */
+export function effortAllowed(
+  maxEffort: Readonly<Record<string, string>>,
+  role: Role,
+  rung: string,
+): boolean {
+  const r = tryParseRung(rung);
+  const rank = r ? effortRank(r.effort) : -1;
+  if (!r || rank < 0) return true;
+  if (CODING_ROLES.includes(role) && rank < effortRank(CODING_FLOOR)) return false;
+  const cap = effortRank(maxEffort[`${r.backend}:${r.model}`] ?? "");
+  return cap < 0 || rank <= cap;
 }
 
 export interface Candidate {
@@ -50,7 +75,16 @@ export function rolesWithoutRung(c: Catalog, v: ProfileLike): Role[] {
     const r = v.roles[role];
     return (
       r?.enabled === true &&
-      candidates(c, { objective: v.objective, billing: v.billing, role: r }, role).length === 0
+      candidates(
+        c,
+        {
+          objective: v.objective,
+          billing: v.billing,
+          role: r,
+          ...(v.maxEffort ? { maxEffort: v.maxEffort } : {}),
+        },
+        role,
+      ).length === 0
     );
   });
 }
@@ -69,6 +103,7 @@ export function candidates(c: Catalog, p: RoutingProfile, role: Role): Candidate
   const out: Candidate[] = [];
   const order = [...new Set(p.role.rungs)];
   for (const rung of order) {
+    if (!effortAllowed(p.maxEffort ?? {}, role, rung)) continue;
     let info: RungInfo;
     try {
       info = rungInfo(c, rung);
