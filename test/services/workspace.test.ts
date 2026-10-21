@@ -10,7 +10,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
-import { runsDir } from "../../src/infra/paths.ts";
+import { indexPath, runsDir } from "../../src/infra/paths.ts";
+import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
+import { loadCatalog } from "../../src/services/catalog-service.ts";
 import { appendRecord, createRun, listRuns, runPaths } from "../../src/services/run-store.ts";
 import { withWorkspaceAdmission } from "../../src/services/workspace-admission.ts";
 import {
@@ -20,6 +22,7 @@ import {
   workspaceStatus,
 } from "../../src/services/workspace-service.ts";
 import { findWorkspace, workspaceChildren, workspacePaths } from "../../src/services/workspace-store.ts";
+import { indexOf } from "../domain/shipped.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, fakeDispatch, makeRecord, testView } from "./helpers.ts";
 
@@ -81,6 +84,18 @@ it("stores a private snapshot, lazily starts once, and unlocks dependencies on l
   expect(status.steps[0]?.landedCommits).toEqual(["abcdef1"]);
   const web = await startWorkspaceChild(deps, { workspace: workspace.id, step: "web" });
   expect(web.run).not.toBe(child.id);
+});
+
+it("pins the machine's index into a child run, so a pair dropped later never breaks it midway", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, input);
+  const machine = indexOf({ "gpt-6-sol#high": 42 });
+  writeIndexFile(indexPath(), machine);
+  const child = await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  expect(readIndexFile(join(child.dir, "slopalytics.json"))).toEqual(machine);
+  writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
+  expect(loadCatalog({ runDir: child.dir }).pool).toEqual([42]);
+  expect(loadCatalog().pool).toEqual([33]);
 });
 
 it("rejects invalid graphs and unordered steps owning the same repo", async () => {
