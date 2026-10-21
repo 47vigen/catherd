@@ -14,6 +14,17 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 2.0 follow-ups (plan reviews, 2026-10-21)
+
+- **Scorecard result rows are not validated on read** (`src/services/scorecard.ts`, `readScorecard`): a hand-edited row
+  without `interventions` or `wallMinutes` crashes `compare` or makes the wall-clock sum NaN, which then passes. Parse
+  each row with a schema of the fields `passBar` reads.
+- **An unfinished baseline row makes the wall-clock bar lenient** (`passBar`): a task the operator gave up on at the
+  4-hour cap still counts in the baseline's sum. Say so in the verdict.
+- **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.
+- **`saveTaskScore` writes the results file without a lock**: two concurrent `record` runs would lose a row. The
+  protocol runs one task at a time.
+
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
 Plan 21 (roles and ownership) review:

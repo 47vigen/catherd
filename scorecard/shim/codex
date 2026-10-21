@@ -13,7 +13,7 @@ fi
 real=
 set -f; IFS=:
 for d in $PATH; do
-  [ "$d" = "$here" ] && continue
+  [ "$d/codex" -ef "$0" ] && continue
   if [ -x "$d/codex" ]; then real=$d/codex; break; fi
 done
 unset IFS; set +f

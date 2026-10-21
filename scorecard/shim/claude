@@ -17,7 +17,7 @@ fi
 real=
 set -f; IFS=:
 for d in $PATH; do
-  [ "$d" = "$here" ] && continue
+  [ "$d/claude" -ef "$0" ] && continue
   if [ -x "$d/claude" ]; then real=$d/claude; break; fi
 done
 unset IFS; set +f
