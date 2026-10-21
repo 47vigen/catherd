@@ -1,25 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, rmSync } from "node:fs";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
-import { isCatherdError } from "../../src/domain/errors.ts";
 import { logFile } from "../../src/infra/log.ts";
+import { indexPath } from "../../src/infra/paths.ts";
 import {
   catalogQuery,
   freshenDiscovery,
   loadCatalog,
-  measuredSecs,
-  overridePath,
   refreshDiscovery,
   resetFreshen,
-  saveTreatLike,
 } from "../../src/services/catalog-service.ts";
-import { recordAgentRun } from "../../src/services/run-service.ts";
-import { appendAgentRun, appendRecord, appendRoute, readAgentRuns } from "../../src/services/run-store.ts";
+import { appendRoute } from "../../src/services/run-store.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { fakeDeps, freshRun, makeRecord } from "./helpers.ts";
+import { freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -39,311 +34,29 @@ beforeEach(() => resetFreshen());
 afterEach(() => registerAdapter(codex));
 
 const T0 = Date.parse("2026-09-25T10:00:00.000Z");
-const q = (o: Partial<Parameters<typeof catalogQuery>[0]> = {}) =>
-  catalogQuery({ scoredOnly: false, limit: 500, ...o });
+const q = (o: Partial<Parameters<typeof catalogQuery>[0]> = {}) => catalogQuery({ limit: 500, ...o });
 
 describe("loadCatalog", () => {
-  it("merges the shipped layers, each backend's listing and the user's override", async () => {
+  it("reads the machine's index and each backend's listing", () => {
     withHome();
     writeDiscovery(
       "opencode",
       [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }],
       T0,
     );
-    await saveTreatLike("opencode:opencode-go/kimi-k3#default", "codex:gpt-6-sol#medium");
     const c = loadCatalog();
     expect(c.listed.opencode?.models.map((m) => m.id)).toEqual(["opencode-go/kimi-k3"]);
-    expect(c.treatLike["opencode-go/kimi-k3#default"]).toEqual({ like: "gpt-6-sol#medium", source: "user" });
-    expect(JSON.parse(readFileSync(overridePath(), "utf8"))).toMatchObject({
-      schema: 1,
-      treatLike: { "opencode-go/kimi-k3#default": "gpt-6-sol#medium" },
-    });
+    expect(c.indexedAt).toBe("2026-10-13T20:47:14.735Z");
+    expect(c.index["gpt-6-sol"]?.high?.intelligence).toBeGreaterThan(40);
   });
 
-  it("keeps a 0.x override's other fields when saving a treat-like", async () => {
+  it("reads no index as an empty catalog, never an error", () => {
     withHome();
-    await saveTreatLike("a/b#high", "gpt-6-sol#high");
-    const cur = JSON.parse(readFileSync(overridePath(), "utf8"));
-    writeFileSync(overridePath(), JSON.stringify({ ...cur, entries: { "x#high": { costRank: 9 } } }));
-    await saveTreatLike("c/d#high", "gpt-6-sol#xhigh");
-    expect(JSON.parse(readFileSync(overridePath(), "utf8")).entries).toEqual({ "x#high": { costRank: 9 } });
-  });
-
-  it("refuses a treat-like onto an unscored rung or onto itself", async () => {
-    withHome();
-    const code = (p: Promise<unknown>) =>
-      p.then(
-        () => "ok",
-        (e) => (isCatherdError(e) ? e.code : String(e)),
-      );
-    expect(await code(saveTreatLike("a/b#high", "opencode-go/kimi-k3#default"))).toBe("E_CONFIG_INVALID");
-    expect(await code(saveTreatLike("gpt-6-sol#high", "gpt-6-sol#high"))).toBe("E_CONFIG_INVALID");
-    // Opus high carries every value Opus xhigh has (adjacent): mapping it there would change nothing
-    expect(await code(saveTreatLike("claude-opus-5-5#high", "claude-opus-5-5#xhigh"))).toBe(
-      "E_CONFIG_INVALID",
-    );
-    // Sol high lends honesty, which Opus has no value for
-    expect(await code(saveTreatLike("claude-opus-5-5#high", "gpt-6-sol#high"))).toBe("ok");
-  });
-
-  it("saves a backend's own model id under its family's canonical rung, the key routing looks up", async () => {
-    withHome();
-    expect(await saveTreatLike("claude-haiku-4-5-20251001#high", "gpt-6-sol#high")).toEqual({
-      rung: "claude-haiku-4-5#high",
-      like: "gpt-6-sol#high",
-    });
-  });
-
-  it("refuses a malformed rung and leaves the override file byte-for-byte unchanged", async () => {
-    withHome();
-    await saveTreatLike("a/b#high", "gpt-6-sol#high");
-    const before = readFileSync(overridePath(), "utf8");
-    for (const [rung, like] of [
-      ["foo", "gpt-6-sol#high"],
-      ["a b#high", "gpt-6-sol#high"],
-      ["x#y#z", "gpt-6-sol#high"],
-    ] as const) {
-      const e = await saveTreatLike(rung, like).then(
-        () => null,
-        (x) => x,
-      );
-      expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
-      expect(readFileSync(overridePath(), "utf8")).toBe(before);
-    }
-    expect(() => loadCatalog()).not.toThrow();
-  });
-
-  it("refuses a treat-like for a rung that has scores of its own", async () => {
-    withHome();
-    const e = await saveTreatLike("gpt-6-sol#high", "gpt-6-sol#xhigh").then(
-      () => null,
-      (x) => x,
-    );
-    expect(isCatherdError(e) && e.code).toBe("E_CONFIG_INVALID");
-    expect(isCatherdError(e) && e.message).toBe(
-      "gpt-6-sol#high has scores of its own; a treat-like would not change it",
-    );
-  });
-
-  it("takes a treat-like for a rung scored on only some of the dimensions it would borrow", async () => {
-    withHome();
-    mkdirSync(dirname(overridePath()), { recursive: true });
-    const agentic = {
-      rung: "claude-sonnet-5#high",
-      dim: "agentic",
-      value: 0.05,
-      benchmark: "Arena agent, net improvement",
-      version: "2026-09-27",
-      url: "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset",
-      date: "2026-09-27",
-      confidence: "measured",
-    };
-    writeFileSync(overridePath(), JSON.stringify({ schema: 1, scores: [agentic] }));
-    expect(await saveTreatLike("claude-sonnet-5#high", "gpt-6-sol#high")).toEqual({
-      rung: "claude-sonnet-5#high",
-      like: "gpt-6-sol#high",
-    });
-    const row = q({ backend: "claude-code", text: "sonnet" }).models[0]?.rungs.find(
-      (r) => r.rung === "claude-code:claude-sonnet-5#high",
-    );
-    expect(row?.scores.agentic?.confidence).toBe("measured");
-    // Sonnet has no honesty value: Sol high lends it
-    expect(row?.scores.honesty?.confidence).toBe("inferred");
-  });
-
-  it("turns a corrupt override into E_CONFIG_INVALID with a fix", () => {
-    withHome();
-    mkdirSync(dirname(overridePath()), { recursive: true });
-    writeFileSync(overridePath(), "{nope");
-    try {
-      loadCatalog();
-      throw new Error("expected a throw");
-    } catch (e) {
-      expect(isCatherdError(e) && e.code).toBe("E_CONFIG_INVALID");
-    }
-  });
-});
-
-describe("measuredSecs", () => {
-  it("takes the median of at least five successful runs per canonical rung and kind", async () => {
-    const { run } = freshRun();
-    appendRoute(run, {
-      at: "2026-09-25T10:00:00.000Z",
-      lane: "M1.L1",
-      role: "worker",
-      rung: "codex:gpt-6-sol#high",
-      ladder: ["codex:gpt-6-sol#high"],
-      source: "route",
-      decidedBy: "lane",
-      from: null,
-      reason: null,
-      kind: "terminal",
-      difficulty: "logic",
-    });
-    const secs = [100, 300, 200, 500, 400];
-    for (const [i, s] of secs.entries())
-      await appendRecord(run, makeRecord({ dispatchId: `D${i}`, rung: "codex:gpt-6-sol#high", secs: s }));
-    for (const [i, s] of [10, 20, 30, 40].entries())
-      await appendRecord(run, makeRecord({ dispatchId: `E${i}`, rung: "codex:gpt-6-luna#high", secs: s }));
-    await appendRecord(
-      run,
-      makeRecord({ dispatchId: "F", rung: "codex:gpt-6-sol#high", secs: 9999, status: "failed" }),
-    );
-    const m = measuredSecs(loadCatalog({ timings: false }));
-    expect(m).toEqual({ "gpt-6-sol#high|*": 300, "gpt-6-sol#high|terminal": 300 });
-    expect(loadCatalog().secs).toEqual(m);
-  });
-
-  it("counts each run under the kind its lane was routed as when it started, not the newest route", async () => {
-    const { run } = freshRun();
-    const route = (at: string, kind: "terminal" | "prose") =>
-      appendRoute(run, {
-        at,
-        lane: "M1.L1",
-        role: "worker",
-        rung: "codex:gpt-6-sol#high",
-        ladder: ["codex:gpt-6-sol#high"],
-        source: "route",
-        decidedBy: "lane",
-        from: null,
-        reason: null,
-        kind,
-        difficulty: "logic",
-      });
-    route("2026-09-25T10:00:00.000Z", "terminal");
-    for (const [i, s] of [100, 300, 200, 500, 400].entries())
-      await appendRecord(
-        run,
-        makeRecord({
-          dispatchId: `D${i}`,
-          rung: "codex:gpt-6-sol#high",
-          secs: s,
-          startedAt: `2026-09-25T10:0${i + 1}:00.000Z`,
-        }),
-      );
-    route("2026-09-25T11:00:00.000Z", "prose");
-    const m = measuredSecs(loadCatalog({ timings: false }));
-    expect(m).toEqual({ "gpt-6-sol#high|*": 300, "gpt-6-sol#high|terminal": 300 });
-  });
-  it("times native claude: subagent runs from agents.jsonl under all kinds", async () => {
-    const { run } = freshRun();
-    const agent = (secs: number | null, status: "ok" | "failed" = "ok") =>
-      appendAgentRun(run, {
-        at: "2026-09-25T10:00:00.000Z",
-        name: "architect",
-        role: "architect",
-        rung: "claude:claude-opus-5-5#high",
-        agent: null,
-        totalTokens: 100,
-        costUsd: null,
-        secs,
-        status,
-      });
-    for (const s of [50, 10, 30, 20, 40]) agent(s);
-    agent(null);
-    agent(9999, "failed");
-    const m = measuredSecs(loadCatalog({ timings: false }));
-    expect(m).toEqual({ "claude-opus-5-5#high|*": 30 });
-  });
-
-  it("survives an agent row whose duration runs past the Date range", async () => {
-    const { run } = freshRun();
-    appendAgentRun(run, {
-      at: "2026-09-25T10:00:00.000Z",
-      name: "architect",
-      role: "architect",
-      rung: "claude:claude-opus-5-5#high",
-      agent: null,
-      totalTokens: 100,
-      costUsd: null,
-      secs: 1e16,
-      status: "ok",
-    });
-    expect(() => loadCatalog()).not.toThrow();
-  });
-
-  it("counts an agent row that names its lane under that lane's kind too", async () => {
-    const { run } = freshRun();
-    appendRoute(run, {
-      at: "2026-09-25T10:00:00.000Z",
-      lane: "M1.L1",
-      role: "worker",
-      rung: "claude:claude-opus-5-5#high",
-      ladder: ["claude:claude-opus-5-5#high"],
-      source: "route",
-      decidedBy: "lane",
-      from: null,
-      reason: null,
-      kind: "prose",
-      difficulty: "logic",
-    });
-    for (const [i, s] of [50, 10, 30, 20, 40].entries())
-      appendAgentRun(run, {
-        at: `2026-09-25T10:1${i}:00.000Z`,
-        name: "w",
-        role: "worker",
-        rung: "claude:claude-opus-5-5#high",
-        agent: null,
-        totalTokens: 100,
-        costUsd: null,
-        secs: s,
-        status: "ok",
-        lane: "M1.L1",
-      });
-    const m = measuredSecs(loadCatalog({ timings: false }));
-    expect(m).toEqual({ "claude-opus-5-5#high|*": 30, "claude-opus-5-5#high|prose": 30 });
-  });
-
-  it("counts record_agent_run's lane under that lane's kind", async () => {
-    const { run } = freshRun();
-    appendRoute(run, {
-      at: "2026-09-25T10:00:00.000Z",
-      lane: "M1.L1",
-      role: "worker",
-      rung: "claude:claude-opus-5-5#high",
-      ladder: ["claude:claude-opus-5-5#high"],
-      source: "route",
-      decidedBy: "lane",
-      from: null,
-      reason: null,
-      kind: "prose",
-      difficulty: "logic",
-    });
-    for (const [i, s] of [50, 10, 30, 20, 40].entries()) {
-      const row = recordAgentRun(
-        fakeDeps({
-          host: { host: "claude-code", session: null, conflict: null },
-          now: () => Date.parse(`2026-09-25T10:1${i}:00.000Z`),
-        }),
-        {
-          run: run.id,
-          name: "w",
-          role: "worker",
-          rung: "claude:claude-opus-5-5#high",
-          totalTokens: 100,
-          durationMs: s * 1000,
-          lane: "M1.L1",
-        },
-      );
-      expect(row.lane).toBe("M1.L1");
-    }
-    expect(readAgentRuns(run).every((a) => a.lane === "M1.L1")).toBe(true);
-    const m = measuredSecs(loadCatalog({ timings: false }));
-    expect(m).toEqual({ "claude-opus-5-5#high|*": 30, "claude-opus-5-5#high|prose": 30 });
-  });
-
-  it("rejects a record_agent_run lane that is not an id", () => {
-    const { run } = freshRun();
-    expect(() =>
-      recordAgentRun(fakeDeps(), {
-        run: run.id,
-        name: "w",
-        role: "worker",
-        rung: "claude:claude-opus-5-5#high",
-        totalTokens: 1,
-        lane: "../x",
-      }),
-    ).toThrow();
+    rmSync(indexPath());
+    const c = loadCatalog();
+    expect(c.indexedAt).toBeNull();
+    expect(c.pool).toEqual([]);
+    expect(c.families.length).toBeGreaterThan(0);
   });
 });
 
@@ -522,42 +235,36 @@ describe("discovery per repository", () => {
 });
 
 describe("catalogQuery", () => {
-  it("lists each family on each backend with its rungs, scores, cost and roles", () => {
+  it("lists only indexed pairs, each with its intelligence, price, speed and cost", () => {
     withHome();
-    const sol = q({ backend: "codex", text: "gpt-6-sol" }).models[0];
-    expect(sol).toMatchObject({
-      id: "gpt-6-sol",
-      backend: "codex",
-      model: "gpt-6-sol",
-      billing: "codex",
-      listed: null,
-    });
+    const sol = q({ backend: "codex", text: "gpt-6-sol" }).models.find((m) => m.model === "gpt-6-sol");
+    expect(sol).toMatchObject({ id: "gpt-6-sol", backend: "codex", billing: "codex", listed: null });
+    expect(sol?.rungs.map((r) => r.rung)).not.toContain("codex:gpt-6-sol#ultra");
+    expect(sol?.rungs[0]).toMatchObject({ cost: { tier: 0 } });
+    expect(typeof sol?.rungs[0]?.intelligence).toBe("number");
     const high = sol?.rungs.find((r) => r.rung === "codex:gpt-6-sol#high");
     expect(high).toMatchObject({
-      enabled: true,
-      scores: {
-        repo_code: { value: 65.3, benchmark: "DeepSWE 1.1", confidence: "secondary", source: "shipped" },
-      },
+      price: { input: 2, output: 10 },
+      context: 1_050_000,
       cost: { tier: 0, mode: "chatgpt-plan" },
+      evidence: null,
     });
-    // ultra carries max's published values (spec 1.2 §4.3 adjacent)
-    expect(sol?.rungs.find((r) => r.rung === "codex:gpt-6-sol#ultra")).toMatchObject({
-      enabled: true,
-      scores: { repo_code: { value: 68.8, confidence: "adjacent" } },
-    });
+    expect(high?.intelligence).toBeCloseTo(42.4, 1);
+    expect(typeof high?.speed).toBe("number");
+    // the rungs rise with intelligence
+    const xs = sol?.rungs.map((r) => r.intelligence) ?? [];
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
     expect(sol?.roles).toContain("artist");
-    expect(q({ backend: "claude", text: "opus" }).models[0]?.rungs[2]).toMatchObject({
-      rung: "claude:claude-opus-5-5#high",
-      treatLike: null,
-      scores: { terminal: { value: 66.4, confidence: "adjacent" } },
-    });
+    expect(q({ backend: "claude", text: "opus" }).models[0]?.rungs.map((r) => r.rung)).toContain(
+      "claude:claude-opus-5-5#high",
+    );
     expect(q({ backend: "opencode-go" }).models.map((m) => m.model)).toEqual([
       "opencode-go/gpt-5.6-luna",
       "opencode-go/gpt-6-luna",
     ]);
   });
 
-  it("shows each value's confidence, source and date, marks a lent one, and each rung's run evidence (spec 1.2 §5.3, §8)", async () => {
+  it("says a rung's run evidence (spec 1.2 §8)", () => {
     const { run } = freshRun();
     appendRoute(run, {
       at: "2026-09-28T10:00:00.000Z",
@@ -573,26 +280,31 @@ describe("catalogQuery", () => {
       difficulty: "build",
     });
     const luna = q({ backend: "codex", text: "gpt-6-luna" }).models[0];
-    expect(luna?.price).toEqual({ input: 0.1, cached: 0.01, output: 0.5 });
-    const high = luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#high");
-    expect(high?.scores.repo_code).toEqual({
-      value: 66.6,
-      benchmark: "DeepSWE 1.1",
-      confidence: "adjacent",
-      source: "shipped",
-      date: "2026-09-22",
-    });
-    expect(high?.scores.frontend).toMatchObject({ source: "arena", confidence: "adjacent" });
-    expect(high?.scores.agentic).toMatchObject({ confidence: "inferred", from: "gpt-5.6-luna#high" });
-    expect(high?.evidence).toBe("1 lane");
+    expect(luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#high")?.evidence).toBe("1 lane");
     expect(luna?.rungs.find((r) => r.rung === "codex:gpt-6-luna#max")?.evidence).toBeNull();
   });
 
-  it("lists a discovered model catherd cannot score, disabled until the user maps it", async () => {
+  it("drops a model with no indexed pair", () => {
+    withHome();
+    writeDiscovery(
+      "cursor",
+      [
+        { id: "composer-2.5", efforts: [], context: 200000, imageIn: false },
+        { id: "grok-4.7", efforts: ["low", "high"], context: 200000, imageIn: false },
+      ],
+      T0,
+    );
+    const models = q({ backend: "cursor" }).models.map((m) => m.model);
+    expect(models).not.toContain("composer-2.5");
+    expect(models).toContain("grok-4.7");
+    expect(q({ text: "composer" }).total).toBe(0);
+  });
+
+  it("lists a listed model catherd has no family for by its Slopalytics name, at its indexed efforts", () => {
     withHome();
     writeDiscovery(
       "opencode",
-      [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }],
+      [{ id: "opencode-go/kimi-k3", efforts: ["max", "low", "high"], context: 262144, imageIn: false }],
       T0,
     );
     const kimi = q({ text: "kimi" }).models[0];
@@ -602,22 +314,19 @@ describe("catalogQuery", () => {
       billing: "opencode-go",
       listed: true,
     });
-    expect(kimi?.rungs).toEqual([
-      expect.objectContaining({ rung: "opencode:opencode-go/kimi-k3#default", enabled: false }),
+    // the listing offers `high`, the index has no pair for it
+    expect(kimi?.rungs.map((r) => r.rung)).toEqual([
+      "opencode:opencode-go/kimi-k3#low",
+      "opencode:opencode-go/kimi-k3#max",
     ]);
-    expect(q({ scoredOnly: true, text: "kimi" }).total).toBe(0);
-    await saveTreatLike("opencode:opencode-go/kimi-k3#default", "gpt-6-sol#medium");
-    expect(q({ scoredOnly: true, text: "kimi" }).models[0]?.rungs[0]).toMatchObject({
-      enabled: true,
-      scores: { repo_code: { value: 56.6, confidence: "inferred" } },
-    });
+    expect(kimi?.efforts).toEqual(["low", "max"]);
   });
 
   it("lists opencode as it is listed in the given repository, and globally without one", () => {
     withHome();
     writeDiscovery(
       "opencode",
-      [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }],
+      [{ id: "opencode-go/kimi-k3", efforts: ["max"], context: 262144, imageIn: false }],
       T0,
       "/work/a",
     );
@@ -626,9 +335,19 @@ describe("catalogQuery", () => {
     expect(q({ text: "kimi" }).total).toBe(0);
   });
 
-  it("filters by role and limits the list", () => {
+  it("filters by role, backend and text, and counts the total before the limit", () => {
     withHome();
     expect(q({ role: "artist" }).models.every((m) => m.backend === "codex")).toBe(true);
+    const all = q();
     expect(q({ limit: 2 }).models).toHaveLength(2);
+    expect(q({ limit: 2 }).total).toBe(all.total);
+    expect(q({ text: "luna" }).models.every((m) => `${m.id} ${m.model}`.includes("luna"))).toBe(true);
+    expect(q({ backend: "codex" }).models.every((m) => m.backend === "codex")).toBe(true);
+  });
+
+  it("reads no index as an empty list, never an error", () => {
+    withHome();
+    rmSync(indexPath());
+    expect(q()).toEqual({ total: 0, models: [] });
   });
 });

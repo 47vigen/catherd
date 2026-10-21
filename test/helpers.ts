@@ -1,23 +1,16 @@
 import { execFileSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  lstatSync,
-  mkdtempSync,
-  readdirSync,
-  realpathSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { indexPath } from "../src/infra/paths.ts";
+import { writeIndexFile } from "../src/infra/slopalytics.ts";
 
 /**
  * Points CATHERD_HOME, the Claude agents dir and Claude Code's config dir at a fresh temp dir for the duration of
  * one test, and takes away the Claude Code session a suite may run in: no test ever messages a real session.
  * Doctor's access probes aim at a closed local port and a docker that does not exist.
  */
-export function withHome(): string {
+export function withHome(o: { index?: boolean } = {}): string {
   const home = mkdtempSync(join(tmpdir(), "catherd-home-"));
   process.env.CATHERD_HOME = home;
   // they win over CATHERD_HOME, and an isolated worker running this suite inherits them (movedHomeEnv)
@@ -42,9 +35,11 @@ export function withHome(): string {
     "CLAUDE_CODE_MESSAGING_TOKEN",
   ])
     delete process.env[k];
-  // the recorded Slopalytics index, so a catalog reads real intelligences and no test reaches the proxy
-  mkdirSync(dirname(indexPath()), { recursive: true });
-  copyFileSync(join(import.meta.dir, "fixtures", "slopalytics.json"), indexPath());
+  // the recorded Slopalytics index, checked just now (so no test sees it stale), and no test reaches the proxy;
+  // a test of the data dir's own creation passes `index: false`, since the seed creates the dir
+  if (o.index === false) return home;
+  const recorded = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "slopalytics.json"), "utf8"));
+  writeIndexFile(indexPath(), { ...recorded, checkedAt: new Date().toISOString() });
   return home;
 }
 

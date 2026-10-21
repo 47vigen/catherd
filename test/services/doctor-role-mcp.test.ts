@@ -7,7 +7,6 @@ import {
 } from "../../src/domain/profile.ts";
 import { validateProfile } from "../../src/domain/profile-rules.ts";
 import { roleMcpChecks } from "../../src/services/doctor-role-mcp.ts";
-import { withStandIns } from "../../src/services/standins.ts";
 import { shipped } from "../domain/shipped.ts";
 
 const profile = (patch: ProfilePatch = {}) =>
@@ -48,7 +47,7 @@ describe("doctor's role server rows (spec 1.5 plan 21, #42 findings 6, 8)", () =
     const check = (patch: ProfilePatch) =>
       validateProfile(
         profile(patch),
-        withStandIns(shipped()),
+        shipped(),
         ["codex", "claude-code", "opencode", "claude"],
         undefined,
         "claude-code",

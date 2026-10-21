@@ -267,17 +267,16 @@ describe("MCP server", () => {
   it("answers catalog_query from the repository's own opencode listing, as route reads it", async () => {
     const { repo } = freshRun();
     const top = (await gitToplevel(repo)) as string;
-    const kimi = [{ id: "opencode-go/kimi-k3", efforts: [], context: 262144, imageIn: false }];
-    writeDiscovery("opencode", kimi, Date.parse("2026-09-25T10:00:00.000Z"), top);
+    const luna = [{ id: "opencode/gpt-6-luna", efforts: ["high"], context: 262144, imageIn: false }];
+    writeDiscovery("opencode", luna, Date.parse("2026-09-25T10:00:00.000Z"), top);
     const c = await mcpClient();
     mkdirSync(join(repo, "sub"));
-    const inRepo = await call(c, "catalog_query", { text: "kimi", repo: join(repo, "sub") });
-    expect(inRepo.data.models.map((m: { model: string }) => m.model)).toEqual(["opencode-go/kimi-k3"]);
-    const outside = await call(c, "catalog_query", {
-      text: "kimi",
-      repo: mkdtempSync(join(tmpdir(), "catherd-norepo-")),
-    });
-    expect(outside.data.total).toBe(0);
+    const first = async (where: string) =>
+      (await call(c, "catalog_query", { backend: "opencode", text: "gpt-6-luna", repo: where })).data
+        .models[0];
+    // the repository's listing narrows the efforts to what it offers and marks the model offered
+    expect(await first(join(repo, "sub"))).toMatchObject({ listed: true, efforts: ["high"] });
+    expect(await first(mkdtempSync(join(tmpdir(), "catherd-norepo-")))).toMatchObject({ listed: null });
   });
 
   it("passes catalog_query the git toplevel of its repo, else of the server's directory", async () => {

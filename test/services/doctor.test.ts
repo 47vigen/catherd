@@ -13,12 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realTmpdir } from "../../src/adapters/access.ts";
-import { claudeAgentsDir, locksDir } from "../../src/infra/paths.ts";
+import { claudeAgentsDir, indexPath, locksDir } from "../../src/infra/paths.ts";
+import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { accessRepos, type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
-import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
-import { overridePath } from "../../src/services/catalog-service.ts";
+import { type Check, indexCheck, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { configFile, profilesDir, projectsFile } from "../../src/services/profile-store.ts";
@@ -158,7 +158,7 @@ describe("doctor", () => {
       "backend:opencode": "ok ready",
       "backend:cursor": "skip missing",
       jev: "warn no key",
-      sources: "info not synced",
+      catalog: "ok fresh",
       plugin: "ok ready",
       agents: "ok ready",
       mcp: "ok ready",
@@ -206,7 +206,7 @@ describe("doctor", () => {
     // Composer is unscored: its inferred stand-ins let the role run (spec 1.3 §7.2)
     const saved = patchProfile(
       "default",
-      { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } },
+      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
       { host: "claude-code" },
     );
     expect(saved.saved).toBe(true);
@@ -502,10 +502,9 @@ describe("doctor", () => {
     expect(at("sandbox:codex")).toBeLessThan(at("access:codex"));
     expect(at("access:opencode")).toBeLessThan(at("access:full"));
     expect(at("access:full")).toBeLessThan(at("access:advisory"));
-    // Runtime probes are distinct from static role MCP policy, shipped access defaults and unsynced sources.
+    // Runtime probes are distinct from static role MCP policy, shipped access defaults and the catalog row.
     expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
       "role-mcp:default:codex",
-      "sources",
       "access:full",
       "access:advisory",
     ]);
@@ -614,7 +613,7 @@ describe("doctor", () => {
     process.env.CATHERD_PROBE_DOCKER = join(bin, "fake-docker");
     patchProfile(
       "default",
-      { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } },
+      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
       { host: "claude-code" },
     );
     const r = await run();
@@ -1004,14 +1003,74 @@ describe("doctor", () => {
     expect(check(r, "jev")).toMatchObject({ state: "warn", word: "no key" });
   });
 
-  it("turns a corrupt catalog override into a fail row with its fix, not a throw", async () => {
+  it("reads a corrupt index as one not fetched, and fails a profile with nothing indexed", async () => {
     ready();
-    writeFileSync(overridePath(), "{ not json");
+    writeFileSync(indexPath(), "{ not json");
     const r = await run();
     expect(r.ready).toBe(false);
+    expect(check(r, "catalog")).toMatchObject({
+      state: "info",
+      word: "not fetched",
+      fix: "catherd catalog sync",
+    });
     expect(check(r, "profile")).toMatchObject({
       state: "fail",
-      fix: `fix or delete ${overridePath()}`,
+      word: "invalid",
+      detail: expect.stringContaining("has no usable rung"),
+    });
+  });
+
+  it("shows the catalog row: not fetched, fresh, failing with the last index kept, stale after a day", () => {
+    const now = Date.parse("2026-10-21T12:00:00.000Z");
+    const status = (o: Partial<Parameters<typeof indexCheck>[1] & object> = {}) => ({
+      fetchedAt: "2026-10-21T11:00:00.000Z",
+      checkedAt: "2026-10-21T11:30:00.000Z",
+      pairs: 81,
+      error: null,
+      ...o,
+    });
+    const none = { fetchedAt: null, checkedAt: null, pairs: 0, error: null };
+    expect(indexCheck(now, none)).toMatchObject({
+      state: "info",
+      word: "not fetched",
+      fix: "catherd catalog sync",
+    });
+    expect(indexCheck(now, status())).toEqual({
+      id: "catalog",
+      label: "catalog",
+      state: "ok",
+      word: "fresh",
+      detail: "81 pairs, fetched 1 h ago",
+    });
+    expect(indexCheck(now, status({ error: "http 503" }))).toMatchObject({
+      state: "warn",
+      word: "failing",
+      detail: "http 503; keeps the index fetched 1 h ago",
+    });
+    expect(
+      indexCheck(now, { fetchedAt: null, checkedAt: "2026-10-21T11:30:00.000Z", pairs: 0, error: "offline" }),
+    ).toMatchObject({ state: "warn", word: "failing", detail: "offline; no index" });
+    expect(indexCheck(now, status({ checkedAt: "2026-10-20T11:00:00.000Z" }))).toMatchObject({
+      state: "warn",
+      word: "stale",
+      fix: "catherd catalog sync --force",
+    });
+  });
+
+  it("warns, not fails, on a profile rung that lost its index", async () => {
+    ready();
+    const recorded = readIndexFile(indexPath());
+    if (!recorded) throw new Error("no recorded index");
+    writeIndexFile(indexPath(), {
+      ...recorded,
+      models: recorded.models.filter((m) => !(m.family === "gpt-6-sol" && m.effort === "xhigh")),
+    });
+    const r = await run();
+    expect(r.ready).toBe(true);
+    expect(check(r, "profile")).toMatchObject({
+      state: "warn",
+      word: "warning",
+      detail: expect.stringContaining("codex:gpt-6-sol#xhigh has no Slopalytics intelligence index"),
     });
   });
 

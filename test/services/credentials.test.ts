@@ -2,73 +2,77 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { knownSecrets } from "../../src/infra/log.ts";
-import { aaKey, credentialsPath, saveAaKey, savedCredential } from "../../src/services/credentials.ts";
+import { credentialsPath, savedCredential } from "../../src/services/credentials.ts";
 import { jevKey, registerSavedSecrets, saveJevKey } from "../../src/services/jev-service.ts";
 import { noPosixModes, snapshotEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
-describe("the Artificial Analysis key (spec 1.2 §9)", () => {
-  it("comes from ARTIFICIAL_ANALYSIS_API_KEY first, else the saved key, else none", () => {
-    withHome();
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    expect(aaKey()).toBeNull();
-    saveAaKey(" aa-saved-0123456789 ");
-    expect(aaKey()).toBe("aa-saved-0123456789");
-    process.env.ARTIFICIAL_ANALYSIS_API_KEY = "aa-env-0123456789";
-    expect(aaKey()).toBe("aa-env-0123456789");
-  });
-
-  it("is saved beside the Jev key in credentials.json, each keeping the other", () => {
+describe("the Jev key in credentials.json", () => {
+  it("comes from TYPESAFE_API_KEY first, else the saved key, else none", () => {
     withHome();
     delete process.env.TYPESAFE_API_KEY;
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
+    expect(jevKey()).toBeNull();
+    saveJevKey(" tsk-saved-0123456789 ");
+    expect(jevKey()).toBe("tsk-saved-0123456789");
+    process.env.TYPESAFE_API_KEY = "tsk-env-0123456789";
+    expect(jevKey()).toBe("tsk-env-0123456789");
+  });
+
+  it("keeps a key a 1.5 file holds (an Artificial Analysis key is never read, nor dropped on a save)", () => {
+    withHome();
+    delete process.env.TYPESAFE_API_KEY;
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(
+      credentialsPath(),
+      JSON.stringify({ schema: 1, artificialAnalysisApiKey: "aa-0123456789" }),
+    );
     saveJevKey("tsk-0123456789abcdef");
-    saveAaKey("aa-0123456789abcdef");
-    saveJevKey("tsk-fedcba9876543210");
     expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
       schema: 1,
-      typesafeApiKey: "tsk-fedcba9876543210",
-      artificialAnalysisApiKey: "aa-0123456789abcdef",
+      typesafeApiKey: "tsk-0123456789abcdef",
+      artificialAnalysisApiKey: "aa-0123456789",
     });
-    expect(jevKey()).toBe("tsk-fedcba9876543210");
+    expect(jevKey()).toBe("tsk-0123456789abcdef");
   });
 
   it.skipIf(noPosixModes)("keeps credentials.json at mode 600", () => {
     withHome();
-    saveAaKey("aa-0123456789abcdef");
+    saveJevKey("tsk-0123456789abcdef");
     expect(statSync(credentialsPath()).mode & 0o777).toBe(0o600);
   });
 
   it("reads an unparsable credentials.json as no key, and refuses to overwrite it", () => {
     withHome();
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
+    delete process.env.TYPESAFE_API_KEY;
     mkdirSync(dirname(credentialsPath()), { recursive: true });
     writeFileSync(credentialsPath(), "{not json");
-    expect(aaKey()).toBeNull();
-    expect(savedCredential("artificialAnalysisApiKey").problem?.code).toBe("E_CONFIG_INVALID");
-    expect(() => saveAaKey("aa-0123456789abcdef")).toThrow("is not valid JSON");
+    expect(jevKey()).toBeNull();
+    expect(savedCredential("typesafeApiKey").problem?.code).toBe("E_CONFIG_INVALID");
+    expect(() => saveJevKey("tsk-0123456789abcdef")).toThrow("is not valid JSON");
   });
 
-  it("is registered with the log redactor with the Jev key", () => {
+  it("is registered with the log redactor", () => {
     withHome();
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    saveAaKey("aa-redact-0123456789");
+    delete process.env.TYPESAFE_API_KEY;
+    saveJevKey("tsk-redact-0123456789");
     registerSavedSecrets();
-    expect(knownSecrets({})).toContain("aa-redact-0123456789");
+    expect(knownSecrets({})).toContain("tsk-redact-0123456789");
   });
 });
 
 describe("saving a credential (1.2 minor)", () => {
-  it("holds the file's lock, so two concurrent saves of different keys both survive", async () => {
+  it("holds the file's lock, so two concurrent saves leave a valid file and another key intact", async () => {
     withHome();
+    mkdirSync(dirname(credentialsPath()), { recursive: true });
+    writeFileSync(credentialsPath(), JSON.stringify({ schema: 1, other: "kept" }));
     const module = join(import.meta.dir, "..", "..", "src", "services", "credentials.ts");
-    const writer = (field: string, key: string) =>
+    const writer = (key: string) =>
       Bun.spawn(
         [
           process.execPath,
           "-e",
-          `const { saveCredential } = await import(${JSON.stringify(module)}); for (let i = 0; i < 25; i++) saveCredential(${JSON.stringify(field)}, ${JSON.stringify(key)} + i);`,
+          `const { saveCredential } = await import(${JSON.stringify(module)}); for (let i = 0; i < 25; i++) saveCredential("typesafeApiKey", ${JSON.stringify(key)} + i);`,
         ],
         {
           env: {
@@ -80,13 +84,11 @@ describe("saving a credential (1.2 minor)", () => {
           stderr: "pipe",
         },
       );
-    const a = writer("typesafeApiKey", "tsk-");
-    const b = writer("artificialAnalysisApiKey", "aa-");
+    const a = writer("tsk-a-");
+    const b = writer("tsk-b-");
     expect([await a.exited, await b.exited]).toEqual([0, 0]);
-    expect(JSON.parse(readFileSync(credentialsPath(), "utf8"))).toEqual({
-      schema: 1,
-      typesafeApiKey: "tsk-24",
-      artificialAnalysisApiKey: "aa-24",
-    });
+    const saved = JSON.parse(readFileSync(credentialsPath(), "utf8"));
+    expect(saved.other).toBe("kept");
+    expect(["tsk-a-24", "tsk-b-24"]).toContain(saved.typesafeApiKey);
   });
 });

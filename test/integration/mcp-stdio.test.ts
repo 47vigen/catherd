@@ -173,7 +173,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       // route: no Jev key, so the lane file's Kind/Difficulty decide: Track A.
       const routed = await call(c, "route", { run, lane_file: "lanes/M1.L1.md" });
       expect(routed.data).toMatchObject({
-        rung: "codex:gpt-6-luna#high",
+        rung: "codex:gpt-6-sol#medium",
         backend: "codex",
         why: expect.stringMatching(/^the lane's Kind\/Difficulty, repo_code\/build/),
       });
@@ -195,7 +195,7 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       ]);
       expect(pre.data.blocked).toBe(false);
 
-      // dispatch at Luna, which returns at launch; the server records the refusal; result reads it; climb.
+      // dispatch at Sol medium, which returns at launch; the server records the refusal; result reads it; climb.
       const release = join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release");
       sim.rewrite({
         eventsFile: join(FX, "two-turns.jsonl"),
@@ -209,8 +209,11 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
         brief: "Read lanes/M1.L1.md",
         lane: "M1.L1",
       };
-      const launched = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-luna#high" });
-      expect(launched.data.dispatched).toMatchObject({ name: "worker-M1.L1", rung: "codex:gpt-6-luna#high" });
+      const launched = await call(c, "dispatch", { ...worker, rung: "codex:gpt-6-sol#medium" });
+      expect(launched.data.dispatched).toMatchObject({
+        name: "worker-M1.L1",
+        rung: "codex:gpt-6-sol#medium",
+      });
       expect(Date.parse(launched.data.dispatched.admittedAt)).toBeGreaterThan(0);
       expect((await call(c, "status", { run })).data.runs[0].live).toHaveLength(1);
       writeFileSync(release, "");
@@ -219,8 +222,8 @@ describe("catherd mcp over stdio, on the Codex simulator", () => {
       expect(refused.record).toMatchObject({ status: "ok", replyStatus: "refused" });
       expect(refused.hints).toContain("climb: refused");
       const climbed = await call(c, "climb", { run, lane: "M1.L1", reason: "refused" });
-      // the build ladder is Luna high, then Sol xhigh (spec 1.2 §5.2: the median DeepSWE bar, 66.6)
-      expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#xhigh", top: false });
+      // the build ladder is Sol medium, high, then xhigh (the build bar is the median intelligence)
+      expect(climbed.data).toMatchObject({ rung: "codex:gpt-6-sol#high", top: false });
 
       // failover: Sol medium hits a usage limit; its stand-in Sol high finishes the lane.
       writeProfile({ failover: { "codex:gpt-6-sol#medium": "codex:gpt-6-sol#high" } });
@@ -349,8 +352,8 @@ describe("push over stdio (spec §15)", () => {
         const [a, b] = [0, 1].map(() => join(mkdtempSync(join(tmpdir(), "catherd-hold-")), "release"));
         sim.rewrite({
           byRung: {
-            "gpt-6-luna#high": { reply: "A done.\nSTATUS: complete — a", holdUntil: a },
-            // Sol xhigh: on the build ladder (Luna high, Sol xhigh) the lanes are routed on
+            "gpt-6-sol#medium": { reply: "A done.\nSTATUS: complete — a", holdUntil: a },
+            // Sol xhigh: on the build ladder (Sol medium, high, xhigh) the lanes are routed on
             "gpt-6-sol#xhigh": { reply: "B done.\nSTATUS: complete — b", holdUntil: b },
           },
         });
@@ -359,7 +362,7 @@ describe("push over stdio (spec §15)", () => {
           ...base,
           name: "worker-M1.L1",
           lane: "M1.L1",
-          rung: "codex:gpt-6-luna#high",
+          rung: "codex:gpt-6-sol#medium",
         });
         await call(c, "dispatch", {
           ...base,

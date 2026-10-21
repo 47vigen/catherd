@@ -161,7 +161,7 @@ describe("private modes (audit S2)", () => {
   });
 
   it.skipIf(noPosixModes)("tightens catherd's existing config and data dirs on the next write", () => {
-    const home = withHome();
+    const home = withHome({ index: false });
     for (const sub of ["config", "data"]) {
       mkdirSync(join(home, sub));
       chmodSync(join(home, sub), 0o755);
@@ -174,7 +174,7 @@ describe("private modes (audit S2)", () => {
   it.skipIf(noPosixModes)(
     "tightens the existing nested dirs and append targets a 0.x catherd left open",
     () => {
-      const home = withHome();
+      const home = withHome({ index: false });
       const runs = join(home, "data", "repos", "r-1", "runs");
       const logs = join(home, "data", "logs");
       for (const d of [runs, logs]) mkdirSync(d, { recursive: true, mode: 0o755 });

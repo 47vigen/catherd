@@ -7,6 +7,7 @@ import { claudeHome, locksDir } from "../infra/paths.ts";
 import { ensurePrivateDir, PRIVATE_FILE } from "../infra/store.ts";
 import { agentLinkState } from "./agent-links.ts";
 import type { Handshake } from "./doctor.ts";
+import { type IndexStatus, indexStatus } from "./catalog-service.ts";
 import { activeName } from "./profile-store.ts";
 
 // The rows of `catherd doctor` and the checks that stand alone; doctor.ts assembles the report.
@@ -38,6 +39,52 @@ export function guarded(id: string, label: string, fallbackFix: string, check: (
   } catch (e) {
     return { id, label, state: "fail", word: "unreadable", detail: errText(e), fix: fixOf(e) ?? fallbackFix };
   }
+}
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+/** An age as doctor prints it: minutes under an hour, hours under two days, else days. */
+export function ageText(ms: number): string {
+  if (ms < HOUR) return `${Math.max(1, Math.round(ms / 60_000))} min`;
+  if (ms < 2 * DAY) return `${Math.round(ms / HOUR)} h`;
+  return `${Math.round(ms / DAY)} d`;
+}
+
+/**
+ * The `catalog` row: the Slopalytics index's age and the last fetch's error. `info` before the first fetch;
+ * a warning when the last fetch failed, or the index has not been checked for a day, since the hourly refresh
+ * would have. It reads the cache file only: no request.
+ */
+export function indexCheck(now = Date.now(), s: IndexStatus = indexStatus()): Check {
+  const base = { id: "catalog", label: "catalog" };
+  if (s.checkedAt === null || (s.fetchedAt === null && s.error === null))
+    return {
+      ...base,
+      state: "info",
+      word: "not fetched",
+      detail: "no model is indexed yet",
+      fix: "catherd catalog sync",
+    };
+  const age = ageText(now - Date.parse(s.fetchedAt ?? s.checkedAt));
+  if (s.error !== null)
+    return {
+      ...base,
+      state: "warn",
+      word: "failing",
+      detail:
+        s.fetchedAt === null ? `${s.error}; no index` : `${s.error}; keeps the index fetched ${age} ago`,
+      fix: "catherd catalog sync --force",
+    };
+  if (now - Date.parse(s.checkedAt) > DAY)
+    return {
+      ...base,
+      state: "warn",
+      word: "stale",
+      detail: `${s.pairs} pairs, fetched ${age} ago`,
+      fix: "catherd catalog sync --force",
+    };
+  return { ...base, state: "ok", word: "fresh", detail: `${s.pairs} pairs, fetched ${age} ago` };
 }
 
 export function pluginCheck(version: string): Check {

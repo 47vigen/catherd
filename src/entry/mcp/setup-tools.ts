@@ -5,7 +5,7 @@ import { PROFILE_NAME, ProfilePatchSchema } from "../../domain/profile.ts";
 import { ROLES } from "../../domain/roles.ts";
 import { gitToplevel } from "../../infra/git.ts";
 import type { Deps } from "../../services/ports.ts";
-import { syncSources } from "../../services/source-sync.ts";
+import { refreshIndex } from "../../services/catalog-service.ts";
 import { handle } from "./result.ts";
 
 const PROFILE = z.string().regex(PROFILE_NAME).optional();
@@ -29,13 +29,12 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_query",
     {
       description:
-        "Models catherd can place, with capabilities, the roles they can fill, their scored rungs (backend:model#effort), any 'treat like', their cost under the billing of `repo`'s profile, and whether this account's last listing offers them (`listed: false`: it does not); `enabled: false` rungs are unscored. Each score has its confidence, source and date (`from` names the rung a lent value belongs to); each model its price and speed facts, each rung catherd's own run evidence. Scored models first. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
+        "The indexed Slopalytics pairs catherd can place, by model: capabilities, the roles they can fill, and per pair (backend:model#effort) its intelligence index, price, speed, context, cost under the billing of `repo`'s profile and catherd's own run evidence; `listed: false` means this account's last listing does not offer the model. A model or effort Slopalytics has no index for is not listed. opencode's models are as listed in `repo` (default: this server's directory), as route sees them there.",
       inputSchema: {
         repo: z.string().min(1).optional(),
         role: z.enum(ROLES).optional(),
         backend: z.string().optional(),
         text: z.string().optional(),
-        scored_only: z.boolean().default(false),
         limit: z.number().int().min(1).max(500).default(50),
       },
     },
@@ -44,7 +43,7 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
         // outside a git repository: the global listings and the active profile
         const repo = (await gitToplevel(a.repo ?? process.cwd())) ?? undefined;
         return deps.routing.catalog(
-          { role: a.role, backend: a.backend, text: a.text, scoredOnly: a.scored_only, limit: a.limit, repo },
+          { role: a.role, backend: a.backend, text: a.text, limit: a.limit, repo },
           deps.profiles.forRepo(repo ?? null).billing,
         );
       }),
@@ -54,21 +53,12 @@ export function registerSetupTools(server: McpServer, deps: Deps): void {
     "catalog_sync",
     {
       description:
-        "Fetch the public model facts and scores now (models.dev, OpenRouter, LiteLLM, Arena, Vectara, Epoch AI, and Artificial Analysis with the user's key): each source at most every 12 hours unless `force`. Returns the rungs newly scored, the user's treat-likes no longer needed (their rung now has values of its own), the sources that failed (each keeps its last good answer) and each source's state. route and catalog_query read the result at once.",
+        "Fetch the Slopalytics index now (it is refreshed at most hourly unless `force`). Returns { fetchedAt, checkedAt, pairs, error }: a failed fetch keeps the last good index and names the error. route and catalog_query read the result at once.",
       inputSchema: { force: z.boolean().default(false) },
     },
     (a) =>
       handle(async () => {
-        // (1.2 minor) a sync already running (the boot sync) answers busy at once, never a 120 s wait
-        const r = await (deps.sync ?? ((o) => syncSources(o)))({ force: a.force, wait: false });
-        return {
-          newlyScored: r.newlyScored,
-          standInsNoLongerNeeded: r.noLongerNeeded,
-          failed: r.failed,
-          sources: r.sources,
-          warnings: r.warnings,
-          ...(r.busy ? { busy: "another sync was running; call catalog_sync again" } : {}),
-        };
+        return (deps.sync ?? ((o) => refreshIndex({ force: o.force })))({ force: a.force });
       }),
   );
 

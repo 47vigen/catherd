@@ -50,7 +50,7 @@ describe("log", () => {
   });
 
   it("never throws, even when the data dir cannot be written", () => {
-    const home = withHome();
+    const home = withHome({ index: false });
     writeFileSync(join(home, "data"), "a file where the data dir should be");
     expect(() => log("error", "x")).not.toThrow();
   });

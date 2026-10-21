@@ -243,7 +243,7 @@ export function validateNamed(
 ): Validation {
   const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
-  const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
+  const catalog = loadCatalog(repo === null ? {} : { repo });
   try {
     return validateHere(resolveProfile(doc, n, host), catalog, doc, host, o);
   } catch (e) {

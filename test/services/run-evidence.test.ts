@@ -74,7 +74,7 @@ describe("run evidence (spec 1.2 §8)", () => {
     // a second repo on this machine counts too
     const other = createRun({ repo: tempRepo(), title: "o", aLines: ["A1"], version: "0.0.0-test" });
     lane(other, "M1.L1", "repo_code");
-    const t = runEvidence(loadCatalog({ timings: false }));
+    const t = runEvidence(loadCatalog());
     expect(t["gpt-6-luna#high|repo_code"]).toEqual({
       lanes: 3,
       climbed: 1,
@@ -122,7 +122,7 @@ describe("run evidence (spec 1.2 §8)", () => {
       secs: 60,
       status: "failed",
     });
-    const t = runEvidence(loadCatalog({ timings: false }));
+    const t = runEvidence(loadCatalog());
     expect(t["gpt-6-sol#medium|*"]).toMatchObject({ fails: 1, lanes: 0 });
     expect(t["claude-opus-5-5#low|*"]).toMatchObject({ fails: 1 });
     expect(evidenceLine(t["gpt-6-sol#medium|*"] ?? null)).toBe("0 lanes, 1 verifier FAIL");
@@ -130,6 +130,6 @@ describe("run evidence (spec 1.2 §8)", () => {
 
   it("is empty with no runs", () => {
     freshRun();
-    expect(runEvidence(loadCatalog({ timings: false }))).toEqual({});
+    expect(runEvidence(loadCatalog())).toEqual({});
   });
 });

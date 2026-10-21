@@ -20,7 +20,7 @@ function catherd(args: string[], cwd?: string) {
 }
 
 describe("catherd profile show", () => {
-  it("shows each role's access and enforcement, and says whose scores a stand-in borrows", () => {
+  it("shows each role's access and enforcement, and lists the failover stand-ins", () => {
     withHome();
     const r = catherd(["show"]);
     expect(r.code).toBe(0);
@@ -30,14 +30,10 @@ describe("catherd profile show", () => {
       "  reviewer     read-only, enforced          codex:gpt-6-sol#high",
     );
     expect(lines.find((l) => l.startsWith("  architect"))).toContain("read-only, advisory");
-    // Go's Luna has scores of its own and borrows only agentic and steer; Kimi K3 has none, so it borrows Sol's
-    expect(r.out).toContain(
-      "  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high (agentic, steer borrowed from gpt-5.6-luna#high)\n",
-    );
-    expect(r.out).toContain(
-      "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (scores borrowed from gpt-6-sol#medium)\n",
-    );
-    expect(r.out).not.toContain("treated like");
+    // both stand-ins are indexed pairs, so neither carries a note
+    expect(r.out).toContain("\n  codex:gpt-6-luna#high → opencode:opencode-go/gpt-6-luna#high\n");
+    expect(r.out).toContain("\n  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max\n");
+    expect(r.out).not.toContain("borrowed");
     expect(r.out).toContain("harness codex native · claude-code native · opencode native · cursor native\n");
   });
 
@@ -72,9 +68,7 @@ describe("catherd profile show", () => {
     expect(j.standIns[1]).toEqual({
       from: "codex:gpt-6-sol#medium",
       to: "opencode:opencode-go/kimi-k3#max",
-      inferred: true,
-      via: "gpt-6-sol#medium",
-      note: "scores borrowed from gpt-6-sol#medium",
+      note: null,
     });
   });
 });
@@ -201,7 +195,7 @@ describe("catherd profile use, new, copy, rm, list, diff", () => {
     expect([r.code, r.out]).toEqual([1, ""]);
     const [line, fix, rest] = r.err.split("\n");
     expect(line).toStartWith("error E_CONFIG_INVALID: the profile was not saved: roles.reviewer.rungs: ");
-    expect(line).toContain('gpt-6-sol has no effort "turbo" on codex');
+    expect(line).toContain("codex:gpt-6-sol#turbo has no Slopalytics intelligence index");
     expect(fix).toStartWith("fix: ");
     expect(rest).toBe("");
     expect(existsSync(join(profilesDir(), "x.json"))).toBe(false);
@@ -276,10 +270,10 @@ describe("names the user types, and unbinding", () => {
 describe("catherd profile validate", () => {
   it("prints errors and warnings, and exits 1 on an error", () => {
     withHome();
-    // spec 1.5 plan 24: the default worker reaches no logic or hard bar, which only validate says
+    // spec 1.5 plan 24: the default worker reaches no hard bar, which only validate says
     expect(catherd(["validate"])).toEqual({
       code: 0,
-      out: "! roles.worker.rungs: no worker rung clears repo_code logic, hard; terminal build, logic, hard; ui logic, hard; prose logic, hard; research logic, hard: those lanes start at the default rung and climb only onto rungs at least as strong (route names the closest)\n",
+      out: "! roles.worker.rungs: no worker rung clears hard: those lanes start at the default rung and climb only onto rungs at least as intelligent (route names the closest)\n",
       err: "",
     });
     mkdirSync(profilesDir(), { recursive: true });
@@ -287,11 +281,11 @@ describe("catherd profile validate", () => {
     writeFileSync(join(profilesDir(), "bad.json"), JSON.stringify(doc));
     const r = catherd(["validate", "bad"]);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('✗ roles.reviewer.rungs: gpt-6-sol has no effort "turbo" on codex');
-    // spec 1.2 §6.1: unscored is a warning, never an error
+    // an unindexed rung is an error, with the way to pick an indexed one
     expect(r.out).toContain(
-      "! roles.reviewer.rungs: codex:gpt-6-sol#turbo is unscored and no rung is near enough to stand in for it: routing skips it\n",
+      "✗ roles.reviewer.rungs: codex:gpt-6-sol#turbo has no Slopalytics intelligence index: routing skips it\n  fix: pick an indexed pair: catherd catalog list --role reviewer\n",
     );
+    expect(r.out).toContain("✗ roles.reviewer.rungs: the reviewer role has no usable rung\n");
     expect(r.out).toContain(
       "! roles.verifier.access: verifier runs read-only; catherd's default for it is full\n",
     );

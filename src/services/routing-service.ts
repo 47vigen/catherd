@@ -184,21 +184,14 @@ function decide(req: RouteRequest, { p, c }: Prepared, j: Judged | null): RouteA
     : null;
   let out: RouteAnswer;
   if (lane.kind && lane.difficulty) {
-    out = answer(
-      select(c, p, req.role, lane.kind, lane.difficulty),
-      "lane",
-      lane.kind,
-      lane.difficulty,
-      asked,
-      jev,
-    );
+    out = answer(select(c, p, req.role, lane.difficulty), "lane", lane.kind, lane.difficulty, asked, jev);
   } else if (judged?.track && judged.difficulty) {
     const kind = lane.kind ?? judged.kind ?? "repo_code";
-    out = answer(select(c, p, req.role, kind, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
+    out = answer(select(c, p, req.role, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
   } else if (judged?.kind || (judged && lane.kind)) {
     const kind = (lane.kind ?? judged.kind) as Kind;
-    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role, kind);
-    out = answer(select(c, p, req.role, kind, difficulty), "jev-kind", kind, difficulty, asked, jev);
+    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role);
+    out = answer(select(c, p, req.role, difficulty), "jev-kind", kind, difficulty, asked, jev);
   } else {
     out = answer(fallback(), "default", null, null, asked, jev);
   }

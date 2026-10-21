@@ -1,81 +1,28 @@
-import { type Catalog, type Confidence, DIMS, type Dim, rungInfo, scoresOf } from "../domain/catalog.ts";
+import { barOf, BAR_PERCENTILE } from "../domain/bars.ts";
+import { type Catalog, type Pair, rungInfo } from "../domain/catalog.ts";
 import { type BillingMode, type Cost, costOf, DEFAULT_BILLING } from "../domain/cost.ts";
 import type { Difficulty, Kind } from "../domain/lane.ts";
 import { type EvidenceTable, evidenceLine, evidenceOf } from "./run-evidence.ts";
 
-/** Spec 1.2 §5.3: one value routing uses for a rung, with where it came from. */
-export interface ValueUsed {
-  dim: Dim;
-  value: number;
-  confidence: Confidence;
-  /** the source a synced value came from; `shipped` for a hand-typed one, `override` for the user's */
-  source: string;
-  benchmark: string;
-  date: string;
-  url: string;
-  /** catherd's guess for this rung: lent by a treat-like or an inferred stand-in (spec 1.2 §6.1) */
-  inferred: boolean;
-  /** the rung the value belongs to, when it is not this one */
-  from: string | null;
-  /** what lent it: a treat-like (a mapping, `like X`) or an inferred stand-in (a guess); null for its own */
-  lent: "treat-like" | "stand-in" | null;
-}
-
-/** Spec 1.2 §5.3: one threshold of the lane's bar, the value used against it, and whether it clears. */
-export interface Threshold {
-  dim: Dim;
-  min: number;
-  used: ValueUsed | null;
-  clears: boolean;
-  /** where the default threshold came from (`barsWhy`) */
-  why: string | null;
-}
-
-/** Spec 1.2 §5.3, §8: what `route` reports about the rung it chose. */
+/** What `route` reports about the rung it chose: the one number it ranked on, the bar, and what it costs. */
 export interface Provenance {
   rung: string;
   canonical: string;
-  /** the lane's bar, threshold by threshold; empty when the route read no bar (the default rung) */
-  thresholds: Threshold[];
-  /** every value the rung has */
-  values: ValueUsed[];
-  /** facts that never carry a bar (spec 1.2 §4.1): `<source>.<field>` → value */
-  speed: Record<string, number>;
+  /** the rung's Slopalytics intelligence index; null when it is not indexed */
+  intelligence: number | null;
+  /** the difficulty's bar, with the percentile it sits at; null when the route read no bar (the default rung) */
+  bar: { difficulty: Difficulty; percentile: number; min: number; clears: boolean } | null;
+  price: Pair["price"];
+  /** tokens per second; null when Slopalytics has none */
+  speed: number | null;
   cost: Cost;
-  /**
-   * spec 1.2 §8: its runs for the lane's kind (or every kind) and over every kind; never used for routing;
-   * null when the runs could not be read
-   */
+  /** when the proxy fetched the index the route read; null with no index */
+  indexedAt: string | null;
+  /** spec 1.2 §8: its runs for the lane's kind (or every kind) and over every kind; null when they could not be read */
   evidence: { kind: string | null; all: string | null } | null;
 }
 
-/** Spec 1.2 §5.3: each value a canonical rung has, with its confidence and source, borrowed ones marked. */
-export function valuesUsed(c: Catalog, canonical: string): ValueUsed[] {
-  const s = scoresOf(c, canonical);
-  if (!s) return [];
-  return DIMS.flatMap((dim) => {
-    const r = s.records[dim];
-    if (!r) return [];
-    const borrowed = s.borrowed.includes(dim);
-    const from = borrowed ? s.via : (s.standIns[dim] ?? null);
-    return [
-      {
-        dim,
-        value: r.value,
-        confidence: r.confidence,
-        source: r.source ?? "shipped",
-        benchmark: `${r.benchmark} ${r.version}`,
-        date: r.date,
-        url: r.url,
-        inferred: from !== null,
-        from,
-        lent: from === null ? null : borrowed ? "treat-like" : "stand-in",
-      },
-    ];
-  });
-}
-
-/** Spec 1.2 §5.3: the chosen rung's thresholds for the lane's kind and difficulty, its values and facts. */
+/** The chosen rung's intelligence, the difficulty's bar and whether it clears it, its price, speed and cost. */
 export function provenanceOf(
   c: Catalog,
   rung: string,
@@ -85,32 +32,25 @@ export function provenanceOf(
   evidence: EvidenceTable | null,
 ): Provenance {
   const info = rungInfo(c, rung);
-  const values = valuesUsed(c, info.canonical);
-  const bar = kind && difficulty ? c.bars[kind][difficulty] : {};
-  const thresholds: Threshold[] = DIMS.flatMap((dim) => {
-    const min = bar[dim];
-    if (min === undefined || !kind || !difficulty) return [];
-    const used = values.find((v) => v.dim === dim) ?? null;
-    return [
-      {
-        dim,
-        min,
-        used,
-        clears: used !== null && used.value >= min,
-        // a threshold the user's override set is theirs, whatever the default's why says (1.2 minor)
-        why: c.userBars?.includes(`${kind}/${difficulty}/${dim}`)
-          ? "your override"
-          : (c.barsWhy[dim]?.[difficulty] ?? null),
-      },
-    ];
-  });
+  const intelligence = info.pair?.intelligence ?? null;
+  const min = difficulty ? barOf(c, difficulty) : null;
   return {
     rung,
     canonical: info.canonical,
-    thresholds,
-    values,
-    speed: info.family?.speed ?? {},
-    cost: costOf(info.family, info.parsed.effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
+    intelligence,
+    bar:
+      difficulty && min !== null
+        ? {
+            difficulty,
+            percentile: BAR_PERCENTILE[difficulty],
+            min,
+            clears: intelligence !== null && intelligence >= min,
+          }
+        : null,
+    price: info.pair?.price ?? null,
+    speed: info.pair?.speed ?? null,
+    cost: costOf(info.family, info.pair, info.parsed.effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
+    indexedAt: c.indexedAt,
     evidence: evidence && {
       kind: evidenceLine(evidenceOf(evidence, info.canonical, kind)),
       all: evidenceLine(evidenceOf(evidence, info.canonical)),

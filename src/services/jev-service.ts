@@ -16,7 +16,7 @@ import { assetPath } from "../infra/assets.ts";
 import { type JevTransport, jevRequest } from "../infra/jev-client.ts";
 import { addSecret, log } from "../infra/log.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl, readVersioned } from "../infra/store.ts";
-import { aaKey, credentialsPath, saveCredential, savedCredential } from "./credentials.ts";
+import { credentialsPath, saveCredential, savedCredential } from "./credentials.ts";
 
 export { credentialsPath };
 
@@ -26,12 +26,10 @@ export const jevQuestions = (): JevFile =>
   (file ??= readVersioned(assetPath("catalog/jev.json"), JevFileSchema, 1));
 
 /**
- * Registers the saved keys (Jev's and Artificial Analysis's) with the redactor, for a process that reads
- * logs without ever using them.
+ * Registers the saved key (Jev's) with the redactor, for a process that reads logs without ever using it.
  */
 export function registerSavedSecrets(): void {
   addSecret(jevKey());
-  addSecret(aaKey());
 }
 
 /** The key saved in credentials.json, or why that file cannot be read (unparsable, newer schema). */

@@ -11,7 +11,7 @@ import type { RoleScope } from "../domain/role-scope.ts";
 import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
-import type { SyncReport } from "./source-sync.ts";
+import type { IndexStatus } from "./catalog-service.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
 export interface ProfileView {
@@ -125,7 +125,6 @@ export interface CatalogFilter {
   role?: Role;
   backend?: string;
   text?: string;
-  scoredOnly: boolean;
   limit: number;
   /** the git toplevel whose per-repository listings (opencode's) to read; none reads the global ones */
   repo?: string;
@@ -166,8 +165,8 @@ export interface Deps {
   /** Claude transport credentials and registry refresh; host identity lives in `host`. */
   session: SessionEnv | null;
   now: () => number;
-  /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
-  sync?: (o: { force: boolean; wait?: boolean }) => Promise<SyncReport>;
+  /** `catalog_sync`; default: the real refresh (tests inject one that never reaches the network) */
+  sync?: (o: { force: boolean }) => Promise<IndexStatus>;
   /**
    * Spec 1.5 plan 21: the role this process works for (CATHERD_ROLE, or a role's scratch TMPDIR); null or
    * absent for the orchestrator's own server. A role never claims a run and never reaches a coordinator tool.
