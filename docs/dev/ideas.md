@@ -21,6 +21,12 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.
 - **`saveTaskScore` writes the results file without a lock**: two concurrent `record` runs would lose a row. The
   protocol runs one task at a time.
+- **`refreshIndex` writes the index without a lock.** Two overlapping refreshes where one fails can overwrite a newer
+  index with a stale copy for an hour, and a clock running ahead delays the next fetch.
+- **A corrupt pinned `<run>/slopalytics.json` makes routing fall back to the machine index silently.** The run then
+  routes on an index it did not start on, with no warning.
+- **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
+  exists, so the advice does not match the state.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
