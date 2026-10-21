@@ -961,6 +961,28 @@ describe("the machine: the run", () => {
     expect(of(last(log), "notify")).toEqual([]);
   });
 
+  it("issues a unit's report again when it parks a second time in one daemon process", () => {
+    const log = runningLog();
+    const issued = new Set<string>();
+    const feed = () => {
+      const e = log.events.at(-1) as RunEvent;
+      for (const k of confirms(e)) issued.delete(k);
+      return next(log.state(), e).filter((a) => {
+        if (issued.has(actionKey(a))) return false;
+        issued.add(actionKey(a));
+        return true;
+      });
+    };
+    log.add("question.parked", { unit: "M1", question: "q1", reason: "needs_user" });
+    expect(of(feed(), "report")).toHaveLength(1);
+    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    feed();
+    log.add("question.answered", { unit: "M1", answer: "a", by: "owner" });
+    feed();
+    log.add("question.parked", { unit: "M1", question: "q2", reason: "needs_user" });
+    expect(of(feed(), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
+  });
+
   it("owes a landing's report and notice until report.posted", () => {
     const log = base1();
     log.add("milestone.landed", { milestone: "M1", commit: "c0abcdef", knownIssues: [], digestPath: "d" });

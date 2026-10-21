@@ -164,6 +164,8 @@ export function confirms(e: RunEvent): string[] {
       return [`checkMerged:${e.milestone}`];
     case "run.ended":
       return ["finish:run", "cancel:run"];
+    case "report.posted":
+      return [`report:${e.kind}:${e.unit}`];
     case "effect.failed":
       return [`${e.action}@${e.unit}`];
     default:
