@@ -930,7 +930,8 @@ describe("doctor", () => {
     expect(c?.detail).toContain(
       "docker version (Cannot connect to the Docker daemon at unix:///var/run/docker.sock)",
     );
-    expect(c?.detail).toContain("outbound HTTPS (ConnectionRefused");
+    // Bun 1.4.3 prints ECONNREFUSED where older Bun printed ConnectionRefused
+    expect(c?.detail).toMatch(/outbound HTTPS \((ConnectionRefused|ECONNREFUSED)/);
     expect(c?.detail).not.toContain("Bun v");
   });
 
