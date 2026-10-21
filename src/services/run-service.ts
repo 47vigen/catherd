@@ -179,7 +179,9 @@ export function writeRunFile(i: { run: string; path: string; content: string }):
   const run = findRun(i.run);
   const file = runFile(run, i.path, "write");
   const rel = relative(run.dir, file).split(sep).join("/");
-  if (rel === "plan-approved.md" || rel === "plan-input" || rel.startsWith("plan-input/"))
+  // macOS disks ignore case, so Plan-Input/ is the same folder
+  const low = rel.toLowerCase();
+  if (low === "plan-approved.md" || low === "plan-input" || low.startsWith("plan-input/"))
     throw new CatherdError(
       "E_INPUT_INVALID",
       `${rel} holds the owner's approved plan; roles never write it`,
