@@ -54,6 +54,9 @@ export function tempRepo(): string {
   const dir = tempDir("catherd-repo-");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
   git("init", "-q", "-b", "main");
+  // a CI runner has no global identity, and the daemon commits with whatever the repo gives it
+  git("config", "user.name", "t");
+  git("config", "user.email", "t@t");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
   return dir;
 }
