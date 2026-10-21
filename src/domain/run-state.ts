@@ -109,6 +109,8 @@ export interface MilestoneState {
   delta: string[];
   /** the owner confirmed the preflight commands */
   confirmed: boolean;
+  /** what the owner answered while the milestone was parked: the next briefs of its roles carry it */
+  notes: string[];
 }
 
 export interface DispatchView {
@@ -277,6 +279,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       tries: {},
       delta: [],
       confirmed: false,
+      notes: [],
     };
     m.title = mp.title;
     m.after = mp.after;
@@ -611,6 +614,7 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     for (const k of Object.keys(s.failedEffects)) if (k.startsWith("ended:")) delete s.failedEffects[k];
     return;
   }
+  m.notes.push(`The owner answered: ${e.answer}`);
   const from = m.parkedFrom ?? "waiting";
   m.parkedFrom = null;
   m.tries = {};

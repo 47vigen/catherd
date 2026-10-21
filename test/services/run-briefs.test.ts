@@ -42,6 +42,36 @@ describe("briefs", () => {
     expect(whole).toContain("Owns: src/a/");
   });
 
+  it("carries the owner's answer to a parked milestone into its next brief", () => {
+    const { run } = freshRun();
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
+    log.add("question.answered", { unit: "M1", answer: "use postgres", by: "owner" });
+    const s = log.state();
+    for (const brief of ["review", "verify", "architect"] as const) {
+      const text = briefFor(
+        run,
+        s,
+        act({
+          brief,
+          role: brief === "architect" ? "architect" : "verifier",
+          name: `${brief}-M1`,
+          unit: "M1",
+          lane: null,
+        }),
+      );
+      expect(text).toContain("The owner answered: use postgres");
+    }
+    // another milestone's brief does not
+    expect(
+      briefFor(
+        run,
+        s,
+        act({ brief: "verify", role: "verifier", name: "verifier-M2", unit: "M2", lane: null }),
+      ),
+    ).not.toContain("use postgres");
+  });
+
   it("asks a researcher for the dossier's eight parts", () => {
     const { run } = freshRun();
     const text = briefFor(

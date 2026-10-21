@@ -216,6 +216,13 @@ function researchBrief(run: Run): string {
 
 /** The brief of one dispatch: what its role is to do, from the run's own facts. Admission adds the lane file and the reply contract. */
 export function briefFor(run: Run, s: RunState, a: DispatchAction): string {
+  const text = briefBody(run, s, a);
+  // a lane's answers ride in its own notes; a milestone's go to every role that works on it
+  const answered = a.lane ? [] : (s.milestones.find((m) => m.id === a.unit)?.notes ?? []);
+  return answered.length ? `${text}\n\n${answered.join("\n")}` : text;
+}
+
+function briefBody(run: Run, s: RunState, a: DispatchAction): string {
   switch (a.brief) {
     case "dossier":
       return researchBrief(run);
