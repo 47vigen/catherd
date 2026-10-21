@@ -5,7 +5,7 @@ import { EVENTS_SCHEMA, RunEventSchema, type RunEvent, type RunEventInput } from
 import { type RunState, replay } from "../domain/run-state.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
-import { appendJsonl } from "../infra/store.ts";
+import { appendJsonlBatch } from "../infra/store.ts";
 import type { Run } from "./run-store.ts";
 
 /** `<run>/events.jsonl`: one fact per line, dense `seq`, the only state a 2.0 run keeps. */
@@ -117,24 +117,27 @@ export function withEventsLock<T>(
   run: Run,
   fn: (add: (e: RunEventInput, now?: Date) => RunEvent) => T | Promise<T>,
 ): Promise<T> {
-  const file = eventsFile(run);
-  return withFileLock(file, () =>
-    fn((e, now = new Date()) => {
-      const event = RunEventSchema.parse({
-        v: EVENTS_SCHEMA,
-        seq: lastSeq(run) + 1,
-        at: now.toISOString(),
-        ...e,
-      });
-      appendJsonl(file, event);
-      return event;
-    }),
+  return withFileLock(eventsFile(run), () => fn((e, now) => writeEvents(run, [e], now)[0] as RunEvent));
+}
+
+/** The events with the next dense seqs, validated all before the one write that appends them. */
+function writeEvents(run: Run, es: RunEventInput[], now: Date = new Date()): RunEvent[] {
+  const first = lastSeq(run) + 1;
+  const out = es.map((e, i) =>
+    RunEventSchema.parse({ v: EVENTS_SCHEMA, seq: first + i, at: now.toISOString(), ...e }),
   );
+  appendJsonlBatch(eventsFile(run), out);
+  return out;
 }
 
 /** Appends one event under the file's lock, with the next dense `seq`, and returns it as written. */
 export async function appendEvent(run: Run, e: RunEventInput, now: Date = new Date()): Promise<RunEvent> {
   return withEventsLock(run, (add) => add(e, now));
+}
+
+/** Appends events that belong together in one write under the file's lock: all of them or, on a crash, a torn tail. */
+export function appendEvents(run: Run, es: RunEventInput[], now: Date = new Date()): Promise<RunEvent[]> {
+  return withFileLock(eventsFile(run), () => writeEvents(run, es, now));
 }
 
 /**

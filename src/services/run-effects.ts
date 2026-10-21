@@ -32,7 +32,7 @@ import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
 import { briefFor, judgeBrief } from "./run-briefs.ts";
-import { appendEvent, readEvents, replayRun } from "./run-events-store.ts";
+import { appendEvent, appendEvents, readEvents, replayRun } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { runProfile } from "./run-pin.ts";
 import { readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -378,14 +378,24 @@ export function realEffects(deps: Deps, run: Run): Effects {
     }
     const approved = read(join(run.dir, "plan-approved.md"));
     const changed = approved ? changedDecisions(approved, read(runPaths(run.dir).plan)) : [];
-    if (changed.length > 0)
-      await append({
-        type: "question.parked",
-        unit: RUN_UNIT,
-        question: reapprovalQuestion(run.id, changed),
-        reason: "approval",
-      });
-    await append({ type: "plan.ready", milestones });
+    // one write: a crash between the two would lose the owner's change request
+    await appendEvents(
+      run,
+      [
+        ...(changed.length > 0
+          ? [
+              {
+                type: "question.parked" as const,
+                unit: RUN_UNIT,
+                question: reapprovalQuestion(run.id, changed),
+                reason: "approval" as const,
+              },
+            ]
+          : []),
+        { type: "plan.ready", milestones },
+      ],
+      at(),
+    );
   }
 
   async function route(a: Extract<Action, { type: "route" }>, s: RunState): Promise<void> {

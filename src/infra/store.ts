@@ -150,9 +150,14 @@ function endsMidLine(file: string): boolean {
  * tail left by an earlier crash is ended first, in the same write, so the new row stays whole.
  */
 export function appendJsonl(file: string, value: unknown): void {
+  appendJsonlBatch(file, [value]);
+}
+
+/** Several rows in one write, so a crash leaves all of them or at worst a torn last one. */
+export function appendJsonlBatch(file: string, values: unknown[]): void {
   ensurePrivateDir(dirname(file));
   const prefix = endsMidLine(file) ? "\n" : "";
-  appendPrivate(file, `${prefix}${JSON.stringify(value)}\n`);
+  appendPrivate(file, prefix + values.map((v) => `${JSON.stringify(v)}\n`).join(""));
 }
 
 const madePrivate = new Set<string>();

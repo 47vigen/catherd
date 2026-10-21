@@ -3,6 +3,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import type { RunEvent } from "../../src/domain/run-events.ts";
 import {
   appendEvent,
+  appendEvents,
   eventsFile,
   isDaemonRun,
   readEvents,
@@ -41,6 +42,17 @@ describe("the event store", () => {
     expect(e).toMatchObject({ v: 1, seq: 1, at: "2026-10-21T10:00:00.000Z", type: "run.started" });
     expect(readFileSync(eventsFile(run), "utf8")).toBe(`${JSON.stringify(e)}\n`);
     expect(replayRun(run).title).toBe("t");
+  });
+
+  it("appends a batch whole: dense seqs in one write, and nothing when one event is invalid", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "tick" });
+    const out = await appendEvents(run, [{ type: "tick" }, { type: "cancel.requested", by: "owner" }]);
+    expect(out.map((e) => e.seq)).toEqual([2, 3]);
+    expect(readEvents(run).map((e) => e.type)).toEqual(["tick", "tick", "cancel.requested"]);
+    const bad = { type: "plan.ready" } as unknown as RunEventInput;
+    expect(appendEvents(run, [{ type: "tick" }, bad])).rejects.toThrow();
+    expect(readEvents(run)).toHaveLength(3);
   });
 
   it("reads from a seq", async () => {
