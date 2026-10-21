@@ -147,19 +147,6 @@ export function confirms(e: RunEvent): string[] {
     case "judge.decided":
     case "judge.failed":
       return (["triage", "question", "unexpected"] as const).map((k) => `judge:${e.unit}:${k}`);
-    case "question.parked":
-      return [`park:${e.unit}`];
-    case "milestone.landed":
-    case "land.refused":
-      return [`land:${e.milestone}`];
-    case "integrate.done":
-    case "integrate.conflict":
-      return [`integrate:${e.milestone}`];
-    case "milestone.merged":
-    case "base.behind":
-      return [`checkMerged:${e.milestone}`];
-    case "report.posted":
-      return [`report:${e.kind}:${e.unit}`];
     case "run.ended":
       return ["finish:run", "cancel:run"];
     case "effect.failed":
@@ -461,6 +448,16 @@ function react(s: RunState, e: RunEvent): Action[] {
   }
 }
 
+/** The reports and notices still owed: a park's and a landing's, until their `report.posted`. */
+function owedActions(s: RunState): Action[] {
+  return Object.values(s.owed)
+    .filter((o) => (s.failedEffects[`report@${o.unit}`] ?? 0) < MAX_TRIES)
+    .flatMap((o): Action[] => [
+      { type: "report", kind: o.kind, unit: o.unit, text: o.text },
+      { type: "notify", unit: o.unit, moment: o.moment },
+    ]);
+}
+
 const sameLine = (s: RunState, a: Action): boolean => a.type === "dispatch" && hasLive(s, a.name);
 
 /**
@@ -469,7 +466,7 @@ const sameLine = (s: RunState, a: Action): boolean => a.type === "dispatch" && h
  */
 export function next(state: RunState, e: RunEvent): Action[] {
   const seen = new Set<string>();
-  return [...react(state, e), ...advance(state)].filter((a) => {
+  return [...react(state, e), ...owedActions(state), ...advance(state)].filter((a) => {
     const key = actionKey(a);
     if (seen.has(key) || sameLine(state, a)) return false;
     seen.add(key);

@@ -538,6 +538,7 @@ describe("the machine: review rounds", () => {
     expect(of(last(log), "commit")).toEqual([]);
     log.add("question.parked", { unit: "M1", question: "q", reason: "commit" });
     log.add("question.answered", { unit: "M1", answer: "fixed the hook", by: "owner" });
+    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
     expect(last(log)).toEqual([{ type: "commit", milestone: "M1", round: 0 }]);
     const l = base1();
     l.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "no reviewer", fix: "run it" });
@@ -579,6 +580,12 @@ describe("the machine: the run", () => {
     log.add("question.answered", { unit: "M2", answer: "go", by: "owner" });
     log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
     expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    for (const [kind, unit] of [
+      ["landed", "M1"],
+      ["parked", "M2"],
+      ["landed", "M2"],
+    ] as const)
+      log.add("report.posted", { kind, unit, text: "x" });
     log.add("run.ended", { outcome: "done", reportPath: "report.md" });
     const out = last(log);
     expect(of(out, "report")).toMatchObject([{ kind: "finished" }]);
@@ -591,6 +598,28 @@ describe("the machine: the run", () => {
     log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
     expect(of(last(log), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
     expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "blocked" }]);
+  });
+
+  it("owes a park's report and notice until report.posted, whatever the next event is", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
+    // the daemon died before the report: the revived one sees only its own hello
+    log.add("daemon.started", { pid: 1, version: "x" });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
+    expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "blocked" }]);
+    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    expect(of(last(log), "report")).toEqual([]);
+    expect(of(last(log), "notify")).toEqual([]);
+  });
+
+  it("owes a landing's report and notice until report.posted", () => {
+    const log = base1();
+    log.add("milestone.landed", { milestone: "M1", commit: "c0abcdef", knownIssues: [], digestPath: "d" });
+    log.add("daemon.started", { pid: 1, version: "x" });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "landed", unit: "M1" }]);
+    expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "milestone" }]);
+    log.add("report.posted", { kind: "landed", unit: "M1", text: "x" });
+    expect(of(last(log), "report")).toEqual([]);
   });
 
   it("fails a limited lane over, and waits out the hold when every candidate is held", () => {

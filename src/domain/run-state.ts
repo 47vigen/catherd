@@ -4,8 +4,16 @@ import { tryParseRung } from "./ids.ts";
 import type { JudgeKind } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
+import type { NotifyMoment } from "./profile.ts";
 import type { ClimbReason } from "./route.ts";
-import { type Finding, type MilestonePlan, type ParkReason, RUN_UNIT, type RunEvent } from "./run-events.ts";
+import {
+  type Finding,
+  type MilestonePlan,
+  type ParkReason,
+  type ReportKind,
+  RUN_UNIT,
+  type RunEvent,
+} from "./run-events.ts";
 
 /** A quota that hit a limit holds this long, or less once a role on it finishes cleanly (spec 2.0 decision 6). */
 export const HOLD_MS = 30 * 60_000;
@@ -127,6 +135,14 @@ export interface OpenQuestion {
   at: string;
 }
 
+/** A report and phone notice the owner is owed: set by the event, cleared by its `report.posted`. */
+export interface OwedReport {
+  kind: ReportKind;
+  unit: string;
+  text: string;
+  moment: NotifyMoment;
+}
+
 export interface RunState {
   v: 1;
   run: string;
@@ -154,6 +170,8 @@ export interface RunState {
   waiting: Record<string, string>;
   /** unit → what the owner must be asked: the machine parks it */
   stuck: Record<string, { reason: ParkReason; question: string }>;
+  /** `kind:unit` → a report not posted yet, so a daemon that died before it sends it again */
+  owed: Record<string, OwedReport>;
 }
 
 export function emptyState(run: string): RunState {
@@ -180,6 +198,7 @@ export function emptyState(run: string): RunState {
     planDirty: false,
     waiting: {},
     stuck: {},
+    owed: {},
   };
 }
 
@@ -764,6 +783,12 @@ function apply(s: RunState, e: RunEvent): void {
       s.questions[e.unit] = { unit: e.unit, question: e.question, reason: e.reason, at: e.at };
       delete s.stuck[e.unit];
       for (const [id, j] of Object.entries(s.judges)) if (j.unit === e.unit) delete s.judges[id];
+      s.owed[`parked:${e.unit}`] = {
+        kind: "parked",
+        unit: e.unit,
+        text: `${e.unit} is parked (${e.reason}): ${e.question}`,
+        moment: "blocked",
+      };
       const l = s.lanes[e.unit];
       const m = milestoneOf(s, e.unit);
       if (l) l.status = "parked";
@@ -786,6 +811,14 @@ function apply(s: RunState, e: RunEvent): void {
         m.open = [];
         m.awaiting = [];
       }
+      s.owed[`landed:${e.milestone}`] = {
+        kind: "landed",
+        unit: e.milestone,
+        text: `${e.milestone} landed at ${e.commit.slice(0, 7)}${
+          e.knownIssues.length ? `, with ${e.knownIssues.length} known issue(s)` : ""
+        }: ${m?.title ?? ""}`.trimEnd(),
+        moment: "milestone",
+      };
       return;
     }
     case "land.refused": {
@@ -823,12 +856,14 @@ function apply(s: RunState, e: RunEvent): void {
       s.phase = "ended";
       s.outcome = e.outcome;
       return;
+    case "report.posted":
+      delete s.owed[`${e.kind}:${e.unit}`];
+      return;
     case "daemon.started":
     case "stop.classified":
     case "base.behind":
     case "integrate.done":
     case "integrate.conflict":
-    case "report.posted":
       return;
   }
 }
