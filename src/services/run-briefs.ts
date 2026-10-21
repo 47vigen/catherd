@@ -2,13 +2,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFindings } from "../domain/findings.ts";
 import { JUDGE_CONTRACT, type JudgeInput, JUDGE_VERBS } from "../domain/judge.ts";
+import { parseLaneHeader } from "../domain/lane.ts";
+import { planInputNames } from "../domain/plan-doc.ts";
+import { parseReplyDesign } from "../domain/record.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
-import { integrateName, type RunState } from "../domain/run-state.ts";
+import { integrateName, lanesOf, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
-import type { Run } from "./run-store.ts";
+import { laneTasks, milestoneTasks, PLAN_INPUT_DIR, taskBlock } from "./plan-input.ts";
+import { readRecords, type Run, runPaths } from "./run-store.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
 
@@ -52,13 +56,14 @@ const LANE_HEADER = [
   "  Fast check: <the lane's targeted tests plus the linter of every package it touches, and the type check when the repo has one, scoped to those packages>",
   "  Kind: repo_code|terminal|ui|prose|research",
   "  Difficulty: copy|build|logic|hard",
-  "Two optional lines follow: `After: Mx.Ly, …` when the lane compiles against another lane's changes, and `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions.",
+  "  Tasks: <plan task numbers, comma-separated; <plan file>#<n> when the run has several plan files>",
+  "Three optional lines follow: `After: Mx.Ly, …` when the lane compiles against another lane's changes; `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions; and `Reference: <repo path>` when the lane builds something with a close sibling in the repository.",
   "Two lanes of one milestone never own the same file.",
 ];
 
 function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
-  const delta = a.notes.length > 0;
-  const plans = s.plan;
+  // a milestone's call-back carries review findings; the run's own notes are what the owner or the plan check asked to change
+  const delta = a.notes.length > 0 && a.unit !== RUN_UNIT;
   const dossier = join(run.dir, "dossier.md");
   if (delta)
     return [
@@ -77,9 +82,14 @@ function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
     "The A-lines this run must meet:",
     ALINES(run),
     "",
-    plans.length
-      ? `A plan is in hand: ${plans.join(", ")}. Translate it, do not design: each plan task becomes lanes, each MR or phase a milestone with its full check. Copy its decisions into plan.md and the lane files, redesign only what it leaves undecided.`
-      : `Read the dossier first: ${existsSync(dossier) ? dossier : "dossier.md in the run folder"}.`,
+    s.plan.length
+      ? `The owner's approved plan: ${planInputNames(s.plan)
+          .map((n) => `${PLAN_INPUT_DIR}/${n}`)
+          .join(
+            ", ",
+          )} (read each with read_run_file). Lane the tasks the acceptance lines name, or every task when they name none.`
+      : `No plan was given: write plan.md to the depth your role text sets. The run waits for the owner's approval of it before any lane runs. Read the dossier first: ${existsSync(dossier) ? dossier : "dossier.md in the run folder"}.`,
+    ...(a.notes.length ? ["", "What to change:", ...a.notes.map((n) => `- ${n}`)] : []),
     "",
     "Write plan.md and every lanes/Mx.Ly.md yourself with write_run_file. In plan.md, one heading per milestone, `## M1 — <title>`, then its full check (the whole suite), and an `After: M0, …` line only when the milestone needs another milestone landed first (none otherwise, so a parked milestone does not hold the rest).",
     "A full check slower than about five minutes is a problem to solve: make speeding it up an early lane.",
@@ -121,6 +131,29 @@ function failingCheck(run: Run, milestone: string): string[] {
   ];
 }
 
+/** A lane's plan tasks, verbatim; nothing for a lane that names none. */
+function planTasks(run: Run, lane: string): string[] {
+  const tasks = laneTasks(run, lane);
+  return tasks.length
+    ? [
+        "",
+        "Your plan tasks. Implement them as written; where one conflicts with the code, reply DESIGN: as your role text says.",
+        ...tasks.map(taskBlock),
+      ]
+    : [];
+}
+
+/** The fast check of each lane of a milestone: a fix worker reruns those whose files it changes. */
+function fastChecks(run: Run, s: RunState, milestone: string): string[] {
+  const rows = lanesOf(s, milestone).flatMap((l) => {
+    const check = parseLaneHeader(read(join(runPaths(run.dir).lanes, `${l.id}.md`))).fastCheck;
+    return check ? [`- ${l.id} (${l.owns.join(", ")}): \`${check}\``] : [];
+  });
+  return rows.length
+    ? ["", `The fast checks of ${milestone}'s lanes; run the ones whose files you change:`, ...rows]
+    : [];
+}
+
 function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   const lane = s.lanes[a.unit];
   const fix = a.brief === "fix";
@@ -131,12 +164,14 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
     ALINES(run),
     "",
     `Own only the files on your lane's Owns: line; change nothing else. ${READ_RULES}`,
+    ...planTasks(run, a.unit),
     ...(fix
       ? [
           "",
           "This is a fix round. Fix exactly these, each as it was reported, and nothing beside them:",
           ...a.notes.map((n) => `- ${n}`),
           ...(a.notes.length && lane ? failingCheck(run, lane.milestone) : []),
+          ...(lane ? fastChecks(run, s, lane.milestone) : []),
         ]
       : []),
     "",
@@ -161,6 +196,49 @@ function integrateBrief(run: Run, s: RunState, a: DispatchAction): string {
 
 function milestoneBase(run: Run): string {
   return landedCommits(run).at(-1) ?? run.meta.startHead ?? "HEAD~1";
+}
+
+/** The milestone's plan tasks, and every file a lane changed outside its Owns, declared on an EXTRA: line or not. */
+function reviewPlan(run: Run, s: RunState, milestone: string): string[] {
+  const tasks = milestoneTasks(run, milestone);
+  const { records } = readRecords(run);
+  const outside = lanesOf(s, milestone).flatMap((l) => {
+    const r = records.filter((x) => x.lane === l.id).at(-1);
+    if (!r) return [];
+    const declared = r.extras ?? [];
+    return [
+      ...declared.map((e) => `- ${e.path} — declared by ${r.name}${e.why ? `: ${e.why}` : ""}`),
+      ...r.violations
+        .filter((v) => !declared.some((e) => e.path === v))
+        .map((v) => `- ${v} — not declared by ${r.name}`),
+    ];
+  });
+  return [
+    ...(tasks.length ? ["", "The plan tasks this milestone implements:", ...tasks.map(taskBlock)] : []),
+    ...(outside.length ? ["", "Files changed outside their lane:", ...outside] : []),
+  ];
+}
+
+/** The findings a fix round rejected since the milestone's latest review ended, for the re-check to judge. */
+function rejections(run: Run, s: RunState, milestone: string): string[] {
+  const reviewed = Object.values(s.dispatches)
+    .filter((d) => (d.name === `reviewer-${milestone}` || d.name === `reviewer-${milestone}-2`) && d.ended)
+    .map((d) => (d.ended as { at: string }).at)
+    .sort()
+    .at(-1);
+  const lanes = new Set(lanesOf(s, milestone).map((l) => l.id));
+  const rows = readRecords(run).records.flatMap((r) =>
+    r.lane && lanes.has(r.lane) && (reviewed === undefined || r.endedAt > reviewed)
+      ? (r.rejected ?? []).map((x) => `- ${r.name}: REJECTED: ${x.finding}${x.why ? ` — ${x.why}` : ""}`)
+      : [],
+  );
+  return rows.length
+    ? [
+        "",
+        "A fix round rejected these findings instead of changing the code. Judge each reason: a finding whose reason holds is closed; one whose reason does not hold stands, with your answer to the reason.",
+        ...rows,
+      ]
+    : [];
 }
 
 function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
@@ -189,6 +267,8 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
           "",
           `This is a re-check: the lines you reported last time were fixed in ${m?.commit?.slice(0, 12) ?? "HEAD"}. Re-check only these BLOCKER and BUG lines, and report each that is still open as it was, plus any new BLOCKER or BUG the fixes introduced:`,
           ...open.map((f) => `- ${f.text}`),
+          ...reviewPlan(run, s, a.unit),
+          ...rejections(run, s, a.unit),
           "",
           "With none open and none new, the reply is CLEAN.",
         ].join("\n");
@@ -211,6 +291,7 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     "The A-lines this run must meet:",
     ALINES(run),
+    ...reviewPlan(run, s, a.unit),
     "",
     "Report every finding as: BLOCKER|BUG|NIT file:line — problem — fix. Cover:",
     "- unmet A-lines and edge cases;",
@@ -302,6 +383,11 @@ export function judgeBrief(run: Run, input: JudgeInput): string {
   const reply = /^reply: (\S+)$/m.exec(input.context)?.[1];
   const tail = reply ? read(join(run.dir, reply)).trimEnd().slice(-REPLY_TAIL) : "";
   const verbs = JUDGE_VERBS[input.kind].join(", ");
+  // a worker's DESIGN: line (in the reply, or quoted in the context) is a conflict between the plan and the code
+  const design =
+    input.kind === "question" &&
+    (/^\s*DESIGN:/m.test(input.context) ||
+      parseReplyDesign(reply ? read(join(run.dir, reply)) : "").length > 0);
   return [
     `You are the judge of catherd run ${run.id} (${run.meta.title}). One decision, from only what this brief gives you and the run's files (${run.dir}). You never edit a file.`,
     "",
@@ -311,6 +397,13 @@ export function judgeBrief(run: Run, input: JudgeInput): string {
     ALINES(run),
     "",
     input.context,
+    ...(design
+      ? [
+          "",
+          "The worker's DESIGN: line says the approved plan conflicts with the code. Answer only when the plan itself settles it (another task, its contracts, its decisions); a change to what the plan decided is the owner's: ask_owner.",
+          ...laneTasks(run, input.unit).map(taskBlock),
+        ]
+      : []),
     ...(tail ? ["", "The reply's last lines:", tail] : []),
     ...(input.findings.length ? ["", "Findings:", ...input.findings.map((f, i) => `${i + 1}. ${f}`)] : []),
     "",

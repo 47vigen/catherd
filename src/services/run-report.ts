@@ -4,7 +4,7 @@ import type { JudgeDecision } from "../domain/judge.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { writeTextAtomic } from "../infra/store.ts";
-import type { Run } from "./run-store.ts";
+import { readRecords, type Run } from "./run-store.ts";
 
 const read = (file: string): string => {
   try {
@@ -62,6 +62,10 @@ export function writeRunReport(
   const audit = [
     ...decided.map((e) => `- ${e.unit} (${e.kind}): ${e.decision.verb}: ${oneLine(said(e.decision))}`),
     ...Object.entries(audits).flatMap(([m, lines]) => lines.map((l) => `- ${m} (check): ${oneLine(l)}`)),
+    // a worker's conflict with its plan task, in record order
+    ...readRecords(run).records.flatMap((r) =>
+      (r.design ?? []).map((d) => `- ${r.name} DESIGN: ${oneLine(d)}`),
+    ),
   ];
   lines.push(...(audit.length ? audit : ["No judge decision."]), "");
   const file = join(run.dir, "report.md");
