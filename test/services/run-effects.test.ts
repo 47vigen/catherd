@@ -541,6 +541,18 @@ describe("routing, checking, committing, landing", () => {
     expect(git(repo, "status", "--porcelain")).toBe("?? stray.txt\n");
   });
 
+  it("leaves work that was already staged outside the milestone's paths staged", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    writeFile(repo, "other.ts");
+    git(repo, "add", "other.ts");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(git(repo, "show", "--name-only", "--format=", "HEAD")).toBe("src/a/x.ts\n");
+    expect(git(repo, "status", "--porcelain")).toBe("A  other.ts\n");
+  });
+
   it("commits a fix round under a fix subject, adding what a record says the lane changed", async () => {
     const { run, repo, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);

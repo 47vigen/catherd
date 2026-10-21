@@ -415,13 +415,25 @@ export function realEffects(deps: Deps, run: Run): Effects {
       // an Owns: entry the lane never created is no error
       if (r.code !== 0 && !/did not match any files/.test(r.err)) return void (await failed(r));
     }
-    const staged = await gitRun(repo, ["diff", "--cached", "--quiet"], effectLimits.commitMs);
-    if (staged.code !== 0 && staged.code !== 1) return void (await failed(staged));
-    if (staged.code === 1) {
+    // only what the milestone owns: work staged elsewhere stays staged and out of the commit
+    const staged = paths.size
+      ? await gitRun(
+          repo,
+          ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--", ...paths],
+          effectLimits.commitMs,
+        )
+      : { code: 0, out: "", err: "", timedOut: false };
+    if (staged.code !== 0) return void (await failed(staged));
+    const files = staged.out.split("\0").filter(Boolean);
+    if (files.length) {
       const title = lower(m?.title ?? a.milestone);
       const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
       const subject = `${`${a.round === 0 ? "feat" : "fix"}: ${title}`.slice(0, 100 - suffix.length)}${suffix}`;
-      const c = await gitRun(repo, ["commit", "-m", subject], effectLimits.commitMs);
+      const c = await gitRun(
+        repo,
+        ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
+        effectLimits.commitMs,
+      );
       if (c.code !== 0) return void (await failed(c));
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);
