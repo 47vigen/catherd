@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import type { Dim } from "../../src/domain/catalog.ts";
-import { ladderDropDims } from "../../src/domain/failover.ts";
-import { DIFFICULTIES, type Difficulty, KINDS, type Kind } from "../../src/domain/lane.ts";
+import { barOf } from "../../src/domain/bars.ts";
+import { pairOf } from "../../src/domain/catalog.ts";
+import { ladderDrop } from "../../src/domain/failover.ts";
+import { DIFFICULTIES } from "../../src/domain/lane.ts";
+import { defaultProfileDoc, resolveProfile } from "../../src/domain/profile.ts";
+import { routingProfileOf } from "../../src/domain/profile-rules.ts";
 import {
   candidates,
   defaultDifficulty,
@@ -10,365 +13,252 @@ import {
   type RoutingProfile,
   select,
 } from "../../src/domain/select.ts";
-import { shipped } from "./shipped.ts";
+import { indexOf, shipped } from "./shipped.ts";
 
-const LADDER = [
-  "codex:gpt-6-luna#high",
-  "codex:gpt-6-sol#medium",
-  "codex:gpt-6-sol#high",
-  "codex:gpt-6-sol#xhigh",
-];
-const [LUNA_HIGH, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH] = LADDER as [string, string, string, string];
+const LUNA = "codex:gpt-6-luna#high";
+const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+const MED = "codex:gpt-6-sol#medium";
+const HIGH = "codex:gpt-6-sol#high";
+const XHIGH = "codex:gpt-6-sol#xhigh";
+const LADDER = [LUNA, MED, HIGH, XHIGH];
+
+const price = { inputPrice: 2, outputPrice: 10 };
 /**
- * Track A: Luna high (repo_code 66.6, carried from max) clears the 60.95 copy bar; Sol medium (56.6) does not.
- * Spec 1.5 plan 24: the ladder only goes up, so Sol high (65.3) is off it; Sol xhigh (66.6) stays.
+ * Five pairs in the shipped families, so the pool is [20, 30, 40, 50, 60] and the bars are copy 30, build 40,
+ * logic 44, hard 50. Speeds, tokens per second: Luna high 100, Sol high 90, Sol xhigh 70, Sol medium 50.
  */
-const TRACK_A = { rung: LUNA_HIGH, ladder: [LUNA_HIGH, SOL_XHIGH] };
-/** the build bar is the median, 66.6: Luna high and Sol xhigh reach it */
-const BUILD = { rung: LUNA_HIGH, ladder: [LUNA_HIGH, SOL_XHIGH] };
-/** nothing clears: the default rung and every rung at least as strong on the bar */
-const TRACK_B = { rung: SOL_MEDIUM, ladder: LADDER.slice(1) };
-const noClear = (kind: Kind, d: Difficulty) =>
-  expect.stringMatching(new RegExp(`^no rung clears ${kind}/${d}; best is `));
+const PAIRS = {
+  "gpt-6-luna#high": { intelligence: 30, speed: 100, inputPrice: 0.1, outputPrice: 0.5 },
+  "gpt-6-sol#medium": { intelligence: 20, speed: 50, ...price },
+  "gpt-6-sol#high": { intelligence: 40, speed: 90, ...price },
+  "gpt-6-sol#xhigh": { intelligence: 50, speed: 70, ...price },
+  "claude-opus-5-5#max": 60,
+};
+const cat = (over: Parameters<typeof indexOf>[0] = {}) => shipped({ index: indexOf({ ...PAIRS, ...over }) });
 
-/** Spec §7.2's default worker: the four Codex rungs, default sol#medium, the owner's billing. */
+/** Spec §7.2's default worker, the default rung Sol medium, the owner's billing. */
 const worker = (over: Partial<RoutingProfile> = {}, rungs = LADDER): RoutingProfile => ({
   objective: "cost",
   billing: {},
-  role: { enabled: true, rungs, defaultRung: "codex:gpt-6-sol#medium" },
+  role: { enabled: true, rungs, defaultRung: MED },
   ...over,
 });
 
-/**
- * Spec 1.2 §5: the default worker on the shipped bars of 2026-09-28. Sol reaches no Track B bar (agentic
- * 0.0818 is below 0.08606, repo_code 66.6 below 67), so logic and hard lanes start at the default rung, and
- * `noClear` says so (spec 1.5 plan 24); terminal copy needs Terminal-Bench 40.15, which Sol clears (43,
- * carried from max) and Luna (13) does not, and nothing reaches terminal build's 55.8; ui build needs frontend
- * 1617 and repo_code 66.6, which only Sol xhigh clears, so ui logic and hard start there too: no lower than
- * build, since Sol xhigh scores at least the default rung on their bars.
- */
-const approved = (kind: Kind, d: Difficulty) => {
-  if (kind === "terminal") return d === "copy" ? TRACK_B : { ...TRACK_B, noClear: noClear(kind, d) };
-  if (kind === "ui" && d !== "copy") {
-    const xhigh = { rung: SOL_XHIGH, ladder: [SOL_XHIGH] };
-    return d === "build" ? xhigh : { ...xhigh, noClear: noClear(kind, d) };
-  }
-  if (d === "logic" || d === "hard") return { ...TRACK_B, noClear: noClear(kind, d) };
-  return d === "copy" ? TRACK_A : BUILD;
-};
-
-describe("the approved ladder: default worker on the shipped catalog", () => {
-  for (const kind of KINDS)
-    for (const d of DIFFICULTIES)
-      it(`${kind}/${d}`, () => {
-        expect(select(shipped(), worker(), "worker", kind, d)).toEqual(approved(kind, d));
-      });
-
-  it("falls back to Track B from the default rung", () => {
-    expect(defaultLadder(shipped(), worker(), "worker")).toEqual(TRACK_B);
-  });
-
-  it("holds with the rungs enabled in any order", () => {
-    expect(select(shipped(), worker({}, [...LADDER].reverse()), "worker", "repo_code", "copy")).toEqual(
-      TRACK_A,
-    );
-  });
-});
-
 describe("select", () => {
-  it("runs a single-rung role on that rung, whatever the bar", () => {
-    const p = worker({}, ["claude:claude-opus-5-5#high"]);
-    expect(select(shipped(), p, "architect", "repo_code", "copy")).toEqual({
-      rung: "claude:claude-opus-5-5#high",
-      ladder: ["claude:claude-opus-5-5#high"],
-    });
+  it("starts on the cheapest rung that clears the difficulty's bar, one bar for every kind", () => {
+    const c = cat();
+    expect(DIFFICULTIES.map((d) => barOf(c, d))).toEqual([30, 40, 44, 50]);
+    // copy 30: Luna high is the cheapest and clears; Sol medium (20) is below it and never climbed onto
+    expect(select(c, worker(), "worker", "copy")).toEqual({ rung: LUNA, ladder: [LUNA, HIGH, XHIGH] });
+    expect(select(c, worker(), "worker", "build")).toEqual({ rung: HIGH, ladder: [HIGH, XHIGH] });
+    expect(select(c, worker(), "worker", "logic")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
+    expect(select(c, worker(), "worker", "hard")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
   });
 
-  it("skips bad, unoffered, unlisted, incapable and unscored rungs, and refuses an empty role", () => {
+  it("runs a single-rung role on that rung, whatever the bar, and says when it misses", () => {
+    const only = worker({}, [MED]);
+    expect(select(cat(), only, "architect", "copy")).toEqual({
+      rung: MED,
+      ladder: [MED],
+      noClear: "no rung clears copy (bar 30.0); best is codex:gpt-6-sol#medium (20.0)",
+    });
+    expect(select(cat(), worker({}, [XHIGH]), "architect", "copy")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
+  });
+
+  it("skips bad, unoffered, unlisted, incapable and unindexed rungs, and refuses an empty role", () => {
     const listed = {
       codex: {
         fetchedAt: "2026-09-25T00:00:00.000Z",
-        models: [
-          {
-            id: "gpt-6-sol",
-            efforts: ["low", "medium", "high", "xhigh", "max"],
-            context: 272000,
-            imageIn: true,
-          },
-        ],
+        models: [{ id: "gpt-6-sol", efforts: ["low", "medium", "high", "xhigh"], context: 1, imageIn: true }],
       },
     };
+    const c = shipped({ listed, index: indexOf({ ...PAIRS, "gpt-6-sol#low": 15, "gpt-6-sol#max": 55 }) });
     const p = worker({}, [
       "nonsense",
-      "codex:gpt-6-sol#ultra",
-      "codex:gpt-6-luna#high",
+      "codex:gpt-6-sol#ultra", // no pair at all
+      "codex:gpt-6-sol#max", // indexed, but the listing does not offer it
+      LUNA, // the listing lacks gpt-6-luna
       "codex:gpt-6-sol#low",
-      "opencode:opencode-go/kimi-k3#default",
-      "codex:gpt-6-sol#medium",
+      "opencode:opencode-go/kimi-k3#default", // no pair
+      MED,
     ]);
-    expect(candidates(shipped({ listed }), p, "worker").map((x) => x.rung)).toEqual([
-      "codex:gpt-6-sol#low",
-      "codex:gpt-6-sol#medium",
-    ]);
-    expect(() =>
-      select(shipped(), worker({}, ["claude-code:claude-opus-5-5#high"]), "artist", "ui", "build"),
-    ).toThrow(/role "artist" has no enabled, capable, scored rung/);
-    expect(candidates(shipped(), { ...worker(), role: { enabled: false, rungs: LADDER } }, "worker")).toEqual(
-      [],
+    expect(candidates(c, p, "worker").map((x) => x.rung)).toEqual(["codex:gpt-6-sol#low", MED]);
+    expect(() => select(c, worker({}, ["claude-code:claude-opus-5-5#max"]), "artist", "build")).toThrow(
+      'role "artist" has no enabled, capable, indexed rung',
     );
-  });
-
-  it("places a treat-like rung with the scores it borrows; unpriced on Go, it costs 0 and starts first", () => {
-    const c = shipped({
-      override: {
-        schema: 1,
-        treatLike: { "opencode-go/kimi-k3#default": "gpt-6-sol#medium" },
-        scores: [],
-        bars: {},
-      },
-    });
-    const kimi = "opencode:opencode-go/kimi-k3#default";
-    const p = worker({}, [...LADDER, kimi]);
-    expect(candidates(c, p, "worker")[0]?.rung).toBe(kimi);
-    // terminal copy: Sol's borrowed Terminal-Bench 43 clears 40.15, and the unpriced Go rung is the cheapest
-    expect(select(c, p, "worker", "terminal", "copy")).toEqual({
-      rung: kimi,
-      ladder: [kimi, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH],
-      tie: expect.stringMatching(/^tie on terminal with codex:gpt-6-sol#medium, /),
-    });
-  });
-
-  it("breaks a cost tie on the profile's ladder order (spec 1.5 plan 24)", () => {
-    const c = shipped({
-      override: {
-        schema: 1,
-        treatLike: {
-          "opencode-go/kimi-k3#default": "gpt-6-sol#medium",
-          "opencode-go/glm-5#default": "gpt-6-sol#medium",
-        },
-        scores: [],
-        bars: {},
-      },
-    });
-    const kimi = "opencode:opencode-go/kimi-k3#default";
-    const glm = "opencode:opencode-go/glm-5#default";
-    const first = (rungs: string[]) => candidates(c, worker({}, rungs), "worker").map((x) => x.rung);
-    expect(first([glm, kimi, SOL_MEDIUM])).toEqual([glm, kimi, SOL_MEDIUM]);
-    expect(first([kimi, glm, SOL_MEDIUM])).toEqual([kimi, glm, SOL_MEDIUM]);
-    expect(first([kimi, glm, SOL_MEDIUM]).slice(0, 2)).toEqual(
-      candidates(c, worker({ objective: "speed" }, [kimi, glm, SOL_MEDIUM]), "worker")
-        .map((x) => x.rung)
-        .slice(0, 2),
-    );
+    expect(candidates(c, { ...worker(), role: { enabled: false, rungs: LADDER } }, "worker")).toEqual([]);
   });
 
   it("ranks subscription rungs before metered ones, then by cost", () => {
-    const p = worker({}, [
-      "opencode:opencode/gpt-6-luna#high",
-      "codex:gpt-6-sol#xhigh",
-      "opencode:opencode-go/gpt-6-luna#high",
-    ]);
-    expect(candidates(shipped(), p, "worker").map((x) => x.rung)).toEqual([
-      "opencode:opencode-go/gpt-6-luna#high",
-      "codex:gpt-6-sol#xhigh",
+    const c = cat({ "claude-opus-5-5#max": 60 });
+    const p = worker({}, ["opencode:opencode/gpt-6-luna#high", XHIGH, GO_LUNA]);
+    expect(candidates(c, p, "worker").map((x) => x.rung)).toEqual([
+      GO_LUNA,
+      XHIGH,
       "opencode:opencode/gpt-6-luna#high",
     ]);
+  });
+
+  it("breaks a cost tie on the profile's ladder order (spec 1.5 plan 24)", () => {
+    const c = cat({ "kimi-k3#max": { intelligence: 45 }, "glm-5#high": { intelligence: 45 } });
+    const kimi = "opencode:opencode-go/kimi-k3#max";
+    const glm = "opencode:opencode-go/glm-5#high";
+    const order = (rungs: string[]) => candidates(c, worker({}, rungs), "worker").map((x) => x.rung);
+    // both unpriced on Go: cost 0 each
+    expect(order([glm, kimi, MED])).toEqual([glm, kimi, MED]);
+    expect(order([kimi, glm, MED])).toEqual([kimi, glm, MED]);
+  });
+
+  it("climbs only onto rungs at least as intelligent as the last one kept", () => {
+    // Opus low is cheaper than Opus medium on the Claude plan, and a stronger rung is kept wherever cost puts it
+    const c = shipped({
+      index: indexOf({
+        "claude-sonnet-5-5#medium": { intelligence: 30, ...price },
+        "claude-opus-5-5#low": { intelligence: 42, inputPrice: 1, outputPrice: 5 },
+        "claude-opus-5-5#medium": { intelligence: 51, ...price },
+        "claude-sonnet-5-5#high": { intelligence: 46, ...price },
+      }),
+    });
+    const rungs = [
+      "claude-code:claude-sonnet-5-5#medium",
+      "claude-code:claude-opus-5-5#low",
+      "claude-code:claude-sonnet-5-5#high",
+      "claude-code:claude-opus-5-5#medium",
+    ];
+    const p = worker({}, rungs);
+    p.role.defaultRung = rungs[0];
+    for (const d of DIFFICULTIES) {
+      const { ladder } = select(c, p, "worker", d);
+      ladder.slice(1).forEach((upper, i) => expect(ladderDrop(c, ladder[i] as string, upper)).toBe(false));
+    }
+    // Sonnet high (46) comes after Opus medium (51) in cost order and is below it: never on the ladder
+    expect(defaultLadder(c, p, "worker").ladder).toEqual([
+      rungs[0] as string,
+      rungs[1] as string,
+      rungs[3] as string,
+    ]);
+  });
+
+  it("starts on the default rung, raised to an easier difficulty's start, when nothing clears, and says so", () => {
+    // no Sol xhigh: logic (44) and hard (50) clear nothing; Sol medium is the default (20), but build's start,
+    // Sol high (40), is more intelligent, so a logic or hard lane starts there
+    const rungs = [LUNA, MED, HIGH];
+    const c = cat();
+    const logic = select(c, worker({}, rungs), "worker", "logic");
+    expect(logic).toEqual({
+      rung: HIGH,
+      ladder: [HIGH],
+      noClear:
+        "no rung clears logic (bar 44.0); best is codex:gpt-6-sol#high (40.0); started at build's start",
+    });
+    expect(select(c, worker({}, rungs), "worker", "hard").noClear).toMatch(
+      /^no rung clears hard \(bar 50\.0\); best is codex:gpt-6-sol#high \(40\.0\); started at build's start$/,
+    );
+  });
+
+  it("starts on the default rung, with no raise, when no easier start is more intelligent", () => {
+    // every bar above every candidate: the default rung starts, and the ladder goes up from it
+    const c = shipped({
+      index: indexOf({ ...PAIRS, "claude-opus-5-5#max": 90, "claude-opus-5-5#xhigh": 90 }),
+    });
+    const pick = select(c, worker({}, [LUNA, MED]), "worker", "hard");
+    expect(pick.noClear).toMatch(
+      /^no rung clears hard \(bar \d+\.\d\); best is codex:gpt-6-luna#high \(30\.0\)$/,
+    );
+    expect(pick.rung).toBe(MED);
+    expect(pick.ladder).toEqual([MED, LUNA]);
   });
 });
 
 describe("objective speed", () => {
-  it("orders by effort within a model until a rung has 5 own runs, then by its median seconds", () => {
-    const speed = worker({ objective: "speed" });
-    expect(candidates(shipped(), speed, "worker").map((x) => x.rung)).toEqual(LADDER);
-    const secs = { "gpt-6-sol#medium|*": 264, "gpt-6-sol#high|*": 391 };
-    expect(candidates(shipped({ secs }), speed, "worker").map((x) => x.rung)).toEqual([
-      "codex:gpt-6-sol#medium",
-      "codex:gpt-6-sol#high",
-      "codex:gpt-6-luna#high",
-      "codex:gpt-6-sol#xhigh",
-    ]);
+  const speed = (over: Partial<RoutingProfile> = {}, rungs = LADDER) =>
+    worker({ objective: "speed", ...over }, rungs);
+
+  it("orders by speed, fastest first, a pair with none last, then cost", () => {
+    const c = cat({ "gpt-6-sol#xhigh": { intelligence: 50, speed: null, ...price } });
+    expect(candidates(c, speed(), "worker").map((x) => x.rung)).toEqual([LUNA, HIGH, MED, XHIGH]);
   });
 
-  it("uses the kind's own timings before the all-kinds median", () => {
-    const secs = { "gpt-6-sol#high|terminal": 100, "gpt-6-sol#high|*": 900, "gpt-6-sol#medium|*": 300 };
-    const order = candidates(shipped({ secs }), worker({ objective: "speed" }), "worker", "terminal");
-    expect(order.map((x) => x.rung).slice(0, 2)).toEqual(["codex:gpt-6-sol#high", "codex:gpt-6-sol#medium"]);
+  it("under speed, starts on the fastest clearing pair that has a speed; one with none starts only when no pair with one clears", () => {
+    const c = cat({ "gpt-6-sol#xhigh": { intelligence: 50, speed: null, ...price } });
+    // build (40): Sol high (90) and Sol xhigh (no speed) clear: the one with a speed starts
+    expect(select(c, speed(), "worker", "build")).toEqual({ rung: HIGH, ladder: [HIGH, XHIGH] });
+    // hard (50): only Sol xhigh clears, and it has no speed: it starts all the same
+    expect(select(c, speed(), "worker", "hard")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
+    // copy (30): Luna high is the fastest that clears
+    expect(select(cat(), speed(), "worker", "copy").rung).toBe(LUNA);
   });
 
-  it("falls back from the default rung up the cost order, not onto a slower rung", () => {
-    const secs = { "gpt-6-sol#medium|*": 100, "gpt-6-luna#high|*": 300 };
-    expect(defaultLadder(shipped({ secs }), worker({ objective: "speed" }), "worker")).toEqual(TRACK_B);
+  it("never climbs onto a weaker rung under speed", () => {
+    // build (40) starts on Sol high; Luna high (30) and Sol medium (20) are fast but weaker: off the ladder
+    expect(select(cat(), speed(), "worker", "build")).toEqual({ rung: HIGH, ladder: [HIGH, XHIGH] });
+    expect(select(cat(), speed(), "worker", "copy")).toEqual({ rung: LUNA, ladder: [LUNA, HIGH, XHIGH] });
   });
 
-  it("starts fast but never climbs onto a weaker rung", () => {
-    const secs = { "gpt-6-sol#high|repo_code": 200, "gpt-6-luna#high|repo_code": 500 };
-    const d = select(shipped({ secs }), worker({ objective: "speed" }), "worker", "repo_code", "copy");
-    // Sol high (65.3) starts; Luna high and Sol xhigh (66.6 each) are at least as strong, cheapest first
-    expect(d).toEqual({ rung: SOL_HIGH, ladder: [SOL_HIGH, LUNA_HIGH, SOL_XHIGH] });
+  it("falls back from the default rung up the cost order, not onto a faster, weaker rung", () => {
+    const rungs = [LUNA, MED, HIGH];
+    const pick = select(cat(), speed({}, rungs), "worker", "hard");
+    expect(pick.rung).toBe(HIGH);
+    expect(pick.noClear).toMatch(/^no rung clears hard/);
   });
 
-  it("sorts a ui speed ladder on frontend, the dimension ui gates on", () => {
-    const secs = { "gpt-6-sol#xhigh|ui": 50 };
-    const d = select(shipped({ secs }), worker({ objective: "speed" }), "worker", "ui", "build");
-    expect(d.rung).toBe(SOL_XHIGH);
-  });
-
-  it("keeps the approved pin under cost whatever the timings", () => {
-    const secs = { "gpt-6-sol#high|*": 1, "gpt-6-luna#high|*": 9999 };
-    expect(select(shipped({ secs }), worker(), "worker", "repo_code", "copy")).toEqual(TRACK_A);
+  it("keeps the cost ladder as the default ladder under either objective", () => {
+    expect(defaultLadder(cat(), speed(), "worker")).toEqual(defaultLadder(cat(), worker(), "worker"));
+    expect(defaultLadder(cat(), worker(), "worker")).toEqual({ rung: MED, ladder: [MED, LUNA, HIGH, XHIGH] });
   });
 });
 
 describe("defaultDifficulty", () => {
-  it("never falls to copy, the cheapest start, when the default rung clears no bar (M-3)", () => {
-    const c = shipped();
-    for (const d of DIFFICULTIES) c.bars.repo_code[d] = { repo_code: 1e9 };
-    expect(defaultDifficulty(c, worker(), "worker", "repo_code")).toBe("build");
+  it("is the hardest bar the default rung clears, build when it clears none", () => {
+    // default Sol medium (20) clears nothing: build
+    expect(defaultDifficulty(cat(), worker(), "worker")).toBe("build");
+    // default Sol high (40) clears copy and build
+    const high = worker();
+    high.role.defaultRung = HIGH;
+    expect(defaultDifficulty(cat(), high, "worker")).toBe("build");
+    // default Sol xhigh (50) clears every bar
+    const xhigh = worker();
+    xhigh.role.defaultRung = XHIGH;
+    expect(defaultDifficulty(cat(), xhigh, "worker")).toBe("hard");
+    const luna = worker();
+    luna.role.defaultRung = LUNA;
+    expect(defaultDifficulty(cat(), luna, "worker")).toBe("copy");
   });
 });
 
-describe("climb ladders only go up (spec 1.5 plan 24)", () => {
-  /** the identity run's M1.L2: a Sol start with two weaker Go rungs above it in cost order */
-  const goWeak = () =>
-    shipped({
-      override: {
-        schema: 1,
-        treatLike: {
-          "opencode-go/deepseek-v4.1-flash#default": "gpt-6-luna#medium",
-          "opencode-go/glm-5.3-flash#default": "gpt-6-luna#low",
-        },
-        scores: [],
-        bars: {},
-      },
-    });
-  const DEEPSEEK = "opencode:opencode-go/deepseek-v4.1-flash#default";
-  const GLM = "opencode:opencode-go/glm-5.3-flash#default";
-
-  it("keeps a weaker rung off the ladder when nothing clears the bar, and says which rung comes closest", () => {
-    const p = worker({ billing: { "opencode-go": "metered" } }, [SOL_MEDIUM, DEEPSEEK, GLM]);
-    const pick = select(goWeak(), p, "worker", "repo_code", "hard");
-    expect(pick.rung).toBe(SOL_MEDIUM);
-    expect(pick.ladder).toEqual([SOL_MEDIUM]);
-    expect(pick.noClear).toBe(
-      "no rung clears repo_code/hard; best is codex:gpt-6-sol#medium (repo_code 56.6 < 70.9, agentic 0.0818 < 0.1077)",
-    );
-  });
-
-  it("puts a stronger rung on the ladder even when cost orders it below the start", () => {
-    const c = shipped();
-    // Opus low (74.2, every dimension above Sonnet medium's) costs less than Sonnet medium on the Claude plan
-    const p = worker({}, ["claude-code:claude-sonnet-5#medium", "claude-code:claude-opus-5-5#low"]);
-    p.role.defaultRung = "claude-code:claude-sonnet-5#medium";
-    expect(defaultLadder(c, p, "worker")).toEqual({
-      rung: "claude-code:claude-sonnet-5#medium",
-      ladder: ["claude-code:claude-sonnet-5#medium", "claude-code:claude-opus-5-5#low"],
-    });
-  });
-
-  it("never steps down between two rungs above the start, on a mixed Codex and Claude ladder", () => {
-    // final review Important 1: each rung was checked only against the start, so Sol xhigh (cheapest by cost
-    // after the Claude plan's Opus) followed Opus medium, scoring below it on every dimension
-    const c = shipped();
-    const rungs = [
-      ...LADDER,
-      "claude-code:claude-opus-5-5#low",
-      "claude-code:claude-opus-5-5#medium",
-      "claude-code:claude-sonnet-5-5#high",
-      "codex:gpt-6-luna#xhigh",
-      "codex:gpt-6-luna#max",
-    ];
-    const p = worker({}, rungs);
-    const scores = new Map(candidates(c, p, "worker").map((x) => [x.rung, x.scores]));
-    for (const kind of KINDS)
-      for (const d of DIFFICULTIES) {
-        const { ladder } = select(c, p, "worker", kind, d);
-        const dims = Object.keys(c.bars[kind][d]) as Dim[];
-        for (const [i, upper] of ladder.slice(1).entries()) {
-          const lower = ladder[i] as string;
-          expect({ kind, d, lower, upper, down: ladderDropDims(c, lower, upper) }).toEqual({
-            kind,
-            d,
-            lower,
-            upper,
-            down: [],
-          });
-          const below = dims.filter(
-            (dim) => (scores.get(upper)?.[dim] ?? -Infinity) < (scores.get(lower)?.[dim] ?? -Infinity),
-          );
-          expect({ kind, d, lower, upper, below }).toEqual({ kind, d, lower, upper, below: [] });
-        }
-      }
-    // the shape of the repro: Sol xhigh is no longer above Opus medium on repo_code copy
-    expect(select(c, p, "worker", "repo_code", "copy").ladder.slice(-2)).toEqual([
-      "claude-code:claude-opus-5-5#low",
-      "claude-code:claude-opus-5-5#medium",
-    ]);
-  });
-
-  it("starts a lane no lower than an easier difficulty's start that scores at least the default on its bar", () => {
-    const c = shipped();
-    for (const d of DIFFICULTIES) c.bars.repo_code[d] = { repo_code: d === "copy" ? 60 : 1e9 };
-    // build, logic and hard clear nothing; copy's start (Luna high, 66.6) beats the default (Sol medium, 56.6)
-    // on the only dimension those bars have, so they start at Luna high, not the default rung
-    const pick = select(c, worker(), "worker", "repo_code", "logic");
-    expect(pick.rung).toBe(LUNA_HIGH);
-    expect(pick.ladder).toEqual([LUNA_HIGH, SOL_XHIGH]);
-  });
-});
-
-describe("equal scores go to the quota with more headroom (spec 1.5 plan 24)", () => {
-  // the identity run: DeepSeek on OpenCode Go is treated like Luna high, so the two tie on every dimension
-  const c = () =>
-    shipped({
-      override: {
-        schema: 1,
-        treatLike: { "opencode-go/deepseek-v4.1-flash#default": "gpt-6-luna#high" },
-        scores: [],
-        bars: {},
-      },
-    });
-  const DEEPSEEK = "opencode:opencode-go/deepseek-v4.1-flash#default";
-  const rungs = [LUNA_HIGH, DEEPSEEK, SOL_MEDIUM, SOL_HIGH, SOL_XHIGH];
+describe("equal intelligence goes to the quota with more headroom (spec 1.5 plan 24)", () => {
+  // Luna on Go is the same model at the same intelligence and price as Luna on Codex: a tie on every bar
+  const rungs = [LUNA, GO_LUNA, MED, HIGH, XHIGH];
 
   it("starts on the less used quota and says the tie decided", () => {
-    const p = worker({ usage: { codex: 3, "opencode-go": 0 } }, rungs);
-    const pick = select(c(), p, "worker", "repo_code", "copy");
-    expect(pick.rung).toBe(DEEPSEEK);
-    expect(pick.ladder).toEqual([DEEPSEEK, LUNA_HIGH, SOL_XHIGH]);
+    const pick = select(cat(), worker({ usage: { codex: 3, "opencode-go": 0 } }, rungs), "worker", "copy");
+    expect(pick.rung).toBe(GO_LUNA);
+    expect(pick.ladder).toEqual([GO_LUNA, LUNA, HIGH, XHIGH]);
     expect(pick.tie).toBe(
-      `tie on repo_code with ${LUNA_HIGH}, ${SOL_XHIGH}: started on ${DEEPSEEK}; opencode-go has the most headroom (dispatches in this run: opencode-go 0, codex 3)`,
+      `tie on intelligence with ${LUNA}: started on ${GO_LUNA}; opencode-go has the most headroom (dispatches in this run: codex 3, opencode-go 0)`,
     );
-    const back = select(
-      c(),
-      worker({ usage: { codex: 1, "opencode-go": 2 } }, rungs),
-      "worker",
-      "repo_code",
-      "copy",
-    );
-    expect(back.rung).toBe(LUNA_HIGH);
+    const back = select(cat(), worker({ usage: { codex: 1, "opencode-go": 2 } }, rungs), "worker", "copy");
+    expect(back.rung).toBe(LUNA);
   });
 
   it("breaks a tie with equal headroom on the profile's ladder order, and says so", () => {
-    const first = select(c(), worker({}, [DEEPSEEK, LUNA_HIGH, SOL_XHIGH]), "worker", "repo_code", "build");
-    expect(first.rung).toBe(DEEPSEEK);
+    const first = select(cat(), worker({}, [GO_LUNA, LUNA, MED, HIGH]), "worker", "copy");
+    expect(first.rung).toBe(GO_LUNA);
     expect(first.tie).toMatch(
       /equal headroom \(0 dispatches each\); the profile's ladder order and cost decided$/,
     );
-    // the unpriced Go rung costs 0, so cost puts it first whatever the written order
-    expect(
-      select(c(), worker({}, [LUNA_HIGH, DEEPSEEK, SOL_XHIGH]), "worker", "repo_code", "build").rung,
-    ).toBe(DEEPSEEK);
+    expect(select(cat(), worker({}, [LUNA, GO_LUNA, MED, HIGH]), "worker", "copy").rung).toBe(LUNA);
   });
 
   it("never gives a tie to a metered rung over one paid from a plan", () => {
     const p = worker({ billing: { "opencode-go": "metered" }, usage: { codex: 9 } }, rungs);
-    const pick = select(c(), p, "worker", "repo_code", "copy");
-    expect(pick.rung).toBe(LUNA_HIGH);
+    const pick = select(cat(), p, "worker", "copy");
+    expect(pick.rung).toBe(LUNA);
     expect(pick.tie).toBeUndefined();
   });
 
   it("leaves a start with no equal alone", () => {
-    expect(select(shipped(), worker(), "worker", "repo_code", "copy").tie).toBeUndefined();
+    expect(select(cat(), worker(), "worker", "copy").tie).toBeUndefined();
   });
 });
 
@@ -387,58 +277,17 @@ describe("quotaUsage", () => {
   });
 });
 
-describe("the just-claude ladders (spec 1.5 plan 24, the payment run)", () => {
-  // Sonnet 5.5 with no published value: the payment run's Claude rungs scored only by Sol's values
-  const score = (effort: string, dim: "repo_code" | "honesty" | "agentic", value: number) => ({
-    rung: `claude-sonnet-5-5#${effort}`,
-    dim,
-    value,
-    benchmark: "b",
-    version: "1",
-    url: "https://example.com/b",
-    date: "2026-09-28",
-    confidence: "inferred" as const,
-  });
-  const values: [string, number][] = [
-    ["low", 50],
-    ["medium", 56.6],
-    ["high", 66.6],
-    ["xhigh", 68.8],
-  ];
-  const c = () =>
-    shipped({
-      override: {
-        schema: 1,
-        treatLike: {},
-        scores: values.flatMap(([e, repo]) => [
-          score(e, "repo_code", repo),
-          score(e, "honesty", 95.1),
-          score(e, "agentic", 0.0818),
-        ]),
-        bars: {},
-      },
-    });
-  const rung = (e: string) => `claude-code:claude-sonnet-5-5#${e}`;
-  const rungs = values.map(([e]) => rung(e));
-  const p = (): RoutingProfile => ({
-    objective: "cost",
-    billing: {},
-    role: { enabled: true, rungs, defaultRung: rung("medium") },
-  });
-
-  it("gives a build lane, the difficulty a sure kind defaults to, every stronger rung to climb onto", () => {
-    // jev-kind with no Difficulty line: the default rung clears no bar, so the lane routes as build
-    expect(defaultDifficulty(c(), p(), "worker", "repo_code")).toBe("build");
-    expect(select(c(), p(), "worker", "repo_code", "build")).toEqual({
-      rung: rung("high"),
-      ladder: [rung("high"), rung("xhigh")],
-    });
-  });
-
-  it("starts a logic lane no lower than build's start, not at the default rung below it", () => {
-    const pick = select(c(), p(), "worker", "repo_code", "logic");
-    expect(pick.rung).toBe(rung("high"));
-    expect(pick.ladder).toEqual([rung("high"), rung("xhigh")]);
-    expect(pick.noClear).toMatch(/^no rung clears repo_code\/logic; best is /);
+describe("the default profile's worker on the recorded index", () => {
+  it("keeps the default worker's ladders rising", () => {
+    const c = shipped();
+    const p = routingProfileOf(resolveProfile(defaultProfileDoc(), "default", "claude-code"), "worker");
+    for (const d of DIFFICULTIES) {
+      const pick = select(c, p, "worker", d);
+      const xs = pick.ladder.map((r) => pairOf(c, r)?.intelligence as number);
+      expect(xs).toEqual([...xs].sort((a, b) => a - b));
+      expect(
+        pick.noClear !== undefined || (pairOf(c, pick.rung)?.intelligence as number) >= barOf(c, d),
+      ).toBe(true);
+    }
   });
 });

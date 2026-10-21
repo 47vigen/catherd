@@ -1,103 +1,107 @@
 import { describe, expect, it } from "bun:test";
 import { DEFAULT_BILLING } from "../../src/domain/cost.ts";
 import {
-  barDims,
-  catalogRungs,
+  catalogPairs,
   claudeBilled,
-  downgradeDims,
-  ladderDropDims,
+  downgrade,
+  intelligenceOf,
+  ladderDrop,
   rankStandIns,
 } from "../../src/domain/failover.ts";
 import { BUILTIN_ROLES, DEFAULT_FAILOVER } from "../../src/domain/profile.ts";
-import { shipped } from "./shipped.ts";
+import { indexOf, shipped } from "./shipped.ts";
 
 const LUNA = "codex:gpt-6-luna#high";
 const SOL = (e: string) => `codex:gpt-6-sol#${e}`;
 const KIMI = "opencode:opencode-go/kimi-k3#max";
 const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+const OPUS = (e: string) => `claude-code:claude-opus-5-5#${e}`;
 
-describe("the dims a rung's bars use (spec 1.1 §11)", () => {
-  it("are the dims of every bar the rung clears", () => {
-    const c = shipped();
-    // Luna high (repo_code 66.6 and frontend 1593, carried from max) clears the repo_code, prose and research
-    // copy and build bars and the ui copy bar
-    expect(barDims(c, LUNA)).toEqual(["repo_code", "frontend"]);
-    // Sol medium (repo_code 56.6, terminal 43 carried from max) clears the terminal copy bar only
-    expect(barDims(c, SOL("medium"))).toEqual(["terminal"]);
-    // Opus high carries max's and xhigh's values; with no honesty value it clears no Track B bar
-    expect(barDims(c, "claude-code:claude-opus-5-5#high")).toEqual(["repo_code", "terminal", "frontend"]);
-    expect(barDims(c, "codex:not-a-model#high")).toEqual([]);
+/** What a real opencode lists: the Go models the default failover names. */
+const GO_LISTING = {
+  opencode: {
+    fetchedAt: "2026-10-13T00:00:00.000Z",
+    models: [
+      { id: "opencode-go/kimi-k3", efforts: ["max", "low"], context: 1, imageIn: false },
+      {
+        id: "opencode-go/gpt-6-luna",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+        context: 1,
+        imageIn: false,
+      },
+    ],
+  },
+};
+
+describe("intelligenceOf", () => {
+  it("is the pair's intelligence, and null for an unindexed rung or no rung", () => {
+    const c = shipped({ index: indexOf({ "gpt-6-sol#high": 42.5 }) });
+    expect(intelligenceOf(c, SOL("high"))).toBe(42.5);
+    expect(intelligenceOf(c, SOL("medium"))).toBeNull();
+    expect(intelligenceOf(c, "not a rung")).toBeNull();
   });
 });
 
-describe("downgradeDims", () => {
-  it("names each bar dim the stand-in scores below the rung on, a missing score counting as below", () => {
-    const c = shipped();
-    expect(downgradeDims(c, SOL("medium"), KIMI)).toEqual([]);
-    expect(downgradeDims(c, SOL("xhigh"), KIMI)).toEqual(["repo_code"]);
-    expect(downgradeDims(c, SOL("high"), GO_LUNA)).toEqual(["terminal", "frontend"]);
-    expect(downgradeDims(c, SOL("medium"), "claude-code:claude-opus-5-5#high")).toEqual([]);
-    expect(downgradeDims(c, "claude-code:claude-opus-5-5#high", GO_LUNA)).toEqual([
-      "repo_code",
-      "terminal",
-      "frontend",
-    ]);
+describe("downgrade and ladderDrop (spec 1.1 §11)", () => {
+  const c = shipped({ index: indexOf({ "gpt-6-sol#low": 34, "gpt-6-sol#high": 42, "kimi-k3#max": 43 }) });
+  it("downgrade is a stand-in below the rung or unindexed, never against an unindexed rung", () => {
+    expect(downgrade(c, SOL("high"), SOL("low"))).toBe(true);
+    expect(downgrade(c, SOL("high"), KIMI)).toBe(false);
+    expect(downgrade(c, SOL("high"), SOL("xhigh"))).toBe(true);
+    expect(downgrade(c, SOL("xhigh"), SOL("low"))).toBe(false);
   });
-});
 
-describe("ladderDropDims (spec 1.1 §11)", () => {
-  it("names the shared dims an upper rung scores below on, only when it scores above on none", () => {
-    const c = shipped();
-    // Luna high after Sol xhigh: below it on every shared dim but repo_code, where they tie or Luna leads
-    expect(ladderDropDims(c, SOL("xhigh"), LUNA)).toEqual([
-      "terminal",
-      "honesty",
-      "agentic",
-      "steer",
-      "frontend",
-    ]);
-    // Sol medium after Luna high: lower on repo_code, higher on honesty: not down
-    expect(ladderDropDims(c, LUNA, SOL("medium"))).toEqual([]);
-    // the same rung twice, and a rung with no scores, never go down
-    expect(ladderDropDims(c, LUNA, LUNA)).toEqual([]);
-    expect(ladderDropDims(c, LUNA, "codex:not-a-model#high")).toEqual([]);
-    expect(ladderDropDims(c, "codex:not-a-model#high", LUNA)).toEqual([]);
+  it("ladderDrop is an upper rung below the lower, and never for the same rung or an unindexed one", () => {
+    expect(ladderDrop(c, SOL("high"), SOL("low"))).toBe(true);
+    expect(ladderDrop(c, SOL("low"), SOL("high"))).toBe(false);
+    expect(ladderDrop(c, SOL("high"), SOL("high"))).toBe(false);
+    expect(ladderDrop(c, SOL("high"), SOL("xhigh"))).toBe(false);
   });
 });
 
 describe("rankStandIns", () => {
-  it("keeps stand-ins on another quota, scored, paid from a plan and no downgrade; Claude-billed last", () => {
+  it("keeps stand-ins on another quota, indexed, plan-paid and at least as intelligent; Claude-billed last", () => {
     const c = shipped();
     const pool = [
       "codex:gpt-6-luna#max", // same quota as Luna high
       "opencode:opencode/gpt-6-luna#high", // Zen: metered
       "claude:claude-opus-5-5#high", // native: dispatch cannot start it
-      "claude-code:claude-opus-5-5#max", // repo_code 74.2, frontend 1827: fits, but on the Claude plan
-      "opencode:opencode-go/gpt-5.6-luna#max", // frontend 1520, below Luna high's 1593
+      OPUS("max"), // more intelligent, but on the Claude plan
+      "opencode:opencode-go/gpt-6-luna#low", // less intelligent than Luna high
       GO_LUNA,
-      "opencode:opencode-go/nope#high", // unscored
+      "opencode:opencode-go/nope#high", // unindexed
     ];
-    expect(rankStandIns(c, DEFAULT_BILLING, LUNA, pool)).toEqual([
-      GO_LUNA,
-      "claude-code:claude-opus-5-5#max",
-    ]);
+    expect(rankStandIns(c, DEFAULT_BILLING, LUNA, pool)).toEqual([GO_LUNA, OPUS("max")]);
     expect(rankStandIns(c, DEFAULT_BILLING, "not a rung", pool)).toEqual([]);
   });
 
-  it("prefers the effort nearest the rung's own among a model's efforts, which carry one another's values", () => {
-    const c = shipped();
+  it("prefers the nearest intelligence above the rung, then the cheapest", () => {
+    const c = shipped({
+      index: indexOf({
+        "gpt-6-sol#high": 42,
+        "gpt-6-luna#low": 50,
+        "gpt-6-luna#medium": { intelligence: 44, inputPrice: 0.1, outputPrice: 0.5 },
+        "gpt-6-luna#high": { intelligence: 44, inputPrice: 0.1, outputPrice: 0.5 },
+        "gpt-6-luna#xhigh": 60,
+      }),
+    });
     const go = (e: string) => `opencode:opencode-go/gpt-6-luna#${e}`;
-    expect(rankStandIns(c, DEFAULT_BILLING, LUNA, [go("none"), go("max"), go("high"), go("low")])).toEqual([
-      go("high"),
-      go("low"), // two steps away, as max is: the cheaper first
-      go("max"),
-      go("none"),
-    ]);
+    // medium and high tie on intelligence: the cheaper (medium) first, then the name
+    expect(
+      rankStandIns(c, DEFAULT_BILLING, SOL("high"), [go("xhigh"), go("low"), go("high"), go("medium")]),
+    ).toEqual([go("medium"), go("high"), go("low"), go("xhigh")]);
+  });
+
+  it("keeps every stand-in for a rung with no index of its own", () => {
+    const c = shipped();
+    expect(
+      rankStandIns(c, DEFAULT_BILLING, SOL("ultra"), [GO_LUNA, "opencode:opencode-go/gpt-6-luna#low"]),
+    ).toEqual(["opencode:opencode-go/gpt-6-luna#low", GO_LUNA]);
   });
 
   it("takes a Zen stand-in when the profile bills Zen on a subscription", () => {
     const c = shipped();
-    const zen = "opencode:opencode/gpt-6-sol#high";
+    const zen = "opencode:opencode/gpt-6-sol#xhigh";
     expect(rankStandIns(c, DEFAULT_BILLING, SOL("high"), [zen])).toEqual([]);
     expect(rankStandIns(c, { ...DEFAULT_BILLING, opencode: "subscription" }, SOL("high"), [zen])).toEqual([
       zen,
@@ -112,46 +116,43 @@ describe("rankStandIns", () => {
   });
 });
 
-describe("catalogRungs", () => {
-  it("lists every shipped family rung, every listed model's efforts, and opencode treat-likes", () => {
+describe("catalogPairs", () => {
+  it("lists only indexed rungs: every shipped family's efforts, and every listed model's", () => {
     const c = shipped({
       listed: {
         opencode: {
           fetchedAt: "2026-09-28T00:00:00.000Z",
-          models: [{ id: "opencode-go/glm-5.3", efforts: ["high"], context: 1, imageIn: false }],
+          models: [
+            { id: "opencode-go/glm-5.3", efforts: ["high"], context: 1, imageIn: false },
+            { id: "opencode-go/kimi-k3", efforts: ["max"], context: 1, imageIn: false },
+          ],
         },
       },
     });
-    const all = catalogRungs(c);
-    expect(all).toContain("codex:gpt-6-sol#xhigh");
-    expect(all).toContain("claude-code:claude-opus-5-5#max");
-    expect(all).toContain("opencode:opencode-go/gpt-6-luna#high");
+    const all = catalogPairs(c);
+    expect(all).toContain("codex:gpt-6-sol#high");
+    expect(all).not.toContain("codex:gpt-6-sol#ultra");
+    expect(all).toContain(OPUS("max"));
     expect(all).toContain("opencode:opencode/claude-opus-5-5#high");
-    expect(all).toContain("opencode:opencode-go/glm-5.3#high");
-    // a model with no effort has one rung, #default (spec 1.3 §7.1)
-    expect(all).toContain("cursor:composer-2.5#default");
-    expect(all).toContain("claude-code:claude-haiku-4-5-20251001#default");
-    // Cursor lists grok-4.7 and cursor-grok-4.6 at low through xhigh, and cursor-grok-4.5 at low through high
-    expect(all).toContain("cursor:grok-4.7#high");
-    expect(all.some((r) => r.startsWith("grok:") || r.startsWith("antigravity:"))).toBe(false);
     expect(all).toContain(KIMI);
-    expect(all.some((r) => r.startsWith("opencode:claude-opus-5-5#"))).toBe(false);
+    // a model with no effort has one rung, #default, when the index files it so
+    expect(all).toContain("claude-code:claude-haiku-4-5-20251001#default");
+    expect(all).not.toContain("cursor:composer-2.5#default");
+    expect(all).not.toContain("opencode:opencode-go/glm-5.3#high");
+    expect(all.some((r) => r.startsWith("grok:") || r.startsWith("antigravity:"))).toBe(false);
     expect(all).toEqual([...new Set(all)].sort());
   });
 });
 
 describe("DEFAULT_FAILOVER (spec 1.1 §11)", () => {
-  it("gives each shipped worker rung a stand-in the shipped catalog accepts, never a Claude-billed one", () => {
-    const c = shipped();
-    // the ranker also accepts Opus (Claude-billed, carrying max's values) for Sol high and xhigh: the default
-    // leaves those without one, so a limit on them pauses the lane (spec 1.1 §11)
+  it("gives each shipped worker rung a stand-in the recorded index accepts, never a Claude-billed one", () => {
+    const c = shipped({ listed: GO_LISTING });
+    const pool = catalogPairs(c);
+    expect(DEFAULT_FAILOVER).toEqual({ [LUNA]: GO_LUNA, [SOL("medium")]: KIMI });
     for (const [rung, standIn] of Object.entries(DEFAULT_FAILOVER)) {
       expect(BUILTIN_ROLES.worker.rungs).toContain(rung);
-      expect(rankStandIns(c, DEFAULT_BILLING, rung, catalogRungs(c))).toContain(standIn);
+      expect(rankStandIns(c, DEFAULT_BILLING, rung, pool)[0]).toBe(standIn);
       expect(claudeBilled(standIn)).toBe(false);
     }
-    expect(DEFAULT_FAILOVER).toEqual({ [LUNA]: GO_LUNA, [SOL("medium")]: KIMI });
-    for (const rung of Object.keys(DEFAULT_FAILOVER))
-      expect(rankStandIns(c, DEFAULT_BILLING, rung, catalogRungs(c))[0]).toBe(DEFAULT_FAILOVER[rung]);
   });
 });

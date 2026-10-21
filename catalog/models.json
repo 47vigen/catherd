@@ -1,12 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-01",
-  "sources": {
-    "claude": "https://platform.claude.com/docs/en/models/overview (2026-09-25); efforts https://platform.claude.com/docs/en/build-with-claude/effort; prices https://platform.claude.com/docs/en/about-claude/pricing",
-    "codex": "codex debug models --bundled, Codex CLI 0.157.0 (2026-09-25), gpt-6.1-sol from Codex CLI 0.159.2 (2026-10-01); prices https://developers.openai.com/api/docs/pricing; plan weights https://learn.chatgpt.com/docs/pricing",
-    "opencode": "opencode models <provider> --verbose on 1.18.32 and the v2 model.list (2026-09-25); https://opencode.ai/docs/zen, https://opencode.ai/docs/go",
-    "cursor": "cursor-agent models on 2026.09.28-64d2043 (research 2026-09-29 §2.4; ids to confirm in the live kit, docs/dev/live-verification.md §11); prices https://openrouter.ai/api/v1/models and https://models.dev/api.json (2026-09-28)"
-  },
+  "version": "2026-10-21",
   "backends": {
     "codex": {
       "imageGen": {
@@ -20,22 +14,11 @@
     {
       "id": "gpt-6-astra",
       "name": "GPT-6 Astra",
-      "vendor": "openai",
-      "releaseDate": "2026-09-04",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 10, "cached": 1, "output": 50 },
       "planWeight": 60,
       "on": {
-        "codex": {
-          "id": "gpt-6-astra",
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-6-astra",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        }
+        "codex": { "id": "gpt-6-astra" },
+        "opencode": { "id": "opencode/gpt-6-astra" }
       },
       "notes": {
         "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
@@ -44,17 +27,9 @@
     {
       "id": "gpt-6.1-sol",
       "name": "GPT-6.1 Sol",
-      "predecessor": "gpt-6-sol",
-      "vendor": "openai",
-      "releaseDate": "2026-09-29",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.1, "output": 10 },
       "on": {
-        "codex": {
-          "id": "gpt-6.1-sol",
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "context": 272000
-        }
+        "codex": { "id": "gpt-6.1-sol" }
       },
       "notes": {
         "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
@@ -63,24 +38,12 @@
     {
       "id": "gpt-6-sol",
       "name": "GPT-6 Sol",
-      "predecessor": "gpt-5.6-sol",
-      "vendor": "openai",
-      "releaseDate": "2026-09-22",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.2, "output": 10 },
       "planWeight": 20,
       "on": {
-        "codex": {
-          "id": "gpt-6-sol",
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-6-sol",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        },
-        "cursor": { "id": "gpt-6-sol", "efforts": ["low", "high", "xhigh"], "context": 200000 }
+        "codex": { "id": "gpt-6-sol" },
+        "opencode": { "id": "opencode/gpt-6-sol" },
+        "cursor": { "id": "gpt-6-sol" }
       },
       "notes": {
         "ultra": "maximum reasoning with automatic task delegation to parallel subagents; never in a default ladder"
@@ -89,124 +52,63 @@
     {
       "id": "gpt-6-luna",
       "name": "GPT-6 Luna",
-      "predecessor": "gpt-5.6-luna",
-      "vendor": "openai",
-      "releaseDate": "2026-09-22",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 0.1, "cached": 0.01, "output": 0.5 },
       "planWeight": 1,
       "on": {
-        "codex": {
-          "id": "gpt-6-luna",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-6-luna",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        },
-        "opencode-go": {
-          "id": "opencode-go/gpt-6-luna",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        },
-        "cursor": { "id": "gpt-6-luna", "efforts": ["high"], "context": 200000 }
+        "codex": { "id": "gpt-6-luna" },
+        "opencode": { "id": "opencode/gpt-6-luna" },
+        "opencode-go": { "id": "opencode-go/gpt-6-luna" },
+        "cursor": { "id": "gpt-6-luna" }
       }
     },
     {
       "id": "gpt-5.6-sol",
       "name": "GPT-5.6 Sol",
-      "vendor": "openai",
-      "releaseDate": "2026-07-09",
-      "status": "legacy",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 4, "cached": 0.4, "output": 20 },
       "planWeight": 30,
       "on": {
-        "codex": {
-          "id": "gpt-5.6-sol",
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-5.6-sol",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        }
+        "codex": { "id": "gpt-5.6-sol" },
+        "opencode": { "id": "opencode/gpt-5.6-sol" }
       },
-      "notes": { "upgrade": "Codex offers gpt-6-sol as its upgrade" }
+      "notes": {
+        "upgrade": "Codex offers gpt-6-sol as its upgrade"
+      }
     },
     {
       "id": "gpt-5.6-terra",
       "name": "GPT-5.6 Terra",
-      "vendor": "openai",
-      "releaseDate": "2026-07-09",
-      "status": "legacy",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.2, "output": 12 },
       "planWeight": 15,
       "on": {
-        "codex": {
-          "id": "gpt-5.6-terra",
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-5.6-terra",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        }
+        "codex": { "id": "gpt-5.6-terra" },
+        "opencode": { "id": "opencode/gpt-5.6-terra" }
       },
-      "notes": { "upgrade": "Codex offers gpt-6-sol as its upgrade" }
+      "notes": {
+        "upgrade": "Codex offers gpt-6-sol as its upgrade"
+      }
     },
     {
       "id": "gpt-5.6-luna",
       "name": "GPT-5.6 Luna",
-      "vendor": "openai",
-      "releaseDate": "2026-07-09",
-      "status": "legacy",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 0.2, "cached": 0.02, "output": 1.2 },
       "planWeight": 1.5,
       "on": {
-        "codex": {
-          "id": "gpt-5.6-luna",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 272000
-        },
-        "opencode": {
-          "id": "opencode/gpt-5.6-luna",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        },
-        "opencode-go": {
-          "id": "opencode-go/gpt-5.6-luna",
-          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
-          "context": 1050000
-        }
+        "codex": { "id": "gpt-5.6-luna" },
+        "opencode": { "id": "opencode/gpt-5.6-luna" },
+        "opencode-go": { "id": "opencode-go/gpt-5.6-luna" }
       },
-      "notes": { "upgrade": "Codex offers gpt-6-luna as its upgrade" }
+      "notes": {
+        "upgrade": "Codex offers gpt-6-luna as its upgrade"
+      }
     },
     {
       "id": "claude-fable-5-1",
       "name": "Claude Fable 5.1",
-      "vendor": "anthropic",
-      "releaseDate": "2026-09-01",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 10, "cached": 0.25, "output": 50 },
       "meteredOnPlan": true,
       "on": {
-        "claude-code": {
-          "id": "claude-fable-5-1",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        },
-        "opencode": {
-          "id": "opencode/claude-fable-5-1",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        }
+        "claude-code": { "id": "claude-fable-5-1" },
+        "opencode": { "id": "opencode/claude-fable-5-1" }
       },
       "notes": {
         "plan": "Pro and Team Standard pay usage credits for Fable; Max includes it up to half the weekly limit"
@@ -215,93 +117,52 @@
     {
       "id": "claude-opus-5-5",
       "name": "Claude Opus 5.5",
-      "vendor": "anthropic",
-      "releaseDate": "2026-09-22",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 4, "cached": 0.2, "output": 20 },
       "on": {
-        "claude-code": {
-          "id": "claude-opus-5-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        },
-        "opencode": {
-          "id": "opencode/claude-opus-5-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        },
-        "cursor": {
-          "id": "claude-opus-5-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 200000
-        }
+        "claude-code": { "id": "claude-opus-5-5" },
+        "opencode": { "id": "opencode/claude-opus-5-5" },
+        "cursor": { "id": "claude-opus-5-5" }
       },
-      "notes": { "effort": "the API default effort is medium" }
+      "notes": {
+        "effort": "the API default effort is medium"
+      }
     },
     {
       "id": "claude-sonnet-5-5",
       "name": "Claude Sonnet 5.5",
-      "predecessor": "claude-sonnet-5",
-      "vendor": "anthropic",
-      "releaseDate": "2026-09-28",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.2, "output": 10 },
       "on": {
-        "claude-code": {
-          "id": "claude-sonnet-5-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        },
-        "opencode": {
-          "id": "opencode/claude-sonnet-5-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        }
+        "claude-code": { "id": "claude-sonnet-5-5" },
+        "opencode": { "id": "opencode/claude-sonnet-5-5" }
       }
     },
     {
       "id": "claude-sonnet-5",
       "name": "Claude Sonnet 5",
-      "vendor": "anthropic",
-      "releaseDate": "2026-06-29",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.2, "output": 10 },
       "on": {
-        "claude-code": {
-          "id": "claude-sonnet-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        },
-        "opencode": {
-          "id": "opencode/claude-sonnet-5",
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "context": 1000000
-        }
+        "claude-code": { "id": "claude-sonnet-5" },
+        "opencode": { "id": "opencode/claude-sonnet-5" }
       }
     },
     {
-      "id": "claude-haiku-4-5",
+      "id": "claude-4-5-haiku",
       "name": "Claude Haiku 4.5",
-      "vendor": "anthropic",
-      "releaseDate": "2025-10-15",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 1, "cached": 0.1, "output": 5 },
       "on": {
-        "claude-code": { "id": "claude-haiku-4-5-20251001", "efforts": [], "context": 200000 },
-        "opencode": { "id": "opencode/claude-haiku-4-5", "efforts": ["high", "max"], "context": 200000 }
+        "claude-code": { "id": "claude-haiku-4-5-20251001" },
+        "opencode": { "id": "opencode/claude-haiku-4-5" }
       },
-      "notes": { "effort": "no effort parameter in Claude Code: its only rung there is #default" }
+      "notes": {
+        "effort": "no effort parameter in Claude Code: its only rung there is #default"
+      }
     },
     {
       "id": "grok-4-7",
       "name": "Grok 4.7",
-      "predecessor": "grok-4-6",
-      "vendor": "xai",
-      "releaseDate": "2026-09-21",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.5, "output": 6 },
       "on": {
-        "cursor": { "id": "grok-4.7", "efforts": ["low", "medium", "high", "xhigh"], "context": 200000 }
+        "cursor": { "id": "grok-4.7" }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
@@ -310,17 +171,9 @@
     {
       "id": "grok-4-6",
       "name": "Grok 4.6",
-      "predecessor": "grok-4-5",
-      "vendor": "xai",
-      "releaseDate": "2026-08-12",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.5, "output": 6 },
       "on": {
-        "cursor": {
-          "id": "cursor-grok-4.6",
-          "efforts": ["low", "medium", "high", "xhigh"],
-          "context": 200000
-        }
+        "cursor": { "id": "cursor-grok-4.6" }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
@@ -329,77 +182,44 @@
     {
       "id": "grok-4-5",
       "name": "Grok 4.5",
-      "vendor": "xai",
-      "releaseDate": "2026-07-08",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.3, "output": 6 },
       "on": {
-        "cursor": { "id": "cursor-grok-4.5", "efforts": ["low", "medium", "high"], "context": 200000 }
+        "cursor": { "id": "cursor-grok-4.5" }
       },
       "notes": {
         "pool": "a Cursor Model in Cursor: billed from Cursor's own pool (research §2.4)"
       }
     },
     {
-      "id": "composer-2-5",
-      "name": "Composer 2.5",
-      "vendor": "cursor",
-      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.5, "output": 6 },
-      "on": { "cursor": { "id": "composer-2.5", "efforts": [], "context": 200000 } },
-      "notes": {
-        "price": "no keyless source prices Composer (research §5); Grok 4.7's, the same Cursor pool, stands in",
-        "effort": "no effort: its only rung is #default"
-      }
-    },
-    {
       "id": "gemini-3-8-flash",
       "name": "Gemini 3.8 Flash",
-      "predecessor": "gemini-3-7-flash",
-      "vendor": "google",
-      "releaseDate": "2026-09-02",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": { "id": "gemini-3.8-flash", "efforts": ["low", "medium", "high"], "context": 200000 }
+        "cursor": { "id": "gemini-3.8-flash" }
       }
     },
     {
       "id": "gemini-3-7-flash",
       "name": "Gemini 3.7 Flash",
-      "predecessor": "gemini-3-6-flash",
-      "vendor": "google",
-      "releaseDate": "2026-08-13",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": { "id": "gemini-3.7-flash", "efforts": ["low", "medium", "high"], "context": 200000 }
+        "cursor": { "id": "gemini-3.7-flash" }
       }
     },
     {
       "id": "gemini-3-6-flash",
       "name": "Gemini 3.6 Flash",
-      "vendor": "google",
-      "releaseDate": "2026-07-21",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 0.75, "cached": 0.075, "output": 3.75 },
       "on": {
-        "cursor": {
-          "id": "gemini-3.6-flash",
-          "efforts": ["minimal", "low", "medium", "high"],
-          "context": 200000
-        }
+        "cursor": { "id": "gemini-3.6-flash" }
       }
     },
     {
-      "id": "gemini-3-1-pro",
+      "id": "gemini-3-1-pro-preview",
       "name": "Gemini 3.1 Pro",
-      "vendor": "google",
-      "releaseDate": "2026-02-19",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
-      "price": { "input": 2, "cached": 0.2, "output": 12 },
       "on": {
-        "cursor": { "id": "gemini-3.1-pro", "efforts": [], "context": 200000 }
+        "cursor": { "id": "gemini-3.1-pro" }
       }
     }
   ]
