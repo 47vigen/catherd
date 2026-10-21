@@ -182,6 +182,18 @@ describe("treeOf", () => {
   });
 });
 
+describe("treeOf of a claimed milestone whose folder is gone", () => {
+  it("throws E_TREE instead of falling back to the repo, and the repo is untouched", async () => {
+    const { repo, run } = branchRun();
+    const a = await claimTree(deps, run, "M1", { known: false });
+    rmSync(a.tree, { recursive: true, force: true });
+    expect(treeOf(run, "M2")).toBe(repo); // not claimed: still the repo
+    const e = await refusal(Promise.resolve().then(() => treeOf(run, "M1")));
+    expect([e.code, e.message]).toEqual(["E_TREE", `the worktree of M1 is gone: ${a.tree}`]);
+    expect(e.fix).toContain("cancel the run");
+  });
+});
+
 describe("branchPusher", () => {
   it("pushes the branch to a local origin, and names git's failure", async () => {
     const { repo, origin, run } = branchRun();

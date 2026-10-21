@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
@@ -1325,6 +1325,27 @@ describe("a milestone per branch (plan 35)", () => {
     expect(lastOf(run, "commit.made")?.commit).toBe(git(tree, "rev-parse", "HEAD").trim());
     expect(git(repo, "rev-parse", "HEAD").trim()).toBe(repoHead);
     expect(git(tree, "show", "--name-only", "--format=", "HEAD")).toContain("src/a/x.ts");
+  });
+
+  it("parks a milestone whose claimed tree is gone instead of working in the main checkout", async () => {
+    const { repo, run, fx } = await treesSetup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    rmSync(tree, { recursive: true, force: true });
+    writeFile(repo, "src/a/x.ts", "stray\n"); // would be committed if the commit ran in the repo
+    const head = git(repo, "rev-parse", "HEAD").trim();
+    const index = git(repo, "status", "--porcelain");
+    await fx.run(dispatchAction(), replayRun(run));
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_TREE", unit: "M1.L1" });
+    expect(listDispatches(run)).toEqual([]);
+    for (let i = 0; i < 3; i++) await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(lastOf(run, "effect.failed")).toMatchObject({ action: "commit", unit: "M1" });
+    expect(lastOf(run, "effect.failed")?.message).toContain("is gone");
+    expect(replayRun(run).stuck.M1?.reason).toBe("effect");
+    expect(git(repo, "rev-parse", "HEAD").trim()).toBe(head);
+    expect(git(repo, "status", "--porcelain")).toBe(index);
+    expect(git(repo, "diff", "--cached", "--name-only")).toBe("");
   });
 
   it("integrates in the milestone's tree, on its branch", async () => {

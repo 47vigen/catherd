@@ -11,7 +11,7 @@ import { planDocs } from "./plan-input.ts";
 import { checkEnvFor, runCheck } from "./preflight.ts";
 import { runProfile } from "./run-pin.ts";
 import { type Run, runPaths } from "./run-store.ts";
-import { treeDir, treeOf } from "./tree-path.ts";
+import { readyFile, treeDir, treeOf } from "./tree-path.ts";
 
 /** How long a plan's `Setup:` command may run (tests shorten it: it is the seam for a slow install). */
 export const treeLimits = { setupMs: 15 * 60_000 };
@@ -38,9 +38,6 @@ export const branchPusher = {
 const tail = (s: string): string => s.trim().slice(-TAIL);
 
 export { treeDir, treeOf };
-
-/** The marker beside the tree, never inside it, that Setup: finished. */
-const readyFile = (run: Run, m: string): string => join(run.dir, "trees", `${m}.ready`);
 
 export interface TreeClaim {
   tree: string;
