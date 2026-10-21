@@ -163,7 +163,7 @@ export async function removeTree(run: Run, m: string): Promise<{ removed: boolea
   if (r.code !== 0)
     return {
       removed: false,
-      hint: `kept ${tree}: it has uncommitted or untracked files; git worktree remove it once they are saved`,
+      hint: `kept ${tree}: ${tail(`${r.err}${r.out}`)}; git worktree remove it once that is settled`,
     };
   rmSync(readyFile(run, m), { force: true });
   return { removed: true, hint: null };

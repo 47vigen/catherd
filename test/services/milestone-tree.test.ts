@@ -172,6 +172,7 @@ describe("removeTree", () => {
     const kept = await removeTree(run, "M1");
     expect(kept.removed).toBe(false);
     expect(kept.hint).toContain("kept");
+    expect(kept.hint).toContain("use --force"); // git's own words
     expect(existsSync(join(a.tree, "notes.txt"))).toBe(true);
     rmSync(join(a.tree, "notes.txt"));
     writeFileSync(join(a.tree, ".git", "..", ".gitignore"), "build/\n");
