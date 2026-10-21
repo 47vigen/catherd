@@ -83,6 +83,10 @@ export interface ProfilePort {
   set(name: string | undefined, patch: ProfilePatch, repo?: string | null): ProfileSaved;
   /** The native agent that runs `rung` for `role` under `repo`'s profile; null unless it is a `claude:` rung. */
   agentFor(repo: string | null, role: Role, rung: string): string | null;
+  /** The ntfy topic url of the phone messages: config's `notify.url`, a random ntfy.sh topic made once. */
+  notifyUrl(): string;
+  /** Replaces it; an http(s) url only. */
+  setNotifyUrl(url: string): void;
 }
 
 export interface RouteRequest {

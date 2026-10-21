@@ -40,6 +40,8 @@ import { result } from "../../src/services/run-service.ts";
 import { createRun, readRecords, type Run } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
 import { sendToInbox } from "../../src/infra/peer-inbox.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
+import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { snapshotEnv, tempRepo } from "../helpers.ts";
 import { type FakeInbox, fakeInbox } from "../sim/peer-inbox.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
@@ -1474,5 +1476,83 @@ describe("a claim settles what the run's earlier owner left (spec §3.3/§3.4)",
     expect(existsSync(dispatchPaths(left.dir).notified)).toBe(true);
     writeFileSync(release, "");
     await watchersSettled();
+  });
+});
+
+describe("a 2.0 run (plan 30)", () => {
+  const started: RunEventInput = {
+    type: "run.started",
+    repo: "/r",
+    title: "t",
+    aLines: [],
+    plan: [],
+    base: null,
+    engine: "2.0",
+  };
+
+  it("announces a 2.0 run's reports to the session that started it, once each", async () => {
+    const { run, n } = await owned();
+    await appendEvent(run, started);
+    await appendEvent(run, {
+      type: "report.posted",
+      kind: "parked",
+      unit: "M1.L2",
+      text: "M1.L2 is parked (judge): which currency?",
+    });
+    await n.scan();
+    await n.idle();
+    const [f] = await (inbox as FakeInbox).received(1);
+    const content = f?.message.content ?? "";
+    expect(content).toContain("catherd · Auth plan 5 MR B · parked · M1.L2");
+    expect(content).toContain("M1.L2 is parked (judge): which currency?");
+    expect(content).toContain(`answer(run: "${run.id}", unit: "M1.L2", answer: "<your answer>")`);
+    expect(f?.priority).toBe("next");
+    // a second scan finds nothing new; a later report is a message of its own
+    await n.scan();
+    await n.idle();
+    expect(inbox?.frames).toHaveLength(1);
+    await appendEvent(run, {
+      type: "report.posted",
+      kind: "landed",
+      unit: "M1",
+      text: "M1 landed at abc1234",
+    });
+    await n.scan();
+    await n.idle();
+    const frames = await (inbox as FakeInbox).received(2);
+    expect(frames[1]?.message.content).toContain(`Status: status(run: "${run.id}")`);
+    expect(frames[1]?.priority).toBe("later");
+  });
+
+  it("hears a report between scans when it polls", async () => {
+    const { run, deps } = await owned();
+    const n = startNotifier(deps, { coalesceMs: 20, reportPollMs: 20 });
+    notifiers.push(n);
+    await appendEvent(run, started);
+    await appendEvent(run, {
+      type: "report.posted",
+      kind: "finished",
+      unit: "run",
+      text: "The run finished",
+    });
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain("· finished · run");
+  });
+
+  it("does not announce a 2.0 run's role finishes, and still does a 1.5 run's", async () => {
+    const { run, deps, n } = await owned();
+    await appendEvent(run, started);
+    const d = await finished(run, "worker-M1.L1");
+    await settle(deps, run, d, await recordOf(run, d));
+    await n.idle();
+    expect(inbox?.frames).toHaveLength(0);
+    // the same, on a run without events.jsonl
+    const old = createRun({ repo: tempRepo(), title: "old run", aLines: [], version: "0.0.0-test" });
+    await claimRun(deps, old);
+    const e = await finished(old, "worker-M1.L1");
+    await settle(deps, old, e, await recordOf(old, e));
+    await n.idle();
+    const [f] = await (inbox as FakeInbox).received(1);
+    expect(f?.message.content).toContain("catherd · old run · worker-M1.L1 worker");
   });
 });

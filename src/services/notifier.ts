@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
@@ -14,11 +14,12 @@ import {
   type DeliveryAttempt,
 } from "../infra/delivery.ts";
 import type { RunRecord } from "../domain/record.ts";
+import type { RunEvent } from "../domain/run-events.ts";
 import { awaitsCollect, dispatchPaths } from "../infra/dispatch-dir.ts";
 import { tryLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { type SendResult, sendToInbox } from "../infra/peer-inbox.ts";
-import { nonBlankLines, writeJsonAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, nonBlankLines, writeJsonAtomic } from "../infra/store.ts";
 import {
   readStallQuietMs,
   type Settled,
@@ -28,6 +29,7 @@ import {
 } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, readFailover, roleThreadOf } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
+import { eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
 import { listRuns, readRecords, type Run } from "./run-store.ts";
 import { currentSession, ownsRun, readSessionRows, runOwner } from "./sessions.ts";
 
@@ -35,6 +37,8 @@ export interface NotifierOptions {
   /** notices this close to each other go as one message (spec: 3 s); tests shorten it */
   coalesceMs?: number;
   sendCodex?: (target: HostSessionRef, content: string) => Promise<QueueSendResult>;
+  /** how often the reports of the session's 2.0 runs are looked for between scans; 0 (the default) never */
+  reportPollMs?: number;
   /** the sender; tests may replace it */
   send?: (
     target: { socketPath: string | null; token: string | null },
@@ -131,6 +135,28 @@ export function finishedNotice(run: Run, d: Dispatch, r: RunRecord): Notice {
     changedOwned: r.changedOwned.length,
     reply: replyOf(run, r),
     priority: urgent ? "next" : "later",
+  };
+}
+
+/** One report of a 2.0 run, as the session is told of it: the unit, what kind it is, its text. */
+export function reportNotice(run: Run, e: Extract<RunEvent, { type: "report.posted" }>): Notice {
+  return {
+    kind: "report",
+    eventId: JSON.stringify([run.id, `report-${e.seq}`, "report"]),
+    runId: run.id,
+    runTitle: run.meta.title,
+    dispatchId: `report-${e.seq}`,
+    name: e.unit,
+    role: "run",
+    lane: null,
+    thread: null,
+    rung: "",
+    status: e.kind,
+    replyStatus: null,
+    secs: 0,
+    changedOwned: 0,
+    reply: e.text,
+    priority: e.kind === "parked" || e.kind === "failed" ? "next" : "later",
   };
 }
 
@@ -483,7 +509,35 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
     }
   };
 
+  /** The reports of a 2.0 run this session owns: queued once each, under `<run>/reports/<seq>/`. */
+  const reportSizes = new Map<string, number>();
+  const enqueueReports = (run: Run, force: boolean): void => {
+    const size = statSync(eventsFile(run)).size;
+    if (!force && reportSizes.get(run.id) === size) return;
+    reportSizes.set(run.id, size);
+    for (const e of readEvents(run)) {
+      if (e.type !== "report.posted") continue;
+      const dir = join(run.dir, "reports", String(e.seq));
+      ensurePrivateDir(dir);
+      const notice = reportNotice(run, e);
+      queueNotice({ key: notice.eventId, run, dir, notice, mark: join(dir, "notified"), due: () => true });
+    }
+  };
+
+  const scanReports = (force: boolean): void => {
+    if (stopped || !currentSession(deps)) return;
+    for (const run of listRuns().runs) {
+      try {
+        if (isDaemonRun(run) && owned(run)) enqueueReports(run, force);
+      } catch (e) {
+        log("warn", "notify", { run: run.id, error: errorMessage(e) });
+      }
+    }
+  };
+
   const onSettled = (s: Settled): void => {
+    // the run's reports tell the session of a 2.0 run, not each role's finish
+    if (isDaemonRun(s.run)) return;
     try {
       enqueue(s.run, s.d, s.record);
     } catch (e) {
@@ -499,6 +553,10 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
       for (const run of listRuns().runs) {
         try {
           if (!owned(run)) continue;
+          if (isDaemonRun(run)) {
+            enqueueReports(run, true);
+            continue;
+          }
           const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
           for (const d of listDispatches(run)) {
             // one dispatch's damaged evidence stays ambiguous for it alone: the rest of the run is still scanned
@@ -551,6 +609,15 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
   if (!retryEvent) {
     settledHooks.add(onSettled);
     stallHooks.add(onStall);
+  }
+  if (!retryEvent && o.reportPollMs) {
+    const poll = setInterval(() => scanReports(false), o.reportPollMs);
+    poll.unref();
+    const stopRest = n.stop;
+    n.stop = () => {
+      clearInterval(poll);
+      stopRest();
+    };
   }
   return n;
 }

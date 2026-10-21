@@ -341,6 +341,23 @@ export function profileService(host: () => HostContext): ProfilePort {
     set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch, { host: host().host }),
     agentFor: (repo, role, rung) =>
       parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
+    notifyUrl: () =>
+      locked(() => {
+        const config = readConfig();
+        if (config.notify?.url) return config.notify.url;
+        const url = `https://ntfy.sh/catherd-${Buffer.from(crypto.getRandomValues(new Uint8Array(10))).toString("hex")}`;
+        writeJsonAtomic(configFile(), { ...config, schema: 1, notify: { ...config.notify, url } });
+        return url;
+      }),
+    setNotifyUrl: (url) =>
+      locked(() => {
+        if (!/^https?:\/\//.test(url) || !URL.canParse(url))
+          throw new CatherdError("E_INPUT_INVALID", `"${url}" is not an http(s) url`, {
+            fix: "give the ntfy topic's url, like https://ntfy.sh/<topic>",
+          });
+        const config = readConfig();
+        writeJsonAtomic(configFile(), { ...config, schema: 1, notify: { ...config.notify, url } });
+      }),
   };
 }
 

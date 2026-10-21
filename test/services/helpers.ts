@@ -124,6 +124,7 @@ export function fakeDeps(
     checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };
+  const notify = { url: "https://ntfy.sh/catherd-test" };
   const profiles: ProfilePort = {
     forRepo: () => view,
     get: () => ({ active: "test", here: "test", profiles: ["test"], profile: view, enforcement: {} }),
@@ -140,6 +141,10 @@ export function fakeDeps(
     agentFor(_repo, r, rung) {
       const p = parseRung(rung);
       return p.backend === "claude" ? `catherd-${r}-${p.model}-${p.effort}` : null;
+    },
+    notifyUrl: () => notify.url,
+    setNotifyUrl: (url) => {
+      notify.url = url;
     },
   };
   return {

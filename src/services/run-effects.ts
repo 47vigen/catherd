@@ -23,6 +23,7 @@ import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, replyVerdict } from "./milestones.ts";
+import { sendRunNotice } from "./notify-service.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
@@ -507,7 +508,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "report":
         return void (await append({ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }));
       case "notify":
-        // the phone and the session hear the run through the notifier (plan 30 task 7)
+        // the phone; the session hears the run's reports through its notifier
+        await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
         return;
       case "finish": {
         const reportPath = writeRunReport(run, s, readEvents(run));

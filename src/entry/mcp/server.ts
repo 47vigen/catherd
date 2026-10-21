@@ -46,6 +46,9 @@ type RequestHandler = (
 ) => unknown;
 
 /** The role server's tools that act on a run: in a role they are bound as their CLI forms are (assertRoleMay). */
+/** How often a session looks for the new reports of the 2.0 runs it owns. */
+const REPORT_POLL_MS = 3_000;
+
 const RUN_BOUND_TOOLS = new Set(["read_run_file", "write_run_file", "gate_check", "gate_pass"]);
 
 /**
@@ -197,7 +200,7 @@ export async function startMcpServer(
     const key = sessionKey(target);
     let active = observed.get(key);
     if (!active) {
-      active = startNotifier(context);
+      active = startNotifier(context, { reportPollMs: REPORT_POLL_MS });
       observed.set(key, active);
     }
     const n = active;
@@ -243,7 +246,7 @@ export async function startMcpServer(
     const epoch = generation;
     recovery = { ...deps };
     const context = recovery;
-    notifier = startNotifier(context);
+    notifier = startNotifier(context, { reportPollMs: REPORT_POLL_MS });
     const active = notifier;
     const target = currentSession(context);
     if (target) observed.set(sessionKey(target), active);
