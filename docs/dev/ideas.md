@@ -28,10 +28,6 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 
 Plan 21 (roles and ownership) review:
 
-- **A role's own peek still claims.** A role may `peek` its own dispatch (ruling 4), but `peek` still calls
-  `claim()`; on a 1.4-era run whose owner of record is that role's thread, adopt and recover then run inside the role
-  process. Evidence: `src/services/peek.ts:126`, `src/services/dispatch-service.ts:216`. Fix: return from `claim`
-  when `deps.role` is set, and skip `startNotifier` in a role process (`src/entry/mcp/server.ts`). (Minor 4.)
 - **Refused notices pile up in delivery.jsonl.** Each deliver pass writes another `failed` attempt and another
   `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
   owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
@@ -157,20 +153,9 @@ Plan 26 (the minors sweep) review:
 Found while releasing 1.5 (open entries of the older sections that no 1.5 plan fixed and the spec's "Not in 1.5"
 does not name):
 
-- **Messages arrive only when the next turn starts.** worker-M3.L1 of the 1.1.0 platform run ended at 17:43:08,
-  and its catherd message reached the Claude Code main thread only after the owner's next message, about 20 min
-  later: an idle main thread is not woken, and the owner read the silence as a hang. Evidence: run
-  `20260928-172920-m3-auth-plan-5-mr-b-the-kit-clean-up` (sanitell/platform). Fix: wake an idle owner session, or
-  let `status` show "finished, unread" prominently. (Plan 22 Ruling 16 kept it.)
 - **`status` lists a previous owner session as live.** After a new session took the run on the 2026-09-29 resume of
   that run, `status` and `peek` still listed the previous owner session as `live: true` (plan 22 closes the stale
   verifier step itself, not this). Fix: list only the owner of record as live.
-- **A "foreground" verifier is still a background agent.** On that resume, and in the payment runs `-113331` and
-  `-133255`, the Agent call for a verifier briefed to stay in the foreground returned "Async agent launched" and
-  the verdict came as a second notification. The skill now names `run_in_background: false`
-  (`plugin/skills/catherd/SKILL.md`, "the gate owner"), but nothing checks that the host honoured it. Fix: the
-  skill says a native verifier's verdict may still arrive as a notification, and `protocol.next` treats it as a
-  dispatched role whose result arrives as a message.
 - **A broken check is called expected.** In the payment run `-143512`, M1.L5, a compose file valid only layered on
   another failed `config -q`, and preflight called it `fails-as-expected`. Since 1.5 only an environment error is
   `cannot-start` (`src/services/preflight.ts:204`), so a check that is broken for another reason still reads as

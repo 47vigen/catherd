@@ -32,6 +32,25 @@
   `catalog sync --unmatched` are removed. The provenance in `routes.jsonl` changed shape: the rung's
   `intelligence`, the bar it was held to (`bar`), its price, speed and cost, and the index's `indexedAt`.
 
+- **A run is driven by a daemon.** `run_start` launches a detached process that plans, dispatches, reviews, verifies
+  and lands from the run's `events.jsonl`; the session no longer routes, dispatches, lands or waits. A run started
+  on 1.5 finishes on 1.5: keep 1.5 installed (`bun add -g catherd-cli@1.5.0`) until those runs end, and start new
+  ones on 2.0. 2.0 does not adopt a 1.5 run's folder.
+- **The session has six tools:** `run_start`, `status`, `answer`, `cancel`, `result` and `profile` (`get`, `validate`,
+  `set`, and `notify_url`). `route`, `preflight`, `dispatch`, `peek`, `climb`, `ask`, `park`, `land`, `set_next`,
+  `gate_check`, `gate_pass`, `lane_set`, `owns_add`, `run_pin`, `record_agent_run`, `runs_summary`, `test_push`,
+  `catalog_query`, `catalog_sync`, the `workspace_*` tools, `profile_get`, `profile_set` and `profile_validate` are
+  off the session; their services and the CLI (`catherd catalog`, `catherd runs`, `catherd workspace`) stay. A role
+  that calls a session tool gets `E_ROLE_SCOPE`. The `catherd` and `catherd-setup` skills are rewritten for this
+  surface: update the plugin and start a new session.
+- **Every role runs headless.** A `claude:` rung runs as its `claude-code:` twin; there are no native subagents to
+  record, so `newSessionNeededFor` stays empty. A judge role (read-only, headless Opus) decides what no rule can.
+- **Questions go to your phone.** Set `notify.url` to an ntfy topic url (`profile` with `notify_url`, or
+  `catherd-setup`): the daemon sends a parked question and the final report there from the machine, with no session
+  open. Answer in the session with `answer(run, unit, answer)` or in a terminal with `catherd answer <run> <unit>
+<text>`.
+- **Nothing to wait for or poll.** End the turn after `run_start`; `status(run)` revives a dead daemon.
+
 ## From 1.4 to 1.5
 
 1.5 reads 1.4's profiles, runs, credentials and catalog as they are, and `init` asks nothing new. Upgrade, check,
