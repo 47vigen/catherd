@@ -36,6 +36,9 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
   says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
   milestone is landed and the push question has been answered, and say that the merge is still open.
+- **The panel's CSP `connect-src` falls back to `default-src 'self'`, which old Safari may not extend to `ws:`.**
+  The run page's live socket could then be blocked there. The e2e runs Chromium only, so nothing has checked it;
+  add `connect-src 'self' ws://127.0.0.1:*` if a Safari user reports a dead "Live" dot.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
