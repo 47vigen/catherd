@@ -5,7 +5,7 @@ import { CatherdError } from "./errors.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
 import { DIFFICULTIES, type Difficulty } from "./lane.ts";
-import type { Role } from "./roles.ts";
+import { ROLES, type Role } from "./roles.ts";
 
 /** What routing reads from a profile for one role. */
 export interface RoutingProfile {
@@ -17,6 +17,13 @@ export interface RoutingProfile {
    * equal intelligence is broken on; absent, every quota counts 0 and the candidates' order breaks it
    */
   usage?: Partial<Record<string, number>>;
+}
+
+/** What a start check reads of a profile: `ProfileView` and the resolved `Profile` both satisfy it. */
+export interface ProfileLike {
+  objective: "cost" | "speed";
+  billing: Partial<Record<string, BillingMode>>;
+  roles: Partial<Record<Role, { enabled: boolean; rungs: string[]; defaultRung?: string }>>;
 }
 
 export interface Candidate {
@@ -35,6 +42,17 @@ export interface Pick {
   noClear?: string;
   /** spec 1.5 plan 24: rungs of equal intelligence competed for the start, and how the tie was broken */
   tie?: string;
+}
+
+/** The enabled roles, in `ROLES` order, that the catalog can place no rung for. */
+export function rolesWithoutRung(c: Catalog, v: ProfileLike): Role[] {
+  return ROLES.filter((role) => {
+    const r = v.roles[role];
+    return (
+      r?.enabled === true &&
+      candidates(c, { objective: v.objective, billing: v.billing, role: r }, role).length === 0
+    );
+  });
 }
 
 const byNull = (a: number | null, b: number | null) =>

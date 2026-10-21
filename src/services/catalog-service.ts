@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
 import { adapterFor } from "../adapters/registry.ts";
@@ -19,6 +20,7 @@ import { ROLES, type Role } from "../domain/roles.ts";
 import { assetPath } from "../infra/assets.ts";
 import { log } from "../infra/log.ts";
 import { indexPath } from "../infra/paths.ts";
+import type { IndexFile } from "../domain/slopalytics.ts";
 import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.ts";
 import { readVersioned } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
@@ -43,13 +45,34 @@ function listedModels(repo?: string): Catalog["listed"] {
   return out;
 }
 
-/** The shipped families on the machine's Slopalytics index, with every listing (in `repo` for a per-repo backend). */
-export function loadCatalog(o: { repo?: string } = {}): Catalog {
+const RUN_INDEX = "slopalytics.json";
+
+/**
+ * The shipped families on the Slopalytics index (the run's own pin when `runDir` holds one, else the machine's),
+ * with every listing (in `repo` for a per-repo backend).
+ */
+export function loadCatalog(o: { repo?: string; runDir?: string } = {}): Catalog {
+  const pinned = o.runDir === undefined ? null : readIndexFile(join(o.runDir, RUN_INDEX));
   return buildCatalog({
     models: shippedModels(),
-    index: readIndexFile(indexPath()),
+    index: pinned ?? readIndexFile(indexPath()),
     listed: listedModels(o.repo),
   });
+}
+
+/**
+ * What a run starts on: the index refreshed if it is due, read once, with the catalog built on exactly that
+ * read, so the start check and the pin written after it cannot disagree.
+ */
+export async function startIndex(repo: string): Promise<{ catalog: Catalog; index: IndexFile | null }> {
+  await refreshIndex({ auto: true });
+  const index = readIndexFile(indexPath());
+  return { catalog: buildCatalog({ models: shippedModels(), index, listed: listedModels(repo) }), index };
+}
+
+/** Pins `index` into the run: later routes of the run read it, whatever the machine's index becomes. */
+export function writeRunIndex(runDir: string, index: IndexFile | null): void {
+  if (index) writeIndexFile(join(runDir, RUN_INDEX), index);
 }
 
 export interface Refreshed {

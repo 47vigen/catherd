@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { logFile } from "../../src/infra/log.ts";
 import { indexPath } from "../../src/infra/paths.ts";
+import { readIndexFile } from "../../src/infra/slopalytics.ts";
 import {
   catalogQuery,
   freshenDiscovery,
   loadCatalog,
   refreshDiscovery,
   resetFreshen,
+  startIndex,
+  writeRunIndex,
 } from "../../src/services/catalog-service.ts";
 import { appendRoute } from "../../src/services/run-store.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -57,6 +61,38 @@ describe("loadCatalog", () => {
     expect(c.indexedAt).toBeNull();
     expect(c.pool).toEqual([]);
     expect(c.families.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a run's pinned index", () => {
+  const runDir = () => mkdtempSync(join(process.env.CATHERD_HOME as string, "run-"));
+
+  it("loads the run's index over the machine's, and the machine's when the run has none", () => {
+    withHome();
+    const dir = runDir();
+    const machine = readIndexFile(indexPath());
+    if (!machine) throw new Error("no seeded index");
+    const pinned = { ...machine, fetchedAt: "2026-10-01T00:00:00.000Z" };
+    expect(loadCatalog({ runDir: dir }).indexedAt).toBe(machine.fetchedAt);
+    writeRunIndex(dir, pinned);
+    expect(readIndexFile(join(dir, "slopalytics.json"))).toEqual(pinned);
+    expect(loadCatalog({ runDir: dir }).indexedAt).toBe("2026-10-01T00:00:00.000Z");
+    expect(loadCatalog().indexedAt).toBe(machine.fetchedAt);
+  });
+
+  it("writes nothing for no index", () => {
+    withHome();
+    const dir = runDir();
+    writeRunIndex(dir, null);
+    expect(readIndexFile(join(dir, "slopalytics.json"))).toBeNull();
+  });
+
+  it("starts on one read of the machine's index: the catalog and the index it was built on", async () => {
+    withHome();
+    const { catalog, index } = await startIndex("/nowhere");
+    expect(index?.fetchedAt).toBe(catalog.indexedAt as string);
+    rmSync(indexPath());
+    expect((await startIndex("/nowhere")).index).toBeNull();
   });
 });
 

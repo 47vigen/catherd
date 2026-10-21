@@ -11,6 +11,7 @@ import type { RoleScope } from "../domain/role-scope.ts";
 import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
+import type { IndexFile } from "../domain/slopalytics.ts";
 import type { IndexStatus } from "./catalog-service.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
@@ -147,6 +148,11 @@ export interface RoutingPort {
     after: string,
     use: "auto" | "off",
   ): Promise<Verdict<"yes" | "no">>;
+  /**
+   * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
+   * that no indexed pair can fill; `index` is what the run pins (null when there is none).
+   */
+  checkStart(view: ProfileView, repo: string): Promise<{ unusable: Role[]; index: IndexFile | null }>;
   /** `billing` prices the rungs (spec §5.3); absent keys bill as DEFAULT_BILLING */
   catalog(
     filter: CatalogFilter,

@@ -5,7 +5,10 @@ import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { readJsonl } from "../../src/infra/store.ts";
-import { resetFreshen } from "../../src/services/catalog-service.ts";
+import { indexPath } from "../../src/infra/paths.ts";
+import { writeIndexFile } from "../../src/infra/slopalytics.ts";
+import { resetFreshen, writeRunIndex } from "../../src/services/catalog-service.ts";
+import { indexOf } from "../domain/shipped.ts";
 import { runPaths } from "../../src/services/run-store.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
@@ -80,6 +83,7 @@ function req(laneText: string | null, over: Partial<RouteRequest> = {}): RouteRe
   };
 }
 
+const readJsonIndex = () => JSON.parse(readFileSync(indexPath(), "utf8"));
 const jevRows = (dir: string) => readJsonl<JevRow>(join(dir, "jev.jsonl")).rows;
 
 describe("route without Jev", () => {
@@ -198,6 +202,40 @@ describe("route's provenance", () => {
     expect(a.source).toBe("default");
     expect(a.provenance?.bar).toBeNull();
     expect(a.provenance?.intelligence).toBeGreaterThan(0);
+  });
+});
+
+describe("route and a run's pinned index", () => {
+  it("routes a run on its pinned index after the machine's index lost the pair", async () => {
+    const r = req(lane("repo_code", "build"), { role: "reviewer" });
+    writeRunIndex(r.runDir, indexOf({ "gpt-6-sol#high": 42 }));
+    // the machine's index, refreshed since, no longer has Sol high
+    writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
+    expect((await routingService().route(r)).rung).toBe("codex:gpt-6-sol#high");
+    await expect(routingService().route({ ...r, runDir: runDir() })).rejects.toMatchObject({
+      code: "E_CONFIG_INVALID",
+    });
+  });
+});
+
+describe("checkStart", () => {
+  it("names the roles the index cannot fill, and returns the index it read", async () => {
+    const view = testView();
+    const ok = await routingService().checkStart(view, "/nowhere");
+    expect(ok.unusable).toEqual([]);
+    expect(ok.index?.models.length).toBeGreaterThan(0);
+    writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
+    const lost = await routingService().checkStart(view, "/nowhere");
+    // Luna high is the writer's rung; the worker keeps Luna high, the reviewer's Sol high is gone
+    expect(lost.unusable).toEqual(["architect", "reviewer"]);
+    expect(lost.index).toEqual(indexOf({ "gpt-6-luna#high": 33 }));
+  });
+
+  it("leaves the index file as it was when it is fresh and under CATHERD_NO_SYNC=1", async () => {
+    process.env.CATHERD_NO_SYNC = "1";
+    const before = JSON.stringify(readJsonIndex());
+    await routingService().checkStart(testView(), "/nowhere");
+    expect(JSON.stringify(readJsonIndex())).toBe(before);
   });
 });
 

@@ -21,10 +21,11 @@ import {
   type Pick,
   quotaUsage,
   type RoutingProfile,
+  rolesWithoutRung,
   select,
 } from "../domain/select.ts";
 import { log } from "../infra/log.ts";
-import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.ts";
+import { catalogQuery, freshenDiscovery, loadCatalog, startIndex } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
 import { provenanceOf } from "./provenance.ts";
@@ -142,7 +143,7 @@ interface Prepared {
 async function prepare(req: RouteRequest, o: RoutingOpts): Promise<Prepared> {
   const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
-  return { p, c: loadCatalog({ repo: req.repo }) };
+  return { p, c: loadCatalog({ repo: req.repo, runDir: req.runDir }) };
 }
 
 /** Jev's answer about a lane; null when the route reads no lane, empty when it asks nothing (Jev off, one usable rung). */
@@ -296,6 +297,10 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
         use,
         o,
       ),
+    checkStart: async (view, repo) => {
+      const { catalog, index } = await startIndex(repo);
+      return { unusable: rolesWithoutRung(catalog, view), index };
+    },
     catalog: (filter, billing) => catalogQuery(filter, billing),
   };
 }

@@ -11,6 +11,7 @@ import {
   defaultLadder,
   quotaUsage,
   type RoutingProfile,
+  rolesWithoutRung,
   select,
 } from "../../src/domain/select.ts";
 import { indexOf, shipped } from "./shipped.ts";
@@ -289,5 +290,32 @@ describe("the default profile's worker on the recorded index", () => {
         pick.noClear !== undefined || (pairOf(c, pick.rung)?.intelligence as number) >= barOf(c, d),
       ).toBe(true);
     }
+  });
+});
+
+describe("rolesWithoutRung", () => {
+  const roles = (over: Record<string, { enabled: boolean; rungs: string[] }> = {}) => ({
+    objective: "cost" as const,
+    billing: {},
+    roles: { worker: { enabled: true, rungs: LADDER }, ...over },
+  });
+
+  it("names each enabled role with no candidate, in role order, never a disabled one", () => {
+    const c = cat();
+    expect(rolesWithoutRung(c, roles())).toEqual([]);
+    const v = roles({
+      writer: { enabled: true, rungs: ["codex:gpt-6-sol#turbo"] },
+      reviewer: { enabled: true, rungs: [] },
+      artist: { enabled: false, rungs: ["codex:gpt-6-sol#turbo"] },
+    });
+    // ROLES order, not the profile's key order
+    expect(rolesWithoutRung(c, v)).toEqual(["reviewer", "writer"]);
+  });
+
+  it("counts a rung the index lost as no rung", () => {
+    const lost = shipped({ index: indexOf({ "gpt-6-luna#high": 30, "claude-opus-5-5#max": 60 }) });
+    expect(rolesWithoutRung(lost, roles({ reviewer: { enabled: true, rungs: [HIGH] } }))).toEqual([
+      "reviewer",
+    ]);
   });
 });
