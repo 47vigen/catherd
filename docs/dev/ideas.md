@@ -23,6 +23,7 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   protocol runs one task at a time.
 - **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
   exists, so the advice does not match the state.
+- **Reviving a daemon has no backoff:** with a corrupt events.jsonl every status call spawns a daemon that fails.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
