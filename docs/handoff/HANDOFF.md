@@ -10,7 +10,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 
 | Plan | File | State |
 | ---- | ---- | ----- |
-| 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | next |
+| 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | in PR (final review 0 C / 0 I; one minor fixed; ledger `plan28-ledger.md`); the 1.5.0 baseline is the owner's (Task 8) |
 | 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | written |
 | 30 run daemon | `docs/plans/2026-10-21-30-run-daemon.md` | written |
 | 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | written |
