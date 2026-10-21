@@ -1,0 +1,12 @@
+# Plan 29: shrink — progress and rulings
+
+Ruling: withHome seeds the recorded index with `checkedAt` = now (the fixture keeps its own `fetchedAt`) — a fixture copied as it is would read as a day stale on every doctor test, and its state would change with the date — a test that wants a stale index writes one.
+Ruling: a failover stand-in with no index gets the fix `catherd catalog sync` when there is no index at all (indexedAt null), else `catherd profile set failover.<from> <best or null>` — the plan names only the second; sending a user with no index to re-pick a stand-in is wrong advice — none.
+Ruling: the effort check of validate (`has no effort "x" on <backend>`) fires only when the backend's listing lists the model (listed === true); with no listing, an effort the index lacks reads as an unindexed pair — as the plan's validate order says; the old "cannot check its effort until the backend lists its models" warning is gone — a typo'd effort on an unlisted backend now says "no Slopalytics index" instead of naming the efforts.
+Ruling: a catalog row's rungs are sorted by intelligence ascending (the order a ladder reads) and `efforts` follow them — the index has no effort order of its own (EFFORT_ORDER went with sources.ts) — none.
+Ruling: `defaultDifficulty` returns `copy` when the default rung clears only the copy bar (the old "never copy" comment described a case the old bars never produced) — the plan's spec line is "the hardest bar the default rung clears, else build" — none.
+Ruling: withHome() takes `{ index: false }` — three infra tests (store, log) assert the data dir does not exist yet, and the seeded index creates it — a test that forgets it sees an index it did not ask for
+Ruling: a doctor run on a machine with no usable index fails the profile row ("no usable rung") and shows catalog "not fetched" — with nothing indexed no role has a rung — a fresh install reads red until `catherd catalog sync` (init runs it)
+Ruling: the TUI status and app tests call withHome() in beforeEach — fixtureEffects validates drafts against the machine index while a test builds its effects, before the harness seeds one — none (tests only)
+Ruling: writeRunIndex runs inside startRun's open(), right after createRun, not after open() returns — the run dir exists by then and a superseding start pins the same way — none
+Ruling: tests for rolesWithoutRung and the catalog pin were written with their implementation in one step, not watched failing first — the failing run was compile-level — a regression test would still catch the behavior
