@@ -462,6 +462,41 @@ describe("the machine: review rounds", () => {
     expect(log.state().milestones[0]?.delta).toEqual([]);
   });
 
+  it("tells a running milestone's architect what the plan check refused, not the old notes again", () => {
+    const log = runningLog(plan(2));
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [bug("BUG README.md — three", "README.md")]);
+    const id = of(last(log), "judge")[0]!.input.id;
+    const j = startDispatch(log, {
+      name: `judge-${id}`,
+      role: "judge",
+      unit: "M1",
+      lane: null,
+      judgeKind: "triage",
+    });
+    log.add("judge.decided", {
+      id,
+      unit: "M1",
+      kind: "triage",
+      decision: { verb: "route", routes: [{ finding: 1, to: "architect", why: "the plan misses docs" }] },
+      dispatchId: j,
+    });
+    endDispatch(log, j, { name: `judge-${id}`, unit: "M1" });
+    const a = startDispatch(log, { name: "architect-M1-1", role: "architect", unit: "M1", lane: null });
+    endDispatch(log, a, { name: "architect-M1-1", unit: "M1" });
+    log.add("effect.failed", {
+      action: "readPlan",
+      unit: "run",
+      message: "the plan needs: M1.L3 has no Tasks:",
+    });
+    expect(of(last(log), "dispatch").find((d) => d.role === "architect")).toMatchObject({
+      name: "architect-M1-1",
+      notes: ["BUG README.md — three", "the plan needs: M1.L3 has no Tasks:"],
+    });
+  });
+
   it("keeps fixing while findings shrink and lands the rest as known issues when they stop", () => {
     const r = rounds([3, 2, 2]);
     expect(names(r.last)).toEqual(["verifier-M1"]);

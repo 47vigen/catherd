@@ -1136,6 +1136,10 @@ function apply(s: RunState, e: RunEvent): void {
       // a plan the check refused: its architect fixes it, PLAN_REVISIONS times, before the run parks
       const planning = e.action === "readPlan" && (s.phase === "planning" || s.phase === "approval");
       if (planning) s.revise = [e.message];
+      // running: the architect of a milestone's fix round is re-dispatched from its delta, so the gap goes there
+      else if (e.action === "readPlan")
+        for (const m of s.milestones)
+          if (m.delta.length > 0 && !m.delta.includes(e.message)) m.delta.push(e.message);
       const limit = planning ? PLAN_REVISIONS + 1 : MAX_TRIES;
       if ((s.failedEffects[key] as number) >= limit && e.action !== "report" && e.action !== "notify")
         s.stuck[e.unit] = { reason: "effect", question: `${e.action} on ${e.unit} failed: ${e.message}` };
