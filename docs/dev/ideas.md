@@ -14,8 +14,24 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 `read_knowledge`, appended by `land`); the run budget (from 80 %
 `route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
 
+## 2.0 follow-ups (plan 33)
+
+- **A lane on a held quota waits instead of failing over.** Plan 30's advance dispatches a pending lane only while
+  its quota is free, so a lane routed onto a held quota waits up to 30 minutes (plan 33, Ruling 16). _Where:_
+  dispatch it with `failoverFrom` set to its own rung, so `failoverRung` chooses a stand-in.
+- **The panel cannot show or edit `maxEffort` or `bars`** (plan 33, Ruling 17); only `catherd profile set` and the
+  session's `profile` tool do. _Where:_ the panel's Setup page (plan 31).
+
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
+- **An explicit rung for a lane-less dispatch skips the floor and the cap.** `else rung = i.rung`
+  (`src/services/dispatch-service.ts:457`) takes the caller's rung as is, while a lane's rung goes through routing,
+  which applies `CODING_FLOOR` and `maxEffort` (`effortAllowed`, `src/domain/select.ts:40-52`). Fix: refuse or warn
+  for a coding role's rung below the floor or above its cap, as validate does for the rungs.
+- **`run_start`'s refusal names the wrong cause.** It says "no usable rung on the Slopalytics index"
+  (`src/services/run-service.ts:131`) when the role's only rungs are removed by `maxEffort` or the coding floor
+  (`rolesWithoutRung`, `src/services/routing-service.ts:315`). Fix: name the cause (the cap, the floor, or the index)
+  in the message and the fix.
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
   Jev, or the judge at `readPlan`, whether each task names what its worker must build.

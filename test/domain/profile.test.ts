@@ -5,6 +5,7 @@ import {
   assertProfileName,
   BUILTIN_ROLES,
   DEFAULT_FAILOVER,
+  DEFAULT_MAX_EFFORT,
   defaultProfileDoc,
   diffProfiles,
   patchAt,
@@ -66,6 +67,7 @@ describe("the default profile (spec §7.2)", () => {
       "roles",
       "harness",
       "failover",
+      "maxEffort",
       "budget",
       "timeouts",
       "preflight",
@@ -355,5 +357,110 @@ describe("host defaults", () => {
       "claude:claude-opus-5-5#low",
     ]);
     expect(() => resolveProfile(doc, "default", "unknown")).toThrow("host");
+  });
+});
+
+describe("maxEffort", () => {
+  it("sets, resolves and removes a model's maxEffort", () => {
+    const set = patchAt("maxEffort.codex:gpt-6-sol", "high");
+    expect(set).toEqual({ maxEffort: { "codex:gpt-6-sol": "high" } });
+    const doc = applyPatch(defaultProfileDoc(), set);
+    expect(resolveProfile(doc, "default", "claude-code").maxEffort).toEqual({
+      ...DEFAULT_MAX_EFFORT,
+      "codex:gpt-6-sol": "high",
+    });
+    expect(
+      resolveProfile(applyPatch(doc, patchAt("maxEffort.codex:gpt-6-sol", "null")), "default", "claude-code")
+        .maxEffort,
+    ).toEqual(DEFAULT_MAX_EFFORT);
+    expect(
+      resolveProfile(
+        applyPatch(doc, patchAt("maxEffort.codex:gpt-6.1-sol", "null")),
+        "default",
+        "claude-code",
+      ).maxEffort,
+    ).not.toHaveProperty("codex:gpt-6.1-sol");
+    expect(() => patchAt("maxEffort.gpt-6-sol", "high")).toThrow("cannot set maxEffort.gpt-6-sol");
+    expect(() => patchAt("maxEffort.codex:gpt-6-sol", "turbo")).toThrow("cannot set");
+  });
+
+  it("a fresh default profile carries the shipped effort caps", () => {
+    expect(DEFAULT_MAX_EFFORT).toEqual({
+      "claude:claude-opus-5-5": "high",
+      "claude-code:claude-opus-5-5": "high",
+      "opencode:opencode/claude-opus-5-5": "high",
+      "cursor:claude-opus-5-5": "high",
+      "claude:claude-sonnet-5-5": "high",
+      "claude-code:claude-sonnet-5-5": "high",
+      "opencode:opencode/claude-sonnet-5-5": "high",
+      "codex:gpt-6.1-sol": "xhigh",
+    });
+    expect(resolveProfile(defaultProfileDoc(), "default", "claude-code").maxEffort).toEqual(
+      DEFAULT_MAX_EFFORT,
+    );
+    expect(resolveProfile(ProfileDocSchema.parse({ schema: 1 }), "x", "claude-code").maxEffort).toEqual({});
+  });
+
+  it("reads a ceiling it does not know as no ceiling, and warns", () => {
+    const doc = ProfileDocSchema.parse({ schema: 1, maxEffort: { "codex:gpt-6-sol": "turbo" } });
+    expect(resolveProfile(doc, "x", "claude-code").maxEffort).toEqual({});
+    expect(unknownValues(doc)).toContainEqual({
+      path: "maxEffort.codex:gpt-6-sol",
+      value: "turbo",
+      readAs: "no ceiling",
+    });
+  });
+});
+
+describe("a stored maxEffort entry that is no effort word", () => {
+  it("is ignored, keeps the file readable, and warns", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      maxEffort: {
+        "claude-code:claude-opus-5-5": { x: 7 },
+        "codex:gpt-6-sol": 7,
+        "codex:gpt-6.1-sol": "high",
+      },
+    });
+    expect(resolveProfile(doc, "x", "claude-code").maxEffort).toEqual({ "codex:gpt-6.1-sol": "high" });
+    expect(unknownValues(doc)).toEqual([
+      { path: "maxEffort.claude-code:claude-opus-5-5", value: '{"x":7}', readAs: "no ceiling" },
+      { path: "maxEffort.codex:gpt-6-sol", value: "7", readAs: "no ceiling" },
+    ]);
+  });
+});
+
+describe("bars", () => {
+  it("keeps a profile's and a role's bars, and removes them with null", () => {
+    const doc = applyPatch(
+      applyPatch(defaultProfileDoc(), patchAt("bars.logic", "55")),
+      patchAt("roles.worker.bars.hard", "65"),
+    );
+    const p = resolveProfile(doc, "x", "claude-code");
+    expect(p.bars).toEqual({ logic: 55 });
+    expect(p.roles.worker.bars).toEqual({ hard: 65 });
+    expect(
+      resolveProfile(applyPatch(doc, patchAt("roles.worker.bars", "null")), "x", "claude-code").roles.worker
+        .bars,
+    ).toBeUndefined();
+    expect(() => patchAt("bars.hard", "150")).toThrow("cannot set bars.hard");
+    expect(() => patchAt("bars.extreme", "50")).toThrow("cannot set");
+  });
+
+  it("drops a stored bar it cannot read, and warns", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      bars: { hard: 150, logic: 55 },
+      roles: { worker: { bars: "high" } },
+    });
+    const p = resolveProfile(doc, "x", "claude-code");
+    expect(p.bars).toEqual({ logic: 55 });
+    expect(p.roles.worker.bars).toBeUndefined();
+    expect(unknownValues(doc)).toEqual(
+      expect.arrayContaining([
+        { path: "bars.hard", value: "150", readAs: "the shipped percentile" },
+        { path: "roles.worker.bars", value: '"high"', readAs: "the profile's bar" },
+      ]),
+    );
   });
 });

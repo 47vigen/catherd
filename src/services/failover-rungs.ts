@@ -9,6 +9,7 @@ import {
 import { pairOf } from "../domain/catalog.ts";
 import { tryParseRung } from "../domain/ids.ts";
 import type { Role } from "../domain/roles.ts";
+import { effortAllowed } from "../domain/select.ts";
 import { standInFor } from "./backends.ts";
 import { loadCatalog } from "./catalog-service.ts";
 import type { Deps, ProfileView } from "./ports.ts";
@@ -78,16 +79,22 @@ export function indexedPairs(
  * Where a unit goes when `rung`'s quota hit a limit (spec 2.0 decision 6): the profile's stand-in when its quota
  * is free and it is not weaker; else the nearest indexed rung of any configured backend on a free quota that is
  * not weaker, a Claude rung last. Never a step down: a rung with no index fails over only to its stand-in, and
- * null means every candidate is held or weaker, so the caller waits for the hold.
+ * null means every candidate is held or weaker, so the caller waits for the hold. Plan 33: a stand-in above
+ * its model's `maxEffort`, or below medium for a coding worker, is never taken, whatever its quota or cost.
  */
-export function failoverRung(deps: Deps, run: Run, _role: Role, rung: string, held: string[]): string | null {
+export function failoverRung(deps: Deps, run: Run, role: Role, rung: string, held: string[]): string | null {
   const from = tryParseRung(rung);
   if (!from) return null;
   const profile = runProfile(deps, run);
   const c = loadCatalog({ repo: run.meta.repo, runDir: run.dir });
   const free = (r: string): boolean => {
     const p = tryParseRung(r);
-    return p !== null && quotaOf(p) !== quotaOf(from) && !held.includes(quotaOf(p));
+    return (
+      p !== null &&
+      quotaOf(p) !== quotaOf(from) &&
+      !held.includes(quotaOf(p)) &&
+      effortAllowed(profile.maxEffort ?? {}, role, r)
+    );
   };
   const stand = standInFor(profile.failover, rung, run.meta.repo);
   const explicit = stand !== null && free(stand) && !downgrade(c, rung, stand) ? stand : null;

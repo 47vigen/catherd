@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -6,16 +6,18 @@ import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
 import type { RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
+import { readJsonl } from "../../src/infra/store.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
+import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
-import { appendRecord, type Run } from "../../src/services/run-store.ts";
+import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
 import { createRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
@@ -187,6 +189,116 @@ describe("dispatching", () => {
     s.at = new Date().toISOString();
     await fx.run(dispatchAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
     expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ALL_HELD" });
+  });
+
+  describe("failover rows (plan 33)", () => {
+    const failoverRows = (run: Run) =>
+      readJsonl<{ source?: string }>(runPaths(run.dir).routes).rows.filter((r) => r?.source === "failover");
+    const stateWithHolds = (run: Run, holds: Record<string, string>) => {
+      const s = replayRun(run);
+      s.holds = holds;
+      s.at = new Date().toISOString();
+      return s;
+    };
+    const until = () => new Date(Date.now() + 600_000).toISOString();
+
+    it("writes a failover row for a failover, with the stand-in it chose", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue("codex:gpt-6-sol#medium");
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ lane: "M1.L1", failoverFrom: "opencode:opencode-go/gpt-6-luna#high" }),
+          stateWithHolds(run, { "opencode-go": until() }),
+        );
+        expect(failoverRows(run)).toEqual([
+          expect.objectContaining({
+            lane: "M1.L1",
+            role: "worker",
+            name: "worker-M1.L1",
+            from: "opencode:opencode-go/gpt-6-luna#high",
+            rung: "codex:gpt-6-sol#medium",
+            why: "failed over from opencode:opencode-go/gpt-6-luna#high to codex:gpt-6-sol#medium",
+            held: ["opencode-go"],
+          }),
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("writes a failover row with no rung when every stand-in is held, then waits", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(null);
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ failoverFrom: "codex:gpt-6-sol#medium" }),
+          stateWithHolds(run, { codex: until() }),
+        );
+        expect(failoverRows(run)).toEqual([
+          expect.objectContaining({
+            rung: null,
+            why: "no stand-in for codex:gpt-6-sol#medium: every candidate is held or below it",
+            held: ["codex"],
+          }),
+        ]);
+        expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ALL_HELD" });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("lists only the live holds on a failover row, not an expired one", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(null);
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ failoverFrom: "codex:gpt-6-sol#medium" }),
+          stateWithHolds(run, { codex: until(), cursor: new Date(Date.now() - 600_000).toISOString() }),
+        );
+        expect(failoverRows(run)).toEqual([expect.objectContaining({ held: ["codex"] })]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("writes a failover row when a lane-less role's routed rung sits on a held quota", async () => {
+      const { run, fx } = setup();
+      const spy = spyOn(failoverRungs, "failoverRung").mockReturnValue(
+        "opencode:opencode-go/gpt-6-luna#high",
+      );
+      try {
+        writeLane(run, "M1.L1", ["src/a/"]);
+        await seed(run);
+        await fx.run(
+          dispatchAction({ lane: null, rung: "codex:gpt-6-luna#high" }),
+          stateWithHolds(run, { codex: until() }),
+        );
+        expect(failoverRows(run)).toEqual([
+          expect.objectContaining({
+            lane: null,
+            from: "codex:gpt-6-luna#high",
+            rung: "opencode:opencode-go/gpt-6-luna#high",
+            held: ["codex"],
+          }),
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("writes no failover row for a dispatch that is not a failover", async () => {
+      const { run, fx } = setup();
+      writeLane(run, "M1.L1", ["src/a/"]);
+      await seed(run);
+      await fx.run(dispatchAction(), replayRun(run));
+      expect(failoverRows(run)).toEqual([]);
+    });
   });
 
   it("asks the judge as a dispatch of role judge, and appends its decision before its end", async () => {

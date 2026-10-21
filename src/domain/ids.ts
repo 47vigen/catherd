@@ -56,6 +56,13 @@ export function tryParseRung(s: string): Rung | null {
   }
 }
 
+/** Reasoning efforts from least to most; a rung's effort that is none of these (`default`) cannot be ranked. */
+export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
+export type EffortWord = (typeof EFFORT_ORDER)[number];
+
+/** Index in `EFFORT_ORDER`; -1 when `e` is not an effort word. */
+export const effortRank = (e: string): number => (EFFORT_ORDER as readonly string[]).indexOf(e);
+
 export const formatRung = (r: Rung): string => `${r.backend}:${r.model}#${r.effort}`;
 
 /** Spec 2.0 decision 12: the daemon runs every role headless, so a native `claude:` rung runs as `claude-code:`. */

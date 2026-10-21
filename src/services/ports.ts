@@ -1,6 +1,7 @@
 import type { BlockedReason } from "../domain/blocked.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Provenance } from "./provenance.ts";
+import type { Bars } from "../domain/bars.ts";
 import type { Budget } from "../domain/budget.ts";
 import type { SessionEnv } from "../infra/claude-session.ts";
 import type { BillingMode } from "../domain/cost.ts";
@@ -31,6 +32,8 @@ export interface ProfileView {
         network?: false;
         /** plan 23: the role's own timeouts over the profile's */
         timeouts?: { idleMin?: number; wallMin?: number };
+        /** plan 33: the role's own bar percentiles over the profile's */
+        bars?: Bars;
       }
     >
   >;
@@ -41,6 +44,10 @@ export interface ProfileView {
   isolated: Partial<Record<string, boolean>>;
   /** rung → its stand-in on a usage limit (spec §4.5) */
   failover: Record<string, string>;
+  /** `<backend>:<model>` → the highest effort routing starts it at (plan 33) */
+  maxEffort?: Record<string, string>;
+  /** plan 33: bar percentiles per difficulty (0 to 100) over the shipped ones */
+  bars?: Bars;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };

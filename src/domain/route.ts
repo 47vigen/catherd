@@ -74,6 +74,23 @@ export interface RoleRouteRow {
   provenance?: unknown;
 }
 
+/**
+ * Plan 33: one routes.jsonl row each time a dispatch fails over after a limit (decision 6): the rung it left,
+ * the stand-in `failoverRung` chose (null when every candidate was held or weaker), and the quotas held. The
+ * row has no lane to climb and no route to read, so `readRoutes` and `readRoleRoutes` skip it by `source`.
+ */
+export interface FailoverRouteRow {
+  at: string;
+  lane: string | null;
+  role: Role;
+  name: string;
+  source: "failover";
+  from: string;
+  rung: string | null;
+  why: string;
+  held: string[];
+}
+
 export function nextRung(ladder: string[], current: string): string | null {
   const i = ladder.indexOf(current);
   return i >= 0 && i < ladder.length - 1 ? (ladder[i + 1] as string) : null;

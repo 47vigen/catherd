@@ -1,10 +1,12 @@
 import type { OrchestrationHost } from "./host.ts";
 import { z } from "zod";
 import type { Budget } from "./budget.ts";
+import type { Bars } from "./bars.ts";
 import { BILLING_KEYS, type BillingKey } from "./catalog.ts";
 import { BILLING_MODES, type BillingMode, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
-import { ADAPTER_IDS, parseRung, tryParseRung } from "./ids.ts";
+import { ADAPTER_IDS, EFFORT_ORDER, type EffortWord, effortRank, parseRung, tryParseRung } from "./ids.ts";
+import { DIFFICULTIES } from "./lane.ts";
 import { ACCESS, type Access } from "./record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import { isPlain, slug } from "./util.ts";
@@ -46,6 +48,8 @@ const RoleDocSchema = z.looseObject({
   defaultRung: z.string().optional(),
   network: z.boolean().optional(),
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
+  // plan 33: unknown, so a hand edit never makes the file unreadable; resolveProfile reads what it can
+  bars: z.unknown().optional(),
 });
 
 export const ProfileDocSchema = z.looseObject({
@@ -57,6 +61,9 @@ export const ProfileDocSchema = z.looseObject({
   roles: z.record(z.string(), RoleDocSchema).optional(),
   harness: z.record(z.string(), z.looseObject({ isolated: z.boolean().optional() })).optional(),
   failover: z.record(z.string(), z.string()).optional(),
+  // unknown values, like `bars`: an entry that is no effort word never makes the file unreadable
+  maxEffort: z.record(z.string(), z.unknown()).optional(),
+  bars: z.unknown().optional(),
   budget: z
     .looseObject({ minutes: positive.optional(), tokens: positive.optional(), usd: positive.optional() })
     .optional(),
@@ -86,6 +93,16 @@ const STORED_FALLBACK = {
   billing: (key: string): BillingMode => DEFAULT_BILLING[key as BillingKey] ?? "metered",
 } as const;
 
+const barOk = (k: string, v: unknown): boolean =>
+  (DIFFICULTIES as readonly string[]).includes(k) && typeof v === "number" && v >= 0 && v <= 100;
+
+const isEffort = (v: unknown): v is EffortWord => typeof v === "string" && effortRank(v) >= 0;
+
+/** The entries of a stored `bars` this catherd can read; anything else is not a bar. */
+function readBars(v: unknown): Bars {
+  return isPlain(v) ? (Object.fromEntries(Object.entries(v).filter((e) => barOk(e[0], e[1]))) as Bars) : {};
+}
+
 /** A stored value this catherd does not know, with what it is read as. */
 export interface UnknownValue {
   path: string;
@@ -103,6 +120,19 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   check("jev.use", JEV_USES, doc.jev?.use, STORED_FALLBACK.jevUse);
   for (const [k, v] of Object.entries(doc.billing ?? {}))
     check(`billing.${k}`, BILLING_MODES, v, STORED_FALLBACK.billing(k));
+  for (const [k, v] of Object.entries(doc.maxEffort ?? {}))
+    if (!isEffort(v)) {
+      const value = typeof v === "string" ? v : JSON.stringify(v);
+      out.push({ path: `maxEffort.${k}`, value, readAs: "no ceiling" });
+    }
+  const checkBars = (path: string, v: unknown, readAs: string) => {
+    if (v === undefined) return;
+    if (!isPlain(v)) return void out.push({ path, value: JSON.stringify(v), readAs });
+    for (const [k, x] of Object.entries(v))
+      if (!barOk(k, x)) out.push({ path: `${path}.${k}`, value: String(x), readAs });
+  };
+  checkBars("bars", doc.bars, "the shipped percentile");
+  for (const role of ROLES) checkBars(`roles.${role}.bars`, doc.roles?.[role]?.bars, "the profile's bar");
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
@@ -120,6 +150,8 @@ export type RoleConfig = {
   network?: false;
   /** plan 23: this role's own idle and wall timeouts, over the profile's `timeouts` (a long gate, a slow model) */
   timeouts?: { idleMin?: number; wallMin?: number };
+  /** plan 33: this role's own bar percentiles, over the profile's `bars` (decision 11) */
+  bars?: Bars;
 };
 
 /** The idle and wall timeouts a role runs under: its own `timeouts`, else the profile's. */
@@ -140,6 +172,10 @@ export interface Profile {
   roles: Record<Role, RoleConfig>;
   harness: Record<string, { isolated: boolean }>;
   failover: Record<string, string>;
+  /** plan 33: `<backend>:<model>` → the highest effort routing starts it at; a model not named has no ceiling */
+  maxEffort: Record<string, EffortWord>;
+  /** plan 33: bar percentiles per difficulty, over the shipped ones (`percentilesOf`) */
+  bars: Bars;
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
@@ -183,6 +219,22 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
   [SOL("medium")]: "opencode:opencode-go/kimi-k3#max",
 };
 
+/**
+ * Plan 33 Ruling 8: t3herd's effort caps under the shipped catalog's ids, on every backend that lists the model.
+ * The default profile writes them, so a failover to any backend can never start a `#max` Opus; a profile without
+ * the key has no ceiling.
+ */
+export const DEFAULT_MAX_EFFORT: Readonly<Record<string, EffortWord>> = {
+  "claude:claude-opus-5-5": "high",
+  "claude-code:claude-opus-5-5": "high",
+  "opencode:opencode/claude-opus-5-5": "high",
+  "cursor:claude-opus-5-5": "high",
+  "claude:claude-sonnet-5-5": "high",
+  "claude-code:claude-sonnet-5-5": "high",
+  "opencode:opencode/claude-sonnet-5-5": "high",
+  "codex:gpt-6.1-sol": "xhigh",
+};
+
 /** The five billing keys spec §7.1 writes out; the rest default. */
 const WRITTEN_BILLING: BillingKey[] = ["codex", "claude", "claude-code", "opencode-go", "opencode"];
 
@@ -201,6 +253,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
       opencode: { isolated: false },
     },
     failover: { ...DEFAULT_FAILOVER },
+    maxEffort: { ...DEFAULT_MAX_EFFORT },
     budget: {},
     timeouts: { idleMin: 15, wallMin: 90 },
     preflight: { confirm: false },
@@ -265,6 +318,7 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
             },
           }
         : {}),
+      ...(Object.keys(readBars(d?.bars)).length > 0 ? { bars: readBars(d?.bars) } : {}),
     };
   }
   const harness: Profile["harness"] = {};
@@ -287,6 +341,10 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     roles,
     harness,
     failover: { ...doc.failover },
+    maxEffort: Object.fromEntries(
+      Object.entries(doc.maxEffort ?? {}).filter((e): e is [string, EffortWord] => isEffort(e[1])),
+    ),
+    bars: readBars(doc.bars),
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
     preflight: { confirm: doc.preflight?.confirm ?? false },
@@ -304,6 +362,10 @@ export function agentName(profile: string, role: Role, rung: string): string {
 // Patches: what profile_set and `catherd profile set` accept. Strict at every level, so a misspelt key is
 // refused with E_INPUT_INVALID instead of dropped (plan-2 review m9). `null` removes a map entry or a nullable
 // field (a role's `network` among them: absent means granted).
+const BarsPatchSchema = z
+  .partialRecord(z.enum(DIFFICULTIES), z.number().min(0).max(100).nullable())
+  .nullable();
+
 const RolePatchSchema = z
   .strictObject({
     enabled: z.boolean(),
@@ -315,6 +377,7 @@ const RolePatchSchema = z
       .strictObject({ idleMin: positive.nullable(), wallMin: positive.nullable() })
       .partial()
       .nullable(),
+    bars: BarsPatchSchema,
   })
   .partial();
 
@@ -325,6 +388,13 @@ export const ProfilePatchSchema = z.strictObject({
   roles: z.partialRecord(z.enum(ROLES), RolePatchSchema).optional(),
   harness: z.partialRecord(z.enum(HARNESS_KEYS), z.strictObject({ isolated: z.boolean() })).optional(),
   failover: z.record(RungSchema, RungSchema.nullable()).optional(),
+  maxEffort: z
+    .record(
+      z.string().refine((k) => tryParseRung(`${k}#x`) !== null, "a key is <backend>:<model>"),
+      z.enum(EFFORT_ORDER).nullable(),
+    )
+    .optional(),
+  bars: BarsPatchSchema.optional(),
   budget: z
     .strictObject({ minutes: positive.nullable(), tokens: positive.nullable(), usd: positive.nullable() })
     .partial()
@@ -353,7 +423,7 @@ export function applyPatch(doc: ProfileDoc, patch: ProfilePatch): ProfileDoc {
 }
 
 /** Map fields whose keys are rungs or billing keys, which may hold dots: the rest of the path is one key. */
-const MAP_FIELDS = new Set(["failover", "billing"]);
+const MAP_FIELDS = new Set(["failover", "billing", "maxEffort"]);
 const LIST_FIELDS = (keys: string[]) =>
   (keys[0] === "roles" && keys[2] === "rungs") || (keys[0] === "notify" && keys.length === 1);
 

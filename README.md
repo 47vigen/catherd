@@ -191,7 +191,7 @@ names the error. A model and effort the index does not list is not offered: it i
 refreshes.
 
 A lane's difficulty picks a bar: a percentile of the intelligence of the shipped models' indexed pairs (copy the
-25th, build the 50th, logic the 60th, hard the 75th), and the lane starts on the cheapest rung that clears it
+20th, build the 45th, logic the 60th, hard the 65th), and the lane starts on the cheapest rung that clears it
 (the fastest under `objective speed`). Every kind of lane is held to the same bar. A ladder holds only rungs at
 least as intelligent as its start, and rungs of equal intelligence on two quotas start on the one the run has used
 least. A failover stand-in must be indexed, on another quota and at least as intelligent as the rung it replaces.
@@ -201,6 +201,14 @@ keeps every role's decision with, for the rung it picks, its intelligence, the b
 runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A run starts only when every
 enabled role has an indexed rung, and it keeps the index it started on: a later refresh never changes what it
 dispatches on.
+
+Jev's yes/no answers shape the difficulty it gives: a yes to an unexplained cause, a cross-service invariant or
+shared state lifts a lane to at least logic, and a yes to purely mechanical work holds it at build. A profile can
+move a bar's percentile (`catherd profile set bars.logic 55`), and so can one role (`catherd profile set
+roles.worker.bars.hard 65`), one difficulty at a time. `catherd profile set maxEffort.codex:gpt-6.1-sol xhigh` caps a
+model's effort for every route, climb and failover; the default profile ships Opus 5.5 and Sonnet 5.5 at high and
+GPT-6.1 Sol at xhigh (`null` removes one). A coding worker never runs below medium effort, whatever the objective or
+the budget. Every failover is a `failover` row in the run's `routes.jsonl`.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).

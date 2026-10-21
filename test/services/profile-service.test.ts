@@ -156,6 +156,27 @@ describe("patchProfile", () => {
     expect(readFileSync(file("default"), "utf8")).toBe(before);
   });
 
+  it("refuses a bar that would put a harder difficulty below an easier one, naming the inversion and a fix", () => {
+    withHome();
+    const r = patchProfile("default", { bars: { hard: 50 } }, { host: "claude-code" });
+    expect(r.saved).toBe(false);
+    expect(r.errors).toEqual([
+      expect.objectContaining({
+        path: "bars",
+        message: "the hard bar (50) is below the logic bar (60)",
+        fix: "catherd profile set bars.hard 60, or lower bars.logic to 50 or less",
+      }),
+    ]);
+    expect(existsSync(file("default"))).toBe(false);
+    const role = patchProfile(
+      "default",
+      { roles: { worker: { bars: { copy: 70 } } } },
+      { host: "claude-code" },
+    );
+    expect(role.saved).toBe(false);
+    expect(role.errors.map((e) => e.path)).toEqual(["roles.worker.bars"]);
+  });
+
   it("writes nothing when the result is invalid, and returns the errors", () => {
     withHome();
     patchProfile("default", {}, { host: "claude-code" });
@@ -437,6 +458,8 @@ describe("resetProfile and linkedProfiles", () => {
       {
         budget: { usd: 3 },
         roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } },
+        // the default profile caps Opus at high; these cases are about linking the agent
+        maxEffort: { "claude:claude-opus-5-5": null },
       },
       { host: "claude-code" },
     );
@@ -453,7 +476,11 @@ describe("resetProfile and linkedProfiles", () => {
     withHome();
     patchProfile(
       "default",
-      { roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } } },
+      {
+        roles: { verifier: { rungs: ["claude:claude-opus-5-5#max"] } },
+        // the default profile caps Opus at high; these cases are about linking the agent
+        maxEffort: { "claude:claude-opus-5-5": null },
+      },
       { host: "claude-code" },
     );
     const user = join(claudeAgentsDir(), `${VERIFIER}.md`);

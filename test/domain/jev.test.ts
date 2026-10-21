@@ -258,6 +258,80 @@ describe("judgeRoute", () => {
     expect([j.kind, j.pKind]).toEqual([null, null]);
   });
 
+  const score = (probabilities: Record<string, number>) => ({
+    type: "score" as const,
+    score: 1,
+    confidence: 0.5,
+    probabilities,
+  });
+  const noul = (p: number) => ({ type: "noul" as const, noul: p });
+
+  it("lifts a Track A lane to logic when Jev says yes to an unexplained cause (floorLogic)", () => {
+    expect(
+      judgeRoute(route().rule, {
+        difficulty: score({ "0": 0.1, "1": 0.8, "2": 0.1 }),
+        unclear_cause: noul(0.9),
+      }),
+    ).toMatchObject({
+      track: "B",
+      difficulty: "logic",
+      rule: "P(A) 0.9 ≥ 0.8; floor logic: unclear_cause 0.9",
+    });
+  });
+
+  it("keeps hard above the floor, with no suffix", () => {
+    expect(
+      judgeRoute(route().rule, {
+        difficulty: score({ "2": 0.1, "3": 0.9 }),
+        shared_state: noul(0.95),
+      }),
+    ).toMatchObject({ track: "B", difficulty: "hard", rule: "P(B) 1 ≥ 0.8" });
+  });
+
+  it("holds a mechanical lane at build (capBuild), and copy stays copy", () => {
+    expect(
+      judgeRoute(route().rule, {
+        difficulty: score({ "2": 0.1, "3": 0.9 }),
+        mechanical: noul(0.85),
+      }),
+    ).toMatchObject({
+      track: "A",
+      difficulty: "build",
+      rule: "P(B) 1 ≥ 0.8; cap build: mechanical 0.85",
+    });
+    expect(
+      judgeRoute(route().rule, {
+        difficulty: score({ "0": 0.9, "1": 0.1 }),
+        mechanical: noul(0.99),
+      }),
+    ).toMatchObject({ track: "A", difficulty: "copy" });
+  });
+
+  it("decides a dead-band lane by a yes at exactly noulMin, and the floor wins over the cap", () => {
+    const dead = score({ "1": 0.5, "2": 0.5 });
+    expect(judgeRoute(route().rule, { difficulty: dead, cross_boundary: noul(0.8) })).toMatchObject({
+      track: "B",
+      difficulty: "logic",
+    });
+    expect(
+      judgeRoute(route().rule, { difficulty: dead, mechanical: noul(0.9), shared_state: noul(0.9) }),
+    ).toMatchObject({ difficulty: "logic" });
+    expect(judgeRoute(route().rule, { difficulty: dead, mechanical: noul(0.9) })).toMatchObject({
+      track: "A",
+      difficulty: "build",
+    });
+    expect(judgeRoute(route().rule, { difficulty: dead, unclear_cause: noul(0.79) })).toMatchObject({
+      track: null,
+      difficulty: null,
+    });
+  });
+
+  it("refuses a rule whose floor or cap names a question that is no noul", () => {
+    const f = JSON.parse(readFileSync(join(root, "catalog", "jev.json"), "utf8"));
+    f.sets["route-v2"].rule.floorLogic = ["kind"];
+    expect(JevFileSchema.safeParse(f).success).toBe(false);
+  });
+
   it("refuses a rule whose tracks are not two levels each", () => {
     const f = JSON.parse(readFileSync(join(root, "catalog", "jev.json"), "utf8"));
     f.sets["route-v2"].rule.trackA = ["0", "1", "2"];

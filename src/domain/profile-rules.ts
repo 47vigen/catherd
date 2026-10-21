@@ -1,5 +1,5 @@
 import type { OrchestrationHost } from "./host.ts";
-import { barOf } from "./bars.ts";
+import { type Bars, barInversions, barOf, effectiveBars, percentilesOf } from "./bars.ts";
 import { type Catalog, capableFor, effortOffered, ROLE_NEEDS, rungInfo } from "./catalog.ts";
 import {
   catalogPairs,
@@ -10,13 +10,15 @@ import {
   quotaOf,
   rankStandIns,
 } from "./failover.ts";
-import { tryParseRung } from "./ids.ts";
-import { DIFFICULTIES } from "./lane.ts";
+import { effortRank, tryParseRung } from "./ids.ts";
+import { DIFFICULTIES, type Difficulty } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import {
   type Candidate,
   candidates,
+  CODING_FLOOR,
+  CODING_ROLES,
   clearsBar,
   defaultLadder,
   type RoutingProfile,
@@ -69,6 +71,8 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
   objective: p.objective,
   billing: p.billing,
   role: p.roles[role],
+  maxEffort: p.maxEffort,
+  bars: { ...p.bars, ...p.roles[role].bars },
 });
 
 /**
@@ -104,6 +108,21 @@ export function validateProfile(
       fix: "catherd profile set roles.worker.enabled true",
     });
 
+  // a harder difficulty's percentile below an easier one's would route a harder lane to a weaker rung
+  const barOrder = (at: string, bars: Bars): void => {
+    const eff = effectiveBars({ bars });
+    for (const [easier, harder] of barInversions(eff))
+      errors.push({
+        path: at,
+        message: `the ${harder} bar (${eff[harder]}) is below the ${easier} bar (${eff[easier]})`,
+        fix: `catherd profile set ${at}.${harder} ${eff[easier]}, or lower ${at}.${easier} to ${eff[harder]} or less`,
+      });
+  };
+  barOrder("bars", p.bars);
+  for (const role of ROLES)
+    if (Object.keys(p.roles[role].bars ?? {}).length > 0)
+      barOrder(`roles.${role}.bars`, { ...p.bars, ...p.roles[role].bars });
+
   for (const role of ROLES) {
     const rc = p.roles[role];
     const at = `roles.${role}`;
@@ -133,6 +152,18 @@ export function validateProfile(
         });
         continue;
       }
+      const above = aboveCeiling(p.maxEffort, rung, `${at}.rungs`);
+      if (above) warnings.push(above);
+      if (
+        CODING_ROLES.includes(role) &&
+        effortRank(r.effort) >= 0 &&
+        effortRank(r.effort) < effortRank(CODING_FLOOR)
+      )
+        warnings.push({
+          path: `${at}.rungs`,
+          message: `${rung} is below ${CODING_FLOOR} effort: a coding worker never runs it`,
+          fix: `pick #${CODING_FLOOR} or above: catherd catalog list --role ${role}`,
+        });
       if (!backends.includes(r.backend)) {
         errors.push({
           path: `${at}.rungs`,
@@ -203,7 +234,7 @@ export function validateProfile(
     // explicit validate says it (Ruling 3): the shipped bars put logic and hard above every Sol rung, the
     // owner's call, so every save and doctor would repeat it
     if (o.reach && role === "worker" && usable.length > 1) {
-      const unreached = unreachable(c, usable);
+      const unreached = unreachable(c, usable, percentilesOf(routingProfileOf(p, role)));
       if (unreached.length)
         warnings.push({
           path: `${at}.rungs`,
@@ -255,6 +286,8 @@ export function validateProfile(
       });
       continue;
     }
+    const above = aboveCeiling(p.maxEffort, to, at);
+    if (above) warnings.push(above);
     if (!backends.includes(b.backend)) {
       errors.push({ path: at, message: `stand-in ${to}: catherd cannot run ${b.backend} yet` });
       continue;
@@ -298,9 +331,23 @@ export function validateProfile(
   return { errors, warnings };
 }
 
+/** Plan 33: a warning for a rung above its model's `maxEffort`, null for any other. */
+function aboveCeiling(maxEffort: Readonly<Record<string, string>>, rung: string, path: string): Issue | null {
+  const r = tryParseRung(rung);
+  const key = r ? `${r.backend}:${r.model}` : "";
+  const cap = maxEffort[key];
+  if (!r || cap === undefined || effortRank(r.effort) <= effortRank(cap) || effortRank(r.effort) < 0)
+    return null;
+  return {
+    path,
+    message: `${rung} is above maxEffort ${cap} for ${key}: routing skips it`,
+    fix: `catherd profile set maxEffort.${key} ${r.effort}, or remove the rung`,
+  };
+}
+
 /** The difficulties no rung of `usable` clears, as `logic, hard`. */
-function unreachable(c: Catalog, usable: Candidate[]): string[] {
-  return DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(x, barOf(c, d))));
+function unreachable(c: Catalog, usable: Candidate[], at: Record<Difficulty, number>): string[] {
+  return DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(x, barOf(c, d, at))));
 }
 
 /**
