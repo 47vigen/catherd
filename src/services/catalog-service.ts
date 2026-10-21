@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
@@ -22,7 +22,7 @@ import { assetPath } from "../infra/assets.ts";
 import { log } from "../infra/log.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { indexPath } from "../infra/paths.ts";
-import type { IndexFile } from "../domain/slopalytics.ts";
+import { type IndexFile, IndexFileSchema } from "../domain/slopalytics.ts";
 import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.ts";
 import { PRIVATE_DIR, readVersioned } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
@@ -54,7 +54,9 @@ const RUN_INDEX = "slopalytics.json";
  * with every listing (in `repo` for a per-repo backend).
  */
 export function loadCatalog(o: { repo?: string; runDir?: string } = {}): Catalog {
-  const pinned = o.runDir === undefined ? null : readIndexFile(join(o.runDir, RUN_INDEX));
+  const pin = o.runDir === undefined ? null : join(o.runDir, RUN_INDEX);
+  // a missing pin falls back to the machine's index; one that exists but cannot be read is an error, not a fallback
+  const pinned = pin !== null && existsSync(pin) ? readVersioned(pin, IndexFileSchema, 1) : null;
   return buildCatalog({
     models: shippedModels(),
     index: pinned ?? readIndexFile(indexPath()),

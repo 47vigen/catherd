@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { readDiscovery, writeDiscovery } from "../../src/adapters/discovery.ts";
@@ -78,6 +78,21 @@ describe("a run's pinned index", () => {
     expect(readIndexFile(join(dir, "slopalytics.json"))).toEqual(pinned);
     expect(loadCatalog({ runDir: dir }).indexedAt).toBe("2026-10-01T00:00:00.000Z");
     expect(loadCatalog().indexedAt).toBe(machine.fetchedAt);
+  });
+
+  it("refuses a pin that exists but cannot be read, naming the file, rather than use the machine's index", () => {
+    withHome();
+    const dir = runDir();
+    const pin = join(dir, "slopalytics.json");
+    for (const text of ["{ not json", '{"schema":1}']) {
+      writeFileSync(pin, text);
+      expect(() => loadCatalog({ runDir: dir })).toThrow(pin);
+      try {
+        loadCatalog({ runDir: dir });
+      } catch (e) {
+        expect((e as { code?: string }).code).toBe("E_CONFIG_INVALID");
+      }
+    }
   });
 
   it("writes nothing for no index", () => {
