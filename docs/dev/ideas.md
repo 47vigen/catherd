@@ -42,6 +42,11 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **The panel's CSP `connect-src` falls back to `default-src 'self'`, which old Safari may not extend to `ws:`.**
   The run page's live socket could then be blocked there. The e2e runs Chromium only, so nothing has checked it;
   add `connect-src 'self' ws://127.0.0.1:*` if a Safari user reports a dead "Live" dot.
+- **`decisionLines` reads only the `D<n>` line** (`src/domain/plan-doc.ts`). A decision wrapped onto a continuation
+  line, or rewritten as a list item such as `1. D1`, changes nothing the comparison sees, so an edit to its meaning
+  triggers no re-approval. Fix: read a decision up to the next `D<n>` line or blank line, and accept a list marker.
+- **The `labelled` parser splits a finding that contains ` - ` at the first separator.** A finding whose own text
+  holds a spaced hyphen loses the tail to the wrong field. Fix: split on the label once, or require the em dash.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
