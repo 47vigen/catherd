@@ -35,6 +35,7 @@ import {
 } from "./dispatches.ts";
 import { finalizeDispatch, finalizingElsewhere, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
+import { isDaemonRun } from "./run-events-store.ts";
 import { route } from "./lane-service.ts";
 import { currentRoute } from "../domain/route.ts";
 import { appendRoute, findRun, readRecords, readRoleRoutes, readRoutes, type Run } from "./run-store.ts";
@@ -223,6 +224,8 @@ function limitIsMine(deps: Deps, run: Run, origin: SessionRef | null): boolean {
  * to their new owner (a second settle of a dispatch is harmless: finalize and failover run once).
  */
 export function adopt(deps: Deps, run: Run): void {
+  // a 2.0 run's daemon watches its roles and fails them over itself
+  if (isDaemonRun(run)) return;
   for (const d of liveDispatches(run, deps.now())) if (!watching.has(d.admit.dispatchId)) watch(deps, run, d);
 }
 
@@ -252,6 +255,7 @@ export async function claim(deps: Deps, run: Run, o: { background?: boolean } = 
  * away has no live process to watch and no record to scan).
  */
 export async function recoverOwned(deps: Deps, run: Run, o: { background?: boolean } = {}): Promise<void> {
+  if (isDaemonRun(run)) return;
   adopt(deps, run);
   let r = recovering.get(run.id);
   if (!r) {

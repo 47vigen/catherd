@@ -3,12 +3,13 @@ import type { QueueCapability } from "../infra/codex-queue.ts";
 import { inspectionHost, inspectDeliveries, type DeliveryInspection } from "./run-debug.ts";
 import { resolve } from "node:path";
 import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
-import { isCatherdError } from "../domain/errors.ts";
+import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import type { RunRecord, Tokens } from "../domain/record.ts";
 import type { QuotaRow } from "../domain/scorecard.ts";
 import { median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
+import { ensureDaemon } from "./daemon.ts";
 import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
 import { type Pause, pausesOver } from "./pause.ts";
 import { pinChanges } from "./run-pin.ts";
@@ -65,6 +66,13 @@ export interface RunSummary {
 /** One run at a glance. Spec §3.4: reads are pure; nothing here finalizes a dispatch or writes a file. */
 export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const now = deps.now();
+  const warnings: string[] = [];
+  // an unfinished 2.0 run whose daemon died gets it back from any reader: status, watch, the TUI
+  try {
+    ensureDaemon(run);
+  } catch (e) {
+    warnings.push(`daemon: ${errorMessage(e)}`);
+  }
   const { records, corrupt } = readRecords(run);
   const live = liveDispatches(run, now);
   const recorded = new Set(records.map((r) => r.dispatchId));
@@ -72,7 +80,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
   const sum = (f: (t: Tokens) => number) => records.reduce((n, r) => n + f(r.tokens), 0);
   let budget: BudgetStatus | null = null;
-  const warnings = corrupt ? [`runs.jsonl: skipped ${corrupt} unreadable row(s)`] : [];
+  if (corrupt) warnings.push(`runs.jsonl: skipped ${corrupt} unreadable row(s)`);
   // spec 1.5 "Pinned per run": a change since the pin, which dispatch does not follow
   const pinned = pinChanges(deps, run);
   for (const c of pinned) warnings.push(`pinned: ${c}; dispatch keeps the pinned value (run_pin re-pins)`);

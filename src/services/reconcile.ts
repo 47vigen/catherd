@@ -3,10 +3,12 @@ import { errorMessage } from "../domain/errors.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
 import { log } from "../infra/log.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
+import { ensureDaemon } from "./daemon.ts";
 import { recoverOwned, settle, stallPoll, unsettledLimits, watching } from "./dispatch-service.ts";
 import { type Dispatch, listDispatches, pendingDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import type { Deps } from "./ports.ts";
+import { isDaemonRun } from "./run-events-store.ts";
 import { listRuns, type Run } from "./run-store.ts";
 import { ownsRun } from "./sessions.ts";
 
@@ -100,6 +102,15 @@ export async function reconcileAll(deps: Deps): Promise<ReconcileReport> {
     if (!report.warnings.includes(w)) report.warnings.push(w);
   };
   for (const run of runs) {
+    // a 2.0 run is its daemon's: an unfinished one gets its daemon back, and nothing here settles its roles
+    if (isDaemonRun(run)) {
+      try {
+        ensureDaemon(run);
+      } catch (e) {
+        warn(run, e);
+      }
+      continue;
+    }
     let pending;
     try {
       const scrubbed = scrubOldSpecs(run);
