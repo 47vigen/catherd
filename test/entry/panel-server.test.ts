@@ -374,6 +374,36 @@ describe("the panel server", () => {
     expect(anon.status).toBe(401);
   });
 
+  it("closes a session's run sockets when it logs out, and they stream nothing more", async () => {
+    const cookie = await signIn();
+    const other = await signIn();
+    const id = await start("wallet split");
+    const open = async (c: string) => {
+      const ws = new WebSocket(`${base.replace("http", "ws")}/api/runs/${id}/live`, {
+        headers: { cookie: c },
+      } as never);
+      const seen = { frames: 0, code: 0 };
+      ws.onmessage = () => void seen.frames++;
+      ws.onclose = (e) => void (seen.code = e.code);
+      await new Promise<void>((r) => (ws.onopen = () => r()));
+      return { ws, seen };
+    };
+    const mine = await open(cookie);
+    const theirs = await open(other);
+    expect((await post(cookie, "/api/auth/logout", {})).status).toBe(204);
+    await waitFor(() => mine.seen.code !== 0);
+    expect(mine.seen.code).toBe(4401);
+    await appendEvent(findRun(id), {
+      type: "question.parked",
+      unit: "M1.L4",
+      question: "q",
+      reason: "needs_user",
+    });
+    await waitFor(() => theirs.seen.frames > 0);
+    expect([mine.seen.frames, theirs.seen.code]).toEqual([0, 0]);
+    theirs.ws.close();
+  });
+
   it("listens on 127.0.0.1 only", () => {
     expect(panel.url).toStartWith("http://127.0.0.1:");
   });

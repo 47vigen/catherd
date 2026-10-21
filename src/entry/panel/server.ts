@@ -172,12 +172,19 @@ export const panelOriginOk = (origin: string | null, host: string): boolean =>
 interface SocketData {
   run: string;
   from: number;
+  session: string;
   stop?: () => void;
 }
 
 /** One Bun process on 127.0.0.1: the built files, the JSON API and a socket per run tailing its events. */
 export function servePanel(o: PanelOptions): Panel {
   const sessions = new Set<string>();
+  const sockets = new Set<ServerWebSocket<SocketData>>();
+  /** Ends a session and the run sockets it opened: a socket outlives its cookie otherwise. */
+  const revoke = (session: string): void => {
+    sessions.delete(session);
+    for (const ws of sockets) if (ws.data.session === session) ws.close(4401, "signed out");
+  };
   const dist = resolve(o.distDir);
   let origin = "";
   let signInPage: ReturnType<typeof writeRedirectPage> | undefined;
@@ -278,7 +285,7 @@ export function servePanel(o: PanelOptions): Panel {
       }
       if (op.id === "logout") {
         const c = cookieOf(req);
-        if (c) sessions.delete(c);
+        if (c) revoke(c);
         return new Response(null, {
           status: 204,
           headers: {
@@ -311,7 +318,9 @@ export function servePanel(o: PanelOptions): Panel {
     const url = new URL(req.url);
     const live = LIVE.exec(url.pathname);
     if (live && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      if (!signedIn(req)) return withHeaders(errorResponse("unauthorized", "sign in first"));
+      const session = cookieOf(req);
+      if (session === undefined || !sessions.has(session))
+        return withHeaders(errorResponse("unauthorized", "sign in first"));
       if (!originOk(req, host)) return withHeaders(errorResponse("forbidden", "cross-origin socket refused"));
       let id: string;
       try {
@@ -334,7 +343,7 @@ export function servePanel(o: PanelOptions): Panel {
         asked === null
           ? (readEvents(findRun(id)).at(-1)?.seq ?? 0) + 1
           : Math.max(1, Number.parseInt(asked, 10) || 1);
-      if (srv.upgrade(req, { data: { run: id, from } })) return undefined;
+      if (srv.upgrade(req, { data: { run: id, from, session } })) return undefined;
       return withHeaders(errorResponse("E_INPUT_INVALID", "not a websocket upgrade"));
     }
     if (url.pathname.startsWith("/api/")) return withHeaders(await api(req, url, host));
@@ -354,6 +363,7 @@ export function servePanel(o: PanelOptions): Panel {
       fetch,
       websocket: {
         open(ws: ServerWebSocket<SocketData>) {
+          sockets.add(ws);
           ws.data.stop = tailEvents(
             findRun(ws.data.run),
             ws.data.from,
@@ -370,6 +380,7 @@ export function servePanel(o: PanelOptions): Panel {
           );
         },
         close(ws: ServerWebSocket<SocketData>) {
+          sockets.delete(ws);
           ws.data.stop?.();
         },
         // a `ping` frame keeps the tab's socket warm and means nothing
