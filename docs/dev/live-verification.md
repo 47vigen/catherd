@@ -400,70 +400,23 @@ main thread ran itself (MR A: 156), and whether any notice was missing or double
 ## 10. The 1.2 acceptance (the release PR waits for it)
 
 Spec 1.2 §11. Install the release candidate from `changeset-release/main` and the plugin from the same checkout
-exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run these four in order. Keep your real
+exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run this one. Keep your real
 config: the commands below save and restore what they change.
 
-**1. A fresh `init`, with and without an Artificial Analysis key; `doctor` shows every source fresh.**
-
-```sh
-export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"   # apart from your own, agents too
-ARTIFICIAL_ANALYSIS_API_KEY= catherd init --no-input --no-global
-catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | "\(.state) \(.word): \(.detail)"'
-```
-
-Look for `ok fresh:` and every keyless source (`models-dev`, `openrouter-models`, `openrouter-endpoints`,
-`litellm`, `arena`, `vectara`, `epoch`) under an hour old, and `no Artificial Analysis key`. Then with your key:
-
-```sh
-export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"
-ARTIFICIAL_ANALYSIS_API_KEY=<your key> catherd init --no-input --no-global
-catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | .detail'
-ls -l "$CATHERD_HOME/config/credentials.json"   # -rw------- ; the key was tested before it was saved
-unset CATHERD_HOME CATHERD_CLAUDE_AGENTS_DIR
-```
-
-Look for `artificial-analysis` among the fresh sources and `Artificial Analysis key set, <n> requests left today`.
-
-**2. Clearing every treat-like of yours leaves the profile valid, with warnings.**
-
-```sh
-cp ~/.config/catherd/catalog.override.json /tmp/override.before.json 2>/dev/null
-catherd catalog treat-like --reset
-catherd profile validate; echo "exit $?"
-```
-
-Look for: `--reset` names, before its `removed` line, each profile rung left on an inferred stand-in or unscored (none is
-fine when you had no treat-likes); `validate` prints no `✗` line, exits 0, and lists each such rung as `stand-in
-to confirm: …`. Put yours back with `cp /tmp/override.before.json ~/.config/catherd/catalog.override.json`.
-
-**3. A `terminal` lane and a `ui` lane pick by the terminal and frontend bars, and say each value's source.**
+**1. A `terminal` lane and a `ui` lane are held to the same intelligence bar, and say what it was.**
 
 In a scratch repository, start a run and route two lanes through the MCP tools from a Claude Code session:
 
 ```sh
 scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
 claude -p --output-format json \
-  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.thresholds of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
+  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.bar and provenance.intelligence of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
   | jq -r .result
 ```
 
-Look for: the terminal lane's thresholds list only `terminal` (its value's `source` `shipped`, Terminal-Bench
-4.0), the ui lane's `repo_code` and `frontend` (`frontend`'s source `arena`), each with `min`, `used.value`,
-`used.confidence` and `clears`; and the two lanes on different rungs (on the default profile: Sol medium and Sol
-xhigh).
-
-**4. The first weekly refresh PR opens with a readable change list.**
-
-```sh
-gh workflow run catalog-refresh.yml --repo 47vigen/catherd
-sleep 60; gh run list --workflow catalog-refresh.yml --repo 47vigen/catherd --limit 1
-gh pr view catalog-refresh --repo 47vigen/catherd
-```
-
-Look for: the run succeeds; when anything changed, one PR titled `chore(catalog): refresh scores` with a patch
-changeset, whose body lists the rungs newly scored, the values moved by more than 5 % and every bar that moved
-(each as a table), and no Artificial Analysis value; when nothing changed, the run's log ends with `no change`
-and no PR opens.
+Look for: each lane's `bar` naming its difficulty, its percentile (copy 25, build 50) and `min`, the rung's
+`intelligence` against it, and `clears: true`; the two lanes on the rungs the default profile's worker ladder gives
+those bars (Sol medium for both on the 2026-10-13 index).
 
 ## 11. Cursor (1.3, plan 15)
 
@@ -782,3 +735,16 @@ Two behaviours only a real install shows. On a machine with a published catherd:
    `BUN_CONFIG_REGISTRY=http://10.255.255.1 bun src/cli.ts init --no-input`. `init` says `installing catherd…`,
    then within about two minutes `could not install catherd globally: add -g catherd-cli@<version> timed out after
    120 s` with the retry command, and goes on. Reinstall the candidate afterwards as §9 does.
+
+## 19. The Slopalytics catalog (2.0, plan 29)
+
+On a machine with the release candidate, with your real config (these only read, and fetch the index):
+
+1. **Fetch the index.** `catherd catalog sync --force` prints `+ catalog: <n> pairs, fetched just now` and exits 0.
+   `catherd doctor --json | jq '.checks[] | select(.id == "catalog")'` reads `ok fresh` with `<n> pairs`.
+2. **Only indexed pairs are offered.** `catherd catalog list --role worker` lists each model with `#<effort>` lines
+   that carry an `intelligence` figure; a model Slopalytics does not list is absent. `catherd profile set
+   roles.worker.rungs codex:gpt-6-sol#turbo` is refused with `has no Slopalytics intelligence index` and the fix
+   `pick an indexed pair: catherd catalog list --role worker`.
+3. **A run pins its index.** Start a run in a scratch repository: the run's folder (`catherd runs show <id>` names it)
+   holds a `slopalytics.json`, and `catherd catalog sync --force` afterwards leaves that file's `fetchedAt` as it was.

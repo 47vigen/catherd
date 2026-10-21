@@ -135,7 +135,7 @@ Binding spec: `docs/specs/2026-09-28-catherd-1.2-design.md` (above 1.1 and 1.0).
 The release PR #24 ("chore: release catherd", catherd-cli@1.2.0) is **held** for the owner's acceptance (spec §11,
 `docs/dev/live-verification.md` §10); the exact commands are posted on it. Next session: nothing runs until the
 owner reports the acceptance; then merge #24 (npm OIDC publish, plugin stamped 1.2.0). The AA fixtures are synthetic (no key in the sandbox): the owner re-records them
-(`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md` "1.2 follow-ups".
+(`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md`.
 
 ## catherd 1.1 (session 5, autopilot)
 

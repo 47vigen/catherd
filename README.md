@@ -21,7 +21,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
 - **A protocol the tools enforce.** Every lane is routed, every brief ends with the reply contract, and a
   milestone lands only after a reviewer and a verifier passed it. Workers can run their own checks (network,
   loopback, Docker, the lock dir); an owner question parks one milestone, not the run.
-- **Guard rails for autopilot.** Quota failover to a stand-in that clears the same bars, a preflight check
+- **Guard rails for autopilot.** Quota failover to an indexed stand-in at least as intelligent, a preflight check
   before any worker starts, per-repo knowledge carried between runs, and a run budget.
 
 ## Requirements
@@ -36,8 +36,6 @@ of work, climbing a ladder only when a cheaper rung falls short.
   - Cursor's CLI, `cursor-agent` 2026.09.28 or newer: `curl https://cursor.com/install -fsS | bash`, then
     `cursor-agent login` (below)
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
-- Optional: a free [Artificial Analysis](https://artificialanalysis.ai) API key for more scores, in
-  `ARTIFICIAL_ANALYSIS_API_KEY` or saved by `catherd init`; its numbers are read for you alone and never shipped
 
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
@@ -46,7 +44,7 @@ you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --
 ### Cursor
 
 A Cursor rung names Cursor's own model slug, with the effort as the slug's suffix: `cursor:gpt-6-sol#xhigh` runs
-`gpt-6-sol-xhigh`, and `#default` runs the bare slug (`cursor:composer-2.5#default`). `cursor-agent models` lists
+`gpt-6-sol-xhigh`, and `#default` runs the bare slug of a model whose index entry has no effort. `cursor-agent models` lists
 what your account offers; `catherd catalog refresh` reads it. No profile uses Cursor until you put a rung on it.
 Its own models (Composer, Grok) bill from Cursor's own pool, the other models at API rates after your plan's included
 usage, so a Cursor rung ranks as `metered`.
@@ -77,10 +75,10 @@ installs the global command at its own version (`--no-global` skips it) and says
 it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches about a
 hundred packages before catherd's first line, TypeScript among them (a peer dependency of OpenTUI's native
 layer, which Bun installs), so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
-optional Jev key and the optional Artificial Analysis key, syncs the public model sources, writes the default
+optional Jev key, fetches the Slopalytics index, writes the default
 profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
 asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
-piped, it reads one answer per line once stdin closes: the Jev key, the Artificial Analysis key, the profile,
+piped, it reads one answer per line once stdin closes: the Jev key, the profile,
 whether to replace it, each on its own line even when a question is skipped). Then add the plugin to
 Claude Code:
 
@@ -152,10 +150,8 @@ In a terminal:
 | `catherd status [run]`, `catherd watch [--once] [--interval <s>]`                                                                                                      | Where runs stand, grouped by host and session; read-only ownership                                                                                     |
 | `catherd runs list [--repo <path>]\|show <id> [--debug [--name <n>]]\|cancel <id> <name>`                                                                              | Past runs, by session; `--debug` adds exit.json and the stderr and event tails, `--name` one role's                                                    |
 | `catherd runs clean [<id>]`                                                                                                                                            | Removes the roles' scratch folders (each role's `$TMPDIR`) of runs with no live role                                                                   |
-| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>] [--scored]`                                                                                   | The models catherd can place, filtered                                                                                                                 |
-| `catherd catalog sync [--force] [--unmatched]`                                                                                                                         | Fetches the public model facts and scores now (below); `--unmatched` lists ids no model matched                                                        |
-| `catherd catalog treat-like <rung> <like>`                                                                                                                             | Scores an unscored rung as a scored one                                                                                                                |
-| `catherd catalog treat-like --suggest <rung>\|--clear <rung>\|--reset`                                                                                                 | The three nearest stand-ins for a rung; removes one or every mapping of yours                                                                          |
+| `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>]`                                                                                              | The models catherd can place, with their indexed pairs                                                                                                 |
+| `catherd catalog sync [--force]`                                                                                                                                       | Fetches the Slopalytics index now (below); it is refreshed at most hourly otherwise                                                                    |
 | `catherd knowledge show\|add "<line>"\|path [--repo <path>]`                                                                                                           | The repo's knowledge.md, keyed by its git origin (its toplevel when it has none), which new runs read; `add` appends a fact of yours, marked "by hand" |
 | `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`                                                                                     | The repo's gate environment, which the verifier and preflight run with; a secret by reference only                                                     |
 | `catherd runs supersede <id> --by <id>`, `catherd runs pin <id>`                                                                                                       | Closes a run with a pointer to the one that took over; re-pins a run to the repo's profile now                                                         |
@@ -174,27 +170,25 @@ on the profile the repo you are in runs on: the one bound to it, else the active
 `~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
 and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too. `NO_COLOR` drops colour, never glyphs.
 
-Model facts and scores also come from public sources: models.dev, OpenRouter, LiteLLM, Arena (LMArena), Vectara's
-hallucination leaderboard and Epoch AI, plus Artificial Analysis when you give `catherd init` a free key. The MCP
-server syncs them in the background when a host session starts (each source at most every 12 hours, never
-delaying the session), `init` syncs them, and `catherd catalog sync` (or the `catalog_sync` tool) does it on demand.
-Each answer is kept in `~/.local/share/catherd/sources/`; a source that fails keeps its last good answer, and with no
-network and no sync at all catherd routes on the scores it ships. Those are the keyless sources' values, refreshed
-weekly (`catalog/ATTRIBUTION.md` credits each source); Artificial Analysis values are read with your key only and
-never shipped.
+The catalog reads one source: the [Slopalytics](https://slopalyticsproxy.vercel.app) index, one `intelligence`
+number per model and effort. It is fetched hourly (the MCP server does it in the background when a host session
+starts, `init` does it, and `catherd catalog sync [--force]` or the `catalog_sync` tool does it on demand) and
+cached in `~/.local/share/catherd/slopalytics.json`; a fetch that fails keeps the last good index and `doctor`
+names the error. A model and effort the index does not list is not offered: it is absent from the catalog and
+`catalog_query`, and a profile that names one fails `profile validate`. `CATHERD_NO_SYNC=1` stops the automatic
+refreshes.
 
-A lane's kind and difficulty pick a bar: a threshold on each dimension it spans (`repo_code`, `terminal`,
-`honesty`, `agentic`, `frontend`; `steer` is shown but has no default bar), and the lane starts on the cheapest
-rung that clears them all. A rung with no value on a dimension takes its nearest stand-in's as `inferred`, and
-`profile validate` and `doctor` list it as a "stand-in to confirm": confirm or replace it with `catherd catalog
-treat-like --suggest <rung>`, then `treat-like <rung> <like>`. A ladder holds only rungs at least as strong as its
-start, and rungs of equal scores on two quotas start on the one the run has used least. `route` returns the rung,
-its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and the why says when Jev
-disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl` keeps every role's
-decision with, for the rung it picks, each threshold, the value used, its confidence and source, and catherd's own
-runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A bar of your own goes in `~/.config/catherd/catalog.override.json`, per dimension
-(`"bars": { "ui": { "hard": { "frontend": 1700, "honesty": null } } }`: a number sets a threshold, `null` removes
-the default's).
+A lane's difficulty picks a bar: a percentile of the intelligence of the shipped models' indexed pairs (copy the
+25th, build the 50th, logic the 60th, hard the 75th), and the lane starts on the cheapest rung that clears it
+(the fastest under `objective speed`). Every kind of lane is held to the same bar. A ladder holds only rungs at
+least as intelligent as its start, and rungs of equal intelligence on two quotas start on the one the run has used
+least. A failover stand-in must be indexed, on another quota and at least as intelligent as the rung it replaces.
+`route` returns the rung, its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and
+the why says when Jev disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl`
+keeps every role's decision with, for the rung it picks, its intelligence, the bar it was held to and catherd's own
+runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A run starts only when every
+enabled role has an indexed rung, and it keeps the index it started on: a later refresh never changes what it
+dispatches on.
 
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
@@ -242,19 +236,18 @@ rolls back repositories or starts the next child.
 
 ### Environment variables
 
-| Variable                      | What it does                                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY`            | The Jev key, instead of the one `catherd init` saves                                                        |
-| `ARTIFICIAL_ANALYSIS_API_KEY` | An Artificial Analysis key for `catalog sync`, instead of the one `catherd init` saves                      |
-| `CATHERD_NO_SYNC`             | `1`: no automatic sync of the public sources (at MCP server start and in `init`); `catalog sync` still runs |
-| `CURSOR_API_KEY`              | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                       |
-| `CATHERD_HOME`                | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                   |
-| `CATHERD_LOG`                 | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                      |
-| `CATHERD_LOCK_SLOTS`          | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                 |
-| `CATHERD_REDUCED_MOTION`      | Any value: the dashboard's `--reduced-motion`                                                               |
-| `CATHERD_NO_KITTY`            | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks                  |
-| `CATHERD_CLAUDE_AGENTS_DIR`   | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`)       |
-| `NO_COLOR`                    | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                               |
+| Variable                    | What it does                                                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `TYPESAFE_API_KEY`          | The Jev key, instead of the one `catherd init` saves                                                                          |
+| `CATHERD_NO_SYNC`           | `1`: no automatic fetch of the Slopalytics index (at MCP server start, in `init` and at run start); `catalog sync` still runs |
+| `CURSOR_API_KEY`            | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                                         |
+| `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                                     |
+| `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                                        |
+| `CATHERD_LOCK_SLOTS`        | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                                   |
+| `CATHERD_REDUCED_MOTION`    | Any value: the dashboard's `--reduced-motion`                                                                                 |
+| `CATHERD_NO_KITTY`          | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks                                    |
+| `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`)                         |
+| `NO_COLOR`                  | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                                                 |
 
 For development only: `CATHERD_STORY=1` opens the dashboard's storybook, and `CATHERD_LIVE=1` enables the live
 tests (CONTRIBUTING.md has the rest).

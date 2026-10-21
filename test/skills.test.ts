@@ -293,7 +293,7 @@ describe("setup skill", () => {
     }
   });
 
-  it("covers every profile field profile_set stores, access with its enforcement, and the treat-like command", () => {
+  it("covers every profile field profile_set stores, access with its enforcement, and the indexed-pairs rule", () => {
     const md = skill("catherd-setup");
     for (const field of [
       "`objective`",
@@ -314,7 +314,10 @@ describe("setup skill", () => {
       expect(md).toContain(field);
     for (const word of ["`enforced`", "`advisory`", "`newSessionNeededFor`", "`warnings`", "`null` removes"])
       expect(md).toContain(word);
-    expect(md).toContain("catherd catalog treat-like <rung> <scored rung>");
+    expect(md).toContain("`catalog_query`");
+    expect(md).toContain("indexed");
+    expect(md).not.toContain("treat-like");
+    expect(md).not.toContain("treat like");
     expect(md).not.toContain("the TUI edits");
   });
 
