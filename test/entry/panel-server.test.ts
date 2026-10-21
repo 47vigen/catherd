@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { brotliCompressSync } from "node:zlib";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { defaultDeps } from "../../src/entry/deps.ts";
 import { type Panel, PANEL_COOKIE, servePanel } from "../../src/entry/panel/server.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
@@ -33,7 +33,15 @@ beforeEach(() => {
   writeFileSync(join(dist, "index.html"), '<!doctype html><div id="root"></div>');
   writeFileSync(join(dist, "assets", "a.js"), "console.log(1)");
   writeFileSync(join(dist, "assets", "a.js.br"), brotliCompressSync("console.log(1)"));
-  panel = servePanel({ deps, repo, token: TOKEN, port: 0, distDir: dist, open: false, pollMs: 10 });
+  panel = servePanel({
+    deps,
+    repo,
+    token: TOKEN,
+    port: 0,
+    distDir: dist,
+    open: false,
+    pollMs: 10,
+  });
   base = panel.url;
 });
 afterEach(async () => {
@@ -53,7 +61,11 @@ async function signIn(): Promise<string> {
 const call = async (cookie: string, path: string, init: RequestInit = {}) =>
   fetch(`${base}${path}`, {
     ...init,
-    headers: { cookie, "content-type": "application/json", ...(init.headers as Record<string, string>) },
+    headers: {
+      cookie,
+      "content-type": "application/json",
+      ...(init.headers as Record<string, string>),
+    },
   });
 const post = (cookie: string, path: string, body: unknown) =>
   call(cookie, path, { method: "POST", body: JSON.stringify(body) });
@@ -65,15 +77,19 @@ async function start(title: string): Promise<string> {
 describe("the panel server", () => {
   it("serves the built files, falls back to index.html for a deep link, and stays inside the build", async () => {
     expect(await (await fetch(`${base}/runs/abc`)).text()).toContain('<div id="root">');
-    const br = await fetch(`${base}/assets/a.js`, { headers: { "accept-encoding": "br, gzip" } });
+    const br = await fetch(`${base}/assets/a.js`, {
+      headers: { "accept-encoding": "br, gzip" },
+    });
     expect([br.headers.get("content-encoding"), br.headers.get("cache-control")]).toEqual([
       "br",
       "public, max-age=31536000, immutable",
     ]);
     expect(
-      (await fetch(`${base}/assets/a.js`, { headers: { "accept-encoding": "identity" } })).headers.get(
-        "content-encoding",
-      ),
+      (
+        await fetch(`${base}/assets/a.js`, {
+          headers: { "accept-encoding": "identity" },
+        })
+      ).headers.get("content-encoding"),
     ).toBeNull();
     // Bun folds a `%2e%2e` segment away before the handler sees it; an encoded slash survives it and is refused
     const rawGet = (target: string) =>
@@ -125,7 +141,11 @@ describe("the panel server", () => {
     const cookie = await signIn();
     const id = await start("wallet split");
     expect(
-      (await fetch(`${base}/api/runs`, { headers: { cookie, host: `evil.test:${panel.port}` } })).status,
+      (
+        await fetch(`${base}/api/runs`, {
+          headers: { cookie, host: `evil.test:${panel.port}` },
+        })
+      ).status,
     ).toBe(403);
     expect((await post(cookie, `/api/runs/${id}/cancel`, {})).status).toBe(200);
     const evil = await call(cookie, `/api/runs/${id}/cancel`, {
@@ -189,9 +209,13 @@ describe("the panel server", () => {
     const run = createRun({ repo, title: "old", aLines: [], version: "1.5.0" });
     const t = await (await call(cookie, `/api/runs/${run.id}/timeline`)).json();
     expect(t).toEqual({ items: [], total: 0 });
-    expect(((await (await call(cookie, `/api/runs/${run.id}`)).json()) as { engine: string }).engine).toBe(
-      "1.5",
-    );
+    expect(
+      (
+        (await (await call(cookie, `/api/runs/${run.id}`)).json()) as {
+          engine: string;
+        }
+      ).engine,
+    ).toBe("1.5");
   });
 
   it("lists parked questions, answers one through the run client, and refuses a second answer for the same unit with the error body", async () => {
@@ -208,13 +232,23 @@ describe("the panel server", () => {
       total: number;
     };
     expect([list.total, list.items[0]?.unit]).toEqual([1, "M1.L2"]);
-    expect(((await (await call(cookie, `/api/questions?q=nothing`)).json()) as { total: number }).total).toBe(
-      0,
-    );
-    const first = await post(cookie, `/api/runs/${id}/answers`, { unit: "M1.L2", answer: "keep it" });
+    expect(
+      (
+        (await (await call(cookie, `/api/questions?q=nothing`)).json()) as {
+          total: number;
+        }
+      ).total,
+    ).toBe(0);
+    const first = await post(cookie, `/api/runs/${id}/answers`, {
+      unit: "M1.L2",
+      answer: "keep it",
+    });
     expect([first.status, ((await first.json()) as { unit: string }).unit]).toEqual([200, "M1.L2"]);
     expect(readEvents(findRun(id)).at(-1)?.type).toBe("question.answered");
-    const second = await post(cookie, `/api/runs/${id}/answers`, { unit: "M1.L2", answer: "again" });
+    const second = await post(cookie, `/api/runs/${id}/answers`, {
+      unit: "M1.L2",
+      answer: "again",
+    });
     expect(second.status).toBe(400);
     expect(((await second.json()) as { error: { code: string } }).error.code).toBe("E_INPUT_INVALID");
     expect((await call(cookie, "/api/runs/nope")).status).toBe(404);
@@ -230,7 +264,10 @@ describe("the panel server", () => {
   it("saves a role's rungs through the profile service and refuses a role that does not exist", async () => {
     const cookie = await signIn();
     const put = (role: string, rungs: string[]) =>
-      call(cookie, `/api/setup/roles/${role}`, { method: "PUT", body: JSON.stringify({ rungs }) });
+      call(cookie, `/api/setup/roles/${role}`, {
+        method: "PUT",
+        body: JSON.stringify({ rungs }),
+      });
     const ok = await put("reviewer", ["codex:gpt-6-sol#high"]);
     expect([ok.status, ProfileSavedSchema.parse(await ok.json()).saved]).toEqual([200, true]);
     expect((await put("boss", ["codex:gpt-6-sol#high"])).status).toBe(400);
@@ -240,7 +277,10 @@ describe("the panel server", () => {
   it("refuses a body that does not parse, naming the field", async () => {
     const cookie = await signIn();
     const id = await start("wallet split");
-    const r = await post(cookie, `/api/runs/${id}/answers`, { unit: "", answer: "x" });
+    const r = await post(cookie, `/api/runs/${id}/answers`, {
+      unit: "",
+      answer: "x",
+    });
     expect(r.status).toBe(400);
     expect(((await r.json()) as { error: { message: string } }).error.message).toContain("unit");
   });
@@ -298,5 +338,54 @@ describe("the panel server", () => {
 
   it("listens on 127.0.0.1 only", () => {
     expect(panel.url).toStartWith("http://127.0.0.1:");
+  });
+});
+
+describe("the sign-in page", () => {
+  it("hands the opener a 0600 file in a 0700 dir, not the token, and deletes it after sign-in", async () => {
+    const opened: string[] = [];
+    const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    const p = servePanel({
+      deps,
+      repo,
+      token: TOKEN,
+      port: 0,
+      distDir: dist,
+      open: true,
+      opener: (t) => void opened.push(t),
+    });
+    try {
+      const [file] = opened as [string];
+      expect(opened).toHaveLength(1);
+      expect(file).not.toContain(TOKEN);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(file)).mode & 0o777).toBe(0o700);
+      expect(readFileSync(file, "utf8")).toContain(`${p.url}/login#token=${TOKEN}`);
+      const r = await fetch(`${p.url}/api/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ token: TOKEN }),
+      });
+      expect(r.status).toBe(204);
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      await p.stop();
+    }
+  });
+
+  it("removes the page when the server stops before anyone signs in", async () => {
+    const opened: string[] = [];
+    const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+    const p = servePanel({
+      deps,
+      repo,
+      token: TOKEN,
+      port: 0,
+      distDir: dist,
+      open: true,
+      opener: (t) => void opened.push(t),
+    });
+    await p.stop();
+    expect(existsSync(opened[0] as string)).toBe(false);
   });
 });

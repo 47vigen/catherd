@@ -6,7 +6,7 @@ import { z } from "zod";
 import { CatherdError, errorMessage, isCatherdError } from "../../domain/errors.ts";
 import { describeEvent } from "../../domain/run-events.ts";
 import { ROLES, type Role } from "../../domain/roles.ts";
-import { openUrl } from "../../infra/open-url.ts";
+import { openUrl, writeRedirectPage } from "../../infra/open-url.ts";
 import { VERSION } from "../../infra/version.ts";
 import { setRoleRungs, setupView } from "../../services/panel-setup.ts";
 import type { Deps } from "../../services/ports.ts";
@@ -35,6 +35,8 @@ export interface PanelOptions {
   port: number;
   distDir: string;
   open: boolean;
+  /** What opens the sign-in page: a test replaces it. */
+  opener?: (target: string) => void;
   pollMs?: number;
 }
 export interface Panel {
@@ -64,7 +66,14 @@ const STATUS: Record<string, number> = {
 
 const errorResponse = (code: string, message: string, fix?: string): Response =>
   Response.json(
-    ErrorBodySchema.parse({ error: { message, type: code, code, ...(fix === undefined ? {} : { fix }) } }),
+    ErrorBodySchema.parse({
+      error: {
+        message,
+        type: code,
+        code,
+        ...(fix === undefined ? {} : { fix }),
+      },
+    }),
     { status: STATUS[code] ?? 500 },
   );
 
@@ -133,7 +142,10 @@ const HANDLERS: Record<OperationId, (c: Call) => unknown> = {
   },
   cancelRun: (c) => cancelRun(c.deps, { run: c.params.id as string }),
   answerUnit: (c) =>
-    answerUnit(c.deps, { run: c.params.id as string, ...(c.body as z.infer<typeof AnswerBodySchema>) }),
+    answerUnit(c.deps, {
+      run: c.params.id as string,
+      ...(c.body as z.infer<typeof AnswerBodySchema>),
+    }),
   listQuestions: (c) => {
     const q = c.query as z.infer<typeof QuestionsQuerySchema>;
     return page(
@@ -158,6 +170,11 @@ export function servePanel(o: PanelOptions): Panel {
   const sessions = new Set<string>();
   const dist = resolve(o.distDir);
   let origin = "";
+  let signInPage: ReturnType<typeof writeRedirectPage> | undefined;
+  const dropSignInPage = (): void => {
+    signInPage?.remove();
+    signInPage = undefined;
+  };
 
   const hostOk = (req: Request): string | null => {
     const host = req.headers.get("host");
@@ -196,7 +213,9 @@ export function servePanel(o: PanelOptions): Panel {
             Vary: "Accept-Encoding",
           },
         });
-    return new Response(Bun.file(served), { headers: { ...cache(served), Vary: "Accept-Encoding" } });
+    return new Response(Bun.file(served), {
+      headers: { ...cache(served), Vary: "Accept-Encoding" },
+    });
   };
   const cache = (file: string): Record<string, string> => ({
     "Cache-Control": file.startsWith(join(dist, "assets") + sep)
@@ -240,9 +259,12 @@ export function servePanel(o: PanelOptions): Panel {
           return errorResponse("unauthorized", "wrong token");
         const session = randomBytes(32).toString("base64url");
         sessions.add(session);
+        dropSignInPage();
         return new Response(null, {
           status: 204,
-          headers: { "Set-Cookie": `${PANEL_COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/` },
+          headers: {
+            "Set-Cookie": `${PANEL_COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/`,
+          },
         });
       }
       if (op.id === "logout") {
@@ -250,10 +272,18 @@ export function servePanel(o: PanelOptions): Panel {
         if (c) sessions.delete(c);
         return new Response(null, {
           status: 204,
-          headers: { "Set-Cookie": `${PANEL_COOKIE}=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/` },
+          headers: {
+            "Set-Cookie": `${PANEL_COOKIE}=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/`,
+          },
         });
       }
-      const out = await HANDLERS[op.id]({ deps: o.deps, repo: o.repo, params, query, body });
+      const out = await HANDLERS[op.id]({
+        deps: o.deps,
+        repo: o.repo,
+        params,
+        query,
+        body,
+      });
       return op.response === null
         ? new Response(null, { status: 204 })
         : Response.json(op.response.parse(out));
@@ -313,7 +343,15 @@ export function servePanel(o: PanelOptions): Panel {
           ws.data.stop = tailEvents(
             findRun(ws.data.run),
             ws.data.from,
-            (e) => ws.send(JSON.stringify({ seq: e.seq, at: e.at, type: e.type, text: describeEvent(e) })),
+            (e) =>
+              ws.send(
+                JSON.stringify({
+                  seq: e.seq,
+                  at: e.at,
+                  type: e.type,
+                  text: describeEvent(e),
+                }),
+              ),
             { pollMs: o.pollMs },
           );
         },
@@ -332,6 +370,16 @@ export function servePanel(o: PanelOptions): Panel {
     throw e;
   }
   origin = `http://127.0.0.1:${server.port}`;
-  if (o.open) openUrl(`${origin}/login#token=${o.token}`);
-  return { url: origin, port: server.port as number, stop: async () => void (await server.stop(true)) };
+  if (o.open) {
+    signInPage = writeRedirectPage(`${origin}/login#token=${o.token}`);
+    (o.opener ?? openUrl)(signInPage.path);
+  }
+  return {
+    url: origin,
+    port: server.port as number,
+    stop: async () => {
+      dropSignInPage();
+      await server.stop(true);
+    },
+  };
 }
