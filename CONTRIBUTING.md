@@ -48,9 +48,10 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
   gives a test its own `CATHERD_HOME`. No network, and no wall-clock sleeps for correctness. The backend CLIs are
   simulated by the scripts in `test/sim/`, and the adapters' contract tests replay the streams in
   `test/fixtures/adapters/`.
-- **TUI frames.** `docs/tui-frames.md` is every dashboard screen as text, and `bun test` fails when it is stale.
-  After a TUI change, regenerate it with `bun run tui-frames` and commit it. `CATHERD_STORY=1 bun src/cli.ts`
-  opens the storybook with every view in a state worth seeing.
+- **The panel.** `web/` is remora's console copied (THIRD_PARTY_NOTICES.md), its own package with its own gate
+  (`cd web && bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun run test`)
+  and e2e (`bun run build && bun run e2e`). After an API change: `bun run panel:openapi`, then `cd web && bun run gen`.
+  One build at a time, no dev server per agent.
 
 ## Architecture
 
@@ -167,8 +168,8 @@ Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog dis
 
 Read both packaged skills end to end for each host. `route` is authoritative for all roles: native `claude:` Agent/accounting is Claude Code only, while process architect/verifier use `dispatch`/`result` on either host. Pass actual project `repo` to repo-aware MCP profile/setup/catalog calls because native server cwd is the plugin root. Keep explicit profiles intact and use only the reviewed `reset-host-defaults --preview --json` / `--expect <file>` CLI path to remove architect/verifier `rungs` and `defaultRung`. Ordinary doctor sends nothing; `--test-push` is explicit. Inspect queue acceptance, observed processing and collection separately, preserve every event ID and the independent reviewer/verifier landing gate, and never turn duplicate input into a dispatch or second landing.
 
-Development-only environment variables: `CATHERD_LIVE` (live tests), `CATHERD_STORY` (the storybook),
-`CATHERD_WRITE_FRAMES` (what `bun run tui-frames` sets), and the simulators' `CATHERD_SIM_*`. The user-facing ones
+Development-only environment variables: `CATHERD_LIVE` (live tests), `CATHERD_PANEL_DIST` (another build of the
+panel), and the simulators' `CATHERD_SIM_*`. The user-facing ones
 are in the README.
 
 ## Where things live

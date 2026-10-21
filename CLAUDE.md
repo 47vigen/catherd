@@ -14,6 +14,7 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
   reviews, and `process/` (the worker, reviewer and re-reviewer contracts).
 - `docs/dev/`: maintainer docs. `ideas.md` is the backlog: every improvement idea from real runs lands there first,
   with its evidence; a picked-up idea moves into a plan. `reports/` holds real-run reports.
+- `web/`: the panel, its own Bun package (own gate and e2e: CONTRIBUTING.md, "The panel").
 - `docs/research/`: dated research behind the spec. Read it only when a plan or task points at it.
 - Authority order: spec → plan → rulings.
 
@@ -23,7 +24,9 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
 - Workers run under a detached supervisor; every store write is atomic, locked and schema-versioned.
 - ProfileService is the single writer of profiles, config, repo bindings and Claude agent links.
 - A missing profile name means the profile the current repo runs on.
-- The gate: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun test`.
+- The gate: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun test`;
+  the panel's, in `web/`: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check &&
+bun run test`.
 - Tests that could reach the network delete `ANTHROPIC_API_KEY` (in-process) or pass `ANTHROPIC_API_KEY: ""`
   (spawned); spawned processes get an explicit `env`. Never use wall-clock sleeps for correctness.
 - Bun ≥ 1.4. Never commit a `bun.lock` an older Bun rewrote.
@@ -36,8 +39,8 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
 - Roles run in each vendor CLI exactly as the user configured it (native harness); isolation is only the profile's
   per-backend toggle.
 - Claude runs native (subagents) and headless (`claude-code:` rungs). Access is set per profile and per role.
-- The TUI follows opencode's: `@opentui/react`, `@opentui/keymap`, a `ctrl+p` palette, a `ctrl+x` leader, 16 theme
-  tokens; keyboard-first, predictable, no surprises.
+- The panel is remora's console copied (spec 2.0, decisions 23–26): `web/`, served by `catherd` (or `catherd panel`)
+  on 127.0.0.1 behind a one-time token; English copy; its conventions test is the rule.
 - Releases are versioned with Changesets; the Release workflow opens "chore: release catherd", and merging it
   publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
   Release re-tests only a direct push, and runs the pack smoke before a publish. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the

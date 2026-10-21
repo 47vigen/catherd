@@ -121,9 +121,9 @@ Plan 25 (runs, programs and lanes) review:
   after it stop being excluded. Evidence: `src/services/questions.ts:43-54`. Fix: count open questions (a span ends
   when the last open one is answered), or pair each answer with its question id. (Minor 2.)
 - **Some readers still use the repo's profile, not the run's pin.** Preflight, `jev.use` in lane routing, and the
-  budget `status` and the runs page show read `forRepo`, so admission enforces the pinned budget while status shows
+  budget `status` shows, all read `forRepo`, so admission enforces the pinned budget while status shows
   the repo's. Evidence: `src/services/preflight.ts:260`, `src/services/lane-service.ts:240`, `:573`,
-  `src/services/summary.ts:81`, `src/services/runs-page.ts:180`. Fix: read `runProfile(deps, run)` there. (Minor 3.)
+  `src/services/summary.ts:81`. Fix: read `runProfile(deps, run)` there. (Minor 3.)
 - **An unreadable profile leaves an orphan run folder.** `startRun` and `startWorkspaceChild` call `writePin`
   (`forRepo`) after `createRun`, so a profile that does not read throws with the run folder already made. Evidence:
   `src/services/run-service.ts:121`, `src/services/workspace-service.ts:195`. Fix: resolve the pin before
@@ -152,9 +152,6 @@ Plan 26 (the minors sweep) review:
   the run's start head, the range is empty and the message reads "<commit> changed nothing" instead of "nothing
   committed since the run started" (it fails safe). Evidence: `src/services/lane-service.ts:368-373`,
   `milestoneFiles`. Fix: special-case commit == startHead with the clearer message. (Minor 2.)
-- **RoleView's `done` outlives its role.** `done` is component state and RoleView has no key, so a future
-  role-to-role navigation would carry `done=true` to a live role and stop polling. Evidence: `src/entry/tui/views/runs.tsx:375,597`
-  (`RoleView`). Fix: render it with `key={role.dispatchId}`. (Minor 4.)
 
 Found while releasing 1.5 (open entries of the older sections that no 1.5 plan fixed and the spec's "Not in 1.5"
 does not name):
@@ -216,7 +213,7 @@ does not name):
   improvements.
 - **`catherd bench`.** Replay recorded real tasks under different profiles to measure them on the user's own work.
 - **Standalone binaries.** `bun build --compile` per platform, published as optional platform packages, so users need
-  no Bun install. It waits until OpenTUI's native core embeds cleanly in a compiled binary.
+  no Bun install. OpenTUI no longer blocks it; the built panel must be embedded too.
 
 ## Live coverage still missing
 

@@ -76,9 +76,8 @@ catherd init --host claude-code
 The npm package is `catherd-cli`; the command it installs is `catherd`. `bunx catherd-cli init --host claude-code`
 works too (a terminal with no host evidence cannot pick the architect/verifier defaults, so name the host): `init`
 installs the global command at its own version (`--no-global` skips it) and says `installing catherd…` before
-it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches about a
-hundred packages before catherd's first line, TypeScript among them (a peer dependency of OpenTUI's native
-layer, which Bun installs), so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
+it does, though the first `bunx` resolve itself prints nothing for up to half a minute: bunx fetches the
+package before catherd's first line, so `bun add -g catherd-cli` first is the quicker start. `init` asks for the
 optional Jev key, fetches the Slopalytics index, writes the default
 profile and links its Claude agents, lists your backends' models, and ends with a readiness report (`--no-input`
 asks nothing and keeps what exists; `--profile <name>` sets up and activates that profile instead of `default`;
@@ -153,7 +152,7 @@ In a terminal:
 
 | Command                                                                                                                                                                | What it does                                                                                                                                                                       |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catherd`                                                                                                                                                              | The dashboard: Status, Profiles and Runs (below)                                                                                                                                   |
+| `catherd`, `catherd panel [--port <n>] [--no-open]`                                                                                                                    | The panel in your browser on 127.0.0.1: Setup, Runs and Questions; a fresh token each start; `catherd --help` for the commands                                                     |
 | `catherd init [--host codex\|claude-code\|auto] [--no-input] [--no-global] [--profile <p>]`                                                                            | First-run setup; installs the global `catherd` at its own version unless `--no-global`                                                                                             |
 | `catherd doctor [--host codex\|claude-code\|auto] [--test-push [--thread <uuid>]] [--docker] [--json]`                                                                 | Readiness and capability report; no send unless explicit smoke; `--docker` probes a compose network and the Docker disk; exits 3 when not ready                                    |
 | `catherd profile list\|show\|use [--repo]\|new [--from <p>]\|copy\|rm\|diff\|validate`                                                                                 | Profiles; `use --repo` binds one to the repo you are in                                                                                                                            |
@@ -181,8 +180,7 @@ A profile command without a profile name (`show`, `set`, `diff`, `validate`), li
 on the profile the repo you are in runs on: the one bound to it, else the active one. Pass `repo` explicitly to MCP tools; profile CLI commands accept `--host` for effective defaults. Run them as
 `bunx catherd-cli <command>` when catherd is not installed globally. Every read command takes `--json`; a bare `catherd runs` is `catherd runs list`. Exit codes: 0 ok, 1 error, 2 usage, 3 not ready, 130 interrupted; an error prints
 `error E_CODE: message` and a `fix:` line. `--verbose` (or `CATHERD_LOG=debug`) logs more to
-`~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. The dashboard takes `--plain` (ASCII, no colour)
-and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too. `NO_COLOR` drops colour, never glyphs.
+`~/.local/share/catherd/logs/`, kept for 7 days with secrets redacted. `doctor` and `init` take `--plain` for ASCII glyphs. `NO_COLOR` drops colour, never glyphs.
 
 The catalog reads one source: the [Slopalytics](https://slopalyticsproxy.vercel.app) index, one `intelligence`
 number per model and effort. It is fetched hourly (the MCP server does it in the background when a host session
@@ -235,40 +233,30 @@ switch stay.
 | `CATHERD_HOME`              | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                                     |
 | `CATHERD_LOG`               | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                                        |
 | `CATHERD_LOCK_SLOTS`        | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                                   |
-| `CATHERD_REDUCED_MOTION`    | Any value: the dashboard's `--reduced-motion`                                                                                 |
-| `CATHERD_NO_KITTY`          | Any value: turns off the kitty keyboard protocol in the dashboard, for terminals it breaks                                    |
 | `CATHERD_CLAUDE_AGENTS_DIR` | Where catherd links its Claude agents (default: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`)                         |
-| `NO_COLOR`                  | Drops colour (the dashboard's and `--help`'s; piped `--help` has none either)                                                 |
+| `NO_COLOR`                  | Drops colour (`--help`'s; piped `--help` has none either)                                                                     |
 
-For development only: `CATHERD_STORY=1` opens the dashboard's storybook, and `CATHERD_LIVE=1` enables the live
-tests (CONTRIBUTING.md has the rest).
+For development only: `CATHERD_LIVE=1` enables the live tests (CONTRIBUTING.md has the rest). `CATHERD_PANEL_DIST`
+points `catherd panel` at another build of the panel than the one the package ships.
 
-### The dashboard
+### The panel
 
-`catherd` opens three tabs: **1 Status** (every check with its fix; `y` copies the fix, `r` checks again),
-**2 Profiles** (one tree per profile: roles with their access, default rung, models and efforts, then routing,
-harness, budget, failover, timeouts and notify) and **3 Runs** (the host sessions that drove your runs, newest
-first; a session opens on its runs, their milestones and every role with its rung, status, time and last event, live
-ones first; a milestone opens on its digest (what landed, lanes and climbs, reviewer and verifier, tokens); a role
-opens on its brief, reply and record; the open screen redraws as run files change; `esc` goes back,
-`p` pauses). `catherd watch` opens it on Runs.
+`catherd` (or `catherd panel`) serves the panel on `127.0.0.1` (port 4317; `--port 0` takes any free one) and opens
+your browser on it. It prints `catherd panel: http://127.0.0.1:<port>/login#token=<token>` and keeps running until
+Ctrl-C; `--no-open` prints the link without opening it. The token is new each start and travels in the link's
+fragment, so no request or log carries it; the login page reads it, clears it from the address bar and signs you
+in. A restart signs every tab out. The panel answers only to `127.0.0.1` and `localhost`, and refuses a write or a
+socket from another origin.
 
-- `ctrl+p` lists every command with its key and CLI twin; `?` lists the keys that work where you are.
-- `ctrl+x` is the leader: `ctrl+x 1`–`3` tabs, `ctrl+x n` new profile, `ctrl+x l` profiles, `ctrl+x u` and
-  `ctrl+x r` undo and redo, `ctrl+x q` quit.
-- Lists: arrows or `j`/`k`, `pgup`/`pgdn`, `home`/`g`, `end`/`G`, `/` to filter; `space` ticks, `enter`
-  changes or opens, `→`/`←` expand and collapse.
-- Edits are staged: nothing is written until `ctrl+s` shows the diff and you choose Save or Save & make active.
-  `enter` never saves.
-- Inside a repo bound to a profile, the dashboard opens on that profile, and making a profile active binds the
-  repo to it (as `catherd profile use <name> --repo`).
-- `esc` backs out one level and never quits. `q` quits, asking first if something is unsaved; `ctrl+c` quits
-  when nothing is, and pressed twice within 1.5 s discards and exits 130.
-- Deleting a profile or cancelling a live role takes `ctrl+d` twice.
-- `--plain` draws ASCII without colour, `NO_COLOR` drops the colour, `--reduced-motion` stops the spinner.
-- Rebind a key in `~/.config/catherd/config.json`: `"keybinds": { "profile.save": "ctrl+w", "app.help": "none" }`
-  (the palette shows each command by title; the ids are listed in
-  [`src/entry/tui/commands.ts`](src/entry/tui/commands.ts)).
+- **Setup**: the catalog and each backend with doctor's status and fix, the profile this repo runs on with its
+  errors and warnings, and each role's rungs, picked from the indexed Slopalytics pairs and saved through the
+  profile service (other settings stay with `catherd profile set`).
+- **Runs**: every run, and for each one its milestones, live roles, parked questions, quota holds and its timeline,
+  newest first, live over the run's `events.jsonl`. **Cancel run** stops a live run; a run starts from your
+  session, never from the panel.
+- **Questions**: each parked unit with its question and an answer box; the unit runs again once you send it.
+
+`catherd watch` prints the live runs as text.
 
 ## Upgrading
 
@@ -312,7 +300,6 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 | [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design                                                        |
 | [`docs/dev/`](docs/dev/)                                                                           | Maintainer docs: live verification, manual tests, dependencies, ideas |
 | [`docs/dev/live-verification.md`](docs/dev/live-verification.md)                                   | What CI cannot run: live tests, fixture capture, the Codex sandbox    |
-| [`docs/tui-frames.md`](docs/tui-frames.md)                                                         | Every dashboard screen as text (generated, checked in CI)             |
 | [`docs/plans/`](docs/plans/), [`docs/handoff/`](docs/handoff/), [`docs/research/`](docs/research/) | How 1.0 was designed and built: plans, reviews, research              |
 | [`docs/archive/0.x/`](docs/archive/0.x/)                                                           | The 0.x design and plans, for history                                 |
 
