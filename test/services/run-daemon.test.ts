@@ -87,7 +87,11 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
             rung: a.rung ?? "codex:gpt-6-sol#medium",
             thread: a.thread,
           },
-          ended(a.name, a.unit, { dispatchId, verdict: a.brief === "verify" ? "pass" : null }),
+          ended(a.name, a.unit, {
+            dispatchId,
+            verdict: a.brief === "verify" ? "pass" : null,
+            head: a.brief === "verify" ? "c".repeat(40) : null,
+          }),
         ];
       }
       case "readPlan":

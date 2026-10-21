@@ -120,7 +120,12 @@ describe("run state", () => {
   it("parks a lane, and runs it again with the owner's answer on its notes", () => {
     const log = runningLog();
     const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
-    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "blocked" });
+    endDispatch(log, w, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "needs_user",
+    });
     expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
     log.add("question.parked", { unit: "M1.L1", question: "q", reason: "needs_user" });
     log.add("question.answered", { unit: "M1.L1", answer: "use v2", by: "owner" });
@@ -135,6 +140,9 @@ describe("run state", () => {
     for (let i = 0; i < 2; i++) {
       const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
       endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", status: "failed", replyStatus: null });
+      // the stop names no reason: the lane waits for its classification, which says none
+      expect(log.state().lanes["M1.L1"]?.classify).toMatchObject({ dispatchId: w });
+      log.add("stop.classified", { dispatchId: w, reason: null });
     }
     expect(log.state().lanes["M1.L1"]).toMatchObject({
       attempts: 2,
@@ -235,7 +243,7 @@ describe("run state", () => {
     const log = reviewing();
     review(log, []);
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
-    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass" });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
     expect(log.state().milestones[0]?.status).toBe("landing");
     log.add("milestone.landed", {
       milestone: "M1",

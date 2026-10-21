@@ -222,6 +222,7 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
     "",
+    ...(a.notes.length ? ["Before you start:", ...a.notes.map((n) => `- ${n}`), ""] : []),
     ...(previous.length
       ? [
           "A verifier failed this milestone before; it said:",
