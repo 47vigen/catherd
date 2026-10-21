@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BLOCKED_LINE } from "./blocked.ts";
 
 export const JUDGE_KINDS = ["triage", "question", "unexpected"] as const;
 export type JudgeKind = (typeof JUDGE_KINDS)[number];
@@ -37,7 +38,7 @@ export const JUDGE_CONTRACT = [
   "- answer: ANSWER: <the answer the worker needs, from the plan and the code>",
   "- ask_owner or park: QUESTION: <one question only the owner can answer>",
   "- retry, climb or skip: WHY: <one line>",
-  "Decide only from what the brief and the run's files show. The last line of your reply is: STATUS: complete — <one line why>",
+  `Decide only from what the brief and the run's files show. The last line of your reply is: STATUS: complete — <one line why>. ${BLOCKED_LINE}`,
 ].join("\n");
 
 /** The verbs each kind of call may answer with. */

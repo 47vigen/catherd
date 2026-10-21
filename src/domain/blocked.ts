@@ -1,4 +1,4 @@
-/** Why a role stopped without finishing (spec 2.0 decision 3); plan 30b maps each to a rule, plan 30 lists them. */
+/** Why a role stopped without finishing (spec 2.0 decision 3); the machine maps each to a transition. */
 export const BLOCKED_REASONS = [
   "needs_user",
   "too_hard",
@@ -8,3 +8,65 @@ export const BLOCKED_REASONS = [
   "out_of_scope",
 ] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
+
+export type StopAction = "climb" | "failover" | "park" | "wait";
+
+/** What the machine does with each reason (spec 2.0 decision 8): climb, retry then fail over, park, or wait. */
+export const REASON_ACTION: Readonly<Record<BlockedReason, StopAction>> = {
+  needs_user: "park",
+  too_hard: "climb",
+  provider_error: "failover",
+  no_access: "park",
+  check_broken: "wait",
+  out_of_scope: "park",
+};
+
+const REASON_AT_START = /^[`*\s]*([a-z][a-z_-]*)[`*]*\s*(?:[:—–-]\s*)?([\s\S]*)$/i;
+
+/** The reason a `STATUS: blocked — <reason>: <why>` line names, and its why; null when it names none. */
+export function parseBlockedReason(why: string | null): { reason: BlockedReason; why: string } | null {
+  const m = why === null ? null : REASON_AT_START.exec(why.trim());
+  if (!m) return null;
+  const word = (m[1] as string).toLowerCase().replace(/-/g, "_");
+  const reason = BLOCKED_REASONS.find((r) => r === word);
+  return reason ? { reason, why: (m[2] ?? "").trim() } : null;
+}
+
+/** The reply contract's blocked line, ported from t3herd `prompts/_no_questions.md`. */
+export const BLOCKED_LINE = `Nobody reads your thread until you finish: never ask a question and never wait for an answer. When you cannot finish, leave the finished work in place, say what is left, and end with STATUS: blocked — <reason>: <why>, where <reason> is one of: ${[
+  "needs_user (only the user can decide; <why> is the question)",
+  "too_hard (you tried and cannot solve it; a stronger model should)",
+  "provider_error (your model, tools or sandbox failed)",
+  "no_access (you cannot reach what you need: the running app, a service, credentials)",
+  "check_broken (the check cannot pass for a reason outside your task; name each failing file:line)",
+  "out_of_scope (the task needs changes outside the files you own)",
+].join(", ")}.`;
+
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+/** An `Owns:` entry as a path: cut at the first glob, trailing slashes dropped. */
+const pathOf = (entry: string): string => entry.replace(/[*?[{].*$/, "").replace(/\/+$/, "");
+
+/**
+ * The sibling `Owns:` entries a failed check blames, or [] when it blames none, or also blames one of the lane's
+ * own. Output names a file by its tail (`pkg/x.go:3`, `src/a.tsx(4,2)`), so a sibling's entry counts from two
+ * path segments, and an own entry already from its base name (t3herd `foreignFailure`).
+ */
+export function foreignFailure(log: string, own: string[], siblings: string[]): string[] {
+  const lines = log
+    .replace(ANSI, "")
+    .split("\n")
+    .filter((l) => !/^\s*(✓|ok\s|PASS\b)/.test(l));
+  const named = (p: string, min: number): boolean => {
+    const parts = p.split("/");
+    for (let i = 0; i <= parts.length - min; i++) {
+      const tail = parts.slice(i).join("/");
+      if (lines.some((l) => l.includes(tail))) return true;
+    }
+    return false;
+  };
+  const mine = own.map(pathOf).filter(Boolean);
+  if (mine.some((f) => named(f, 1))) return [];
+  const theirs = siblings.map(pathOf).filter((f) => f && !mine.includes(f));
+  return [...new Set(theirs.filter((f) => named(f, Math.min(2, f.split("/").length))))];
+}

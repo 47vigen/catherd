@@ -1,3 +1,4 @@
+import { BLOCKED_LINE } from "./blocked.ts";
 import type { Access } from "./record.ts";
 import { VERIFIER_GATE_RULES } from "./gate-brief.ts";
 import { JUDGE_CONTRACT } from "./judge.ts";
@@ -16,8 +17,7 @@ const runFiles = (writes: boolean): string =>
     ? "The run folder is outside the project. Read and write it only through catherd's read_run_file and write_run_file, with the run id the orchestrator gave you (native Claude subagents: mcp__plugin_catherd_catherd__<name>; headless Codex and Claude Code roles: mcp__catherd_role__<name>). When neither is listed, run catherd run-file read <run> <path>, and catherd run-file write <run> <path> with the content on stdin. Paths are relative to the run folder."
     : "The run folder is outside the project. Read it only through catherd's read_run_file, with the run id the orchestrator gave you (native Claude subagents: mcp__plugin_catherd_catherd__read_run_file; headless Codex and Claude Code roles: mcp__catherd_role__read_run_file). When neither is listed, run catherd run-file read <run> <path>. Paths are relative to the run folder.";
 
-const REPLY =
-  "Do not commit. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
+const REPLY = `Do not commit. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>. ${BLOCKED_LINE}`;
 
 /**
  * The worker's reply contract. Plan 22, resume hygiene: a worker's thread may be resumed for its fix round, and a
@@ -25,8 +25,7 @@ const REPLY =
  * builds from HEAD is the verifier's, since a worker does not commit; an environment that stopped it goes on an ENV:
  * line (climb refuses it); a check that failed, then passed alone, is STATUS: flaky with that evidence.
  */
-const WORKER_REPLY =
-  "Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each.";
+const WORKER_REPLY = `Before you reply, leave nothing running: stop every server, watcher or command you started in the background. Do not commit. Acceptance items that build from HEAD (git archive, a commit's image) belong to the verifier: do not run them, and never commit to get them to run. Reply in at most 15 lines: results, file:line, and evidence as a log path, not the log. When the environment stopped you (no Docker, a VPN, a dead registry), add a line ENV: <what>. The last line of your reply is: STATUS: complete|partial|blocked|refused|flaky — <one line why>; flaky means a check failed, then passed when run alone: name it, and how often each. ${BLOCKED_LINE}`;
 
 const architect = [
   "You are the architect of a catherd run. The orchestrator gave you the goal, the acceptance lines, the run id, and usually a dossier: a researcher's map of the code this work touches. Workers are other models that run in the project directory with no memory of this conversation. They will write every line of code from your plan.",
@@ -167,8 +166,7 @@ const BODIES: Record<Role, (version: string) => string> = {
   judge: () => judge,
 };
 
-const STATUS_LINE =
-  "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>";
+const STATUS_LINE = `The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>. ${BLOCKED_LINE}`;
 
 /**
  * Spec 1.1 §6: the reply contract `dispatch` appends to every brief it writes, the tail of the role's
@@ -176,7 +174,7 @@ const STATUS_LINE =
  */
 const CONTRACTS: Record<Role, string> = {
   architect: `Reply briefly: the milestones, each with its lanes as Mx.Ly — one line — owned files, and the full-check command. ${STATUS_LINE}`,
-  verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL, or VERDICT: BLOCKED: environment — <the probe that proves it> when the machine, not the work, stops the gate (run that probe twice, 5 s apart, before you call the host blocked). ${STATUS_LINE}`,
+  verifier: `The first line of your reply is VERDICT: PASS or VERDICT: FAIL, or VERDICT: BLOCKED: environment — <the probe that proves it> when the machine, not the work, stops the gate (run that probe twice, 5 s apart, before you call the host blocked). Then a line HEAD: <the full sha of the commit you checked> (git rev-parse HEAD). ${STATUS_LINE}`,
   worker: WORKER_REPLY,
   reviewer: REPLY,
   "ui-reviewer": REPLY,
