@@ -10,46 +10,13 @@ import { watching, watchersSettled } from "../../src/services/dispatch-service.t
 import * as reconcile from "../../src/services/reconcile.ts";
 import { createRun, readRecords } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
-import { type IndexStatus, refreshIndex } from "../../src/services/catalog-service.ts";
+import { refreshIndex } from "../../src/services/catalog-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
-import { call, mcpClient } from "../mcp-helpers.ts";
+import { call } from "../mcp-helpers.ts";
 import { deadProcess, fakeDeps, fakeDispatch, freshRun, waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
-
-const STATUS: IndexStatus = {
-  fetchedAt: "2026-10-21T10:00:00.000Z",
-  checkedAt: "2026-10-21T10:30:00.000Z",
-  pairs: 81,
-  error: null,
-};
-
-describe("catalog_sync", () => {
-  it("fetches the index, forced when asked, and returns its status", async () => {
-    withHome();
-    const asked: { force: boolean }[] = [];
-    const c = await mcpClient({
-      ...fakeDeps(),
-      sync: async (o) => {
-        asked.push(o);
-        return STATUS;
-      },
-    });
-    const r = await call(c, "catalog_sync", { force: true });
-    expect(asked).toEqual([{ force: true }]);
-    expect(r.data).toEqual(STATUS);
-    await call(c, "catalog_sync");
-    expect(asked[1]).toEqual({ force: false });
-  });
-
-  it("names a failed fetch and the index it kept", async () => {
-    withHome();
-    const failed = { ...STATUS, error: "http 503" };
-    const c = await mcpClient({ ...fakeDeps(), sync: async () => failed });
-    expect((await call(c, "catalog_sync")).data).toEqual(failed);
-  });
-});
 
 describe("one MCP server runs the boot sync and reconcile (plan 22, single-flight)", () => {
   async function server(syncs: string[], label: string): Promise<Client> {
@@ -185,7 +152,7 @@ describe("the boot sync", () => {
     });
     const client = new Client({ name: "catherd-test", version: "0.0.0" });
     await client.connect(clientSide);
-    expect((await client.listTools()).tools.map((t) => t.name)).toContain("catalog_sync");
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain("status");
     expect((await call(client, "status")).isError).toBe(false);
     expect(started).toBe(true);
     // the fetch is under way, its request unanswered

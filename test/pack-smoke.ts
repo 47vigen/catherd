@@ -22,6 +22,7 @@ const SHIPPED = [
   "THIRD_PARTY_NOTICES.md",
   "src/cli.ts",
   "src/entry/supervise-bin.ts",
+  "src/entry/daemon-bin.ts",
   "catalog/models.json",
   "catalog/jev.json",
   "plugin/.claude-plugin/plugin.json",

@@ -13,7 +13,6 @@ import { setNext } from "../../src/services/run-service.ts";
 import { readNotes } from "../../src/services/state.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun, passGate } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -142,15 +141,5 @@ describe("park and answer (spec 1.1 §8)", () => {
     const s = summarizeRun(deps, run);
     expect(s.questions).toEqual([expect.objectContaining({ milestone: "M2" })]);
     expect(formatRun(s)[2]).toBe("  ! parked M2: Keep the v1 API?");
-  });
-
-  it("serves park and answer over MCP", async () => {
-    const { run } = freshRun();
-    const c = await mcpClient(fakeDeps());
-    expect((await call(c, "park", { run: run.id, milestone: "M2", question: "q" })).data.parked).toEqual([
-      "M2",
-    ]);
-    expect((await call(c, "status", { run: run.id })).data.runs[0].questions[0].milestone).toBe("M2");
-    expect((await call(c, "answer", { run: run.id, milestone: "M2", answer: "a" })).data.parked).toEqual([]);
   });
 });

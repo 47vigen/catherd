@@ -41,41 +41,14 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
     expect(roleScopeFromEnv({ TMPDIR: "/tmp" })).toBeNull();
   });
 
-  it("refuses every coordinator tool, except a peek of the role's own dispatch and a contract read", () => {
+  it("refuses every coordinator tool, and only those", () => {
     expect([...COORDINATOR_TOOLS].sort() as string[]).toEqual(
-      [
-        "answer",
-        "cancel",
-        "climb",
-        "dispatch",
-        "land",
-        "park",
-        "peek",
-        "profile_set",
-        "result",
-        "run_start",
-        "set_next",
-        "test_push",
-        "workspace_child_start",
-        "workspace_contract",
-        "workspace_start",
-        "workspace_budget",
-        "workspace_pause",
-        "workspace_resume",
-        "lane_set",
-        "owns_add",
-        "run_pin",
-      ].sort(),
+      ["answer", "cancel", "profile", "result", "run_start"].sort(),
     );
     for (const tool of COORDINATOR_TOOLS)
       expect(refusedForRole(tool, { run: "other", content: "x" }, scope)).toBe(true);
-    expect(refusedForRole("peek", { run: RUN, name: "verifier-M1" }, scope)).toBe(false);
-    expect(refusedForRole("peek", { run: RUN }, scope)).toBe(true);
-    expect(refusedForRole("peek", { run: RUN, name: "worker-M1.L1" }, scope)).toBe(true);
-    expect(refusedForRole("peek", undefined, scope)).toBe(true);
-    expect(refusedForRole("workspace_contract", { workspace: "w" }, scope)).toBe(false);
-    expect(refusedForRole("workspace_contract", { workspace: "w", content: "x" }, scope)).toBe(true);
-    for (const tool of ["status", "read_run_file", "write_run_file", "gate_check", "gate_pass", "route"])
+    // the reads of a role (its run's files, its gate) are the role server's, not the session's
+    for (const tool of ["status", "read_run_file", "write_run_file", "gate_check", "gate_pass", "peek"])
       expect(refusedForRole(tool, { run: RUN }, scope)).toBe(false);
   });
 

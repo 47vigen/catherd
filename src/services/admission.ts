@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { BackendAdapter } from "../adapters/backend.ts";
 import { budgetStatus, formatBudget } from "../domain/budget.ts";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
-import { assertId, formatRung, newDispatchId, parseRung } from "../domain/ids.ts";
+import { assertId, formatRung, headlessRung, newDispatchId, parseRung } from "../domain/ids.ts";
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import { roleTimeouts } from "../domain/profile.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -181,10 +181,12 @@ export async function admit(
     throw new CatherdError("E_ADMIT_RUNG", `${i.rung} is a native Claude rung`, {
       fix: `run it as Agent(subagent_type: "${deps.profiles.agentFor(run.meta.repo, i.role, i.rung)}"), then record_agent_run`,
     });
-  const allowed = new Set([
+  const ladder = [
     ...rc.rungs,
     ...rc.rungs.flatMap((r) => standInFor(profile.failover, r, run.meta.repo) ?? []),
-  ]);
+  ];
+  // the daemon runs every role headless (spec 2.0 decision 12): a native rung's headless twin is on its ladder too
+  const allowed = new Set([...ladder, ...ladder.map(headlessRung)]);
   if (!allowed.has(formatRung(rung)))
     throw new CatherdError(
       "E_ADMIT_RUNG",

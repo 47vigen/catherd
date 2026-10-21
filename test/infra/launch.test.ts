@@ -3,7 +3,13 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
-import { launchSupervisor, SUPERVISE_ENTRY } from "../../src/infra/launch.ts";
+import {
+  daemonEnv,
+  DAEMON_ENTRY,
+  launchDetached,
+  launchSupervisor,
+  SUPERVISE_ENTRY,
+} from "../../src/infra/launch.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { importGraph, SRC } from "../import-graph.ts";
@@ -106,4 +112,33 @@ it("scrub_every_boundary removes parent identities through actual detached super
   for (const k of keys) expect(out).not.toContain(`${k}=`);
   expect(out).toContain(`CODEX_HOME=${process.env.CODEX_HOME}`);
   expect(out).toContain("OPENAI_API_KEY=native-credential");
+});
+
+describe("launchDetached and the daemon's launch", () => {
+  it("starts an entry in its own session, appending its output to the log file, and returns at once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "catherd-launch-"));
+    const entry = join(dir, "entry.ts");
+    await Bun.write(entry, 'console.log("hello", process.argv[2]);');
+    const log = join(dir, "out.log");
+    const pid = launchDetached(entry, ["x"], log, { PATH: process.env.PATH ?? "" });
+    expect(pid).toBeGreaterThan(0);
+    await waitFor(() => (existsSync(log) && readFileSync(log, "utf8").includes("hello x") ? true : null));
+  });
+
+  it("gives the daemon the launcher's env without its session identity or any role's scope, and keeps Jev's key", () => {
+    const env = daemonEnv({
+      PATH: "/bin",
+      TYPESAFE_API_KEY: "jev",
+      CLAUDE_CODE_SESSION_ID: "s",
+      CLAUDE_CODE_MESSAGING_TOKEN: "t",
+      CATHERD_ROLE: "r1:worker-M1.L1",
+      CATHERD_HOME: "/h",
+      UNSET: undefined,
+    });
+    expect(env).toEqual({ PATH: "/bin", TYPESAFE_API_KEY: "jev", CATHERD_HOME: "/h" });
+  });
+
+  it("runs a thin daemon entry that never reaches the TUI, cli.ts or @opentui", () => {
+    expect(relative(SRC, DAEMON_ENTRY)).toBe("entry/daemon-bin.ts");
+  });
 });

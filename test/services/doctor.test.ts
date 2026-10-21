@@ -152,6 +152,7 @@ describe("doctor", () => {
       bun: "ok ready",
       config: "ok ready",
       profile: "ok ready",
+      "role-mcp:default:claude-code": "info configured",
       "role-mcp:default:codex": "info configured",
       "backend:codex": "ok ready",
       "backend:claude-code": "ok ready",
@@ -505,6 +506,7 @@ describe("doctor", () => {
     // Runtime probes are distinct from static role MCP policy, shipped access defaults and the catalog row.
     expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
       "role-mcp:default:codex",
+      "role-mcp:default:claude-code",
       "access:full",
       "access:advisory",
     ]);
@@ -1178,7 +1180,7 @@ it("native failover-only missing managed links warn while the Claude host still 
     patchProfile(
       "default",
       {
-        roles: { architect: { enabled: false }, verifier: { enabled: false } },
+        roles: { architect: { enabled: false }, verifier: { enabled: false }, judge: { enabled: false } },
         failover: { "codex:gpt-6-luna#high": "claude:claude-opus-5-5#high" },
       },
       { host: "claude-code" },

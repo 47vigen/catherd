@@ -29,10 +29,12 @@ function setup() {
 
 describe("the reply contract (spec 1.1 §6)", () => {
   it("ends every role's contract with the STATUS line", () => {
-    for (const role of ROLES.filter((r) => r !== "worker"))
+    for (const role of ROLES.filter((r) => r !== "worker" && r !== "judge"))
       expect(replyContract(role)).toEndWith(
         "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
       );
+    // the judge opens with its DECISION line and has one status, complete
+    expect(replyContract("judge")).toEndWith("STATUS: complete — <one line why>");
     // plan 22: a worker stops what it started before replying; plan 23: it may also say flaky, put the
     // environment on an ENV: line, and leaves acceptance built from HEAD to the verifier
     const worker = replyContract("worker");

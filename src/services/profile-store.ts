@@ -39,7 +39,12 @@ export const projectsFile = (): string => join(configDir(), "projects.json");
 export const agentsRoot = (): string => join(configDir(), "agents");
 export const profileFile = (name: string): string => join(profilesDir(), `${name}.json`);
 
-const ConfigSchema = z.looseObject({ schema: z.literal(1), activeProfile: z.string().optional() });
+const ConfigSchema = z.looseObject({
+  schema: z.literal(1),
+  activeProfile: z.string().optional(),
+  /** where the phone messages go (an ntfy topic), made at the first run */
+  notify: z.looseObject({ url: z.string().optional() }).optional(),
+});
 const ProjectsSchema = z.looseObject({
   schema: z.literal(1),
   bindings: z.record(z.string(), z.string()).default({}),

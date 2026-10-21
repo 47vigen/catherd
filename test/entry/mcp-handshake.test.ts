@@ -287,7 +287,7 @@ describe("MCP initialization ownership boundary", () => {
     expect(deps.host).toEqual({ host: "unknown", session: null, conflict: null });
   });
 
-  it("unknown_readonly: unknown and conflicting initialized clients can inspect and collect without taking ownership", async () => {
+  it("unknown_readonly: unknown and conflicting initialized clients can inspect without taking ownership", async () => {
     for (const clientName of ["catherd-test", "codex-mcp-client"]) {
       const { run } = freshRun();
       const deps = fakeDeps({
@@ -305,12 +305,8 @@ describe("MCP initialization ownership boundary", () => {
       const client = new Client({ name: clientName, version: "0" });
       try {
         await client.connect(clientSide);
-        expect((await client.listTools()).tools.some((t) => t.name === "result")).toBe(true);
+        expect((await client.listTools()).tools.some((t) => t.name === "status")).toBe(true);
         expect((await call(client, "status", { run: run.id })).isError).toBe(false);
-        expect((await call(client, "peek", { run: run.id })).isError).toBe(false);
-        expect(
-          (await call(client, "result", { run: run.id, name: d.admit.name })).data.record.dispatchId,
-        ).toBe(d.admit.dispatchId);
         expect(readFileSync(runPaths(run.dir).stateJson, "utf8")).toBe(before);
         expect(deps.host.host).toBe("unknown");
         expect(Boolean(deps.host.conflict)).toBe(clientName === "codex-mcp-client");

@@ -1,5 +1,6 @@
 import type { Access } from "./record.ts";
 import { VERIFIER_GATE_RULES } from "./gate-brief.ts";
+import { JUDGE_CONTRACT } from "./judge.ts";
 import { COORDINATOR_TOOLS } from "./role-scope.ts";
 import type { Role } from "./roles.ts";
 
@@ -151,6 +152,9 @@ const researcher = [
   "For a single question, reply in at most 15 lines. The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
 ].join("\n");
 
+const judge =
+  "You are the judge of a catherd run: one short decision for its loop, from only what your brief gives you and the run's files. You never edit files and never run the build.";
+
 const BODIES: Record<Role, (version: string) => string> = {
   architect: () => architect,
   verifier: () => verifier,
@@ -160,6 +164,7 @@ const BODIES: Record<Role, (version: string) => string> = {
   artist: () => artist,
   writer: () => writer,
   researcher: () => researcher,
+  judge: () => judge,
 };
 
 const STATUS_LINE =
@@ -178,6 +183,7 @@ const CONTRACTS: Record<Role, string> = {
   artist: REPLY,
   writer: REPLY,
   researcher: `For a single question, reply in at most 15 lines. ${STATUS_LINE}`,
+  judge: JUDGE_CONTRACT,
 };
 
 export const replyContract = (role: Role): string => CONTRACTS[role];

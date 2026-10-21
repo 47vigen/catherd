@@ -1,0 +1,745 @@
+import { describe, expect, it } from "bun:test";
+import { type JudgeDecision } from "../../src/domain/judge.ts";
+import {
+  type Action,
+  actionKey,
+  confirms,
+  failKey,
+  judgeInputFor,
+  next,
+} from "../../src/domain/run-machine.ts";
+import type { MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
+import { liveDispatches, type RunState } from "../../src/domain/run-state.ts";
+import {
+  endDispatch,
+  finishLane,
+  type Log,
+  makeLog,
+  newId,
+  PLAN,
+  routeMilestone,
+  runningLog,
+  startDispatch,
+  startedFields,
+} from "./run-fixtures.ts";
+
+const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { type: T }>[] =>
+  as.filter((a): a is Extract<Action, { type: T }> => a.type === type);
+const names = (as: Action[]): string[] => of(as, "dispatch").map((a) => a.name);
+/** what the machine does after the log's last event */
+const last = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunEvent);
+const bug = (text: string, file: string | null, label: "BUG" | "BLOCKER" = "BUG") => ({ label, text, file });
+
+function plan(lanes: number): MilestonePlan[] {
+  const ids = Array.from({ length: lanes }, (_, i) => `M1.L${i + 1}`);
+  return [
+    {
+      id: "M1",
+      title: "core",
+      after: [],
+      lanes: ids.map((id, i) => ({
+        id,
+        role: "worker" as const,
+        kind: "repo_code",
+        after: [],
+        owns: [`src/${String.fromCharCode(97 + i)}/`],
+      })),
+    },
+    {
+      id: "M2",
+      title: "docs",
+      after: ["M1"],
+      lanes: [{ id: "M2.L1", role: "writer", kind: "prose", after: [], owns: ["docs/"] }],
+    },
+  ];
+}
+
+function review(log: Log, findings: ReturnType<typeof bug>[], name = "reviewer-M1") {
+  const id = startDispatch(log, { name, role: "reviewer", unit: "M1", lane: null });
+  return endDispatch(log, id, { name, unit: "M1", findings });
+}
+
+/** runs the pending lanes of the state to a passing check */
+function fixPending(log: Log) {
+  for (const l of Object.values(log.state().lanes))
+    if (l.status === "pending" && l.milestone === "M1") finishLane(log, l.id);
+}
+
+/** M1 through review rounds with `counts` BUG lines each, every one owned by the first lane */
+function rounds(counts: number[], o: { lanes?: number } = {}) {
+  const log = runningLog(plan(o.lanes ?? 2));
+  for (const l of Object.values(log.state().lanes)) if (l.milestone === "M1") finishLane(log, l.id);
+  log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+  let lines: string[] = [];
+  counts.forEach((n, i) => {
+    const fs = Array.from({ length: n }, (_, k) =>
+      bug(`BUG src/a/f${i}-${k}.ts:1 — problem ${i}-${k} — fix`, `src/a/f${i}-${k}.ts`),
+    );
+    lines = fs.map((f) => f.text);
+    review(log, fs);
+    if (log.state().milestones[0]?.status === "fixing") {
+      fixPending(log);
+      log.add("commit.made", { milestone: "M1", round: i + 1, commit: `c${i + 1}` });
+    }
+  });
+  return { log, state: log.state(), last: last(log), lastOpenLines: lines };
+}
+
+describe("the machine: planning", () => {
+  it("starts with the dossier, or the architect when an A-line names a plan", () => {
+    const a = makeLog();
+    a.add("run.started", startedFields);
+    expect(names(last(a))).toEqual(["researcher-dossier"]);
+    const b = makeLog();
+    b.add("run.started", { ...startedFields, aLines: ["A1 x", "plan: docs/p.md"] });
+    expect(names(last(b))).toEqual(["architect"]);
+    const c = makeLog();
+    c.add("run.started", { ...startedFields, plan: ["M1 the plan"] });
+    expect(names(last(c))).toEqual(["architect"]);
+  });
+
+  it("reads the plan after the architect, then routes the first milestone only", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const d = startDispatch(log, { name: "researcher-dossier", role: "researcher", unit: "run", lane: null });
+    endDispatch(log, d, { name: "researcher-dossier", unit: "run" });
+    expect(names(last(log))).toEqual(["architect"]);
+    const a = startDispatch(log, { name: "architect", role: "architect", unit: "run", lane: null });
+    endDispatch(log, a, { name: "architect", unit: "run" });
+    expect(last(log).map((x) => x.type)).toEqual(["readPlan"]);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
+  });
+
+  it("asks the dossier or the architect once more, then parks the run", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    for (let i = 0; i < 2; i++) {
+      expect(names(last(log))).toEqual(["researcher-dossier"]);
+      const d = startDispatch(log, {
+        name: "researcher-dossier",
+        role: "researcher",
+        unit: "run",
+        lane: null,
+      });
+      endDispatch(log, d, { name: "researcher-dossier", unit: "run", status: "failed", replyStatus: null });
+    }
+    const out = last(log);
+    expect(names(out)).toEqual([]);
+    expect(of(out, "park")).toMatchObject([{ unit: "run", reason: "effect" }]);
+  });
+
+  it("parks the run on a budget refusal", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("dispatch.refused", {
+      name: "researcher-dossier",
+      unit: "run",
+      code: "E_RUN_BUDGET",
+      message: "spent",
+    });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "run", reason: "budget" }]);
+    expect(names(last(log))).toEqual([]);
+    log.add("question.parked", { unit: "run", question: "spent", reason: "budget" });
+    log.add("question.answered", { unit: "run", answer: "raised", by: "owner" });
+    expect(names(last(log))).toEqual(["researcher-dossier"]);
+  });
+});
+
+describe("the machine: a milestone's lanes", () => {
+  it("parks a milestone whose preflight cannot start a check, and asks for confirmation", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("lanes.routed", { milestone: "M1", lanes: [{ lane: "M1.L1", rung: "r", ladder: ["r"] }] });
+    log.add("preflight.done", {
+      milestone: "M1",
+      blocking: [{ lane: "M1.L1", note: "no docker" }],
+      confirm: null,
+    });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "preflight" }]);
+    expect(of(last(log), "park")[0]?.question).toContain("no docker");
+    log.add("question.parked", { unit: "M1", question: "q", reason: "preflight" });
+    log.add("question.answered", { unit: "M1", answer: "fixed", by: "owner" });
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M1", confirmed: true }]);
+
+    const c = makeLog();
+    c.add("run.started", startedFields);
+    c.add("plan.ready", { milestones: PLAN });
+    c.add("lanes.routed", { milestone: "M1", lanes: [] });
+    c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"] });
+    expect(of(last(c), "park")).toMatchObject([{ unit: "M1", reason: "confirm" }]);
+  });
+
+  it("holds a lane until its After: lanes are done", () => {
+    const log = runningLog();
+    const out = last(log);
+    expect(names(out)).toEqual(["worker-M1.L1"]);
+    expect(of(out, "dispatch")[0]).toMatchObject({
+      unit: "M1.L1",
+      lane: "M1.L1",
+      brief: "lane",
+      rung: "codex:gpt-6-sol#medium",
+      thread: null,
+    });
+    finishLane(log, "M1.L1");
+    expect(names(last(log))).toEqual(["worker-M1.L2"]);
+  });
+
+  it("does not start two lanes that own the same paths", () => {
+    const p = plan(2);
+    (p[0] as MilestonePlan).lanes[1]!.owns = ["src/a/sub/"];
+    const log = runningLog(p);
+    expect(names(last(log))).toEqual(["worker-M1.L1", "worker-M1.L2"].slice(0, 2));
+    startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(names(last(log))).toEqual([]);
+  });
+
+  it("checks a lane after a clean reply; a first failure resumes its thread with the tail, a second climbs", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
+    expect(last(log)).toEqual([{ type: "fastCheck", lane: "M1.L1" }]);
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "1 failed", foreign: [] });
+    let d = of(last(log), "dispatch")[0];
+    expect(d).toMatchObject({ name: "worker-M1.L1", thread: "t-1", brief: "fix" });
+    expect(d?.notes.join("\n")).toContain("1 failed");
+    const w2 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
+    endDispatch(log, w2, { name: "worker-M1.L1", unit: "M1.L1", thread: "t-1" });
+    log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "still", foreign: [] });
+    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "check-failed-twice" }]);
+    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
+    d = of(last(log), "dispatch")[0];
+    expect(d).toMatchObject({ rung: "codex:gpt-6-sol#high", thread: null });
+  });
+
+  it("retries a failed lane once on its rung, then climbs; out of rungs asks the judge", () => {
+    const log = runningLog();
+    const fail = () => {
+      const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+      endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", status: "timeout", replyStatus: null });
+    };
+    fail();
+    expect(of(last(log), "dispatch")[0]).toMatchObject({
+      thread: null,
+      rung: "codex:gpt-6-sol#medium",
+      failoverFrom: null,
+    });
+    fail();
+    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "unchanged" }]);
+    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: true });
+    const j = of(last(log), "judge");
+    expect(j).toHaveLength(1);
+    expect(j[0]?.input).toMatchObject({ kind: "unexpected", unit: "M1.L1" });
+    expect(j[0]?.input.context).toContain("top rung");
+  });
+
+  it("asks the judge about a blocked reply, and acts on each of its verbs", () => {
+    const base = () => {
+      const log = runningLog();
+      const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+      endDispatch(log, w, {
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        replyStatus: "blocked",
+        why: "needs the api key",
+      });
+      return log;
+    };
+    const log = base();
+    const out = last(log);
+    expect(of(out, "judge")[0]?.input).toMatchObject({ kind: "question", unit: "M1.L1" });
+    expect(of(out, "judge")[0]?.input.context).toContain("roles/worker-M1.L1/");
+    const id = of(out, "judge")[0]!.input.id;
+    const decide = (decision: JudgeDecision, l: Log = log) => {
+      const j = startDispatch(l, {
+        name: `judge-${id}`,
+        role: "judge",
+        unit: "M1.L1",
+        lane: null,
+        judgeKind: "question",
+      });
+      l.add("judge.decided", { id, unit: "M1.L1", kind: "question", decision, dispatchId: j });
+      endDispatch(l, j, { name: `judge-${id}`, unit: "M1.L1" });
+      return last(l);
+    };
+    // each verb on a fresh run
+    let l = base();
+    expect(of(decide({ verb: "answer", answer: "use v2" }, l), "dispatch")[0]).toMatchObject({
+      name: "worker-M1.L1",
+      brief: "fix",
+    });
+    expect(l.state().lanes["M1.L1"]?.notes).toEqual(["The judge answered: use v2"]);
+    l = base();
+    expect(of(decide({ verb: "ask_owner", question: "which key?" }, l), "park")).toMatchObject([
+      { unit: "M1.L1", question: "which key?", reason: "needs_user" },
+    ]);
+    l = base();
+    expect(of(decide({ verb: "retry", why: "flaky" }, l), "dispatch")[0]).toMatchObject({
+      name: "worker-M1.L1",
+    });
+    l = base();
+    expect(decide({ verb: "climb", why: "too hard" }, l)).toEqual([
+      { type: "climb", lane: "M1.L1", reason: "blocked" },
+    ]);
+    l = base();
+    decide({ verb: "skip", why: "not needed" }, l);
+    expect(l.state().lanes["M1.L1"]?.status).toBe("done");
+    expect(l.state().milestones[0]?.knownIssues).toEqual(["M1.L1 skipped: not needed"]);
+  });
+
+  it("asks the judge once more after an unreadable reply, then parks", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "refused" });
+    const first = of(last(log), "judge")[0]!;
+    const j = startDispatch(log, {
+      name: `judge-${first.input.id}`,
+      role: "judge",
+      unit: "M1.L1",
+      lane: null,
+      judgeKind: "question",
+    });
+    log.add("judge.failed", { id: first.input.id, unit: "M1.L1", why: "unreadable" });
+    expect(last(log)).toEqual([]);
+    endDispatch(log, j, { name: `judge-${first.input.id}`, unit: "M1.L1" });
+    const again = of(last(log), "judge");
+    expect(again).toHaveLength(1);
+    expect(again[0]?.input.id).toBe(first.input.id);
+    const j2 = startDispatch(log, {
+      name: `judge-${first.input.id}`,
+      role: "judge",
+      unit: "M1.L1",
+      lane: null,
+      judgeKind: "question",
+    });
+    log.add("judge.failed", { id: first.input.id, unit: "M1.L1", why: "unreadable again" });
+    endDispatch(log, j2, { name: `judge-${first.input.id}`, unit: "M1.L1" });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "judge" }]);
+    expect(of(last(log), "judge")).toEqual([]);
+  });
+
+  it("re-runs a parked lane on its rung with the answer, and resumes a parked milestone where it stood", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "blocked" });
+    log.add("question.parked", { unit: "M1.L1", question: "q", reason: "needs_user" });
+    expect(of(last(log), "judge")).toEqual([]);
+    log.add("question.answered", { unit: "M1.L1", answer: "use v2", by: "owner" });
+    const d = of(last(log), "dispatch")[0];
+    expect(d).toMatchObject({ name: "worker-M1.L1", rung: "codex:gpt-6-sol#medium", brief: "fix" });
+    expect(d?.notes).toEqual(["The owner answered: use v2"]);
+    log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
+    expect(names(last(log))).toEqual([]);
+    log.add("question.answered", { unit: "M1", answer: "pg", by: "owner" });
+    expect(liveDispatches(log.state())).toEqual([]);
+    expect(log.state().milestones[0]?.status).toBe("lanes");
+  });
+});
+
+describe("the machine: review rounds", () => {
+  it("commits once every lane is done, then dispatches the reviewer, and the UI reviewer for a ui lane", () => {
+    const p = plan(2);
+    p[0]!.lanes[1]!.kind = "ui";
+    const log = runningLog(p);
+    finishLane(log, "M1.L1");
+    expect(last(log).some((a) => a.type === "commit")).toBe(false);
+    finishLane(log, "M1.L2");
+    expect(last(log)).toEqual([{ type: "commit", milestone: "M1", round: 0 }]);
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(names(last(log))).toEqual(["reviewer-M1", "ui-reviewer-M1"]);
+    expect(of(last(log), "dispatch")[0]).toMatchObject({
+      brief: "review",
+      unit: "M1",
+      lane: null,
+      role: "reviewer",
+    });
+  });
+
+  it("skips a reviewer the profile turns off, and goes on to the verifier when none is left", () => {
+    const p = plan(2);
+    p[0]!.lanes[1]!.kind = "ui";
+    const log = runningLog(p, { ...startedFields, rolesOff: ["ui-reviewer"] });
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(names(last(log))).toEqual(["reviewer-M1"]);
+    const off = runningLog(p, { ...startedFields, rolesOff: ["reviewer", "ui-reviewer"] });
+    finishLane(off, "M1.L1");
+    finishLane(off, "M1.L2");
+    off.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    expect(off.state().milestones[0]).toMatchObject({ status: "verifying", awaiting: [], counts: [0] });
+  });
+
+  it("asks for a second pass over a partial review", () => {
+    const log = runningLog();
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const r = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+    endDispatch(log, r, { name: "reviewer-M1", unit: "M1", replyStatus: "partial" });
+    expect(of(last(log), "dispatch")[0]).toMatchObject({
+      name: "reviewer-M1-2",
+      brief: "recheck",
+      thread: null,
+    });
+  });
+
+  it("routes each finding to the lane owning its file and the rest to the judge", () => {
+    const log = runningLog(plan(2));
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [
+      bug("BUG src/a/x.ts:3 — one", "src/a/x.ts"),
+      bug("BUG src/b/y.ts:3 — two", "src/b/y.ts"),
+      bug("BUG README.md — three", "README.md"),
+    ]);
+    const out = last(log);
+    expect(names(out)).toEqual(["worker-M1.L1", "worker-M1.L2"]);
+    expect(of(out, "dispatch").map((d) => d.notes)).toEqual([
+      ["BUG src/a/x.ts:3 — one"],
+      ["BUG src/b/y.ts:3 — two"],
+    ]);
+    expect(of(out, "judge")).toHaveLength(1);
+    expect(of(out, "judge")[0]?.input).toMatchObject({
+      kind: "triage",
+      unit: "M1",
+      findings: ["BUG README.md — three"],
+    });
+    // the judge sends it to lane 2, to the architect, or drops it
+    const id = of(out, "judge")[0]!.input.id;
+    const j = startDispatch(log, {
+      name: `judge-${id}`,
+      role: "judge",
+      unit: "M1",
+      lane: null,
+      judgeKind: "triage",
+    });
+    log.add("judge.decided", {
+      id,
+      unit: "M1",
+      kind: "triage",
+      decision: { verb: "route", routes: [{ finding: 1, to: "architect", why: "the plan misses docs" }] },
+      dispatchId: j,
+    });
+    endDispatch(log, j, { name: `judge-${id}`, unit: "M1" });
+    const arch = of(last(log), "dispatch").find((d) => d.role === "architect");
+    expect(arch).toMatchObject({
+      name: "architect-M1-1",
+      unit: "M1",
+      brief: "architect",
+      notes: ["BUG README.md — three"],
+    });
+    const a = startDispatch(log, { name: "architect-M1-1", role: "architect", unit: "M1", lane: null });
+    endDispatch(log, a, { name: "architect-M1-1", unit: "M1" });
+    expect(last(log)).toEqual([{ type: "readPlan" }]);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().milestones[0]?.delta).toEqual([]);
+  });
+
+  it("keeps fixing while findings shrink and lands the rest as known issues when they stop", () => {
+    const r = rounds([3, 2, 2]);
+    expect(names(r.last)).toEqual(["verifier-M1"]);
+    expect(r.state.milestones[0]?.knownIssues).toEqual(r.lastOpenLines);
+  });
+
+  it("stops at the soft cap", () => {
+    const r = rounds([9, 7, 5, 3], { lanes: 4 });
+    expect(names(r.last)).toEqual(["verifier-M1"]);
+    // one round short of the cap, the review goes on
+    expect(names(rounds([9, 7, 5], { lanes: 4 }).last)).toEqual(["reviewer-M1"]);
+  });
+
+  it("resumes the reviewer on its thread for the next round, with the recheck brief", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const r = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+    endDispatch(log, r, {
+      name: "reviewer-M1",
+      unit: "M1",
+      thread: "rv-1",
+      findings: [bug("BUG src/a/x.ts:1 — a", "src/a/x.ts")],
+    });
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    expect(of(last(log), "dispatch")[0]).toMatchObject({
+      name: "reviewer-M1",
+      brief: "recheck",
+      thread: "rv-1",
+    });
+  });
+
+  it("climbs a fixer whose finding survived its fix, before it fixes", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [
+      bug("BUG src/a/x.ts:3 — null deref", "src/a/x.ts"),
+      bug("BUG src/a/y.ts:1 — other", "src/a/y.ts"),
+    ]);
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [bug("BUG src/a/x.ts:9 — null deref", "src/a/x.ts")]);
+    expect(last(log)).toEqual([{ type: "climb", lane: "M1.L1", reason: "same-defect" }]);
+    log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
+    expect(of(last(log), "dispatch")[0]).toMatchObject({
+      rung: "codex:gpt-6-sol#high",
+      brief: "fix",
+      thread: null,
+    });
+  });
+
+  it("parks a milestone whose BLOCKER outlives the rounds, and moves on to the next one", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const b = bug("BLOCKER src/a/x.ts:1 — data loss", "src/a/x.ts", "BLOCKER");
+    review(log, [b]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [b]);
+    const out = last(log);
+    expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "blocker" }]);
+    log.add("question.parked", { unit: "M1", question: "q", reason: "blocker" });
+    // the next milestone does not wait for a parked one it does not depend on
+    const p = structuredClone(plan(1));
+    p[1]!.after = [];
+    log.add("plan.ready", { milestones: p });
+    expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+  });
+
+  it("lands on a PASS, fixes and re-verifies on a FAIL, parks on BLOCKED: environment", () => {
+    const base = () => {
+      const log = runningLog(plan(1));
+      finishLane(log, "M1.L1");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      return log;
+    };
+    const verify = (log: Log, o: Omit<Parameters<typeof endDispatch>[2], "name" | "unit">) => {
+      expect(names(last(log))).toEqual(["verifier-M1"]);
+      const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+      endDispatch(log, v, { ...o, name: "verifier-M1", unit: "M1" });
+      return last(log);
+    };
+    let log = base();
+    expect(verify(log, { verdict: "pass" })).toEqual([{ type: "land", milestone: "M1", knownIssues: [] }]);
+    log = base();
+    const fix = verify(log, {
+      verdict: "fail",
+      findings: [bug("FAIL: bun test — 2 failed", "src/a/x.ts", "BLOCKER")],
+    });
+    expect(names(fix)).toEqual(["worker-M1.L1"]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    expect(names(last(log))).toEqual(["reviewer-M1"]);
+    review(log, []);
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+    log = base();
+    const park = verify(log, { verdict: "blocked", environment: "docker ps fails" });
+    expect(of(park, "park")).toMatchObject([{ unit: "M1", reason: "environment" }]);
+    expect(of(park, "park")[0]?.question).toContain("docker ps fails");
+    expect(names(park)).toEqual([]);
+  });
+
+  it("parks a land refusal and a commit failure", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.failed", { milestone: "M1", round: 0, tail: "hook failed" });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "commit" }]);
+    expect(of(last(log), "commit")).toEqual([]);
+    log.add("question.parked", { unit: "M1", question: "q", reason: "commit" });
+    log.add("question.answered", { unit: "M1", answer: "fixed the hook", by: "owner" });
+    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    expect(last(log)).toEqual([{ type: "commit", milestone: "M1", round: 0 }]);
+    const l = base1();
+    l.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "no reviewer", fix: "run it" });
+    expect(of(last(l), "park")).toMatchObject([{ unit: "M1", reason: "land" }]);
+  });
+});
+
+function base1(): Log {
+  const log = runningLog(plan(1));
+  finishLane(log, "M1.L1");
+  log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+  review(log, []);
+  const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+  endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass" });
+  return log;
+}
+
+describe("the machine: the run", () => {
+  it("reports and notifies a landing, then goes on to the next milestone", () => {
+    const log = base1();
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "c0abcdef",
+      knownIssues: [],
+      digestPath: "digests/M1.md",
+    });
+    const out = last(log);
+    expect(of(out, "report")).toMatchObject([{ kind: "landed", unit: "M1" }]);
+    expect(of(out, "notify")).toEqual([{ type: "notify", unit: "M1", moment: "milestone" }]);
+    expect(of(out, "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
+  });
+
+  it("finishes once every milestone landed, and waits while one is parked", () => {
+    const log = runningLog(plan(1));
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    expect(of(last(log), "finish")).toEqual([]);
+    log.add("question.parked", { unit: "M2", question: "q", reason: "needs_user" });
+    expect(last(log).filter((a) => a.type !== "report" && a.type !== "notify")).toEqual([]);
+    log.add("question.answered", { unit: "M2", answer: "go", by: "owner" });
+    log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    for (const [kind, unit] of [
+      ["landed", "M1"],
+      ["parked", "M2"],
+      ["landed", "M2"],
+    ] as const)
+      log.add("report.posted", { kind, unit, text: "x" });
+    log.add("run.ended", { outcome: "done", reportPath: "report.md" });
+    const out = last(log);
+    expect(of(out, "report")).toMatchObject([{ kind: "finished" }]);
+    expect(of(out, "notify")).toEqual([{ type: "notify", unit: "run", moment: "finish" }]);
+    expect(of(out, "finish")).toEqual([]);
+  });
+
+  it("reports and notifies a park", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
+    expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "blocked" }]);
+  });
+
+  it("owes a park's report and notice until report.posted, whatever the next event is", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "which db?", reason: "needs_user" });
+    // the daemon died before the report: the revived one sees only its own hello
+    log.add("daemon.started", { pid: 1, version: "x" });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
+    expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "blocked" }]);
+    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    expect(of(last(log), "report")).toEqual([]);
+    expect(of(last(log), "notify")).toEqual([]);
+  });
+
+  it("owes a landing's report and notice until report.posted", () => {
+    const log = base1();
+    log.add("milestone.landed", { milestone: "M1", commit: "c0abcdef", knownIssues: [], digestPath: "d" });
+    log.add("daemon.started", { pid: 1, version: "x" });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "landed", unit: "M1" }]);
+    expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "milestone" }]);
+    log.add("report.posted", { kind: "landed", unit: "M1", text: "x" });
+    expect(of(last(log), "report")).toEqual([]);
+  });
+
+  it("fails a limited lane over, and waits out the hold when every candidate is held", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: "codex:gpt-6-sol#medium" });
+    endDispatch(log, w, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      status: "limit",
+      replyStatus: null,
+      at: "2026-10-21T10:00:00.000Z",
+    });
+    const d = of(last(log), "dispatch")[0];
+    expect(d).toMatchObject({ name: "worker-M1.L1", failoverFrom: "codex:gpt-6-sol#medium", thread: null });
+    log.add(
+      "dispatch.refused",
+      { name: "worker-M1.L1", unit: "M1.L1", code: "E_ALL_HELD", message: "all held" },
+      "2026-10-21T10:00:05.000Z",
+    );
+    expect(names(last(log))).toEqual([]);
+    expect(log.state().wakeAt).toBe("2026-10-21T10:30:00.000Z");
+    log.add("tick", {}, "2026-10-21T10:30:01.000Z");
+    expect(of(last(log), "dispatch")[0]).toMatchObject({ name: "worker-M1.L1", failoverFrom: null });
+  });
+
+  it("cancels every live dispatch, then ends the run cancelled", () => {
+    const log = runningLog();
+    const a = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    const b = startDispatch(log, { name: "worker-M1.L9", unit: "M1.L9" });
+    log.add("cancel.requested", { by: "owner" });
+    expect(last(log)).toEqual([{ type: "cancel", dispatchIds: [a, b] }]);
+    endDispatch(log, a, { name: "worker-M1.L1", unit: "M1.L1", status: "cancelled", replyStatus: null });
+    expect(of(last(log), "cancel")).toEqual([{ type: "cancel", dispatchIds: [b] }]);
+    endDispatch(log, b, { name: "worker-M1.L9", unit: "M1.L9", status: "cancelled", replyStatus: null });
+    expect(last(log)).toEqual([{ type: "finish", outcome: "cancelled" }]);
+    const none = runningLog();
+    none.add("cancel.requested", { by: "owner" });
+    expect(last(none)).toEqual([{ type: "finish", outcome: "cancelled" }]);
+  });
+
+  it("on daemon.started watches each live dispatch and re-issues what was decided but never started", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    log.add("daemon.started", { pid: 2, version: "2.0.0" });
+    const out = last(log);
+    expect(of(out, "watch")).toEqual([{ type: "watch", dispatchId: w }]);
+    expect(names(out)).toEqual([]);
+    // a lane decided, never started: the restart dispatches it
+    const fresh = runningLog();
+    fresh.add("daemon.started", { pid: 2, version: "2.0.0" });
+    expect(names(last(fresh))).toEqual(["worker-M1.L1"]);
+  });
+
+  it("retries a failed effect once, then parks its unit", () => {
+    const log = runningLog();
+    log.add("effect.failed", { action: "dispatch", unit: "M1.L1", message: "launch failed" });
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(of(last(log), "park")).toEqual([]);
+    log.add("effect.failed", { action: "dispatch", unit: "M1.L1", message: "launch failed" });
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "effect" }]);
+    expect(names(last(log))).toEqual([]);
+  });
+});
+
+describe("the machine: action keys", () => {
+  it("gives each action a stable key its confirming event settles", () => {
+    const log = runningLog();
+    const a = last(log)[0] as Action;
+    expect(actionKey(a)).toBe("dispatch:worker-M1.L1");
+    const started = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(confirms(log.events.at(-1) as RunEvent)).toContain("dispatch:worker-M1.L1");
+    endDispatch(log, started, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(confirms(log.events.at(-1) as RunEvent)).toContain(`watch:${started}`);
+    log.add("effect.failed", { action: "dispatch", unit: "M1.L1", message: "x" });
+    expect(confirms(log.events.at(-1) as RunEvent)).toEqual([failKey(a)]);
+    expect(failKey({ type: "fastCheck", lane: "M1.L1" })).toBe("fastCheck@M1.L1");
+  });
+
+  it("never returns a dispatch for a live name, over every state of a run", () => {
+    const log = runningLog(plan(2));
+    const states: [RunState, RunEvent][] = [];
+    const walk = () => states.push([log.state(), log.events.at(-1) as RunEvent]);
+    walk();
+    const a = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    walk();
+    endDispatch(log, a, { name: "worker-M1.L1", unit: "M1.L1" });
+    walk();
+    log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+    walk();
+    startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
+    log.add("daemon.started", { pid: 1, version: "2.0.0" });
+    walk();
+    for (const [s, e] of states) {
+      const live = new Set(liveDispatches(s).map((d) => d.name));
+      for (const x of next(s, e)) if (x.type === "dispatch") expect(live.has(x.name)).toBe(false);
+    }
+  });
+
+  it("rebuilds a judge's input from the state alone", () => {
+    const log = runningLog();
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "blocked" });
+    const out = of(last(log), "judge")[0]!;
+    expect(judgeInputFor(log.state(), out.input.id, "question", "M1.L1")).toEqual(out.input);
+    expect(newId()).toMatch(/^D\d+$/);
+    routeMilestone(makeLog(), PLAN[0] as MilestonePlan);
+  });
+});

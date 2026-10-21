@@ -168,6 +168,7 @@ export const BUILTIN_ROLES: Record<Role, RoleConfig> = {
   artist: { enabled: true, access: DEFAULT_ACCESS.artist, rungs: [SOL("medium")] },
   writer: { enabled: true, access: DEFAULT_ACCESS.writer, rungs: [LUNA_HIGH] },
   researcher: { enabled: true, access: DEFAULT_ACCESS.researcher, rungs: [LUNA_HIGH] },
+  judge: { enabled: true, access: DEFAULT_ACCESS.judge, rungs: ["claude-code:claude-opus-5-5#medium"] },
 };
 
 /**
@@ -208,10 +209,10 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
   };
 }
 
-/** Remove only the four architect/verifier execution choices, preserving other stored fields. */
+/** Remove only the architect, verifier and judge execution choices, preserving other stored fields. */
 export function hostDefaultsDoc(doc: ProfileDoc): ProfileDoc {
   const next = structuredClone(doc);
-  for (const role of ["architect", "verifier"] as const) {
+  for (const role of ["architect", "verifier", "judge"] as const) {
     const r = next.roles?.[role];
     if (r) {
       delete r.rungs;
@@ -240,6 +241,9 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
             ? []
             : b.rungs;
     }
+    // the judge is Opus by default; on a Codex host it follows the host like the architect and the verifier do
+    if (role === "judge" && d?.rungs === undefined && host === "codex")
+      omitted = ["codex:gpt-6.1-sol#medium"];
     // a role that lists its own rungs never inherits the built-in default rung, which may not be among them
     const defaultRung = d?.defaultRung ?? (d?.rungs === undefined ? b.defaultRung : undefined);
     roles[role] = {

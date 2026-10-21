@@ -6,9 +6,12 @@
 /** Spec §3.6: `later` waits for the receiver's turn to end, `next` drains at its next tool round. Never `now`. */
 export type NoticePriority = "later" | "next";
 
-/** One role's news: it finished (`record`), or an event while it runs (`stall`). */
+/**
+ * One role's news: it finished (`record`), or an event while it runs (`stall`); of a 2.0 run, one of its
+ * reports (`report`: `name` is the unit, `status` the report's kind, `reply` its text).
+ */
 export interface Notice {
-  kind: "finished" | "stalled";
+  kind: "finished" | "stalled" | "report";
   eventId: string;
   runId: string;
   runTitle: string;
@@ -41,6 +44,7 @@ const threadWord = (n: Notice): string => `thread: ${n.thread ?? "none"}`;
 
 /** The first line of one role's block: it must stand alone, since the Desktop preview shows only it. */
 export function noticeHeader(n: Notice): string {
+  if (n.kind === "report") return `catherd · ${n.runTitle} · ${n.status} · ${n.name}`;
   const head = `catherd · ${n.runTitle} · ${n.name} ${n.role} · ${n.rung} · ${n.status}`;
   if (n.kind === "stalled") return `${head} · running ${n.secs}s · ${threadWord(n)}`;
   return [
@@ -68,6 +72,15 @@ export function capNoticeReply(reply: string, cap = REPLY_CAP): string {
 const neutral = (s: string) => s.replace(/(cross)-(session)-(message)/gi, "$1 $2 $3");
 
 function block(n: Notice): string {
+  if (n.kind === "report")
+    return [
+      noticeHeader(n),
+      ...(n.reply ? [n.reply] : []),
+      n.status === "parked"
+        ? `Answer: answer(run: "${n.runId}", unit: "${n.name}", answer: "<your answer>")`
+        : `Status: status(run: "${n.runId}")`,
+      `Event: ${n.eventId}`,
+    ].join("\n");
   const call = `run: "${n.runId}", name: "${n.name}"`;
   if (n.kind === "stalled") return `${noticeHeader(n)}\nPeek: peek(${call})\nEvent: ${n.eventId}`;
   const reply = capNoticeReply(n.reply);
@@ -80,12 +93,16 @@ function block(n: Notice): string {
 function previewOf(ns: Notice[]): string {
   const titles = [...new Set(ns.map((n) => n.runTitle))];
   const where = titles.length === 1 ? titles[0] : plural(titles.length, "run", "runs");
-  const what = ns.every((n) => n.kind === "finished")
-    ? `${ns.length} roles finished`
-    : `${plural(ns.length, "role", "roles")} to look at`;
-  const each = ns.map(
-    (n) =>
-      `${n.lane ?? n.name} ${n.kind === "stalled" ? "stalled" : n.status.split(";")[0]} (${threadWord(n)})`,
+  const reports = ns.every((n) => n.kind === "report");
+  const what = reports
+    ? plural(ns.length, "report", "reports")
+    : ns.every((n) => n.kind === "finished")
+      ? `${ns.length} roles finished`
+      : `${plural(ns.length, "role", "roles")} to look at`;
+  const each = ns.map((n) =>
+    n.kind === "report"
+      ? `${n.name} ${n.status}`
+      : `${n.lane ?? n.name} ${n.kind === "stalled" ? "stalled" : n.status.split(";")[0]} (${threadWord(n)})`,
   );
   return `catherd · ${where} · ${what}: ${each.join(", ")}`;
 }

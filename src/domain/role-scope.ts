@@ -54,45 +54,15 @@ export function roleScopeFromEnv(env: Record<string, string | undefined>): RoleS
  * The tools only the orchestrator calls: each one claims the run, steers a role or changes the run's plan
  * (spec 1.5 plan 21). A role process gets E_ROLE_SCOPE for them.
  */
-export const COORDINATOR_TOOLS = [
-  "peek",
-  "result",
-  "dispatch",
-  "run_start",
-  "climb",
-  "land",
-  "park",
-  "cancel",
-  "set_next",
-  "answer",
-  "profile_set",
-  "workspace_start",
-  "workspace_contract",
-  "workspace_child_start",
-  "test_push",
-  "workspace_budget",
-  "workspace_pause",
-  "workspace_resume",
-  "lane_set",
-  "owns_add",
-  "run_pin",
-] as const;
+export const COORDINATOR_TOOLS = ["run_start", "answer", "cancel", "result", "profile"] as const;
 
 const COORDINATOR = new Set<string>(COORDINATOR_TOOLS);
 
 export const isCoordinatorTool = (tool: string): boolean => COORDINATOR.has(tool);
 
-/**
- * Whether a role process may not make this call: every coordinator tool, except a `peek` of its own
- * dispatch (its run and its own name) and a `workspace_contract` read (no `content`).
- */
-export function refusedForRole(tool: string, args: unknown, scope: RoleScope): boolean {
-  if (!COORDINATOR.has(tool)) return false;
-  const a = (args ?? {}) as Record<string, unknown>;
-  if (tool === "peek") return !(a.run === scope.run && a.name === scope.name);
-  if (tool === "workspace_contract") return a.content !== undefined;
-  return true;
-}
+/** Whether a role process may not make this call: every coordinator tool. */
+export const refusedForRole = (tool: string, _args: unknown, _scope: RoleScope): boolean =>
+  COORDINATOR.has(tool);
 
 /** E_ROLE_SCOPE: the error a role process gets for a coordinator tool, with the line that fixes it. */
 export function roleScopeError(tool: string, scope: RoleScope): CatherdError {

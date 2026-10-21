@@ -13,14 +13,16 @@ of work, climbing a ladder only when a cheaper rung falls short.
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
   you'd rather save the tokens your customizations cost.
-- **Claude roles stay native on Claude Code.** `claude:` rungs require that host and run as ordinary Claude Code subagents; Codex,
-  opencode, Cursor and headless `claude-code:` rungs run through catherd's MCP server.
-- **Survives restarts.** Workers are detached processes writing straight to disk, so a dropped
-  MCP server never loses a run.
-- **Results come to you.** Roles run side by side while you keep talking. Claude Code uses its peer inbox; Codex uses queued next input through its existing native server. A busy Codex conversation processes it after the active turn. Queue acceptance and result collection are separate; `peek` shows how a run stands.
-- **A protocol the tools enforce.** Every lane is routed, every brief ends with the reply contract, and a
-  milestone lands only after a reviewer and a verifier passed it. Workers can run their own checks (network,
-  loopback, Docker, the lock dir); an owner question parks one milestone, not the run.
+- **A daemon drives the run.** `run_start` launches a detached daemon that plans, dispatches, reviews, verifies
+  and lands each milestone from the run's own `events.jsonl`. Every role runs headless in its vendor's CLI
+  (Claude Code, Codex, opencode, Cursor); the session needs none of it once the run has started, and a dropped
+  session or MCP server never loses a run.
+- **Questions reach your phone.** A parked question and the final report are sent to your ntfy topic
+  (`notify.url`), and answered from the session (`answer`) or the terminal (`catherd answer`).
+- **A protocol the daemon enforces.** Every lane is routed, every brief ends with the reply contract, and a
+  milestone lands only after a reviewer and a verifier passed it. A judge role decides what no rule can (an
+  ambiguous finding, a stuck fix round, an unmet check) from the run's facts. An owner question parks one milestone,
+  not the run.
 - **Guard rails for autopilot.** Quota failover to an indexed stand-in at least as intelligent, a preflight check
   before any worker starts, per-repo knowledge carried between runs, and a run budget.
 
@@ -109,11 +111,26 @@ Pass the actual project `repo` to repository-aware MCP profile/setup/catalog cal
 In either supported host, use the installed shared skills through that host's skill invocation and tool discovery:
 
 - `/catherd <task>` runs a task on autopilot; `/catherd` alone resumes the latest run. While it runs, keep
-  talking: completion arrives through the host's transport, and "how is it going?" gets a `peek`.
+  talking: a report arrives through the host's transport and on your phone, and "how is it going?" gets a `status`.
 - `/catherd-setup` tunes your profile in conversation: which models and efforts each role may
   use, cost or speed, isolation, budget and failover.
 
-`route` chooses the backend for every role. Native `claude:` uses Claude Code's `Agent` and `record_agent_run` only on Claude Code; process backends, including Codex architect/verifier, use `dispatch` followed by `result`. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` / `codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing native defaults. Verify that exact model ID against native catalog discovery and validation; if spelling differs, resolve the mismatch explicitly with the owner, never silently normalize or substitute, and retain high/low efforts. Explicit ladders and materialized profiles are preserved, without silently converting `claude:` to `claude-code:`. To opt into host defaults, review and save the narrow reset:
+A session sees six tools:
+
+| Tool                              | What it does                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `run_start(repo, title, a_lines)` | Starts a run and returns its id and the notify url its questions go to                       |
+| `status(run?)`                    | Phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive |
+| `answer(run, unit, answer)`       | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer        |
+| `cancel(run)`                     | Stops the run and every live role                                                            |
+| `result(run, name?)`              | The run's report (the merge request body), or one role's record                              |
+| `profile(action, …)`              | Reads, validates or changes a profile, or sets `notify_url`                                  |
+
+Set where questions go once: `notify.url` is an [ntfy](https://ntfy.sh) topic url (`catherd-setup`, or the `profile`
+tool's `notify_url`). The daemon sends to it from your machine, so a question and the final report reach the phone
+with no session open. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` /
+`codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing defaults, and a `claude:` rung runs as its
+headless `claude-code:` twin. To opt into host defaults, review and save the narrow reset:
 
 ```sh
 catherd profile reset-host-defaults <profile> --host codex --preview --json > /tmp/catherd-host-defaults-review.json
@@ -123,19 +140,12 @@ catherd profile reset-host-defaults <profile> --host codex --expect /tmp/catherd
 
 It removes only architect/verifier `rungs` and `defaultRung`; every other setting stays intact. Run profile CLI commands from the project directory and choose the actual profile name. Use `--host claude-code` for Claude defaults.
 
-Completion never uses `await_results` or model polling. Codex sends through `codex queue --remote unix://` to the validated original thread: idle wake and ordered busy follow-up are the native semantics, without Claude's urgent tool-round priority. A receipt proves queue acceptance, not observed generation or collection; unloaded/interrupted hosts may retain input. Only `result` collects the actual stored record. Explicit `peek(run)` adopts the run for the current host/session; `status` and `result` do not. Unknown/conflicting identity never owns or pushes.
-
-When a role ends, its own supervisor also queues the notice to a Codex owner's thread, under the same receipt as the server's push, so a thread whose MCP server Codex has stopped still hears, and nothing arrives twice. Run a Codex coordinator inside `tmux` (or `screen`): Codex stops a thread's MCP servers once no client is attached, and the queued input waits for the next attach. Every catherd message names the role's `thread:`; resume it with `dispatch(…, thread: "latest")` under the same name.
-
-Roles get catherd's tools too. Headless Codex and Claude Code roles get a `catherd_role` MCP server, isolated or not, without any change to your config; roles on other backends run `catherd run-file read|write <run> <path>` and `catherd gate check|pass <run> …` from their shell, bound to their own run and to their role's tools: every role may read run files, only the architect and researcher write them, and only the verifier runs `gate check|pass` (anything else is `E_ROLE_SCOPE`). The coordinator tools (`dispatch`, `result`, `land`, `climb`, `peek` of another role, `run_start`, `park`, `answer`, `cancel`, `set_next`, `profile_set`, `test_push`, `run_pin`, `lane_set`, `owns_add`, `record_agent_run` and the workspace writers) are the orchestrator's: a role's process gets `E_ROLE_SCOPE` for them, so a role can never take the run over.
-
-Recover unread work with `peek` and `result`. Accepted or ambiguous attempts are not automatically resent. When ambiguity needs a deliberate retry, run from the current owner's validated host session:
-
-```sh
-catherd runs retry-push <run> <name> --event '<exact event ID from peek/status>' --acknowledge-possible-duplicate
-```
-
-This acknowledges possible duplicate native input; an accepted receipt still suppresses a repeat for that owner/event. Without a supported history reconciliation API, retain ambiguity until an explicit decision. Notices preserve all event IDs, including coalesced events; repeated input means idempotent reads, never another dispatch or landing. Stored records and independent reviewer/verifier gates are authoritative. Profile notification moments use an available host facility, without inventing a Codex notification tool or scheduled wake.
+A run's reports reach the session that started it (Claude Code's peer inbox, Codex's queued next input) and the phone.
+`status` revives a daemon that died, so asking "how is it going?" is always safe. Roles get catherd's tools too:
+headless Codex and Claude Code roles get a `catherd_role` MCP server, and other roles run
+`catherd run-file read|write <run> <path>` and `catherd gate check|pass <run> …` from their shell, bound to their own
+run and role (anything else is `E_ROLE_SCOPE`). The six session tools are the owner's: a role's process gets
+`E_ROLE_SCOPE` for them, so a role can never take the run over.
 
 In a terminal:
 
@@ -159,6 +169,7 @@ In a terminal:
 | `catherd lock [--slots N] [--role verifier [--run <id>]] -- <cmd>`                                                                                                     | Runs a heavy command behind the machine-wide semaphore, in its own session (no /dev/tty); `--role verifier` keeps two runs' verifiers apart            |
 | `catherd run-file read\|write <run> <path>`                                                                                                                            | A run's plan, lanes and notes (`write` reads stdin); in a role, its own run only                                                                       |
 | `catherd gate check <run> [--item <i> --command <c> --paths <p,…>] [--milestone <M>]`, `catherd gate pass <run> --item <i> --command <c> --paths <p,…> --evidence <e>` | A verifier's gate evidence, as `gate_check`/`gate_pass`; in a role, its own run only                                                                   |
+| `catherd answer <run> <unit> <text>`                                                                                                                                   | Answers a parked unit from the terminal, as the `answer` tool does; the daemon picks it up                                                             |
 | `catherd mcp`                                                                                                                                                          | The MCP server on stdio; the plugin starts it, you never need to                                                                                       |
 | `catherd capture-fixtures [--backend <b>] [--out <dir>]`                                                                                                               | Contributors: records sanitized test fixtures from real runs (see CONTRIBUTING.md)                                                                     |
 | `catherd scorecard prepare <task>`, `record <dir> --label <l>`, `compare <label>`                                                                                      | Contributors: measures a catherd version on four fixed tasks against the 1.5.0 baseline (docs/dev/scorecard.md)                                        |
@@ -172,10 +183,10 @@ and `--reduced-motion`; `doctor` and `init` take `--plain` for ASCII glyphs too.
 
 The catalog reads one source: the [Slopalytics](https://slopalyticsproxy.vercel.app) index, one `intelligence`
 number per model and effort. It is fetched hourly (the MCP server does it in the background when a host session
-starts, `init` does it, and `catherd catalog sync [--force]` or the `catalog_sync` tool does it on demand) and
+starts, `init` does it, and `catherd catalog sync [--force]` does it on demand) and
 cached in `~/.local/share/catherd/slopalytics.json`; a fetch that fails keeps the last good index and `doctor`
 names the error. A model and effort the index does not list is not offered: it is absent from the catalog and
-`catalog_query`, and a profile that names one fails `profile validate`. `CATHERD_NO_SYNC=1` stops the automatic
+`catherd catalog list`, and a profile that names one fails `profile validate`. `CATHERD_NO_SYNC=1` stops the automatic
 refreshes.
 
 A lane's difficulty picks a bar: a percentile of the intelligence of the shipped models' indexed pairs (copy the
@@ -183,7 +194,7 @@ A lane's difficulty picks a bar: a percentile of the intelligence of the shipped
 (the fastest under `objective speed`). Every kind of lane is held to the same bar. A ladder holds only rungs at
 least as intelligent as its start, and rungs of equal intelligence on two quotas start on the one the run has used
 least. A failover stand-in must be indexed, on another quota and at least as intelligent as the rung it replaces.
-`route` returns the rung, its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and
+Routing gives the rung, its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and
 the why says when Jev disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl`
 keeps every role's decision with, for the rung it picks, its intelligence, the bar it was held to and catherd's own
 runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A run starts only when every
@@ -205,34 +216,11 @@ in `catherd.workspace.json`; catherd does not scan neighboring folders:
 }
 ```
 
-Run `catherd workspace inspect /path/to/workspace --json` to check the resolved members. Through MCP,
-`workspace_start` takes `root`, `title`, `a_lines`, and `steps`: each step has `id`, a member `repo`, `title`,
-`a_lines`, optional `depends_on` step ids, and the `milestone` that releases its dependents (default `M1`).
-A step with `release: "merge"` and a `base` ref (`origin/main`) releases them only once its landed commit is
-an ancestor of that ref (`git merge-base --is-ancestor`), checked when a dependent asks; fetch first, nothing
-is polled.
-An explicit `repos` map can replace the manifest. Only members used by the steps enter the run snapshot.
-Steps reusing one member must be ordered by dependencies. A final verification step can reuse a member
-after both parallel producer steps land; unordered steps in the same repository are refused.
-
-Write the shared interface or coordination agreement with `workspace_contract(workspace, content)` before
-starting children; the first child freezes it, and every child receives `workspace-contract.md`.
-`workspace_child_start(workspace, step)` creates a single-repo run only when its prerequisites have landed.
-Use the existing route, dispatch, verification and land workflow with that child's run id. Each member keeps
-its own profile, knowledge and repository rules; workers write within their own repository.
-
-`workspace_status(workspace)` and `catherd workspace status <id> --json` show the shared view and spending.
-The optional workspace `budget` (`minutes`, `tokens`, `usd`; no cap unless given, minutes from the first
-child) stops new admissions when aggregate observed spending reaches its cap, alongside each child's budget;
-`workspace_budget(workspace, …)` raises it. Running workers may overshoot; native subagent usage is reported
-after execution. Dependency readiness requires a recorded landing and finalized dispatches, not just a
-finished worker. Landing a step's completion milestone and dispatch admission share the parent lock; other
-milestones land freely, and a landed step admits a post-land fix. `workspace_pause(workspace, reason)` stops
-every child's admission on one blocker until `workspace_resume`. Workspaces support at most 100 repositories
-and 100 steps. A run folder without a readable `meta.json` is skipped and named in `workspace_status`; with a
-cap set, unreadable or negative usage evidence blocks admission until repaired. Stored status remains available after a checkout disappears, while child
-recovery and admission require the captured Git root. catherd never automatically commits, pushes,
-rolls back repositories or starts the next child.
+Run `catherd workspace inspect /path/to/workspace --json` to check the resolved members, and
+`catherd workspace status <id> --json` for a workspace run's children, dependencies and spending. The workspace
+tools (`workspace_start`, `workspace_child_start`, …) are not on the session in 2.0: the daemon runs single-repo
+runs, and a coordinated program is a later plan. The read-only commands, the stored runs and the `pause --workspace`
+switch stay.
 
 ### Environment variables
 
@@ -280,6 +268,11 @@ opens on its brief, reply and record; the open screen redraws as run files chang
   [`src/entry/tui/commands.ts`](src/entry/tui/commands.ts)).
 
 ## Upgrading
+
+From 1.5: `bun add -g catherd-cli@latest && catherd doctor`, update the plugin and start a new session. A run
+started on 1.5 finishes on 1.5, so keep it installed until those end; new runs go through the daemon. The session
+has six tools (`run_start`, `status`, `answer`, `cancel`, `result`, `profile`), every role runs headless, and a
+parked question goes to `notify.url`. [MIGRATION.md](MIGRATION.md), "From 1.5 to 2.0", has the rest.
 
 From 1.4: `bun add -g catherd-cli@latest && catherd doctor`, update the plugin and start a new session; `doctor`
 names the Claude agent links to refresh. There is still no `wait` tool (it never shipped and is gone): end the

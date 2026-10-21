@@ -9,6 +9,7 @@ export const ROLES = [
   "artist",
   "writer",
   "researcher",
+  "judge",
 ] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -22,4 +23,5 @@ export const DEFAULT_ACCESS: Record<Role, Access> = {
   artist: "workspace-write",
   verifier: "full",
   "ui-reviewer": "full",
+  judge: "read-only",
 };
