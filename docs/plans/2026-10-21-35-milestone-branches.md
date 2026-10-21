@@ -12,6 +12,12 @@
 
 **Pre-validation: spiked the git sequence against a local bare origin (`worktree add --no-track -b` from `origin/main`; a second `-b` of the same branch fails with exit 255; `worktree remove` then `worktree add <dir> <branch>` re-adds; `worktree remove` refuses an untracked file and removes a tree holding only ignored files, keeping the branch; `merge-base --is-ancestor` sees a `--no-ff` merge pushed from another clone) and the memory reading on the owner's 18 GB Mac (`os.freemem()` 0.13 GB while `sysctl kern.memorystatus_level` read 50 and `memory_pressure` "System-wide memory free percentage: 50%"), targeted tests only; the full gate runs at execution.** Written against `main` at 2061e6e (1.5.0); plans 28–34 merge first, so every line number below is 1.5's and is re-found by context.
 
+
+## Owner answers (2026-10-21, binding over the Rulings below)
+
+- The memory numbers are a profile setting: `limits.memory.reserveMb` (default 2048), `limits.memory.perMilestoneMb` (3072) and `limits.memory.floorMb` (3072), validated as positive integers, settable with `catherd profile set` and the panel. `MEMORY_LIMITS` becomes the defaults.
+- Ruling 12 is reversed: a "push" answer to the milestone's push question makes catherd run `git push -u origin <branch>` itself, then report the MR command. It never opens an MR and never merges.
+
 ## Global Constraints
 
 - Everything in plan 30's and 30b's Global Constraints, unchanged. Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`): `branch.ts`, `milestone-memory.ts` and the machine are domain; `memory.ts` infra; `milestone-tree.ts` a service.

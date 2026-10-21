@@ -12,6 +12,12 @@
 
 **Pre-validation: spiked the plan-task parser (Task 2's task heading, its section end and its signature and test markers) against the payment ledger plan (10 tasks, all with both), its contracts file (no task: its whole text is preamble, 50 KB) and catherd plans 23, 30 and 30b (34 tasks, every one with a signature or a test), and against a prose-only task (neither), targeted tests only; the full gate runs at execution.** Written against `main` at 2061e6e; it executes after plans 28, 29, 30, 30b and 31 merge, so re-find every hunk by context, and every plan-30 file by its Produces name.
 
+
+## Owner answers (2026-10-21, binding over the Rulings below)
+
+- Ruling 12 stands: the architect's plan stays in the run folder.
+- Ruling 16 is narrowed: an architect change after approval parks for a second approval **only when it changes a decision line** (`D<n>`) of the approved plan; any other change needs none. Add the test "parks again for approval when an architect change edits a decision, and not otherwise".
+
 ## Global Constraints
 
 - Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`): `role-prompts.ts`, `brief.ts`, `record.ts`, `lane.ts`, `plan-doc.ts` are domain (no `node:fs`); `plan-input.ts` is a service and imports neither `admission.ts` nor `run-effects.ts`.
