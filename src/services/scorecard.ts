@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { latestOutcomes } from "../domain/route.ts";
@@ -83,6 +83,9 @@ const PreparedSchema = z.looseObject({
 });
 export type Prepared = z.infer<typeof PreparedSchema> & { task: ScorecardTaskId };
 
+/** A URL (`scheme://`) or an scp-like `user@host:path`: anything else is a local path. */
+const REMOTE = /^(?:[a-z][a-z0-9+.-]*:\/\/|[^/\s]+@[^/\s:]+:)/i;
+
 const GIT_LONG = 30 * 60_000;
 
 /** A git command that must succeed: its failure is `fail`'s error. */
@@ -106,11 +109,13 @@ export async function prepareTask(i: {
   setup: boolean;
 }): Promise<Prepared> {
   const { task } = i;
-  const src = i.source ?? task.source;
-  if (!src)
+  const given = i.source ?? task.source;
+  if (!given)
     throw new CatherdError("E_INPUT_INVALID", `${task.id} names no source`, {
       fix: `catherd scorecard prepare ${task.id} --source <path or URL>`,
     });
+  // the clone runs inside the new folder, so a local path must be absolute before it gets there
+  const src = REMOTE.test(given) ? given : resolve(given);
   ensurePrivateDir(dirname(i.into));
   try {
     mkdirSync(i.into);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { ScorecardTask, TaskScore } from "../../src/domain/scorecard.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
@@ -121,6 +121,17 @@ describe("scorecard prepare", () => {
     expect(p.startCommit).toBe(src.commit);
     expect(readPrepared(into)).toEqual(p);
     expect(p.prompt).toBe(`do ${join(into, "plan.md")} then true`);
+  });
+
+  it("resolves a relative local source against the caller's cwd, not the prepared folder", async () => {
+    withHome();
+    const src = source();
+    const root = rootWith();
+    const task = taskFor(src.commit);
+    const into = join(tempDir("scorecard-into-"), "raqam-myanmar-20260925-090000");
+    const rel = relative(process.cwd(), src.repo);
+    const p = await prepareTask({ task, root, into, source: rel, now: PREPARED_AT, setup: true });
+    expect(p.startCommit).toBe(src.commit);
   });
 
   it("applies each inject edit once and commits it; refuses an edit whose text is not there exactly once", async () => {
