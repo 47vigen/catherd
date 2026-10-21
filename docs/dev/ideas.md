@@ -24,6 +24,18 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
   exists, so the advice does not match the state.
 - **Reviving a daemon has no backoff:** with a corrupt events.jsonl every status call spawns a daemon that fails.
+- **Base-failure line matching hides untested `a && b` tails.** A check that fails only in lines the base fails in
+  too passes (`src/services/milestone-check.ts:171-206`, `src/domain/fail-lines.ts`). When the check is `a && b` and
+  `a` fails on the base the same way, `b` never runs on either side, so a new break in `b` stays invisible. Fix: when
+  the baseline's exit is non-zero, run the check's parts separately, or name the unreached tail in `audit`.
+- **The secret scan in a base run covers others' commits too.** `secretScan` scans `base..HEAD`
+  (`src/services/milestone-check.ts:77-89`), and once `integrate` has merged origin's base into the run's branch, that
+  range holds the commits of other people. A secret they pushed blocks this run's milestone. Fix: scan only the
+  first-parent chain (`--first-parent`) or exclude commits reachable from `origin/<base>`.
+- **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
+  gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
+  says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
+  milestone is landed and the push question has been answered, and say that the merge is still open.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
