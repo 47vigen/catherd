@@ -9,6 +9,7 @@ import { parseRung } from "../domain/ids.ts";
 import {
   type ExitInfo,
   parseReplyEnvironment,
+  parseReplyHead,
   parseReplyStatus,
   type RunRecord,
   THREAD_HEAVY_INPUT,
@@ -202,6 +203,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     : { changedOwned: [], violations: [] };
   const reported = parseReplyStatus(replyText);
   const environment = parseReplyEnvironment(replyText);
+  const head = parseReplyHead(replyText);
   return {
     schema: 1,
     runId: run.id,
@@ -229,6 +231,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     replyStatus: reported.status,
     replyWhy: reported.why,
     ...(environment ? { environment } : {}),
+    ...(head ? { head } : {}),
     threadHeavy: o.tokens.input >= THREAD_HEAVY_INPUT,
     access: a.access,
     isolated: a.isolated,

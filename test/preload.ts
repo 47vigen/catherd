@@ -9,3 +9,7 @@ process.env.CATHERD_NO_END_PUSH = "1";
 // over CATHERD_HOME, so a test that sets only CATHERD_HOME would write into the real ones.
 delete process.env.CATHERD_DATA_DIR;
 delete process.env.CATHERD_CONFIG_DIR;
+// Heavy slots wait while the host load is above twice its cores (up to 15 minutes). A CI runner running the suite
+// is that busy, so no lock in a test, nor any `catherd lock` a test spawns, may wait on it. A test of the wait sets
+// heavyLimits.loadWaitMs itself.
+process.env.CATHERD_HEAVY_LOAD_WAIT_MS = "0";

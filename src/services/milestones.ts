@@ -189,6 +189,8 @@ export interface MilestoneVerifier {
   verdict: string;
   /** plan 23: the probe of a `VERDICT: BLOCKED: environment` attempt ("" when it named none); null otherwise */
   blocked: string | null;
+  /** plan 30b: the commit the verdict says it checked (a headless reply's `HEAD:` line); null for a native row */
+  head: string | null;
 }
 
 /** The one name a milestone's verifier is counted under (spec 1.5 "The ledger"): verifier-<m>, exactly. */
@@ -220,6 +222,7 @@ export function milestoneVerifier(
           passed: a.status === "ok",
           verdict: blocked === null ? a.status : (a.verdict ?? a.status),
           blocked,
+          head: null,
         };
       }),
     ...readRecords(run)
@@ -235,6 +238,7 @@ export function milestoneVerifier(
           passed,
           verdict: r.status === "ok" ? said : `${r.status}, ${said}`,
           blocked: r.status === "ok" ? blockedByEnvironment(first) : null,
+          head: r.head ?? null,
         };
       }),
   ];
@@ -252,6 +256,16 @@ export function landedCommits(run: Run): string[] {
     .slice(1)
     .map((row) => row.split(" | ")[2]?.trim() ?? "")
     .filter((c) => /^[0-9a-f]{7,40}$/.test(c));
+}
+
+/** The commit the ledger holds for `m`, its latest landing; null when it never landed or the row has no commit. */
+export function landedCommitOf(run: Run, m: string): string | null {
+  const rows = nonBlankLines(runPaths(run.dir).ledger)
+    .slice(1)
+    .map((row) => row.split(" | "))
+    .filter((cells) => cells[0]?.trim() === m);
+  const commit = rows.at(-1)?.[2]?.trim() ?? "";
+  return /^[0-9a-f]{7,40}$/.test(commit) ? commit : null;
 }
 
 /** The milestones the ledger holds, in landing order. */

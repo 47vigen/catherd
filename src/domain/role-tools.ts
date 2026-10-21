@@ -29,6 +29,6 @@ export function grantsScratch(backend: string, isolated: boolean): boolean {
 export function roleMcpTools(role: Role): string[] {
   const tools = ["read_run_file", "read_knowledge"];
   if (role === "architect" || role === "researcher") tools.push("write_run_file");
-  if (role === "verifier") tools.push("gate_check", "gate_pass");
+  if (role === "verifier") tools.push("gate_check", "gate_pass", "gate_run");
   return tools;
 }

@@ -4,9 +4,10 @@ import { parseFindings } from "../domain/findings.ts";
 import { JUDGE_CONTRACT, type JudgeInput, JUDGE_VERBS } from "../domain/judge.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
-import type { RunState } from "../domain/run-state.ts";
+import { integrateName, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
+import { readChecks } from "./milestone-check.ts";
 import type { Run } from "./run-store.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
@@ -89,6 +90,37 @@ function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
   ].join("\n");
 }
 
+/** A fix round's worker sees this many lines of the failing milestone check's log. */
+export const CHECK_LOG_TAIL_LINES = 40;
+
+/**
+ * The end of the milestone's latest check in this run, when it failed (a later passing one removes it): what a
+ * fix round starts from when the finding names only the check.
+ */
+function failingCheck(run: Run, milestone: string): string[] {
+  const last = readChecks(run.meta.repo)
+    .filter((r) => r.run === run.id && r.milestone === milestone && !r.baseline)
+    .at(-1);
+  if (!last || last.exit === 0) return [];
+  let tail: string;
+  try {
+    tail = readFileSync(last.log, "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-CHECK_LOG_TAIL_LINES)
+      .join("\n");
+  } catch {
+    tail = `(log unreadable: ${last.log})`;
+  }
+  return [
+    "",
+    `The milestone check \`${last.command}\` exited ${last.exit} on ${last.head.slice(0, 12)}; the end of its log:`,
+    "```",
+    tail,
+    "```",
+  ];
+}
+
 function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   const lane = s.lanes[a.unit];
   const fix = a.brief === "fix";
@@ -104,10 +136,26 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
           "",
           "This is a fix round. Fix exactly these, each as it was reported, and nothing beside them:",
           ...a.notes.map((n) => `- ${n}`),
+          ...(a.notes.length && lane ? failingCheck(run, lane.milestone) : []),
         ]
       : []),
     "",
     `Run your fast check until it passes. Run the full suite only if this brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${VERSION} lock -- <command>. Other lanes share this machine.`,
+  ].join("\n");
+}
+
+/** The worker that finishes a merge of the base into the run's branch: git left these files in conflict. */
+function integrateBrief(run: Run, s: RunState, a: DispatchAction): string {
+  return [
+    `You are ${a.name} of catherd run ${run.id} (${run.meta.title}). The base branch ${s.base ?? ""} moved while milestone ${a.unit} was being verified, and catherd merged it into the run's branch. The merge stopped on conflicts in the repository you are in:`,
+    ...a.notes.map((n) => `- ${n}`),
+    "",
+    "Resolve every conflict, keeping both sides' intent: the base's change and this run's. Edit only those files, remove every conflict marker, and do not commit or stage anything: catherd commits the merge.",
+    "",
+    "The A-lines this run must meet:",
+    ALINES(run),
+    "",
+    READ_RULES,
   ].join("\n");
 }
 
@@ -189,6 +237,7 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
     "",
+    ...(a.notes.length ? ["Before you start:", ...a.notes.map((n) => `- ${n}`), ""] : []),
     ...(previous.length
       ? [
           "A verifier failed this milestone before; it said:",
@@ -235,7 +284,7 @@ function briefBody(run: Run, s: RunState, a: DispatchAction): string {
       return architectBrief(run, s, a);
     case "lane":
     case "fix":
-      return workerBrief(run, s, a);
+      return a.name === integrateName(a.unit) ? integrateBrief(run, s, a) : workerBrief(run, s, a);
     case "review":
     case "recheck":
       return reviewBrief(run, s, a);

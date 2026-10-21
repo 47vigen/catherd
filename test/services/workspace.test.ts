@@ -13,6 +13,7 @@ import { join, relative } from "node:path";
 import { indexPath, runsDir } from "../../src/infra/paths.ts";
 import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { loadCatalog } from "../../src/services/catalog-service.ts";
+import { landedCommitOf } from "../../src/services/milestones.ts";
 import { appendRecord, createRun, listRuns, runPaths } from "../../src/services/run-store.ts";
 import { withWorkspaceAdmission } from "../../src/services/workspace-admission.ts";
 import {
@@ -84,6 +85,22 @@ it("stores a private snapshot, lazily starts once, and unlocks dependencies on l
   expect(status.steps[0]?.landedCommits).toEqual(["abcdef1"]);
   const web = await startWorkspaceChild(deps, { workspace: workspace.id, step: "web" });
   expect(web.run).not.toBe(child.id);
+});
+
+it("reads a milestone's commit from its own ledger row, not by lining up two filtered lists", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, input);
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  const child = workspaceChildren(workspace)[0]!;
+  appendFileSync(
+    runPaths(child.dir).ledger,
+    "M1 | API | - | 1 | checked\nM2 | API | abcdef2 | 1 | checked\n",
+  );
+  expect(landedCommitOf(child, "M1")).toBeNull();
+  expect(landedCommitOf(child, "M2")).toBe("abcdef2");
+  appendFileSync(runPaths(child.dir).ledger, "M1 | API | abcdef1 | 1 | checked\n");
+  expect(landedCommitOf(child, "M1")).toBe("abcdef1");
+  expect(landedCommitOf(child, "M3")).toBeNull();
 });
 
 it("pins the machine's index into a child run, so a pair dropped later never breaks it midway", async () => {

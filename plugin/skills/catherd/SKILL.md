@@ -59,8 +59,11 @@ phone notice and asks. Either way:
 2. A parked unit is the owner's question. Put it to them in their own language, with the daemon's context and your
    recommended answer, one question at a time. Pass their answer with `answer(run, unit, answer)` and nothing
    else: do not rephrase it into a decision of your own. The run goes on with the work that does not depend on it.
+   A question may also be a `push` (a landed milestone of a run with a base branch waits for the owner to push it
+   and merge its MR: catherd never pushes) or a `check_broken` (the milestone's check cannot run, so fix the
+   environment, then answer).
 3. A role that failed, a gate that is red or a milestone that climbed is the daemon's to handle; report it, do not
-   step in. Stop the run only on the owner's word: `cancel(run)`.
+   step in. The secret scan of a milestone's check uses `gitleaks` when it is installed; it is optional. Stop the run only on the owner's word: `cancel(run)`.
 
 ## The end
 

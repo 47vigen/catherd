@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BLOCKED_REASONS } from "./blocked.ts";
 import { type Difficulty, KINDS, type Kind, parseLaneHeader } from "./lane.ts";
 import { scrubKeyShapes, scrubSecretAssignments } from "./secrets.ts";
 
@@ -41,6 +42,7 @@ export const JevFileSchema = z.looseObject({
     "route-v2": z.object({ questions: z.record(z.string(), QuestionSchema), rule: RouteRuleSchema }),
     finding: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
     "same-defect": z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
+    stop: z.object({ questions: z.record(z.string(), QuestionSchema), rule: VerdictRuleSchema }),
   }),
 });
 export type JevFile = z.infer<typeof JevFileSchema>;
@@ -50,6 +52,7 @@ export type SetName = keyof JevFile["sets"];
 export const VERDICT_OPTIONS = {
   finding: ["design", "code", "unclear"],
   "same-defect": ["yes", "no"],
+  stop: [...BLOCKED_REASONS, "other"],
 } as const;
 
 /** JSON with object keys sorted at every depth, so equal data always hashes the same. */

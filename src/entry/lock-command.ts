@@ -3,7 +3,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { scrubSecrets } from "../infra/env.ts";
 import { gitToplevel } from "../infra/git.ts";
-import { heavySlots, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
+import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
 import { activityReporter, DISPATCH_ID_ENV } from "../infra/lock-activity.ts";
 import { killGroup } from "../infra/proc.ts";
 import { activeName, readProfileDoc } from "../services/profile-store.ts";
@@ -138,8 +138,7 @@ export function roleLockOwnerOf(run: string | undefined, env: NodeJS.ProcessEnv)
   return fromRole ? `run:${fromRole}` : `process:${process.pid}`;
 }
 
-/** Set in a locked command's env: a `catherd lock` inside it runs at once, holding nothing more. */
-export const LOCK_HELD_ENV = "CATHERD_LOCK_HELD";
+export { LOCK_HELD_ENV };
 
 export const lockCommand = defineCommand({
   meta: {
@@ -194,9 +193,9 @@ export const lockCommand = defineCommand({
     // killed before its first command
     const activity = activityReporter(process.env[DISPATCH_ID_ENV]);
     const waiting = activity ? { onWait: activity.tick } : {};
-    const run = () =>
+    const run = (_slot: number, tmp: string) =>
       runForwarding(argv, {
-        extraEnv: { [LOCK_HELD_ENV]: "1" },
+        extraEnv: { [LOCK_HELD_ENV]: "1", TMPDIR: tmp, GOTMPDIR: tmp },
         ...(activity ? { onOutput: activity.tick } : {}),
       });
     const role = args.role;
@@ -213,10 +212,10 @@ export const lockCommand = defineCommand({
         ? await withRoleLock(
             role,
             roleLockOwnerOf(args.run, process.env),
-            () => withHeavySlot(slots, run, waiting),
+            () => withHeavySlot(slots, run, { ...waiting, tmpBase: process.env.TMPDIR }),
             waiting,
           )
-        : await withHeavySlot(slots, run, waiting);
+        : await withHeavySlot(slots, run, { ...waiting, tmpBase: process.env.TMPDIR });
     } finally {
       activity?.done();
     }

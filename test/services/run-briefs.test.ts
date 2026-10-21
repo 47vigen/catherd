@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { VERSION } from "../../src/infra/version.ts";
+import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
 import { briefFor, judgeBrief } from "../../src/services/run-briefs.ts";
 import { scratchDir } from "../../src/services/dispatches.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -85,6 +86,57 @@ describe("briefs", () => {
       expect(briefFor(run, s, act({ brief, role, name: role, unit: "run", lane: null }))).toContain(
         "The owner answered: use the v2 spec",
       );
+  });
+
+  it("gives a fix-round worker the tail of the milestone's latest failing check", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    const log = join(run.dir, "check.log");
+    writeFileSync(log, Array.from({ length: 50 }, (_, i) => `l${i + 1}`).join("\n"));
+    const rec = (over: Partial<CheckRecord>): CheckRecord => ({
+      at: "2026-10-21T10:00:00.000Z",
+      run: run.id,
+      milestone: "M1",
+      command: "bun test",
+      head: "0123456789abcdef",
+      exit: 1,
+      durationMs: 1,
+      fails: [],
+      log,
+      ...over,
+    });
+    const fix = () =>
+      briefFor(
+        run,
+        runningLog().state(),
+        act({ brief: "fix", notes: ["BUG src/a/x.ts:3 — wrong — fix it"] }),
+      );
+    expect(fix()).not.toContain("the end of its log");
+    appendCheckRecord(run.meta.repo, rec({}));
+    const text = fix();
+    expect(text).toContain("The milestone check `bun test` exited 1 on 0123456789ab; the end of its log:");
+    expect(text).toContain("l50");
+    expect(text).toContain("l11");
+    expect(text).not.toContain("l10\n");
+    // a baseline record never counts, and a later passing check removes the paragraph
+    appendCheckRecord(run.meta.repo, rec({ baseline: true, exit: 0 }));
+    expect(fix()).toContain("the end of its log");
+    appendCheckRecord(run.meta.repo, rec({ exit: 0 }));
+    expect(fix()).not.toContain("the end of its log");
+  });
+
+  it("tells the integrate worker which files are in conflict, to resolve them and to commit nothing", () => {
+    const { run } = freshRun();
+    const s = runningLog(undefined, "main").state();
+    const text = briefFor(
+      run,
+      s,
+      act({ unit: "M1", name: "worker-M1-integrate", lane: null, brief: "fix", notes: ["src/a/x.ts"] }),
+    );
+    expect(text).toContain("The base branch main moved");
+    expect(text).toContain("- src/a/x.ts");
+    expect(text).toContain("do not commit or stage anything");
+    expect(text).not.toContain("Owns:");
   });
 
   it("asks a researcher for the dossier's eight parts", () => {

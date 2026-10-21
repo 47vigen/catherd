@@ -313,8 +313,12 @@ export async function preflight(
     env ??= await checkEnvFor(run.meta.repo);
     const checkEnvironment = env;
     // plan 23: each check waits for its slot within its own budget, and says lock-busy past it
-    const slot = await withHeavySlotWithin(heavySlots(profile.heavy), preflightLimits.lockWaitMs, () =>
-      runCheck(run.meta.repo, check, timeoutMs, checkEnvironment),
+    const slot = await withHeavySlotWithin(
+      heavySlots(profile.heavy),
+      preflightLimits.lockWaitMs,
+      (_slot, tmp) =>
+        runCheck(run.meta.repo, check, timeoutMs, { ...checkEnvironment, TMPDIR: tmp, GOTMPDIR: tmp }),
+      { tmpBase: process.env.TMPDIR },
     );
     if (slot.busy) {
       const note = `every heavy slot stayed busy for ${preflightLimits.lockWaitMs / 1000} s (other lanes' checks); run preflight again when they finish`;

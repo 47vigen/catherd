@@ -157,7 +157,6 @@ describe("land", () => {
     const deps = fakeDeps({ now: () => now });
     const c1 = commit(repo);
     await passGate(run, "M1");
-    await passGate(run, "M2");
     const first = await land(deps, {
       run: run.id,
       milestone: "M1",
@@ -174,11 +173,13 @@ describe("land", () => {
       digestPath: join(run.dir, "digests", "M1.md"),
     });
     now += 5 * 60_000;
+    const c2 = commit(repo);
+    await passGate(run, "M2");
     const second = await land(deps, {
       run: run.id,
       milestone: "M2",
       what: "logout",
-      commit: commit(repo),
+      commit: c2,
       evidence: "ok",
       next: "finish",
     });

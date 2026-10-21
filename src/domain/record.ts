@@ -70,6 +70,11 @@ export const RunRecordSchema = z.looseObject({
   replyWhy: z.string().nullable(),
   /** plan 23: the reply's ENV: line, when the environment stopped the role; absent otherwise */
   environment: z.string().optional(),
+  /** a verifier's `HEAD: <sha>` line: the commit it checked (lower-case hex, 7-64 characters) */
+  head: z
+    .string()
+    .regex(/^[0-9a-f]{7,64}$/)
+    .optional(),
   threadHeavy: z.boolean(),
   access: z.enum(ACCESS),
   isolated: z.boolean(),
@@ -100,4 +105,18 @@ export function parseReplyStatus(reply: string): { status: ReplyStatus | null; w
   const last = reply.trimEnd().split("\n").at(-1)?.trim() ?? "";
   const m = STATUS_LINE.exec(last);
   return m ? { status: m[1] as ReplyStatus, why: (m[2] ?? "").trim() } : { status: null, why: null };
+}
+
+/** The last `HEAD: <hex>` line of a reply outside code fences, lower-cased: the commit a verifier says it checked. */
+export function parseReplyHead(reply: string): string | null {
+  let fenced = false;
+  let head: string | null = null;
+  for (const line of reply.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    else if (!fenced) {
+      const m = /^[ \t]*HEAD:[ \t]*([0-9a-fA-F]{7,64})[ \t]*$/.exec(line);
+      if (m) head = (m[1] as string).toLowerCase();
+    }
+  }
+  return head;
 }

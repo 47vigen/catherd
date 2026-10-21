@@ -4,8 +4,17 @@ import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changedPaths } from "../../src/domain/changes.ts";
-import { commitExists, git, gitHead, gitToplevel, statusSnapshot } from "../../src/infra/git.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import {
+  commitExists,
+  currentBranch,
+  fetchBase,
+  git,
+  gitHead,
+  gitToplevel,
+  isAncestor,
+  statusSnapshot,
+} from "../../src/infra/git.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, tempRepo } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -66,6 +75,28 @@ describe("git", () => {
   it("throws outside a repository rather than look clean", async () => {
     const p = statusSnapshot(mkdtempSync(join(tmpdir(), "catherd-nogit-")));
     await expect(p).rejects.toMatchObject({ code: "E_IO_UNEXPECTED" });
+  });
+});
+
+describe("the base branch", () => {
+  it("fetches origin's base and tells whether a commit is behind it", async () => {
+    const { repo, origin } = repoWithOrigin();
+    const mine = sh(repo, "rev-parse", "HEAD");
+    const moved = commitInClone(origin, "moved");
+    expect(await isAncestor(repo, moved, "origin/main")).toBeNull(); // not fetched yet: git does not know the commit
+    expect(await fetchBase(repo, "main")).toBe(true);
+    expect(await isAncestor(repo, moved, "origin/main")).toBe(true);
+    expect(await isAncestor(repo, mine, "origin/main")).toBe(true);
+    expect(await isAncestor(repo, "origin/main", mine)).toBe(false);
+    expect(await currentBranch(repo)).toBe("main");
+  });
+
+  it("says nothing sure when git cannot tell, and fetches nothing from a repo without origin", async () => {
+    const repo = tempRepo();
+    expect(await fetchBase(repo, "main")).toBe(false);
+    expect(await isAncestor(repo, "HEAD", "origin/nope")).toBeNull();
+    sh(repo, "checkout", "-q", "--detach");
+    expect(await currentBranch(repo)).toBeNull();
   });
 });
 

@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import {
   daemonEnv,
+  CHECK_ENTRY,
   DAEMON_ENTRY,
   launchDetached,
   launchSupervisor,
@@ -140,5 +141,14 @@ describe("launchDetached and the daemon's launch", () => {
 
   it("runs a thin daemon entry that never reaches the TUI, cli.ts or @opentui", () => {
     expect(relative(SRC, DAEMON_ENTRY)).toBe("entry/daemon-bin.ts");
+  });
+});
+
+describe("the check worker's launch", () => {
+  it("runs a thin entry that never reaches the TUI, cli.ts or @opentui", () => {
+    expect(relative(SRC, CHECK_ENTRY)).toBe("entry/check-bin.ts");
+    const g = importGraph(CHECK_ENTRY);
+    expect(g.files.filter((f) => f.startsWith("entry/tui/") || f === "cli.ts")).toEqual([]);
+    expect(g.packages.filter((p) => p.startsWith("@opentui") || p === "react")).toEqual([]);
   });
 });

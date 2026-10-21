@@ -50,6 +50,19 @@
   open. Answer in the session with `answer(run, unit, answer)` or in a terminal with `catherd answer <run> <unit>
 <text>`.
 - **Nothing to wait for or poll.** End the turn after `run_start`; `status(run)` revives a dead daemon.
+- **A blocked reply names a reason.** `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
+out_of_scope` decides what the daemon does: climb, retry then fail over, park, or wait. Jev classifies a stop that
+  names none; with Jev off it is handled as in 1.5. A limit fails over to any backend you have configured, never to
+  a weaker rung, with Claude last.
+- **`land` rests on catherd's own check.** A verifier's reply ends with `HEAD: <the full sha it checked>`, and
+  `land` refuses a verdict whose HEAD is not the commit it lands or that has no `gate_run` record (`catherd gate run`
+  runs it detached). Failures the base already has do not block; a new failure is rerun once. Install `gitleaks` for
+  the secret scan (optional: without it the scan is skipped and the record says so).
+- **A run with a base branch lands when origin holds it.** A base that moved is merged into the run's branch first
+  (conflicts go to a worker, a fresh verifier gates the merge); a landed milestone then parks with a `push`
+  question, because catherd never pushes. It counts as merged when `origin/<base>` holds its commit (checked every
+  ten minutes) or when you answer the question (a squash merge needs that answer). Dependants and the run's end
+  wait for merged. A run without a base behaves as in 1.5.
 
 ## From 1.4 to 1.5
 

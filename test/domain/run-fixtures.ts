@@ -1,3 +1,4 @@
+import type { BlockedReason } from "../../src/domain/blocked.ts";
 import type { RunEvent, RunEventType, MilestonePlan } from "../../src/domain/run-events.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
@@ -99,6 +100,9 @@ export function endDispatch(
     findings?: { label: "BLOCKER" | "BUG" | "NIT"; text: string; file: string | null }[];
     why?: string;
     environment?: string | null;
+    reason?: BlockedReason | null;
+    head?: string | null;
+    foreign?: string[];
     at?: string;
   },
 ) {
@@ -110,14 +114,14 @@ export function endDispatch(
       unit: o.unit,
       status: o.status ?? "ok",
       replyStatus: o.replyStatus === undefined ? "complete" : o.replyStatus,
-      reason: null,
+      reason: o.reason ?? null,
       why: o.why ?? "done",
       thread: o.thread === undefined ? "t-1" : o.thread,
-      head: null,
+      head: o.head ?? null,
       environment: o.environment ?? null,
       verdict: o.verdict ?? null,
       findings: o.findings ?? [],
-      foreign: [],
+      foreign: o.foreign ?? [],
       replyPath: `roles/${o.name}/${dispatchId}/reply.md`,
     },
     o.at,
@@ -125,12 +129,16 @@ export function endDispatch(
 }
 
 /** A run that has its plan, routed M1 and passed its preflight: M1's lanes wait to be dispatched. */
+/** `start` is the whole `run.started` payload, or just the run's base branch. */
 export function runningLog(
   plan: MilestonePlan[] = PLAN,
-  started: Fields<"run.started"> = startedFields,
+  start: Fields<"run.started"> | string | null = null,
 ): Log {
   const log = makeLog();
-  log.add("run.started", started);
+  log.add(
+    "run.started",
+    typeof start === "object" && start !== null ? start : { ...startedFields, base: start },
+  );
   log.add("plan.ready", { milestones: plan });
   routeMilestone(log, plan[0] as MilestonePlan);
   return log;

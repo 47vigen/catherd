@@ -10,12 +10,13 @@ import { resetReadiness } from "../../src/services/backends.ts";
 import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import { openQuestions } from "../../src/services/questions.ts";
-import { failoverRung } from "../../src/services/failover-rungs.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
+import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run } from "../../src/services/run-store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
+import { createRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { simPath, withScenario, type CodexScenario } from "../sim/scenario.ts";
 import { withClaudeScenario } from "../sim/sim-scenarios.ts";
@@ -157,7 +158,10 @@ describe("dispatching", () => {
     writeLane(run, "M1.L1", ["src/a/"]);
     await seed(run);
     const s = replayRun(run);
-    s.holds = { codex: new Date(Date.now() + 600_000).toISOString() };
+    const until = new Date(Date.now() + 600_000).toISOString();
+    s.holds = Object.fromEntries(
+      ["codex", "opencode-go", "opencode", "claude-code", "cursor"].map((q) => [q, until]),
+    );
     s.at = new Date().toISOString();
     await fx.run(dispatchAction({ failoverFrom: "codex:gpt-6-luna#high" }), s);
     expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ALL_HELD" });
@@ -384,6 +388,114 @@ describe("what a dispatch said", () => {
     // a verdict wrapped in markdown is no verdict: the milestone gets a fix round, never a landing
     expect(ended("**VERDICT: PASS**\nSTATUS: complete — ok")).toMatchObject({ verdict: "fail" });
     expect(ended("", { status: "failed" })).toMatchObject({ verdict: null });
+  });
+});
+
+describe("what a stop says (30b)", () => {
+  it("puts the reply's reason and HEAD on dispatch.ended", () => {
+    const { run } = freshRun();
+    const stopped = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "too_hard: no luck",
+      },
+      "nothing\nSTATUS: blocked — too_hard: no luck",
+    );
+    expect(endedEvent(run, stopped, "M1.L1")).toMatchObject({ reason: "too_hard", head: null });
+    const head = "0123456789abcdef0123456789abcdef01234567";
+    const verdict = withReply(
+      run,
+      { role: "verifier", name: "verifier-M1", head },
+      `VERDICT: PASS\nHEAD: ${head}\nSTATUS: complete — ok`,
+    );
+    expect(endedEvent(run, verdict, "M1")).toMatchObject({ verdict: "pass", head, reason: null });
+    // a complete reply has no reason, whatever its why says
+    const done = withReply(run, { role: "worker", replyStatus: "complete", replyWhy: "too_hard" }, "x");
+    expect(endedEvent(run, done, "M1.L1")).toMatchObject({ reason: null });
+  });
+
+  it("names only sibling files as foreign, for a check_broken lane and for its failed fast check", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a.ts"], "echo 'src/b.ts:3 error: unused'; exit 1");
+    writeLane(run, "M1.L2", ["src/b.ts"]);
+    await seed(run);
+    const broken = withReply(
+      run,
+      {
+        role: "worker",
+        name: "worker-M1.L1",
+        lane: "M1.L1",
+        replyStatus: "blocked",
+        replyWhy: "check_broken: src/b.ts:3 fails",
+      },
+      "src/b.ts:3 error\nSTATUS: blocked — check_broken: src/b.ts:3 fails",
+    );
+    expect(endedEvent(run, broken, "M1.L1")).toMatchObject({ reason: "check_broken", foreign: ["src/b.ts"] });
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")).toMatchObject({ exit: 1, foreign: ["src/b.ts"] });
+  });
+});
+
+describe("classifying a stop (30b)", () => {
+  const stoppedRun = async (deps: ReturnType<typeof setup>["deps"], run: Run) => {
+    await seed(run);
+    const r = withReply(
+      run,
+      { role: "worker", name: "worker-M1.L1", lane: "M1.L1", replyStatus: "blocked", replyWhy: "stuck" },
+      "stuck\nSTATUS: blocked — stuck",
+    );
+    await appendRecord(run, r);
+    return r.dispatchId;
+  };
+
+  it("classifies a stop with no reason through Jev, once", async () => {
+    const { run, deps, fx } = setup();
+    let calls = 0;
+    deps.routing.stopCause = async () => (
+      calls++,
+      { value: "needs_user", probability: 0.91, confidence: 0.5, source: "jev" }
+    );
+    const dispatchId = await stoppedRun(deps, run);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")).toEqual(
+      expect.objectContaining({ dispatchId, reason: "needs_user" }),
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("classifies to null with Jev off, for other, or for an unsure answer", async () => {
+    const { run, deps, fx } = setup();
+    deps.routing.stopCause = async () => ({
+      value: "other",
+      probability: 0.9,
+      confidence: 1,
+      source: "jev",
+    });
+    const dispatchId = await stoppedRun(deps, run);
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    deps.routing.stopCause = async () => ({
+      value: "too_hard",
+      probability: 0.5,
+      confidence: 1,
+      source: "default",
+    });
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    // off: the routing port answers its default without a call, and the effect still appends null
+    deps.view.jev = { use: "off" };
+    let usedOff = false;
+    deps.routing.stopCause = async (_d, _s, _r, use) => {
+      usedOff = use === "off";
+      return { value: "other", probability: null, confidence: null, source: "default" };
+    };
+    await fx.run({ type: "classify", dispatchId }, replayRun(run));
+    expect(lastOf(run, "stop.classified")?.reason).toBeNull();
+    expect(usedOff).toBe(true);
   });
 });
 
@@ -635,6 +747,118 @@ describe("routing, checking, committing, landing", () => {
   });
 });
 
+/** A run whose repo has a bare origin and whose base is main; M1's lane file and one commit of its own. */
+async function baseSetup() {
+  const { repo, origin } = repoWithOrigin();
+  const s = setup();
+  withHome();
+  const run = createRun({ repo, title: "t", aLines: ["A1 it works"], version: "0.0.0-test" });
+  const fx = realEffects(s.deps, run);
+  writeLane(run, "M1.L1", ["src/a/"]);
+  writeFile(repo, "src/a/x.ts", "mine\n");
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "c");
+  const commit = git(repo, "rev-parse", "HEAD").trim();
+  await appendEvent(run, { type: "run.started", ...startedFields, base: "main" });
+  await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+  await appendEvent(run, { type: "commit.made", milestone: "M1", round: 0, commit });
+  return { repo, origin, run, fx, commit };
+}
+const land1: Action = { type: "land", milestone: "M1", knownIssues: [] };
+
+describe("a run with a base branch (30b)", () => {
+  it("land reports base.behind when origin moved, and lands when it did not", async () => {
+    const { repo, origin, run, fx, commit } = await baseSetup();
+    commitInClone(origin, "moved");
+    await fx.run(land1, replayRun(run));
+    expect(types(run)).toContain("base.behind");
+    expect(types(run)).not.toContain("milestone.landed");
+    expect(types(run)).not.toContain("land.refused");
+    // the base is in: the merge is what lands
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    const merged = lastOf(run, "integrate.done");
+    expect(merged?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(git(repo, "log", "-1", "--format=%P").trim().split(" ")).toHaveLength(2);
+    expect(git(repo, "log", "-1", "--format=%s")).toBe("Merge origin/main into main\n");
+    await passGate(run, "M1");
+    await appendEvent(run, { type: "commit.made", milestone: "M1", round: 1, commit: merged?.commit ?? "" });
+    await fx.run(land1, replayRun(run));
+    expect(lastOf(run, "milestone.landed")).toMatchObject({
+      milestone: "M1",
+      commit: merged?.commit,
+      branch: "main",
+    });
+    expect(commit).not.toBe(merged?.commit);
+  });
+
+  it("lands without a merge when origin did not move", async () => {
+    const { run, fx, commit } = await baseSetup();
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    expect(types(run)).not.toContain("base.behind");
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1", commit });
+  });
+
+  it("works from the last fetch when origin cannot be reached, and says so", async () => {
+    const { repo, run, fx } = await baseSetup();
+    git(repo, "remote", "set-url", "origin", join(repo, "no-such-origin"));
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1" });
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).toContain(
+      "fetch of origin/main failed: using the copy from the last fetch",
+    );
+  });
+
+  it("sends conflicts to the integrate worker's files, and commits the resolved merge", async () => {
+    const { repo, origin, run, fx } = await baseSetup();
+    commitInClone(origin, "theirs", { path: "src/a/x.ts", text: "theirs\n" });
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "integrate.conflict")).toMatchObject({ milestone: "M1", files: ["src/a/x.ts"] });
+    expect(types(run)).not.toContain("integrate.done");
+    // the worker resolved it and left it uncommitted; the commit effect finishes the merge
+    writeFile(repo, "src/a/x.ts", "both\n");
+    await fx.run({ type: "commit", milestone: "M1", round: 1 }, replayRun(run));
+    const made = lastOf(run, "commit.made");
+    expect(made?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(git(repo, "log", "-1", "--format=%P").trim().split(" ")).toHaveLength(2);
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("both\n");
+    expect(replayRun(run).milestones[0]).toMatchObject({ status: "verifying", integrateFiles: [] });
+  });
+
+  it("refuses to commit a merge whose files still hold conflict markers", async () => {
+    const { repo, origin, run, fx } = await baseSetup();
+    commitInClone(origin, "theirs", { path: "src/a/x.ts", text: "theirs\n" });
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    // the worker left the markers in: the file is not resolved
+    await fx.run({ type: "commit", milestone: "M1", round: 1 }, replayRun(run));
+    expect(types(run).filter((t) => t === "commit.made")).toHaveLength(1);
+    expect(lastOf(run, "commit.failed")?.tail).toContain("src/a/x.ts");
+    expect(git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD").trim()).not.toBe("");
+    expect(replayRun(run).stuck["M1"]).toMatchObject({ reason: "commit" });
+  });
+
+  it("checks whether origin's base holds the landed commit, and says nothing until it does", async () => {
+    const { repo, run, fx } = await baseSetup();
+    await passGate(run, "M1");
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "checkMerged", milestone: "M1" }, replayRun(run));
+    expect(types(run)).not.toContain("milestone.merged");
+    git(repo, "push", "-q", "origin", "HEAD:main");
+    await fx.run({ type: "checkMerged", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1" });
+  });
+
+  it("parks a push question by its event alone: no 1.5 question to hold the pause", async () => {
+    const { run, fx } = await baseSetup();
+    await fx.run({ type: "park", unit: "M1", question: "push it", reason: "push" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toMatchObject({ unit: "M1", reason: "push" });
+    expect(openQuestions(run)).toEqual([]);
+  });
+});
+
 describe("parking, reporting, finishing", () => {
   it("parks a milestone in questions.jsonl too, so land refuses it", async () => {
     const { run, repo, fx } = setup();
@@ -684,6 +908,32 @@ describe("parking, reporting, finishing", () => {
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
   });
 
+  it("lists what a landed milestone's check passed on only through the base under Audit", async () => {
+    const { run, repo, fx } = setup();
+    const head = "a".repeat(40);
+    await seed(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit: head,
+      knownIssues: [],
+      digestPath: join(run.dir, "digest-M1.md"),
+    });
+    const row = {
+      at: "2026-10-21T10:00:00.000Z",
+      run: run.id,
+      milestone: "M1",
+      command: "bun test",
+      durationMs: 1,
+      log: "/x.log",
+    };
+    appendCheckRecord(repo, { ...row, head: "b".repeat(40), exit: 1, fails: ["FAIL x"], baseline: true });
+    appendCheckRecord(repo, { ...row, head, exit: 1, fails: ["FAIL x"], secrets: "clean" });
+    await fx.run({ type: "finish", outcome: "done" }, replayRun(run));
+    expect(readFileSync(join(run.dir, "report.md"), "utf8")).toMatch(
+      /## Audit\n\n- M1 \(check\): .*pre-existing/,
+    );
+  });
+
   it("writes report.md with each digest, the known issues and every judge decision under Audit", async () => {
     const { run } = freshRun();
     const digest = join(run.dir, "digest-M1.md");
@@ -720,20 +970,6 @@ describe("parking, reporting, finishing", () => {
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
     expect(lastOf(run, "effect.failed")).toMatchObject({ action: "route", unit: "M1" });
     await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
-    expect(lastOf(run, "effect.failed")).toMatchObject({
-      action: "integrate",
-      unit: "M1",
-      message: "integrate needs catherd 30b",
-    });
-  });
-});
-
-describe("failover", () => {
-  it("takes a stand-in on a quota that is not held, and a Claude rung only when nothing else is free", () => {
-    const stand = "claude-code:claude-opus-5-5#high";
-    const { run, deps } = setup({ reply: "x" }, testView({ failover: { "codex:gpt-6-luna#high": stand } }));
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", [])).toBe("codex:gpt-6-sol#medium");
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", ["codex"])).toBe(stand);
-    expect(failoverRung(deps, run, "worker", "codex:gpt-6-luna#high", ["codex", "claude-code"])).toBeNull();
+    expect(lastOf(run, "effect.failed")?.message).toContain("no base branch");
   });
 });

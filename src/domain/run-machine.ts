@@ -8,12 +8,14 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
-  isDone,
+  integrateName,
+  isFinished,
   type LaneState,
   lanesOf,
   limitedRung,
   liveDispatches,
   MAX_TRIES,
+  MERGE_CHECK_MS,
   type MilestoneState,
   type RunState,
 } from "./run-state.ts";
@@ -133,6 +135,8 @@ export function confirms(e: RunEvent): string[] {
       return [`dispatch:${e.name}`];
     case "dispatch.ended":
       return [`watch:${e.dispatchId}`, `classify:${e.dispatchId}`, "cancel:run"];
+    case "stop.classified":
+      return [`classify:${e.dispatchId}`];
     case "plan.ready":
       return ["readPlan"];
     case "preflight.done":
@@ -147,8 +151,21 @@ export function confirms(e: RunEvent): string[] {
     case "judge.decided":
     case "judge.failed":
       return (["triage", "question", "unexpected"] as const).map((k) => `judge:${e.unit}:${k}`);
+    case "question.parked":
+      return [`park:${e.unit}`];
+    case "milestone.landed":
+    case "land.refused":
+    case "base.behind":
+      return [`land:${e.milestone}`];
+    case "integrate.done":
+    case "integrate.conflict":
+      return [`integrate:${e.milestone}`];
+    case "milestone.merged":
+      return [`checkMerged:${e.milestone}`];
     case "run.ended":
       return ["finish:run", "cancel:run"];
+    case "report.posted":
+      return [`report:${e.kind}:${e.unit}`];
     case "effect.failed":
       return [`${e.action}@${e.unit}`];
     default:
@@ -232,21 +249,41 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
   };
 }
 
+/**
+ * A lane whose check was broken by something outside its task waits while a sibling of its milestone is still
+ * working or has not tried yet: the sibling may be what breaks (or fixes) the check. A sibling that waits on this
+ * lane, or that tried and stopped, never holds it.
+ */
+function waitsForSibling(s: RunState, l: LaneState): boolean {
+  if (l.lastReason !== "check_broken" || l.stopRun !== 1) return false;
+  return lanesOf(s, l.milestone).some((o) => {
+    if (o.id === l.id || o.after.includes(l.id)) return false;
+    if (o.status === "running") return true;
+    if (o.status !== "pending") return false;
+    const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
+    const latest = tried.at(-1);
+    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
+  });
+}
+
 function laneActions(s: RunState, m: MilestoneState): Action[] {
   const out: Action[] = [];
   const lanes = lanesOf(s, m.id);
   const live = liveDispatches(s);
   for (const l of lanes) {
     if (s.stuck[l.id] || s.questions[l.id]) continue;
+    if (l.classify) {
+      out.push({ type: "classify", dispatchId: l.classify.dispatchId });
+      continue;
+    }
     if (l.status === "checking" && !hasLive(s, laneName(l))) out.push({ type: "fastCheck", lane: l.id });
     else if (l.status === "parked") {
-      if (!judgeOpen(s, l.id)) {
-        const kind = l.top ? "unexpected" : "question";
-        out.push(...onLaneStopped(s, l, kind));
-      }
+      if (!judgeOpen(s, l.id))
+        out.push(...onLaneStopped(s, l, l.awaiting ?? (l.top ? "unexpected" : "question")));
     } else if (l.status === "pending") {
       const name = laneName(l);
       if (hasLive(s, name) || waiting(s, name)) continue;
+      if (waitsForSibling(s, l)) continue;
       if (!l.after.every((a) => s.lanes[a] === undefined || s.lanes[a]?.status === "done")) continue;
       // lanes that own the same paths wait for each other, as admission would refuse them anyway
       const clash = live.some((d) => {
@@ -258,11 +295,14 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
         out.push({ type: "climb", lane: l.id, reason: l.climbReason });
         continue;
       }
-      const failoverFrom = held(s, l.rung)
-        ? l.rung
-        : l.failoverFrom && held(s, l.failoverFrom)
-          ? l.failoverFrom
-          : null;
+      // a limit fails over while its quota is held; a provider_error that repeated does so with no hold
+      const failoverFrom = l.failoverNow
+        ? (l.failoverFrom ?? l.rung)
+        : held(s, l.rung)
+          ? l.rung
+          : l.failoverFrom && held(s, l.failoverFrom)
+            ? l.failoverFrom
+            : null;
       out.push({
         type: "dispatch",
         unit: l.id,
@@ -280,17 +320,24 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
   return out;
 }
 
-/** A lane that stopped on a reply that is blocked or refused, or ran out of rungs: the judge decides (30b maps the reasons first). */
+/**
+ * A lane that asked a question (needs_user: the judge answers it from the plan and the code, or asks the owner) or
+ * ran out of rungs: the judge decides. The other stop reasons never reach it; the state maps them to a transition.
+ */
 export function onLaneStopped(s: RunState, lane: LaneState, kind: "question" | "unexpected"): Action[] {
   return [{ type: "judge", input: judgeInputFor(s, String(s.seq), kind, lane.id) }];
 }
 
-/** A limit: the unit went back to pending with its rung to fail over from (reduce did it); nothing more to do (30b). */
+/** A limit: the unit went back to pending with its rung to fail over from (reduce did it); the dispatch takes the stand-in. */
 export function onLimit(_s: RunState, _e: RunEvent): Action[] {
   return [];
 }
 
-/** A verifier's verdict is in the milestone's status: landing, a fix round, or a park (reduce did it); 30b replaces. */
+/**
+ * A verifier's verdict is in the milestone's status (reduce did it): landing only for a PASS that names the
+ * milestone's commit, a fresh verifier for a PASS that names another or a check that could not run, a fix round
+ * for a FAIL, a park for BLOCKED: environment. The dispatch of a fresh verifier is milestoneActions'.
+ */
 export function onVerifier(_s: RunState, _m: MilestoneState, _e: RunEvent): Action[] {
   return [];
 }
@@ -364,9 +411,25 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
     case "verifying":
       return (m.tries[`verifier-${m.id}`] ?? 0) >= MAX_TRIES
         ? []
-        : roleDispatch(s, { unit: m.id, name: `verifier-${m.id}`, role: "verifier", brief: "verify" });
+        : roleDispatch(s, {
+            unit: m.id,
+            name: `verifier-${m.id}`,
+            role: "verifier",
+            brief: "verify",
+            notes: m.verifierNotes,
+          });
     case "landing":
       return [{ type: "land", milestone: m.id, knownIssues: m.knownIssues }];
+    case "integrating":
+      // the merge first; its conflicts, once known, go to a worker, whose clean end is a commit (reduce)
+      if (m.integrateFiles.length === 0) return [{ type: "integrate", milestone: m.id }];
+      return roleDispatch(s, {
+        unit: m.id,
+        name: integrateName(m.id),
+        role: "worker",
+        brief: "fix",
+        notes: m.integrateFiles,
+      });
     default:
       return [];
   }
@@ -388,6 +451,12 @@ function planningActions(s: RunState): Action[] {
   });
 }
 
+/** A landed milestone of a base run is the owner's to push and merge: catherd never pushes (spec 2.0, decision 21). */
+function pushQuestion(s: RunState, m: MilestoneState): string {
+  const base = s.base ?? "the base";
+  return `${m.id} landed on ${m.branch ?? "the run's branch"} at ${(m.commit ?? "").slice(0, 12)}: push it and open and merge its MR (precheck: git fetch -q origin ${base} && git merge-base --is-ancestor origin/${base} HEAD); answer once it is merged`;
+}
+
 function advance(s: RunState): Action[] {
   if (s.phase === "ended") return [];
   const live = liveDispatches(s);
@@ -398,11 +467,15 @@ function advance(s: RunState): Action[] {
   const parks: Action[] = Object.entries(s.stuck)
     .filter(([unit]) => !s.questions[unit])
     .map(([unit, q]) => ({ type: "park", unit, question: q.question, reason: q.reason }));
+  if (s.base !== null)
+    for (const m of s.milestones)
+      if (m.status === "landed" && !s.questions[m.id] && !s.stuck[m.id])
+        parks.push({ type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" });
   if (s.stuck[RUN_UNIT] || s.questions[RUN_UNIT]) return parks;
   if (s.phase === "planning") return [...parks, ...planningActions(s)];
   if (s.phase === "approval") return parks;
   if (s.planDirty) return [...parks, { type: "readPlan" }];
-  if (s.milestones.length > 0 && s.milestones.every(isDone))
+  if (s.milestones.length > 0 && s.milestones.every((m) => isFinished(s, m)))
     return [...parks, { type: "finish", outcome: "done" }];
   return [...parks, ...judgeRetries(s), ...activeMilestones(s).flatMap((m) => milestoneActions(s, m))];
 }
@@ -432,7 +505,16 @@ function react(s: RunState, e: RunEvent): Action[] {
           }: ${s.milestones.find((m) => m.id === e.milestone)?.title ?? ""}`.trimEnd(),
         },
         { type: "notify", unit: e.milestone, moment: "milestone" },
+        ...(s.base !== null ? [{ type: "checkMerged" as const, milestone: e.milestone }] : []),
       ];
+    case "tick":
+      // a landed milestone whose merge check this tick re-armed (reduce set its next look MERGE_CHECK_MS ahead)
+      return s.milestones
+        .filter(
+          (m) =>
+            m.status === "landed" && m.mergeDue === new Date(Date.parse(e.at) + MERGE_CHECK_MS).toISOString(),
+        )
+        .map((m) => ({ type: "checkMerged" as const, milestone: m.id }));
     case "run.ended":
       return [
         {

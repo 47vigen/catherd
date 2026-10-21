@@ -24,6 +24,18 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
   exists, so the advice does not match the state.
 - **Reviving a daemon has no backoff:** with a corrupt events.jsonl every status call spawns a daemon that fails.
+- **Base-failure line matching hides untested `a && b` tails.** A check that fails only in lines the base fails in
+  too passes (`src/services/milestone-check.ts:171-206`, `src/domain/fail-lines.ts`). When the check is `a && b` and
+  `a` fails on the base the same way, `b` never runs on either side, so a new break in `b` stays invisible. Fix: when
+  the baseline's exit is non-zero, run the check's parts separately, or name the unreached tail in `audit`.
+- **The secret scan in a base run covers others' commits too.** `secretScan` scans `base..HEAD`
+  (`src/services/milestone-check.ts:77-89`), and once `integrate` has merged origin's base into the run's branch, that
+  range holds the commits of other people. A secret they pushed blocks this run's milestone. Fix: scan only the
+  first-parent chain (`--first-parent`) or exclude commits reachable from `origin/<base>`.
+- **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
+  gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
+  says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
+  milestone is landed and the push question has been answered, and say that the merge is still open.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
@@ -64,9 +76,6 @@ Plan 23 (verifier, gate and environment) review:
   `spawnSync` blocks the MCP server's event loop for up to 5 s, once per process. Evidence:
   `src/infra/login-env.ts:13`, `src/infra/login-env.ts:26`. Fix: parse only `K=V` records, dropping what precedes the
   last newline before the first `\0`; capture it asynchronously (or at boot, off the request path). (Minor 2.)
-- **"BLOCKER: none" counts as an open blocker.** A reviewer that writes `BLOCKER: none` (or `BUG: none`) gets one
-  open finding and the orchestrator a needless fix round. Evidence: `src/services/milestones.ts:100`. Fix: skip a
-  finding line whose text after the label is `none`, `n/a` or `-`. (Minor 3.)
 - **An `ENV:` line anywhere makes climb refuse.** `parseReplyEnvironment` matches an `ENV:` line anywhere in the
   reply, a YAML or Dockerfile snippet in a code fence included, so `climb` refuses with `E_CLIMB_ENV` for a lane that
   had no environment blocker. Evidence: `src/domain/record.ts:93-95`. Fix: read it outside code fences only, or only
@@ -129,10 +138,6 @@ Plan 25 (runs, programs and lanes) review:
   file, so such a lane is refused `E_ADMIT_ORDER` for good. Evidence: `src/services/admission.ts:226`,
   `src/services/protocol.ts:90`. Fix: refuse them in `assertLaneValues` where the run is known (`write_run_file`,
   `lane_set`), or at least name them in `protocol.next` or a status warning. (Minor 7.)
-- **`landedCommitOf` lines up two separately filtered arrays.** It indexes `landedCommits` by the position of the
-  milestone in `landedMilestones`; a ledger row one filter keeps and the other drops shifts every later commit.
-  Evidence: `src/services/workspace-admission.ts:127-132`. Fix: parse each ledger row once into
-  `{ milestone, commit }`. (Minor 8.)
 - **Carried gate passes are not shared between worktrees of one repo.** `gates.jsonl` stays keyed by the toplevel
   (Ruling 20), so a worktree never reuses a pass recorded in another worktree of the same origin. Evidence:
   `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass

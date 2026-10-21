@@ -12,12 +12,28 @@ import {
   reviewerPassed,
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
+import { appendCheckRecord, type CheckRecord, checksFile } from "../../src/services/milestone-check.ts";
 import { protocolNext } from "../../src/services/protocol.ts";
-import { appendAgentRun, appendRecord, findRun, readAgentRuns } from "../../src/services/run-store.ts";
+import {
+  appendAgentRun,
+  appendRecord,
+  findRun,
+  readAgentRuns,
+  type Run,
+  runPaths,
+} from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import { result, recordAgentRun, startRun } from "../../src/services/run-service.ts";
 import { snapshotEnv } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, freshRun, makeRecord, passGate, writeLane } from "./helpers.ts";
+import {
+  fakeDeps,
+  fakeDispatch,
+  freshRun,
+  makeRecord,
+  passGate,
+  passVerifier,
+  writeLane,
+} from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -33,6 +49,23 @@ function commitFiles(repo: string, files: string[]): string {
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
   return git("rev-parse", "--short", "HEAD").trim();
 }
+
+/** The full hash of `rev` in `repo`. */
+const fullOf = (repo: string, rev: string): string =>
+  execFileSync("git", ["rev-parse", rev], { cwd: repo, encoding: "utf8" }).trim();
+
+const passingCheck = (run: Run, head: string): CheckRecord => ({
+  at: new Date().toISOString(),
+  run: run.id,
+  milestone: "M1",
+  command: "true",
+  head,
+  exit: 0,
+  durationMs: 0,
+  fails: [],
+  log: "",
+  secrets: "clean",
+});
 
 async function refusal(p: Promise<unknown>): Promise<CatherdError> {
   try {
@@ -192,7 +225,7 @@ describe("the land gate (spec 1.1 §6)", () => {
         endedAt: new Date().toISOString(),
       }),
     );
-    const verifier = async (reply: string | null) => {
+    const verifier = async (reply: string | null, head?: string) => {
       const dispatchId = newDispatchId();
       const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
       if (reply !== null) {
@@ -207,6 +240,7 @@ describe("the land gate (spec 1.1 §6)", () => {
           name: "verifier-M1",
           role: "verifier",
           replyPath,
+          ...(head ? { head } : {}),
           endedAt: new Date().toISOString(),
         }),
       );
@@ -225,7 +259,9 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(md.fix).toStartWith(
       `the reply's first line must be the bare VERDICT: PASS, and verifier-M1's is "**VERDICT: PASS**", which counts as no verdict`,
     );
-    await verifier("\nVERDICT: PASS\nA1 PASS bun test\nSTATUS: complete — all pass\n");
+    const sha = fullOf(repo, c);
+    await verifier(`\nVERDICT: PASS\nA1 PASS bun test\nHEAD: ${sha}\nSTATUS: complete — all pass\n`, sha);
+    appendCheckRecord(repo, passingCheck(run, sha));
     expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
     // the digest names the verdict the gate took, not "none" for want of a record_agent_run row
     expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain(
@@ -233,7 +269,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     );
   });
 
-  it("gates on the latest native verifier attempt: a FAIL after a PASS refuses, a PASS after it lands", async () => {
+  it("gates on the latest native verifier attempt: a FAIL after a PASS refuses, and a native PASS cannot land", async () => {
     const { repo, run } = freshRun();
     const c = commitFiles(repo, ["src/a.ts"]);
     const t0 = Date.now();
@@ -257,9 +293,11 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(e.message).toContain("a verifier verdict");
     expect(e.message).toContain("the latest, verifier-M1, is failed");
     expect(e.message).not.toContain("reviewer record");
+    // plan 30b: a native PASS names no HEAD, so it cannot land; a headless one that does can
     verdict(t0 + 2000, "ok");
+    expect((await refusal(land(fakeDeps(), landing(run.id, c)))).message).toContain("names no HEAD");
+    await passVerifier(run, "M1", new Date(t0 + 3000).toISOString());
     expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
-    expect(readFileSync(join(run.dir, "digests", "M1.md"), "utf8")).toContain("Verifier: PASS (verifier-M1)");
   });
 
   it("gates on the latest headless verifier attempt, whatever its reply: FAIL after PASS refuses", async () => {
@@ -276,11 +314,13 @@ describe("the land gate (spec 1.1 §6)", () => {
         endedAt: new Date(t0).toISOString(),
       }),
     );
+    const sha = fullOf(repo, c);
+    appendCheckRecord(repo, passingCheck(run, sha));
     const verifier = async (reply: string, at: number) => {
       const dispatchId = newDispatchId();
       const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
       mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
-      writeFileSync(join(run.dir, replyPath), reply);
+      writeFileSync(join(run.dir, replyPath), `${reply}HEAD: ${sha}\n`);
       await appendRecord(
         run,
         makeRecord({
@@ -289,6 +329,7 @@ describe("the land gate (spec 1.1 §6)", () => {
           name: "verifier-M1",
           role: "verifier",
           replyPath,
+          head: sha,
           endedAt: new Date(at).toISOString(),
         }),
       );
@@ -393,17 +434,7 @@ describe("the land gate (spec 1.1 §6)", () => {
         ...(replyStatus ? { replyStatus } : {}),
       });
     review("reviewer-M1", t0, "partial");
-    appendAgentRun(run, {
-      at: new Date(t0 + 100).toISOString(),
-      name: "verifier-M1",
-      role: "verifier",
-      rung: "claude:claude-opus-5-5#low",
-      agent: null,
-      totalTokens: 0,
-      costUsd: null,
-      secs: null,
-      status: "ok",
-    });
+    await passVerifier(run, "M1", new Date(t0 + 100).toISOString());
     const e = await refusal(land(fakeDeps(), landing(run.id, c)));
     expect(e.message).toBe(
       "land M1: reviewer-M1 replied STATUS: partial, which is not the milestone's review",
@@ -433,18 +464,7 @@ describe("the land gate (spec 1.1 §6)", () => {
         status,
         lane: null,
       });
-    appendAgentRun(run, {
-      at: new Date(t0 + 500).toISOString(),
-      name: "verifier-M1",
-      role: "verifier",
-      rung: "claude:claude-opus-5-5#low",
-      agent: null,
-      totalTokens: 5,
-      costUsd: null,
-      secs: null,
-      status: "ok",
-      lane: null,
-    });
+    await passVerifier(run, "M1", new Date(t0 + 500).toISOString());
     reviewer("reviewer-M1", t0 - 60_000);
     reviewer("reviewer-M1", t0 + 1000, "failed");
     reviewer("reviewer-M10", t0 + 1000);
@@ -486,6 +506,79 @@ describe("the land gate (spec 1.1 §6)", () => {
       );
       expect(e.fix).toContain("commit the milestone first");
     }
+  });
+
+  it("refuses a PASS whose HEAD is not the commit being landed", async () => {
+    const { repo, run } = freshRun();
+    const c1 = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1", undefined, fullOf(repo, c1));
+    const c2 = commitFiles(repo, ["src/b.ts"]);
+    const e = await refusal(land(fakeDeps(), landing(run.id, c2)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toBe(
+      `land M1: verifier-M1 checked ${fullOf(repo, c1).slice(0, 12)}, and the commit being landed is ${fullOf(repo, c2).slice(0, 12)}: a PASS from before a later commit does not count`,
+    );
+    expect(e.fix).toContain(`a fresh verifier-M1 on ${fullOf(repo, c2).slice(0, 7)}`);
+  });
+
+  it("refuses a PASS that names no HEAD", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    const records = runPaths(run.dir).runs;
+    // the verifier's record without its head field: the reply's HEAD: line alone is not what land reads
+    writeFileSync(
+      records,
+      readFileSync(records, "utf8")
+        .split("\n")
+        .map((l) => (l.includes('"name":"verifier-M1"') ? l.replace(/,"head":"[0-9a-f]+"/, "") : l))
+        .join("\n"),
+    );
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.message).toContain("names no HEAD");
+    expect(e.fix).toContain("HEAD: <sha>");
+  });
+
+  it("refuses without a machine check on the landed commit, naming gate_run", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    writeFileSync(checksFile(repo), "");
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.message).toContain('gate_run(run, "M1"');
+    expect(e.fix).toContain('gate_run(run, "M1"');
+  });
+
+  it("lands on a check whose failures the base has, with the audit as hints", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    writeFileSync(checksFile(repo), "");
+    const sha = fullOf(repo, c);
+    const row = (over: Partial<CheckRecord>): CheckRecord => ({
+      ...passingCheck(run, sha),
+      command: "bun test",
+      ...over,
+    });
+    appendCheckRecord(repo, row({ baseline: true, head: "b".repeat(40), exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, row({ exit: 1, fails: ["FAIL x"] }));
+    const landed = await land(fakeDeps(), landing(run.id, c));
+    expect(landed.ledger).toStartWith("M1 |");
+    expect(landed.hints?.join("\n")).toContain("pre-existing");
+  });
+
+  it("refuses a secret hit on the landed commit", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    appendCheckRecord(repo, { ...passingCheck(run, fullOf(repo, c)), secrets: "found", log: "/x.log" });
+    expect((await refusal(land(fakeDeps(), landing(run.id, c)))).message).toContain("gitleaks found secrets");
+  });
+
+  it("still lands a docs-only skip with neither verdict nor check", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["docs/a.md"]);
+    expect((await land(fakeDeps(), landing(run.id, c, { skip: "docs-only" }))).ledger).toStartWith("M1 |");
   });
 
   it("matches the milestone as a word in the verifier's name", () => {

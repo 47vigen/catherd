@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { BLOCKED_LINE } from "../../src/domain/blocked.ts";
 import { replyContract, withReplyContract } from "../../src/domain/role-prompts.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -30,11 +31,17 @@ function setup() {
 describe("the reply contract (spec 1.1 §6)", () => {
   it("ends every role's contract with the STATUS line", () => {
     for (const role of ROLES.filter((r) => r !== "worker" && r !== "judge"))
-      expect(replyContract(role)).toEndWith(
+      expect(replyContract(role)).toContain(
         "The last line of your reply is: STATUS: complete|partial|blocked|refused — <one line why>",
       );
     // the judge opens with its DECISION line and has one status, complete
-    expect(replyContract("judge")).toEndWith("STATUS: complete — <one line why>");
+    expect(replyContract("judge")).toContain("STATUS: complete — <one line why>");
+    // plan 30b: every contract says how to stop, after its STATUS line
+    for (const role of ROLES) {
+      const c = replyContract(role);
+      expect(c).toContain(BLOCKED_LINE);
+      expect(c.indexOf(BLOCKED_LINE)).toBeGreaterThan(c.indexOf("STATUS: "));
+    }
     // plan 22: a worker stops what it started before replying; plan 23: it may also say flaky, put the
     // environment on an ENV: line, and leaves acceptance built from HEAD to the verifier
     const worker = replyContract("worker");

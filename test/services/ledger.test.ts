@@ -60,12 +60,12 @@ it("refuses a milestone whose only verifier verdicts carry a longer name", async
   const { run, landing } = setup();
   await passGate(run, "M2", at(1));
   // drop the exact row passGate wrote: keep only verifier-M2-gate3
-  const agents = runPaths(run.dir).agents;
+  const records = runPaths(run.dir).runs;
   writeFileSync(
-    agents,
-    readFileSync(agents, "utf8")
+    records,
+    readFileSync(records, "utf8")
       .split("\n")
-      .filter((l) => !l.includes('"verifier-M2"'))
+      .filter((l) => !l.includes('"name":"verifier-M2"'))
       .join("\n"),
   );
   appendAgentRun(run, {

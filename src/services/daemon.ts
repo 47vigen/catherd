@@ -143,8 +143,8 @@ export async function runDaemon(
         )
         .finally(() => {
           inFlight.delete(p);
-          // a notice leaves no event behind, so nothing else would free its key
-          if (a.type === "notify") issued.delete(key);
+          // a notice, and a merge check that found nothing, leave no event behind: nothing else would free their key
+          if (a.type === "notify" || a.type === "checkMerged") issued.delete(key);
         });
       inFlight.add(p);
     };

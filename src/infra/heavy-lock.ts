@@ -1,11 +1,39 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { availableParallelism, loadavg } from "node:os";
 import { join } from "node:path";
+import { roleScopeOfScratch } from "../domain/role-scope.ts";
 import { tryLock, withFileLock } from "./filelock.ts";
 import { locksDir } from "./paths.ts";
 import { isAlive, selfIdentity } from "./proc.ts";
 import { ensurePrivateDir, writeJsonAtomic } from "./store.ts";
+
+/** Set in a locked command's env: a `catherd lock` inside it runs at once, holding nothing more. */
+export const LOCK_HELD_ENV = "CATHERD_LOCK_HELD";
+
+const envLoadWaitMs = Number(process.env.CATHERD_HEAVY_LOAD_WAIT_MS ?? 900_000);
+
+/**
+ * Spec 2.0 decision 18: heavy slots wait while the load is above twice the cores, up to 15 minutes.
+ * CATHERD_HEAVY_LOAD_WAIT_MS overrides the wait (0 = none); the test preload sets 0, since a busy CI runner
+ * would otherwise stall every lock in the suite, spawned `catherd lock` processes included.
+ */
+export const heavyLimits = {
+  loadWaitMs: envLoadWaitMs >= 0 ? envLoadWaitMs : 900_000,
+  loadPollMs: 15_000,
+  load: (): number => loadavg()[0] ?? 0,
+  cores: (): number => availableParallelism(),
+};
+
+/**
+ * The emptied TMPDIR and GOTMPDIR of one slot: under the role's scratch when the caller's TMPDIR is one (a role
+ * is told by its TMPDIR, so the slot dir must stay under it), else under catherd's locks dir.
+ */
+export function slotTmpDir(slot: number, inherited?: string): string {
+  return roleScopeOfScratch(inherited)
+    ? join(inherited as string, `heavy-${slot}`)
+    : join(locksDir(), "tmp", `slot-${slot}`);
+}
 
 /** A profile's `lock.heavy` as a slot count: a number, or half the cores. */
 export function heavySlots(setting: number | "cpus/2" | undefined): number {
@@ -19,8 +47,8 @@ export function heavySlots(setting: number | "cpus/2" | undefined): number {
  */
 export async function withHeavySlot<T>(
   slots: number,
-  fn: (slot: number) => T | Promise<T>,
-  o: { pollMs?: number; onWait?: () => void } = {},
+  fn: (slot: number, tmp: string) => T | Promise<T>,
+  o: { pollMs?: number; onWait?: () => void; tmpBase?: string } = {},
 ): Promise<T> {
   const r = await withHeavySlotWithin(slots, Number.POSITIVE_INFINITY, fn, o);
   if (r.busy) throw new Error("unreachable: an unbounded wait never gives up");
@@ -34,19 +62,29 @@ export async function withHeavySlot<T>(
 export async function withHeavySlotWithin<T>(
   slots: number,
   waitMs: number,
-  fn: (slot: number) => T | Promise<T>,
-  o: { pollMs?: number; onWait?: () => void } = {},
+  fn: (slot: number, tmp: string) => T | Promise<T>,
+  o: { pollMs?: number; onWait?: () => void; tmpBase?: string } = {},
 ): Promise<{ busy: false; value: T } | { busy: true }> {
   const dir = locksDir();
   ensurePrivateDir(dir);
   const deadline = Date.now() + waitMs;
+  // an overloaded host runs the command late, not never: the wait is bounded, and the slot loop follows it
+  const loadDeadline = Date.now() + Math.min(heavyLimits.loadWaitMs, waitMs);
+  while (heavyLimits.load() > 2 * heavyLimits.cores() && Date.now() < loadDeadline) {
+    o.onWait?.();
+    await Bun.sleep(Math.min(heavyLimits.loadPollMs, Math.max(1, loadDeadline - Date.now())));
+  }
   for (;;) {
     for (let i = 0; i < slots; i++) {
       const release = tryLock(join(dir, `slot-${i}`));
       if (!release) continue;
+      const tmp = slotTmpDir(i, o.tmpBase);
       try {
-        return { busy: false, value: await fn(i) };
+        rmSync(tmp, { recursive: true, force: true });
+        ensurePrivateDir(tmp);
+        return { busy: false, value: await fn(i, tmp) };
       } finally {
+        rmSync(tmp, { recursive: true, force: true });
         release();
       }
     }

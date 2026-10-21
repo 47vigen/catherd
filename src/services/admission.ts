@@ -22,6 +22,7 @@ import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { ensurePrivateDir, PRIVATE_FILE, writeJsonAtomic, writeTextAtomic } from "../infra/store.ts";
 import { readyAdapter, standInFor } from "./backends.ts";
+import { failoverBackends } from "./failover-rungs.ts";
 import { spendOf } from "./budget.ts";
 import {
   type Admit,
@@ -187,7 +188,9 @@ export async function admit(
   ];
   // the daemon runs every role headless (spec 2.0 decision 12): a native rung's headless twin is on its ladder too
   const allowed = new Set([...ladder, ...ladder.map(headlessRung)]);
-  if (!allowed.has(formatRung(rung)))
+  // a rung the daemon failed a limit over to may be on any configured backend (spec 2.0 decision 6)
+  const failedOver = i.failoverFrom !== null && failoverBackends(profile).has(rung.backend);
+  if (!allowed.has(formatRung(rung)) && !failedOver)
     throw new CatherdError(
       "E_ADMIT_RUNG",
       `${i.rung} is not on the ${i.role} ladder of profile ${profile.name}`,

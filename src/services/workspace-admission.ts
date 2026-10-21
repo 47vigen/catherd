@@ -3,11 +3,11 @@ import { budgetStatus, formatBudget, type BudgetStatus, type Spend } from "../do
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import type { Workspace, WorkspaceStep } from "../domain/workspace.ts";
 import { withFileLock } from "../infra/filelock.ts";
-import { git, gitToplevel } from "../infra/git.ts";
+import { gitToplevel, isAncestor } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
-import { landedCommits, landedMilestones } from "./milestones.ts";
+import { landedCommitOf, landedMilestones } from "./milestones.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 import {
   findWorkspace,
@@ -123,14 +123,6 @@ export async function dependencyBlockers(
   return out;
 }
 
-/** The commit the ledger holds for `milestone`, its latest landing; null when it never landed. */
-function landedCommitOf(run: Run, milestone: string): string | null {
-  const commits = landedCommits(run);
-  const milestones = landedMilestones(run);
-  const at = milestones.lastIndexOf(milestone);
-  return at < 0 ? null : (commits[at] ?? null);
-}
-
 /**
  * A `release: "merge"` step releases its dependents once its landed commit is an ancestor of its base ref
  * (`git merge-base --is-ancestor`), in the repository as it stands: catherd never fetches or polls.
@@ -139,9 +131,9 @@ async function unmerged(step: WorkspaceStep, child: Run): Promise<string | null>
   if (step.release !== "merge" || !step.base) return null;
   const commit = landedCommitOf(child, step.milestone);
   if (!commit) return `${step.id} has no landed commit for ${step.milestone} in its ledger`;
-  const r = await git(child.meta.repo, ["merge-base", "--is-ancestor", commit, step.base]);
-  if (r.kind === "ok") return null;
-  if (r.kind === "failed" && r.exit === 1)
+  const merged = await isAncestor(child.meta.repo, commit, step.base);
+  if (merged === true) return null;
+  if (merged === false)
     return `${step.id}'s ${step.milestone} (${commit.slice(0, 7)}) is not merged into ${step.base} yet: merge it, git fetch, then ask again`;
   return `${step.id}: git cannot tell whether ${commit.slice(0, 7)} is in ${step.base} (does the ref exist in ${child.meta.repo}?)`;
 }

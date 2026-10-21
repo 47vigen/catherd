@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { replyContract } from "../../src/domain/role-prompts.ts";
 import {
   parseReplyEnvironment,
+  parseReplyHead,
   parseReplyStatus,
   type RunRecord,
   RunRecordSchema,
@@ -83,4 +85,16 @@ describe("ZERO_TOKENS", () => {
     };
     expect(mutate).toThrow();
   });
+});
+
+describe("parseReplyHead", () => {
+  it("reads the last HEAD: line outside code fences, lower-cased", () => {
+    expect(
+      parseReplyHead("VERDICT: PASS\nHEAD: 0123456789ABCDEF0123456789abcdef01234567\nSTATUS: complete — ok"),
+    ).toBe("0123456789abcdef0123456789abcdef01234567");
+    expect(parseReplyHead("```\nHEAD: deadbeef\n```\nSTATUS: complete — ok")).toBeNull();
+    expect(parseReplyHead("HEAD: main")).toBeNull();
+  });
+  it("asks every verifier for the HEAD it checked", () =>
+    expect(replyContract("verifier")).toContain("HEAD: <the full sha"));
 });

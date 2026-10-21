@@ -103,5 +103,33 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
     expect(
       catherd(["gate", "pass", run.id, ...gate, "--evidence", "x"], { role: `${run.id}/worker-M1.L1` }).err,
     ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_pass");
+    // plan 30b: gate run is the verifier's too
+    expect(
+      catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "true"], {
+        role: `${run.id}/worker-M1.L1`,
+      }).err,
+    ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_run");
+  });
+
+  it("runs the milestone check as the verifier, and exits 1 while the gate misses something", async () => {
+    const { run } = freshRun();
+    await fakeDispatch(run, {
+      name: "verifier-M1",
+      role: "verifier",
+      lane: null,
+      owns: [],
+      access: "workspace-write",
+    });
+    const verifier = `${run.id}/verifier-M1`;
+    const ok = catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "echo ok"], {
+      role: verifier,
+    });
+    expect(ok.code).toBe(0);
+    expect(JSON.parse(ok.out)).toMatchObject({ running: false, record: { exit: 0 } });
+    const red = catherd(["gate", "run", run.id, "--milestone", "M1", "--command", "echo 'FAIL x'; exit 1"], {
+      role: verifier,
+    });
+    expect(red.code).toBe(1);
+    expect(JSON.parse(red.out).missing[0]).toContain("exits 1");
   });
 });

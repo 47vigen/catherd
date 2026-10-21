@@ -269,7 +269,7 @@ describe("judgeVerdict", () => {
   const f = jevFile();
 
   it("falls back, in each verdict set, to one of its caller's options, which are the set's criteria", () => {
-    for (const set of ["finding", "same-defect"] as const) {
+    for (const set of ["finding", "same-defect", "stop"] as const) {
       const { questions, rule } = f.sets[set];
       const q = questions[set];
       expect(Object.keys(q?.type === "choice" ? q.criteria : {})).toEqual([...VERDICT_OPTIONS[set]]);

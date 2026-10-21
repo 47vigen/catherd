@@ -47,7 +47,7 @@ describe("the role server in every harness (spec 1.5 plan 21, #42 findings 1, 2)
     expect(args).toContain("--ignore-user-config");
     expect(args).toContain("mcp_servers.catherd_role.enabled=true");
     expect(args).toContain(
-      'mcp_servers.catherd_role.enabled_tools=["read_run_file","read_knowledge","gate_check","gate_pass"]',
+      'mcp_servers.catherd_role.enabled_tools=["read_run_file","read_knowledge","gate_check","gate_pass","gate_run"]',
     );
   });
 
@@ -65,6 +65,7 @@ describe("the role server in every harness (spec 1.5 plan 21, #42 findings 1, 2)
       run.id,
     ]);
     expect(args[args.indexOf("--allowedTools") + 1]).toContain("mcp__catherd_role__gate_pass");
+    expect(args[args.indexOf("--allowedTools") + 1]).toContain("mcp__catherd_role__gate_run");
     expect(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe("1");
   });
 

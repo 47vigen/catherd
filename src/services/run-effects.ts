@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
+import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
 import { parseFailLines, parseFindings } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
@@ -13,7 +14,7 @@ import type { MilestonePlan, RunEventInput } from "../domain/run-events.ts";
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { gitRun } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitRun, isAncestor } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
@@ -22,7 +23,8 @@ import { type Dispatch, listDispatches } from "./dispatches.ts";
 import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
-import { blockedByEnvironment, replyVerdict } from "./milestones.ts";
+import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
+import { machineGate } from "./milestone-check.ts";
 import { sendRunNotice } from "./notify-service.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
@@ -55,13 +57,32 @@ const read = (file: string): string => {
   }
 };
 
+/** A lane's `Owns:` entries, and those of the other lanes of its milestone; empty when a lane file is gone. */
+function laneOwnsOf(run: Run, lane: string): { own: string[]; siblings: string[] } {
+  const dir = runPaths(run.dir).lanes;
+  const prefix = lane.slice(0, lane.indexOf(".") + 1);
+  const owns = (id: string): string[] => parseLaneHeader(read(join(dir, `${id}.md`))).owns;
+  const ids = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith(".md") && f.startsWith(prefix))
+        .map((f) => f.slice(0, -3))
+    : [];
+  return { own: owns(lane), siblings: ids.filter((id) => id !== lane).flatMap(owns) };
+}
+
+/** The sibling entries a failed lane check blames when it blames only them: the lane counts as done. */
+function foreignOf(run: Run, lane: string, log: string): string[] {
+  const { own, siblings } = laneOwnsOf(run, lane);
+  return foreignFailure(log, own, siblings);
+}
+
 const FIRST_LINE = /^VERDICT:\s*FAIL\b/i;
 const PASS_LINE = /^VERDICT: PASS\b/;
 
 /**
  * The `dispatch.ended` event of a finished dispatch: the record's status, the reply's findings (a reviewer's
- * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict. 30b adds `reason`, `head`
- * and `foreign`.
+ * BLOCKER, BUG and NIT lines, a failing verifier's lines) and the verifier's verdict, the reason a blocked reply
+ * names, the HEAD a verifier checked, and the sibling files a `check_broken` lane blames.
  */
 export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventInput {
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
@@ -81,6 +102,8 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
         findings = [{ label: "BLOCKER", text: `no VERDICT line: ${first || "empty reply"}`, file: null }];
     }
   }
+  const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
+  const reason = stopped ? (parseBlockedReason(record.replyWhy)?.reason ?? null) : null;
   return {
     type: "dispatch.ended",
     dispatchId: record.dispatchId,
@@ -88,14 +111,14 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     unit,
     status: record.status,
     replyStatus: record.replyStatus,
-    reason: null,
+    reason,
     why: record.replyWhy ?? record.error?.message ?? "",
     thread: record.thread,
-    head: null,
+    head: record.head ?? null,
     environment: record.environment ?? (probe ? probe : null),
     verdict,
     findings,
-    foreign: [],
+    foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
   };
 }
@@ -383,16 +406,44 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const check = header.fastCheck;
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
-    const r = await withHeavySlot(slots, () => runCheck(run.meta.repo, check, effectLimits.checkMs, env));
+    const r = await withHeavySlot(
+      slots,
+      (_slot, tmp) =>
+        runCheck(run.meta.repo, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
+      { tmpBase: process.env.TMPDIR },
+    );
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
+    const failed = !allowed && r.code !== 0;
     await append({
       type: "check.ran",
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
-      foreign: [],
+      // a check that fails only in a sibling's files still counts: the sibling is not done writing them
+      foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
     });
+  }
+
+  /** Why a stop gave no reason: Jev reads the end of the reply; null when it is off, unsure or says other. */
+  async function classify(a: Extract<Action, { type: "classify" }>): Promise<void> {
+    const record = readRecords(run).records.find((r) => r.dispatchId === a.dispatchId);
+    let reason: BlockedReason | null = null;
+    if (record) {
+      const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
+      try {
+        const v = await deps.routing.stopCause(
+          run.dir,
+          `${record.status}${record.replyStatus ? `, STATUS ${record.replyStatus}` : ""}`,
+          reply,
+          runProfile(deps, run).jev.use,
+        );
+        if (v.source === "jev" && v.value !== "other") reason = v.value;
+      } catch (e) {
+        log("warn", "daemon", { run: run.id, action: "classify", error: errorMessage(e) });
+      }
+    }
+    await append({ type: "stop.classified", dispatchId: a.dispatchId, reason });
   }
 
   async function commit(a: Extract<Action, { type: "commit" }>, s: RunState): Promise<void> {
@@ -410,31 +461,46 @@ export function realEffects(deps: Deps, run: Run): Effects {
         round: a.round,
         tail: r.timedOut ? "git timed out" : tailOf(`${r.out}\n${r.err}`),
       });
+    // a merge of the base is open: the files it left in conflict are resolved now, and the merge itself is committed
+    const merging = (m?.integrateFiles.length ?? 0) > 0;
+    for (const f of merging ? (m?.integrateFiles ?? []) : []) paths.add(f);
     for (const p of paths) {
       const r = await gitRun(repo, ["--literal-pathspecs", "add", "-A", "--", p], effectLimits.commitMs);
       // an Owns: entry the lane never created is no error
       if (r.code !== 0 && !/did not match any files/.test(r.err)) return void (await failed(r));
     }
-    // only what the milestone owns: work staged elsewhere stays staged and out of the commit
-    const staged = paths.size
-      ? await gitRun(
-          repo,
-          ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--", ...paths],
-          effectLimits.commitMs,
-        )
-      : { code: 0, out: "", err: "", timedOut: false };
-    if (staged.code !== 0) return void (await failed(staged));
-    const files = staged.out.split("\0").filter(Boolean);
-    if (files.length) {
-      const title = lower(m?.title ?? a.milestone);
-      const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
-      const subject = `${`${a.round === 0 ? "feat" : "fix"}: ${title}`.slice(0, 100 - suffix.length)}${suffix}`;
-      const c = await gitRun(
-        repo,
-        ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
-        effectLimits.commitMs,
-      );
+    if (merging) {
+      // a file the worker left unresolved must not become the milestone's commit
+      for (const f of m?.integrateFiles ?? []) {
+        const text = existsSync(join(repo, f)) ? readFileSync(join(repo, f), "utf8") : "";
+        if (/^<{7} /m.test(text) && /^>{7} /m.test(text))
+          return void (await failed({ out: "", err: `${f} still holds conflict markers`, timedOut: false }));
+      }
+      // an open merge is committed whole: a partial commit is refused while one is in progress
+      const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
       if (c.code !== 0) return void (await failed(c));
+    } else {
+      // only what the milestone owns: work staged elsewhere stays staged and out of the commit
+      const staged = paths.size
+        ? await gitRun(
+            repo,
+            ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--", ...paths],
+            effectLimits.commitMs,
+          )
+        : { code: 0, out: "", err: "", timedOut: false };
+      if (staged.code !== 0) return void (await failed(staged));
+      const files = staged.out.split("\0").filter(Boolean);
+      if (files.length) {
+        const title = lower(m?.title ?? a.milestone);
+        const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
+        const subject = `${`${a.round === 0 ? "feat" : "fix"}: ${title}`.slice(0, 100 - suffix.length)}${suffix}`;
+        const c = await gitRun(
+          repo,
+          ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
+          effectLimits.commitMs,
+        );
+        if (c.code !== 0) return void (await failed(c));
+      }
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);
     if (head.code !== 0) return void (await failed(head));
@@ -445,13 +511,22 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const m = milestoneOf(s, a.milestone);
     if (!m?.commit) throw new CatherdError("E_RUN_COMMIT", `${a.milestone} has no commit to land`);
     const issues = a.knownIssues.length ? `; ${a.knownIssues.length} known issue(s)` : "";
+    // a base run lands only what origin's base is behind; a base that moved is merged in first (spec 2.0, decision 21)
+    let stale = "";
+    if (s.base !== null) {
+      const repo = run.meta.repo;
+      const fetched = await fetchBase(repo, s.base);
+      if ((await isAncestor(repo, `origin/${s.base}`, m.commit)) === false)
+        return void (await append({ type: "base.behind", milestone: a.milestone }));
+      if (!fetched) stale = `; fetch of origin/${s.base} failed: using the copy from the last fetch`;
+    }
     try {
       const r = await land(deps, {
         run: run.id,
         milestone: a.milestone,
         what: m.title,
         commit: m.commit,
-        evidence: `verifier-${a.milestone} PASS on ${m.commit.slice(0, 12)}${issues}`,
+        evidence: `verifier-${a.milestone} PASS on ${m.commit.slice(0, 12)}${issues}${stale}`,
         next: `the daemon continues after ${a.milestone}`,
       });
       await append({
@@ -460,6 +535,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
         commit: m.commit,
         knownIssues: a.knownIssues,
         digestPath: r.digestPath,
+        ...(s.base !== null ? { branch: await currentBranch(run.meta.repo) } : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -471,6 +547,39 @@ export function realEffects(deps: Deps, run: Run): Effects {
         fix: e.fix ?? "",
       });
     }
+  }
+
+  /** Merges origin's base into the run's branch: done with the merge commit, or the files left in conflict. */
+  async function integrate(a: Extract<Action, { type: "integrate" }>, s: RunState): Promise<void> {
+    const repo = run.meta.repo;
+    const base = s.base;
+    if (base === null) throw new CatherdError("E_RUN_COMMIT", `${a.milestone} has no base branch to merge`);
+    await fetchBase(repo, base);
+    const branch = (await currentBranch(repo)) ?? "HEAD";
+    const r = await gitRun(
+      repo,
+      ["merge", "--no-ff", "-m", `Merge origin/${base} into ${branch}`, `origin/${base}`],
+      effectLimits.commitMs,
+    );
+    if (r.code === 0) {
+      const head = await gitRun(repo, ["rev-parse", "HEAD"]);
+      if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
+      return void (await append({ type: "integrate.done", milestone: a.milestone, commit: head.out.trim() }));
+    }
+    const unmerged = await gitRun(repo, ["diff", "--name-only", "--diff-filter=U"]);
+    const files = unmerged.out.split("\n").filter(Boolean);
+    if (unmerged.code !== 0 || files.length === 0)
+      throw new Error(`merging origin/${base} failed: ${tailOf(`${r.out}\n${r.err}`, 5)}`);
+    await append({ type: "integrate.conflict", milestone: a.milestone, files });
+  }
+
+  /** Whether origin's base holds the milestone's landed commit now; silent when it does not (or cannot be told). */
+  async function checkMerged(a: Extract<Action, { type: "checkMerged" }>, s: RunState): Promise<void> {
+    const commit = landedCommitOf(run, a.milestone);
+    if (s.base === null || !commit) return;
+    await fetchBase(run.meta.repo, s.base);
+    if ((await isAncestor(run.meta.repo, commit, `origin/${s.base}`)) === true)
+      await append({ type: "milestone.merged", milestone: a.milestone });
   }
 
   async function perform(a: Action, s: RunState): Promise<void> {
@@ -512,7 +621,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return void (await append({ type: "lane.climbed", lane: a.lane, rung: r.rung, top: r.top }));
       }
       case "park":
-        if (milestoneOf(s, a.unit))
+        // the push question is the daemon's own: a 1.5 question would hold the run's pause and ask twice
+        if (milestoneOf(s, a.unit) && a.reason !== "push")
           await park(deps, { run: run.id, milestone: a.unit, question: a.question });
         return void (await append({
           type: "question.parked",
@@ -541,13 +651,22 @@ export function realEffects(deps: Deps, run: Run): Effects {
         await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
         return;
       case "finish": {
-        const reportPath = writeRunReport(run, s, readEvents(run));
+        // what each landed milestone's check passed on only through the base or a rerun
+        const audits: Record<string, string[]> = {};
+        for (const m of s.milestones) {
+          if (!m.commit || (m.status !== "landed" && m.status !== "merged")) continue;
+          const g = await machineGate(run, m.id, m.commit).catch(() => null);
+          if (g?.audit.length) audits[m.id] = g.audit;
+        }
+        const reportPath = writeRunReport(run, s, readEvents(run), audits);
         return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
       }
       case "classify":
+        return classify(a);
       case "checkMerged":
+        return checkMerged(a, s);
       case "integrate":
-        throw new Error(`${a.type} needs catherd 30b`);
+        return integrate(a, s);
     }
   }
 

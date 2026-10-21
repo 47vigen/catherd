@@ -543,6 +543,31 @@ describe("finding and same-defect", () => {
   });
 });
 
+describe("stopCause", () => {
+  it("names the reason of a stop when sure, falls back to other otherwise, and asks nothing with Jev off", async () => {
+    const dir = runDir();
+    const yes = fakeFetch({ status: 200, body: fx("stop-needs-user.json") });
+    const r = routingService({ key: "k", fetchImpl: yes.impl, ...noWait });
+    expect(await r.stopCause(dir, "ok, STATUS blocked", "which database?", "auto")).toMatchObject({
+      value: "needs_user",
+      source: "jev",
+    });
+    expect(await routingService({ key: null }).stopCause(dir, "failed", "x", "auto")).toMatchObject({
+      value: "other",
+      source: "default",
+    });
+    const asked: string[] = [];
+    const fail = (async (input: RequestInfo | URL): Promise<Response> => {
+      asked.push(String(input));
+      throw new Error("Jev was asked with jev.use off");
+    }) as typeof fetch;
+    expect(
+      await routingService({ key: "k", fetchImpl: fail, ...noWait }).stopCause(dir, "failed", "x", "off"),
+    ).toMatchObject({ value: "other", source: "default" });
+    expect(asked).toEqual([]);
+  });
+});
+
 it("refuses a selected native Claude rung from Codex and names exact headless alternative", async () => {
   const r = req(null, { host: "codex", role: "architect" });
   await expect(routingService().route(r)).rejects.toMatchObject({

@@ -6,6 +6,7 @@ import { ID_PATTERN } from "../../domain/ids.ts";
 import { ROLE_MCP_SERVER, type RoleMcpContext, roleMcpTools } from "../../domain/role-tools.ts";
 import { log } from "../../infra/log.ts";
 import { gateCheckOrList, gatePass } from "../../services/gate-service.ts";
+import { runMilestoneCheck } from "../../services/milestone-check.ts";
 import type { Deps } from "../../services/ports.ts";
 import { readKnowledge, readRunFile, writeRunFile } from "../../services/run-service.ts";
 import { findRun } from "../../services/run-store.ts";
@@ -103,6 +104,23 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
       (a) => call("gate_pass", () => gatePass(deps, a)),
     );
   }
+  if (tools.has("gate_run"))
+    server.registerTool(
+      "gate_run",
+      {
+        description:
+          "The verifier's full check of a milestone, run by catherd on the committed HEAD in a detached worker under the verifier lock and a heavy slot: { running: false, record (exit, failing lines, log, secrets, rerunOf), missing, audit } once done; land reads that record. The same run, milestone, command and HEAD answers the recorded result (force: true runs it again). Refused while tracked files are uncommitted. Past 10 minutes it answers { running: true }: call it again to wait for the same run. at: a checkout of the run's base you prepared, to record the base's own failures, which then do not block.",
+        inputSchema: {
+          run: boundRun,
+          milestone: z.string().regex(ID_PATTERN),
+          command: z.string().min(1),
+          at: z.string().min(1).optional(),
+          force: z.boolean().optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      (a) => call("gate_run", () => runMilestoneCheck(a)),
+    );
   return server;
 }
 
