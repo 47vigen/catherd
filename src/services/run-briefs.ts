@@ -154,6 +154,39 @@ function fastChecks(run: Run, s: RunState, milestone: string): string[] {
     : [];
 }
 
+/** A research answer past this many characters is cut, and the brief says how many. */
+export const RESEARCH_ANSWER_CHARS = 4000;
+
+/**
+ * Plan 34: one block per `After:` lane of `lane` that is a research lane with an answer: the reply of its latest
+ * ok record that was not blocked or refused, its closing STATUS line cut. A reply that cannot be read adds nothing.
+ */
+export function researchAnswers(run: Run, s: RunState, lane: string): string[] {
+  const out: string[] = [];
+  for (const id of s.lanes[lane]?.after ?? []) {
+    if (s.lanes[id]?.kind !== "research") continue;
+    const latest = readRecords(run)
+      .records.filter(
+        (r) =>
+          r.lane === id && r.status === "ok" && r.replyStatus !== "blocked" && r.replyStatus !== "refused",
+      )
+      .sort((a, b) => a.endedAt.localeCompare(b.endedAt))
+      .at(-1);
+    if (!latest?.replyPath) continue;
+    const answer = read(join(run.dir, latest.replyPath))
+      .replace(/\s*STATUS:[^\n]*\s*$/i, "")
+      .trim();
+    if (!answer) continue;
+    const cut = answer.length - RESEARCH_ANSWER_CHARS;
+    out.push(
+      `${id} (research) answered:\n${
+        cut > 0 ? `${answer.slice(0, RESEARCH_ANSWER_CHARS)}\n[… ${cut} more characters cut]` : answer
+      }`,
+    );
+  }
+  return out;
+}
+
 function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   const lane = s.lanes[a.unit];
   const fix = a.brief === "fix";
@@ -176,6 +209,7 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
       : []),
     "",
     `Run your fast check until it passes. Run the full suite only if this brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${VERSION} lock -- <command>. Other lanes share this machine.`,
+    ...researchAnswers(run, s, a.unit).flatMap((block) => ["", block]),
   ].join("\n");
 }
 

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { RunRecord } from "../../src/domain/record.ts";
+import type { MilestonePlan } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
@@ -400,5 +402,81 @@ describe("briefs from the plan (plan 32)", () => {
     const log = runningLog();
     const file = writeRunReport(run, log.state(), log.events);
     expect(readFileSync(file, "utf8")).toMatch(/## Audit\n\n- worker-M1.L1 DESIGN: Task 2 — x — y/);
+  });
+});
+
+describe("research answers in a lane's brief (plan 34)", () => {
+  const plan = (): MilestonePlan[] => [
+    {
+      id: "M1",
+      title: "core",
+      after: [],
+      lanes: [
+        { id: "M1.R1", role: "researcher", kind: "research", after: [], owns: [] },
+        { id: "M1.L2", role: "worker", kind: "repo_code", after: ["M1.R1"], owns: ["src/a/"] },
+        { id: "M1.L3", role: "worker", kind: "repo_code", after: [], owns: ["src/b/"] },
+      ],
+    },
+  ];
+  const reply = (run: Run, id: string, text: string): string => {
+    const replyPath = `roles/researcher-M1.R1/${id}/reply.md`;
+    mkdirSync(join(run.dir, "roles", "researcher-M1.R1", id), { recursive: true });
+    writeFileSync(join(run.dir, replyPath), text);
+    return replyPath;
+  };
+  const answered = async (
+    run: Run,
+    id: string,
+    text: string,
+    over: Partial<RunRecord> = {},
+  ): Promise<string> => {
+    const replyPath = reply(run, id, text);
+    await appendRecord(
+      run,
+      makeRecord({
+        dispatchId: id,
+        lane: "M1.R1",
+        name: "researcher-M1.R1",
+        role: "researcher",
+        replyPath,
+        ...over,
+      }),
+    );
+    return replyPath;
+  };
+  const lane = (run: Run, id: string): string => {
+    writeLane(run, id, ["src/a/"]);
+    return briefFor(run, runningLog(plan()).state(), act({ unit: id, name: `worker-${id}`, lane: id }));
+  };
+
+  it("pastes a finished research lane's answer into the lanes after it", async () => {
+    const { run } = freshRun();
+    await answered(run, "D1", "The API is v2.\nSTATUS: complete — answered");
+    const text = lane(run, "M1.L2");
+    expect(text).toContain("M1.R1 (research) answered:\nThe API is v2.");
+    expect(text).not.toContain("STATUS: complete — answered");
+    expect(lane(run, "M1.L3")).not.toContain("(research) answered");
+  });
+
+  it("pastes only the latest ok research reply, and nothing when its file is gone", async () => {
+    const { run } = freshRun();
+    await answered(run, "D1", "old answer", { endedAt: "2026-09-25T10:01:00.000Z" });
+    const newest = await answered(run, "D2", "new answer", { endedAt: "2026-09-25T10:02:00.000Z" });
+    await answered(run, "D3", "blocked answer", {
+      endedAt: "2026-09-25T10:03:00.000Z",
+      replyStatus: "blocked",
+    });
+    const text = lane(run, "M1.L2");
+    expect(text).toContain("new answer");
+    expect(text).not.toContain("old answer");
+    expect(text).not.toContain("blocked answer");
+    rmSync(join(run.dir, newest));
+    expect(lane(run, "M1.L2")).not.toContain("(research) answered");
+  });
+
+  it("cuts a long answer at 4000 characters and says how much", async () => {
+    const { run } = freshRun();
+    await answered(run, "D1", "x".repeat(4100));
+    expect(lane(run, "M1.L2")).toContain(`${"x".repeat(4000)}\n[… 100 more characters cut]`);
   });
 });

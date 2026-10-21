@@ -13,6 +13,7 @@ import { latestDispatch } from "../../src/services/dispatches.ts";
 import { ownsAdd } from "../../src/services/lane-edit.ts";
 import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
+import { addKnowledge } from "../../src/services/run-service.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -79,6 +80,32 @@ describe("admission", () => {
     );
     // the architect's brief carries no preamble: it translates the plan itself
     expect(planContext(run, "architect")).toBeNull();
+  });
+
+  it("puts the role's standing rules in every brief, and no block when the role has none (plan 34)", async () => {
+    const { repo, run } = setup();
+    const plan = join(repo, "p.md");
+    writeFileSync(plan, PLAN_TEXT);
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [plan] });
+    copyPlanInputs(run, [plan]);
+    await addKnowledge(repo, "always A");
+    await addKnowledge(repo, "[worker] only W");
+    await addKnowledge(repo, "[reviewer] only R");
+    const { d } = await admit(fakeDeps(), run, input());
+    const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
+    const context = brief.slice(brief.indexOf("<context>"), brief.indexOf("</context>"));
+    expect(context).toContain("Standing rules for the worker role in this repo (its knowledge.md):");
+    expect(context).toContain("always A");
+    expect(context).toContain("only W");
+    expect(context).not.toContain("only R");
+    expect(context.indexOf("The plan's preamble")).toBeLessThan(context.indexOf("Standing rules"));
+
+    const other = setup();
+    const { d: none } = await admit(fakeDeps(), other.run, input());
+    const bare = readFileSync(dispatchPaths(none.dir).brief, "utf8");
+    expect(bare).toBe(briefFor(other.run, "Read lanes/M1.L1.md"));
+    for (const text of ["<context>", "Standing rules", "no knowledge recorded"])
+      expect(bare).not.toContain(text);
   });
 
   it("writes the brief, admit.json, a spec without the brief in argv or catherd's secrets, and the latest pointer", async () => {
