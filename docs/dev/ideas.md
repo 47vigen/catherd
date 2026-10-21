@@ -21,15 +21,9 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   dispatch it with `failoverFrom` set to its own rung, so `failoverRung` chooses a stand-in.
 - **The panel cannot show or edit `maxEffort` or `bars`** (plan 33, Ruling 17); only `catherd profile set` and the
   session's `profile` tool do. _Where:_ the panel's Setup page (plan 31).
-- **Bars that go down are not flagged.** A role's `hard` percentile set below its `logic` one gets no warning.
-  _Where:_ `validateProfile` (`src/domain/profile-rules.ts`).
 
 ## 2.0 follow-ups (plan reviews, 2026-10-21)
 
-- **Bars out of order are accepted silently.** `barOk` takes any 0-100 for any difficulty
-  (`src/domain/profile.ts:96`), so a worker `hard` bar below its `build` bar passes, and validate's "no worker rung
-  clears ..." text (`src/domain/profile-rules.ts:226`) then misleads, as the cause is the order, not the rungs. Fix:
-  warn in `validateProfile` when a harder difficulty's bar is lower than an easier one's.
 - **An explicit rung for a lane-less dispatch skips the floor and the cap.** `else rung = i.rung`
   (`src/services/dispatch-service.ts:457`) takes the caller's rung as is, while a lane's rung goes through routing,
   which applies `CODING_FLOOR` and `maxEffort` (`effortAllowed`, `src/domain/select.ts:40-52`). Fix: refuse or warn

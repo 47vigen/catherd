@@ -514,11 +514,16 @@ describe("route and the profile", () => {
     const worker = (bars?: Bars) => ({ ...view().roles.worker!, ...(bars ? { bars } : {}) });
     const on = (o: Partial<ProfileView>) =>
       routingService({ ...noWait }).route(req(lane("repo_code", "logic"), { profile: view(o) }));
-    expect((await on({ bars: { logic: 30 } })).rung).toBe("codex:gpt-6-sol#medium");
+    expect((await on({ bars: { build: 30, logic: 30 } })).rung).toBe("codex:gpt-6-sol#medium");
     expect(
-      (await on({ bars: { logic: 30 }, roles: { ...view().roles, worker: worker({ logic: 60 }) } })).rung,
+      (
+        await on({
+          bars: { build: 30, logic: 30 },
+          roles: { ...view().roles, worker: worker({ logic: 60 }) },
+        })
+      ).rung,
     ).toBe("codex:gpt-6-sol#high");
-    const a = await on({ roles: { ...view().roles, worker: worker({ logic: 30 }) } });
+    const a = await on({ roles: { ...view().roles, worker: worker({ build: 30, logic: 30 }) } });
     expect(a).toMatchObject({ rung: "codex:gpt-6-sol#medium" });
     expect(a.provenance?.bar).toMatchObject({ difficulty: "logic", percentile: 30, clears: true });
     expect((await on({})).provenance?.bar).toMatchObject({ percentile: 60 });

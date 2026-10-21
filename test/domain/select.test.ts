@@ -421,8 +421,13 @@ describe("a profile's and a role's own bars (plan 33)", () => {
 
   it("routes on the profile's bar percentile for one difficulty, the others shipped", () => {
     expect(select(c, p, "worker", "logic").rung).toBe("codex:gpt-6-sol#high");
-    expect(select(c, { ...p, bars: { logic: 30 } }, "worker", "logic").rung).toBe("codex:gpt-6-sol#medium"); // bar 35.4
-    expect(select(c, { ...p, bars: { logic: 30 } }, "worker", "build").rung).toBe("codex:gpt-6-sol#high"); // bar 38.1
+    const lowered = { ...p, bars: { build: 30, logic: 30 } };
+    expect(select(c, lowered, "worker", "logic").rung).toBe("codex:gpt-6-sol#medium"); // bar 35.4
+    expect(select(c, lowered, "worker", "hard").rung).toBe("codex:gpt-6-sol#high"); // hard stays at the shipped 41.7
+  });
+
+  it("routes a stored inversion on non-decreasing bars: logic below build routes as build", () => {
+    expect(select(c, { ...p, bars: { logic: 30 } }, "worker", "logic").rung).toBe("codex:gpt-6-sol#high"); // build's 38.1
   });
 
   it("defaultDifficulty reads the profile's bars", () => {

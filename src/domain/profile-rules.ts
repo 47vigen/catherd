@@ -1,5 +1,5 @@
 import type { OrchestrationHost } from "./host.ts";
-import { barOf, percentilesOf } from "./bars.ts";
+import { type Bars, barInversions, barOf, effectiveBars, percentilesOf } from "./bars.ts";
 import { type Catalog, capableFor, effortOffered, ROLE_NEEDS, rungInfo } from "./catalog.ts";
 import {
   catalogPairs,
@@ -107,6 +107,21 @@ export function validateProfile(
       message: "the worker cannot be disabled",
       fix: "catherd profile set roles.worker.enabled true",
     });
+
+  // a harder difficulty's percentile below an easier one's would route a harder lane to a weaker rung
+  const barOrder = (at: string, bars: Bars): void => {
+    const eff = effectiveBars({ bars });
+    for (const [easier, harder] of barInversions(eff))
+      errors.push({
+        path: at,
+        message: `the ${harder} bar (${eff[harder]}) is below the ${easier} bar (${eff[easier]})`,
+        fix: `catherd profile set ${at}.${harder} ${eff[easier]}, or lower ${at}.${easier} to ${eff[harder]} or less`,
+      });
+  };
+  barOrder("bars", p.bars);
+  for (const role of ROLES)
+    if (Object.keys(p.roles[role].bars ?? {}).length > 0)
+      barOrder(`roles.${role}.bars`, { ...p.bars, ...p.roles[role].bars });
 
   for (const role of ROLES) {
     const rc = p.roles[role];

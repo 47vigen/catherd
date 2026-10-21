@@ -9,11 +9,25 @@ export const BAR_PERCENTILE: Record<Difficulty, number> = { copy: 20, build: 45,
 export const BarsSchema = z.partialRecord(z.enum(DIFFICULTIES), z.number().min(0).max(100));
 export type Bars = z.infer<typeof BarsSchema>;
 
-/** The percentiles a route reads: the shipped ones, with `p.bars` laid over them. */
-export const percentilesOf = (p: { bars?: Bars }): Record<Difficulty, number> => ({
+/** The percentiles in force as stored: the shipped ones, with `p.bars` laid over them; they may decrease. */
+export const effectiveBars = (p: { bars?: Bars }): Record<Difficulty, number> => ({
   ...BAR_PERCENTILE,
   ...p.bars,
 });
+
+/** Each pair `[easier, harder]` of neighbouring difficulties whose percentile goes down. */
+export const barInversions = (at: Record<Difficulty, number>): [Difficulty, Difficulty][] =>
+  DIFFICULTIES.slice(1).flatMap((d, i): [Difficulty, Difficulty][] =>
+    at[d] < at[DIFFICULTIES[i] as Difficulty] ? [[DIFFICULTIES[i] as Difficulty, d]] : [],
+  );
+
+/** The percentiles a route reads: the effective ones made non-decreasing, so a harder lane never routes weaker. */
+export function percentilesOf(p: { bars?: Bars }): Record<Difficulty, number> {
+  const at = effectiveBars(p);
+  let floor = 0;
+  for (const d of DIFFICULTIES) at[d] = floor = Math.max(at[d], floor);
+  return at;
+}
 
 /** The `p`th percentile of `xs`, interpolated linearly between the closest ranks; NaN for none. */
 export function percentile(xs: readonly number[], p: number): number {

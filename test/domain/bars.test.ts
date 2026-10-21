@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { BAR_PERCENTILE, BarsSchema, barOf, percentile, percentilesOf } from "../../src/domain/bars.ts";
+import {
+  BAR_PERCENTILE,
+  BarsSchema,
+  barInversions,
+  barOf,
+  effectiveBars,
+  percentile,
+  percentilesOf,
+} from "../../src/domain/bars.ts";
 import { DIFFICULTIES } from "../../src/domain/lane.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
@@ -53,7 +61,15 @@ describe("the bar percentiles", () => {
 
   it("lays a role's bars over the profile's over the shipped percentiles, one difficulty at a time", () => {
     expect(percentilesOf({})).toEqual(BAR_PERCENTILE);
-    expect(percentilesOf({ bars: { logic: 30 } })).toEqual({ ...BAR_PERCENTILE, logic: 30 });
+    expect(percentilesOf({ bars: { logic: 70 } })).toEqual({ ...BAR_PERCENTILE, logic: 70, hard: 70 });
     expect(BarsSchema.safeParse({ hard: 150 }).success).toBe(false);
+  });
+
+  it("reads a stored inversion as non-decreasing: each bar is at least the easier one", () => {
+    expect(effectiveBars({ bars: { logic: 30 } })).toEqual({ ...BAR_PERCENTILE, logic: 30 });
+    expect(barInversions(effectiveBars({ bars: { logic: 30 } }))).toEqual([["build", "logic"]]);
+    expect(percentilesOf({ bars: { logic: 30 } })).toEqual({ copy: 20, build: 45, logic: 45, hard: 65 });
+    expect(percentilesOf({ bars: { copy: 80 } })).toEqual({ copy: 80, build: 80, logic: 80, hard: 80 });
+    expect(barInversions(BAR_PERCENTILE)).toEqual([]);
   });
 });

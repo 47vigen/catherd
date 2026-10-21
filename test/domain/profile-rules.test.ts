@@ -544,11 +544,34 @@ describe("validateProfile: bars (plan 33)", () => {
     expect(
       explicit({ roles }).warnings.find((w) => w.message.startsWith("no worker rung clears"))?.message,
     ).toContain("build, logic, hard");
-    // hard at the 10th percentile (31.8) is cleared by Sol medium
-    const lowered = explicit({ roles: { worker: { ...roles.worker, bars: { hard: 10 } } } });
-    const msg = lowered.warnings.find((w) => w.message.startsWith("no worker rung clears"))?.message ?? "";
-    expect(msg).toContain("build, logic");
-    expect(msg).not.toContain("hard");
+    // every bar at the 10th percentile (31.8) is cleared by Sol medium
+    const lowered = explicit({
+      roles: { worker: { ...roles.worker, bars: { copy: 10, build: 10, logic: 10, hard: 10 } } },
+    });
+    expect(lowered.warnings.find((w) => w.message.startsWith("no worker rung clears"))).toBeUndefined();
+  });
+
+  it("reports a stored inversion as an error with the fix, for the profile's bars and a role's", () => {
+    const inverted = explicit({ bars: { hard: 50 }, roles: { worker: { bars: { build: 90 } } } });
+    expect(
+      inverted.errors.filter((e) => e.path.endsWith("bars")).map((e) => [e.path, e.message, e.fix]),
+    ).toEqual([
+      [
+        "bars",
+        "the hard bar (50) is below the logic bar (60)",
+        "catherd profile set bars.hard 60, or lower bars.logic to 50 or less",
+      ],
+      [
+        "roles.worker.bars",
+        "the logic bar (60) is below the build bar (90)",
+        "catherd profile set roles.worker.bars.logic 90, or lower roles.worker.bars.build to 60 or less",
+      ],
+      [
+        "roles.worker.bars",
+        "the hard bar (50) is below the logic bar (60)",
+        "catherd profile set roles.worker.bars.hard 60, or lower roles.worker.bars.logic to 50 or less",
+      ],
+    ]);
   });
 
   it("a role's bars reach only that role", () => {
