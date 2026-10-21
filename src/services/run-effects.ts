@@ -470,6 +470,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
       if (r.code !== 0 && !/did not match any files/.test(r.err)) return void (await failed(r));
     }
     if (merging) {
+      // a file the worker left unresolved must not become the milestone's commit
+      for (const f of m?.integrateFiles ?? []) {
+        const text = existsSync(join(repo, f)) ? readFileSync(join(repo, f), "utf8") : "";
+        if (/^(<{7} |={7}$|>{7} )/m.test(text))
+          return void (await failed({ out: "", err: `${f} still holds conflict markers`, timedOut: false }));
+      }
       // an open merge is committed whole: a partial commit is refused while one is in progress
       const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
       if (c.code !== 0) return void (await failed(c));

@@ -827,6 +827,19 @@ describe("a run with a base branch (30b)", () => {
     expect(replayRun(run).milestones[0]).toMatchObject({ status: "verifying", integrateFiles: [] });
   });
 
+  it("refuses to commit a merge whose files still hold conflict markers", async () => {
+    const { repo, origin, run, fx } = await baseSetup();
+    commitInClone(origin, "theirs", { path: "src/a/x.ts", text: "theirs\n" });
+    await fx.run(land1, replayRun(run));
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    // the worker left the markers in: the file is not resolved
+    await fx.run({ type: "commit", milestone: "M1", round: 1 }, replayRun(run));
+    expect(types(run).filter((t) => t === "commit.made")).toHaveLength(1);
+    expect(lastOf(run, "commit.failed")?.tail).toContain("src/a/x.ts");
+    expect(git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD").trim()).not.toBe("");
+    expect(replayRun(run).stuck["M1"]).toMatchObject({ reason: "commit" });
+  });
+
   it("checks whether origin's base holds the landed commit, and says nothing until it does", async () => {
     const { repo, run, fx } = await baseSetup();
     await passGate(run, "M1");
