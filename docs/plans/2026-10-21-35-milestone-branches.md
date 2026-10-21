@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** a run started with `base` gives each milestone its own branch and git worktree, made from `origin/<base>` and set up once by the daemon; every role of the milestone works in that tree; milestones whose `After:` milestones are merged run side by side, a new one starting only while the machine has the free memory for it; a merged milestone's clean tree is removed. A run without `base` behaves as it does after plan 30b: one tree, the repo, one milestone at a time.
+**Goal:** a run started with `base` gives each milestone its own branch and git worktree, made from `origin/<base>` and set up once by the daemon; every role of the milestone works in that tree; milestones whose `After:` milestones are merged run side by side, a new one starting only while the machine has the free memory for it (the profile's `limits.memory`); a landed milestone's branch is pushed by catherd when the owner answers `push`; a merged milestone's clean tree is removed. A run without `base` behaves as it does after plan 30b: one tree, the repo, one milestone at a time.
 
-**Architecture:** Domain: branch names, `Setup:` and milestone `After:` (`branch.ts`, `lane.ts`), the memory rule (`milestone-memory.ts`), and plan 30's machine gaining one action (`claimTree`), two events (`tree.ready`, `tree.deferred`) and a several-milestone `activeMilestones`. Infra: the memory reader (`memory.ts`). Services: the tree service (`milestone-tree.ts`), and every service and effect that reads the working copy asking `treeOf` instead of `run.meta.repo`. Entry: `run_start` takes `base`. catherd still never pushes, opens an MR or merges.
+**Architecture:** Domain: branch names, `Setup:` and milestone `After:` (`branch.ts`, `lane.ts`), the memory rule (`milestone-memory.ts`), and plan 30's machine gaining two actions (`claimTree`, `pushBranch`), three events (`tree.ready`, `tree.deferred`, `branch.pushed`) and a several-milestone `activeMilestones`; the profile gains `limits.memory`. Infra: the memory reader (`memory.ts`). Services: the tree service (`milestone-tree.ts`), and every service and effect that reads the working copy asking `treeOf` instead of `run.meta.repo`. Entry: `run_start` takes `base`. catherd pushes a milestone's branch only on the owner's `push` answer, and never opens an MR or merges.
 
 **Tech Stack:** Bun ≥ 1.4, TypeScript, zod 4, `@modelcontextprotocol/sdk`, git ≥ 2.30 (`worktree add --no-track`, `worktree prune`). No new dependency.
 
@@ -13,17 +13,14 @@
 **Pre-validation: spiked the git sequence against a local bare origin (`worktree add --no-track -b` from `origin/main`; a second `-b` of the same branch fails with exit 255; `worktree remove` then `worktree add <dir> <branch>` re-adds; `worktree remove` refuses an untracked file and removes a tree holding only ignored files, keeping the branch; `merge-base --is-ancestor` sees a `--no-ff` merge pushed from another clone) and the memory reading on the owner's 18 GB Mac (`os.freemem()` 0.13 GB while `sysctl kern.memorystatus_level` read 50 and `memory_pressure` "System-wide memory free percentage: 50%"), targeted tests only; the full gate runs at execution.** Written against `main` at 2061e6e (1.5.0); plans 28–34 merge first, so every line number below is 1.5's and is re-found by context.
 
 
-## Owner answers (2026-10-21, binding over the Rulings below)
-
-- The memory numbers are a profile setting: `limits.memory.reserveMb` (default 2048), `limits.memory.perMilestoneMb` (3072) and `limits.memory.floorMb` (3072), validated as positive integers, settable with `catherd profile set` and the panel. `MEMORY_LIMITS` becomes the defaults.
-- Ruling 12 is reversed: a "push" answer to the milestone's push question makes catherd run `git push -u origin <branch>` itself, then report the MR command. It never opens an MR and never merges.
+Owner answers of 2026-10-21 are folded into D6, D11, Tasks 2, 5, 7–9, the Global Constraints and Rulings 6 and 12.
 
 ## Global Constraints
 
 - Everything in plan 30's and 30b's Global Constraints, unchanged. Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`): `branch.ts`, `milestone-memory.ts` and the machine are domain; `memory.ts` infra; `milestone-tree.ts` a service.
 - The gate: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun test`; executors run each task's targeted files, the full gate once per wave.
 - **A run without `base` is unchanged.** No fetch, no `trees/` folder, no `claimTree` action, one active milestone, `treeOf` returns `run.meta.repo`, digests and ranges as 1.5. Every task touching a path both kinds of run share keeps an existing test green or adds one pinning this.
-- **No push, no MR, no merge into the base by catherd.** catherd's git writes stay local: `worktree add/remove/prune`, `submodule update`, its commits and the integrate merge on the milestone's own branch. Its network git calls: `fetch -q origin <base>` (60 s, 30b's `fetchBase`) and `submodule update`. Roles stay denied `git push`.
+- **No MR and no merge into the base by catherd; one push, on the owner's word.** catherd's git writes stay local — `worktree add/remove/prune`, `submodule update`, its commits and the integrate merge on the milestone's own branch — except `git push -u origin <branch>` of a landed milestone's own branch, run only by the `pushBranch` effect after the owner answers that milestone's `push` question with `push` (D11, Ruling 12). Its network git calls: `fetch -q origin <base>` (60 s, 30b's `fetchBase`), `submodule update` and that push. Roles stay denied `git push`.
 - **Never lose work.** A tree is removed with `git worktree remove` without `--force`; a branch is never deleted; a tree with uncommitted or untracked files stays.
 - Tests use a local bare origin (30b's `repoWithOrigin()`, `commitInClone()`), never a URL; memory readings are injected; no wall-clock sleep (`treeLimits.setupMs` is the Setup: seam).
 - Commits: conventional, subject ≤ 100 characters, lower-case first word after the scope; check `git log` after each.
@@ -36,12 +33,12 @@
 - **D3. Claiming is a daemon action.** In a base run the machine emits `claimTree{ M }` for an active milestone with no tree, before `route`, one claim at a time in plan order. The effect asks the memory rule (D6): no room → `tree.deferred`, retried at the recheck; else Task 4's `claimTree()` → `tree.ready`. A throw is plan 30's `effect.failed` (one retry, then the milestone parks with the message); the answer resumes the claim.
 - **D4. `Setup:`** is a header line under a plan's `# ` title: `<run>/plan.md`'s (the architect writes it, Task 7), else the first of plan 32's input copies (`planDocs(run)`) that has one. It runs in the tree in a heavy slot with the gate's check env, 15 minutes at most; a failure throws `E_TREE` with the output's tail, keeps the tree and writes no `.ready`, so the next claim runs it again.
 - **D5. Everything that touches the working copy asks `treeOf(run, m)`**: the tree when `meta.base` is set, `m` is a milestone and the tree exists, else `run.meta.repo`. That covers `admit` (cwd and writable root, the `before` snapshot, `admit.repo`, so finalize diffs the tree), preflight, the fast check, the commit, the gate items' hash, `gate_run`'s cwd and `checkBase`, integrate. What is keyed by repo keeps `run.meta.repo`: profile, `agentFor`, stand-ins, gate env, knowledge, `gates.jsonl`, `checks.jsonl` (a pass carries between a run's trees on equal content). Every role is headless (plan 30 D12), so every role gets the cwd.
-- **D6. Parallel milestones, capped by free memory.** `activeMilestones` in a base run: every milestone not landed, merged or parked whose `after` milestones are merged (30b Ruling 17) and that has a tree, plus the first such without one. The `claimTree` effect starts one when `working === 0` (a run always moves), else when `availableMb − floorMb − ramping × estimateMb ≥ estimateMb`; `working` = milestones with a tree not landed, merged or parked; `ramping` = those whose `tree.ready` is younger than `rampMs`, counted at their estimate since their lanes have not reached their memory yet. `availableMb` = Linux `MemAvailable`, macOS `kern.memorystatus_level` × total, else `os.freemem()` (Ruling 5). The heavy slots and 30b's load wait still bound heavy commands machine-wide.
+- **D6. Parallel milestones, capped by free memory.** `activeMilestones` in a base run: every milestone not landed, merged or parked whose `after` milestones are merged (30b Ruling 17) and that has a tree, plus the first such without one. The `claimTree` effect starts one when `working === 0` (a run always moves), else when `availableMb − reserveMb − ramping × perMilestoneMb ≥ floorMb`, the three numbers from the run profile's `limits.memory` (defaults 2048, 3072, 3072: `MEMORY_LIMITS`); `working` = milestones with a tree not landed, merged or parked; `ramping` = those whose `tree.ready` is younger than `rampMs`, counted at `perMilestoneMb` since their lanes have not reached their memory yet. `availableMb` = Linux `MemAvailable`, macOS `kern.memorystatus_level` × total, else `os.freemem()` (Ruling 5). The heavy slots and 30b's load wait still bound heavy commands machine-wide.
 - **D7. Milestone `After:`.** A lane's `After:` may name a milestone (`After: M1`). `MilestonePlan.after = milestoneAfter(lanes, m)`. In a base run a cross-milestone entry waits for that milestone's merge; with no entry a milestone starts from the base beside the others (Ruling 8).
 - **D8. Briefs carry the branch** (draft D8): every dispatch of a base-run milestone gets ``You work in <tree>, on branch <branch>, which starts from origin/<base>. The milestone's diff is `git diff origin/<base>...HEAD`: three dots, because other milestones land on the base meanwhile and a two-dot diff shows their work as deleted here.``, and the reviewer's range is that diff.
 - **D9. Ranges** (draft D12): in a base run `milestoneFiles` diffs `origin/<base>...<commit>`, `milestoneCommits` logs `origin/<base>..<commit>`.
 - **D10. Removal.** `checkMerged` (30b), once git or an answered `push` question says merged, calls `removeTree` (no `--force`), then appends `milestone.merged`; a tree with uncommitted or untracked files stays, logged. In a base run it also runs every 10 minutes while a landed milestone's `push` question is open, so trees go and the run ends once the owner merges.
-- **D11. Integrate and the push question** (30b Rulings 14, 15) use the tree and `M.branch`. The question reads: `M1 landed on <branch> at <commit12>: push it (git -C <repo> push -u origin <branch>), open its MR with <digestPath> as the body, and merge it with a merge commit; right before the merge run git -C <tree> fetch -q origin <base> && git -C <tree> merge-base --is-ancestor origin/<base> HEAD. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`
+- **D11. Integrate and the push question** (30b Rulings 14, 15) use the tree and `M.branch`. The question reads: `M1 landed on <branch> at <commit12>. Answer push and catherd pushes it (git -C <tree> push -u origin <branch>); or push it yourself. Then open its MR with <digestPath> as the body, and merge it with a merge commit; right before the merge run git -C <tree> fetch -q origin <base> && git -C <tree> merge-base --is-ancestor origin/<base> HEAD. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.` An answer of `push` (trimmed, any case) is not a merge: the machine emits `pushBranch{ M }`; the effect runs `git -C <tree> push -u origin <branch>` and appends `branch.pushed{ milestone, branch, remote: "origin", mr }` (`mr` = `mrCommand` over `git remote get-url origin` and the digest path); the machine then parks the `push` question again with `pushedQuestion`: `M1's branch <branch> is pushed to origin. Open its MR: <mrCommand>, and merge it with a merge commit; right before the merge run <the precheck>. Answer once it is merged.` Any other answer counts as merged, as 30b has it. A failed push is plan 30's `effect.failed` (one retry, then the milestone parks with git's message).
 
 ## Produces (for plans 36 and later)
 
@@ -51,26 +48,34 @@ export function runSlug(title: string): string;                 // moved from ru
 export function milestoneBranch(title: string, m: string): string;   // `${runSlug(title)}-${m.toLowerCase()}`
 export const BaseBranchSchema: z.ZodType<string>;               // BaseRefSchema, refusing "origin/…" and "refs/…"
 export function planSetup(planText: string): string | null;     // Setup: under plan.md's # title, backticks stripped
+export const isPushAnswer = (answer: string): boolean;          // "push", trimmed, any case
+export function mrCommand(o: { originUrl: string; base: string; branch: string; body: string }): string;
+//   github.com origin: `gh pr create --base <base> --head <branch> --body-file <body>`; else `glab mr create --source-branch <branch> --target-branch <base> --description-file <body>`
 export const unitMilestone = (unit: string): string | null;      // "run" → null; "M1" → "M1"; "M1.L2" → "M1"
 // src/domain/lane.ts
 export function milestoneAfter(lanes: { id: string; after: string[] }[], m: string): string[];  // numeric order
 // src/domain/milestone-memory.ts
-export const MEMORY_LIMITS = { estimateMb: 3072, floorMb: 2048, rampMs: 300_000, recheckMs: 120_000 } as const;
-export type MemoryLimits = { estimateMb: number; floorMb: number; rampMs: number; recheckMs: number };
+export const MEMORY_LIMITS = { reserveMb: 2048, perMilestoneMb: 3072, floorMb: 3072, rampMs: 300_000, recheckMs: 120_000 } as const;   // the defaults
+export type MemoryLimits = { reserveMb: number; perMilestoneMb: number; floorMb: number; rampMs: number; recheckMs: number };
+export function memoryLimitsOf(p: { limits?: { memory?: Partial<Pick<MemoryLimits, "reserveMb" | "perMilestoneMb" | "floorMb">> } }): MemoryLimits;   // the profile's over MEMORY_LIMITS
 export function memoryLoad(ms: { tree: string | null; status: string; treeAt: string | null }[], nowMs: number, l?: MemoryLimits): { working: number; ramping: number };
 export function mayStartMilestone(i: { availableMb: number; working: number; ramping: number }, l?: MemoryLimits): boolean;
-export const neededMb = (ramping: number, l?: MemoryLimits): number;  // floorMb + (ramping + 1) × estimateMb
+export const neededMb = (ramping: number, l?: MemoryLimits): number;  // reserveMb + ramping × perMilestoneMb + floorMb
+// src/domain/profile.ts: ProfileDocSchema / Profile / ProfilePatchSchema gain limits?: { memory?: { reserveMb?, perMilestoneMb?, floorMb? } } (positive integers)
+// src/services/ports.ts: ProfileView gains limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } }   // resolved, defaults filled
 // src/infra/memory.ts
 export function availableMemoryMb(o?: { platform?: NodeJS.Platform; sysctl?: () => string | null; meminfo?: () => string | null }): number;
 // src/domain/errors.ts: ErrorCode gains "E_TREE"
 // src/domain/run-events.ts (plan 30's union gains)
 //  tree.ready    { milestone, tree, branch, base, hints: string[] }
 //  tree.deferred { milestone, availableMb: number, needMb: number }
+//  branch.pushed { milestone, branch, remote: "origin", mr: string }   // mr: the MR command the effect built
 // src/domain/run-state.ts: MilestoneState gains tree: string | null, branch: string | null, treeAt: string | null, claimAfter: string | null
-// src/domain/run-machine.ts: Action gains { type: "claimTree"; milestone: string }; actionKey "claimTree:<M>"
+// src/domain/run-machine.ts: Action gains { type: "claimTree"; milestone: string } and { type: "pushBranch"; milestone: string }; actionKey "claimTree:<M>", "pushBranch:<M>"
 // src/services/milestone-tree.ts
 export const treeLimits = { setupMs: 15 * 60_000 };
 export const memoryReader = { read: (): number => availableMemoryMb() };   // test seam
+export const branchPusher = { push: (tree: string, branch: string): Promise<void> };   // test seam: git -C <tree> push -u origin <branch>, 120 s; throws E_TREE with git's tail
 export const treeDir = (run: Run, m: string): string;          // <run dir>/trees/<m>
 export function treeOf(run: Run, m: string | null): string;     // sync
 export interface TreeClaim { tree: string; branch: string; base: string; hints: string[] }
@@ -85,7 +90,7 @@ export async function removeTree(run: Run, m: string): Promise<{ removed: boolea
 - **Consumes from plan 30** (its Produces, exact names): `RunEventSchema`/`RunEvent`/`RunEventInput`, `describeEvent`, `run.started.base`, `MilestonePlanSchema` (`after`), `MilestoneState`, `RunState` (`base`, `wakeAt`, `failedEffects`), `reduce`, `replay`, `activeMilestones` ("plan 35: several"), `Action`, `next`, `actionKey`, `confirms`, `effect.failed`, `Effects`/`realEffects` (`dispatch`, `route`, `fastCheck`, `commit`, `land`, `finish`), `planOf`, `briefFor`, `runStart(deps, i: { repo, title, aLines })`, the session tool `run_start`, `daemonLimits`. If plan 30 wrote `advance` for `activeMilestones(s)[0]` only, Task 5 makes it loop over all of them.
 - **Consumes from plan 30b:** `fetchBase(repo, base, timeoutMs?)`, `isAncestor(repo, commit, ref)`, `currentBranch(repo)` (`src/infra/git.ts`); `landedCommitOf`; `checkBase(run)`, `runMilestoneCheck`, `CheckJob { run, repo, cwd, … }`, `machineGate` (`src/services/milestone-check.ts`); the `land` (base run: `base.behind`), `integrate` and `checkMerged` effects; the base-run transitions (Rulings 14–17: `after` milestones must be merged, the `push` park, an answered `push` question counting as merged, the 10-minute merge check); `repoWithOrigin()`, `commitInClone()` (`test/helpers.ts`). If 30b keys `checks.jsonl` by the cwd's toplevel, Task 6 keys it by `CheckJob.repo` (`run.meta.repo`).
 - **Consumes from plan 32:** the architect's brief body in `briefFor` (Task 7 appends two sentences in a base run); `planDocs(run): PlanDoc[]` (`src/services/plan-input.ts`: the input copies under `<run>/plan-input/`, else plan.md), whose text `planSetup` reads; `run_start`'s `plan`, kept beside `base`; plan 32's `orderProblems` addition (`Tasks:` refs) beside Task 1's.
-- **Plan 31:** `RunView` is unchanged; a milestone's branch and a memory wait reach the timeline through `describeEvent`.
+- **Plan 31:** `RunView` is unchanged; a milestone's branch, a memory wait and a push reach the timeline through `describeEvent`. Plan 31 runs earlier, so this plan adds no panel task: the profile field `limits.memory` (`ProfileView.limits.memory`) exists for its Setup page to show, and `catherd profile set limits.memory.<key> <n>` edits it.
 - **Plan 36:** MIGRATION "From 1.5 to 2.0" gains "### A milestone per branch" (Task 8), which 36 consolidates.
 
 ## Review Focus
@@ -105,28 +110,23 @@ Step 0, decision 21 against 1.5.0 and plans 30/30b: the landing rules (origin co
 3. Ruling: a failed claim is plan 30's `effect.failed` (one retry, then park with the message and fix); one new code `E_TREE` — draft Rulings 8, 10 — a foreign branch costs one pointless retry.
 4. Ruling: a claim knows a branch is this run's from `MilestoneState.branch` (a `tree.ready` happened), not the ledger (draft D3) — the daemon re-claims after a crash or a removed folder before anything lands — a crash between `worktree add` and the append leaves a folder, which the claim reuses.
 5. Ruling: available memory is Linux `MemAvailable`, macOS `kern.memorystatus_level` × total, else `os.freemem()` — the brief named `os.freemem()`, but on the owner's Mac it read 0.13 GB of 18 GB while the kernel reported 50 % free, so macOS would never run two milestones — where both readings fail the run goes one milestone at a time.
-6. Ruling: start when nothing works, else when `available − 2048 − ramping × 3072 ≥ 3072` MB, a new milestone counted at its estimate for 5 minutes, recheck every 2 minutes — the shop run swapped 9 GB with unbounded milestones; 3 GB is one milestone's workers, checks and dev server at that fan-out; the owner's 18 GB Mac (8–9 GB available) runs two — constants, not a profile setting (Owner question 1) — a repo needing 6 GB per milestone swaps at two.
+6. Ruling: start when nothing works, else when `available − reserveMb − ramping × perMilestoneMb ≥ floorMb`, a new milestone counted at `perMilestoneMb` for 5 minutes, recheck every 2 minutes; the three numbers are the run profile's `limits.memory` (positive integers, `catherd profile set limits.memory.reserveMb 4096`), defaults 2048, 3072 and 3072 (`MEMORY_LIMITS`), passed resolved into `memoryLoad`, `mayStartMilestone` and `neededMb` — the shop run swapped 9 GB with unbounded milestones; 3 GB is one milestone's workers, checks and dev server at that fan-out; the owner's 18 GB Mac (8–9 GB available) runs two; owner answer, 2026-10-21: a profile setting — a repo needing more per milestone swaps until its profile says so.
 7. Ruling: one claim at a time, in plan order — each reading counts the previous claim — a small milestone waits behind a large deferred one.
 8. Ruling: no implicit order for milestones sharing files and no overlap warning (draft Task 8 dropped) — textual conflicts are integrate's (30b), semantic order is an `After:` line the architect writes — a 1.5 plan with no milestone `After:` runs side by side, so the architect's base-run sentence is binding; a hot shared file costs an integrate worker per milestone.
 9. Ruling: draft D8's dirty-tree refusal, D7's native `route.tree`, D11's tip check and D13's `protocolSteps` are not built — plan 30 commits before reviewers and verifiers, runs every role headless, takes `M.commit` from the tree's HEAD, and retired `protocol.next` — none.
 10. Ruling: `Setup:` and submodules run in a heavy slot — an install is a milestone's heaviest command — a slow first install delays other runs' checks.
 11. Ruling: `submodule update --init --recursive` is the one network git call beside `fetch origin <base>` — the tree must build (t3herd does it) — a submodule host down parks the claim after one retry.
-12. Ruling: the push stays the owner's; the question carries the branch, push command, digest, precheck and merge-commit rule — "Pushes and MRs still need the user's authorization" — a night run's milestones wait for one answer each (Owner question 2).
-13. Ruling: a squash merge is unblocked by the owner's answer to the `push` question (30b Ruling 16), which also lets `checkMerged` remove that tree — the owner default — one answer per milestone.
+12. Ruling: the owner's `push` answer authorizes one push: catherd runs `git -C <tree> push -u origin <branch>` (the `pushBranch` effect, `branch.pushed` carrying `mrCommand`'s text), then parks the question again with that MR command; it never opens an MR and never merges; any other answer counts as merged, as before — "Pushes and MRs still need the user's authorization", and the answer is that authorization; owner answer, 2026-10-21 — a night run's milestones still wait for the owner's answers, two per milestone when catherd pushes.
+13. Ruling: a squash merge is unblocked by the owner's answer, other than `push`, to the `push` question (30b Ruling 16), which also lets `checkMerged` remove that tree — the owner default — one answer per milestone.
 14. Ruling: ledger minutes still count from the previous landing of any milestone — the scorecard measures per run — parallel milestones' minutes read short.
 15. Ruling: `ideas.md` "Milestone per branch" and "One run per worktree: `dispatch` takes no cwd" close; "Stacked milestones" stays; "Carried gate passes are not shared between worktrees" narrows to worktrees the user made — the platform run's need (a branch and MR per step) is a base run — one run per existing user worktree is still not possible.
 16. Ruling: a kept (dirty) tree is only logged and never retried — no event type for it — the owner finds it under `<run>/trees/` (an ideas.md entry).
-
-Owner questions (each built as stated until answered):
-
-1. The memory numbers are constants (3 GB per milestone, 2 GB floor). Should they be a profile setting? Built: constants, with an ideas.md entry to measure the run's process tree on the scorecard runs.
-2. On autopilot, should an answer of `push` to a landed milestone's question let catherd push the branch itself (still no MR, no merge)? Built: no; catherd's rule stands.
 
 ## Parallelism
 
 | Wave | Tasks | Files |
 | --- | --- | --- |
-| 1 | 1 ∥ 2 | 1: `src/domain/{branch,lane}.ts`, `src/services/run-store.ts` (the `runSlug` import), tests · 2: `src/domain/milestone-memory.ts`, `src/infra/memory.ts`, tests |
+| 1 | 1 ∥ 2 | 1: `src/domain/{branch,lane}.ts`, `src/services/run-store.ts` (the `runSlug` import), tests · 2: `src/domain/{milestone-memory,profile}.ts`, `src/infra/memory.ts`, `src/services/{ports,profile-service}.ts`, tests |
 | 2 | 3 ∥ 5 | 3: `src/services/{run-store,run-client}.ts`, `src/entry/mcp/session-tools.ts`, `test/services/helpers.ts` · 5: `src/domain/{run-events,run-state,run-machine}.ts`, their tests |
 | 3 | 4 | `src/services/milestone-tree.ts`, `src/domain/errors.ts`, its test (needs Task 3's `branchRun`) |
 | 4 | 6 | `src/services/{admission,preflight,gate-service,milestone-check,milestones}.ts`, their tests |
@@ -179,17 +179,22 @@ it("lists the milestones a milestone's lanes wait on, other than itself", () =>
 - [ ] **Step 2: Run** `bun test test/domain/branch.test.ts test/domain/lane.test.ts`. Expected: FAIL (module missing; the After refusal text).
 - [ ] **Step 3: Implement** as in Interfaces; `run-store.ts` imports `runSlug` and drops its local one.
 - [ ] **Step 4: Run** the Step 2 command and `bun test test/services/lane-headers.test.ts test/services/lane-edit.test.ts test/services/run-store.test.ts`. Expected: PASS.
+In `test/domain/branch.test.ts` also: `it("reads a push answer, and names the MR command for the origin's host")`: `["push", " Push "].every(isPushAnswer)`, `["pushed", "push it", "merged"].some(isPushAnswer)` false; `mrCommand({ originUrl: "git@github.com:o/r.git", base: "main", branch: "t-m1", body: "/d.md" })` → `gh pr create --base main --head t-m1 --body-file /d.md`; a `git.example.com` origin → `glab mr create --source-branch t-m1 --target-branch main --description-file /d.md`.
+
 - [ ] **Step 5: Commit** — `git commit -m "feat(lanes): milestone branch names, a plan's setup line, whole-milestone after entries"`
 
-### Task 2: the memory rule and its reader
+### Task 2: the memory rule, its profile limits and its reader
 
 **Files:**
 - Create: `src/domain/milestone-memory.ts`, `src/infra/memory.ts`
-- Test: `test/domain/milestone-memory.test.ts`, `test/infra/memory.test.ts`
+- Modify: `src/domain/profile.ts` (`ProfileDocSchema.limits`, `Profile.limits`, `resolveProfile`, `unknownValues`, `ProfilePatchSchema.limits`), `src/services/ports.ts` (`ProfileView.limits`), `src/services/profile-service.ts` (`viewOf`)
+- Test: `test/domain/milestone-memory.test.ts`, `test/infra/memory.test.ts`, `test/domain/profile.test.ts`
 
 **Interfaces:**
 - Consumes: `freemem`, `totalmem` (`node:os`). `memoryLoad` takes a structural row type, so it does not wait for Task 5's `MilestoneState` fields; `MilestoneState[]` satisfies it once they exist.
 - Produces: the `milestone-memory.ts` and `memory.ts` lines of Produces.
+  - `memoryLimitsOf(p)`: `{ ...MEMORY_LIMITS, ...p.limits?.memory }`. `mayStartMilestone`: `working === 0 || availableMb − reserveMb − ramping × perMilestoneMb ≥ floorMb`, with `l` defaulting to `MEMORY_LIMITS`.
+  - Profile: stored `limits: z.unknown().optional()`, so a hand edit never makes the file unreadable; `resolveProfile` keeps each of the three keys whose value is a positive integer, and `unknownValues` reports every other as `{ path: "limits.memory.<key>", value, readAs: "the default" }`; `ProfilePatchSchema.limits`: `z.object({ memory: z.object({ reserveMb, perMilestoneMb, floorMb }: z.number().int().positive().nullable()).partial() }).partial()`, so `patchAt("limits.memory.reserveMb", "4096")` gives `{ limits: { memory: { reserveMb: 4096 } } }`, `"null"` removes it, and `0`, `-1` or `1.5` throw `cannot set limits.memory.reserveMb`; `viewOf` gives `limits: { memory: memoryLimitsOf(p) minus rampMs/recheckMs }`. `defaultProfileDoc` writes none.
   - `memoryLoad`: `working` counts milestones with `tree !== null` and `status` not in `landed | merged | parked`; `ramping` those of them with `Date.parse(treeAt) > nowMs − rampMs`.
   - `availableMemoryMb`: `darwin` → `sysctl()` (default `Bun.spawnSync(["sysctl", "-n", "kern.memorystatus_level"])`, stdout or null on a non-zero exit or a throw) parsed as an integer 0–100 → `Math.floor(level / 100 × totalmem() / 2^20)`; `linux` → `meminfo()` (default `readFileSync("/proc/meminfo", "utf8")`, null on a throw) matched by `/^MemAvailable:\s+(\d+) kB$/m` → `Math.floor(kB / 1024)`; anything unreadable, or another platform → `Math.floor(freemem() / 2^20)`. Never throws.
 
@@ -204,6 +209,15 @@ it("starts another milestone only with its estimate above the floor, counting ra
   expect(mayStartMilestone({ availableMb: 8191, working: 2, ramping: 1 })).toBe(false);   // 8192 needed
   expect(neededMb(1)).toBe(8192);
 });
+it("admits on the profile's own memory limits", () => {
+  const l = memoryLimitsOf({ limits: { memory: { reserveMb: 4096 } } });
+  expect(l).toMatchObject({ reserveMb: 4096, perMilestoneMb: 3072, floorMb: 3072 });
+  expect(mayStartMilestone({ availableMb: 5120, working: 1, ramping: 0 }, l)).toBe(false);   // admitted on the defaults
+  expect(mayStartMilestone({ availableMb: 9000, working: 2, ramping: 1 }, memoryLimitsOf({ limits: { memory: { perMilestoneMb: 1024, floorMb: 1024 } } }))).toBe(true);
+  expect(neededMb(1, l)).toBe(10240);
+});
+// test/domain/profile.test.ts
+it("sets, validates and removes the memory limits", …);   // patchAt as above; 0, -1, 1.5 throw; a stored "lots" → the default and a warning; ProfileView.limits.memory carries the defaults
 it("counts working milestones, and ramping ones by their tree's age", () => {
   const now = Date.parse("2026-10-21T10:10:00.000Z");
   expect(memoryLoad([ms("M1", "lanes", "2026-10-21T10:00:00.000Z"), ms("M2", "review", "2026-10-21T10:08:00.000Z"),
@@ -220,10 +234,10 @@ it("reads macOS's free percentage, Linux's MemAvailable, and falls back to os.fr
 });
 ```
 
-- [ ] **Step 2: Run** `bun test test/domain/milestone-memory.test.ts test/infra/memory.test.ts`. Expected: FAIL.
+- [ ] **Step 2: Run** `bun test test/domain/milestone-memory.test.ts test/infra/memory.test.ts test/domain/profile.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement** as in Interfaces. A `sysctl` level outside 0–100 counts as unreadable.
-- [ ] **Step 4: Run** the Step 2 command and `bun test test/architecture.test.ts`. Expected: PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(daemon): how much memory a new milestone needs, and how much the machine has"`
+- [ ] **Step 4: Run** the Step 2 command and `bun test test/architecture.test.ts test/services/profile-service.test.ts test/entry/profile-command.test.ts`. Expected: PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat(daemon): how much memory a new milestone needs, from the profile, and what the machine has"`
 
 ### Task 3: `run_start` takes `base`
 
@@ -280,6 +294,7 @@ it("run_start refuses a remote ref as base", …);   // session tool, base "orig
   5. No folder, the branch exists: `known` → `git worktree add <tree> <branch>`; else `E_TREE` `branch <branch> exists and is not this run's`, fix `rename it (git branch -m <branch> <branch>-old) or delete it, then answer`.
   6. Neither → `git worktree add --no-track -b <branch> <tree> origin/<base>`.
   7. Unless `<tree>.ready` exists: `git submodule update --init --recursive` when `.gitmodules` exists, then the first non-null `planSetup` over plan.md and `planDocs(run)` (D4); success writes `.ready`. A failure throws `E_TREE` `Setup: <command> exited <code> in <tree>: <last 1500 characters>` (or `timed out after 15 min`), fix `correct the Setup: line in plan.md or the machine, then answer`; the submodule failure reads `git submodule update failed in <tree>`.
+  `branchPusher.push(tree, branch)`: `git -C <tree> push -u origin <branch>` (30b's `git`, 120 s); a non-zero exit throws `E_TREE` `git push of <branch> failed: <last 1500 characters>`, fix `fix the remote or push it yourself, then answer`. Task 7 tests it through a fake.
   `removeTree`: no folder → `{ removed: false, hint: null }`; `git worktree remove <tree>` ok → delete `.ready`, `{ removed: true, hint: null }`; refused → `{ removed: false, hint: "kept <tree>: it has uncommitted or untracked files; git worktree remove it once they are saved" }`.
 
 - [ ] **Step 1: Write the failing tests** (each on Task 3's `branchRun()`; plan.md written with `writeFileSync(runPaths(run.dir).plan, …)`; `treeLimits` restored in `afterEach`):
@@ -318,11 +333,11 @@ it("treeOf is the repo for a run without base", …);                           
 ### Task 5: the machine runs milestones side by side
 
 **Files:**
-- Modify: `src/domain/run-events.ts` (two members, `describeEvent`), `src/domain/run-state.ts` (the four `MilestoneState` fields, `reduce`, `activeMilestones`, `wakeAt`), `src/domain/run-machine.ts` (`claimTree`, the advance rules, `actionKey`, `confirms`, lane readiness)
-- Test: `test/domain/run-events.test.ts` (`oneOfEach` gains both), `test/domain/run-state.test.ts`, `test/domain/run-machine.test.ts`
+- Modify: `src/domain/run-events.ts` (three members, `describeEvent`), `src/domain/run-state.ts` (the four `MilestoneState` fields, `reduce`, `activeMilestones`, `wakeAt`), `src/domain/run-machine.ts` (`claimTree`, `pushBranch`, the advance rules, `actionKey`, `confirms`, lane readiness)
+- Test: `test/domain/run-events.test.ts` (`oneOfEach` gains all three), `test/domain/run-state.test.ts`, `test/domain/run-machine.test.ts`
 
 **Interfaces:**
-- Consumes: plan 30's machine and state, 30b's base-run rules, `MEMORY_LIMITS.recheckMs`, `unitMilestone`.
+- Consumes: plan 30's machine and state, 30b's base-run rules, `MEMORY_LIMITS.recheckMs`, `unitMilestone`, `isPushAnswer`, `mrCommand`.
 - Produces: the run-events, run-state and run-machine lines of Produces, as these rules (a run without base: none of them):
 
 | Event or state | Effect on state / actions |
@@ -334,9 +349,11 @@ it("treeOf is the repo for a run without base", …);                           
 | active `waiting`, `tree` set | plan 30's `route{ M, confirmed: false }` |
 | lane `after` entry | same milestone: that lane `done` · other milestone's lane, or a milestone id: that milestone landed or merged; in a base run merged |
 | base: landed M whose `push` question is open, 10 min since its last `checkMerged` or its landing | `checkMerged{ M }` (30b's 10-minute wake, widened from "while another waits on it") |
-| `question.answered` on a `push` question | 30b's merged count, plus `checkMerged{ M }` so its tree goes |
+| `question.answered` on a `push` question, `isPushAnswer(answer)` | `pushBranch{ M }` (`actionKey` `pushBranch:<M>`; confirmed by `branch.pushed`, `effect.failed{ action: "pushBranch", unit: M }`); not a merge |
+| `question.answered` on a `push` question, any other answer | 30b's merged count, plus `checkMerged{ M }` so its tree goes |
+| `branch.pushed{ M, mr }` | `park{ unit: M, question: D11's pushedQuestion with `mr`, reason: "push" }` |
 
-`describeEvent`: `M1 has its worktree on branch t-m1` · `M2 waits for memory: 3100 MB available, 5120 MB needed`.
+`describeEvent`: `M1 has its worktree on branch t-m1` · `M2 waits for memory: 3100 MB available, 5120 MB needed` · `M1's branch t-m1 is pushed to origin`.
 
 - [ ] **Step 1: Write the failing tests** (plan 30's `feed`, `started`, `ev`; `base` fixtures feed `run.started{ base: "main" }`):
 
@@ -367,6 +384,7 @@ it("waits out a memory deferral and claims again at the recheck", () => {
 });
 it("parks a milestone whose claim failed twice, and claims it again after the answer", …);
 it("checks a landed milestone's merge every 10 minutes while its push question is open, even when nothing waits on it", …);
+it("pushes on a push answer, then asks again with the MR command, and counts only another answer as merged", …);   // answered(M1, "Push") → pushBranch{ M1 }, M1 not merged; branch.pushed → park{ M1, reason: "push" } naming the MR command; answered(M1, "merged") → merged
 it("a parked milestone keeps its tree and does not count as working", () =>
   expect(memoryLoad(feed([...baseRun(["M1"]), treeReady("M1"), parked("M1", "environment")]).state.milestones, NOW).working).toBe(0));
 it("never returns two claimTree actions at once", …);        // over every fixture state of the file
@@ -414,16 +432,17 @@ it("a base-run digest lists only the branch's own commits and files, whatever la
 ### Task 7: the daemon's effects and briefs work in the tree
 
 **Files:**
-- Modify: `src/services/run-effects.ts` (`claimTree` effect; `dispatch`, `fastCheck`, `commit`, `integrate` in `treeOf(run, unitMilestone(unit))`; `checkMerged` removes the tree; the `push` question's text; `planOf`'s `after`), `src/services/run-briefs.ts` (the branch line, the reviewer's three-dot range, the architect's base-run sentences)
+- Modify: `src/services/run-effects.ts` (`claimTree` and `pushBranch` effects; `dispatch`, `fastCheck`, `commit`, `integrate` in `treeOf(run, unitMilestone(unit))`; `checkMerged` removes the tree; the `push` question's text; `planOf`'s `after`), `src/services/run-briefs.ts` (the branch line, the reviewer's three-dot range, the architect's base-run sentences)
 - Test: `test/services/run-effects.test.ts`, `test/services/run-briefs.test.ts`
 
 **Interfaces:**
 - Consumes: Tasks 1–6; plan 30's `Effects`, `briefFor`, `planOf`; 30b's `integrate`, `checkMerged`, `land` effects.
 - Produces, per action:
-  - `claimTree{ M }`: `const load = memoryLoad(s.milestones, deps.now())`, `const availableMb = memoryReader.read()`; `!mayStartMilestone({ availableMb, ...load })` → `tree.deferred{ milestone, availableMb, needMb: neededMb(load.ramping) }`; else `claimTree(deps, run, M, { known: M.branch !== null })` → `tree.ready{ milestone, tree, branch, base, hints }`, each hint also logged.
+  - `claimTree{ M }`: `const l = memoryLimitsOf(runProfile(deps, run))`, `const load = memoryLoad(s.milestones, deps.now(), l)`, `const availableMb = memoryReader.read()`; `!mayStartMilestone({ availableMb, ...load }, l)` → `tree.deferred{ milestone, availableMb, needMb: neededMb(load.ramping, l) }`; else `claimTree(deps, run, M, { known: M.branch !== null })` → `tree.ready{ milestone, tree, branch, base, hints }`, each hint also logged.
   - `dispatch`: `admit(…, { …, cwd: treeOf(run, unitMilestone(a.unit)) })`. `fastCheck`: `runCheck(treeOf(run, lane's milestone), …)`. `commit`: every git call in the tree; `commit.made.commit` is the tree's HEAD. `integrate`: in the tree, the branch `M.branch`.
   - `checkMerged`: git-merged or counted merged in `s` → `removeTree(run, M)`; a hint → `log("warn", "trees", hint)`; then `milestone.merged{ M }`.
   - `land` in a base run: the `push` question is D11's text, verbatim.
+  - `pushBranch{ M }`: `await branchPusher.push(M.tree, M.branch)` → `branch.pushed{ milestone: M, branch: M.branch, remote: "origin", mr: mrCommand({ originUrl: <git remote get-url origin>, base, branch: M.branch, body: <digestPath> }) }`; a throw is `effect.failed{ action: "pushBranch", unit: M, message }`. Never `--force`, never another branch, never an MR call.
   - `planOf`: `after: milestoneAfter(lanes, m)`.
   - `briefFor`: in a base run, every dispatch whose unit has a milestone with a tree gets D8's line before its notes; the reviewer's range is `git diff origin/<base>...HEAD`. The architect's brief in a base run gains: "In this run each milestone is its own branch and merge request from origin/<base>, and milestones run side by side: a milestone that builds on another's code names it on its first lane's After: line (After: M1), and only those wait. When a fresh checkout needs a command before anything runs (installing dependencies, generating code), put Setup: <command> on the line under plan.md's # title." The integrate worker's notes (30b Ruling 14) gain "edit the conflicted files only; do not git add or commit: catherd does".
 
@@ -439,11 +458,13 @@ it("claims a tree when memory allows, and defers with the numbers when it does n
   expect(lastEvent(run)).toMatchObject({ type: "tree.ready", milestone: "M2", branch: "t-m2" });
 });
 it("always claims the first milestone, whatever the memory reads", …);   // read = () => 0, nothing working → tree.ready
+it("admits by the run profile's memory limits", …);   // read = () => 5000, M1 working; profile limits.memory.reserveMb 1024 → tree.ready where the defaults defer; reserveMb 8192 at read 9000 → tree.deferred, needMb 11264
+it("pushes a landed milestone's branch with a fake git, and records it", …);   // branchPusher.push a recorder → called once with (M1's tree, "t-m1"); branch.pushed{ M1, t-m1, origin, mr: the gh or glab command }; a throwing fake → effect.failed{ pushBranch }, no branch.pushed; no other git call
 it("turns a refused claim into effect.failed with its message", …);       // foreign branch t-m1 → effect.failed /not this run's/
 it("dispatches, fast-checks and commits a base-run milestone in its tree", …);
 it("integrates in the milestone's tree, on its branch", …);
 it("removes a merged milestone's clean tree, keeps a dirty one, and appends milestone.merged either way", …);
-it("parks a landed milestone for its push, naming its branch, the push command, the digest and the precheck", …);
+it("parks a landed milestone for its push, naming its branch, the push answer, the push command, the digest and the precheck", …);
 it("a run without base dispatches, checks and commits in the repo", …);
 // test/services/run-briefs.test.ts
 it("gives every role of a base-run milestone its tree, branch and three-dot diff, and no role without base", …);
@@ -459,18 +480,18 @@ it("tells a base run's architect that milestones run side by side unless After: 
 
 **Files:** `plugin/skills/catherd/SKILL.md`, `README.md`, `MIGRATION.md`, `docs/dev/ideas.md`; Test `test/skills.test.ts`
 
-- [ ] **Step 1: Update the test:** `expect(skill("catherd")).toContain("run_start(repo, title, a_lines, base)")` and `toContain("catherd never pushes")`.
+- [ ] **Step 1: Update the test:** `expect(skill("catherd")).toContain("run_start(repo, title, a_lines, base)")`, `toContain("answer push")` and `toContain("catherd never opens an MR or merges")`.
 - [ ] **Step 2: Run** `bun test test/skills.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Write the text.**
-  - SKILL.md (stays under plan 30's 120 lines), three bullets: pass `base` (a branch on origin) when each milestone should be its own branch and MR; independent milestones then run side by side while the machine has memory for them, and a milestone that builds on another names it on an `After:` line; each landed milestone asks the owner to push it and merge its MR with a merge commit (the question carries the commands), catherd never pushes, and in a squash-merging repo the owner's answer is what unblocks the milestones after it.
-  - README, a `### A milestone per branch` subsection under `## Use`: what `base` does; trees under the run folder and removed once merged and clean; `Setup:` on plan.md's header; the memory rule and its numbers (D6), and that macOS is read through `kern.memorystatus_level`; pushes, MRs and merges stay the owner's.
-  - MIGRATION "From 1.5 to 2.0", `### A milestone per branch`: `run_start` takes `base`; `After: M1` is now valid in a lane header; a run without `base` works in the repo as before.
-  - `docs/dev/ideas.md` (Ruling 15): remove "Milestone per branch" and "One run per worktree: `dispatch` takes no cwd"; narrow "Carried gate passes are not shared between worktrees of one repo" to worktrees the user made; keep "Stacked milestones"; add "**The milestone memory estimate is a constant.** 3 GB per working milestone and a 2 GB floor were set from the shop run's 9 GB swap, not measured per milestone. Fix: record the peak RSS of each milestone's process tree on the scorecard runs, then make it a profile setting if repos differ." and "**A kept worktree is only logged.** A merged milestone's tree with untracked files stays under `<run>/trees/` and only the daemon log says so. Fix: list kept trees in the run's report."
+  - SKILL.md (stays under plan 30's 120 lines), three bullets: pass `base` (a branch on origin) when each milestone should be its own branch and MR; independent milestones then run side by side while the machine has memory for them, and a milestone that builds on another names it on an `After:` line; each landed milestone asks the owner to push it and merge its MR with a merge commit (the question carries the commands); relay the owner's "answer push" and catherd pushes the branch itself and asks again with the MR command; catherd never opens an MR or merges, and in a squash-merging repo the owner's answer is what unblocks the milestones after it; the memory numbers are the profile's `limits.memory`.
+  - README, a `### A milestone per branch` subsection under `## Use`: what `base` does; trees under the run folder and removed once merged and clean; `Setup:` on plan.md's header; the memory rule and its defaults (D6), set per profile with `catherd profile set limits.memory.reserveMb|perMilestoneMb|floorMb <MB>`, and that macOS is read through `kern.memorystatus_level`; a `push` answer has catherd push the branch and print the MR command; MRs and merges stay the owner's.
+  - MIGRATION "From 1.5 to 2.0", `### A milestone per branch`: `run_start` takes `base`; `After: M1` is now valid in a lane header; the profile gains `limits.memory`; answering `push` to a landed milestone's question has catherd push its branch; a run without `base` works in the repo as before.
+  - `docs/dev/ideas.md` (Ruling 15): remove "Milestone per branch" and "One run per worktree: `dispatch` takes no cwd"; narrow "Carried gate passes are not shared between worktrees of one repo" to worktrees the user made; keep "Stacked milestones"; add "**The milestone memory defaults are a guess.** `limits.memory`'s defaults (2 GB reserve, 3 GB per milestone, 3 GB floor) were set from the shop run's 9 GB swap, not measured per milestone. Fix: record the peak RSS of each milestone's process tree on the scorecard runs, then retune the defaults." and "**A kept worktree is only logged.** A merged milestone's tree with untracked files stays under `<run>/trees/` and only the daemon log says so. Fix: list kept trees in the run's report."
 - [ ] **Step 4: Run** `bun test test/skills.test.ts test/entry/plugin-packaging.test.ts`, then `bun run format:check`. Expected: PASS.
-- [ ] **Step 5: Commit** — `git commit -m "docs(skill): a milestone per branch: base, side by side by memory, pushes on the owner's word"`
+- [ ] **Step 5: Commit** — `git commit -m "docs(skill): a milestone per branch: base, side by side by memory, a push on the owner's word"`
 
 ### Task 9: changeset
 
-- [ ] **Step 1:** Create `.changeset/milestone-branches.md`: `"catherd-cli": major`; "2.0.0 (part of): run_start takes base: each milestone gets its own branch and worktree from origin/<base>, set up once with the plan's Setup: line, and its roles, checks and commits work there; milestones whose After: milestones are merged run side by side while the machine has the memory for them (3 GB each above a 2 GB floor); merged, clean worktrees are removed. catherd still never pushes or merges. A run without base works in the repo as before."
+- [ ] **Step 1:** Create `.changeset/milestone-branches.md`: `"catherd-cli": major`; "2.0.0 (part of): run_start takes base: each milestone gets its own branch and worktree from origin/<base>, set up once with the plan's Setup: line, and its roles, checks and commits work there; milestones whose After: milestones are merged run side by side while the machine has the memory for them (the profile's limits.memory: by default 3 GB each above a 2 GB reserve); answering push to a landed milestone has catherd push its branch and print the MR command; merged, clean worktrees are removed. catherd never opens an MR or merges. A run without base works in the repo as before."
 - [ ] **Step 2: Run** `bunx changeset status`. Expected: `catherd-cli` major.
 - [ ] **Step 3: Commit** — `git commit -m "chore(release): changeset for milestone branches"`

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** every role the daemon dispatches gets its role text, its team and its done-when as labelled sections, with the rules t3herd's runs taught; replies gain `EXTRA:`, `REJECTED:` and `DESIGN:` beside 30b's `HEAD:` and blocked reasons; and a run starts from a reviewed plan: `run_start` takes `plan:`, each lane names the plan tasks it implements and its worker gets them verbatim, a run without a plan waits for the owner's approval of the architect's deep plan before its first lane, and preflight refuses a lane with no task behind it or a task with neither a signature nor a test.
+**Goal:** every role the daemon dispatches gets its role text, its team and its done-when as labelled sections, with the rules t3herd's runs taught; replies gain `EXTRA:`, `REJECTED:` and `DESIGN:` beside 30b's `HEAD:` and blocked reasons; and a run starts from a reviewed plan: `run_start` takes `plan:`, each lane names the plan tasks it implements and its worker gets them verbatim, a run without a plan waits for the owner's approval of the architect's deep plan before its first lane (and again when a later architect change edits an approved decision line), and preflight refuses a lane with no task behind it or a task with neither a signature nor a test.
 
-**Architecture:** Domain: `role-prompts.ts` holds each role's parts and renders them (`roleSections`); `brief.ts`'s `composeBrief` wraps the daemon's brief as `<task>` between them; `record.ts` gains three reply parsers; a new pure `plan-doc.ts` parses plan files into a preamble and tasks and judges coverage and depth; `lane.ts` reads a `Tasks:` header line. Services: a new `plan-input.ts` resolves, copies and reads the run's plan files; plan 30's `run-client.ts` (`runStart`, `answerUnit`), `run-briefs.ts` (`briefFor`'s bodies), `run-report.ts` and `run-effects.ts` (`readPlan`), and `preflight.ts` use it. The approval stop is plan 30's machine (`run-state.ts`, `run-machine.ts`): `plan.ready` with no plan input enters phase `approval` and parks the run; the client turns an approving answer into `plan.approved{ by: "owner" }`.
+**Architecture:** Domain: `role-prompts.ts` holds each role's parts and renders them (`roleSections`); `brief.ts`'s `composeBrief` wraps the daemon's brief as `<task>` between them; `record.ts` gains three reply parsers; a new pure `plan-doc.ts` parses plan files into a preamble and tasks and judges coverage and depth; `lane.ts` reads a `Tasks:` header line. Services: a new `plan-input.ts` resolves, copies and reads the run's plan files; plan 30's `run-client.ts` (`runStart`, `answerUnit`), `run-briefs.ts` (`briefFor`'s bodies), `run-report.ts` and `run-effects.ts` (`readPlan`), and `preflight.ts` use it. The approval stop is plan 30's machine (`run-state.ts`, `run-machine.ts`): `plan.ready` with no plan input enters phase `approval` and parks the run; the client turns an approving answer into `plan.approved{ by: "owner" }` and keeps the approved text as `<run>/plan-approved.md`; after that, `readPlan` parks the run in `approval` again when plan.md's `D<n>` lines differ from it.
 
 **Tech Stack:** Bun ≥ 1.4, TypeScript, zod 4, `@modelcontextprotocol/sdk`. No new dependency.
 
@@ -13,10 +13,7 @@
 **Pre-validation: spiked the plan-task parser (Task 2's task heading, its section end and its signature and test markers) against the payment ledger plan (10 tasks, all with both), its contracts file (no task: its whole text is preamble, 50 KB) and catherd plans 23, 30 and 30b (34 tasks, every one with a signature or a test), and against a prose-only task (neither), targeted tests only; the full gate runs at execution.** Written against `main` at 2061e6e; it executes after plans 28, 29, 30, 30b and 31 merge, so re-find every hunk by context, and every plan-30 file by its Produces name.
 
 
-## Owner answers (2026-10-21, binding over the Rulings below)
-
-- Ruling 12 stands: the architect's plan stays in the run folder.
-- Ruling 16 is narrowed: an architect change after approval parks for a second approval **only when it changes a decision line** (`D<n>`) of the approved plan; any other change needs none. Add the test "parks again for approval when an architect change edits a decision, and not otherwise".
+Owner answers of 2026-10-21 are folded into Tasks 2, 4, 7–9 and Rulings 12 and 16.
 
 ## Global Constraints
 
@@ -55,22 +52,17 @@
 9. Ruling: the signature and test markers are Task 2's regexes — spiked on 44 real tasks — a task whose only test is an `Expected:` line passes (ideas.md follow-up).
 10. Ruling: preflight's refusal applies to daemon runs only, to the milestone it checks, before the confirm list and before any check, as `cannot-start` results, which plan 30 parks (reason `preflight`) — 1.5 runs never reach 2.0 — none.
 11. Ruling: `readPlan` checks coverage over every lane and, with no plan input, plan.md's depth; a problem is `effect.failed{ action: "readPlan" }`, which re-dispatches the architect on its thread with it, twice, and parks the run (`effect`) on the third — the architect can fix it; plan 30 re-ran `readPlan`, which fixes nothing — an owner's task lacking both still meets preflight's refusal.
-12. Ruling: the architect's plan is `<run>/plan.md`, never committed — roles never commit and the approval is the review — Owner question 1.
+12. Ruling: the architect's plan is `<run>/plan.md`, never committed — roles never commit and the approval is the review; owner answer, 2026-10-21 — none.
 13. Ruling: an approving answer is `approve`, `approved`, `yes`, `ok` or `lgtm` alone (case, a trailing `.`/`!` ignored); anything else asks for changes — "ok but rename X" must not approve — an owner typing "sure" gets one revision round.
 14. Ruling: an approval appends `plan.approved{ by: "owner" }` and no `question.answered`; `reduce` closes the question on it — plan 36 Ruling 12 would count both — none.
 15. Ruling: with plan input `runStart` appends `plan.approved{ by: "input" }` after `run.started`; a `plan:` A-line is plan input too and stays an A-line — plan 36 reads `by: "input"`; plan 30 and the 1.5 skill used the A-line — none.
-16. Ruling: an architect delta after approval (a judge `architect` route) needs no new approval — the judge's decision is audited — Owner question 2.
+16. Ruling: an architect change after approval (a judge `architect` route) parks for a second approval only when it edits a decision line of the approved plan: `readPlan` compares `decisionLines` of plan.md with `<run>/plan-approved.md` (written by `answerUnit` on each owner approval) and, on any added, removed or changed `D<n>`, appends `question.parked{ unit: RUN_UNIT, question: reapprovalQuestion(run, ids), reason: "approval" }` before `plan.ready`, reusing the approval park, `answerUnit`'s approval answer and `plan.approved{ by: "owner" }`; any other change needs none — owner answer, 2026-10-21 — a decision restated in other words parks once more.
 17. Ruling: no lane kind is exempt from `Tasks:` and the signature-or-test rule — the spec names none — a plan with a test-less docs task parks at that milestone's preflight.
 18. Ruling: the draft's commit-style skill text is dropped (the daemon commits, plan 30 Ruling 11); its MR-title line stays — the session still opens the MR — none.
 19. Ruling: a task behind two lanes is not refused — not asked; the lanes' shared files are caught by Owns — none.
-20. Ruling: `write_run_file` refuses `plan-input/` — the approved design is the owner's — none.
+20. Ruling: `write_run_file` refuses `plan-input/` and `plan-approved.md` — the approved design is the owner's — none.
 21. Ruling: `withReplyContract` is deleted with its test — no caller — none.
 22. Ruling: no `docs/dev/ideas.md` entry is closed (grep: none is about briefs or plan input); Task 9 adds one — none.
-
-Owner questions (each built as recommended):
-
-1. The architect's plan lives in the run folder and is read with `catherd run-file read`. Alternative: committed to `docs/plans/` on the run's branch before the approval stop.
-2. A design change the judge routes to the architect after approval runs without a second approval. Alternative: every post-approval plan.md rewrite parks the run again.
 
 ## Cross-plan interfaces
 
@@ -148,6 +140,9 @@ export function depthProblems(doc: PlanDoc): string[];
 export const APPROVE_WORDS = ["approve", "approved", "yes", "ok", "lgtm"] as const;
 export function isApproval(answer: string): boolean;
 export function approvalQuestion(runId: string): string;
+export function decisionLines(text: string): Map<string, string>;                          // D<n> → its line, trimmed, from the Decisions section
+export function changedDecisions(approved: string, now: string): string[];                 // D<n> ids added, removed or edited, in number order
+export function reapprovalQuestion(runId: string, ids: string[]): string;
 export function planInputNames(paths: string[]): string[];                                  // basenames; a repeat gets -2 before its extension
 ```
 
@@ -156,6 +151,8 @@ export function planInputNames(paths: string[]): string[];                      
 - `coverageProblems` notes, exact: `lanes/<id>.md has no Tasks: line: name the plan tasks it implements` · `lanes/<id>.md: Tasks: <ref> — <why>` · `<doc> Task <n> has neither a signature nor a test: add its signatures (a code block or an Interfaces: line) or a Test: line`.
 - `depthProblems` (a `## <section>` heading, case-insensitive prefix): `plan.md has no "## <section>" section` per missing one · `plan.md has no "### Task <n>:" heading` · `plan.md Task <n> has no test: add a Test: line naming its test file and case` · `plan.md D<n> names no rejected alternative: write D<n> — <choice> — rejected: <alternative> — <why>` (each line of Decisions starting `D<n>` with no `rejected`) · `plan.md's What already exists lists no path` (no backticked token with a `/` or a `.ext`).
 - `approvalQuestion(id)`, exact: ``The architect's plan is ready for your review: catherd run-file read ${id} plan.md. Answer approve, or say what to change.``
+- `reapprovalQuestion(id, ids)`, exact: ``The architect changed approved decisions ${ids.join(", ")} of plan.md: catherd run-file read ${id} plan.md. Answer approve, or say what to change.``
+- `decisionLines`: each line of the `## Decisions` section starting `D<n>` (after an optional `-`/`*` and `**`), keyed by `D<n>`, whitespace collapsed.
 - `lane.ts`: `LaneHeader.tasks: string[]` (`list("tasks")`); `orderProblems` adds `Tasks "<ref>" is not a task number like 3 or plan.md#3` for a ref failing `TASK_REF`. `assertLaneHeader` does not require the line (Ruling 10: preflight does).
 
 - [ ] **Step 1: Write the failing tests** in `test/domain/plan-doc.test.ts`:
@@ -180,6 +177,12 @@ it("asks a written plan for the three sections, a test per task and a rejected a
 it("approves only on a bare approving word", () => {
   expect(["approve", " Approved. ", "LGTM!", "ok", "yes"].every(isApproval)).toBe(true);
   expect(["ok but rename X", "approve after Task 2 changes", "", "no"].some(isApproval)).toBe(false);
+});
+it("names the decisions a revised plan added, removed or edited, and none for other edits", () => {
+  const a = "## Decisions\nD1 — x — rejected: y — z\nD2 — p — rejected: q — r\n\n### Task 1: t\nTest: a.test.ts\n";
+  expect(changedDecisions(a, a.replace("### Task 1: t", "### Task 1: renamed"))).toEqual([]);
+  expect(changedDecisions(a, a.replace("D2 — p", "D2 — p2"))).toEqual(["D2"]);
+  expect(changedDecisions(a, a.replace("D1 — x — rejected: y — z\n", ""))).toEqual(["D1"]);
 });
 it("names plan copies by basename, numbering a repeat", () =>
   expect(planInputNames(["/a/plan.md", "/b/plan.md", "/c/x.md"])).toEqual(["plan.md", "plan-2.md", "x.md"]));
@@ -210,7 +213,7 @@ it("names plan copies by basename, numbering a repeat", () =>
   - Worker, first after "Change only the files you own…": "Your brief holds the plan tasks behind your lane, verbatim. Implement them as written: their files, signatures, names, data shapes and tests. A task's commit steps are not yours: catherd commits." · "When a task conflicts with the code (a signature that cannot compile against what exists, a name the code already uses for something else, a test the design cannot pass), do not redesign it: leave that part, and reply DESIGN: <task> — <the conflict> — <the change you propose>, then STATUS: blocked — needs_user: <the conflict in one line>." In the draft's weakened-check sentence "unless your lane asks" reads "unless your task asks"; its fix-round sentence reads "check each finding against the code and your tasks".
   - Architect, replacing today's "When the acceptance lines include plan:" paragraph and "Write plan.md with exactly these parts" list (the draft's `Reference:` addition kept):
     - "When your brief lists the owner's plan files, the design is written and approved, and there is no dossier. Translate it, do not design: each plan task goes to exactly one lane, whole, and each merge request or phase becomes a milestone with its full check. A lane's Tasks: line names its tasks; catherd puts each task's text, verbatim, into its worker's brief, so a lane file carries its header and only what the plan leaves undecided. When the acceptance lines name only some tasks, lane only those. Write plan.md as its milestones (`## M<n> — <title>`, its acceptance lines and `Check:`), and put a decision the plan leaves open under `## Decisions`."
-    - "With no plan given, you write the design, to the depth of a plan the owner reviews before any code exists: the run waits for the owner's approval of your plan.md, its one planned stop. Write plan.md with exactly these parts, in this order:" 1 `## What already exists`: "every file, type and function the work calls or changes, as `path` — `signature` — what it is; workers must not recreate them." 2 `## Contracts`: "every name more than one task uses (types, functions, routes, events, error codes, config keys) with its exact signature or shape." 3 `## Decisions`: "`D<n> — <the choice> — rejected: <the alternative> — <why>`, for each choice two reasonable engineers would make differently." 4 milestones `## M<n> — <title>` with acceptance lines and `Check: <full check>`, each with its tasks `### Task <n>: <title>`, numbered across the plan, each with `Files:` (exact paths to create, modify and test), the exact signatures and data shapes it introduces (a code block) and `Test:` lines naming each test file and case and what it asserts. "A task without a test is refused." Then today's speed, edge-case and out-of-scope parts. (The ledger plan is the model: its "What already exists" list, contracts §3 and §9.1, the decisions of contracts §12, Interfaces blocks and named tests per task.)
+    - "With no plan given, you write the design, to the depth of a plan the owner reviews before any code exists: the run waits for the owner's approval of your plan.md, its one planned stop; after that, a change to a decision line (D<n>) waits for the owner's approval again, so change one only when the code forces it. Write plan.md with exactly these parts, in this order:" 1 `## What already exists`: "every file, type and function the work calls or changes, as `path` — `signature` — what it is; workers must not recreate them." 2 `## Contracts`: "every name more than one task uses (types, functions, routes, events, error codes, config keys) with its exact signature or shape." 3 `## Decisions`: "`D<n> — <the choice> — rejected: <the alternative> — <why>`, for each choice two reasonable engineers would make differently." 4 milestones `## M<n> — <title>` with acceptance lines and `Check: <full check>`, each with its tasks `### Task <n>: <title>`, numbered across the plan, each with `Files:` (exact paths to create, modify and test), the exact signatures and data shapes it introduces (a code block) and `Test:` lines naming each test file and case and what it asserts. "A task without a test is refused." Then today's speed, edge-case and out-of-scope parts. (The ledger plan is the model: its "What already exists" list, contracts §3 and §9.1, the decisions of contracts §12, Interfaces blocks and named tests per task.)
     - The lane header: "Its first six lines are exactly:", adding `Tasks: <plan task numbers, comma-separated; <plan file>#<n> when the run has several plan files>` after `Difficulty:`. "more small lanes beat one long one" and "Signatures, data shapes and test case names are yours" stay.
   - `WORKER_REPLY` adds, after the draft's EXTRA/REJECTED sentence: "A conflict with your plan task is a DESIGN: line, and your reply ends blocked with needs_user."
   - `DONE_WHEN`: architect "plan.md and every lane file are written; each lane has its six header lines and names whole tasks; no two lanes of a milestone own the same file; with no plan given, plan.md has What already exists, Contracts and Decisions, and every task its signatures and a Test: line." · reviewer "Every line of the diff is read against its plan tasks, and every finding is on its own line in the format above; the reply is CLEAN only when there is none." · judge "Your first line is DECISION: one of the verbs your brief lists, followed by that verb's lines, decided from what the brief and the run's files show." · the other roles as the draft.
@@ -256,9 +259,9 @@ export const taskBlock = (t: PlanTask): string;                                /
 - `resolvePlanInputs` refusals (`E_INPUT_INVALID`), exact: `plan file <p> does not exist` · `plan <p> is not a file` · `none of the plan files has a "### Task <n>:" heading: <paths>` (fix: `pass the reviewed plan, or no plan and the architect writes one`). A relative path resolves against `repo`.
 - `planContext` text per doc: `The plan's preamble (<name>), which applies to every task:\n\n<preamble trimmed>` (a doc with no task: `The plan file <name>, which every task follows:\n\n<text>`), joined by a blank line; over `PLAN_CONTEXT_MAX`: `The run's plan files are too long to repeat here; read them before you start, with read_run_file: <plan-input/... joined ", ">`. Null for `architect` and `judge`, for a run that is not a daemon run, and when `planDocs` is empty.
 - `runStart(deps, i: { repo; title; aLines; plan?: string[] })`: `plan = resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)])` before `createRun`; after it, `copyPlanInputs`, `run.started{ plan, … }`, then `plan.approved{ by: "input" }` when `plan` is non-empty. The result gains `plan: string[]`; `next` with a plan: `the run implements <n> plan file(s) as written: status(run) shows it`; without: `the architect writes a plan first, and the run waits for your approval (answer approve): status(run) shows it`.
-- `answerUnit`: first `copyPlanInputs(run, replayRun(run).plan)` when it is non-empty; then, when the open question of `RUN_UNIT` has reason `approval` and `isApproval(answer)`, append `plan.approved{ by: "owner" }` only (Ruling 14); else as plan 30.
+- `answerUnit`: first `copyPlanInputs(run, replayRun(run).plan)` when it is non-empty; then, when the open question of `RUN_UNIT` has reason `approval` (the first approval or a re-approval, Ruling 16) and `isApproval(answer)`, write plan.md's text to `<run>/plan-approved.md` (0600) and append `plan.approved{ by: "owner" }` only (Ruling 14); else as plan 30.
 - `run_start` gains `plan: z.array(z.string().min(1)).max(20).optional()`, described: "The reviewed plan files the run implements as written (paths, relative to repo or absolute). Without one, the architect writes a plan and the run waits for your approval."
-- `writeRunFile`: a path under `plan-input/` → `E_INPUT_INVALID` `plan-input/ holds the owner's plan files; roles never write it` (fix: `write plan.md or a lane file`).
+- `writeRunFile`: a path under `plan-input/`, or `plan-approved.md` → `E_INPUT_INVALID` `<path> holds the owner's approved plan; roles never write it` (fix: `write plan.md or a lane file`).
 
 - [ ] **Step 1: Write the failing tests** (`freshRun`, `withHome()`, `tempRepo()`, `daemonLauncher` faked as in plan 30's client tests):
 
@@ -278,12 +281,12 @@ it("refuses a missing plan file before creating the run", async () => {
 });
 it("refuses plan files none of which has a task, and a directory", …);
 it("starts a run with no plan and no approval event", …);                        // next names the approval
-it("turns an approving answer into plan.approved, and any other into a change request", …);   // "LGTM" → plan.approved{ owner }, no question.answered; "rename X" → question.answered
+it("turns an approving answer into plan.approved, and any other into a change request", …);   // "LGTM" → plan.approved{ owner }, no question.answered, plan-approved.md = plan.md; "rename X" → question.answered, no plan-approved.md
 it("copies the plan files again on every answer", …);                           // edit the original, answer M1 → the copy has the edit
 it("gives every role but the architect and the judge the plan's preamble, and names the copies past the cap", …);
 it("reads a lane's tasks from its Tasks: line, and a milestone's in lane order", …);
 it("lists every lane's coverage problem, and plan.md's depth only with no plan input", …);
-it("refuses a role's write under plan-input/", …);
+it("refuses a role's write under plan-input/ and to plan-approved.md", …);
 ```
 
   In `test/entry/session-tools.test.ts`: `it("passes run_start's plan to the client")`.
@@ -350,11 +353,12 @@ it("lists each DESIGN line under the report's audit", …);
 
 **Interfaces:**
 - Consumes: Task 2's `approvalQuestion`; plan 30's types.
-- Produces, as transitions (Rulings 11, 13–15):
+- Produces, as transitions (Rulings 11, 13–16):
 
 | Event or state | Effect |
 | --- | --- |
-| `plan.ready`, phase `planning`/`approval`, `s.plan` empty | reduce: phase `approval` (milestones merged as plan 30 does); next: `park{ unit: RUN_UNIT, question: approvalQuestion(s.run), reason: "approval" }` |
+| `plan.ready`, phase `planning`/`approval`, `s.plan` empty | reduce: phase `approval` (milestones merged as plan 30 does); next: `park{ unit: RUN_UNIT, question: approvalQuestion(s.run), reason: "approval" }`, unless an `approval` question of `RUN_UNIT` is already open (a re-approval: no second park) |
+| `question.parked{ unit: RUN_UNIT, reason: "approval" }`, phase `running` | reduce: phase `approval` (Ruling 16's re-approval); live lanes run on, no new lane or route |
 | `plan.ready` otherwise | plan 30 (phase `running`) |
 | phase `approval` | `advance` returns nothing: no route, no lane |
 | `question.answered{ unit: RUN_UNIT }`, phase `approval` | `dispatch architect` (`brief: "architect"`, `thread`: the latest `architect` dispatch's, notes `[The owner asked for these changes to plan.md: <answer>]`) |
@@ -380,7 +384,8 @@ it("waits in approval for the owner, revises on a change request and routes only
 it("runs a plan given as input with no approval stop", …);            // run.started{ plan: ["/p.md"] }, plan.approved{ input }, architect, plan.ready → route M1
 it("sends a plan the readPlan check refused back to the architect twice, then parks the run", …);
 it("dispatches no lane and no route while the plan waits for approval, over every event", …);
-it("keeps a mid-run architect delta running, with no approval stop", …);   // plan.ready in phase running → running, no park
+it("stops new lanes on a re-approval park until the owner approves again", …);   // running, question.parked{ run, approval }, plan.ready → approval, one park only, no route; plan.approved{ owner } → running, route
+it("keeps a mid-run architect change that edits no decision running, with no approval stop", …);   // plan.ready in phase running → running, no park
 ```
 
 - [ ] **Step 2: Run** `bun test test/domain/run-state.test.ts test/domain/run-machine.test.ts`. Expected: FAIL (the new tests; plan 30's and 30b's still pass).
@@ -395,8 +400,8 @@ it("keeps a mid-run architect delta running, with no approval stop", …);   // 
 - Test: `test/services/run-effects.test.ts`, `test/services/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: Task 4's `planProblems`, `planDocs`; Task 2's `coverageProblems`; plan 30's `isDaemonRun`.
-- Produces: `readPlan`: `planProblems(run)` non-empty → `effect.failed{ action: "readPlan", unit: RUN_UNIT, message: "the plan needs: " + problems.join("; ") }`, else plan 30's `plan.ready`. `preflight`: for a daemon run, after the header check, `coverageProblems(planDocs(run), lanes)` non-empty → `{ needsConfirmation: false, commands, results: one { lane, check, outcome: "cannot-start", exitCode: null, tail: [], note } per problem, blocked: true, warnings: [] }`, with no check run, confirmed or not.
+- Consumes: Task 4's `planProblems`, `planDocs`; Task 2's `coverageProblems`, `changedDecisions`, `reapprovalQuestion`; plan 30's `isDaemonRun`.
+- Produces: `readPlan`: `planProblems(run)` non-empty → `effect.failed{ action: "readPlan", unit: RUN_UNIT, message: "the plan needs: " + problems.join("; ") }`; else, when `<run>/plan-approved.md` exists and `ids = changedDecisions(<it>, plan.md)` is non-empty, `question.parked{ unit: RUN_UNIT, question: reapprovalQuestion(run.id, ids), reason: "approval" }` then plan 30's `plan.ready`; else plan 30's `plan.ready` alone (Ruling 16). `preflight`: for a daemon run, after the header check, `coverageProblems(planDocs(run), lanes)` non-empty → `{ needsConfirmation: false, commands, results: one { lane, check, outcome: "cannot-start", exitCode: null, tail: [], note } per problem, blocked: true, warnings: [] }`, with no check run, confirmed or not.
 
 - [ ] **Step 1: Write the failing tests:**
 
@@ -414,12 +419,13 @@ it("refuses before the confirm list, and passes once the plan backs every lane",
 it("leaves a run that is not a daemon run as 1.5 preflight", …);     // no Tasks: lines, no refusal
 // test/services/run-effects.test.ts
 it("fails readPlan with the plan's problems, and reads it once it is deep enough", …);   // message starts "the plan needs: "
+it("parks again for approval when an architect change edits a decision, and not otherwise", …);   // plan-approved.md + D2 edited → question.parked{ run, reapprovalQuestion(id, ["D2"]), approval }, then plan.ready; a task text edited → plan.ready only; no plan-approved.md → plan.ready only
 ```
 
 - [ ] **Step 2: Run** `bun test test/services/preflight.test.ts test/services/run-effects.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the Step 2 command. Expected: PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(preflight): refuse a lane the plan does not back, or a task with no signature or test"`
+- [ ] **Step 5: Commit** — `git commit -m "feat(preflight): refuse a lane the plan does not back; re-approve an edited decision"`
 
 ### Task 9: the skill, the README, MIGRATION and the backlog
 
@@ -429,16 +435,16 @@ it("fails readPlan with the plan's problems, and reads it once it is deep enough
 
 - [ ] **Step 1: Write the failing test.** In `test/skills.test.ts`, `it("starts a run on the owner's plan, approves the architect's, and keeps MR titles short")`: the skill contains "`plan:`", "answer approve", "`catherd run-file read <run> plan.md`", "DESIGN:", "under 72 characters". Run it: FAIL.
 - [ ] **Step 2: Write the text.**
-  - SKILL.md: when the owner names a plan file ("implement the plan at …", a scorecard prompt), pass it as `run_start`'s `plan:` (several files, the contracts file included, as a list) and write only acceptance lines it does not already state; without one, say the architect writes a plan first and the run waits once for the owner's approval: relay the `catherd run-file read <run> plan.md` command, and pass `answer approve` on the owner's yes, or the owner's changes as the answer; a parked lane whose question quotes a DESIGN: line is a conflict between the plan and the code, answered by the owner (the plan or the code changes); an MR title is the run's outcome, under 72 characters, never the branch name.
+  - SKILL.md: when the owner names a plan file ("implement the plan at …", a scorecard prompt), pass it as `run_start`'s `plan:` (several files, the contracts file included, as a list) and write only acceptance lines it does not already state; without one, say the architect writes a plan first and the run waits once for the owner's approval: relay the `catherd run-file read <run> plan.md` command, and pass `answer approve` on the owner's yes, or the owner's changes as the answer; the run asks again, the same way, only when a later architect change edits an approved `D<n>` decision; a parked lane whose question quotes a DESIGN: line is a conflict between the plan and the code, answered by the owner (the plan or the code changes); an MR title is the run's outcome, under 72 characters, never the branch name.
   - README: "Every lane is routed, every brief ends with the reply contract" → "Every lane implements its plan tasks as written, and every role, whatever vendor runs it, gets its role's text and ends with the reply contract".
-  - MIGRATION "From 1.5 to 2.0", a `###` "The plan is the input": `run_start` takes `plan:` (a `plan:` A-line still works); lanes carry a `Tasks:` header line and preflight refuses a lane without one, or a task with neither a signature nor a test; without a plan the run stops once for the owner's approval (answer `approve`); new reply lines `EXTRA:`, `REJECTED:`, `DESIGN:`; `plan-input/` in the run folder is read-only to roles; the medium-effort floor for coding workers is plan 33's.
+  - MIGRATION "From 1.5 to 2.0", a `###` "The plan is the input": `run_start` takes `plan:` (a `plan:` A-line still works); lanes carry a `Tasks:` header line and preflight refuses a lane without one, or a task with neither a signature nor a test; without a plan the run stops once for the owner's approval (answer `approve`), and again only when a later architect change edits an approved decision line (`D<n>`); new reply lines `EXTRA:`, `REJECTED:`, `DESIGN:`; `plan-input/` in the run folder is read-only to roles; the medium-effort floor for coding workers is plan 33's.
   - `docs/dev/ideas.md`, under the 2.0 follow-ups (created by the first plan that adds one; else create `## 2.0 follow-ups` above "1.5 follow-ups"): "**A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask Jev, or the judge at `readPlan`, whether each task names what its worker must build."
 - [ ] **Step 3: Run** `bun test test/skills.test.ts test/entry/plugin-packaging.test.ts` and `bun run format:check`. Expected: PASS.
 - [ ] **Step 4: Commit** — `git commit -m "docs(skill): a run starts from the owner's plan, or waits once for the architect's"`
 
 ### Task 10: changeset
 
-- [ ] **Step 1:** Create `.changeset/briefs-plan-input.md`: `"catherd-cli": major`, "2.0.0 (part of): every role gets its role text, team and done-when as sections, with the reviewer, worker and verifier rules real runs taught; replies gain EXTRA:, REJECTED: and DESIGN: lines; run_start takes plan:, each lane names the plan tasks its worker implements as written, a run without a plan waits once for the owner's approval of the architect's, and preflight refuses a lane the plan does not back."
+- [ ] **Step 1:** Create `.changeset/briefs-plan-input.md`: `"catherd-cli": major`, "2.0.0 (part of): every role gets its role text, team and done-when as sections, with the reviewer, worker and verifier rules real runs taught; replies gain EXTRA:, REJECTED: and DESIGN: lines; run_start takes plan:, each lane names the plan tasks its worker implements as written, a run without a plan waits for the owner's approval of the architect's (again only when a later change edits an approved decision), and preflight refuses a lane the plan does not back."
 - [ ] **Step 2: Run** `bunx changeset status`. Expected: `catherd-cli` major.
 - [ ] **Step 3: Commit** — `git commit -m "chore(release): changeset for role briefs and the plan as input"`
 
@@ -452,6 +458,6 @@ it("fails readPlan with the plan's problems, and reads it once it is deep enough
 | 22: `run_start` takes `plan:` | 4 |
 | 22: every lane maps to plan tasks, implemented as written, `DESIGN:` on a conflict | 2, 3, 6 (Ruling 4) |
 | 22: without a plan, the architect writes one to the five-point depth | 2 (`depthProblems`), 3, 8 |
-| 22: the run waits for the owner's approval before the first lane | 4, 7 |
+| 22: the run waits for the owner's approval before the first lane (and on an edited decision, owner answer) | 4, 7, 8 |
 | 22: preflight refuses a lane with no task, a task with neither signature nor test | 8 |
 | 22: coding workers never below medium effort | plan 33 (Cross-plan interfaces) |
