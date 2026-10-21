@@ -18,6 +18,7 @@ import {
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
 import { findRun, type Run } from "./run-store.ts";
+import { treeOf } from "./tree-path.ts";
 
 /** One run of a milestone's full check on one commit (spec 2.0 decision 18), or of the base's own (a baseline). */
 export const CheckRecordSchema = z.looseObject({
@@ -57,11 +58,14 @@ export function appendCheckRecord(toplevel: string, rec: CheckRecord): void {
 }
 
 /**
- * The commit the baseline and the secret scan start from: the one place the base is chosen. Until plan 35 it is
- * where the run started (a run scans from there); null without one.
+ * The commit the baseline and the secret scan start from: the one place the base is chosen. A run in the repo scans
+ * from where it started; a base run's milestone from where its branch left origin's base (plan 35), null when git
+ * cannot say.
  */
-export async function checkBase(run: Run): Promise<string | null> {
-  return run.meta.startHead ?? null;
+export async function checkBase(run: Run, m?: string): Promise<string | null> {
+  if (!run.meta.base || m === undefined) return run.meta.startHead ?? null;
+  const r = await git(treeOf(run, m), ["merge-base", `origin/${run.meta.base}`, "HEAD"]);
+  return r.kind === "ok" ? r.out.trim() || null : null;
 }
 
 /** The baseline record of `command` on `base`; another commit's is none. Without a base, the newest. */
@@ -213,7 +217,7 @@ export async function machineGate(
     );
     return { missing, audit };
   }
-  const start = await checkBase(run);
+  const start = await checkBase(run, m);
   for (const rec of latest.values()) {
     if (rec.secrets === "found")
       missing.push(
@@ -298,13 +302,13 @@ export async function runMilestoneCheck(
 ): Promise<GateRunResult> {
   const run = findRun(i.run);
   const repo = run.meta.repo;
-  const cwd = i.at ?? repo;
+  const cwd = i.at ?? treeOf(run, i.milestone);
   const baseline = i.at !== undefined;
   const headOut = await git(cwd, ["rev-parse", "HEAD"]);
   if (headOut.kind !== "ok" || !headOut.out.trim())
     throw invalid(`cannot read HEAD in ${cwd}`, "run it in a git checkout with a commit");
   const head = headOut.out.trim();
-  const base = await checkBase(run);
+  const base = await checkBase(run, i.milestone);
   if (baseline) {
     if (!base || head !== base)
       throw invalid(

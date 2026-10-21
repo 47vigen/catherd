@@ -17,7 +17,8 @@ import { appendEvent } from "../../src/services/run-events-store.ts";
 import { runPaths } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
-import { fakeDeps, freshRun, PLAN_TEXT, testView, writeLane } from "./helpers.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
+import { branchRun, fakeDeps, freshRun, PLAN_TEXT, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // every other test runs its checks as a normal user, whoever runs the suite
@@ -31,6 +32,25 @@ afterEach(() => {
 
 const outcomes = (r: Awaited<ReturnType<typeof preflight>>) =>
   r.needsConfirmation ? [] : r.results.map((x) => [x.lane, x.outcome]);
+
+describe("preflight in a worktree (plan 35)", () => {
+  it("preflights a base-run milestone's lanes in its tree", async () => {
+    const { run } = branchRun();
+    const { tree } = await claimTree(fakeDeps(), run, "M1", { known: false });
+    writeFileSync(join(tree, "marker"), "here");
+    writeLane(run, "M1.L1", ["src/a.ts"], "test -f marker");
+    // the marker is in the tree only: the repo would fail this check
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id, milestone: "M1" }))).toEqual([
+      ["M1.L1", "pass"],
+    ]);
+    // a run without base checks in the repo as before
+    const plain = freshRun();
+    writeLane(plain.run, "M1.L1", ["src/a.ts"], "test -f marker");
+    expect(outcomes(await preflight(fakeDeps(), { run: plain.run.id, milestone: "M1" }))).toEqual([
+      ["M1.L1", "fails-as-expected"],
+    ]);
+  });
+});
 
 describe("preflight", () => {
   it("sorts each lane's check into pass, fails-as-expected, skipped and cannot-start", async () => {

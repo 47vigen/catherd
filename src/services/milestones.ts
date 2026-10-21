@@ -276,20 +276,29 @@ export function landedMilestones(run: Run): string[] {
     .filter(Boolean);
 }
 
-/**
- * The files the milestone's commit range changed: from the previous landed commit, else the HEAD the run
- * started on (meta.json `startHead`, when that commit is still there), else the commit's own parent, to
- * `commit`. Throws E_IO_UNEXPECTED when git cannot say.
- */
-export async function milestoneFiles(run: Run, commit: string): Promise<string[]> {
+/** The 1.5 range: see milestoneFiles. */
+async function oneFiveFiles(run: Run, commit: string): ReturnType<typeof git> {
   const repo = run.meta.repo;
   const start = run.meta.startHead;
   const base =
     landedCommits(run).at(-1) ??
     (start && (await commitExists(repo, start).catch(() => false)) ? start : undefined);
-  const r = base
+  return base
     ? await git(repo, ["diff", "--name-only", base, commit])
     : await git(repo, ["show", "--name-only", "--format=", "--first-parent", commit]);
+}
+
+/**
+ * The files the milestone's commit range changed: from the previous landed commit, else the HEAD the run
+ * started on (meta.json `startHead`, when that commit is still there), else the commit's own parent, to
+ * `commit`. A base run's milestone is its branch since origin's base (plan 35). Throws E_IO_UNEXPECTED when git cannot say.
+ */
+export async function milestoneFiles(run: Run, commit: string): Promise<string[]> {
+  const repo = run.meta.repo;
+  const r = run.meta.base
+    ? // plan 35: a base run's milestone is its branch since origin's base; three dots, since other milestones land on the base meanwhile
+      await git(repo, ["diff", "--name-only", `origin/${run.meta.base}...${commit}`])
+    : await oneFiveFiles(run, commit);
   if (r.kind !== "ok")
     throw new CatherdError("E_IO_UNEXPECTED", `git could not list the files ${commit} changed`, {
       fix: `check that git works in ${repo}`,
@@ -305,7 +314,7 @@ const DIGEST_COMMITS = 20;
  * (else the commit alone) to `commit`. Just the hash when git cannot say: a digest never fails a landing.
  */
 export async function milestoneCommits(run: Run, commit: string): Promise<string[]> {
-  const base = landedCommits(run).at(-1);
+  const base = run.meta.base ? `origin/${run.meta.base}` : landedCommits(run).at(-1);
   const range = base ? [`${base}..${commit}`] : ["-1", commit];
   const r = await git(run.meta.repo, ["log", "--reverse", "--format=%h %s", ...range]);
   if (r.kind !== "ok") return [commit.slice(0, 7)];

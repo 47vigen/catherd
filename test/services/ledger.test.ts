@@ -5,9 +5,11 @@ import { coveredMs } from "../../src/domain/util.ts";
 import { land } from "../../src/services/lane-service.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { answer, park } from "../../src/services/questions.ts";
-import { appendAgentRun, createRun, runPaths } from "../../src/services/run-store.ts";
+import { appendAgentRun, appendLedger, createRun, runPaths } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, passGate } from "./helpers.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
+import { milestoneCommits, milestoneFiles } from "../../src/services/milestones.ts";
+import { branchRun, fakeDeps, passGate } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -99,4 +101,29 @@ it("leaves the parked night and a machine pause out of the ledger minutes", asyn
   now = min(670);
   // 670 minutes since the run started, less 600 parked and 30 paused
   expect((await land(deps, landing)).minutes).toBe(40);
+});
+
+it("a base-run digest lists only the branch's own commits and files, whatever landed on the base before", async () => {
+  const { repo, run } = branchRun("ledger");
+  const deps = fakeDeps();
+  const git = (cwd: string, ...a: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], {
+      cwd,
+      encoding: "utf8",
+    }).trim();
+  const m1 = (await claimTree(deps, run, "M1", { known: false })).tree;
+  const m2 = (await claimTree(deps, run, "M2", { known: false })).tree;
+  writeFileSync(`${m1}/one.txt`, "1");
+  git(m1, "add", "-A");
+  git(m1, "commit", "-q", "-m", "m1 work");
+  // M1 lands on the base before M2 is done, and the ledger holds its commit
+  git(m1, "push", "-q", "origin", "HEAD:main");
+  appendLedger(run, `M1 | w | ${git(m1, "rev-parse", "HEAD")} | 1 | ok`);
+  git(repo, "fetch", "-q", "origin");
+  writeFileSync(`${m2}/two.txt`, "2");
+  git(m2, "add", "-A");
+  git(m2, "commit", "-q", "-m", "m2 work");
+  const tip = git(m2, "rev-parse", "HEAD");
+  expect(await milestoneFiles(run, tip)).toEqual(["two.txt"]);
+  expect((await milestoneCommits(run, tip)).map((l) => l.slice(l.indexOf(" ") + 1))).toEqual(["m2 work"]);
 });

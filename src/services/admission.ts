@@ -64,6 +64,8 @@ export interface AdmitInput {
   /** the dispatching session (spec §3.3); absent means the session this process serves */
   sessionId?: string | null;
   host?: KnownHost;
+  /** plan 35: where the role works (its milestone's worktree in a base run); absent means the run's repo */
+  cwd?: string;
 }
 
 /** Spec §3.3: SIGTERM, then SIGKILL this long after. */
@@ -242,11 +244,12 @@ export async function admit(
   // spec 1.5 plan 21 (#42 findings 1, 2): the role server goes in whether the harness is isolated or not, so no
   // role is refused for isolation, and a thread an isolated run started resumes as it started
   const roleServer = ROLE_SERVER_BACKENDS.includes(rung.backend);
+  const cwd = i.cwd ?? run.meta.repo;
   await prepared(adapter, {
     rung,
     access: rc.access,
     isolated,
-    repo: run.meta.repo,
+    repo: cwd,
     network,
   });
 
@@ -263,7 +266,7 @@ export async function admit(
       network,
       thread: i.thread,
       isolated,
-      repo: run.meta.repo,
+      repo: cwd,
       briefPath: p.brief,
       replyPath: p.reply,
       dispatchDir: dir,
@@ -310,7 +313,7 @@ export async function admit(
       throw new CatherdError("E_RUN_BUDGET", `the run budget is spent: ${formatBudget(budget)}`, {
         fix: "ask the user to raise profile.budget, or finish the run with what landed",
       });
-    const before = await statusSnapshot(run.meta.repo);
+    const before = await statusSnapshot(cwd);
     const session = currentSession(deps);
     const sessionId = i.sessionId !== undefined ? i.sessionId : (session?.sessionId ?? null);
     const admitted: Admit = {
@@ -333,7 +336,7 @@ export async function admit(
       network,
       cliVersion: probe.version,
       admittedAt: new Date(deps.now()).toISOString(),
-      repo: run.meta.repo,
+      repo: cwd,
       before,
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };

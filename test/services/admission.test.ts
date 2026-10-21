@@ -15,10 +15,12 @@ import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { addKnowledge } from "../../src/services/run-service.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import {
+  branchRun,
   briefFor,
   fakeDeps,
   fakeDispatch,
@@ -65,6 +67,31 @@ async function refusal(p: Promise<unknown>): Promise<string> {
   }
   return "admitted";
 }
+
+describe("admission in a worktree (plan 35)", () => {
+  it("admits in the given tree: the role's cwd, its before snapshot and admit.repo", async () => {
+    const { repo, run } = branchRun();
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const { tree } = await claimTree(fakeDeps(), run, "M1", { known: false });
+    writeFileSync(join(repo, "stray.txt"), "only in the repo");
+    const { d, specPath } = await admit(fakeDeps(), run, input({ cwd: tree }));
+    const spec = JSON.parse(readFileSync(specPath, "utf8"));
+    expect([spec.cwd, spec.env.PWD, d.admit.repo, Object.keys(d.admit.before)]).toEqual([
+      tree,
+      tree,
+      tree,
+      [],
+    ]);
+  });
+
+  it("without cwd, admits in the repo as 1.5", async () => {
+    const { repo, run } = setup();
+    const { d, specPath } = await admit(fakeDeps(), run, input());
+    expect([JSON.parse(readFileSync(specPath, "utf8")).cwd, d.admit.repo]).toEqual([repo, repo]);
+  });
+});
 
 describe("admission", () => {
   it("admits a daemon run's worker with its plan's preamble as context", async () => {

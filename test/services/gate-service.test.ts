@@ -20,7 +20,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildRoleServer } from "../../src/entry/mcp/role-server.ts";
 import { call } from "../mcp-helpers.ts";
-import { fakeDeps, freshRun } from "./helpers.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
+import { branchRun, fakeDeps, freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -435,5 +436,47 @@ describe("the gate ledger (spec 1.1 §7)", () => {
       { item: "lint", command: "run lint", passed: true },
       { item: "acceptance", command: "run acceptance", passed: false },
     ]);
+  });
+});
+
+describe("the gate ledger in a base run's worktrees (plan 35)", () => {
+  const withTrees = async () => {
+    const r = branchRun();
+    const deps = fakeDeps();
+    const m1 = (await claimTree(deps, r.run, "M1", { known: false })).tree;
+    const m2 = (await claimTree(deps, r.run, "M2", { known: false })).tree;
+    return { ...r, deps, m1, m2 };
+  };
+  const inTree = { milestone: "M1" };
+
+  it("hashes a milestone's gate items in its tree, and carries a pass between a run's trees on equal content", async () => {
+    const { run, deps, m1, m2 } = await withTrees();
+    write(m1, "src/a.ts", "same");
+    const c1 = commit(m1);
+    expect(await gateCheck(deps, item(run.id, inTree))).toMatchObject({ carried: false });
+    const passed = await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    expect(passed.commit).toBe(c1); // HEAD of M1's tree, not of the repo
+    expect(await gateCheck(deps, item(run.id, inTree))).toMatchObject({ carried: true, commit: c1 });
+    // M2 has other content: not carried; the same content in M2's tree: carried
+    write(m2, "src/a.ts", "other");
+    commit(m2);
+    expect(await gateCheck(deps, item(run.id, { milestone: "M2" }))).toMatchObject({ carried: false });
+    write(m2, "src/a.ts", "same");
+    commit(m2);
+    expect(await gateCheck(deps, item(run.id, { milestone: "M2" }))).toMatchObject({ carried: true });
+    // M1's content moves on: its own item opens again
+    write(m1, "src/a.ts", "changed");
+    commit(m1);
+    expect((await recordedItems(run, "M1")).map((r) => r.passed)).toEqual([false]);
+  });
+
+  it("refuses gate_check without a milestone in a base run, and not in a run without base", async () => {
+    const { run, deps } = await withTrees();
+    const e = await gateCheck(deps, item(run.id)).catch((x) => x);
+    expect([e.code, e.fix]).toEqual(["E_INPUT_INVALID", "pass milestone"]);
+    const plain = freshRun();
+    write(plain.repo, "src/a.ts", "x");
+    commit(plain.repo);
+    expect(await gateCheck(deps, item(plain.run.id))).toEqual({ carried: false });
   });
 });

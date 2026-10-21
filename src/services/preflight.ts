@@ -15,6 +15,7 @@ import type { Deps } from "./ports.ts";
 import { isDaemonRun } from "./run-events-store.ts";
 import { TAIL_LINES } from "./run-debug.ts";
 import { findRun, type Run, runPaths } from "./run-store.ts";
+import { treeOf } from "./tree-path.ts";
 
 /** Spec §4.7. Only `cannot-start` blocks the run; `lock-busy` (plan 23) means: run preflight again. */
 export type PreflightOutcome = "pass" | "fails-as-expected" | "skipped" | "cannot-start" | "lock-busy";
@@ -336,6 +337,8 @@ export async function preflight(
   }
   if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands, lint };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;
+  // plan 35: a base run's milestone is checked in its own worktree
+  const cwd = treeOf(run, i.milestone ?? null);
   const results: PreflightResult[] = [];
   // the login env is captured once per server; the gate env is read once per preflight
   let env: Record<string, string> | undefined;
@@ -356,9 +359,7 @@ export async function preflight(
       results.push({ lane: l.lane, check, outcome: "skipped", exitCode: null, tail: [], note: AS_ROOT });
       continue;
     }
-    const unborn = l.owns.filter(
-      (p) => check.includes(p.replace(/\/$/, "")) && !existsSync(join(run.meta.repo, p)),
-    );
+    const unborn = l.owns.filter((p) => check.includes(p.replace(/\/$/, "")) && !existsSync(join(cwd, p)));
     if (unborn.length) {
       const note = `${unborn.join(", ")} does not exist yet; the lane creates it`;
       results.push({ lane: l.lane, check, outcome: "skipped", exitCode: null, tail: [], note });
@@ -370,8 +371,7 @@ export async function preflight(
     const slot = await withHeavySlotWithin(
       heavySlots(profile.heavy),
       preflightLimits.lockWaitMs,
-      (_slot, tmp) =>
-        runCheck(run.meta.repo, check, timeoutMs, { ...checkEnvironment, TMPDIR: tmp, GOTMPDIR: tmp }),
+      (_slot, tmp) => runCheck(cwd, check, timeoutMs, { ...checkEnvironment, TMPDIR: tmp, GOTMPDIR: tmp }),
       { tmpBase: process.env.TMPDIR },
     );
     if (slot.busy) {
