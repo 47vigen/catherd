@@ -63,6 +63,12 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   triggers no re-approval. Fix: read a decision up to the next `D<n>` line or blank line, and accept a list marker.
 - **The `labelled` parser splits a finding that contains ` - ` at the first separator.** A finding whose own text
   holds a spaced hyphen loses the tail to the wrong field. Fix: split on the label once, or require the em dash.
+- **The rules review's `" — "` splitter cuts a rule that contains `" — "`.** `parseJudgeReply` (`src/domain/judge.ts`)
+  splits a `ADD`/`REMOVE` line at the last `" — "`, so a rule whose text holds one loses its tail to the reason.
+  _Where:_ ask the judge for a field separator a rule cannot hold, or parse the reason from a tagged suffix.
+- **The report has no cap.** `writeRunReport` (`src/services/run-report.ts`) lists every known issue, every standing
+  rule and every research block in full; a long run's report grows without bound. _Where:_ cap each list, with a
+  "+N more" line that points at the files.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
