@@ -7,7 +7,7 @@ import type { RunRecord } from "../../src/domain/record.ts";
 import type { RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { watchersSettled } from "../../src/services/dispatch-service.ts";
+import { launcher, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { failoverRung } from "../../src/services/failover-rungs.ts";
@@ -259,6 +259,34 @@ describe("dispatching", () => {
     expect(lastOf(run, "dispatch.started")).toMatchObject({ dispatchId: id });
     expect(lastOf(run, "dispatch.ended")).toMatchObject({ dispatchId: id, status: "ok" });
     expect(replayRun(run).lanes["M1.L1"]?.status).toBe("checking");
+  });
+
+  it("launches nothing when the run is cancelled while the dispatch is being admitted", async () => {
+    const { run, deps, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    const host = deps.host;
+    // the last thing admission reads before it writes admit.json: the cancel lands right there
+    Object.defineProperty(deps, "host", {
+      get() {
+        if (types(run).includes("cancel.requested") === false)
+          void appendEvent(run, { type: "cancel.requested", by: "owner" });
+        return host;
+      },
+    });
+    const launches: string[] = [];
+    const real = launcher.launch;
+    launcher.launch = (d) => void launches.push(d.admit.name);
+    try {
+      await fx.run(dispatchAction(), replayRun(run));
+    } finally {
+      launcher.launch = real;
+    }
+    expect(launches).toEqual([]);
+    expect(types(run).slice(2)).toEqual(["cancel.requested", "dispatch.refused"]);
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({ name: "worker-M1.L1", code: "E_RUN_CANCELLED" });
+    expect(replayRun(run).stuck).toEqual({});
+    expect(liveDispatches(run, deps.now())).toEqual([]);
   });
 
   it("cancels a live dispatch, which then ends cancelled", async () => {

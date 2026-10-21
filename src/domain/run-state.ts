@@ -688,6 +688,7 @@ function apply(s: RunState, e: RunEvent): void {
         s.waiting[e.name] = until;
         recomputeWake(s);
       };
+      if (e.code === "E_RUN_CANCELLED") return;
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));

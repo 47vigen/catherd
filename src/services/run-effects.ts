@@ -12,7 +12,7 @@ import type { Role } from "../domain/roles.ts";
 import type { MilestonePlan, RunEventInput } from "../domain/run-events.ts";
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
-import { endCollect, tryCollect } from "../infra/dispatch-dir.ts";
+import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import { gitRun } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
@@ -305,6 +305,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
       return void (await refuse(e.code, e.message));
     }
     const { d, specPath } = admitted;
+    // a cancel that landed while this start was in flight: the role must not start after the run is cancelled
+    const now = replayRun(run);
+    if (now.cancelling || now.phase === "ended") {
+      requestCancel(d.dir);
+      await finalizeDispatch(run, d);
+      if (await tryCollect(d.dir)) endCollect(d.dir);
+      return void (await refuse("E_RUN_CANCELLED", "the run was cancelled before the role started"));
+    }
     try {
       launcher.launch(d, specPath);
     } catch (e) {
