@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { knowledgeLines, readKnowledge } from "../../src/services/run-service.ts";
 import { knowledgeFile } from "../../src/services/run-store.ts";
@@ -90,6 +90,51 @@ describe("catherd knowledge", () => {
     writeFileSync(knowledgeFile(repo), "\n");
     expect(await readKnowledge(repo)).toBe(EMPTY.trimEnd());
     expect((await knowledgeLines(repo)).lines).toEqual([]);
+  });
+});
+
+describe("catherd knowledge rules by role (plan 34)", () => {
+  it("adds a rule tagged with roles, and shows each role only its rules", () => {
+    withHome();
+    const repo = tempRepo();
+    const added = catherd(["add", "[worker, reviewer] run bun test <file>", "--repo", repo]);
+    expect(added.code).toBe(0);
+    expect(added.out).toMatch(/^- \d{4}-\d{2}-\d{2} by hand: \[worker, reviewer\] run bun test <file>\n$/);
+    const worker = catherd(["show", "--role", "worker", "--repo", repo]);
+    expect(worker.code).toBe(0);
+    expect(worker.out).toMatch(/^- \d{4}-\d{2}-\d{2} by hand: run bun test <file>\n$/);
+    expect(catherd(["show", "--role", "verifier", "--repo", repo]).out).toBe(EMPTY);
+    const bad = catherd(["show", "--role", "nobody", "--repo", repo]);
+    expect(bad.code).not.toBe(0);
+    expect(bad.err).toContain('"nobody" is not a role');
+  });
+
+  it("refuses a tag that names something other than a role", () => {
+    withHome();
+    const repo = tempRepo();
+    const r = catherd(["add", "[worker, revewer] x", "--repo", repo]);
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain('"revewer" is not a role');
+    expect(existsSync(knowledgeFile(repo))).toBe(false);
+  });
+
+  it("removes the one line a text matches, and refuses none or several", () => {
+    withHome();
+    const repo = tempRepo();
+    catherd(["add", "[worker] run bun test <file>", "--repo", repo]);
+    catherd(["add", "keep this one", "--repo", repo]);
+    const none = catherd(["rm", "zzz", "--repo", repo]);
+    expect(none.code).not.toBe(0);
+    expect(none.err).toContain('no line of knowledge.md contains "zzz"');
+    const two = catherd(["rm", "by hand", "--repo", repo]);
+    expect(two.code).not.toBe(0);
+    expect(two.err).toContain('2 lines contain "by hand"');
+    const rm = catherd(["rm", "bun test <file>", "--repo", repo]);
+    expect(rm.code).toBe(0);
+    expect(rm.out).toContain("run bun test <file>");
+    const shown = catherd(["show", "--repo", repo]).out;
+    expect(shown).not.toContain("bun test <file>");
+    expect(shown).toContain("keep this one");
   });
 });
 
