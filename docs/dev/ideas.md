@@ -69,6 +69,19 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **The report has no cap.** `writeRunReport` (`src/services/run-report.ts`) lists every known issue, every standing
   rule and every research block in full; a long run's report grows without bound. _Where:_ cap each list, with a
   "+N more" line that points at the files.
+- **`git worktree prune` in `claimTree` prunes the owner's own stale entries too.** `claimTree`
+  (`src/services/milestone-tree.ts:111`) runs `git worktree prune` on the owner's repo, which drops every worktree
+  entry whose folder is missing, such as one on an unmounted drive. Fix: scope it to catherd's trees (prune only when
+  the missing folder is under `<run dir>/trees`), or drop the call and let `worktree add` report the stale entry.
+- **A memory deferral never tells the owner.** `claim` (`src/services/run-effects.ts:684-697`) appends `tree.deferred`
+  every `MEMORY_LIMITS.recheckMs` (2 minutes) while memory is short, and nothing reports it, so a milestone can wait
+  for hours with no sign. Fix: report once on the first deferral of a milestone (and when it is claimed after), with
+  the numbers the event already carries.
+- **In a base run `updateState` and the skip path read the main checkout's HEAD.** `updateState`
+  (`src/services/state.ts:51`) takes `gitHead(run.meta.repo)`, and the skip path's `fullCommit(run, "HEAD")`
+  (`src/services/lane-service.ts:357`) resolves in the repo as well, while the work is on the milestone's branch in
+  its tree. Neither is reachable from the daemon today; a caller that reaches them in a base run gets the wrong
+  commit. Fix: resolve them through `treeOf(run, milestone)`.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
