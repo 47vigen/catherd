@@ -12,12 +12,22 @@ const worker: BriefContext = {
   lane: { id: "M4.L1", text: LANE },
   scratch: `/data/repos/app-1/runs/${RUN}/scratch/worker-M4.L1`,
   roleServer: true,
+  version: "0.0.0-test",
+  context: null,
 };
 
 describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
-  it("inlines the lane file, header and body, then the role's notes, then its reply contract", () => {
-    expect(composeBrief("Do lane M4.L1.", worker)).toBe(
+  it("wraps the daemon's text, the lane file and the role's notes as the task, between the role's sections", () => {
+    const text = composeBrief("Do lane M4.L1.", worker);
+    expect(text).toStartWith("<role>\n");
+    expect(text).toContain("<team>\n");
+    expect(text).not.toContain("<context>");
+    expect(text).toContain("bunx catherd-cli@0.0.0-test lock");
+    expect(text).toContain(
       [
+        "</team>",
+        "",
+        "<task>",
         "Do lane M4.L1.",
         "",
         "Your lane file, lanes/M4.L1.md, as it stood when you were dispatched:",
@@ -28,11 +38,18 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
         `catherd: you are worker-M4.L1 of run ${RUN}.`,
         `Your scratch folder is /data/repos/app-1/runs/${RUN}/scratch/worker-M4.L1, which is your $TMPDIR: put temporary files, logs and builds there, never in /tmp. catherd removes it with the run, so anything the orchestrator must keep goes in your reply.`,
         `Your catherd tools: mcp__catherd_role__read_run_file, mcp__catherd_role__read_knowledge. If they are not listed, run the same from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show.`,
+        "</task>",
         "",
-        replyContract("worker"),
+        "<done_when>",
         "",
       ].join("\n"),
     );
+    expect(text).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
+  });
+
+  it("puts the plan's preamble between team and task when one is given", () => {
+    const text = composeBrief("x", { ...worker, context: "The plan's preamble (p.md)…" });
+    expect(text).toContain("</team>\n\n<context>\nThe plan's preamble (p.md)…\n</context>\n\n<task>\n");
   });
 
   it("gives a role with no role server its CLI forms, and names no scratch where the backend grants none", () => {
@@ -43,13 +60,15 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
       lane: null,
       scratch: null,
       roleServer: false,
+      version: "0.0.0-test",
+      context: null,
     });
     expect(text).not.toContain("<lane-file");
     expect(text).not.toContain("scratch folder");
     expect(text).toContain(
       `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show; catherd gate check ${RUN} --milestone <M> --item <item> --command <command> --paths <path,…>; catherd gate pass ${RUN} --item <item> --command <command> --paths <path,…> --evidence <evidence>; catherd gate run ${RUN} --milestone <M> --command <command> [--at <base checkout>].`,
     );
-    expect(text).toEndWith(`${replyContract("verifier")}\n`);
+    expect(text).toEndWith(`<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
   });
 
   it("writes each part once when a failover stand-in reruns an earlier brief, with the lane file as it stands now", () => {
@@ -60,6 +79,8 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
       lane: { id: "M4.L1", text: LANE.replace("Add the listing", "Add the paged listing") },
     };
     const again = composeBrief(first, moved);
+    expect(again.match(/<role>/g)).toHaveLength(1);
+    expect(again.match(/<task>\n/g)).toHaveLength(1);
     expect(again.match(/<lane-file /g)).toHaveLength(1);
     expect(again.match(/catherd: you are /g)).toHaveLength(1);
     expect(again).toContain("Add the paged listing endpoint.");

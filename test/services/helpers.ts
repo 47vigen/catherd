@@ -52,6 +52,8 @@ export function briefFor(
         : { id: lane, text: readFileSync(join(runPaths(run.dir).lanes, `${lane}.md`), "utf8") },
     scratch: grantsScratch(backend, o.isolated ?? false) ? realpathSync(scratchDir(run, name)) : null,
     roleServer: ROLE_SERVER_BACKENDS.includes(backend),
+    version: "0.0.0-test",
+    context: null,
   });
 }
 

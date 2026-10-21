@@ -40,6 +40,7 @@ import { finalizeDispatch } from "./finalize.ts";
 import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import { currentOwns } from "./lane-edit.ts";
+import { planContext } from "./plan-input.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
@@ -350,6 +351,8 @@ export async function admit(
         lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
         scratch,
         roleServer,
+        version: deps.version,
+        context: planContext(run, i.role),
       }),
     );
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn

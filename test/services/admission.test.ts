@@ -1,7 +1,7 @@
 import * as git from "../../src/infra/git.ts";
 import { replyContract } from "../../src/domain/role-prompts.ts";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
 import { registerAdapter, unregisterAdapter } from "../../src/adapters/registry.ts";
@@ -11,7 +11,10 @@ import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
 import { ownsAdd } from "../../src/services/lane-edit.ts";
+import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
 import { appendRecord, readRecords } from "../../src/services/run-store.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import {
@@ -21,6 +24,7 @@ import {
   fakeGit,
   freshRun,
   makeRecord,
+  PLAN_TEXT,
   testView,
   writeLane,
 } from "./helpers.ts";
@@ -62,6 +66,21 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 }
 
 describe("admission", () => {
+  it("admits a daemon run's worker with its plan's preamble as context", async () => {
+    const { repo, run } = setup();
+    const plan = join(repo, "p.md");
+    writeFileSync(plan, PLAN_TEXT);
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [plan] });
+    copyPlanInputs(run, [plan]);
+    const { d } = await admit(fakeDeps(), run, input());
+    const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
+    expect(brief).toContain(
+      "</team>\n\n<context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n</context>\n\n<task>\n",
+    );
+    // the architect's brief carries no preamble: it translates the plan itself
+    expect(planContext(run, "architect")).toBeNull();
+  });
+
   it("writes the brief, admit.json, a spec without the brief in argv or catherd's secrets, and the latest pointer", async () => {
     const { repo, run } = setup();
     const { d, specPath } = await admit(
@@ -72,7 +91,9 @@ describe("admission", () => {
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toBe(
       briefFor(run, "--help me, do not read me as a flag"),
     );
-    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(`\n\n${replyContract("worker")}\n`);
+    expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toEndWith(
+      `\n\n<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`,
+    );
     // spec 1.5 plan 21: the lane file itself travels in the brief, so an isolated worker never guesses its Owns
     expect(readFileSync(dispatchPaths(d.dir).brief, "utf8")).toContain(
       '<lane-file path="lanes/M1.L1.md">\n# M1.L1 — test lane\nOwns: src/a.ts\nFast check: true\n',
