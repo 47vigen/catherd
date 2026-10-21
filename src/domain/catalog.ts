@@ -186,6 +186,7 @@ export const ROLE_NEEDS: Record<Role, { toolUse?: true; imageIn?: true; imageGen
   artist: { imageGen: true },
   writer: { toolUse: true },
   researcher: { toolUse: true },
+  judge: { toolUse: true },
 };
 
 /**

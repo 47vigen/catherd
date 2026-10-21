@@ -555,6 +555,7 @@ describe("host-specific profiles", () => {
     expect(p.diff.map((x) => x.path).sort()).toEqual([
       "roles.architect.defaultRung",
       "roles.architect.rungs",
+      "roles.judge.rungs",
       "roles.verifier.defaultRung",
       "roles.verifier.rungs",
     ]);

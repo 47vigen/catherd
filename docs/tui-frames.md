@@ -55,7 +55,7 @@ stories (`src/entry/tui/stories.ts`) on the fixtures; do not edit by hand.
      claude-code (headless)  claude-plan
        ▸ claude-haiku-4-5-20251001  0 of 2
        ▸ claude-fable-5-1           0 of 5
-  ↓ 65 more
+  ↓ 67 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ space turns the role on or off; enter opens its access, default rung and models
      claude-code (headless)  claude-plan
        ▸ claude-haiku-4-5-20251001  0 of 2
        ▸ claude-fable-5-1           0 of 5
-  ↓ 65 more
+  ↓ 67 more
 space turns the role on or off; enter opens its access, default rung and models
 
 ────────────────────────────────────────────────────────────────────────────────

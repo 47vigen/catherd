@@ -58,6 +58,10 @@ export function tryParseRung(s: string): Rung | null {
 
 export const formatRung = (r: Rung): string => `${r.backend}:${r.model}#${r.effort}`;
 
+/** Spec 2.0 decision 12: the daemon runs every role headless, so a native `claude:` rung runs as `claude-code:`. */
+export const headlessRung = (rung: string): string =>
+  rung.startsWith("claude:") ? `claude-code:${rung.slice("claude:".length)}` : rung;
+
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 let lastTime = -1;

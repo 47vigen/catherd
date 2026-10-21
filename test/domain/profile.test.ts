@@ -35,6 +35,7 @@ describe("the default profile (spec §7.2)", () => {
       artist: ["codex:gpt-6-sol#medium"],
       writer: ["codex:gpt-6-luna#high"],
       researcher: ["codex:gpt-6-luna#high"],
+      judge: ["claude-code:claude-opus-5-5#medium"],
     });
     expect(p.roles.worker.defaultRung).toBe("codex:gpt-6-sol#medium");
   });
@@ -49,6 +50,7 @@ describe("the default profile (spec §7.2)", () => {
       artist: "workspace-write",
       writer: "workspace-write",
       researcher: "read-only",
+      judge: "read-only",
     });
   });
 
