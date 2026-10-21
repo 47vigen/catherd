@@ -71,7 +71,7 @@ out_of_scope` decides what the daemon does: climb, retry then fail over, park, o
   the secret scan (optional: without it the scan is skipped and the record says so).
 - **A run with a base branch lands when origin holds it.** A base that moved is merged into the run's branch first
   (conflicts go to a worker, a fresh verifier gates the merge); a landed milestone then parks with a `push`
-  question, because catherd never pushes. It counts as merged when `origin/<base>` holds its commit (checked every
+  question, because merging is yours. It counts as merged when `origin/<base>` holds its commit (checked every
   ten minutes) or when you answer the question (a squash merge needs that answer). Dependants and the run's end
   wait for merged. A run without a base behaves as in 1.5.
 - **The panel replaces the TUI.** `catherd` alone runs `catherd panel`; `catherd --help` prints the help. `catherd panel
@@ -97,6 +97,19 @@ plan.md` and answer `approve`, or say what to change. It asks again only when a 
 - `plan-input/` in the run folder holds the copies roles read; it and `plan-approved.md` are read-only to roles.
 - Every role's brief is its role text, team, the plan's preamble, the task, its done-when rules and its reply
   contract, as labelled sections. The medium-effort floor for coding workers belongs to routing, not to the plan input.
+
+### A milestone per branch
+
+- `run_start` takes `base`, a branch on origin. Each milestone then gets its own branch and git worktree from
+  `origin/<base>`, set up once with the `Setup:` line under `plan.md`'s title, and its roles, checks and commits
+  work there. A run without `base` works in the repo as before.
+- `After: M1` (a whole milestone) is now valid in a lane header. Milestones whose `After:` milestones are merged run
+  side by side while the machine has the memory for them.
+- The profile gains `limits.memory` (`reserveMb`, `perMilestoneMb`, `floorMb`: by default 2 GB held back and 3 GB
+  per milestone): `catherd profile set limits.memory.reserveMb 4096`.
+- Answering `push` to a landed milestone's question has catherd push its branch, then ask again with the command
+  that opens its MR; any other answer still counts as merged. catherd never opens an MR or merges. A merged,
+  clean worktree is removed.
 
 ## From 1.4 to 1.5
 

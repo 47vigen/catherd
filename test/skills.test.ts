@@ -60,6 +60,14 @@ describe("orchestrator skill", () => {
       expect(md).toContain(s);
   });
 
+  it("tells the session about base runs, the push answer and that catherd never merges (plan 35)", () => {
+    const md = skill("catherd");
+    expect(md).toContain("run_start(repo, title, a_lines, base)");
+    expect(md).toContain("answer push");
+    expect(md).toContain("catherd never opens an MR or merges");
+    expect(md).toContain("limits.memory");
+  });
+
   it("tells the orchestrator what to do with the report's rules review (plan 34)", () => {
     expect(skill("catherd")).toContain("rules review");
   });
