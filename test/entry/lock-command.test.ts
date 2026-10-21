@@ -96,6 +96,17 @@ describe("catherd lock", () => {
     expect(out).toContain("CATHERD_TEST_KEEP=kept");
   });
 
+  it("gives the command its slot's TMPDIR and GOTMPDIR", () => {
+    const home = withHome();
+    const p = Bun.spawnSync(
+      [process.execPath, CLI, "lock", "--slots", "1", "--", "sh", "-c", 'echo "$TMPDIR $GOTMPDIR"'],
+      { env: { ...process.env, CATHERD_HOME: home, ANTHROPIC_API_KEY: "" }, stdout: "pipe" },
+    );
+    const [tmp, gotmp] = p.stdout.toString().trim().split(" ");
+    expect(tmp).toBe(gotmp);
+    expect(tmp).toEndWith("slot-0");
+  });
+
   it("runs the command behind a slot and passes its exit code through", () => {
     const home = withHome();
     const p = Bun.spawnSync([process.execPath, CLI, "lock", "--slots", "1", "--", "sh", "-c", "exit 7"], {

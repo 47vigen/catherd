@@ -383,7 +383,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const check = header.fastCheck;
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
-    const r = await withHeavySlot(slots, () => runCheck(run.meta.repo, check, effectLimits.checkMs, env));
+    const r = await withHeavySlot(
+      slots,
+      (_slot, tmp) =>
+        runCheck(run.meta.repo, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
+      { tmpBase: process.env.TMPDIR },
+    );
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     await append({

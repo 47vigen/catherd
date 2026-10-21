@@ -1,14 +1,58 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
-import { heavySlots, roleLockOwner, withHeavySlot, withRoleLock } from "../../src/infra/heavy-lock.ts";
+import { roleScopeOfScratch } from "../../src/domain/role-scope.ts";
+import {
+  heavyLimits,
+  heavySlots,
+  roleLockOwner,
+  slotTmpDir,
+  withHeavySlot,
+  withRoleLock,
+} from "../../src/infra/heavy-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
+const limits = { ...heavyLimits };
+afterEach(() => Object.assign(heavyLimits, limits));
 afterEach(snapshotEnv());
 
 describe("heavy lock", () => {
+  it("waits while the load is above twice the cores, then runs", async () => {
+    withHome();
+    let reads = 0;
+    Object.assign(heavyLimits, { cores: () => 4, load: () => (reads++ < 2 ? 9 : 1), loadPollMs: 1 });
+    let waits = 0;
+    expect(await withHeavySlot(1, () => "ran", { pollMs: 1, onWait: () => waits++ })).toBe("ran");
+    expect(reads).toBeGreaterThanOrEqual(3);
+    expect(waits).toBeGreaterThanOrEqual(2);
+  });
+
+  it("runs anyway once the load wait is spent", async () => {
+    withHome();
+    Object.assign(heavyLimits, { cores: () => 1, load: () => 99, loadPollMs: 1, loadWaitMs: 5 });
+    expect(await withHeavySlot(1, () => "ran", { pollMs: 1 })).toBe("ran");
+  });
+
+  it("gives each command an emptied temp dir and removes it after", async () => {
+    withHome();
+    const first = await withHeavySlot(1, (_s, tmp) => (writeFileSync(join(tmp, "x"), "1"), tmp));
+    expect(existsSync(first)).toBe(false);
+    expect(await withHeavySlot(1, (_s, tmp) => readdirSync(tmp))).toEqual([]);
+  });
+
+  it("keeps a role's scratch as the base of its slot temp dir", () => {
+    withHome();
+    const scratch = "/d/runs/20261012-101010-r/scratch/verifier-M1";
+    expect(slotTmpDir(0, scratch)).toBe(`${scratch}/heavy-0`);
+    expect(roleScopeOfScratch(slotTmpDir(0, scratch))).toEqual({
+      run: "20261012-101010-r",
+      name: "verifier-M1",
+    });
+    expect(slotTmpDir(1, "/tmp")).toBe(join(locksDir(), "tmp", "slot-1"));
+  });
+
   it("reads a slot count from the profile setting", () => {
     expect(heavySlots(3)).toBe(3);
     expect(heavySlots(0)).toBe(1);
