@@ -1,6 +1,7 @@
 import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ROLE_ENV } from "../domain/role-scope.ts";
 import { scrubSecrets } from "./env.ts";
 import { log as logRow } from "./log.ts";
 import { PRIVATE_FILE } from "./store.ts";
@@ -8,18 +9,58 @@ import { PRIVATE_FILE } from "./store.ts";
 /** A thin executable that supervises one spec; unlike src/cli.ts it never loads the TUI. */
 export const SUPERVISE_ENTRY = fileURLToPath(new URL("../entry/supervise-bin.ts", import.meta.url));
 
-/** Starts `supervise-bin.ts <spec>` in its own session and returns at once; it outlives this process. */
-export function launchSupervisor(specPath: string): number {
-  const log = openSync(join(dirname(specPath), "supervisor.log"), "a", PRIVATE_FILE);
-  const p = Bun.spawn([process.execPath, SUPERVISE_ENTRY, specPath], {
+/** The thin executable that drives one run; like the supervisor's, it never loads the TUI. */
+export const DAEMON_ENTRY = fileURLToPath(new URL("../entry/daemon-bin.ts", import.meta.url));
+
+/**
+ * Starts `entry args` in its own session, its output appended to `logFile`, and returns at once: the process
+ * outlives this one.
+ */
+export function launchDetached(
+  entry: string,
+  args: string[],
+  logFile: string,
+  env: Record<string, string>,
+): number {
+  const log = openSync(logFile, "a", PRIVATE_FILE);
+  const p = Bun.spawn([process.execPath, entry, ...args], {
     stdin: "ignore",
     stdout: log,
     stderr: log,
     detached: true,
-    env: scrubSecrets(process.env),
+    env,
   });
   closeSync(log);
   p.unref();
-  logRow("info", "launch", { spec: specPath, pid: p.pid });
   return p.pid;
+}
+
+/** Starts `supervise-bin.ts <spec>` in its own session and returns at once; it outlives this process. */
+export function launchSupervisor(specPath: string): number {
+  const pid = launchDetached(
+    SUPERVISE_ENTRY,
+    [specPath],
+    join(dirname(specPath), "supervisor.log"),
+    scrubSecrets(process.env),
+  );
+  logRow("info", "launch", { spec: specPath, pid });
+  return pid;
+}
+
+/**
+ * The daemon's env (spec 2.0, plan 30 ruling 4): the launching process's own, so Jev's key reaches its routing,
+ * without the session identity of whoever launched it, and never a role's scope: it is nobody's role.
+ */
+export function daemonEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
+  const env = scrubSecrets(base);
+  if (base.TYPESAFE_API_KEY !== undefined) env.TYPESAFE_API_KEY = base.TYPESAFE_API_KEY;
+  delete env[ROLE_ENV];
+  return env;
+}
+
+/** Starts `daemon-bin.ts <run id>` for a run; its log is `<run dir>/daemon.log`. */
+export function launchDaemon(runId: string, runDir: string): number {
+  const pid = launchDetached(DAEMON_ENTRY, [runId], join(runDir, "daemon.log"), daemonEnv());
+  logRow("info", "launch", { daemon: runId, pid });
+  return pid;
 }
