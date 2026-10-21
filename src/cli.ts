@@ -58,6 +58,7 @@ export const main: Command = defineCommand({
     resume: () => import("./entry/pause-command.ts").then((m) => m.resumeCommand),
     "capture-fixtures": () =>
       import("./entry/capture-fixtures-command.ts").then((m) => m.captureFixturesCommand),
+    scorecard: () => import("./entry/scorecard-command.ts").then((m) => m.scorecardCommand),
     mcp: () => import("./entry/mcp/command.ts").then((m) => m.mcpCommand),
     _supervise: () => import("./entry/supervise-command.ts").then((m) => m.superviseCommand),
   },

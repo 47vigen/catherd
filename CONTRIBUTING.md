@@ -156,6 +156,11 @@ stripped; outside a source checkout it needs `--out`. Check the result for anyth
 The checks that need a human in Claude Code (plugin loading, long MCP calls) are in
 [`docs/dev/manual-tests.md`](docs/dev/manual-tests.md).
 
+`bun src/cli.ts scorecard prepare|record|compare` measures a catherd version on four fixed tasks against the 1.5.0
+baseline, the gate for 2.0. It runs from a source checkout only (`scorecard/` is not in the npm package) and spends
+real subscriptions, so it is never part of the tests. The protocol is in
+[`docs/dev/scorecard.md`](docs/dev/scorecard.md).
+
 Native packaging uses the same launcher/core and two shared skills with small host-specific declarations. The installed Codex CLI 0.159.2 proved relative plugin cwd resolution, including paths with spaces, without a root macro or synthetic session ID. `CATHERD_TEST_NATIVE_PLUGIN=1 bun test test/entry/plugin-packaging.test.ts` reproduces isolated parser/launcher feasibility only; `bun test/pack-smoke.ts` installs the real tarball and checks its inventory, core fingerprint and no-Claude-write contract. Follow section 14 for conversation acceptance; do not substitute those checks for actual idle/busy generation and `result` collection.
 
 Verify the exact omitted Codex model ID `gpt-6.1-sol` against native catalog discovery and validation. If spelling differs, report the mismatch and resolve it explicitly with the owner; never silently normalize or substitute a model. Retain architect high and verifier low effort.
