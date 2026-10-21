@@ -420,6 +420,7 @@ function failRole(
 function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
   const dv = s.dispatches[e.dispatchId];
   if (!dv) return;
+  dv.thread = e.thread ?? dv.thread;
   dv.ended = { at: e.at, status: e.status, replyStatus: e.replyStatus, reason: e.reason };
   const rung = tryParseRung(dv.rung);
   if (rung) {
@@ -689,7 +690,7 @@ function apply(s: RunState, e: RunEvent): void {
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
       else if (e.code === "E_ALL_HELD")
         wait(Object.values(s.holds).sort()[0] ?? isoPlus(e.at, REFUSAL_WAIT_MS));
-      else if (e.code === "E_ADMIT_DUPLICATE") return;
+      else if (e.code === "E_ADMIT_DUPLICATE") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
       else
         s.stuck[e.unit] = { reason: "effect", question: `${e.name} was refused (${e.code}): ${e.message}` };
       return;
@@ -797,6 +798,7 @@ function apply(s: RunState, e: RunEvent): void {
       s.cancelling = true;
       return;
     case "effect.failed": {
+      if (e.action === "readPlan") s.planDirty = false;
       const key = `${e.action}@${e.unit}`;
       s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
       if ((s.failedEffects[key] as number) >= MAX_TRIES && e.action !== "report" && e.action !== "notify")
