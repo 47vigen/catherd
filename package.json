@@ -29,6 +29,7 @@
   },
   "files": [
     "src",
+    "web/dist",
     "catalog",
     "plugin",
     "THIRD_PARTY_NOTICES.md"
@@ -39,6 +40,9 @@
     "lint": "oxlint --deny-warnings src test",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "panel:openapi": "bun scripts/panel-openapi.ts",
+    "panel:build": "cd web && bun install --frozen-lockfile && bun run build",
+    "prepack": "bun run panel:build",
     "version-packages": "changeset version && bun scripts/stamp-plugin-version.mjs",
     "release:publish": "npm view catherd-cli@$npm_package_version version >/dev/null 2>&1 || bun test/pack-smoke.ts && changeset publish"
   },

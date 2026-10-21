@@ -25,7 +25,7 @@ const MAIN_ARGS: ArgsDef = HOST_ARG;
 
 /**
  * Spec §8. Every subcommand loads lazily, so `mcp`, `lock` and `_supervise` never load the panel (spec §3.1);
- * a bare `catherd` prints the help until the panel command lands.
+ * a bare `catherd` runs `catherd panel`.
  */
 export const main: Command = defineCommand({
   meta: {
@@ -36,6 +36,7 @@ export const main: Command = defineCommand({
   args: MAIN_ARGS,
   subCommands: {
     init: () => import("./entry/init-command.ts").then((m) => m.initCommand),
+    panel: () => import("./entry/panel-command.ts").then((m) => m.panelCommand),
     status: () => import("./entry/runs-command.ts").then((m) => m.statusCommand),
     watch: () => import("./entry/runs-command.ts").then((m) => m.watchCommand),
     runs: () => import("./entry/runs-command.ts").then((m) => m.runsCommand),
@@ -145,7 +146,9 @@ export async function runCli(argv: string[]): Promise<number> {
     }
     // `lock` forwards signals to its command itself; everything else stops at once on Ctrl-C. The command is
     // the first word that is not a flag: `catherd --host codex lock -- …` is `lock` too.
-    if (command !== "lock") process.once("SIGINT", () => process.exit(EXIT.interrupted));
+    // the panel stops itself on Ctrl-C
+    if (command !== "lock" && command !== undefined)
+      process.once("SIGINT", () => process.exit(EXIT.interrupted));
     const parsed = parseArgs(own, HOST_ARG);
     if (parsed.host !== undefined) {
       const forwarded = own.filter(
@@ -160,9 +163,9 @@ export async function runCli(argv: string[]): Promise<number> {
         ...(dashdash < 0 ? [] : argv.slice(dashdash)),
       );
     }
-    // a bare `catherd` prints the help until Task 3 makes it run the panel
     if (command === undefined) {
-      console.log(`${await helpText(main, [])}\n`);
+      const { runPanel } = await import("./entry/panel-command.ts");
+      await runPanel({ port: 4317, open: true, host: parsed.host });
       return EXIT.ok;
     }
     await runCommand(main, { rawArgs });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { killGroup } from "../../src/infra/proc.ts";
@@ -205,4 +205,31 @@ it("--host codex --help prints the help and an invalid host is a usage error", (
     0, 2,
   ]);
   expect(catherd(["--host", "codex", "profile", "show", "--json"]).out).toContain("codex:gpt-6.1-sol#high");
+});
+
+it("a bare catherd runs the panel and opens the browser; --help only prints", async () => {
+  withHome();
+  const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+  writeFileSync(join(dist, "index.html"), "<div id=root></div>");
+  process.env.CATHERD_PANEL_DIST = dist;
+  const { runCli } = await import("../../src/cli.ts");
+  const { panelServer } = await import("../../src/entry/panel-command.ts");
+  const real = { ...panelServer };
+  const seen: { port: number; open: boolean }[] = [];
+  panelServer.serve = (o) => {
+    seen.push({ port: o.port, open: o.open });
+    return { url: "http://127.0.0.1:1", port: 1, stop: async () => {} };
+  };
+  panelServer.untilStopped = async () => {};
+  const log = console.log;
+  console.log = () => {};
+  try {
+    expect(await runCli([])).toBe(0);
+    expect(seen).toEqual([{ port: 4317, open: true }]);
+    expect(await runCli(["--help"])).toBe(0);
+    expect(seen).toHaveLength(1);
+  } finally {
+    console.log = log;
+    Object.assign(panelServer, real);
+  }
 });
