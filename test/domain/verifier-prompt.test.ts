@@ -14,7 +14,7 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
     ])
       expect(text).toContain(s);
-    expect(text.split("\n")[0]).toStartWith("You verify work you did not write.");
+    expect(text.split("\n")[1]).toStartWith("You verify work you did not write.");
   });
 
   it("names the CLI forms as the fallback when no gate tool is listed (spec 1.5 plan 21)", () => {
@@ -35,5 +35,12 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       expect(text).toContain("Read and write it only through catherd's read_run_file and write_run_file");
       expect(text).toContain("catherd run-file write <run> <path> with the content on stdin");
     }
+  });
+
+  it("records HEAD first, puts file:line in FAIL lines and calls a minor issue a NIT", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    expect(text).toContain("0. Record git rev-parse HEAD first");
+    expect(text).toContain("FAIL file:line — what happens");
+    expect(text).toContain("is a NIT line, never a FAIL");
   });
 });

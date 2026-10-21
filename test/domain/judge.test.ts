@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { headlessRung } from "../../src/domain/ids.ts";
 import { JUDGE_CONTRACT, JudgeDecisionSchema, judgeName, parseJudgeReply } from "../../src/domain/judge.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
-import { replyContract, rolePrompt, withReplyContract } from "../../src/domain/role-prompts.ts";
+import { replyContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 
 describe("the judge's reply", () => {
@@ -81,7 +81,7 @@ describe("the judge role", () => {
       rungs: ["claude-code:claude-opus-5-5#medium"],
     });
     expect(replyContract("judge")).toBe(JUDGE_CONTRACT);
-    expect(withReplyContract("judge", "brief").endsWith(`${JUDGE_CONTRACT}\n`)).toBe(true);
+    expect(rolePrompt("judge", "2.0.0")).toEndWith(`<reply_contract>\n${JUDGE_CONTRACT}\n</reply_contract>`);
     expect(rolePrompt("judge", "2.0.0")).toContain("You never edit files");
   });
 });
