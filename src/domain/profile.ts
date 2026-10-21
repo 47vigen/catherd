@@ -182,64 +182,7 @@ export const DEFAULT_FAILOVER: Record<string, string> = {
   [SOL("medium")]: "opencode:opencode-go/kimi-k3#max",
 };
 
-/**
- * Cursor's live slug and efforts for a paired family (`cursor-agent models`, 2026-10-01). Empty efforts means the
- * bare slug.
- */
-const CURSOR_PAIR: Record<string, { id: string; efforts: readonly string[] }> = {
-  "grok-4.7": { id: "grok-4.7", efforts: ["low", "medium", "high", "xhigh"] },
-  "grok-4.6": { id: "cursor-grok-4.6", efforts: ["low", "medium", "high", "xhigh"] },
-  "grok-4.5": { id: "cursor-grok-4.5", efforts: ["low", "medium", "high"] },
-  "gemini-3.8-flash": { id: "gemini-3.8-flash", efforts: ["low", "medium", "high"] },
-  "gemini-3.7-flash": { id: "gemini-3.7-flash", efforts: ["low", "medium", "high"] },
-  "gemini-3.6-flash": { id: "gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
-  "gemini-3.1-pro": { id: "gemini-3.1-pro", efforts: [] },
-};
-
-/** The Cursor effort a paired rung can actually run: the same one when listed, else `high`, else the bare slug. */
-function cursorPairEffort(model: string, effort: string): string {
-  const list = CURSOR_PAIR[model]?.efforts ?? [];
-  if (list.length === 0) return "default";
-  if (effort !== "default" && list.includes(effort)) return effort;
-  return list.includes("high") ? "high" : (list[0] as string);
-}
-
-/**
- * Spec 1.3 §7.3: the same model through two backends bills two pools, so each stands in for the other on a
- * limit, at the same effort where both list it. Otherwise the stand-in runs at `high`: Grok 4.5 `xhigh` at Cursor
- * `high`, Cursor's Gemini 3.6 `minimal` at agy `high`; Gemini 3.1 Pro's bare Cursor slug pairs with agy `high`.
- * Grok and Gemini are paired with Cursor. Consulted after the profile's own failover and never written into a
- * profile, where a pair whose rung is on no ladder would warn "never runs"; never a stand-in for a shipped Codex,
- * Claude or opencode rung.
- */
-export const PAIRED_FAILOVER: Record<string, string> = Object.fromEntries(
-  (
-    [
-      ["grok", ["grok-4.7", "grok-4.6", "grok-4.5"], ["low", "medium", "high", "xhigh"]],
-      [
-        "antigravity",
-        ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
-        ["low", "medium", "high"],
-      ],
-      ["antigravity", ["gemini-3.1-pro"], ["low", "high"]],
-    ] as const
-  ).flatMap(([backend, models, efforts]) =>
-    models.flatMap((m) => {
-      const cursor = CURSOR_PAIR[m] as { id: string; efforts: readonly string[] };
-      const back = ["default", ...efforts].map(
-        (e) => [`${backend}:${m}#${e}`, `cursor:${cursor.id}#${cursorPairEffort(m, e)}`] as const,
-      );
-      // `#default` too, as on the other side: a Cursor rung with no effort flag fails over the same way
-      const fore = [...new Set(["default", ...cursor.efforts])].map((e) => {
-        const there = e !== "default" && (efforts as readonly string[]).includes(e) ? e : "high";
-        return [`cursor:${cursor.id}#${e}`, `${backend}:${m}#${there}`] as const;
-      });
-      return [...back, ...fore];
-    }),
-  ),
-);
-
-/** The five billing keys spec §7.1 writes out; cursor and grok arrive with their backends. */
+/** The five billing keys spec §7.1 writes out; the rest default. */
 const WRITTEN_BILLING: BillingKey[] = ["codex", "claude", "claude-code", "opencode-go", "opencode"];
 
 /** Stored defaults for init/new; architect/verifier rungs resolve from the current host. */

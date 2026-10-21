@@ -208,7 +208,7 @@ export async function admit(
       `${adapter.id} keeps the access a thread started with: ${i.thread} ran ${started.access}, and the ${i.role} role runs ${rc.access}`,
       { fix: "dispatch a fresh thread (omit `thread`)" },
     );
-  // and the network grant: grok keeps a session's sandbox profile, agy's isolated homes differ by it.
+  // and the network grant: a CLI that keeps a session's sandbox profile keeps it.
   // A record from before 1.3 carries no grant to compare.
   if (started?.network !== undefined && adapter.resume.sameAccessOnly && started.network !== network)
     throw new CatherdError(

@@ -6,15 +6,15 @@
  (")(")
 ```
 
-Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode, Cursor, Grok Build,
-Antigravity or headless Claude Code processes write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
+Autopilot builds from your own Claude Code or native Codex session. Your profile routes the architect, verifier and workers to their backends; Codex, opencode, Cursor
+or headless Claude Code processes write the code, and [Jev](https://typesafe.ai) picks the model and effort for each piece
 of work, climbing a ladder only when a cheaper rung falls short.
 
 - **Your harness, as you set it up.** Every role runs in its vendor's own CLI with your config,
   hooks, skills and `AGENTS.md`. Isolation is an opt-in toggle per profile and harness, for when
   you'd rather save the tokens your customizations cost.
 - **Claude roles stay native on Claude Code.** `claude:` rungs require that host and run as ordinary Claude Code subagents; Codex,
-  opencode, Cursor, Grok Build, Antigravity and headless `claude-code:` rungs run through catherd's MCP server.
+  opencode, Cursor and headless `claude-code:` rungs run through catherd's MCP server.
 - **Survives restarts.** Workers are detached processes writing straight to disk, so a dropped
   MCP server never loses a run.
 - **Results come to you.** Roles run side by side while you keep talking. Claude Code uses its peer inbox; Codex uses queued next input through its existing native server. A busy Codex conversation processes it after the active turn. Queue acceptance and result collection are separate; `peek` shows how a run stands.
@@ -35,11 +35,6 @@ of work, climbing a ladder only when a cheaper rung falls short.
   - Claude Code's `claude` CLI 2.1.282 or newer, for headless `claude-code:` rungs
   - Cursor's CLI, `cursor-agent` 2026.09.28 or newer: `curl https://cursor.com/install -fsS | bash`, then
     `cursor-agent login` (below)
-  - Grok Build's `grok` 1.0.44 or newer: `curl -fsSL https://x.ai/cli/install.sh | bash`, then `grok login`
-    (below)
-  - Google's Antigravity CLI, `agy` 1.2.13 or newer: `brew install --cask antigravity-cli`, or
-    `curl -fsSL https://antigravity.google/cli/install.sh | bash` (with `~/.local/bin` on PATH), then run `agy` once
-    to sign in (below)
 - Optional: a TypeSafe API key for Jev, in `TYPESAFE_API_KEY` or saved by `catherd init`
 - Optional: a free [Artificial Analysis](https://artificialanalysis.ai) API key for more scores, in
   `ARTIFICIAL_ANALYSIS_API_KEY` or saved by `catherd init`; its numbers are read for you alone and never shipped
@@ -53,7 +48,7 @@ you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --
 A Cursor rung names Cursor's own model slug, with the effort as the slug's suffix: `cursor:gpt-6-sol#xhigh` runs
 `gpt-6-sol-xhigh`, and `#default` runs the bare slug (`cursor:composer-2.5#default`). `cursor-agent models` lists
 what your account offers; `catherd catalog refresh` reads it. No profile uses Cursor until you put a rung on it.
-Its Composer and Grok models bill from Cursor's own pool, the other models at API rates after your plan's included
+Its own models (Composer, Grok) bill from Cursor's own pool, the other models at API rates after your plan's included
 usage, so a Cursor rung ranks as `metered`.
 
 - **Native** (the default) runs with your login and your Cursor setup. It also loads your Claude Code hooks,
@@ -64,51 +59,6 @@ usage, so a Cursor rung ranks as `metered`.
 - **Isolated** (`catherd profile set harness.cursor.isolated true`) needs `CURSOR_API_KEY`, since a login cannot
   move to another home. catherd runs Cursor under its own HOME with its own `sandbox.json`, which gives a worker
   catherd's writable roots.
-
-### Grok Build
-
-A Grok rung names grok's model and effort: `grok:grok-4.6#high` runs `grok -m grok-4.6 --effort high`, and
-`#default` passes no effort. `grok models` lists your models but no efforts, so catherd offers Grok Build's `low`
-to `xhigh`; `catherd catalog refresh` reads the list. No profile uses grok until you put a rung on it. A Grok login
-(SuperGrok, X Premium+) bills your subscription and `XAI_API_KEY` bills per token: `catherd doctor` says when a
-profile's `billing.grok` differs from your login. On a usage limit, a Grok rung fails over to the same model on
-Cursor, and a Cursor Grok rung to grok, unless the profile names another stand-in.
-
-- **Native** (the default) runs with your login and your grok setup. It also loads your Claude Code plugins,
-  agents, skills, hooks and permission rules, and your Cursor rules and MCP. `workspace-write` runs in grok's
-  sandbox under catherd's own profile, `catherd-ws`, which lets a worker write the lock dir, temp and the
-  toolchain caches: catherd adds its marked `[profiles.catherd-*]` tables to `~/.grok/sandbox.toml` and leaves the
-  rest of that file alone. `read-only` runs grok's kernel `read-only` profile. On a Mac whose
-  `/var/run/docker.sock` is a link (Docker Desktop, OrbStack, Colima) grok refuses that profile, so catherd gives
-  the role only the read tools instead (`advisory`); `catherd doctor` says which applies. On macOS no grok profile
-  controls the network.
-- **Isolated** (`catherd profile set harness.grok.isolated true`) needs `XAI_API_KEY`: catherd never copies your
-  grok login, whose refresh token rotates. catherd runs grok under its own HOME with its own `sandbox.toml`.
-
-grok keeps a session on the access it started with, so catherd refuses to resume one under another access.
-
-### Antigravity
-
-An Antigravity rung names the model `agy models` lists, without an effort suffix; the effort is agy's `--effort`
-(`low`, `medium`, `high` or `max`), and `#default` passes none: `antigravity:gemini-3.8-flash#low`. No profile uses
-Antigravity until you put a rung on it. catherd never runs `agy -p` while agy is signed out, since agy would open a
-browser and wait; `catherd doctor` says so, with the fix. A sign-in check that passed is kept for 10 minutes, so
-after you sign agy out, restart the catherd MCP server (or wait those minutes) before the next Antigravity dispatch.
-A Google login draws on your plan's quota (doctor shows
-what is left); `GEMINI_API_KEY` bills the Gemini API project. Gemini rungs fail over between Antigravity and Cursor
-when either runs out, unless your profile names another stand-in.
-
-- **Native** (the default) runs with your Google login and your `~/.gemini` settings, which the Antigravity desktop
-  app shares and catherd never edits. `workspace-write` runs shell commands in agy's sandbox, which reaches the
-  workspace, temp and build caches but no network unless your own `read_url` rules grant it; the file tools are not
-  confined (`advisory`). agy has no read-only mode, so a read-only role (the reviewer, the architect) cannot run on
-  native Antigravity: `profile validate` refuses it.
-- **Isolated** (`catherd profile set harness.antigravity.isolated true`) needs `GEMINI_API_KEY`. catherd runs agy
-  under its own HOME, with its own settings: the Gemini API as the provider, write and command deny rules for
-  read-only roles, and catherd's writable roots and the network for `workspace-write`.
-
-Whether Google's plan terms allow an orchestrator to drive `agy` on a consumer plan is not settled here. The API-key
-route is the one meant for automation; check the terms before you rely on a plan login.
 
 ## Install
 
@@ -298,8 +248,6 @@ rolls back repositories or starts the next child.
 | `ARTIFICIAL_ANALYSIS_API_KEY` | An Artificial Analysis key for `catalog sync`, instead of the one `catherd init` saves                      |
 | `CATHERD_NO_SYNC`             | `1`: no automatic sync of the public sources (at MCP server start and in `init`); `catalog sync` still runs |
 | `CURSOR_API_KEY`              | Cursor's API key: logs `cursor-agent` in, and is what an isolated Cursor role runs on                       |
-| `XAI_API_KEY`                 | xAI's API key: logs `grok` in when no Grok login is active, and is what an isolated grok role runs on       |
-| `GEMINI_API_KEY`              | The Gemini API key an isolated Antigravity role runs on (agy reads it only with its Gemini API provider)    |
 | `CATHERD_HOME`                | Puts config and data under `$CATHERD_HOME/config` and `$CATHERD_HOME/data` instead of XDG                   |
 | `CATHERD_LOG`                 | Log level: `off`, `error`, `warn`, `info` (default) or `debug` (what `--verbose` sets)                      |
 | `CATHERD_LOCK_SLOTS`          | `catherd lock`'s slot count when `--slots` is not given (before the profile's `lock.heavy`)                 |

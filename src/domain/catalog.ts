@@ -32,28 +32,11 @@ const DAY_MS = 86_400_000;
  * Spec §7.1 `billing` keys: a rung's backend, except that opencode's Go models (`opencode-go/…`) are billed
  * apart from its Zen models (`opencode/…`).
  */
-export const BILLING_KEYS = [
-  "codex",
-  "claude",
-  "claude-code",
-  "opencode-go",
-  "opencode",
-  "cursor",
-  "grok",
-  "antigravity",
-] as const;
+export const BILLING_KEYS = ["codex", "claude", "claude-code", "opencode-go", "opencode", "cursor"] as const;
 export type BillingKey = (typeof BILLING_KEYS)[number];
 
 /** The keys a family's `on` map uses; the native `claude` pseudo-backend runs claude-code's model ids. */
-const MODEL_KEYS = [
-  "codex",
-  "claude-code",
-  "opencode-go",
-  "opencode",
-  "cursor",
-  "grok",
-  "antigravity",
-] as const;
+const MODEL_KEYS = ["codex", "claude-code", "opencode-go", "opencode", "cursor"] as const;
 type ModelKey = (typeof MODEL_KEYS)[number];
 
 export function billingKeyOf(r: Rung): BillingKey {

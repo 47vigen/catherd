@@ -1,10 +1,19 @@
 # Upgrading catherd
 
+- [From 1.5 to 2.0](#from-15-to-20)
 - [From 1.4 to 1.5](#from-14-to-15)
 - [From 1.2 to 1.3](#from-12-to-13)
 - [From 1.1 to 1.2](#from-11-to-12)
 - [From 1.0 to 1.1](#from-10-to-11)
 - [From 0.x to 1.0](#from-0x-to-10)
+
+## From 1.5 to 2.0
+
+- Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile validate`
+  on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`. `billing.grok`,
+  `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no longer takes
+  them; a failover entry that names a Grok or Antigravity rung is removed by editing the profile file
+  (`catherd profile show --raw` prints it).
 
 ## From 1.4 to 1.5
 

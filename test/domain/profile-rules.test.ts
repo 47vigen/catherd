@@ -3,6 +3,7 @@ import { rungInfo } from "../../src/domain/catalog.ts";
 import {
   applyPatch,
   defaultProfileDoc,
+  ProfileDocSchema,
   type ProfilePatch,
   resolveProfile,
 } from "../../src/domain/profile.ts";
@@ -29,6 +30,17 @@ const check = (patch: ProfilePatch = {}, c = catalog()) =>
 const messages = (issues: { message: string }[]) => issues.map((i) => i.message);
 
 describe("validateProfile", () => {
+  it("reads a stored profile with a Grok rung and harness, and validate names the rung", () => {
+    const doc = {
+      ...defaultProfileDoc(),
+      harness: { grok: { isolated: true } },
+      roles: { worker: { rungs: ["grok:grok-4.7#high", "codex:gpt-6-sol#high"] } },
+    };
+    const p = resolveProfile(ProfileDocSchema.parse(doc), "x", "codex");
+    const v = validateProfile(p, catalog(), [...BACKENDS]);
+    expect(v.errors.map((e) => e.message)).toContain('"grok:grok-4.7#high" is not a rung');
+  });
+
   it("passes the default profile with no error and no warning", () => {
     expect(check()).toEqual({ errors: [], warnings: [] });
   });
@@ -280,7 +292,7 @@ describe("validateProfile: failover and ladder warnings (spec 1.1 §11)", () => 
       validateProfile(
         resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
         c,
-        [...BACKENDS, "cursor", "grok", "antigravity"],
+        [...BACKENDS, "cursor"],
         undefined,
         "claude-code",
       );

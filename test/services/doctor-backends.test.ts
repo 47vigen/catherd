@@ -1,18 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { tryParseRung } from "../../src/domain/ids.ts";
-import { applyPatch, defaultProfileDoc, PAIRED_FAILOVER, resolveProfile } from "../../src/domain/profile.ts";
+import { applyPatch, defaultProfileDoc, resolveProfile } from "../../src/domain/profile.ts";
 import { usedBackends } from "../../src/services/doctor-backends.ts";
 
 describe("usedBackends (spec 1.3 §7.3)", () => {
-  it("counts an implicit paired stand-in as failover use, so a missing pair is not an unused skip", () => {
-    const GROK = "grok:grok-4.6#high";
-    const pair = PAIRED_FAILOVER[GROK];
-    if (!pair) throw new Error("expected a paired stand-in for grok-4.6#high");
+  it("counts a profile's stand-in as failover use, so a missing one is not an unused skip", () => {
+    const CURSOR = "cursor:gpt-6-sol#high";
     const doc = applyPatch(defaultProfileDoc(), {
-      roles: { worker: { rungs: [GROK], defaultRung: null } },
+      roles: { worker: { rungs: [CURSOR], defaultRung: null } },
+      failover: { [CURSOR]: "opencode:opencode-go/kimi-k3#max" },
     });
     const used = usedBackends([resolveProfile(doc, "p", "claude-code")]);
-    expect(used.get("grok")).toBe("role");
-    expect(used.get(tryParseRung(pair)?.backend ?? "")).toBe("failover");
+    expect(used.get("cursor")).toBe("role");
+    expect(used.get("opencode")).toBe("failover");
   });
 });

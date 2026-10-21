@@ -38,9 +38,7 @@ describe("catherd profile show", () => {
       "  codex:gpt-6-sol#medium → opencode:opencode-go/kimi-k3#max (scores borrowed from gpt-6-sol#medium)\n",
     );
     expect(r.out).not.toContain("treated like");
-    expect(r.out).toContain(
-      "harness codex native · claude-code native · opencode native · cursor native · grok native · antigravity native\n",
-    );
+    expect(r.out).toContain("harness codex native · claude-code native · opencode native · cursor native\n");
   });
 
   it("marks a role whose network is off (spec §5)", () => {

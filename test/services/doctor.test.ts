@@ -26,14 +26,10 @@ import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import {
-  type AgyScenario,
   type CursorScenario,
-  type GrokScenario,
   type OpencodeScenario,
-  withAgyScenario,
   withClaudeScenario,
   withCursorScenario,
-  withGrokScenario,
   withOpencodeScenario,
 } from "../sim/sim-scenarios.ts";
 
@@ -71,8 +67,6 @@ function machine(
     codex?: CodexScenario;
     opencode?: OpencodeScenario;
     cursor?: CursorScenario;
-    grok?: GrokScenario;
-    agy?: AgyScenario;
     bins?: string[];
     agentBrowser?: boolean;
   } = {},
@@ -103,15 +97,8 @@ function machine(
       modelsFile: join(FX, "cursor", "models.txt"),
       ...o.cursor,
     }).env,
-    withGrokScenario({ ...o.grok }).env,
-    withAgyScenario({
-      modelsFile: join(FX, "antigravity", "models.txt"),
-      ...o.agy,
-    }).env,
   );
   delete process.env.CURSOR_API_KEY;
-  delete process.env.XAI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
   return home;
 }
 
@@ -170,8 +157,6 @@ describe("doctor", () => {
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
       "backend:cursor": "skip missing",
-      "backend:grok": "skip missing",
-      "backend:antigravity": "skip missing",
       jev: "warn no key",
       sources: "info not synced",
       plugin: "ok ready",
@@ -231,125 +216,6 @@ describe("doctor", () => {
       word: "not logged in",
       fix: "cursor-agent login, or export CURSOR_API_KEY=<key>",
     });
-  });
-
-  it("shows grok with its login, listing and sandbox, its access not tested, and a login billed apart", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "grok"] });
-    installPlugin(VERSION);
-    // Grok is unscored in the shipped scores: its inferred stand-ins let the role run (spec 1.3 §7.2)
-    const saved = patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } },
-      { host: "claude-code" },
-    );
-    expect(saved.saved).toBe(true);
-    const r = await run();
-    expect(check(r, "backend:grok")).toMatchObject({
-      state: "warn",
-      word: "billing",
-      detail:
-        "1.0.44 · Grok login · profile default bills grok as metered, but this login is subscription · 2 models",
-      fix: "catherd profile set billing.grok subscription --profile default --host claude-code",
-    });
-    expect(check(r, "sandbox:grok")).toMatchObject({
-      state: "info",
-      detail: "grok's read-only profile applies here; catherd runs a read-only role in it (enforced)",
-    });
-    expect(check(r, "access:grok")).toMatchObject({
-      state: "skip",
-      word: "not tested",
-    });
-    expect(check(r, "isolation:grok")).toMatchObject({
-      state: "warn",
-      word: "weak",
-    });
-  });
-
-  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
-  it("fails a logged-out grok a role runs on, and says a grok this OS cannot run is one", async () => {
-    machine({
-      bins: ["codex", "claude", "opencode", "grok"],
-      grok: { loggedIn: false },
-    });
-    installPlugin(VERSION);
-    patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } },
-      { host: "claude-code" },
-    );
-    expect(check(await run(), "backend:grok")).toMatchObject({
-      state: "fail",
-      word: "not logged in",
-      fix: "grok login, or grok login --device-code without a browser, or export XAI_API_KEY=<key>",
-    });
-    // research §3.1: the owner's grok was a Linux build on macOS
-    const bin = process.env.PATH?.split(":")[0] as string;
-    rmSync(join(bin, "grok"));
-    writeFileSync(join(bin, "grok"), Buffer.concat([Buffer.from("\x7fELF\x02\x01\x01"), Buffer.alloc(57)]));
-    chmodSync(join(bin, "grok"), 0o755);
-    expect(check(await run(), "backend:grok")).toMatchObject({
-      state: "fail",
-      word: "cannot run",
-      detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
-      fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
-    });
-  }, 30_000);
-
-  it("shows agy's version, Google login, listing and quota, its isolation note and its untested access", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "agy"] });
-    // the probe reads HOME's agy settings: never the user's own
-    process.env.HOME = tempDir("catherd-userhome-");
-    installPlugin(VERSION);
-    const saved = patchProfile(
-      "default",
-      {
-        roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } },
-      },
-      { host: "claude-code" },
-    );
-    expect(saved.saved).toBe(true);
-    const r = await run();
-    expect(check(r, "backend:antigravity")).toMatchObject({
-      state: "warn",
-      word: "billing",
-      detail:
-        "1.2.13 · Google login · profile default bills antigravity as metered, but this login is subscription · 6 models",
-      fix: "catherd profile set billing.antigravity subscription --profile default --host claude-code",
-    });
-    expect(check(r, "quota:antigravity")).toMatchObject({
-      state: "info",
-      detail: "Weekly quota: 62% left, resets Monday 09:00",
-    });
-    expect(check(r, "isolation:antigravity")?.detail).toBe(
-      "native Antigravity shares its settings and permission rules with the Antigravity desktop app",
-    );
-    expect(check(r, "access:antigravity")).toMatchObject({
-      state: "skip",
-      word: "not tested",
-    });
-    expect(r.ready).toBe(true);
-  });
-
-  it("fails a logged-out agy a role runs on, with the login fix, and asks it no quota", async () => {
-    const usageTo = join(tempDir("catherd-usage-"), "args");
-    machine({
-      bins: ["codex", "claude", "opencode", "agy"],
-      agy: { loggedIn: false, usageTo },
-    });
-    process.env.HOME = tempDir("catherd-userhome-");
-    installPlugin(VERSION);
-    patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } } },
-      { host: "claude-code" },
-    );
-    const r = await run();
-    expect(check(r, "backend:antigravity")).toMatchObject({
-      state: "fail",
-      word: "not logged in",
-    });
-    expect(check(r, "quota:antigravity")).toBeUndefined();
-    expect(existsSync(usageTo)).toBe(false);
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {

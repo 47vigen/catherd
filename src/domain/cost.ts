@@ -12,8 +12,6 @@ export const DEFAULT_BILLING: Record<BillingKey, BillingMode> = {
   "opencode-go": "subscription",
   opencode: "metered",
   cursor: "metered",
-  grok: "metered",
-  antigravity: "metered",
 };
 
 /**

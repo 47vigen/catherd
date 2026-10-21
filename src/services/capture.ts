@@ -37,11 +37,6 @@ const HAIKU = "claude-code:claude-haiku-4-5-20251001#default";
 /** spec 1.3 §4.6: `auto` has no family; only the live kit and the capture run it */
 const AUTO = "cursor:auto#default";
 const BUNNY = "opencode:opencode/space-bunny-free#default";
-/** spec 1.3 §5.6: grok 1.0.44's default model (research §3.4) at its cheapest effort */
-const GROK = "grok:grok-4.6#low";
-/** spec 1.3 §6.6: the cheapest Gemini effort; capture runs isolated, on GEMINI_API_KEY */
-const FLASH_LOW = "antigravity:gemini-3.8-flash#low";
-
 /** Spec §11.7–8: one cheap run per backend, plus a read-only role trying to write where enforcement is advisory. */
 const CAPTURE_CASES: CaptureCase[] = [
   { backend: "codex", name: "ok", rung: "codex:gpt-6-luna#low", access: "read-only", brief: SAY_HELLO },
@@ -53,22 +48,6 @@ const CAPTURE_CASES: CaptureCase[] = [
   { backend: "cursor", name: "ok", rung: AUTO, access: "workspace-write", brief: WORK },
   { backend: "cursor", name: "resume", rung: AUTO, access: "read-only", brief: SAY_HELLO, resume: RECALL },
   { backend: "cursor", name: "read-only-write", rung: AUTO, access: "read-only", brief: TRY_WRITE },
-  // spec 1.3 §5.6: the same three on grok; its read-only is the kernel profile, or the read tools on a Mac
-  // with a symlinked docker socket
-  { backend: "grok", name: "ok", rung: GROK, access: "workspace-write", brief: WORK },
-  { backend: "grok", name: "resume", rung: GROK, access: "read-only", brief: SAY_HELLO, resume: RECALL },
-  { backend: "grok", name: "read-only-write", rung: GROK, access: "read-only", brief: TRY_WRITE },
-  // spec 1.3 §6.6: the same three on agy; read-only runs under catherd's deny rules (research §8 agy 2, 5, 6)
-  { backend: "antigravity", name: "ok", rung: FLASH_LOW, access: "workspace-write", brief: WORK },
-  {
-    backend: "antigravity",
-    name: "resume",
-    rung: FLASH_LOW,
-    access: "read-only",
-    brief: SAY_HELLO,
-    resume: RECALL,
-  },
-  { backend: "antigravity", name: "read-only-write", rung: FLASH_LOW, access: "read-only", brief: TRY_WRITE },
 ];
 export const CAPTURE_BACKENDS = [...new Set(CAPTURE_CASES.map((c) => c.backend))];
 
@@ -122,7 +101,7 @@ async function runOnce(
   const p = Bun.spawn([plan.cmd, ...plan.args], {
     cwd: plan.cwd,
     env: workerEnv(process.env, plan.env, plan.cwd),
-    // spec 1.3 §3.3: the brief goes on stdin only to a CLI whose plan reads it there (grok reads a file)
+    // spec 1.3 §3.3: the brief goes on stdin only to a CLI whose plan reads it there (one reads a file)
     stdin: plan.stdinPath ? Bun.file(plan.stdinPath) : "ignore",
     stdout: "pipe",
     stderr: "pipe",

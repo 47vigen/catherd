@@ -96,17 +96,6 @@ describe("resolveProfile", () => {
     expect(p.billing.cursor).toBe("metered");
   });
 
-  it("gives antigravity a billing mode and a harness toggle, off and metered until the user says (spec 1.3 §3.3)", () => {
-    const p = resolveProfile({ schema: 1 }, "bare", "claude-code");
-    expect(p.billing.antigravity).toBe("metered");
-    expect(p.harness.antigravity).toEqual({ isolated: false });
-    const patch = { billing: { antigravity: "subscription" }, harness: { antigravity: { isolated: true } } };
-    expect(ProfilePatchSchema.parse(patch)).toEqual(patch as never);
-    expect(patchAt("harness.antigravity.isolated", "true")).toEqual({
-      harness: { antigravity: { isolated: true } },
-    });
-  });
-
   it("takes a partial role's missing fields from the built-in one, but not its default rung", () => {
     const p = resolveProfile(
       {
@@ -147,7 +136,7 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
     schema: 1,
     objective: "quality",
     jev: { use: "findings-only" },
-    billing: { codex: "chatgpt-pro", grok: "supergrok" },
+    billing: { codex: "chatgpt-pro", cursor: "cursor-ultra" },
     roles: { worker: { access: "network-off" } },
     notify: ["finish", "every-lane"],
   });
@@ -156,7 +145,7 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
     const p = resolveProfile(newer, "x", "claude-code");
     expect(p.objective).toBe("cost");
     expect(p.jev.use).toBe("off");
-    expect(p.billing).toMatchObject({ codex: "chatgpt-plan", grok: "metered" });
+    expect(p.billing).toMatchObject({ codex: "chatgpt-plan", cursor: "metered" });
     expect(p.roles.worker.access).toBe("read-only");
     expect(p.notify).toEqual(["finish"]);
   });
@@ -166,7 +155,7 @@ describe("values a newer catherd wrote (spec §3.4)", () => {
       { path: "objective", value: "quality", readAs: "cost" },
       { path: "jev.use", value: "findings-only", readAs: "off" },
       { path: "billing.codex", value: "chatgpt-pro", readAs: "chatgpt-plan" },
-      { path: "billing.grok", value: "supergrok", readAs: "metered" },
+      { path: "billing.cursor", value: "cursor-ultra", readAs: "metered" },
       { path: "roles.worker.access", value: "network-off", readAs: "read-only" },
       { path: "notify", value: "every-lane", readAs: "skipped" },
     ]);

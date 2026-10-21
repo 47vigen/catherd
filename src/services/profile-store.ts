@@ -149,7 +149,7 @@ export function isolationKeyErrors(
 
 /**
  * Spec 1.3 §9 Q2: each enabled role whose rung, or a failover stand-in of one, runs natively on a backend that
- * holds the role's access only when isolated (agy has no read-only flag).
+ * holds the role's access only when isolated (one with no read-only flag).
  */
 export function isolatedOnlyErrors(p: Profile): Issue[] {
   const out: Issue[] = [];

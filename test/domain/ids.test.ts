@@ -50,13 +50,10 @@ describe("parseRung", () => {
     expect(tryParseRung("nope:x#high")).toBeNull();
   });
 
-  it("knows the three 1.3 backends by their ids (spec 1.3 §3.3)", () => {
-    expect(ADAPTER_IDS).toEqual(["codex", "claude-code", "opencode", "cursor", "grok", "antigravity"]);
-    expect(parseRung("antigravity:gemini-3.8-flash#low")).toEqual({
-      backend: "antigravity",
-      model: "gemini-3.8-flash",
-      effort: "low",
-    });
+  it("knows the four backends by their ids, and none of the removed ones", () => {
+    expect(ADAPTER_IDS).toEqual(["codex", "claude-code", "opencode", "cursor"]);
+    expect(tryParseRung("antigravity:gemini-3.8-flash#high")).toBeNull();
+    expect(tryParseRung("grok:grok-4.7#high")).toBeNull();
     expect(tryParseRung("agy:gemini-3.8-flash#low")).toBeNull();
   });
 

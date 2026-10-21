@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,12 +9,10 @@ interface Recorded {
   cwd: string;
   pwd: string | null;
   xdgConfig: string | null;
-  /** HOME as the CLI saw it (cursor-agent, grok) */
+  /** HOME as the CLI saw it (cursor-agent) */
   home?: string | null;
-  /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR; grok: GROK_*) */
+  /** a few env values the CLI saw, by name (cursor-agent: NO_OPEN_BROWSER, CURSOR_*, CATHERD_*_DIR) */
   vars?: Record<string, string>;
-  /** agy: the settings.json under the HOME it ran with, null when there is none */
-  settings?: unknown;
   envKeys: string[];
 }
 
@@ -113,61 +111,6 @@ export interface CursorScenario extends Common {
   sandboxArgsTo?: string;
 }
 
-export interface GrokScenario extends Common {
-  /** a Grok login in GROK_HOME (default true); a non-empty XAI_API_KEY in the env logs it in too */
-  loggedIn?: boolean;
-  /** the ids `grok models` lists, the first as the default (default: grok-4.6, grok-4.5) */
-  models?: string[];
-  /** what `grok models` lists when only XAI_API_KEY signs it in (default: `models`) */
-  keyModels?: string[];
-  /** every call appends `{ args, home, vars }` here first, vars being GROK_* and XAI_API_KEY */
-  callsTo?: string;
-  /** this "Mac"'s /var/run/docker.sock is a symlink: read-only and strict refuse to start (research §3.6) */
-  socketSymlink?: boolean;
-  /** the sandbox a resumed session started with; another `--sandbox` on `-r` is refused */
-  sessionSandbox?: string;
-  /** flags this "older" CLI does not know (clap's error, exit 2) */
-  unknownFlags?: string[];
-  /** written to stderr after the events */
-  stderr?: string;
-}
-
-export interface AgyScenario extends Common {
-  /** a Google login answers (default true); GEMINI_API_KEY with modelProvider "gemini" in HOME's settings does too */
-  loggedIn?: boolean;
-  /** what `agy models` prints after its first line: this file's text */
-  modelsFile?: string;
-  /** what it prints instead when GEMINI_API_KEY signs it in (its HOME's settings say gemini) */
-  keyModelsFile?: string;
-  /** the exit code of a logged-in `agy models` (default 0) */
-  modelsExit?: number;
-  /** flags this "older" agy does not know (`--disable-slash-commands`) */
-  unknownFlags?: string[];
-  /** written to stderr after the events */
-  stderr?: string;
-  /** each time a logged-out `-p` would open the browser, a line is appended here */
-  browserTo?: string;
-  /** what `agy -p /usage --output-format json` prints (default: a weekly quota line) */
-  usage?: unknown;
-  /** `-p /usage` fails with this exit code */
-  usageExit?: number;
-  /** `-p /usage` appends its arguments here, one JSON line per call */
-  usageTo?: string;
-}
-
-export const withAgyScenario = (s: AgyScenario) => write("CATHERD_SIM_AGY", s);
 export const withClaudeScenario = (s: ClaudeScenario) => write("CATHERD_SIM_CLAUDE", s);
 export const withCursorScenario = (s: CursorScenario) => write("CATHERD_SIM_CURSOR", s);
-/**
- * The sim reads a Grok login as the auth.json in GROK_HOME (research §3.9), and `withHome` pins GROK_HOME to the
- * test's temp home: a scenario logged in (the default) gets one there.
- */
-export function withGrokScenario(s: GrokScenario) {
-  const home = process.env.GROK_HOME;
-  if (home && s.loggedIn !== false && !existsSync(join(home, "auth.json"))) {
-    mkdirSync(home, { recursive: true });
-    writeFileSync(join(home, "auth.json"), "{}");
-  }
-  return write("CATHERD_SIM_GROK", s);
-}
 export const withOpencodeScenario = (s: OpencodeScenario) => write("CATHERD_SIM_OPENCODE", s);

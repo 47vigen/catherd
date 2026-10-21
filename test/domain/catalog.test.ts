@@ -2,12 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  buildCatalog,
   CONFIDENCE,
   capableFor,
   DIMS,
   effectiveRank,
-  ModelsFileSchema,
   OverrideSchema,
   outranks,
   RANK,
@@ -162,46 +160,6 @@ describe("Cursor's families (spec 1.3 §7.1)", () => {
   });
 });
 
-describe("Antigravity's families (spec 1.3 §6.6, §7.1)", () => {
-  const fam = (id: string) => shippedModels().families.find((f) => f.id === id);
-
-  it("gives the four Gemini families an agy id, the Gemini API's thinking levels and its 1M context", () => {
-    for (const [id, agy] of [
-      ["gemini-3-8-flash", "gemini-3.8-flash"],
-      ["gemini-3-7-flash", "gemini-3.7-flash"],
-      ["gemini-3-6-flash", "gemini-3.6-flash"],
-    ] as const)
-      expect(fam(id)?.on.antigravity).toEqual({
-        id: agy,
-        efforts: ["low", "medium", "high"],
-        context: 1048576,
-      });
-    expect(fam("gemini-3-1-pro")?.on.antigravity).toEqual({
-      id: "gemini-3.1-pro",
-      efforts: ["low", "high"],
-      context: 1048576,
-    });
-    // Cursor keeps its own ids, efforts and window
-    expect(fam("gemini-3-8-flash")?.on.cursor).toEqual({
-      id: "gemini-3.8-flash",
-      efforts: ["low", "medium", "high"],
-      context: 200000,
-    });
-  });
-
-  it("reads an agy rung as its family's canonical rung, billed under antigravity", () => {
-    expect(rungInfo(shipped(), "antigravity:gemini-3.8-flash#low")).toMatchObject({
-      key: "antigravity",
-      canonical: "gemini-3-8-flash#low",
-      efforts: ["low", "medium", "high"],
-      context: 1048576,
-    });
-    expect(rungInfo(shipped(), "antigravity:gemini-3.1-pro#default").canonical).toBe(
-      "gemini-3-1-pro#default",
-    );
-  });
-});
-
 describe("rungInfo", () => {
   it("maps a backend's model id to its family and canonical rung", () => {
     const c = shipped();
@@ -233,26 +191,6 @@ describe("rungInfo", () => {
     expect(rungInfo(c, "codex:gpt-6-sol#high").efforts).toEqual(["low", "medium"]);
     expect(rungInfo(c, "codex:gpt-6-luna#high").listed).toBe(false);
     expect(rungInfo(c, "codex:gpt-6-sol#high").listed).toBe(true);
-  });
-
-  it("maps an antigravity rung through a family's on.antigravity, billed under its own key (spec 1.3 §3.3)", () => {
-    const models = shippedModels();
-    const flash = {
-      id: "flash-x",
-      name: "Flash X",
-      capabilities: { toolUse: true, imageIn: true, reasoning: true },
-      price: { input: 1, cached: 0.1, output: 4 },
-      on: { antigravity: { id: "flash-x-cli", efforts: ["low", "high"], context: 1000000 } },
-    };
-    const c = buildCatalog({
-      models: ModelsFileSchema.parse({ ...models, families: [...models.families, flash] }),
-      scores: shippedScores(),
-    });
-    expect(rungInfo(c, "antigravity:flash-x-cli#low")).toMatchObject({
-      key: "antigravity",
-      canonical: "flash-x#low",
-      efforts: ["low", "high"],
-    });
   });
 
   it("names an unknown model by its own id", () => {

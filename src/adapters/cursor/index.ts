@@ -39,7 +39,7 @@ export { isolatedCursorHome, isolatedCursorRoot } from "./home.ts";
 export const CURSOR_MIN_VERSION = "2026.09.28";
 export const CURSOR_INSTALL = "curl https://cursor.com/install -fsS | bash";
 const THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Cursor's versions are a date and a hash (`2026.09.28-64d2043`); grok's `agent` prints `grok 1.0.44 (…)`. */
+/** Cursor's versions are a date and a hash (`2026.09.28-64d2043`). */
 const CURSOR_VERSION = /^\s*\d{4}\.\d{1,2}\.\d{1,2}-[0-9a-f]+\b/;
 const DAY_MS = 24 * 60 * 60_000;
 const LOGIN_FIX = "cursor-agent login, or export CURSOR_API_KEY=<key>";
@@ -50,7 +50,7 @@ export const cursorShell = { timeoutMs: 15_000 };
 const which = (bin: string): string | null => Bun.which(bin, { PATH: process.env.PATH ?? "" });
 
 /**
- * Spec 1.3 §4.1: `cursor-agent` first. The installers of Cursor and grok both link `agent` (research §2.1,
+ * Spec 1.3 §4.1: `cursor-agent` first. Another CLI's installer may also link `agent` (research §2.1,
  * §3.1), so `agent` is taken only when `cursor-agent` is missing, and the probe checks what it is.
  */
 export function cursorBin(): "cursor-agent" | "agent" {
@@ -101,7 +101,7 @@ function plan(r: RunRequest): SpawnPlan {
 
 async function listModels(): Promise<DiscoveredModel[]> {
   const bin = cursorBin();
-  // an `agent` that is not Cursor's (grok's, say) is never asked for models: nothing to list, as when absent
+  // an `agent` that is not Cursor's (another CLI's) is never asked for models: nothing to list, as when absent
   if (bin === "agent") {
     const v = await runCli(bin, ["--version"], cursorShell).catch(() => null);
     if (!v || !CURSOR_VERSION.test(v.out)) return [];
@@ -219,7 +219,7 @@ async function probe(): Promise<Probe> {
   try {
     v = await runCli(bin, ["--version"], cursorShell);
   } catch (e) {
-    // an `agent` that is not Cursor's may not even run here (the owner's is a Linux grok, research §3.1)
+    // an `agent` that is not Cursor's may not even run here (a Linux build on macOS, research §3.1)
     if (bin === "agent") v = { ok: false, out: "", err: String(e) };
     else throw e;
   }
