@@ -64,9 +64,6 @@ Plan 23 (verifier, gate and environment) review:
   `spawnSync` blocks the MCP server's event loop for up to 5 s, once per process. Evidence:
   `src/infra/login-env.ts:13`, `src/infra/login-env.ts:26`. Fix: parse only `K=V` records, dropping what precedes the
   last newline before the first `\0`; capture it asynchronously (or at boot, off the request path). (Minor 2.)
-- **"BLOCKER: none" counts as an open blocker.** A reviewer that writes `BLOCKER: none` (or `BUG: none`) gets one
-  open finding and the orchestrator a needless fix round. Evidence: `src/services/milestones.ts:100`. Fix: skip a
-  finding line whose text after the label is `none`, `n/a` or `-`. (Minor 3.)
 - **An `ENV:` line anywhere makes climb refuse.** `parseReplyEnvironment` matches an `ENV:` line anywhere in the
   reply, a YAML or Dockerfile snippet in a code fence included, so `climb` refuses with `E_CLIMB_ENV` for a lane that
   had no environment blocker. Evidence: `src/domain/record.ts:93-95`. Fix: read it outside code fences only, or only
@@ -129,10 +126,6 @@ Plan 25 (runs, programs and lanes) review:
   file, so such a lane is refused `E_ADMIT_ORDER` for good. Evidence: `src/services/admission.ts:226`,
   `src/services/protocol.ts:90`. Fix: refuse them in `assertLaneValues` where the run is known (`write_run_file`,
   `lane_set`), or at least name them in `protocol.next` or a status warning. (Minor 7.)
-- **`landedCommitOf` lines up two separately filtered arrays.** It indexes `landedCommits` by the position of the
-  milestone in `landedMilestones`; a ledger row one filter keeps and the other drops shifts every later commit.
-  Evidence: `src/services/workspace-admission.ts:127-132`. Fix: parse each ledger row once into
-  `{ milestone, commit }`. (Minor 8.)
 - **Carried gate passes are not shared between worktrees of one repo.** `gates.jsonl` stays keyed by the toplevel
   (Ruling 20), so a worktree never reuses a pass recorded in another worktree of the same origin. Evidence:
   `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass
