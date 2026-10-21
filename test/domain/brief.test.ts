@@ -47,7 +47,7 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
     expect(text).not.toContain("<lane-file");
     expect(text).not.toContain("scratch folder");
     expect(text).toContain(
-      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show; catherd gate check ${RUN} --milestone <M> --item <item> --command <command> --paths <path,…>; catherd gate pass ${RUN} --item <item> --command <command> --paths <path,…> --evidence <evidence>.`,
+      `Your catherd commands, from your shell: catherd run-file read ${RUN} <path>; catherd knowledge show; catherd gate check ${RUN} --milestone <M> --item <item> --command <command> --paths <path,…>; catherd gate pass ${RUN} --item <item> --command <command> --paths <path,…> --evidence <evidence>; catherd gate run ${RUN} --milestone <M> --command <command> [--at <base checkout>].`,
     );
     expect(text).toEndWith(`${replyContract("verifier")}\n`);
   });
