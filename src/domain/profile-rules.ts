@@ -184,8 +184,16 @@ export function validateProfile(
       });
     const usable = candidates(c, routingProfileOf(p, role), role);
     if (usable.length === 0)
-      // doctor's mode: rungs that are only unindexed are the same warning, so the role's total is one too
-      (o.unindexed === "warning" && unindexed > 0 && unindexed === rc.rungs.length ? warnings : errors).push({
+      // doctor's mode: rungs that are only unindexed are the same warning, so the role's total is one too, but
+      // only when an index exists: with none (not fetched, corrupt, empty) nothing can route, which is an error
+      (o.unindexed === "warning" &&
+      c.indexedAt !== null &&
+      Object.keys(c.index).length > 0 &&
+      unindexed > 0 &&
+      unindexed === rc.rungs.length
+        ? warnings
+        : errors
+      ).push({
         path: `${at}.rungs`,
         message: `the ${role} role has no usable rung`,
         fix: `enable an indexed rung its backend offers, or turn the role off with: catherd profile set ${at}.enabled false`,

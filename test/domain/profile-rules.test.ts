@@ -109,6 +109,14 @@ describe("validateProfile", () => {
     expect(soft.errors).toEqual([]);
   });
 
+  it("with no index at all, a role of unindexed rungs stays an error even in doctor's mode", () => {
+    const p = resolveProfile(applyPatch(defaultProfileDoc(), {}), "p", "claude-code");
+    const soft = validateProfile(p, catalog({ index: null }), BACKENDS, undefined, "claude-code", {
+      unindexed: "warning",
+    });
+    expect(messages(soft.errors)).toContain("the worker role has no usable rung");
+  });
+
   it("says to sync when there is no index at all", () => {
     const v = check({}, catalog({ index: null }));
     const unindexed = v.errors.filter((e) => e.message.includes("has no Slopalytics intelligence index"));
