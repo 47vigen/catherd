@@ -3,11 +3,11 @@ import { z } from "zod";
 export const ACCESS = ["read-only", "workspace-write", "full"] as const;
 export type Access = (typeof ACCESS)[number];
 
-const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
+export const RUN_STATUSES = ["ok", "failed", "limit", "cli-too-old", "timeout", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 /** plan 23: `flaky`, a worker's word for a check that failed, then passed when run alone */
-const REPLY_STATUSES = ["complete", "partial", "blocked", "refused", "flaky"] as const;
+export const REPLY_STATUSES = ["complete", "partial", "blocked", "refused", "flaky"] as const;
 export type ReplyStatus = (typeof REPLY_STATUSES)[number];
 
 export interface Tokens {

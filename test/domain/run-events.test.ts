@@ -1,0 +1,89 @@
+import { describe, expect, it } from "bun:test";
+import { describeEvent, RunEventSchema, type RunEvent } from "../../src/domain/run-events.ts";
+import { PLAN, endDispatch, makeLog, startDispatch, startedFields } from "./run-fixtures.ts";
+
+const finding = { label: "BUG" as const, text: "BUG src/a.ts:3 — x — y", file: "src/a.ts" };
+
+/** one fixture per member of the union */
+function oneOfEach(): RunEvent[] {
+  const log = makeLog();
+  log.add("run.started", startedFields);
+  log.add("daemon.started", { pid: 1, version: "2.0.0" });
+  log.add("plan.ready", { milestones: PLAN });
+  log.add("plan.approved", { by: "owner" });
+  log.add("lanes.routed", {
+    milestone: "M1",
+    lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-sol#medium", ladder: ["codex:gpt-6-sol#medium"] }],
+  });
+  log.add("preflight.done", {
+    milestone: "M1",
+    blocking: [{ lane: "M1.L1", note: "no docker" }],
+    confirm: null,
+  });
+  const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+  log.add("dispatch.refused", { name: "worker-M1.L2", unit: "M1.L2", code: "E_ALL_HELD", message: "held" });
+  endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1", findings: [finding] });
+  log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "boom", foreign: [] });
+  log.add("commit.made", { milestone: "M1", round: 0, commit: "abc1234" });
+  log.add("commit.failed", { milestone: "M1", round: 1, tail: "hook failed" });
+  log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
+  log.add("stop.classified", { dispatchId: id, reason: "needs_user" });
+  log.add("judge.decided", {
+    id: "9",
+    unit: "M1.L1",
+    kind: "question",
+    decision: { verb: "answer", answer: "use v2" },
+    dispatchId: id,
+  });
+  log.add("judge.failed", { id: "9", unit: "M1.L1", why: "unreadable" });
+  log.add("question.parked", { unit: "M1", question: "which one?", reason: "confirm" });
+  log.add("question.answered", { unit: "M1", answer: "this", by: "owner" });
+  log.add("milestone.landed", {
+    milestone: "M1",
+    commit: "abc1234",
+    knownIssues: [],
+    digestPath: "digests/M1.md",
+  });
+  log.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "no reviewer", fix: "run it" });
+  log.add("milestone.merged", { milestone: "M1" });
+  log.add("base.behind", { milestone: "M1" });
+  log.add("integrate.done", { milestone: "M1", commit: "def5678" });
+  log.add("integrate.conflict", { milestone: "M1", files: ["a.ts"] });
+  log.add("cancel.requested", { by: "owner" });
+  log.add("effect.failed", { action: "commit", unit: "M1", message: "boom" });
+  log.add("report.posted", { kind: "landed", unit: "M1", text: "landed" });
+  log.add("tick", {});
+  log.add("run.ended", { outcome: "done", reportPath: "report.md" });
+  return log.events;
+}
+
+describe("run events", () => {
+  it("parses every event type, and refuses an unknown type or a newer v", () => {
+    const all = oneOfEach();
+    expect(new Set(all.map((e) => e.type)).size).toBe(all.length);
+    for (const e of all) expect(RunEventSchema.parse(e)).toEqual(e);
+    const first = all[0] as RunEvent;
+    expect(RunEventSchema.safeParse({ ...first, type: "tock" }).success).toBe(false);
+    expect(RunEventSchema.safeParse({ ...first, v: 2 }).success).toBe(false);
+    expect(RunEventSchema.safeParse({ ...first, seq: 0 }).success).toBe(false);
+  });
+
+  it("describes each event in one line and never quotes a reply", () => {
+    const log = makeLog();
+    const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    const ended = endDispatch(log, id, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      why: "line one\nsecret reply body",
+    });
+    expect(describeEvent(ended, () => "codex:gpt-6-sol#medium")).toBe(
+      "worker-M1.L1 ended ok (complete) on codex:gpt-6-sol#medium",
+    );
+    expect(describeEvent(ended)).toBe("worker-M1.L1 ended ok (complete)");
+    for (const e of oneOfEach()) {
+      const line = describeEvent(e);
+      expect(line.includes("\n")).toBe(false);
+      expect(line.length).toBeGreaterThan(0);
+    }
+  });
+});
