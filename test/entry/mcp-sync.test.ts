@@ -10,7 +10,7 @@ import { watching, watchersSettled } from "../../src/services/dispatch-service.t
 import * as reconcile from "../../src/services/reconcile.ts";
 import { createRun, readRecords } from "../../src/services/run-store.ts";
 import { claimRun } from "../../src/services/sessions.ts";
-import { backgroundSync, type SyncReport } from "../../src/services/source-sync.ts";
+import { type IndexStatus, refreshIndex } from "../../src/services/catalog-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
@@ -18,47 +18,36 @@ import { deadProcess, fakeDeps, fakeDispatch, freshRun, waitFor } from "../servi
 
 afterEach(snapshotEnv());
 
-const REPORT: SyncReport = {
-  busy: false,
-  sources: [{ source: "arena", state: "fetched", fetchedAt: "2026-09-28T10:00:00.000Z" }],
-  newlyScored: ["claude-opus-5-5#high"],
-  noLongerNeeded: [{ rung: "gpt-6-sol#high", like: "yardstick#high" }],
-  failed: [{ source: "vectara", error: "http 503" }],
-  warnings: [],
-  unmatched: { arena: ["Kimi K3"] },
+const STATUS: IndexStatus = {
+  fetchedAt: "2026-10-21T10:00:00.000Z",
+  checkedAt: "2026-10-21T10:30:00.000Z",
+  pairs: 81,
+  error: null,
 };
 
-describe("catalog_sync (spec 1.2 §9)", () => {
-  it("syncs, forced when asked, and returns the rungs newly scored, the stand-ins no longer needed and what failed", async () => {
+describe("catalog_sync", () => {
+  it("fetches the index, forced when asked, and returns its status", async () => {
     withHome();
-    const asked: { force: boolean; wait?: boolean }[] = [];
+    const asked: { force: boolean }[] = [];
     const c = await mcpClient({
       ...fakeDeps(),
       sync: async (o) => {
         asked.push(o);
-        return REPORT;
+        return STATUS;
       },
     });
     const r = await call(c, "catalog_sync", { force: true });
-    // (1.2 minor) the tool never waits on a running sync: it answers busy
-    expect(asked).toEqual([{ force: true, wait: false }]);
-    expect(r.data).toEqual({
-      newlyScored: ["claude-opus-5-5#high"],
-      standInsNoLongerNeeded: [{ rung: "gpt-6-sol#high", like: "yardstick#high" }],
-      failed: [{ source: "vectara", error: "http 503" }],
-      sources: REPORT.sources,
-      warnings: [],
-    });
+    expect(asked).toEqual([{ force: true }]);
+    expect(r.data).toEqual(STATUS);
     await call(c, "catalog_sync");
-    expect(asked[1]).toEqual({ force: false, wait: false });
+    expect(asked[1]).toEqual({ force: false });
   });
 
-  it("says so when another sync was running", async () => {
+  it("names a failed fetch and the index it kept", async () => {
     withHome();
-    const c = await mcpClient({ ...fakeDeps(), sync: async () => ({ ...REPORT, busy: true }) });
-    expect((await call(c, "catalog_sync")).data.busy).toBe(
-      "another sync was running; call catalog_sync again",
-    );
+    const failed = { ...STATUS, error: "http 503" };
+    const c = await mcpClient({ ...fakeDeps(), sync: async () => failed });
+    expect((await call(c, "catalog_sync")).data).toEqual(failed);
   });
 });
 
@@ -180,8 +169,8 @@ describe("one MCP server runs the boot sync and reconcile (plan 22, single-fligh
   });
 });
 
-describe("the boot sync (spec 1.2 §3.2)", () => {
-  it("never delays the handshake or a tool call, even when every source hangs", async () => {
+describe("the boot sync", () => {
+  it("never delays the handshake or a tool call, even when the proxy hangs", async () => {
     withHome();
     delete process.env.CATHERD_NO_SYNC;
     const hang = fakeFetch("hang");
@@ -191,7 +180,7 @@ describe("the boot sync (spec 1.2 §3.2)", () => {
       transport: serverSide,
       sync: () => {
         started = true;
-        return backgroundSync({ transport: { fetchImpl: hang.impl }, aaKey: null });
+        return refreshIndex({ force: true, fetch: hang.impl }).then(() => {});
       },
     });
     const client = new Client({ name: "catherd-test", version: "0.0.0" });
@@ -199,7 +188,7 @@ describe("the boot sync (spec 1.2 §3.2)", () => {
     expect((await client.listTools()).tools.map((t) => t.name)).toContain("catalog_sync");
     expect((await call(client, "status")).isError).toBe(false);
     expect(started).toBe(true);
-    // the sync is under way, its requests unanswered
+    // the fetch is under way, its request unanswered
     expect(hang.sent.length).toBeGreaterThan(0);
     await client.close();
   });

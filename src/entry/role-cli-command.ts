@@ -10,7 +10,7 @@ import { defaultDeps } from "./deps.ts";
 
 /**
  * Spec 1.5 plan 21: the role server's operations as commands any role can run from its shell, on a backend
- * whose harness has no role server (opencode, Cursor, Grok Build, agy) or when no MCP tool is listed. In a role
+ * whose harness has no role server (opencode, Cursor) or when no MCP tool is listed. In a role
  * (CATHERD_ROLE, or its scratch TMPDIR) they are bound to its own run and its role's operations.
  */
 const scope = () => roleScopeFromEnv(process.env);

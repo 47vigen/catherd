@@ -7,14 +7,12 @@ import { opencodeShell } from "../../src/adapters/opencode/index.ts";
 import { formatCaptured } from "../../src/entry/capture-fixtures-command.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { captureFixtures, captureOne } from "../../src/services/capture.ts";
-import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
+import { snapshotEnv, withHome } from "../helpers.ts";
 import { simPath } from "../sim/scenario.ts";
 import {
   type OpencodeModel,
-  withAgyScenario,
   withClaudeScenario,
   withCursorScenario,
-  withGrokScenario,
   withOpencodeScenario,
 } from "../sim/sim-scenarios.ts";
 
@@ -111,59 +109,6 @@ describe("capture-fixtures", () => {
     });
     expect(sim.recorded().args).toContain("--mode");
     expect(readFileSync(join(out, "cursor", "2026.09.28", "ok.jsonl"), "utf8")).not.toContain(SECRET);
-  });
-
-  it("captures grok's work, resume and read-only cases on the API key, the resume on the first run's session", async () => {
-    withHome();
-    process.env.PATH = simPath();
-    process.env.XAI_API_KEY = SECRET;
-    const sim = withGrokScenario({ eventsFile: join(FX, "grok", "ok.jsonl") });
-    Object.assign(process.env, sim.env);
-    const out = mkdtempSync(join(tmpdir(), "catherd-fixtures-"));
-    const results = await captureFixtures({ outDir: out, backends: ["grok"] });
-    expect(results.map((r) => [r.backend, r.name, r.status])).toEqual([
-      ["grok", "ok", "captured"],
-      ["grok", "resume", "captured"],
-      ["grok", "read-only-write", "captured"],
-    ]);
-    const resumed = JSON.parse(readFileSync(join(out, "grok", "1.0.44", "resume.json"), "utf8"));
-    expect(resumed.rung).toBe("grok:grok-4.6#low");
-    expect(resumed.resumed).toMatch(/^[0-9a-f-]{36}$/);
-    expect(resumed.outcome.thread).toBe(resumed.resumed);
-    expect(readFileSync(join(out, "grok", "1.0.44", "ok.jsonl"), "utf8")).not.toContain(SECRET);
-  });
-
-  it("captures agy's work, resume and read-only cases isolated on the API key, the resume on the first conversation", async () => {
-    withHome();
-    process.env.PATH = simPath();
-    // the simulator reads HOME's agy settings: never the user's own; no Google login, the key alone
-    process.env.HOME = tempDir("catherd-agyhome-");
-    process.env.GEMINI_API_KEY = SECRET;
-    const listing = join(tempDir("catherd-agylist-"), "models.txt");
-    writeFileSync(listing, "Fetching available models...\n  gemini-3.8-flash\n");
-    const sim = withAgyScenario({
-      loggedIn: false,
-      modelsFile: listing,
-      eventsFile: join(FX, "antigravity", "ok.jsonl"),
-    });
-    Object.assign(process.env, sim.env);
-    const out = mkdtempSync(join(tmpdir(), "catherd-fixtures-"));
-    const results = await captureFixtures({ outDir: out, backends: ["antigravity"] });
-    expect(results.map((r) => [r.backend, r.name, r.status])).toEqual([
-      ["antigravity", "ok", "captured"],
-      ["antigravity", "resume", "captured"],
-      ["antigravity", "read-only-write", "captured"],
-    ]);
-    const resumed = JSON.parse(readFileSync(join(out, "antigravity", "1.2.13", "resume.json"), "utf8"));
-    expect(resumed).toMatchObject({
-      rung: "antigravity:gemini-3.8-flash#low",
-      resumed: "00000000-0000-4000-8000-0000000a9e1d",
-      outcome: { status: "ok", thread: "00000000-0000-4000-8000-0000000a9e1d" },
-    });
-    expect(sim.recorded()).toMatchObject({
-      settings: { permissions: { deny: ["write_file(*)", "command(*)"] } },
-    });
-    expect(readFileSync(join(out, "antigravity", "1.2.13", "ok.jsonl"), "utf8")).not.toContain(SECRET);
   });
 
   it("records the totals the opencode service settles on, not only what the stream said", async () => {

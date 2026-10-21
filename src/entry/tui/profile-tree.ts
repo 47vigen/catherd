@@ -1,7 +1,7 @@
-import { billingKeyOf, type Catalog, rungInfo } from "../../domain/catalog.ts";
+import { billingKeyOf, type Catalog, pairOf } from "../../domain/catalog.ts";
 import { tryParseRung } from "../../domain/ids.ts";
 import { NOTIFY, type NotifyMoment, type Profile } from "../../domain/profile.ts";
-import { type Issue, inferredScores, routingProfileOf, type Validation } from "../../domain/profile-rules.ts";
+import { type Issue, routingProfileOf, type Validation } from "../../domain/profile-rules.ts";
 import type { Access } from "../../domain/record.ts";
 import { ROLES, type Role } from "../../domain/roles.ts";
 import { candidates } from "../../domain/select.ts";
@@ -61,30 +61,10 @@ export interface TreeInput {
   expandAll?: boolean;
 }
 
-/** The catalog as it will be once the staged treat-likes are saved. */
-export function withStaged(c: Catalog, staged: Record<string, string>): Catalog {
-  if (Object.keys(staged).length === 0) return c;
-  const treatLike = { ...c.treatLike };
-  for (const [rung, like] of Object.entries(staged)) {
-    try {
-      treatLike[rungInfo(c, rung).canonical] = { like, source: "user" };
-    } catch {
-      // a staged rung that does not parse is never offered
-    }
-  }
-  return { ...c, treatLike };
-}
+/** The catalog as it will be once the staged treat-likes are saved: there are none any more, so it is `c`. */
+export const withStaged = (c: Catalog, _staged: Record<string, string>): Catalog => c;
 
-const GROUP_ORDER = [
-  "claude",
-  "claude-code",
-  "codex",
-  "opencode-go",
-  "opencode",
-  "cursor",
-  "grok",
-  "antigravity",
-];
+const GROUP_ORDER = ["claude", "claude-code", "codex", "opencode-go", "opencode", "cursor"];
 const GROUP_NOTE: Record<string, string> = { claude: "native subagent", "claude-code": "headless" };
 
 interface ModelEntry {
@@ -116,9 +96,7 @@ function modelsFor(models: CatalogModel[], role: Role, rungs: string[]): ModelEn
     const inferred = new Set<string>();
     for (const r of m.rungs) {
       const effort = r.rung.slice(r.rung.lastIndexOf("#") + 1);
-      if (r.enabled) scored.add(effort);
-      if (r.treatLike || Object.values(r.scores).some((s) => s.confidence === "inferred"))
-        inferred.add(effort);
+      scored.add(effort);
     }
     out.push({
       backend: m.backend,
@@ -358,12 +336,7 @@ export function buildRows(i: TreeInput): Row[] {
     const to = i.profile.failover[rung];
     let mark = "";
     if (to) {
-      try {
-        const note = inferredScores(i.catalog, rungInfo(i.catalog, to)).note;
-        mark = note ? ` (${note})` : "";
-      } catch {
-        mark = "";
-      }
+      mark = pairOf(i.catalog, to) === null ? " (no Slopalytics index)" : "";
     }
     add({
       key: `failover:${rung}`,

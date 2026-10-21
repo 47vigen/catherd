@@ -9,8 +9,6 @@ const SECRET_ENV = new Set([
   "CODEX_SESSION_ID",
   "CATHERD_ORCHESTRATION_HOST",
   "TYPESAFE_API_KEY",
-  // spec 1.2 §9: the user's Artificial Analysis key reads scores for catherd alone
-  "ARTIFICIAL_ANALYSIS_API_KEY",
   "CLAUDE_CODE_MESSAGING_SOCKET",
   "CLAUDE_CODE_MESSAGING_TOKEN",
   "CLAUDE_CODE_SESSION_ID",

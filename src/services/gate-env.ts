@@ -61,7 +61,7 @@ const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
 /**
  * The names catherd sets in a dispatch itself: the role's identity, dispatch id, testcontainers session, scratch
  * and working dir, the process basics, catherd's own dirs, and the homes an isolated CLI is moved to (codex,
- * grok, cursor, agy, opencode, claude). A gate env entry under one would take the role's identity or isolation.
+ * cursor, opencode, claude). A gate env entry under one would take the role's identity or isolation.
  */
 const RESERVED = new Set([
   ROLE_ENV,
@@ -75,7 +75,6 @@ const RESERVED = new Set([
   "CATHERD_CONFIG_DIR",
   "CATHERD_DATA_DIR",
   "CODEX_HOME",
-  "GROK_HOME",
   "CLAUDE_CONFIG_DIR",
   "CURSOR_CONFIG_DIR",
   "CURSOR_DATA_DIR",

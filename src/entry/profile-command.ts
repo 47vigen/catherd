@@ -3,11 +3,11 @@ import { HOST_ARG, terminalHost } from "./host-arg.ts";
 import { assertProfileName } from "../domain/profile.ts";
 import { defineCommand } from "citty";
 import type { Catalog } from "../domain/catalog.ts";
-import { rungInfo } from "../domain/catalog.ts";
+import { pairOf } from "../domain/catalog.ts";
 import { CatherdError } from "../domain/errors.ts";
 import type { OrchestrationHost } from "../domain/host.ts";
 import { ProfileDocSchema, type Change, patchAt, type Profile } from "../domain/profile.ts";
-import { inferredScores, type Issue } from "../domain/profile-rules.ts";
+import type { Issue } from "../domain/profile-rules.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
 import { gitToplevel } from "../infra/git.ts";
 import { loadCatalog } from "../services/catalog-service.ts";
@@ -41,21 +41,17 @@ const json = JSON_ARG;
 export interface StandIn {
   from: string;
   to: string;
-  inferred: boolean;
-  via: string | null;
-  /** what the treat-like lends, as `profile show` says it */
+  /** `no Slopalytics index` when the stand-in is not indexed, so routing skips it */
   note: string | null;
 }
 
-/** Spec §7.2: each stand-in; `via` names the rung whose scores it borrows (spec 1.1 §11). */
+/** Spec §7.2: each stand-in, noting one that has no Slopalytics index. */
 export function standIns(p: Profile, c: Catalog): StandIn[] {
-  return Object.entries(p.failover).map(([from, to]) => {
-    try {
-      return { from, to, ...inferredScores(c, rungInfo(c, to)) };
-    } catch {
-      return { from, to, inferred: false, via: null, note: null };
-    }
-  });
+  return Object.entries(p.failover).map(([from, to]) => ({
+    from,
+    to,
+    note: pairOf(c, to) === null ? "no Slopalytics index" : null,
+  }));
 }
 
 const value = (v: unknown) => (v === null ? "none" : typeof v === "string" ? v : JSON.stringify(v));
@@ -198,7 +194,7 @@ const show = defineCommand({
     const o = {
       active: name === here,
       enforcement: roleEnforcement(p),
-      standIns: standIns(p, loadCatalog({ timings: false })),
+      standIns: standIns(p, loadCatalog()),
     };
     if (args.json) return printJson({ profile: p, ...o });
     for (const l of formatProfile(p, { ...o, backends: runnableBackends() })) console.log(l);

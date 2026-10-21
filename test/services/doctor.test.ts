@@ -13,12 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realTmpdir } from "../../src/adapters/access.ts";
-import { claudeAgentsDir, locksDir } from "../../src/infra/paths.ts";
+import { claudeAgentsDir, indexPath, locksDir } from "../../src/infra/paths.ts";
+import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { runProbes } from "../../src/services/doctor-access.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { accessRepos, type DoctorReport, doctor, type Handshake } from "../../src/services/doctor.ts";
-import { type Check, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
-import { overridePath } from "../../src/services/catalog-service.ts";
+import { type Check, indexCheck, PLUGIN_INSTALL } from "../../src/services/doctor-checks.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { configFile, profilesDir, projectsFile } from "../../src/services/profile-store.ts";
@@ -26,14 +26,10 @@ import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import {
-  type AgyScenario,
   type CursorScenario,
-  type GrokScenario,
   type OpencodeScenario,
-  withAgyScenario,
   withClaudeScenario,
   withCursorScenario,
-  withGrokScenario,
   withOpencodeScenario,
 } from "../sim/sim-scenarios.ts";
 
@@ -71,8 +67,6 @@ function machine(
     codex?: CodexScenario;
     opencode?: OpencodeScenario;
     cursor?: CursorScenario;
-    grok?: GrokScenario;
-    agy?: AgyScenario;
     bins?: string[];
     agentBrowser?: boolean;
   } = {},
@@ -103,15 +97,8 @@ function machine(
       modelsFile: join(FX, "cursor", "models.txt"),
       ...o.cursor,
     }).env,
-    withGrokScenario({ ...o.grok }).env,
-    withAgyScenario({
-      modelsFile: join(FX, "antigravity", "models.txt"),
-      ...o.agy,
-    }).env,
   );
   delete process.env.CURSOR_API_KEY;
-  delete process.env.XAI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
   return home;
 }
 
@@ -170,10 +157,8 @@ describe("doctor", () => {
       "backend:claude-code": "ok ready",
       "backend:opencode": "ok ready",
       "backend:cursor": "skip missing",
-      "backend:grok": "skip missing",
-      "backend:antigravity": "skip missing",
       jev: "warn no key",
-      sources: "info not synced",
+      catalog: "ok fresh",
       plugin: "ok ready",
       agents: "ok ready",
       mcp: "ok ready",
@@ -221,7 +206,7 @@ describe("doctor", () => {
     // Composer is unscored: its inferred stand-ins let the role run (spec 1.3 §7.2)
     const saved = patchProfile(
       "default",
-      { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } },
+      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
       { host: "claude-code" },
     );
     expect(saved.saved).toBe(true);
@@ -231,125 +216,6 @@ describe("doctor", () => {
       word: "not logged in",
       fix: "cursor-agent login, or export CURSOR_API_KEY=<key>",
     });
-  });
-
-  it("shows grok with its login, listing and sandbox, its access not tested, and a login billed apart", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "grok"] });
-    installPlugin(VERSION);
-    // Grok is unscored in the shipped scores: its inferred stand-ins let the role run (spec 1.3 §7.2)
-    const saved = patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } },
-      { host: "claude-code" },
-    );
-    expect(saved.saved).toBe(true);
-    const r = await run();
-    expect(check(r, "backend:grok")).toMatchObject({
-      state: "warn",
-      word: "billing",
-      detail:
-        "1.0.44 · Grok login · profile default bills grok as metered, but this login is subscription · 2 models",
-      fix: "catherd profile set billing.grok subscription --profile default --host claude-code",
-    });
-    expect(check(r, "sandbox:grok")).toMatchObject({
-      state: "info",
-      detail: "grok's read-only profile applies here; catherd runs a read-only role in it (enforced)",
-    });
-    expect(check(r, "access:grok")).toMatchObject({
-      state: "skip",
-      word: "not tested",
-    });
-    expect(check(r, "isolation:grok")).toMatchObject({
-      state: "warn",
-      word: "weak",
-    });
-  });
-
-  // several doctor runs, each probing every simulated CLI: a loaded machine outlasts the 5 s default
-  it("fails a logged-out grok a role runs on, and says a grok this OS cannot run is one", async () => {
-    machine({
-      bins: ["codex", "claude", "opencode", "grok"],
-      grok: { loggedIn: false },
-    });
-    installPlugin(VERSION);
-    patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["grok:grok-4.6#high"] } } },
-      { host: "claude-code" },
-    );
-    expect(check(await run(), "backend:grok")).toMatchObject({
-      state: "fail",
-      word: "not logged in",
-      fix: "grok login, or grok login --device-code without a browser, or export XAI_API_KEY=<key>",
-    });
-    // research §3.1: the owner's grok was a Linux build on macOS
-    const bin = process.env.PATH?.split(":")[0] as string;
-    rmSync(join(bin, "grok"));
-    writeFileSync(join(bin, "grok"), Buffer.concat([Buffer.from("\x7fELF\x02\x01\x01"), Buffer.alloc(57)]));
-    chmodSync(join(bin, "grok"), 0o755);
-    expect(check(await run(), "backend:grok")).toMatchObject({
-      state: "fail",
-      word: "cannot run",
-      detail: `grok is installed but cannot run on this OS: ${join(bin, "grok")}`,
-      fix: "curl -fsSL https://x.ai/cli/install.sh | bash",
-    });
-  }, 30_000);
-
-  it("shows agy's version, Google login, listing and quota, its isolation note and its untested access", async () => {
-    machine({ bins: ["codex", "claude", "opencode", "agy"] });
-    // the probe reads HOME's agy settings: never the user's own
-    process.env.HOME = tempDir("catherd-userhome-");
-    installPlugin(VERSION);
-    const saved = patchProfile(
-      "default",
-      {
-        roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } },
-      },
-      { host: "claude-code" },
-    );
-    expect(saved.saved).toBe(true);
-    const r = await run();
-    expect(check(r, "backend:antigravity")).toMatchObject({
-      state: "warn",
-      word: "billing",
-      detail:
-        "1.2.13 · Google login · profile default bills antigravity as metered, but this login is subscription · 6 models",
-      fix: "catherd profile set billing.antigravity subscription --profile default --host claude-code",
-    });
-    expect(check(r, "quota:antigravity")).toMatchObject({
-      state: "info",
-      detail: "Weekly quota: 62% left, resets Monday 09:00",
-    });
-    expect(check(r, "isolation:antigravity")?.detail).toBe(
-      "native Antigravity shares its settings and permission rules with the Antigravity desktop app",
-    );
-    expect(check(r, "access:antigravity")).toMatchObject({
-      state: "skip",
-      word: "not tested",
-    });
-    expect(r.ready).toBe(true);
-  });
-
-  it("fails a logged-out agy a role runs on, with the login fix, and asks it no quota", async () => {
-    const usageTo = join(tempDir("catherd-usage-"), "args");
-    machine({
-      bins: ["codex", "claude", "opencode", "agy"],
-      agy: { loggedIn: false, usageTo },
-    });
-    process.env.HOME = tempDir("catherd-userhome-");
-    installPlugin(VERSION);
-    patchProfile(
-      "default",
-      { roles: { writer: { rungs: ["antigravity:gemini-3.8-flash#high"] } } },
-      { host: "claude-code" },
-    );
-    const r = await run();
-    expect(check(r, "backend:antigravity")).toMatchObject({
-      state: "fail",
-      word: "not logged in",
-    });
-    expect(check(r, "quota:antigravity")).toBeUndefined();
-    expect(existsSync(usageTo)).toBe(false);
   });
 
   it("fails on a backend a role runs on, but only warns on one a failover stand-in alone uses", async () => {
@@ -636,10 +502,9 @@ describe("doctor", () => {
     expect(at("sandbox:codex")).toBeLessThan(at("access:codex"));
     expect(at("access:opencode")).toBeLessThan(at("access:full"));
     expect(at("access:full")).toBeLessThan(at("access:advisory"));
-    // Runtime probes are distinct from static role MCP policy, shipped access defaults and unsynced sources.
+    // Runtime probes are distinct from static role MCP policy, shipped access defaults and the catalog row.
     expect(r.checks.filter((c) => c.state === "info").map((c) => c.id)).toEqual([
       "role-mcp:default:codex",
-      "sources",
       "access:full",
       "access:advisory",
     ]);
@@ -748,7 +613,7 @@ describe("doctor", () => {
     process.env.CATHERD_PROBE_DOCKER = join(bin, "fake-docker");
     patchProfile(
       "default",
-      { roles: { writer: { rungs: ["cursor:composer-2.5#default"] } } },
+      { roles: { writer: { rungs: ["cursor:gpt-6-sol#high"] } } },
       { host: "claude-code" },
     );
     const r = await run();
@@ -1138,14 +1003,74 @@ describe("doctor", () => {
     expect(check(r, "jev")).toMatchObject({ state: "warn", word: "no key" });
   });
 
-  it("turns a corrupt catalog override into a fail row with its fix, not a throw", async () => {
+  it("reads a corrupt index as one not fetched, and fails a profile with nothing indexed", async () => {
     ready();
-    writeFileSync(overridePath(), "{ not json");
+    writeFileSync(indexPath(), "{ not json");
     const r = await run();
     expect(r.ready).toBe(false);
+    expect(check(r, "catalog")).toMatchObject({
+      state: "info",
+      word: "not fetched",
+      fix: "catherd catalog sync",
+    });
     expect(check(r, "profile")).toMatchObject({
       state: "fail",
-      fix: `fix or delete ${overridePath()}`,
+      word: "invalid",
+      detail: expect.stringContaining("has no usable rung"),
+    });
+  });
+
+  it("shows the catalog row: not fetched, fresh, failing with the last index kept, stale after a day", () => {
+    const now = Date.parse("2026-10-21T12:00:00.000Z");
+    const status = (o: Partial<Parameters<typeof indexCheck>[1] & object> = {}) => ({
+      fetchedAt: "2026-10-21T11:00:00.000Z",
+      checkedAt: "2026-10-21T11:30:00.000Z",
+      pairs: 81,
+      error: null,
+      ...o,
+    });
+    const none = { fetchedAt: null, checkedAt: null, pairs: 0, error: null };
+    expect(indexCheck(now, none)).toMatchObject({
+      state: "info",
+      word: "not fetched",
+      fix: "catherd catalog sync",
+    });
+    expect(indexCheck(now, status())).toEqual({
+      id: "catalog",
+      label: "catalog",
+      state: "ok",
+      word: "fresh",
+      detail: "81 pairs, fetched 1 h ago",
+    });
+    expect(indexCheck(now, status({ error: "http 503" }))).toMatchObject({
+      state: "warn",
+      word: "failing",
+      detail: "http 503; keeps the index fetched 1 h ago",
+    });
+    expect(
+      indexCheck(now, { fetchedAt: null, checkedAt: "2026-10-21T11:30:00.000Z", pairs: 0, error: "offline" }),
+    ).toMatchObject({ state: "warn", word: "failing", detail: "offline; no index" });
+    expect(indexCheck(now, status({ checkedAt: "2026-10-20T11:00:00.000Z" }))).toMatchObject({
+      state: "warn",
+      word: "stale",
+      fix: "catherd catalog sync --force",
+    });
+  });
+
+  it("warns, not fails, on a profile rung that lost its index", async () => {
+    ready();
+    const recorded = readIndexFile(indexPath());
+    if (!recorded) throw new Error("no recorded index");
+    writeIndexFile(indexPath(), {
+      ...recorded,
+      models: recorded.models.filter((m) => !(m.family === "gpt-6-sol" && m.effort === "xhigh")),
+    });
+    const r = await run();
+    expect(r.ready).toBe(true);
+    expect(check(r, "profile")).toMatchObject({
+      state: "warn",
+      word: "warning",
+      detail: expect.stringContaining("codex:gpt-6-sol#xhigh has no Slopalytics intelligence index"),
     });
   });
 

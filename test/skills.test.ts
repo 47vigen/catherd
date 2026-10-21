@@ -293,7 +293,7 @@ describe("setup skill", () => {
     }
   });
 
-  it("covers every profile field profile_set stores, access with its enforcement, and the treat-like command", () => {
+  it("covers every profile field profile_set stores, access with its enforcement, and the indexed-pairs rule", () => {
     const md = skill("catherd-setup");
     for (const field of [
       "`objective`",
@@ -314,7 +314,10 @@ describe("setup skill", () => {
       expect(md).toContain(field);
     for (const word of ["`enforced`", "`advisory`", "`newSessionNeededFor`", "`warnings`", "`null` removes"])
       expect(md).toContain(word);
-    expect(md).toContain("catherd catalog treat-like <rung> <scored rung>");
+    expect(md).toContain("`catalog_query`");
+    expect(md).toContain("indexed");
+    expect(md).not.toContain("treat-like");
+    expect(md).not.toContain("treat like");
     expect(md).not.toContain("the TUI edits");
   });
 
@@ -329,5 +332,11 @@ describe("setup skill", () => {
     expect(md).toContain("Codex reports no per-request input, so it has no harness figure");
     expect(md).toContain("Codex has none: it reports no per-request input");
     for (const bad of ["Vigen", "agora"]) expect(md).not.toContain(bad);
+  });
+
+  it("names the Slopalytics intelligence index, not the removed benchmark sources", () => {
+    const md = skill("catherd-setup");
+    expect(md).toContain("Slopalytics intelligence index");
+    expect(md).not.toContain("Benchmark");
   });
 });

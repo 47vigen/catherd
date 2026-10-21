@@ -11,7 +11,8 @@ import type { RoleScope } from "../domain/role-scope.ts";
 import type { Change, ProfileDoc, ProfilePatch } from "../domain/profile.ts";
 import type { Issue } from "../domain/profile-rules.ts";
 import type { RouteJev, RouteSource } from "../domain/route.ts";
-import type { SyncReport } from "./source-sync.ts";
+import type { IndexFile } from "../domain/slopalytics.ts";
+import type { IndexStatus } from "./catalog-service.ts";
 
 /** What the run lifecycle reads from a profile. Rungs are `backend:model#effort`; a role's in ladder order. */
 export interface ProfileView {
@@ -125,7 +126,6 @@ export interface CatalogFilter {
   role?: Role;
   backend?: string;
   text?: string;
-  scoredOnly: boolean;
   limit: number;
   /** the git toplevel whose per-repository listings (opencode's) to read; none reads the global ones */
   repo?: string;
@@ -148,6 +148,11 @@ export interface RoutingPort {
     after: string,
     use: "auto" | "off",
   ): Promise<Verdict<"yes" | "no">>;
+  /**
+   * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
+   * that no indexed pair can fill; `index` is what the run pins (null when there is none).
+   */
+  checkStart(view: ProfileView, repo: string): Promise<{ unusable: Role[]; index: IndexFile | null }>;
   /** `billing` prices the rungs (spec §5.3); absent keys bill as DEFAULT_BILLING */
   catalog(
     filter: CatalogFilter,
@@ -166,8 +171,8 @@ export interface Deps {
   /** Claude transport credentials and registry refresh; host identity lives in `host`. */
   session: SessionEnv | null;
   now: () => number;
-  /** spec 1.2 §3.2 `catalog_sync`; default: the real sync (tests inject one that never reaches the network) */
-  sync?: (o: { force: boolean; wait?: boolean }) => Promise<SyncReport>;
+  /** `catalog_sync`; default: the real refresh (tests inject one that never reaches the network) */
+  sync?: (o: { force: boolean }) => Promise<IndexStatus>;
   /**
    * Spec 1.5 plan 21: the role this process works for (CATHERD_ROLE, or a role's scratch TMPDIR); null or
    * absent for the orchestrator's own server. A role never claims a run and never reaches a coordinator tool.

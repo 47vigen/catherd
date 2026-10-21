@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { adapterFor, registerAdapter } from "../../src/adapters/registry.ts";
 import { readJsonl } from "../../src/infra/store.ts";
-import { overridePath, resetFreshen } from "../../src/services/catalog-service.ts";
+import { indexPath } from "../../src/infra/paths.ts";
+import { writeIndexFile } from "../../src/infra/slopalytics.ts";
+import { resetFreshen, writeRunIndex } from "../../src/services/catalog-service.ts";
+import { indexOf } from "../domain/shipped.ts";
 import { runPaths } from "../../src/services/run-store.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
@@ -31,12 +34,12 @@ beforeEach(() => {
 
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
-// spec 1.2 §5: build lanes need DeepSWE 66.6 (the median), which Luna high (carried from max) and Sol xhigh
-// clear; copy needs 60.95, which Sol high clears too, but it scores below Luna high, so a ladder that only goes
-// up (spec 1.5 plan 24) leaves it off; no Sol rung clears a logic or hard bar
-const TRACK_A = { rung: LADDER[0] as string, ladder: [LADDER[0] as string, LADDER[3] as string] };
+// the bars are percentiles of the shipped pool (copy 33.2, build 39.8, logic 42.3, hard 46.9 on the recorded
+// index): Luna high (32.9) clears none, Sol medium (39.81) clears build, Sol high (42.40) clears logic, and no
+// Sol rung clears hard; a ladder only climbs (spec 1.5 plan 24)
+const TRACK_A = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
 const COPY = TRACK_A;
-const TRACK_B = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
+const TRACK_B = { rung: LADDER[2] as string, ladder: LADDER.slice(2) };
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 
 const view = (over: Partial<ProfileView> = {}) =>
@@ -80,6 +83,7 @@ function req(laneText: string | null, over: Partial<RouteRequest> = {}): RouteRe
   };
 }
 
+const readJsonIndex = () => JSON.parse(readFileSync(indexPath(), "utf8"));
 const jevRows = (dir: string) => readJsonl<JevRow>(join(dir, "jev.jsonl")).rows;
 
 describe("route without Jev", () => {
@@ -113,12 +117,12 @@ describe("route without Jev", () => {
 
   it("falls back to the default rung without a lane file or a declared kind", async () => {
     expect(await routingService().route(req(null))).toMatchObject({
-      ...TRACK_B,
+      ...TRACK_A,
       source: "default",
       questionSet: null,
     });
     expect(await routingService().route(req(lane(null, null)))).toMatchObject({
-      ...TRACK_B,
+      ...TRACK_A,
       source: "default",
     });
   });
@@ -144,9 +148,9 @@ describe("route without Jev", () => {
       source: "lane",
       kind: "repo_code",
       difficulty: "hard",
-      noClear: expect.stringContaining("no rung clears repo_code/hard; best is codex:gpt-6-sol#high"),
+      noClear: expect.stringContaining("no rung clears hard (bar 46.9); best is codex:gpt-6-sol#high (42.4)"),
     });
-    expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears");
+    expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears hard");
     expect(f.sent).toHaveLength(0);
   });
 
@@ -159,58 +163,26 @@ describe("route without Jev", () => {
   });
 });
 
-describe("route's provenance (spec 1.2 §5.3)", () => {
-  it("reports each threshold of the lane's bar, the value used, its confidence and source, and the why", async () => {
+describe("route's provenance", () => {
+  it("reports the rung's intelligence, the bar it was held to and whether it clears, the cost and the index's age", async () => {
     const a = await routingService().route(req(lane("repo_code", "build")));
-    expect(a.provenance?.thresholds).toEqual([
-      {
-        dim: "repo_code",
-        min: 66.6,
-        clears: true,
-        used: expect.objectContaining({
-          value: 66.6,
-          confidence: "adjacent",
-          source: "shipped",
-          benchmark: "DeepSWE 1.1",
-          inferred: false,
-          from: null,
-        }),
-        why: expect.stringMatching(/^the median of /),
-      },
-    ]);
-    // Luna's agentic value is lent by the shipped treat-like: marked, with the rung it belongs to
-    expect(a.provenance?.values.find((v) => v.dim === "agentic")).toMatchObject({
-      inferred: true,
-      from: "gpt-5.6-luna#high",
+    expect(a.provenance).toMatchObject({
+      rung: TRACK_A.rung,
+      canonical: "gpt-6-sol#medium",
+      bar: { difficulty: "build", percentile: 50, clears: true },
     });
-    expect(a.provenance?.cost).toEqual(expect.objectContaining({ mode: "chatgpt-plan" }));
-    expect(a.provenance?.evidence).toEqual({ kind: null, all: null });
+    const p = a.provenance;
+    expect(p?.intelligence).toBeGreaterThanOrEqual(p?.bar?.min ?? Infinity);
+    expect(typeof p?.indexedAt).toBe("string");
+    expect(p?.cost).toEqual(expect.objectContaining({ mode: "chatgpt-plan" }));
+    expect(p?.evidence).toEqual({ kind: null, all: null });
   });
 
-  it("picks a terminal lane by the terminal bar, and a ui lane by the frontend bar, saying whose values", async () => {
+  it("holds every kind to the same intelligence bar: the difficulty alone sets it", async () => {
     const t = await routingService().route(req(lane("terminal", "copy")));
-    expect(t.rung).toBe("codex:gpt-6-sol#medium");
-    expect(
-      t.provenance?.thresholds.map((x) => [x.dim, x.min, x.used?.value, x.used?.source, x.clears]),
-    ).toEqual([["terminal", 40.15, 43, "shipped", true]]);
-    const u = await routingService().route(req(lane("ui", "build")));
-    expect(u.rung).toBe("codex:gpt-6-sol#xhigh");
-    expect(u.provenance?.thresholds.map((x) => [x.dim, x.min, x.used?.source, x.clears])).toEqual([
-      ["repo_code", 66.6, "shipped", true],
-      ["frontend", 1617, "arena", true],
-    ]);
-  });
-
-  it("says a threshold is the user's override, not the default's why (1.2 minor)", async () => {
-    mkdirSync(join(overridePath(), ".."), { recursive: true });
-    writeFileSync(
-      overridePath(),
-      JSON.stringify({ schema: 1, bars: { repo_code: { build: { repo_code: 60 } } } }),
-    );
-    const a = await routingService().route(req(lane("repo_code", "build")));
-    expect(a.provenance?.thresholds).toEqual([
-      expect.objectContaining({ dim: "repo_code", min: 60, why: "your override" }),
-    ]);
+    const u = await routingService().route(req(lane("ui", "copy")));
+    expect(t.provenance?.bar).toEqual(u.provenance?.bar);
+    expect(t.rung).toBe(u.rung);
   });
 
   it("routes with no evidence when a run on this machine cannot be read (1.2 minor)", async () => {
@@ -225,11 +197,45 @@ describe("route's provenance (spec 1.2 §5.3)", () => {
     expect(a.provenance?.evidence).toBeNull();
   });
 
-  it("shows the default rung's values with no thresholds when the route reads no bar", async () => {
+  it("shows the default rung's intelligence with no bar when the route reads none", async () => {
     const a = await routingService().route(req(null));
     expect(a.source).toBe("default");
-    expect(a.provenance?.thresholds).toEqual([]);
-    expect(a.provenance?.values.length).toBeGreaterThan(0);
+    expect(a.provenance?.bar).toBeNull();
+    expect(a.provenance?.intelligence).toBeGreaterThan(0);
+  });
+});
+
+describe("route and a run's pinned index", () => {
+  it("routes a run on its pinned index after the machine's index lost the pair", async () => {
+    const r = req(lane("repo_code", "build"), { role: "reviewer" });
+    writeRunIndex(r.runDir, indexOf({ "gpt-6-sol#high": 42 }));
+    // the machine's index, refreshed since, no longer has Sol high
+    writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
+    expect((await routingService().route(r)).rung).toBe("codex:gpt-6-sol#high");
+    await expect(routingService().route({ ...r, runDir: runDir() })).rejects.toMatchObject({
+      code: "E_CONFIG_INVALID",
+    });
+  });
+});
+
+describe("checkStart", () => {
+  it("names the roles the index cannot fill, and returns the index it read", async () => {
+    const view = testView();
+    const ok = await routingService().checkStart(view, "/nowhere");
+    expect(ok.unusable).toEqual([]);
+    expect(ok.index?.models.length).toBeGreaterThan(0);
+    writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
+    const lost = await routingService().checkStart(view, "/nowhere");
+    // Luna high is the writer's rung; the worker keeps Luna high, the reviewer's Sol high is gone
+    expect(lost.unusable).toEqual(["architect", "reviewer"]);
+    expect(lost.index).toEqual(indexOf({ "gpt-6-luna#high": 33 }));
+  });
+
+  it("leaves the index file as it was when it is fresh and under CATHERD_NO_SYNC=1", async () => {
+    process.env.CATHERD_NO_SYNC = "1";
+    const before = JSON.stringify(readJsonIndex());
+    await routingService().checkStart(testView(), "/nowhere");
+    expect(JSON.stringify(readJsonIndex())).toBe(before);
   });
 });
 
@@ -325,7 +331,7 @@ describe("route with Jev", () => {
     const f = fakeFetch({ status: 200, body: fx("route-v2-unsure.json") });
     const svc = routingService({ key: "k", fetchImpl: f.impl, ...noWait });
     expect(await svc.route(req(lane(null, "build")))).toMatchObject({
-      ...TRACK_B,
+      ...TRACK_A,
       source: "default",
       kind: null,
       difficulty: null,
@@ -381,10 +387,10 @@ describe("route and discovery", () => {
     registerAdapter({ ...codex, listModels: () => (calls++, new Promise(() => {})) });
     const a = await routingService({ discoveryBudgetMs: 5 }).route(req(lane("repo_code", "build")));
     expect(calls).toBe(1);
-    // without Luna, only Sol xhigh clears the build bar
+    // without Luna, the ladder is the Sol efforts the cached listing offers
     expect(a).toMatchObject({
-      rung: "codex:gpt-6-sol#xhigh",
-      ladder: ["codex:gpt-6-sol#xhigh"],
+      rung: "codex:gpt-6-sol#medium",
+      ladder: ["codex:gpt-6-sol#medium", "codex:gpt-6-sol#high", "codex:gpt-6-sol#xhigh"],
       source: "lane",
     });
     expect(a.ladder).not.toContain("codex:gpt-6-luna#high");
@@ -422,7 +428,11 @@ describe("route and the profile", () => {
     const r = routingService();
     expect(
       (await r.route(req(lane("repo_code", "build"), { profile: view(secs), spentFraction: 0.8 }))).rung,
-    ).toBe("codex:gpt-6-luna#high");
+    ).toBe("codex:gpt-6-sol#medium");
+    // under the speed objective and with budget to spare, the fastest clearing rung leads instead
+    expect(
+      (await r.route(req(lane("repo_code", "build"), { profile: view(secs), spentFraction: 0 }))).rung,
+    ).not.toBe("codex:gpt-6-sol#medium");
   });
 
   it("routes a role's Claude rung on that role's backend", async () => {
@@ -447,7 +457,7 @@ describe("route and the profile", () => {
     );
     const r = routingService();
     expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(COPY);
-    expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_B);
+    expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_A);
     expect(await r.route(req(lane("prose", "hard"), { profile }))).toMatchObject(TRACK_B);
   });
 
@@ -459,7 +469,7 @@ describe("route and the profile", () => {
     });
     await expect(routingService().route(req(null, { role: "artist", profile: p }))).rejects.toMatchObject({
       code: "E_CONFIG_INVALID",
-      fix: expect.stringContaining("treat-like"),
+      fix: expect.stringContaining("catherd catalog list --role artist"),
     });
   });
 });
@@ -551,9 +561,10 @@ it("refuses native dispatch without host evidence while explicit profile stays i
 });
 
 describe("route and quota headroom (spec 1.5 plan 24)", () => {
-  // Luna high on Codex and on OpenCode Go is one model: equal scores on two quotas
-  const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
-  const rungs = [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)];
+  // Luna xhigh on Codex and on OpenCode Go is one model: equal intelligence on two quotas
+  const CODEX_LUNA = "codex:gpt-6-luna#xhigh";
+  const GO_LUNA = "opencode:opencode-go/gpt-6-luna#xhigh";
+  const rungs = [CODEX_LUNA, GO_LUNA, ...LADDER.slice(1)];
   const profile = () =>
     view({
       roles: {
@@ -567,10 +578,10 @@ describe("route and quota headroom (spec 1.5 plan 24)", () => {
     const a = await r.route(
       req(lane("repo_code", "copy"), { profile: profile(), usage: { "opencode-go": 2 } }),
     );
-    expect(a.rung).toBe(LADDER[0] as string);
+    expect(a.rung).toBe(CODEX_LUNA);
     const b = await r.route(req(lane("repo_code", "copy"), { profile: profile(), usage: { codex: 2 } }));
     expect(b.rung).toBe(GO_LUNA);
-    expect(b.ladder).toContain(LADDER[0] as string);
+    expect(b.ladder).toContain(CODEX_LUNA);
   });
 });
 
@@ -598,21 +609,22 @@ describe("batch route (spec 1.5 plan 24)", () => {
   });
 
   it("spreads lanes that tie over the quotas, each routed start counting as a use", async () => {
-    const GO_LUNA = "opencode:opencode-go/gpt-6-luna#high";
+    const CODEX_LUNA = "codex:gpt-6-luna#xhigh";
+    const GO_LUNA = "opencode:opencode-go/gpt-6-luna#xhigh";
     const profile = view({
       roles: {
         ...testView().roles,
         worker: {
           enabled: true,
           access: "workspace-write",
-          rungs: [LADDER[0] as string, GO_LUNA, ...LADDER.slice(1)],
+          rungs: [CODEX_LUNA, GO_LUNA, ...LADDER.slice(1)],
           defaultRung: "codex:gpt-6-sol#medium",
         },
       },
     });
     const one = () => req(lane("repo_code", "copy"), { profile });
     const out = await routingService().routeMany([one(), one(), one()]);
-    expect(out.map((a) => a.rung)).toEqual([LADDER[0] as string, GO_LUNA, LADDER[0] as string]);
+    expect(out.map((a) => a.rung)).toEqual([CODEX_LUNA, GO_LUNA, CODEX_LUNA]);
     expect(out[1]?.tie).toMatch(
       /opencode-go has the most headroom \(dispatches in this run: codex 1, opencode-go 0\)$/,
     );

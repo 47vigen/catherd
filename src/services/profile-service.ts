@@ -78,7 +78,7 @@ function saveAndLink(name: string, doc: ProfileDoc, host: OrchestrationHost, rep
 
 const validate = (doc: ProfileDoc, name: string, host: OrchestrationHost): Validation => {
   try {
-    return validateHere(resolveProfile(doc, name, host), loadCatalog({ timings: false }), doc, host);
+    return validateHere(resolveProfile(doc, name, host), loadCatalog(), doc, host);
   } catch (e) {
     if (!(e instanceof CatherdError)) throw e;
     return { errors: [{ path: "roles", message: e.message, fix: e.fix }], warnings: [] };

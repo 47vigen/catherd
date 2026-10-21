@@ -1,4 +1,4 @@
-import type { BillingKey, Family } from "./catalog.ts";
+import type { BillingKey, Family, Pair } from "./catalog.ts";
 
 /** Spec §5.3: how the user pays for each billing key. */
 export const BILLING_MODES = ["chatgpt-plan", "claude-plan", "subscription", "metered"] as const;
@@ -12,8 +12,6 @@ export const DEFAULT_BILLING: Record<BillingKey, BillingMode> = {
   "opencode-go": "subscription",
   opencode: "metered",
   cursor: "metered",
-  grok: "metered",
-  antigravity: "metered",
 };
 
 /**
@@ -38,10 +36,10 @@ const REF_TASK = { input: 60_000, cached: 400_000, output: 18_000 };
 
 export const effortFactor = (effort: string): number => EFFORT_FACTOR[effort] ?? 1;
 
-/** Estimated list-price dollars for one task at `effort`. */
-export function taskUsd(price: Family["price"], effort: string): number {
+/** Estimated list-price dollars for one task at `effort`; cached input costs a tenth of the input price. */
+export function taskUsd(price: { input: number; output: number }, effort: string): number {
   const perTask =
-    REF_TASK.input * price.input + REF_TASK.cached * price.cached + REF_TASK.output * price.output;
+    REF_TASK.input * price.input + REF_TASK.cached * (price.input / 10) + REF_TASK.output * price.output;
   return (perTask / 1_000_000) * effortFactor(effort);
 }
 
@@ -60,31 +58,18 @@ export interface Cost {
 }
 
 /**
- * Spec §5.3. Every mode yields list-price dollars per task, so plans compare with each other. Spec 1.5 plan 24:
- * a rung catherd has no price for costs 0 within its tier when a plan or subscription pays for it, so it can
- * start a lane (the profile's ladder order then breaks the tie); a metered one stays unknown, last in its tier.
- * chatgpt-plan scales the official quota weight (Luna 1, Sol 20, Astra 60) by the effort factor;
- * claude-plan uses API prices as the proxy, with Fable metered (catherd cannot tell Pro from Max);
- * Go's share of its monthly dollar limit is dollars / limit, which orders the same as dollars.
+ * Spec §5.3. Every mode yields list-price dollars per task, so plans compare with each other. chatgpt-plan scales
+ * the official quota weight (Luna 1, Sol 20, Astra 60) by the effort factor; claude-plan uses API prices as the
+ * proxy, with Fable metered (catherd cannot tell Pro from Max); Go's share of its monthly dollar limit is
+ * dollars / limit, which orders the same as dollars. A pair with no price costs 0 within its tier when a plan or
+ * subscription pays for it, so it can start a lane; a metered one stays unknown, last in its tier.
  */
-export function costOf(family: Family | null, effort: string, mode: BillingMode): Cost {
-  if (!family) return mode === "metered" ? { tier: 1, value: null, mode } : { tier: 0, value: 0, mode };
-  const usd = taskUsd(family.price, effort);
-  switch (mode) {
-    case "chatgpt-plan":
-      return {
-        tier: 0,
-        value:
-          family.planWeight === undefined ? usd : family.planWeight * CHATGPT_UNIT_USD * effortFactor(effort),
-        mode,
-      };
-    case "claude-plan":
-      return { tier: family.meteredOnPlan ? 1 : 0, value: usd, mode };
-    case "subscription":
-      return { tier: 0, value: usd, mode };
-    case "metered":
-      return { tier: 1, value: usd, mode };
-  }
+export function costOf(family: Family | null, pair: Pair | null, effort: string, mode: BillingMode): Cost {
+  if (mode === "chatgpt-plan" && family?.planWeight !== undefined)
+    return { tier: 0, value: family.planWeight * CHATGPT_UNIT_USD * effortFactor(effort), mode };
+  const metered = mode === "metered" || (mode === "claude-plan" && family?.meteredOnPlan === true);
+  if (!pair?.price) return metered ? { tier: 1, value: null, mode } : { tier: 0, value: 0, mode };
+  return { tier: metered ? 1 : 0, value: taskUsd(pair.price, effort), mode };
 }
 
 /** Cheaper first: tier, then value, an unknown value last. */

@@ -1,10 +1,36 @@
 # Upgrading catherd
 
+- [From 1.5 to 2.0](#from-15-to-20)
 - [From 1.4 to 1.5](#from-14-to-15)
 - [From 1.2 to 1.3](#from-12-to-13)
 - [From 1.1 to 1.2](#from-11-to-12)
 - [From 1.0 to 1.1](#from-10-to-11)
 - [From 0.x to 1.0](#from-0x-to-10)
+
+## From 1.5 to 2.0
+
+- Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile validate`
+  on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`. `billing.grok`,
+  `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no longer takes
+  them; a failover entry that names a Grok or Antigravity rung is removed by editing the profile file
+  (`catherd profile show --raw` prints it).
+- The catalog reads one source, the Slopalytics index: one `intelligence` per model and effort, fetched hourly and
+  kept in `~/.local/share/catherd/slopalytics.json` (the last good one is kept when a fetch fails). Every
+  benchmark source, `catalog/scores.json`, treat-likes and `catalog.override.json` are gone, and so is the
+  Artificial Analysis key. Delete `~/.config/catherd/catalog.override.json` and `~/.local/share/catherd/sources/`;
+  nothing reads them any more.
+- A model and effort the index does not list is not offered, and a profile rung or failover stand-in that names one
+  fails `profile validate` (doctor shows it as a warning). A profile may need its rungs picked again:
+  `catherd catalog list --role <role>` shows what is offered.
+- Bars are the 25th, 50th, 60th and 75th percentiles of the intelligence of the shipped models' indexed pairs, one
+  bar per difficulty for every kind. A failover stand-in must be indexed, on another quota and at least as
+  intelligent as its rung.
+- A run starts only when every enabled role has an indexed rung, and it keeps the index it started on
+  (`<run>/slopalytics.json`).
+- `init` asks one question fewer (no Artificial Analysis key): piped `init` reads three lines, the Jev key, the
+  profile and whether to replace it. `catalog_query` has no `scored_only`, and `catherd catalog treat-like` and
+  `catalog sync --unmatched` are removed. The provenance in `routes.jsonl` changed shape: the rung's
+  `intelligence`, the bar it was held to (`bar`), its price, speed and cost, and the index's `indexedAt`.
 
 ## From 1.4 to 1.5
 

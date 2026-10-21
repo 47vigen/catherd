@@ -11,7 +11,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | Plan | File | State |
 | ---- | ---- | ----- |
 | 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | in PR (final review 0 C / 0 I; one minor fixed; ledger `plan28-ledger.md`); the 1.5.0 baseline is the owner's (Task 8) |
-| 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | written |
+| 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | in PR (final review 0 C / 1 I fixed; ledger `plan29-ledger.md`) |
 | 30 run daemon | `docs/plans/2026-10-21-30-run-daemon.md` | written |
 | 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | written |
 | 31 panel | `docs/plans/2026-10-21-31-panel.md` | written |
@@ -135,7 +135,7 @@ Binding spec: `docs/specs/2026-09-28-catherd-1.2-design.md` (above 1.1 and 1.0).
 The release PR #24 ("chore: release catherd", catherd-cli@1.2.0) is **held** for the owner's acceptance (spec §11,
 `docs/dev/live-verification.md` §10); the exact commands are posted on it. Next session: nothing runs until the
 owner reports the acceptance; then merge #24 (npm OIDC publish, plugin stamped 1.2.0). The AA fixtures are synthetic (no key in the sandbox): the owner re-records them
-(`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md` "1.2 follow-ups".
+(`test/fixtures/sources/README.md`). Review minors are in `docs/dev/ideas.md`.
 
 ## catherd 1.1 (session 5, autopilot)
 

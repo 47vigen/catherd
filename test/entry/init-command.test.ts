@@ -2,19 +2,11 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
-import {
-  aaStep,
-  globalStep,
-  jevStep,
-  PLUGIN_STEPS,
-  syncStep,
-  welcomeLines,
-} from "../../src/entry/init-command.ts";
+import { globalStep, jevStep, PLUGIN_STEPS, syncStep, welcomeLines } from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { VERSION } from "../../src/infra/version.ts";
-import { aaKey, saveAaKey } from "../../src/services/credentials.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
-import type { SyncReport } from "../../src/services/source-sync.ts";
+import type { IndexStatus } from "../../src/services/catalog-service.ts";
 import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
@@ -41,7 +33,6 @@ function init(args: string[], stdin = "", cwd?: string) {
       BUN_INSTALL: INIT_BUN_INSTALL,
       BUN_CONFIG_REGISTRY: "http://127.0.0.1:9",
       TYPESAFE_API_KEY: "",
-      ARTIFICIAL_ANALYSIS_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
     stdin: new TextEncoder().encode(stdin),
@@ -228,18 +219,16 @@ describe("catherd init", () => {
     expect(getProfile("default", "claude-code").budget).toEqual({ usd: 9 });
   }, 60_000);
 
-  it("reads piped answers: empty keys skip Jev and Artificial Analysis, a name picks the profile, y replaces it", () => {
+  it("reads piped answers: an empty key skips Jev, a name picks the profile, y replaces it", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
     patchProfile("team", { budget: { usd: 9 } }, { host: "claude-code" });
-    const r = init([], "\n\nteam\ny\n");
+    const r = init([], "\nteam\ny\n");
     expect(r.code).toBe(0);
     expect(r.out).toContain("TypeSafe API key for Jev (optional; Enter skips): \n- Jev: no key;");
-    expect(r.out).toContain(
-      "Artificial Analysis API key (optional; Enter skips): \n- Artificial Analysis: no key; scores come from the keyless sources",
-    );
+    expect(r.out).not.toContain("Artificial Analysis");
     // the suite sets CATHERD_NO_SYNC=1 (test/preload.ts): init says so instead of reaching the network
-    expect(r.out).toContain("- sources: not synced (CATHERD_NO_SYNC=1); catherd catalog sync fetches them\n");
+    expect(r.out).toContain("- catalog: not fetched (CATHERD_NO_SYNC=1); catherd catalog sync fetches it\n");
     expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
     expect([activeName(), getProfile("team", "claude-code").budget]).toEqual(["team", {}]);
   }, 60_000);
@@ -248,7 +237,7 @@ describe("catherd init", () => {
     const home = withHome();
     process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
     saveJevKey("ts-live-0123456789abcdef");
-    const r = init([], "ts-live-0123456789abcdef\n\nteam\n");
+    const r = init([], "ts-live-0123456789abcdef\nteam\n");
     expect(r.code).toBe(0);
     expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
     expect(`${r.out}${r.err}`).not.toContain("0123456789abcdef");
@@ -274,7 +263,7 @@ describe("catherd init", () => {
       join(dirname(credentialsPath()), "profiles", "team.json"),
       JSON.stringify({ name: "team" }),
     );
-    const r = init([], "\n\nteam\n");
+    const r = init([], "\nteam\n");
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("Replace profile");
     expect(r.out).toContain("profiles/team.json\n✓ profile team written from the defaults, and active\n");
@@ -339,97 +328,44 @@ async function printed(f: () => Promise<void>): Promise<string[]> {
   }
   return lines;
 }
-const typed = (key: string): Prompter => ({ ask: async () => "", secret: async () => key, close() {} });
 
-describe("aaStep (spec 1.2 §9)", () => {
-  it("takes ARTIFICIAL_ANALYSIS_API_KEY first, then the saved key, asking nothing", async () => {
-    withHome();
-    process.env.ARTIFICIAL_ANALYSIS_API_KEY = "aa-env-0123456789";
-    let skipped = 0;
-    const ask: Prompter = { ...typed("x"), skip: () => void skipped++ };
-    expect(await printed(() => aaStep(ask))).toEqual([
-      "✓ Artificial Analysis: using ARTIFICIAL_ANALYSIS_API_KEY",
-    ]);
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    saveAaKey("aa-saved-0123456789");
-    expect(await printed(() => aaStep(ask))).toEqual(["✓ Artificial Analysis: using the saved key"]);
-    expect(skipped).toBe(2);
-  });
-
-  it("skips on Enter, saves a key that answers, and keeps a refused or unchecked one out", async () => {
-    withHome();
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    expect(await printed(() => aaStep(typed("")))).toEqual([
-      "- Artificial Analysis: no key; scores come from the keyless sources (add one later with catherd init)",
-    ]);
-    const refused = await printed(() =>
-      aaStep(typed("aa-bad-0123456789"), { testAaKey: async () => ({ result: "refused" }) }),
-    );
-    expect(refused).toEqual(["! Artificial Analysis: the key was refused (401), so it was not saved"]);
-    const offline = await printed(() =>
-      aaStep(typed("aa-key-0123456789"), {
-        testAaKey: async () => ({ result: "unchecked", error: "network error" }),
-      }),
-    );
-    expect(offline).toEqual([
-      "! Artificial Analysis: the key could not be checked (network error), so it was not saved; run catherd init again to retry",
-    ]);
-    expect(existsSync(credentialsPath())).toBe(false);
-    const ok = await printed(() =>
-      aaStep(typed("aa-good-0123456789"), { testAaKey: async () => ({ result: "ok" }) }),
-    );
-    expect(ok).toEqual(["✓ Artificial Analysis: the key answers; saved with mode 600"]);
-    expect(aaKey()).toBe("aa-good-0123456789");
-  });
-
-  it("goes on when credentials.json refuses the key, saying why and how to fix it", async () => {
-    withHome();
-    delete process.env.ARTIFICIAL_ANALYSIS_API_KEY;
-    mkdirSync(dirname(credentialsPath()), { recursive: true });
-    writeFileSync(credentialsPath(), "{not json");
-    const lines = await printed(() =>
-      aaStep(typed("aa-key-0123456789"), { testAaKey: async () => ({ result: "ok" }) }),
-    );
-    expect(lines[0]).toStartWith(
-      `! Artificial Analysis: could not save the key: ${credentialsPath()} is not valid JSON`,
-    );
-    expect(lines[1]).toStartWith(`    fix: delete ${credentialsPath()} and run catherd init`);
-  });
-});
-
-describe("syncStep (spec 1.2 §9)", () => {
-  const report: SyncReport = {
-    busy: false,
-    sources: [{ source: "arena", state: "fetched", fetchedAt: "2026-09-28T10:00:00.000Z" }],
-    newlyScored: [],
-    noLongerNeeded: [],
-    failed: [],
-    warnings: [],
-    unmatched: {},
+describe("syncStep", () => {
+  const status: IndexStatus = {
+    fetchedAt: "2026-10-21T10:00:00.000Z",
+    checkedAt: "2026-10-21T10:00:00.000Z",
+    pairs: 81,
+    error: null,
   };
 
-  it("syncs in the foreground and prints what catalog sync prints", async () => {
+  it("fetches the index in the foreground and says how many pairs it holds", async () => {
     withHome();
     delete process.env.CATHERD_NO_SYNC;
-    expect(await printed(() => syncStep({ sync: async () => report }))).toEqual([
-      "syncing the public model sources…",
-      "✓ arena: fetched",
+    expect(await printed(() => syncStep({ sync: async () => status }))).toEqual([
+      "fetching the Slopalytics index…",
+      "✓ Slopalytics: 81 pairs indexed",
     ]);
   });
 
-  it("never stops init: a sync that throws is a ! line with its fix", async () => {
+  it("never stops init: a failed fetch is a ! line with its fix", async () => {
     withHome();
     delete process.env.CATHERD_NO_SYNC;
-    const lines = await printed(() =>
+    expect(
+      await printed(() => syncStep({ sync: async () => ({ ...status, pairs: 0, error: "http 503" }) })),
+    ).toEqual([
+      "fetching the Slopalytics index…",
+      "! Slopalytics: http 503",
+      "    fix: catherd catalog sync",
+    ]);
+    const thrown = await printed(() =>
       syncStep({
         sync: async () => {
           throw new Error("disk full");
         },
       }),
     );
-    expect(lines).toEqual([
-      "syncing the public model sources…",
-      "! sources: disk full",
+    expect(thrown).toEqual([
+      "fetching the Slopalytics index…",
+      "! Slopalytics: disk full",
       "    fix: catherd catalog sync",
     ]);
   });
@@ -442,13 +378,13 @@ describe("syncStep (spec 1.2 §9)", () => {
       syncStep({
         sync: async () => {
           ran = true;
-          return report;
+          return status;
         },
       }),
     );
     expect([ran, lines]).toEqual([
       false,
-      ["- sources: not synced (CATHERD_NO_SYNC=1); catherd catalog sync fetches them"],
+      ["- catalog: not fetched (CATHERD_NO_SYNC=1); catherd catalog sync fetches it"],
     ]);
   });
 });

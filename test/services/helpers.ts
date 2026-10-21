@@ -121,6 +121,7 @@ export function fakeDeps(
       confidence: null,
       source: "default",
     }),
+    checkStart: async () => ({ unusable: [], index: null }),
     catalog: () => ({ total: 0, models: [] }),
   };
   const profiles: ProfilePort = {

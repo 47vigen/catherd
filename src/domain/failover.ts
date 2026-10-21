@@ -1,8 +1,6 @@
-import { billingKeyOf, type Catalog, DIMS, type Dim, rungInfo, scoresOf } from "./catalog.ts";
+import { billingKeyOf, type Catalog, pairOf, rungInfo } from "./catalog.ts";
 import { type BillingMode, compareCost, type Cost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { type Rung, tryParseRung } from "./ids.ts";
-import { DIFFICULTIES, KINDS } from "./lane.ts";
-import { EFFORT_ORDER } from "./sources.ts";
 
 /**
  * Spec §7.1 and §4.5: a stand-in on the same quota would be out of quota too. The billing key names the
@@ -16,74 +14,35 @@ export function claudeBilled(rung: string): boolean {
   return r !== null && quotaOf(r) === "claude-code";
 }
 
-/** A rung's scores by dim, its own or borrowed through a treat-like; null when unscored or not a rung. */
-export function valuesOf(c: Catalog, rung: string): Partial<Record<Dim, number>> | null {
-  try {
-    return scoresOf(c, rungInfo(c, rung).canonical)?.values ?? null;
-  } catch {
-    return null;
-  }
+/** A rung's intelligence index; null when it is not a rung or not indexed. */
+export const intelligenceOf = (c: Catalog, rung: string): number | null =>
+  pairOf(c, rung)?.intelligence ?? null;
+
+/** Spec 1.1 §11: `standIn` is a downgrade when the rung is indexed and the stand-in is not, or is less intelligent. */
+export function downgrade(c: Catalog, rung: string, standIn: string): boolean {
+  const a = intelligenceOf(c, rung);
+  const b = intelligenceOf(c, standIn);
+  return a !== null && (b === null || b < a);
 }
 
-/** The dims used by the routing bars (kind × difficulty) the rung clears: what makes it fit its lanes. */
-export function barDims(c: Catalog, rung: string): Dim[] {
-  const v = valuesOf(c, rung);
-  if (!v) return [];
-  const used = new Set<Dim>();
-  for (const kind of KINDS)
-    for (const d of DIFFICULTIES) {
-      const bar = Object.entries(c.bars[kind][d]).filter(([, min]) => min !== undefined) as [Dim, number][];
-      if (bar.every(([dim, min]) => (v[dim] ?? Number.NEGATIVE_INFINITY) >= min))
-        for (const [dim] of bar) used.add(dim);
-    }
-  return DIMS.filter((d) => used.has(d));
-}
-
-/**
- * Spec 1.1 §11: the dims, among those the rung's bars use, on which `standIn` scores below `rung` (a
- * missing score counts as below). Empty means the stand-in clears every bar the rung clears, at least as
- * well: no downgrade.
- */
-export function downgradeDims(c: Catalog, rung: string, standIn: string): Dim[] {
-  return downgradeAgainst(valuesOf(c, rung), barDims(c, rung), valuesOf(c, standIn));
-}
-
-/** downgradeDims with the rung's values and bar dims computed once, for a pool of stand-ins. */
-function downgradeAgainst(
-  a: Partial<Record<Dim, number>> | null,
-  dims: Dim[],
-  standIn: Partial<Record<Dim, number>> | null,
-): Dim[] {
-  if (!a) return [];
-  const b = standIn ?? {};
-  return dims.filter((d) => (b[d] ?? Number.NEGATIVE_INFINITY) < (a[d] as number));
-}
-
-/**
- * Spec 1.1 §11 "the ladder goes down": the dims both rungs are scored on where `upper` (the later rung)
- * scores below `lower`, when it scores above it on none of them. Empty when it does not go down.
- */
-export function ladderDropDims(c: Catalog, lower: string, upper: string): Dim[] {
-  const a = valuesOf(c, lower);
-  const b = valuesOf(c, upper);
-  if (!a || !b) return [];
-  const shared = DIMS.filter((d) => a[d] !== undefined && b[d] !== undefined);
-  if (shared.some((d) => (b[d] as number) > (a[d] as number))) return [];
-  return shared.filter((d) => (b[d] as number) < (a[d] as number));
+/** Spec 1.1 §11 "the ladder goes down": the later rung (`upper`) is less intelligent than `lower`. */
+export function ladderDrop(c: Catalog, lower: string, upper: string): boolean {
+  const a = intelligenceOf(c, lower);
+  const b = intelligenceOf(c, upper);
+  return a !== null && b !== null && b < a;
 }
 
 const costFor = (c: Catalog, billing: Partial<Record<string, BillingMode>>, rung: string): Cost => {
   const info = rungInfo(c, rung);
-  return costOf(info.family, info.parsed.effort, billing[info.key] ?? DEFAULT_BILLING[info.key]);
+  return costOf(info.family, info.pair, info.parsed.effort, billing[info.key] ?? DEFAULT_BILLING[info.key]);
 };
 
 /**
  * Spec 1.1 §11: the rungs of `pool` that can stand in for `rung`, best first. A stand-in is on another
- * quota, scored, paid from a plan or subscription under `billing` (a metered one spends money nobody chose
- * to), startable by `dispatch` (not a native `claude:` subagent), and no downgrade on the rung's bar dims.
- * Claude-billed stand-ins rank last, then the effort nearest the rung's own (a model's efforts carry one
- * another's values as `adjacent`, spec 1.2 §4.3, so the cheapest would otherwise be its lowest effort; plan 14
- * Ruling 4), then the cheapest.
+ * quota, indexed, paid from a plan or subscription under `billing` (a metered one spends money nobody chose
+ * to), startable by `dispatch` (not a native `claude:` subagent), and never less intelligent than the rung
+ * (a rung with no index of its own keeps every stand-in). Claude-billed stand-ins rank last, then the
+ * nearest intelligence above the rung's own, then the cheapest.
  */
 export function rankStandIns(
   c: Catalog,
@@ -93,17 +52,15 @@ export function rankStandIns(
 ): string[] {
   const from = tryParseRung(rung);
   if (!from) return [];
-  // the rung's own values and bar dims, once for the whole pool
-  const own = valuesOf(c, rung);
-  const dims = barDims(c, rung);
+  const own = intelligenceOf(c, rung);
   const fits = [...new Set(pool)].filter((x) => {
     const r = tryParseRung(x);
-    const values = r ? valuesOf(c, x) : null;
-    if (!r || r.backend === "claude" || quotaOf(r) === quotaOf(from) || !values) return false;
+    const i = r ? intelligenceOf(c, x) : null;
+    if (!r || r.backend === "claude" || quotaOf(r) === quotaOf(from) || i === null) return false;
     if (costFor(c, billing, x).tier === 1) return false;
-    return downgradeAgainst(own, dims, values).length === 0;
+    return own === null || i >= own;
   });
-  const gap = (x: string) => effortGap(from.effort, tryParseRung(x)?.effort ?? "");
+  const gap = (x: string) => (own === null ? 0 : (intelligenceOf(c, x) as number) - own);
   return fits.sort(
     (a, b) =>
       Number(claudeBilled(a)) - Number(claudeBilled(b)) ||
@@ -113,35 +70,28 @@ export function rankStandIns(
   );
 }
 
-/** How many effort steps apart two efforts are; an effort that is no effort word (`default`) is far from all. */
-function effortGap(a: string, b: string): number {
-  const i = (EFFORT_ORDER as readonly string[]).indexOf(a);
-  const j = (EFFORT_ORDER as readonly string[]).indexOf(b);
-  if (a === b) return 0;
-  return i < 0 || j < 0 ? EFFORT_ORDER.length : Math.abs(i - j);
-}
-
-/** How a family's `on` key or a model id's prefix maps to the backend that runs it. */
+/** How a family's `on` key maps to the backend that runs it. */
 const BACKEND_OF_KEY: Record<string, string> = { "opencode-go": "opencode" };
 
 /**
- * Every rung the catalog knows how to name: each shipped family's model on each backend at each effort (at
- * `#default` when it has none),
- * each listed model at each effort, and each treat-like whose model is an opencode id (`opencode-go/…`,
- * `opencode/…`), such as the shipped Kimi K3 stand-in. Sorted, without duplicates.
+ * Every indexed rung catherd can name: each shipped family's model on each backend at each effort the index
+ * (or the backend's listing) gives it, and each listed model at each listed effort. Sorted, without duplicates.
  */
-export function catalogRungs(c: Catalog): string[] {
+export function catalogPairs(c: Catalog): string[] {
   const out = new Set<string>();
+  const add = (backend: string, model: string, efforts: readonly string[]) => {
+    for (const e of [...efforts, "default"]) {
+      const rung = `${backend}:${model}#${e}`;
+      if (pairOf(c, rung)) out.add(rung);
+    }
+  };
   for (const f of c.families)
     for (const [key, m] of Object.entries(f.on)) {
       if (!m) continue;
-      // a model with no effort has one rung, #default (Claude Code's Haiku, Cursor's Composer; spec 1.3 §7.1)
-      for (const e of m.efforts.length ? m.efforts : ["default"])
-        out.add(`${BACKEND_OF_KEY[key] ?? key}:${m.id}#${e}`);
+      const backend = BACKEND_OF_KEY[key] ?? key;
+      add(backend, m.id, rungInfo(c, `${backend}:${m.id}#default`).efforts);
     }
   for (const [backend, l] of Object.entries(c.listed))
-    for (const m of l.models) for (const e of m.efforts) out.add(`${backend}:${m.id}#${e}`);
-  for (const canonical of Object.keys(c.treatLike))
-    if (/^opencode(-go)?\//.test(canonical)) out.add(`opencode:${canonical}`);
+    for (const m of l.models) add(backend, m.id, m.efforts);
   return [...out].sort();
 }

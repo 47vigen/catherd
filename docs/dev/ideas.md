@@ -5,7 +5,7 @@ into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and
 (the evidence), and where it would live.
 
 After 1.5 the list holds only what the 1.5 spec (`docs/specs/2026-10-02-catherd-1.5-design.md`) names under "Not in
-1.5" (the "1.2 follow-ups", "Routing and cost", "Orchestration", "Later" and "Live coverage" sections), the 1.5 follow-ups below, and the open entries of the older sections
+1.5" ("Routing and cost", "Orchestration", "Later" and "Live coverage" sections), the 1.5 follow-ups below, and the open entries of the older sections
 that no 1.5 plan fixed (under "Found while releasing 1.5").
 
 Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
@@ -21,6 +21,8 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.
 - **`saveTaskScore` writes the results file without a lock**: two concurrent `record` runs would lose a row. The
   protocol runs one task at a time.
+- **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
+  exists, so the advice does not match the state.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
@@ -97,16 +99,6 @@ Plan 24 (routing and cost) review:
   batch, and a waiting lane that is re-routed counts both its routes. Evidence: `src/services/lane-service.ts:94`,
   `src/services/lane-service.ts:141`. Fix: compute it once per batch and count each lane's latest route only.
   (Minor 6.)
-- **A raised no-clear start does not say it was raised.** When no rung clears the bar and the start is raised to an
-  easier difficulty's start, `noClear`/`why` do not say so. Evidence: `src/domain/select.ts:273-281`. Fix: append
-  "started at <difficulty>'s start, which scores at least the default" to the line. (Minor 7.)
-- **An empty first page loses its rate-limit headers.** The "empty first page" `SourceError` carries no status or
-  headers, so that attempt's rate-limit count is lost. Evidence: `src/infra/sources/artificial-analysis.ts:48`. Fix:
-  pass the first response's status and headers, as line 32 does. (Minor 8.)
-- **An unknown Claude model rides the plan for free.** On `claude-plan` a rung with no family costs 0 at tier 0, while
-  some Claude models are metered on the plan (as Fable is), so an unknown one may start lanes as if free. Evidence:
-  `src/domain/cost.ts:71`. Fix: price a familyless Claude-plan rung last in tier 0, or treat it as metered until the
-  catalog knows it. (Minor 9.)
 - **`route` sends unbounded Jev requests.** `route`'s `lanes` has no upper bound, and every lane is judged at once, so
   a large batch sends that many Jev requests in parallel. Evidence: `src/entry/mcp/lane-tools.ts:21`,
   `src/services/routing-service.ts:237`. Fix: cap `lanes` (`.max(n)`) or judge with bounded concurrency. (Minor 10.)
@@ -206,18 +198,6 @@ does not name):
 - **Stacked pushes need `-o ci.skip` (branch pipelines held the runner).** About the user's CI practice, not
   catherd. In the payment run, pushing five stacked branches started five branch pipelines on the single runner, and
   plan 5's MR pipeline sat pending for about 30 min. Stacked pushes need `-o ci.skip`.
-
-## 1.2 follow-ups (minors from the 1.2 reviews, 2026-09-28)
-
-Owner rule: review Minors and non-correctness bot P2s land here, not in code. From the plan 14 final review (`cff7d19..04a48e2`) and its plan writer:
-
-- **The shipped rebuild still spreads `adjacent` values downward** (Luna none carries Luna max's DeepSWE; a sync
-  spreads only upward since 1.5, plan 24): the default ladder's Luna rungs rest on a value published only at max
-  (plan 14 Ruling 3). The owner's call, with the Sol bars below.
-- **The logic and hard bars sit above every Sol rung** on the default ladder (Sol agentic 0.0818 vs 0.08606): the
-  owner's call, percentiles as specced or a ladder with a stronger top rung.
-- **Haiku 4.5's terminal value returns** when Epoch's Terminal-Bench covers five anchor rungs (plan 14 C-2).
-- **The Artificial Analysis fixtures are synthetic** (plan 13 R-C); re-record them with a key.
 
 ## Routing and cost
 

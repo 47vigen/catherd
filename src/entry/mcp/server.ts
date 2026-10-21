@@ -19,7 +19,7 @@ import { currentSession } from "../../services/sessions.ts";
 import { startNotifier } from "../../services/notifier.ts";
 import type { Deps } from "../../services/ports.ts";
 import { adoptOwned, reconcileAll } from "../../services/reconcile.ts";
-import { backgroundSync } from "../../services/source-sync.ts";
+import { refreshIndex } from "../../services/catalog-service.ts";
 import { defaultDeps } from "../deps.ts";
 import { registerDispatchTools } from "./dispatch-tools.ts";
 import { registerLaneTools } from "./lane-tools.ts";
@@ -249,9 +249,9 @@ export async function startMcpServer(
     if (target) observed.set(sessionKey(target), active);
     void Promise.resolve()
       .then(() => {
-        if (lead && epoch === generation) return (o.sync ?? (() => backgroundSync()))();
+        if (lead && epoch === generation) return (o.sync ?? (() => refreshIndex({ auto: true })))();
       })
-      .catch((e: unknown) => log("debug", "sources", { error: errorMessage(e) }));
+      .catch((e: unknown) => log("debug", "catalog", { error: errorMessage(e) }));
     void (async () => {
       try {
         if (epoch !== generation) return;

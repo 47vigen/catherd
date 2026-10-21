@@ -21,10 +21,11 @@ import {
   type Pick,
   quotaUsage,
   type RoutingProfile,
+  rolesWithoutRung,
   select,
 } from "../domain/select.ts";
 import { log } from "../infra/log.ts";
-import { catalogQuery, freshenDiscovery, loadCatalog } from "./catalog-service.ts";
+import { catalogQuery, freshenDiscovery, loadCatalog, startIndex } from "./catalog-service.ts";
 import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-service.ts";
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
 import { provenanceOf } from "./provenance.ts";
@@ -142,7 +143,7 @@ interface Prepared {
 async function prepare(req: RouteRequest, o: RoutingOpts): Promise<Prepared> {
   const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);
-  return { p, c: loadCatalog({ repo: req.repo }) };
+  return { p, c: loadCatalog({ repo: req.repo, runDir: req.runDir }) };
 }
 
 /** Jev's answer about a lane; null when the route reads no lane, empty when it asks nothing (Jev off, one usable rung). */
@@ -184,21 +185,14 @@ function decide(req: RouteRequest, { p, c }: Prepared, j: Judged | null): RouteA
     : null;
   let out: RouteAnswer;
   if (lane.kind && lane.difficulty) {
-    out = answer(
-      select(c, p, req.role, lane.kind, lane.difficulty),
-      "lane",
-      lane.kind,
-      lane.difficulty,
-      asked,
-      jev,
-    );
+    out = answer(select(c, p, req.role, lane.difficulty), "lane", lane.kind, lane.difficulty, asked, jev);
   } else if (judged?.track && judged.difficulty) {
     const kind = lane.kind ?? judged.kind ?? "repo_code";
-    out = answer(select(c, p, req.role, kind, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
+    out = answer(select(c, p, req.role, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
   } else if (judged?.kind || (judged && lane.kind)) {
     const kind = (lane.kind ?? judged.kind) as Kind;
-    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role, kind);
-    out = answer(select(c, p, req.role, kind, difficulty), "jev-kind", kind, difficulty, asked, jev);
+    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role);
+    out = answer(select(c, p, req.role, difficulty), "jev-kind", kind, difficulty, asked, jev);
   } else {
     out = answer(fallback(), "default", null, null, asked, jev);
   }
@@ -303,6 +297,10 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
         use,
         o,
       ),
+    checkStart: async (view, repo) => {
+      const { catalog, index } = await startIndex(repo);
+      return { unusable: rolesWithoutRung(catalog, view), index };
+    },
     catalog: (filter, billing) => catalogQuery(filter, billing),
   };
 }

@@ -422,12 +422,9 @@ export interface FixtureOptions {
   watchable?: boolean;
 }
 
-/** Spec 1.2 §9: the sources as the `r` dialog shows them, one failing. */
+/** The Slopalytics source as the `r` dialog shows it, failing. */
 export const FIXTURE_SOURCES: ReturnType<Effects["sources"]> = [
-  { source: "models-dev", name: "models.dev", age: "2 h ago", error: null },
-  { source: "arena", name: "Arena (LMArena)", age: "2 h ago", error: null },
-  { source: "epoch", name: "Epoch AI benchmarks", age: "1 d ago", error: "network error" },
-  { source: "artificial-analysis", name: "Artificial Analysis", age: "never fetched", error: null },
+  { source: "slopalytics", name: "Slopalytics", age: "2 h ago", error: "network error" },
 ];
 
 export function fixtureEffects(o: FixtureOptions = {}): Effects & {
@@ -455,7 +452,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     staged: Record<string, string> = {},
   ) => {
     const p = resolveProfile(after, name, host);
-    const c = withStaged(loadCatalog({ timings: false }), staged);
+    const c = withStaged(loadCatalog(), staged);
     const v = validateProfile(p, c, BACKENDS, undefined, host);
     // spec 1.2 §6.2, as the ProfileService rules: a save that repairs part of an invalid profile goes through
     const was = docs.has(name)
@@ -540,8 +537,8 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
       return d;
     },
     catalog: (billing) => ({
-      catalog: loadCatalog({ timings: false }),
-      models: catalogQuery({ scoredOnly: false, limit: Number.MAX_SAFE_INTEGER }, billing).models,
+      catalog: loadCatalog(),
+      models: catalogQuery({ limit: Number.MAX_SAFE_INTEGER }, billing).models,
     }),
     validate: (p, c) => validateProfile(p, c, BACKENDS, undefined, host),
     enforcement: (rung) => (rung.startsWith("codex:") ? "enforced" : "advisory"),
@@ -620,15 +617,7 @@ export function fixtureEffects(o: FixtureOptions = {}): Effects & {
     },
     async syncSources() {
       writes.push("sync");
-      return {
-        busy: false,
-        sources: [],
-        newlyScored: [],
-        noLongerNeeded: [],
-        failed: [],
-        warnings: [],
-        unmatched: {},
-      };
+      return { busy: false, failed: [], newlyScored: [] };
     },
     sources: () => FIXTURE_SOURCES,
     suggest: suggestFor,

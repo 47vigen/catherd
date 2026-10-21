@@ -149,7 +149,7 @@ export function isolationKeyErrors(
 
 /**
  * Spec 1.3 §9 Q2: each enabled role whose rung, or a failover stand-in of one, runs natively on a backend that
- * holds the role's access only when isolated (agy has no read-only flag).
+ * holds the role's access only when isolated (one with no read-only flag).
  */
 export function isolatedOnlyErrors(p: Profile): Issue[] {
   const out: Issue[] = [];
@@ -243,7 +243,7 @@ export function validateNamed(
 ): Validation {
   const n = name ?? activeName(repo);
   const doc = readProfileDoc(n);
-  const catalog = loadCatalog({ timings: false, ...(repo === null ? {} : { repo }) });
+  const catalog = loadCatalog(repo === null ? {} : { repo });
   try {
     return validateHere(resolveProfile(doc, n, host), catalog, doc, host, o);
   } catch (e) {

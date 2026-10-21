@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DiscoveredModel } from "../adapters/backend.ts";
 import { discovered, listingRepo, readDiscovery, writeDiscovery } from "../adapters/discovery.ts";
@@ -7,55 +7,32 @@ import "../adapters/all.ts";
 import {
   buildCatalog,
   type Catalog,
-  CanonicalRung,
   capableFor,
-  DIMS,
   type Family,
   type ModelsFile,
   ModelsFileSchema,
-  type Override,
-  OverrideSchema,
+  type Pair,
   rungInfo,
-  type ScoresFile,
-  ScoresFileSchema,
-  scoresOf,
 } from "../domain/catalog.ts";
-import { costOf, DEFAULT_BILLING, type BillingMode } from "../domain/cost.ts";
-import { CatherdError, errorMessage } from "../domain/errors.ts";
+import { type BillingMode, type Cost, costOf, DEFAULT_BILLING } from "../domain/cost.ts";
+import { errorMessage } from "../domain/errors.ts";
 import { ADAPTER_IDS, tryParseRung } from "../domain/ids.ts";
-import type { Kind } from "../domain/lane.ts";
-import { routeAt } from "../domain/route.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
-import { median } from "../domain/util.ts";
 import { assetPath } from "../infra/assets.ts";
-import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
-import { configDir } from "../infra/paths.ts";
-import { readDerived } from "../infra/sources/cache.ts";
-import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
+import { withFileLock } from "../infra/filelock.ts";
+import { indexPath } from "../infra/paths.ts";
+import { type IndexFile, IndexFileSchema } from "../domain/slopalytics.ts";
+import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.ts";
+import { PRIVATE_DIR, readVersioned } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
-import { listRuns, readAgentRuns, readRecords, readRoutes } from "./run-store.ts";
-import { valuesUsed } from "./provenance.ts";
 import { type EvidenceTable, evidenceLine, evidenceOf, runEvidence } from "./run-evidence.ts";
-import { withStandIns } from "./standins.ts";
 
 const DAY_MS = 24 * 3_600_000;
-/** Spec §5.2: `secs_per_task` counts once a rung has this many of the user's own runs. */
-const MIN_SAMPLES = 5;
 
 let models: ModelsFile | null = null;
-let scores: ScoresFile | null = null;
 export const shippedModels = (): ModelsFile =>
   (models ??= readVersioned(assetPath("catalog/models.json"), ModelsFileSchema, 1));
-export const shippedScores = (): ScoresFile =>
-  (scores ??= readVersioned(assetPath("catalog/scores.json"), ScoresFileSchema, 1));
-
-export const overridePath = (): string => join(configDir(), "catalog.override.json");
-
-export function readOverride(): Override {
-  const file = overridePath();
-  return existsSync(file) ? readVersioned(file, OverrideSchema, 1) : OverrideSchema.parse({});
-}
 
 /**
  * Every backend's last listing (spec §3.5 `<data>/discovery/<backend>.json`); for a backend listed per
@@ -70,80 +47,36 @@ function listedModels(repo?: string): Catalog["listed"] {
   return out;
 }
 
+const RUN_INDEX = "slopalytics.json";
+
 /**
- * Spec §5.2: the median seconds of the user's own successful runs per canonical rung and lane kind
- * (`|*` over every kind), kept only with at least MIN_SAMPLES runs. A run counts under the kind of its
- * lane's route in force when it started; a run with none counts only under `|*`. Native `claude:`
- * subagent runs (agents.jsonl, from record_agent_run) count too; one that names no lane counts only
- * under `|*`.
+ * The shipped families on the Slopalytics index (the run's own pin when `runDir` holds one, else the machine's),
+ * with every listing (in `repo` for a per-repo backend).
  */
-export function measuredSecs(base: Catalog): Catalog["secs"] {
-  const groups = new Map<string, number[]>();
-  const add = (k: string, secs: number) => groups.set(k, [...(groups.get(k) ?? []), secs]);
-  const count = (
-    routes: ReturnType<typeof readRoutes>,
-    rung: string,
-    secs: number,
-    lane: string | null,
-    startedAt: string,
-  ) => {
-    let canonical: string;
-    try {
-      canonical = rungInfo(base, rung).canonical;
-    } catch {
-      return;
-    }
-    // the kind the lane was routed as when this run started, not its newest route
-    const kind: Kind | null = lane ? (routeAt(routes, lane, startedAt)?.kind ?? null) : null;
-    add(`${canonical}|*`, secs);
-    if (kind) add(`${canonical}|${kind}`, secs);
-  };
-  for (const run of listRuns().runs) {
-    // a run whose files cannot be read gives no timings; it never fails a route (1.2 minor)
-    try {
-      const routes = readRoutes(run);
-      for (const r of readRecords(run).records)
-        if (r.status === "ok") count(routes, r.rung, r.secs, r.lane, r.startedAt);
-      for (const a of readAgentRuns(run)) {
-        if (a.status !== "ok" || a.secs === null) continue;
-        // a row is written when the subagent ends; it started `secs` earlier
-        const lane = typeof a.lane === "string" ? a.lane : null;
-        const end = Date.parse(a.at);
-        // a duration past the Date range (record_agent_run takes any) keeps the end, not a RangeError
-        const start = new Date(end - a.secs * 1000);
-        const startedAt = Number.isNaN(start.getTime()) ? a.at : start.toISOString();
-        count(routes, a.rung, a.secs, lane, startedAt);
-      }
-    } catch (e) {
-      log("debug", "catalog", { run: run.id, timings: errorMessage(e) });
-    }
-  }
-  const secs: Catalog["secs"] = {};
-  for (const [k, xs] of groups) if (xs.length >= MIN_SAMPLES) secs[k] = median(xs) as number;
-  return secs;
+export function loadCatalog(o: { repo?: string; runDir?: string } = {}): Catalog {
+  const pin = o.runDir === undefined ? null : join(o.runDir, RUN_INDEX);
+  // a missing pin falls back to the machine's index; one that exists but cannot be read is an error, not a fallback
+  const pinned = pin !== null && existsSync(pin) ? readVersioned(pin, IndexFileSchema, 1) : null;
+  return buildCatalog({
+    models: shippedModels(),
+    index: pinned ?? readIndexFile(indexPath()),
+    listed: listedModels(o.repo),
+  });
 }
 
 /**
- * The shipped catalog with every listing (in `repo` for a backend listed per repository), the user's
- * override (or `override` in its place: what a change to it would make) and, unless `timings: false`, own
- * timings.
+ * What a run starts on: the index refreshed if it is due, read once, with the catalog built on exactly that
+ * read, so the start check and the pin written after it cannot disagree.
  */
-export function loadCatalog(o: { timings?: boolean; repo?: string; override?: Override } = {}): Catalog {
-  // spec 1.2 §3.2: whatever the last sync derived; without one (first run, offline), the shipped values alone
-  const synced = readDerived();
-  // spec 1.2 §6.1: every value a rung lacks on a dimension the bars use comes from its nearest stand-in
-  const base = withStandIns(
-    buildCatalog({
-      models: shippedModels(),
-      scores: shippedScores(),
-      synced: synced?.scores,
-      facts: synced?.facts,
-      features: synced?.features,
-      override: o.override ?? readOverride(),
-      listed: listedModels(o.repo),
-    }),
-  );
-  return o.timings === false ? base : { ...base, secs: measuredSecs(base) };
+export async function startIndex(repo: string): Promise<{ catalog: Catalog; index: IndexFile | null }> {
+  await refreshIndex({ auto: true });
+  const index = readIndexFile(indexPath());
+  return { catalog: buildCatalog({ models: shippedModels(), index, listed: listedModels(repo) }), index };
+}
+
+/** Pins `index` into the run: later routes of the run read it, whatever the machine's index becomes. */
+export function writeRunIndex(runDir: string, index: IndexFile | null): void {
+  if (index) writeIndexFile(join(runDir, RUN_INDEX), index);
 }
 
 export interface Refreshed {
@@ -233,145 +166,19 @@ export async function freshenDiscovery(rungs: string[], now = Date.now(), repo?:
   });
 }
 
-/** A rung given as `backend:model#effort` or as a canonical `model#effort`, in canonical form. */
-function canonicalOf(c: Catalog, rung: string): string {
-  let canonical = rung;
-  try {
-    if (rung.includes(":")) canonical = rungInfo(c, rung).canonical;
-  } catch {
-    // a rung the catalog cannot resolve stays as given; the canonical check below refuses it
-  }
-  // a backend's own model id without its backend: the family that backend runs it for names it
-  const hash = canonical.lastIndexOf("#");
-  const model = canonical.slice(0, hash);
-  if (hash > 0 && !c.families.some((f) => f.id === model)) {
-    const family = c.families.find((f) => Object.values(f.on).some((m) => m?.id === model));
-    if (family) canonical = `${family.id}${canonical.slice(hash)}`;
-  }
-  if (!CanonicalRung.safeParse(canonical).success)
-    throw new CatherdError("E_INPUT_INVALID", `"${rung}" is not a rung`, {
-      fix: "name it as backend:model#effort or model#effort, e.g. codex:gpt-6-sol#high",
-    });
-  return canonical;
-}
-
-/** Spec §5.2 "treat like": the user maps an unscored rung onto a scored one in catalog.override.json. */
-export async function saveTreatLike(rung: string, like: string): Promise<{ rung: string; like: string }> {
-  const c = loadCatalog({ timings: false });
-  const from = canonicalOf(c, rung);
-  const to = canonicalOf(c, like);
-  if (!c.scores[to])
-    throw new CatherdError("E_CONFIG_INVALID", `${like} has no scores of its own to lend`, {
-      fix: "treat it like a scored rung; catalog_query lists them",
-    });
-  if (from === to)
-    throw new CatherdError("E_CONFIG_INVALID", `${rung} cannot be treated like itself`, {
-      fix: "name a different, scored rung",
-    });
-  // a rung a sync scored on some dimensions may still borrow the others; one with every value `to` lends may not
-  const own = c.scores[from] ?? {};
-  if (DIMS.filter((d) => c.scores[to]?.[d]).every((d) => own[d]))
-    throw new CatherdError(
-      "E_CONFIG_INVALID",
-      `${from} has scores of its own; a treat-like would not change it`,
-      {
-        fix: "treat-like maps only unscored rungs; catalog_query shows each rung's scores",
-      },
-    );
-  ensurePrivateDir(dirname(overridePath()));
-  await withFileLock(overridePath(), () => {
-    const cur = readOverride();
-    const next = { ...cur, schema: 1, treatLike: { ...cur.treatLike, [from]: to } };
-    const checked = OverrideSchema.safeParse(next);
-    if (!checked.success)
-      throw new CatherdError(
-        "E_CONFIG_INVALID",
-        `the treat-like ${from} → ${to} would not be a valid override`,
-        {
-          fix: checked.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
-        },
-      );
-    writeJsonAtomic(overridePath(), next);
-  });
-  return { rung: from, like: to };
-}
-
-/** A rung given as `backend:model#effort` or `model#effort`, as the canonical rung the override keys it by. */
-export const canonicalRung = (rung: string): string => canonicalOf(loadCatalog({ timings: false }), rung);
-
-/**
- * Spec 1.2 §6.4 `treat-like --clear|--reset`: removes the user's treat-likes for `rungs` (canonical), or every
- * one with `"all"`, from catalog.override.json; the shipped ones are not the user's to remove. Returns the
- * mappings removed. Leaves the override's other fields as they are.
- */
-export async function removeTreatLikes(rungs: string[] | "all"): Promise<[string, string][]> {
-  if (!existsSync(overridePath())) return [];
-  let removed: [string, string][] = [];
-  await withFileLock(overridePath(), () => {
-    const cur = readOverride();
-    const gone = Object.entries(cur.treatLike).filter(([r]) => rungs === "all" || rungs.includes(r));
-    removed = gone;
-    if (gone.length === 0) return;
-    const treatLike = Object.fromEntries(
-      Object.entries(cur.treatLike).filter(([r]) => !gone.some(([g]) => g === r)),
-    );
-    writeJsonAtomic(overridePath(), { ...cur, schema: 1, treatLike });
-  });
-  return removed;
-}
-
 /** The backend a billing or harness key bills or isolates: `opencode-go` is a provider of the opencode backend. */
 export const backendOfKey = (key: string) => (key === "opencode-go" ? "opencode" : key);
 
-function rungRows(
-  c: Catalog,
-  backend: string,
-  model: string,
-  efforts: string[],
-  billing: Partial<Record<string, BillingMode>>,
-  evidence: EvidenceTable,
-) {
-  return (efforts.length ? efforts : ["default"]).map((effort) => {
-    const rung = `${backend}:${model}#${effort}`;
-    const info = rungInfo(c, rung);
-    const s = scoresOf(c, info.canonical);
-    const scored: Record<
-      string,
-      {
-        value: number;
-        benchmark: string;
-        confidence: string;
-        source: string;
-        date: string;
-        /** spec 1.2 §5.3: the rung a borrowed or inferred value belongs to */
-        from?: string;
-        /** what lent it: a treat-like's mapping (`like X`) or an inferred stand-in's guess (1.2 minor) */
-        lent?: "treat-like" | "stand-in";
-      }
-    > = {};
-    for (const v of valuesUsed(c, info.canonical))
-      scored[v.dim] = {
-        value: v.value,
-        benchmark: v.benchmark,
-        // a value lent by a treat-like or a stand-in is catherd's guess for this rung, whatever its own confidence
-        confidence: v.inferred ? "inferred" : v.confidence,
-        source: v.source,
-        date: v.date,
-        ...(v.from ? { from: v.from } : {}),
-        ...(v.lent ? { lent: v.lent } : {}),
-      };
-    const like = c.treatLike[info.canonical] ?? null;
-    return {
-      rung,
-      enabled: s !== null,
-      ...(s === null ? { why: "unscored: map it with catherd catalog treat-like <rung> <scored rung>" } : {}),
-      scores: scored,
-      treatLike: s?.via ? like : null,
-      cost: costOf(info.family, effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
-      /** spec 1.2 §8: catherd's own runs on it, over every kind; never used for routing */
-      evidence: evidenceLine(evidenceOf(evidence, info.canonical)),
-    };
-  });
+/** One indexed pair as `catalog_query` and `catalog list` show it. */
+export interface IndexedPair {
+  rung: string;
+  intelligence: number;
+  price: Pair["price"];
+  speed: number | null;
+  context: number | null;
+  cost: Cost;
+  /** spec 1.2 §8: catherd's own runs on it, over every kind; never used for routing */
+  evidence: string | null;
 }
 
 export interface CatalogModel {
@@ -381,70 +188,156 @@ export interface CatalogModel {
   model: string;
   billing: string;
   efforts: string[];
-  context: number | null;
   capabilities: Family["capabilities"] | null;
   roles: Role[];
   listed: boolean | null;
   notes: Record<string, string>;
-  /** spec 1.2 §4.1: the family's API price, dollars per million tokens, and its speed facts */
-  price: Family["price"] | null;
-  speed: Record<string, number>;
-  rungs: ReturnType<typeof rungRows>;
+  rungs: IndexedPair[];
+}
+
+function pairsOf(
+  c: Catalog,
+  backend: string,
+  model: string,
+  billing: Partial<Record<string, BillingMode>>,
+  evidence: EvidenceTable,
+): IndexedPair[] {
+  const probe = rungInfo(c, `${backend}:${model}#default`);
+  const efforts = [...new Set([...probe.efforts, "default"])];
+  return efforts
+    .flatMap((effort) => {
+      const rung = `${backend}:${model}#${effort}`;
+      const info = rungInfo(c, rung);
+      const pair = info.pair;
+      if (!pair) return [];
+      return [
+        {
+          rung,
+          intelligence: pair.intelligence,
+          price: pair.price,
+          speed: pair.speed,
+          context: info.context,
+          cost: costOf(info.family, pair, effort, billing[info.key] ?? DEFAULT_BILLING[info.key]),
+          evidence: evidenceLine(evidenceOf(evidence, info.canonical)),
+        },
+      ];
+    })
+    .sort((a, b) => a.intelligence - b.intelligence);
 }
 
 /**
- * Spec §4.8 `catalog_query`: shipped families on each backend, plus listed models catherd cannot score;
- * a backend listed per repository as it is listed in `f.repo` (a git toplevel), as `route` reads it.
+ * Spec §4.8 `catalog_query`: the indexed pairs of the shipped families on each backend, and of the listed models
+ * catherd has no family for; a model with no indexed pair is not listed. A backend listed per repository as it
+ * is listed in `f.repo` (a git toplevel), as `route` reads it.
  */
 export function catalogQuery(
   f: CatalogFilter,
   billing: Partial<Record<string, BillingMode>> = {},
 ): { total: number; models: CatalogModel[] } {
-  const c = loadCatalog({ timings: false, repo: f.repo });
+  const c = loadCatalog({ repo: f.repo });
   const evidence = runEvidence(c);
   const rows: CatalogModel[] = [];
   const known = new Set<string>();
-  const entry = (backend: string, model: string, fam: Family | null): CatalogModel => {
+  const entry = (backend: string, model: string, fam: Family | null) => {
+    const rungs = pairsOf(c, backend, model, billing, evidence);
+    if (rungs.length === 0) return;
     const probe = rungInfo(c, `${backend}:${model}#default`);
-    return {
+    rows.push({
       id: fam?.id ?? model,
       name: fam?.name ?? null,
       backend,
       model,
       billing: probe.key,
-      efforts: probe.efforts,
-      context: probe.context,
+      efforts: rungs.map((r) => r.rung.slice(r.rung.lastIndexOf("#") + 1)),
       capabilities: fam?.capabilities ?? null,
       roles: ROLES.filter((r) => capableFor(c, probe, r)),
       listed: probe.listed,
       notes: fam?.notes ?? {},
-      price: fam?.price ?? null,
-      speed: fam?.speed ?? {},
-      rungs: rungRows(c, backend, model, probe.efforts, billing, evidence),
-    };
+      rungs,
+    });
   };
   for (const fam of c.families)
     for (const [key, on] of Object.entries(fam.on)) {
       const backends = key === "claude-code" ? ["claude", "claude-code"] : [backendOfKey(key)];
-      for (const b of backends) rows.push(entry(b, on.id, fam));
+      for (const b of backends) entry(b, on.id, fam);
       known.add(`${backendOfKey(key)}:${on.id}`);
     }
   for (const [backend, l] of Object.entries(c.listed))
-    for (const m of l.models) if (!known.has(`${backend}:${m.id}`)) rows.push(entry(backend, m.id, null));
+    for (const m of l.models) if (!known.has(`${backend}:${m.id}`)) entry(backend, m.id, null);
   const needle = f.text?.toLowerCase();
   const kept = rows
     .filter(
       (m) =>
         (!f.role || m.roles.includes(f.role)) &&
         (!f.backend || m.backend === f.backend || m.billing === f.backend) &&
-        (!needle || `${m.id} ${m.model} ${m.name ?? ""}`.toLowerCase().includes(needle)) &&
-        (!f.scoredOnly || m.rungs.some((r) => r.enabled)),
+        (!needle || `${m.id} ${m.model} ${m.name ?? ""}`.toLowerCase().includes(needle)),
     )
-    .sort(
-      (a, b) =>
-        Number(b.rungs.some((r) => r.enabled)) - Number(a.rungs.some((r) => r.enabled)) ||
-        a.id.localeCompare(b.id) ||
-        a.backend.localeCompare(b.backend),
-    );
+    .sort((a, b) => a.id.localeCompare(b.id) || a.backend.localeCompare(b.backend));
   return { total: kept.length, models: kept.slice(0, f.limit) };
+}
+
+export interface IndexStatus {
+  fetchedAt: string | null;
+  checkedAt: string | null;
+  pairs: number;
+  error: string | null;
+}
+
+/** How long a fetched index is trusted before the next automatic refresh. */
+export const INDEX_TTL_MS = 3_600_000;
+
+export function indexStatus(): IndexStatus {
+  const f = readIndexFile(indexPath());
+  return {
+    fetchedAt: f?.fetchedAt ?? null,
+    checkedAt: f?.checkedAt ?? null,
+    pairs: f?.models.length ?? 0,
+    error: f?.error?.message ?? null,
+  };
+}
+
+/**
+ * Keeps `<data>/slopalytics.json` fresh: fetched when its last check is over an hour old (or `force`), the last
+ * good answer kept when the proxy fails and the error recorded beside it. Never throws. An `auto` refresh
+ * (MCP boot, `init`, run start) fetches nothing under `CATHERD_NO_SYNC=1`.
+ */
+export async function refreshIndex(
+  o: { force?: boolean; auto?: boolean; fetch?: typeof fetch; now?: number } = {},
+): Promise<IndexStatus> {
+  if (o.auto && process.env.CATHERD_NO_SYNC === "1") return indexStatus();
+  const now = o.now ?? Date.now();
+  // read, fetch and write run under one lock: a refresh that fails reads the file as the one before it left it
+  try {
+    mkdirSync(dirname(indexPath()), { recursive: true, mode: PRIVATE_DIR });
+    await withFileLock(indexPath(), () => refreshLocked(o, now), { timeoutMs: 30_000 });
+  } catch (e) {
+    log("debug", "catalog", { index: errorMessage(e) });
+  }
+  return indexStatus();
+}
+
+async function refreshLocked(o: { force?: boolean; fetch?: typeof fetch }, now: number): Promise<void> {
+  const prev = readIndexFile(indexPath());
+  if (!o.force && prev && now - Date.parse(prev.checkedAt) < INDEX_TTL_MS) return;
+  const at = new Date(now).toISOString();
+  try {
+    const got = await fetchProxy({ fetch: o.fetch });
+    writeIndexFile(indexPath(), {
+      schema: 1,
+      checkedAt: at,
+      fetchedAt: got.fetchedAt,
+      error: null,
+      models: got.models,
+    });
+  } catch (e) {
+    const message = errorMessage(e);
+    log("debug", "catalog", { index: message });
+    writeIndexFile(indexPath(), {
+      schema: 1,
+      checkedAt: at,
+      fetchedAt: prev?.fetchedAt ?? null,
+      error: { at, message },
+      models: prev?.models ?? [],
+    });
+  }
 }

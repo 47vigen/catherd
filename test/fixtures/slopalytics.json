@@ -1,0 +1,737 @@
+{
+  "schema": 1,
+  "checkedAt": "2026-10-13T20:47:14.735Z",
+  "fetchedAt": "2026-10-13T20:47:14.735Z",
+  "error": null,
+  "models": [
+    {
+      "family": "claude-4-5-haiku",
+      "effort": "none",
+      "intelligence": 15.410949885381,
+      "inputPrice": 1,
+      "outputPrice": 5,
+      "speed": 87.8034745620734,
+      "context": 200000
+    },
+    {
+      "family": "claude-4-5-haiku",
+      "effort": "default",
+      "intelligence": 16.8822352291856,
+      "inputPrice": 1,
+      "outputPrice": 5,
+      "speed": 93.7895531963474,
+      "context": 200000
+    },
+    {
+      "family": "claude-fable-5-1",
+      "effort": "max",
+      "intelligence": 53.3549259623252,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 69.9297503668101,
+      "context": 1000000
+    },
+    {
+      "family": "claude-fable-5-1",
+      "effort": "high",
+      "intelligence": 51.1515708852237,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 55.2398739762561,
+      "context": 1000000
+    },
+    {
+      "family": "claude-fable-5-1",
+      "effort": "low",
+      "intelligence": 46.8163422014862,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 58.8459862057103,
+      "context": 1000000
+    },
+    {
+      "family": "claude-fable-5-1",
+      "effort": "medium",
+      "intelligence": 48.9206162609523,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 55.5022328305378,
+      "context": 1000000
+    },
+    {
+      "family": "claude-fable-5-1",
+      "effort": "xhigh",
+      "intelligence": 53.2032587538944,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 61.6900933721077,
+      "context": 1000000
+    },
+    {
+      "family": "claude-opus-5-5",
+      "effort": "max",
+      "intelligence": 57.6223698102963,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 94.5679063222701,
+      "context": 1000000
+    },
+    {
+      "family": "claude-opus-5-5",
+      "effort": "high",
+      "intelligence": 53.5831959822067,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 82.76596738444,
+      "context": 1000000
+    },
+    {
+      "family": "claude-opus-5-5",
+      "effort": "low",
+      "intelligence": 42.3077781466168,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 80.1532710087012,
+      "context": 1000000
+    },
+    {
+      "family": "claude-opus-5-5",
+      "effort": "medium",
+      "intelligence": 51.2434931792768,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 78.8147269579086,
+      "context": 1000000
+    },
+    {
+      "family": "claude-opus-5-5",
+      "effort": "xhigh",
+      "intelligence": 55.9873505840139,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 81.4739072610647,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "max",
+      "intelligence": 38.1638712882576,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 82.747430031971,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5-5",
+      "effort": "max",
+      "intelligence": 56.0001286580794,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 135.045189122488,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5-5",
+      "effort": "high",
+      "intelligence": 46.7533528066958,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 96.7620353642223,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5-5",
+      "effort": "low",
+      "intelligence": 35.8681594577587,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 100.574133542398,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5-5",
+      "effort": "medium",
+      "intelligence": 40.838652287929,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 94.7939513965125,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5-5",
+      "effort": "xhigh",
+      "intelligence": 51.8955544183089,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 103.280797639664,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "high",
+      "intelligence": 31.6623246664651,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 66.2576620642993,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "low",
+      "intelligence": 24.2638393579597,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 60.6521524117351,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "medium",
+      "intelligence": 28.0531468379456,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 65.4360254099849,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "none",
+      "intelligence": 23.2,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 64.2426692480389,
+      "context": 1000000
+    },
+    {
+      "family": "claude-sonnet-5",
+      "effort": "xhigh",
+      "intelligence": 34.384211557212,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 70.4929109842163,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-1-pro-preview",
+      "effort": "default",
+      "intelligence": 29.7185656132261,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 140.181123086553,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-6-flash",
+      "effort": "high",
+      "intelligence": 33.9785928920714,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": 193.091446943026,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-7-flash",
+      "effort": "high",
+      "intelligence": 39.0594566404896,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": 313.610061704623,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-7-flash",
+      "effort": "low",
+      "intelligence": 36.9459114891198,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": 323.186123930722,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-7-flash",
+      "effort": "medium",
+      "intelligence": 39.617751842555,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": 313.326158239022,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-8-flash",
+      "effort": "high",
+      "intelligence": 40.9262321765904,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": 145.383636987503,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-8-flash",
+      "effort": "low",
+      "intelligence": 33.4548106699132,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": null,
+      "context": 1000000
+    },
+    {
+      "family": "gemini-3-8-flash",
+      "effort": "medium",
+      "intelligence": 39.7740187061926,
+      "inputPrice": 0.75,
+      "outputPrice": 3.75,
+      "speed": null,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "max",
+      "intelligence": 37.3244239690841,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 122.174679410754,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "high",
+      "intelligence": 32.1196453501091,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 114.039071072396,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "low",
+      "intelligence": 21.0124783424265,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 111.475028431573,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "medium",
+      "intelligence": 25.0358741440784,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 116.860974169948,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "none",
+      "intelligence": 15.5270002110259,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 111.775603988567,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-luna",
+      "effort": "xhigh",
+      "intelligence": 34.555348822309,
+      "inputPrice": 0.2,
+      "outputPrice": 1.2,
+      "speed": 119.576998932983,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "max",
+      "intelligence": 46.9727068915036,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 90.9426195158916,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "high",
+      "intelligence": 42.3461010420519,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 86.7339948191046,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "low",
+      "intelligence": 33.4731387646002,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 76.238482309671,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "medium",
+      "intelligence": 39.2363585889147,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 82.6844616871545,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "none",
+      "intelligence": 28.3280042499237,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 82.5430912710107,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-sol",
+      "effort": "xhigh",
+      "intelligence": 44.008876369169,
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "speed": 86.7106124101109,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "max",
+      "intelligence": 42.0829248239494,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 132.126619089152,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "high",
+      "intelligence": 34.2376558067555,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 108.805860394452,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "low",
+      "intelligence": 27.496203401716,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 103.302988367712,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "medium",
+      "intelligence": 30.0938023419377,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 106.29985764393,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "none",
+      "intelligence": 20.7797013584503,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 105.076976759912,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-5-6-terra",
+      "effort": "xhigh",
+      "intelligence": 37.9513370742927,
+      "inputPrice": 2,
+      "outputPrice": 12,
+      "speed": 110.422778379266,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-1-sol",
+      "effort": "max",
+      "intelligence": 51.8332597011541,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 61.8916906732701,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-1-sol",
+      "effort": "high",
+      "intelligence": 50.2377777519769,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 57.5583878630425,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-1-sol",
+      "effort": "low",
+      "intelligence": 42.0835618555848,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 50.5826829321916,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-1-sol",
+      "effort": "medium",
+      "intelligence": 47.7833271274065,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 55.2213487416648,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-1-sol",
+      "effort": "xhigh",
+      "intelligence": 51.0377679093761,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 58.6485280764704,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-astra",
+      "effort": "max",
+      "intelligence": 52.673669395513,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 61.3449044943137,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-astra",
+      "effort": "high",
+      "intelligence": 50.9191471636152,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 53.8660830486253,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-astra",
+      "effort": "low",
+      "intelligence": 45.7819243120341,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 53.7806771494607,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-astra",
+      "effort": "medium",
+      "intelligence": 49.5704363034369,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 53.3731599712956,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-astra",
+      "effort": "xhigh",
+      "intelligence": 52.3863277108782,
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "speed": 56.8068136183315,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "max",
+      "intelligence": 38.1245186869738,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 134.247449696612,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "high",
+      "intelligence": 32.9282054150837,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 132.015905244342,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "low",
+      "intelligence": 21.5261980080866,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 123.338188126614,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "medium",
+      "intelligence": 29.9251773515762,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": null,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "none",
+      "intelligence": 18.4678465935701,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 112.251478707232,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-luna",
+      "effort": "xhigh",
+      "intelligence": 34.5587320217785,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 126.081211762444,
+      "context": 1000000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "max",
+      "intelligence": 47.6305176437724,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 120.045365344199,
+      "context": 1050000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "high",
+      "intelligence": 42.4004513642985,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 111.69671069769,
+      "context": 1050000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "low",
+      "intelligence": 34.1548755585733,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 97.2483341333238,
+      "context": 1050000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "medium",
+      "intelligence": 39.8118971749522,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": null,
+      "context": 1050000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "none",
+      "intelligence": 28.5121413410513,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 106.556627244222,
+      "context": 1050000
+    },
+    {
+      "family": "gpt-6-sol",
+      "effort": "xhigh",
+      "intelligence": 44.2448955516407,
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "speed": 112.531926663073,
+      "context": 1050000
+    },
+    {
+      "family": "grok-4-5",
+      "effort": "high",
+      "intelligence": 38.8121153240657,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 62.8316189423129,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-6",
+      "effort": "high",
+      "intelligence": 44.3113073012592,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 56.4587994240646,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-6",
+      "effort": "low",
+      "intelligence": 35.1246953482174,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 52.1411966437588,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-6",
+      "effort": "medium",
+      "intelligence": 42.836322654063,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 55.9445143711802,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-6",
+      "effort": "xhigh",
+      "intelligence": 44.199810436996,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 60.6672289813351,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-7",
+      "effort": "xhigh",
+      "intelligence": 46.4465506302286,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 85.6165718318447,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-7",
+      "effort": "high",
+      "intelligence": 46.3321770885625,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 76.5450615956759,
+      "context": 500000
+    },
+    {
+      "family": "grok-4-7",
+      "effort": "low",
+      "intelligence": 42.2166560223448,
+      "inputPrice": 2,
+      "outputPrice": 6,
+      "speed": 64.8255372855586,
+      "context": 500000
+    },
+    {
+      "family": "kimi-k3",
+      "effort": "max",
+      "intelligence": 43.5938229518782,
+      "inputPrice": 3,
+      "outputPrice": 15,
+      "speed": 44.242202238006,
+      "context": 1048576
+    },
+    {
+      "family": "kimi-k3",
+      "effort": "low",
+      "intelligence": 30.0666987529068,
+      "inputPrice": 3,
+      "outputPrice": 15,
+      "speed": 47.9455763277979,
+      "context": 1048576
+    }
+  ]
+}

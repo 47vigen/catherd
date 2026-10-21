@@ -1,11 +1,11 @@
 # Live verification
 
-Native Codex shipped in 1.4.0, and CI (`.github/workflows/ci.yml`) runs on every PR. Sections 1–13 keep the per-backend and release procedures of earlier releases. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
+Native Codex shipped in 1.4.0, and CI (`.github/workflows/ci.yml`) runs on every PR. Sections 1–11 and 14 keep the per-backend and release procedures of earlier releases. Use [section 14](#14-native-codex-packaging-and-completion-acceptance) for the actual packaged host flow, including the unchanged Claude integration. Record untested cases as unverified, never passed by inference.
 
 What CI cannot check, because it needs real accounts: the backends' real streams, the Codex sandbox, and
 the Jev key prompt on a real terminal (spec D7, §11.7, §11.8); since 1.1 also the push notices, the worker
 access probes and the release acceptance runs (spec 1.1 §15, sections 7 to 9); since 1.2 its acceptance (spec 1.2
-§11, section 10); since 1.3 the Cursor, Grok Build and Antigravity adapters (spec 1.3 §10, sections 11 to 13). Run it on your own machine before a
+§11, section 10); since 1.3 the Cursor adapter (spec 1.3 §10, section 11; the Grok Build and Antigravity sections 12 and 13 were removed in 2.0). Run it on your own machine before a
 release, and again after a backend CLI's minor release. Every step says what to look for; write down
 anything that differs and file it with the step's name.
 
@@ -400,70 +400,23 @@ main thread ran itself (MR A: 156), and whether any notice was missing or double
 ## 10. The 1.2 acceptance (the release PR waits for it)
 
 Spec 1.2 §11. Install the release candidate from `changeset-release/main` and the plugin from the same checkout
-exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run these four in order. Keep your real
+exactly as in section 9 (its "The CLI" and "The plugin" blocks), then run this one. Keep your real
 config: the commands below save and restore what they change.
 
-**1. A fresh `init`, with and without an Artificial Analysis key; `doctor` shows every source fresh.**
-
-```sh
-export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"   # apart from your own, agents too
-ARTIFICIAL_ANALYSIS_API_KEY= catherd init --no-input --no-global
-catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | "\(.state) \(.word): \(.detail)"'
-```
-
-Look for `ok fresh:` and every keyless source (`models-dev`, `openrouter-models`, `openrouter-endpoints`,
-`litellm`, `arena`, `vectara`, `epoch`) under an hour old, and `no Artificial Analysis key`. Then with your key:
-
-```sh
-export CATHERD_HOME="$(mktemp -d)" CATHERD_CLAUDE_AGENTS_DIR="$(mktemp -d)"
-ARTIFICIAL_ANALYSIS_API_KEY=<your key> catherd init --no-input --no-global
-catherd doctor --json | jq -r '.checks[] | select(.id == "sources") | .detail'
-ls -l "$CATHERD_HOME/config/credentials.json"   # -rw------- ; the key was tested before it was saved
-unset CATHERD_HOME CATHERD_CLAUDE_AGENTS_DIR
-```
-
-Look for `artificial-analysis` among the fresh sources and `Artificial Analysis key set, <n> requests left today`.
-
-**2. Clearing every treat-like of yours leaves the profile valid, with warnings.**
-
-```sh
-cp ~/.config/catherd/catalog.override.json /tmp/override.before.json 2>/dev/null
-catherd catalog treat-like --reset
-catherd profile validate; echo "exit $?"
-```
-
-Look for: `--reset` names, before its `removed` line, each profile rung left on an inferred stand-in or unscored (none is
-fine when you had no treat-likes); `validate` prints no `✗` line, exits 0, and lists each such rung as `stand-in
-to confirm: …`. Put yours back with `cp /tmp/override.before.json ~/.config/catherd/catalog.override.json`.
-
-**3. A `terminal` lane and a `ui` lane pick by the terminal and frontend bars, and say each value's source.**
+**1. A `terminal` lane and a `ui` lane are held to the same intelligence bar, and say what it was.**
 
 In a scratch repository, start a run and route two lanes through the MCP tools from a Claude Code session:
 
 ```sh
 scratch="$(mktemp -d)/bars" && mkdir -p "$scratch" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
 claude -p --output-format json \
-  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.thresholds of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
+  "/catherd:catherd Start a run titled bars. Write lanes/M1.L1.md with 'Kind: terminal' and 'Difficulty: copy', and lanes/M1.L2.md with 'Kind: ui' and 'Difficulty: build' (each: Owns: a.txt, Fast check: true), then call route once with both in lanes, print each answer's rung and why, and print the provenance.bar and provenance.intelligence of both lanes' rows in the run's routes.jsonl as JSON. Do not dispatch." \
   | jq -r .result
 ```
 
-Look for: the terminal lane's thresholds list only `terminal` (its value's `source` `shipped`, Terminal-Bench
-4.0), the ui lane's `repo_code` and `frontend` (`frontend`'s source `arena`), each with `min`, `used.value`,
-`used.confidence` and `clears`; and the two lanes on different rungs (on the default profile: Sol medium and Sol
-xhigh).
-
-**4. The first weekly refresh PR opens with a readable change list.**
-
-```sh
-gh workflow run catalog-refresh.yml --repo 47vigen/catherd
-sleep 60; gh run list --workflow catalog-refresh.yml --repo 47vigen/catherd --limit 1
-gh pr view catalog-refresh --repo 47vigen/catherd
-```
-
-Look for: the run succeeds; when anything changed, one PR titled `chore(catalog): refresh scores` with a patch
-changeset, whose body lists the rungs newly scored, the values moved by more than 5 % and every bar that moved
-(each as a table), and no Artificial Analysis value; when nothing changed, the run's log ends with `no change`
-and no PR opens.
+Look for: each lane's `bar` naming its difficulty, its percentile (copy 25, build 50) and `min`, the rung's
+`intelligence` against it, and `clears: true`; the two lanes on the rungs the default profile's worker ladder gives
+those bars (Sol medium for both on the 2026-10-13 index).
 
 ## 11. Cursor (1.3, plan 15)
 
@@ -586,248 +539,6 @@ Look for: `ok`, and the access row naming which of the five probes pass under yo
 
 **11. Auto-update stays off during a run.** During step 5, `ls -l ~/.local/bin/cursor-agent` before and after:
 the link does not change mid-run (`--disable-auto-update` is hidden, spec 1.3 §9 Q8).
-
-## 12. Grok Build (1.3, plan 16)
-
-Spec 1.3 §5 and §10, research 2026-09-29 §8 (Grok). Every behaviour below that needs a model turn was read from
-grok 1.0.44's user guide or binary and never seen live: plan 16's rulings name what each step confirms. Write down
-every difference, with the step's number; a step that fails its "look for" is a ruling to revisit before the release.
-
-**Setup.** Reinstall grok (the owner's `~/.grok/bin/grok` was a Linux build, research §3.1), then log in. For steps
-1, 6 and the isolated live test also create a key at console.x.ai and `export XAI_API_KEY=<key>` in that shell only.
-
-```sh
-curl -fsSL https://x.ai/cli/install.sh | bash
-grok --version                         # grok 1.0.44 (…) or newer
-grok login                             # or: grok login --device-code
-catherd doctor --json | jq -r '.checks[] | select(.id | test("grok")) | "\(.id) \(.state) \(.word): \(.detail)"'
-```
-
-Look for: `backend:grok ok ready: 1.0.44 · Grok login · <n> models` (or `warn billing` with the fix when a profile
-that routes to grok bills it otherwise); `sandbox:grok info`, which on a Mac with Docker Desktop or OrbStack says grok
-refuses its read-only profile and catherd runs read-only roles with the read tools only; with a grok role on
-workspace-write, `access:grok skip not tested` and `isolation:grok warn weak`.
-
-**1. A headless run with the brief by file, and `end` with and without a key (plan 16 Rulings on the stream).**
-
-```sh
-catherd capture-fixtures --backend grok --out /tmp/grok-fixtures
-ls /tmp/grok-fixtures/grok/*/
-```
-
-Needs `XAI_API_KEY` (capture runs isolated). Look for three cases captured: `ok`, `resume`, `read-only-write`. In
-`ok.jsonl`: `text` events and the field that holds their text (catherd reads `data`), `tool_call` and
-`tool_call_update` events with `toolCallId`, `toolName`, `kind`, `rawInput` and `status`, one `usage` per model
-response, and a last `end` whose `sessionId` is the `-s` id catherd passed and which has `total_cost_usd` (an API
-key). In `ok.json`: `outcome.status` `ok`, non-zero tokens, the reply is the text after the last tool call. Copy the
-streams over `test/fixtures/adapters/grok/` (keeping the synthetic ones' names) and run
-`bun test test/adapters/grok*.test.ts`; a failure there is a parser ruling to revisit. Then, with the key unset and
-the Grok login, run step 3's live test and look in its run's `events.jsonl` for an `end` without `total_cost_usd`.
-
-**2. The model listing logged in.**
-
-```sh
-grok models
-catherd catalog refresh && catherd catalog list --backend grok
-```
-
-Look for: the first line `You are logged in with …`; the default model (1.0.44 says `grok-4.6`); whether `grok-4.7`
-is listed. Every id that differs from `grok-4.7`, `grok-4.6`, `grok-4.5` fixes `on.grok` in `catalog/models.json`.
-
-**3. catherd-ws, a resume, and the read-only profile.**
-
-```sh
-CATHERD_LIVE=1 bun test test/live/grok.live.test.ts
-sed -n '/# >>> catherd/,/# <<< catherd/p' ~/.grok/sandbox.toml
-grok -p hi --sandbox read-only --output-format streaming-json; echo "exit $?"
-```
-
-Look for: all tests pass (the isolated one only with `XAI_API_KEY`); the first resumes the session it started and
-the reply names `out.txt`; `~/.grok/sandbox.toml` holds catherd's marked block with `[profiles.catherd-ws]` and
-`[profiles.catherd-ws-offline]`, and every table of yours is as it was. The last command refuses with "could not
-apply the 'read-only' sandbox profile" on a Mac whose docker socket is a link, as research §3.6 saw; elsewhere it
-answers. Then run one worker lane (`/catherd` in a scratch repo) whose brief also runs `catherd lock -- true` and
-`go env GOCACHE && go build ./...` (or `bun install` in a Bun repo): the lock and the cache writes pass under
-`catherd-ws`.
-
-**4. The read tools only, where read-only refuses.** On a Mac with a linked socket, step 3's read-only test ran
-`--sandbox workspace --tools read_file,grep,list_dir,web_search,web_fetch`. Look for: no `out.txt`, and in the run's
-`events.jsonl` no `tool_call` other than those five tools (the write had no tool to call).
-
-**5. A different `--sandbox` on resume is refused.** With the session id of step 3's first run (`catherd runs show`):
-
-```sh
-echo 'Say hi.' > /tmp/grok-brief.md
-grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -r <session> --sandbox off; echo "exit $?"
-```
-
-Look for: an `error` (write down its text and exit code). catherd never sends this: admission refuses a resume under
-another access first (spec 1.3 §3.2).
-
-**6. An isolated HOME loads none of your Claude or Cursor setup.**
-
-```sh
-home="$(mktemp -d)"; HOME="$home" GROK_HOME="$home/.grok" GROK_MEMORY=0 \
-  GROK_CLAUDE_AGENTS_ENABLED=0 GROK_CLAUDE_RULES_ENABLED=0 GROK_CLAUDE_SKILLS_ENABLED=0 \
-  GROK_CLAUDE_MCPS_ENABLED=0 GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CURSOR_AGENTS_ENABLED=0 \
-  GROK_CURSOR_RULES_ENABLED=0 GROK_CURSOR_SKILLS_ENABLED=0 GROK_CURSOR_MCPS_ENABLED=0 \
-  GROK_CURSOR_HOOKS_ENABLED=0 grok inspect --json | jq .
-```
-
-Look for: no plugin, agent, skill or permission rule from your `~/.claude`, and no `~/.agents/skills`; `grok models`
-under the same env says `You are using XAI_API_KEY.`
-
-**7. The time from `end` to exit (the upload drain).** In step 3's run dir, compare the `end` event's arrival with the
-record's `endedAt`: catherd kills grok 30 s after `end` (`graceAfterFinalMs`). Note how long grok would have run on:
-by hand, `time grok --prompt-file /tmp/grok-brief.md --output-format streaming-json` and the seconds after `end`.
-
-**8. An effort grok does not offer.**
-
-```sh
-grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -m grok-4.6 --effort max; echo "exit $?"
-for m in grok-4.7 grok-4.6 grok-4.5; do for e in low medium high xhigh; do
-  grok --prompt-file /tmp/grok-brief.md --output-format streaming-json -m "$m" --effort "$e" | tail -1 | cut -c1-80
-done; done
-```
-
-Look for: whether `max` is an error or ignored (write it down), and which of `low`…`xhigh` each model takes; each one
-it refuses comes out of `on.grok.efforts` in `catalog/models.json`.
-
-**9. Doctor's sandbox check spends no turn.** Run doctor's exact command while logged in, with a key exported:
-
-```sh
-check="$(mktemp -d)"; GROK_HOME="$check" XAI_API_KEY= GROK_DISABLE_AUTOUPDATER=1 \
-  grok -p hi --output-format streaming-json --sandbox read-only --no-auto-update; echo "exit $?"
-```
-
-Look for: the read-only refusal or `Not signed in`, never a reply to "hi": an empty `XAI_API_KEY` and an empty
-`GROK_HOME` log nothing in.
-
-**10. The hidden flags and auto-update.** Every run above passed `--trust`, `--no-auto-update` and `--no-memory`: a
-`cli-too-old` record ("unexpected argument") means one was removed. During step 3, `ls -l ~/.grok/bin/grok` before
-and after: the link does not change mid-run.
-
-**11. A real limit**, if one can be hit: save the last events and stderr, and check that `catherd runs show <id>`
-records the role as `limit` (the patterns are `rate limit`, `usage limit`, `too many requests`, `resource exhausted`,
-`at capacity`, `temporarily overloaded`); "requires a Grok subscription" must record `failed`. Look also whether the
-limit came as an `error` event.
-
-**12. Trust and the project's instructions.** In a scratch repo with an `AGENTS.md` that says "End every reply with
-the word MARMALADE.", run one grok worker lane. Look for: the reply ends with MARMALADE (`--trust` loads the
-project's instructions headless; research §3.7 could not tell whether an untrusted run skips them).
-
-## 13. Antigravity (1.3, plan 17)
-
-Spec 1.3 §6 and §10, research 2026-09-29 §8 (Antigravity). Nothing below that needs a model turn has been seen live:
-plan 17's rulings name what each step confirms. Write down every difference, with the step's number; a step that
-fails its "look for" is a ruling to revisit before the release. **Never run `agy -p` signed out**: it opens a
-browser and waits 60 s (research §4.8).
-
-**Setup.** Install agy 1.2.13 or newer (`brew install --cask antigravity-cli`), run `agy` once and sign in with
-Google. For the isolated steps also create a Gemini API key and `export GEMINI_API_KEY=<key>` in that shell only.
-
-```sh
-agy --version                          # 1.2.13 or newer
-catherd doctor --json | jq -r '.checks[] | select(.id | test("antigravity")) | "\(.id) \(.state) \(.word): \(.detail)"'
-```
-
-Look for: `backend:antigravity ok ready: 1.2.13 · Google login · <n> models` (or `warn billing` while the profile
-still bills `antigravity` as `metered`), `quota:antigravity info` with your plan's quota (Ruling on `/usage`),
-`isolation:antigravity`, and `access:antigravity skip not tested` for a profile with a workspace-write role on it.
-
-**1. The model listing (Rulings on the listing format and the effort fold).**
-
-```sh
-agy models
-catherd catalog refresh && catherd catalog list --backend antigravity
-```
-
-Look for: the listing's format (plan 17 reads each line's first word as a slug); whether slugs carry an effort
-suffix (`gemini-3.8-flash-high`) or not; and the ids of the four Gemini families in `catalog/models.json`
-`on.antigravity` (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.1-pro`) with their efforts
-(catherd assumes `low, medium, high` for Flash and `low, high` for Pro). Write down every difference; each fixes
-`on.antigravity` or `parseAgyModels`. Also try `agy models --output-format json`: if it now works, the parser can
-read it instead.
-
-**2. A headless run with the pointer prompt (Ruling on the prompt route and the stream).**
-
-```sh
-catherd capture-fixtures --backend antigravity --out /tmp/agy-fixtures
-ls /tmp/agy-fixtures/antigravity/*/
-```
-
-Needs `GEMINI_API_KEY` (capture runs isolated). Look for three cases captured: `ok`, `resume`, `read-only-write`.
-In `ok.jsonl`: one `init`, `step_update` events (is each payload nested under `step_update`, as the `result` line
-is?), `tool` steps with `tool_name` and `tool_info`, and exactly one `result` with `status: "SUCCESS"`, a
-`conversation_id`, and `usage`. In `ok.json`: `outcome.status` `ok`, and non-zero tokens. Check that
-`result.response` is the final message only, and whether `input_tokens` includes `cache_read_tokens`. Copy the
-three streams over `test/fixtures/adapters/antigravity/` (keeping the synthetic ones' names) and run
-`bun test test/adapters/antigravity*.test.ts`; a failure there is a parser ruling to revisit.
-
-**3. The stdin route (the prompt route's fallback).** In a scratch repo:
-
-```sh
-scratch="$(mktemp -d)" && cd "$scratch" && git init -q && git commit -q --allow-empty -m init
-printf '%s\n' '{"event":"user","message":{"content":"Reply with the word hello."}}' > in.jsonl
-agy --input-format stream-json --output-format stream-json --model gemini-3.8-flash --disable-slash-commands < in.jsonl | tail -1
-```
-
-Look for: a `SUCCESS` result that says hello. Note it either way; catherd uses the pointer prompt of step 2, and
-this route replaces it only if step 2 shows agy ignoring the brief file.
-
-**4. `--sandbox --dangerously-skip-permissions` still confines shell (Ruling on workspace-write).**
-
-```sh
-agy -p 'Run the shell command: touch /tmp/catherd-agy-outside.txt. Then run: touch inside.txt. Report each result.' \
-  --output-format stream-json --model gemini-3.8-flash --disable-slash-commands --sandbox --dangerously-skip-permissions | tail -1
-ls /tmp/catherd-agy-outside.txt inside.txt
-```
-
-Look for: `inside.txt` exists and `/tmp/catherd-agy-outside.txt` does not (then `rm` it if it does). If the outside
-write went through, the ruling fails: isolated `workspace-write` must use `toolPermission: "proceed-in-sandbox"`
-in catherd's settings, and native `workspace-write` stays advisory (spec 1.3 §6.3). Then ask for a `write_file`
-outside the repo the same way: the file tools are expected **not** to be confined (enforcement `advisory`).
-
-**5. The isolated deny rules hold headless (Ruling on the settings file and read-only).**
-
-```sh
-CATHERD_LIVE=1 bun test test/live/antigravity.live.test.ts
-cat ~/.local/share/catherd/agy-home/read-only/.gemini/antigravity-cli/settings.json
-```
-
-Look for: both tests pass (the isolated one only with `GEMINI_API_KEY`): the read-only role wrote no `out.txt`. The
-settings hold `modelProvider: "gemini"` and `permissions.deny: ["write_file(*)", "command(*)"]`; if agy ignores
-that shape, find the documented one and correct `agySettings`. Note where `denied_actions` appear in the stream.
-
-**6. Resume keeps the conversation (Ruling on `sameAccessOnly`).** Step 5's first test resumes the conversation it
-started and the reply names `out.txt`. By hand, resume one of step 2's conversation ids with a changed `--sandbox`
-(add or drop it): if agy takes the new flags, `resume.sameAccessOnly` can become `false`.
-
-**7. The Keychain login under another HOME (Ruling on isolation keys).**
-
-```sh
-HOME="$(mktemp -d)" agy models
-```
-
-Look for: `Please sign in` (the login does not follow a moved HOME, so isolation needs the key, spec 1.3 §9 Q6).
-If it lists models instead, note it: isolation could then run on the Google login.
-
-**8. A quota stop and `/usage` (Rulings on the limit texts and doctor's quota).**
-
-```sh
-agy -p "/usage" --output-format json
-```
-
-Look for: an answer with no agent turn (no `step_update`; nothing spent in the quota it prints). If a quota stop can
-be hit (a small Gemini API spend cap), save its stderr: the `AGY_ERROR:` line's fields, and check that
-`catherd runs show <id>` records the role as `limit`.
-
-**9. Plan terms (spec 1.3 §9 Q7).** On a network that reaches antigravity.google, read the Antigravity terms for
-whether an orchestrator may drive `agy` on a consumer plan, and record the answer here. Until then the README
-points automation at the API-key route.
-
-**10. Auto-update stays off during a run.** During step 5, `agy --version` before and after is the same, with
-`AGY_CLI_DISABLE_AUTO_UPDATE=true` in the worker's env (spec 1.3 §3.3).
 
 ## 14. Native Codex packaging and completion acceptance
 
@@ -1024,3 +735,16 @@ Two behaviours only a real install shows. On a machine with a published catherd:
    `BUN_CONFIG_REGISTRY=http://10.255.255.1 bun src/cli.ts init --no-input`. `init` says `installing catherd…`,
    then within about two minutes `could not install catherd globally: add -g catherd-cli@<version> timed out after
    120 s` with the retry command, and goes on. Reinstall the candidate afterwards as §9 does.
+
+## 19. The Slopalytics catalog (2.0, plan 29)
+
+On a machine with the release candidate, with your real config (these only read, and fetch the index):
+
+1. **Fetch the index.** `catherd catalog sync --force` prints `+ catalog: <n> pairs, fetched just now` and exits 0.
+   `catherd doctor --json | jq '.checks[] | select(.id == "catalog")'` reads `ok fresh` with `<n> pairs`.
+2. **Only indexed pairs are offered.** `catherd catalog list --role worker` lists each model with `#<effort>` lines
+   that carry an `intelligence` figure; a model Slopalytics does not list is absent. `catherd profile set
+   roles.worker.rungs codex:gpt-6-sol#turbo` is refused with `has no Slopalytics intelligence index` and the fix
+   `pick an indexed pair: catherd catalog list --role worker`.
+3. **A run pins its index.** Start a run in a scratch repository: the run's folder (`catherd runs show <id>` names it)
+   holds a `slopalytics.json`, and `catherd catalog sync --force` afterwards leaves that file's `fetchedAt` as it was.

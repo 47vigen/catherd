@@ -1,5 +1,5 @@
 import { sessionKey } from "../../../src/domain/host.ts";
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { CatherdError } from "../../../src/domain/errors.ts";
 import { FIXTURE_REPORT, fixtureEffects } from "../../../src/entry/tui/fixtures.ts";
 import { RUNS_EVERY_MS } from "../../../src/entry/tui/providers/data.tsx";
@@ -10,6 +10,8 @@ import { Shell } from "./shell.tsx";
 
 afterEach(snapshotEnv());
 let h: Harness | null = null;
+// fixtureEffects validates against the machine index: a test builds its effects before it draws
+beforeEach(() => void withHome());
 afterEach(async () => {
   await h?.s.close();
   h = null;

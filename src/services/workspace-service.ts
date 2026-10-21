@@ -6,7 +6,10 @@ import { CatherdError } from "../domain/errors.ts";
 import { WORKSPACE_LIMIT, WorkspaceIdSchema, WorkspaceSchema, type Workspace } from "../domain/workspace.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitToplevel } from "../infra/git.ts";
+import { indexPath } from "../infra/paths.ts";
+import { readIndexFile } from "../infra/slopalytics.ts";
 import { readVersioned, writeTextAtomic } from "../infra/store.ts";
+import { writeRunIndex } from "./catalog-service.ts";
 import { listDispatches } from "./dispatches.ts";
 import { landedCommits, landedMilestones } from "./milestones.ts";
 import { assertNotPaused, pausesOver } from "./pause.ts";
@@ -193,6 +196,8 @@ async function childFor(
       workspace: { id: workspace.id, step: step.id },
     });
     writePin(deps, run);
+    // pinned like startRun does, so a pair the machine index drops later never breaks the child midway
+    writeRunIndex(run.dir, readIndexFile(indexPath()));
   }
   const contract = existsSync(contractFile) ? join(run.dir, "workspace-contract.md") : null;
   if (contract && !existsSync(contract)) writeTextAtomic(contract, readFileSync(contractFile, "utf8"));

@@ -19,6 +19,7 @@ import {
 } from "./dispatches.ts";
 import type { Deps } from "./ports.ts";
 import { assertNativeHost } from "./backends.ts";
+import { writeRunIndex } from "./catalog-service.ts";
 import {
   type AgentRun,
   appendAgentRun,
@@ -121,6 +122,18 @@ export async function startRun(
     throw new CatherdError("E_IO_PATH", `${i.repo} is not inside a git repository`, {
       fix: "pass the path of the repository to work in",
     });
+  // a run starts only when every enabled role has an indexed rung; the index it checked is the one it pins
+  const start = await deps.routing.checkStart(deps.profiles.forRepo(top), top);
+  if (start.unusable.length > 0) {
+    const roles = start.unusable.join(", ");
+    throw new CatherdError(
+      "E_CONFIG_INVALID",
+      `the ${roles} role${start.unusable.length === 1 ? " has" : "s have"} no usable rung on the Slopalytics index`,
+      {
+        fix: `catherd profile validate, then pick indexed pairs: catherd catalog list --role ${start.unusable[0]}`,
+      },
+    );
+  }
   // where the first milestone's commit range starts; a repo with no commit yet has none
   const head = await git(top, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   const open = async (): Promise<Run> => {
@@ -135,6 +148,7 @@ export async function startRun(
     });
     // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
     writePin(deps, run);
+    writeRunIndex(run.dir, start.index);
     await claimRun(deps, run);
     return run;
   };

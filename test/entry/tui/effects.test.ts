@@ -190,25 +190,6 @@ describe("the live effects", () => {
     expect(watchDirs(["/nonexistent/catherd-run"], () => {})).toBeNull();
   });
 
-  it("saves the staged treat-likes and the patch through the services", async () => {
-    withHome();
-    const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
-    const rung = "opencode:opencode/claude-haiku-4-5#high";
-    const r = await fx.save(
-      "default",
-      { roles: { writer: { rungs: [rung] } } },
-      { [rung]: "gpt-6-luna#high" },
-    );
-    expect(r.saved).toBe(true);
-    expect(fx.readProfile("default").roles?.writer?.rungs).toEqual([rung]);
-    expect(fx.profiles()).toEqual({ names: ["default"], active: "default", here: "default", repo: null });
-    const { catalog } = fx.catalog({});
-    expect(catalog.treatLike["claude-haiku-4-5#high"]).toEqual({
-      like: "gpt-6-luna#high",
-      source: "user",
-    });
-  });
-
   it("saves a draft's patch over a profile that changed on disk since, keeping that change", async () => {
     withHome();
     const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
@@ -226,15 +207,10 @@ describe("the live effects", () => {
     withHome();
     const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
     const shown = fx.readProfile("default");
-    // another process, while the save's treat-like waits for the catalog lock
+    // another process, after the preview read the file
     patchProfile("default", { budget: { minutes: 30 } }, { host: "claude-code" });
-    const rung = "opencode:opencode/claude-haiku-4-5#high";
-    const r = await fx.save(
-      "default",
-      { roles: { writer: { rungs: [rung] } } },
-      { [rung]: "gpt-6-luna#high" },
-      shown,
-    );
+    const rung = "opencode:opencode/claude-haiku-4-5#none";
+    const r = await fx.save("default", { roles: { writer: { rungs: [rung] } } }, {}, shown);
     expect([r.saved, r.errors.map((e) => e.path)]).toEqual([false, [CHANGED_ON_DISK]]);
     expect(fx.readProfile("default").roles?.writer?.rungs).not.toEqual([rung]);
     expect(fx.readProfile("default").budget).toEqual({ minutes: 30 });
@@ -245,14 +221,7 @@ describe("the live effects", () => {
   it("names the harnesses, the native agents and each rung's enforcement", () => {
     withHome();
     const fx = liveEffects(null, { host: "claude-code", session: null, conflict: null });
-    expect([...fx.harnesses].sort()).toEqual([
-      "antigravity",
-      "claude-code",
-      "codex",
-      "cursor",
-      "grok",
-      "opencode",
-    ]);
+    expect([...fx.harnesses].sort()).toEqual(["claude-code", "codex", "cursor", "opencode"]);
     const p = resolveProfile(defaultProfileDoc(), "default", "claude-code");
     expect(fx.agents(p)).toContain("catherd-default-architect-claude-opus-5-5-high");
     expect(fx.enforcement("codex:gpt-6-sol#high", "workspace-write")).toBe("enforced");

@@ -1,11 +1,11 @@
-import type { Suggestion } from "../../services/standins.ts";
-import { type Catalog, rungInfo, scoresOf } from "../../domain/catalog.ts";
+import type { Catalog } from "../../domain/catalog.ts";
 import { parseRung, tryParseRung } from "../../domain/ids.ts";
 import { NOTIFY, type Profile, type ProfilePatch } from "../../domain/profile.ts";
-import { inferredScores, quotaOf } from "../../domain/profile-rules.ts";
+import { quotaOf } from "../../domain/profile-rules.ts";
 import { ACCESS } from "../../domain/record.ts";
 import type { Role } from "../../domain/roles.ts";
 import type { CatalogModel } from "../../services/catalog-service.ts";
+import type { Suggestion } from "./effects.ts";
 import type { RowAction } from "./profile-tree.ts";
 import type { NumberPath, SelectOption } from "./state.ts";
 import { shortRung } from "./text.ts";
@@ -101,46 +101,20 @@ export function failoverOptions(
   const quota = quotaOf(parsed);
   const cur = p.failover[rung];
   const out: SelectOption[] = [{ value: "", title: "none", current: cur === undefined }];
-  // usable: scored in catalog_query, or through a treat-like staged in `c` (`withStaged`)
-  const usable = (x: string) => {
-    try {
-      return scoresOf(c, rungInfo(c, x).canonical) !== null;
-    } catch {
-      return false;
-    }
-  };
   for (const m of models)
     for (const r of m.rungs) {
-      if (!(r.enabled || usable(r.rung)) || r.rung.startsWith("claude:")) continue;
-      const q = quotaOf(parseRung(r.rung));
-      if (q === quota) continue;
-      const note = inferredScores(c, rungInfo(c, r.rung)).note;
+      if (r.rung.startsWith("claude:")) continue;
+      if (quotaOf(parseRung(r.rung)) === quota) continue;
       out.push({
         value: r.rung,
         title: shortRung(r.rung),
         group: m.billing,
-        detail: note ?? "",
+        detail: "",
         current: r.rung === cur,
       });
     }
   return out;
 }
 
-/**
- * The treat-like picker: every rung with scores of its own, by model; spec 1.2 §6.4: the suggested stand-ins
- * (`suggestions`, nearest first) say their distance and what they would lend.
- */
-export function treatLikeOptions(c: Catalog, suggestions: Suggestion[] = []): SelectOption[] {
-  return Object.keys(c.scores)
-    .filter((canonical) => scoresOf(c, canonical)?.via === null)
-    .sort()
-    .map((canonical) => {
-      const s = suggestions.find((x) => x.like === canonical);
-      return {
-        value: canonical,
-        title: canonical,
-        group: canonical.slice(0, canonical.lastIndexOf("#")),
-        ...(s ? { detail: `distance ${s.distance.toFixed(2)} · lends ${s.lends.join(", ")}` } : {}),
-      };
-    });
-}
+/** The treat-like picker offers nothing: treat-likes are gone. */
+export const treatLikeOptions = (_c: Catalog, _suggestions: Suggestion[] = []): SelectOption[] => [];

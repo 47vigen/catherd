@@ -12,12 +12,12 @@ import { linkedProfiles } from "./agent-links.ts";
 import { accessChecks } from "./doctor-access.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { type PushProbe, pushCheck, probePush } from "./doctor-push.ts";
-import { sourcesCheck, standInsToConfirmIn } from "./doctor-sources.ts";
 import { cachesCheck, dockerChecks } from "./doctor-docker.ts";
 import { roleMcpChecks } from "./doctor-role-mcp.ts";
 import {
   agentsCheck,
   hostFlag,
+  indexCheck,
   type Check,
   errText,
   fixOf,
@@ -176,7 +176,7 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     const named = (fix: string) =>
       fix.replaceAll("catherd profile set ", `catherd profile set --profile ${name}${onHost} `);
     const row = guarded(id, `profile ${name}`, validate, () => {
-      const v = validateNamed(name, d.repo, d.host.host);
+      const v = validateNamed(name, d.repo, d.host.host, { unindexed: "warning" });
       const first = v.errors[0] ?? v.warnings[0];
       return {
         id,
@@ -242,14 +242,9 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
     }
   }
 
-  // spec 1.2 §9: the public sources' ages and errors, the Artificial Analysis key, and the active and linked
-  // profiles' stand-ins to confirm
   const mine = [...(active ? [active] : []), ...diagnostics.filter((p) => p.name !== active?.name)];
-  checks.push(
-    guarded("sources", "sources", "catherd catalog sync --force", () =>
-      sourcesCheck(Date.now(), standInsToConfirmIn(mine)),
-    ),
-  );
+  // the Slopalytics index: its age and the last fetch's error
+  checks.push(guarded("catalog", "catalog", "catherd catalog sync", () => indexCheck()));
 
   const native = used.get("claude");
   const plugin = pluginCheck(d.version);

@@ -63,7 +63,6 @@ describe("the gate environment (plan 23)", () => {
       "PATH",
       "HOME",
       "CODEX_HOME",
-      "GROK_HOME",
       "CLAUDE_CONFIG_DIR",
       "CURSOR_CONFIG_DIR",
       "XDG_CONFIG_HOME",

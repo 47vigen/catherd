@@ -23,10 +23,7 @@ const SHIPPED = [
   "src/cli.ts",
   "src/entry/supervise-bin.ts",
   "catalog/models.json",
-  "catalog/scores.json",
   "catalog/jev.json",
-  "catalog/sources.json",
-  "catalog/ATTRIBUTION.md",
   "plugin/.claude-plugin/plugin.json",
   "plugin/.mcp.json",
   "plugin/.codex-plugin/plugin.json",
@@ -86,9 +83,8 @@ const env = {
   CLAUDE_CONFIG_DIR: join(home, "claude"),
   CATHERD_CLAUDE_AGENTS_DIR: join(home, "claude-agents"),
   TYPESAFE_API_KEY: "",
-  ARTIFICIAL_ANALYSIS_API_KEY: "",
   ANTHROPIC_API_KEY: "",
-  // the server doctor starts would sync the public sources in the background (spec 1.2 §3.2): not here
+  // the server doctor starts would fetch the Slopalytics index in the background (spec 1.2 §3.2): not here
   CATHERD_NO_SYNC: "1",
   // run() scrubs all parent host/session identity before every child, including overrides.
 };

@@ -5,7 +5,6 @@ import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { formatRung, tryParseRung } from "../domain/ids.ts";
-import { PAIRED_FAILOVER } from "../domain/profile.ts";
 
 const READY_TTL_MS = 10 * 60_000;
 const ready = new Map<string, { at: number; probe: Probe }>();
@@ -17,7 +16,7 @@ export const resetReadiness = (): void => ready.clear();
 function execFormatError(e: unknown): string | null {
   if (!(e instanceof Error)) return null;
   if ((e as { code?: unknown }).code !== "ENOEXEC" && !/exec format error/i.test(e.message)) return null;
-  // macOS names the path (posix_spawn '/…/grok'), Linux only the command (uv_spawn 'grok')
+  // macOS names the path (posix_spawn '/…/bin'), Linux only the command (uv_spawn 'bin')
   const bin = /spawn '([^']+)'/.exec(e.message)?.[1];
   return bin ? (Bun.which(bin, { PATH: process.env.PATH ?? "" }) ?? bin) : "exec format error";
 }
@@ -64,18 +63,17 @@ export async function readyAdapter(backend: string): Promise<{ adapter: BackendA
   const probe = await probeBackend(adapter);
   const problem = probe.problems[0];
   // spec 1.3 §3.3: a probe that finds the CLI logged out lists E_BACKEND_NOT_LOGGED_IN, so a dispatch never
-  // reaches it (agy opens a browser and waits); logged out alone is no problem where a CLI runs without a login
+  // reaches it (it may open a browser and wait); logged out alone is no problem where a CLI runs without a login
   if (problem) throw new CatherdError(problem.code, problem.message, { fix: problem.fix });
   ready.set(backend, { at: now, probe });
   return { adapter, probe };
 }
 
 /**
- * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else the same model on its paired backend
- * (spec 1.3 §7.3), else its backend's default (for `repo`, when given), else none.
+ * Spec §4.5: a rung's stand-in on a usage limit: the profile's, else its backend's default (for `repo`, when given), else none.
  */
 export function standInFor(failover: Record<string, string>, rung: string, repo?: string): string | null {
-  const own = failover[rung] ?? PAIRED_FAILOVER[rung];
+  const own = failover[rung];
   if (own) return own;
   const r = tryParseRung(rung);
   if (!r) return null;
