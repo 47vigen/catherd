@@ -378,7 +378,7 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     expect(text).toContain("Open: none");
     expect(landed.digestPath).toBe(join(r.dir, "digests", "M1.md"));
     expect(text.find((l) => l.startsWith("Verifier: "))).toMatch(
-      /^Verifier: PASS \(verifier-M1\) · carried: unit tests from [0-9a-f]+$/,
+      /^Verifier: PASS \(verifier-M1, headless\) · carried: unit tests from [0-9a-f]+$/,
     );
     expect(text.find((l) => l.startsWith("Tokens: "))).toBe(
       "Tokens: 2k in (0 cached) · 100 out · Claude subagents 0 (reported)",
@@ -410,6 +410,6 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     const verifier = readFileSync(join(r.dir, landed.digest), "utf8")
       .split("\n")
       .find((l) => l.startsWith("Verifier: "));
-    expect(verifier).toMatch(/^Verifier: PASS \(verifier-M1\) · carried: lint from [0-9a-f]+$/);
+    expect(verifier).toMatch(/^Verifier: PASS \(verifier-M1, headless\) · carried: lint from [0-9a-f]+$/);
   });
 });

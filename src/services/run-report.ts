@@ -33,9 +33,15 @@ const oneLine = (s: string): string => s.replace(/\s*\n\s*/g, " ").trim();
 
 /**
  * `<run>/report.md`, the body of the merge request: the run's title, each landed milestone's digest, the known
- * issues verbatim by milestone, and the audit of every judge decision. Returns its path.
+ * issues verbatim by milestone, and the audit: every judge decision, and what each milestone's check passed on
+ * only through the base or a rerun (`audits`). Returns its path.
  */
-export function writeRunReport(run: Run, s: RunState, events: RunEvent[]): string {
+export function writeRunReport(
+  run: Run,
+  s: RunState,
+  events: RunEvent[],
+  audits: Record<string, string[]> = {},
+): string {
   const landed = events.filter((e) => e.type === "milestone.landed");
   const decided = events.filter((e) => e.type === "judge.decided");
   const lines = [`# ${s.title || run.meta.title}`, ""];
@@ -53,9 +59,10 @@ export function writeRunReport(run: Run, s: RunState, events: RunEvent[]): strin
   lines.push("## Known issues", "");
   const issues = landed.flatMap((e) => e.knownIssues.map((k) => `- ${e.milestone}: ${k}`));
   lines.push(...(issues.length ? issues : ["None."]), "", "## Audit", "");
-  const audit = decided.map(
-    (e) => `- ${e.unit} (${e.kind}): ${e.decision.verb}: ${oneLine(said(e.decision))}`,
-  );
+  const audit = [
+    ...decided.map((e) => `- ${e.unit} (${e.kind}): ${e.decision.verb}: ${oneLine(said(e.decision))}`),
+    ...Object.entries(audits).flatMap(([m, lines]) => lines.map((l) => `- ${m} (check): ${oneLine(l)}`)),
+  ];
   lines.push(...(audit.length ? audit : ["No judge decision."]), "");
   const file = join(run.dir, "report.md");
   writeTextAtomic(file, lines.join("\n"));

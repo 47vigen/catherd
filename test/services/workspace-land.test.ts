@@ -9,7 +9,7 @@ import { withWorkspaceAdmission } from "../../src/services/workspace-admission.t
 import { startWorkspace, startWorkspaceChild } from "../../src/services/workspace-service.ts";
 import { workspaceChildren } from "../../src/services/workspace-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
-import { fakeDeps, fakeDispatch, makeRecord } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, makeRecord, passGate } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -27,19 +27,7 @@ async function setup(milestone = "M1") {
   });
   await startWorkspaceChild(deps, { workspace: workspace.id, step: "app" });
   const run = workspaceChildren(workspace)[0]!;
-  for (const role of ["reviewer", "verifier"])
-    appendAgentRun(run, {
-      at: new Date(deps.now()).toISOString(),
-      name: `${role}-M1`,
-      role,
-      rung: "claude:claude-opus-5-5#high",
-      agent: null,
-      totalTokens: 0,
-      costUsd: null,
-      secs: 0,
-      status: "ok",
-      lane: null,
-    });
+  await passGate(run, "M1", new Date(deps.now()).toISOString());
   const input = {
     run: run.id,
     milestone: "M1",
@@ -119,7 +107,8 @@ it("says when a landed milestone differs from the step's only by case (#43 findi
 
 it("runs the gate's git work before taking the workspace lock (#43 finding 5)", async () => {
   const { deps, run, input } = await setup();
-  writeFileSync(runPaths(run.dir).agents, "");
+  // no reviewer record and no verifier record: the gate refuses at once
+  writeFileSync(runPaths(run.dir).runs, "");
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   let entered!: () => void;

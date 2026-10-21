@@ -11,6 +11,7 @@ import { launcher, watchersSettled } from "../../src/services/dispatch-service.t
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
+import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run } from "../../src/services/run-store.ts";
@@ -792,6 +793,32 @@ describe("parking, reporting, finishing", () => {
     const ended = lastOf(run, "run.ended");
     expect(ended).toMatchObject({ outcome: "cancelled", reportPath: join(run.dir, "report.md") });
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
+  });
+
+  it("lists what a landed milestone's check passed on only through the base under Audit", async () => {
+    const { run, repo, fx } = setup();
+    const head = "a".repeat(40);
+    await seed(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit: head,
+      knownIssues: [],
+      digestPath: join(run.dir, "digest-M1.md"),
+    });
+    const row = {
+      at: "2026-10-21T10:00:00.000Z",
+      run: run.id,
+      milestone: "M1",
+      command: "bun test",
+      durationMs: 1,
+      log: "/x.log",
+    };
+    appendCheckRecord(repo, { ...row, head: "b".repeat(40), exit: 1, fails: ["FAIL x"], baseline: true });
+    appendCheckRecord(repo, { ...row, head, exit: 1, fails: ["FAIL x"], secrets: "clean" });
+    await fx.run({ type: "finish", outcome: "done" }, replayRun(run));
+    expect(readFileSync(join(run.dir, "report.md"), "utf8")).toMatch(
+      /## Audit\n\n- M1 \(check\): .*pre-existing/,
+    );
   });
 
   it("writes report.md with each digest, the known issues and every judge decision under Audit", async () => {

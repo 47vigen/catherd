@@ -1,16 +1,18 @@
 import type { HostContext } from "../../src/domain/host.ts";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import { grantsScratch, ROLE_SERVER_BACKENDS } from "../../src/domain/role-tools.ts";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { newDispatchId, parseRung } from "../../src/domain/ids.ts";
 import type { Access, ExitReason, RunRecord } from "../../src/domain/record.ts";
 import type { SessionEnv } from "../../src/infra/claude-session.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { processStartTime } from "../../src/infra/proc.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
+import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { dispatch, type DispatchInput, watchersSettled } from "../../src/services/dispatch-service.ts";
 import {
   type Admit,
@@ -22,7 +24,7 @@ import {
 } from "../../src/services/dispatches.ts";
 import type { Deps, ProfilePort, ProfileView, RoutingPort } from "../../src/services/ports.ts";
 import { result } from "../../src/services/run-service.ts";
-import { appendAgentRun, appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { tempRepo, withHome } from "../helpers.ts";
 
@@ -322,11 +324,68 @@ export async function fakeDispatch(
   return { dir, admit };
 }
 
+const headOf = (run: Run): string =>
+  execFileSync("git", ["rev-parse", "HEAD"], { cwd: run.meta.repo, encoding: "utf8" }).trim();
+
 /**
- * What `land`'s gate asks for (spec 1.1 §6): a reviewer record named reviewer-<m> and a verifier verdict
- * naming <m>, both ok and stamped `at` (default now), which must not be before the milestone's lanes started.
+ * The verifier half of `land`'s gate (plan 30b): a headless record named verifier-<m> whose reply opens
+ * VERDICT: PASS and ends with the HEAD it checked, and catherd's own passing check of <m> on that commit.
  */
-export async function passGate(run: Run, m: string, at = new Date().toISOString()): Promise<void> {
+export async function passVerifier(
+  run: Run,
+  m: string,
+  at = new Date().toISOString(),
+  head = headOf(run),
+): Promise<void> {
+  const dispatchId = newDispatchId();
+  const replyPath = `roles/verifier-${m}/${dispatchId}/reply.md`;
+  mkdirSync(join(run.dir, dirname(replyPath)), { recursive: true });
+  writeFileSync(join(run.dir, replyPath), `VERDICT: PASS\nHEAD: ${head}\nSTATUS: complete — ok\n`);
+  await appendRecord(
+    run,
+    makeRecord({
+      runId: run.id,
+      dispatchId,
+      name: `verifier-${m}`,
+      role: "verifier",
+      lane: null,
+      rung: "claude-code:claude-opus-5-5#low",
+      backend: "claude-code",
+      startedAt: at,
+      endedAt: at,
+      tokens: { input: 0, cached: 0, output: 0 },
+      changedOwned: [],
+      access: "workspace-write",
+      replyStatus: "complete",
+      replyPath,
+      head,
+    }),
+  );
+  appendCheckRecord(run.meta.repo, {
+    at,
+    run: run.id,
+    milestone: m,
+    command: "true",
+    head,
+    exit: 0,
+    durationMs: 0,
+    fails: [],
+    log: "",
+    secrets: "clean",
+  });
+}
+
+/**
+ * What `land`'s gate asks for (spec 1.1 §6, plan 30b): a reviewer record named reviewer-<m>, and the verifier
+ * half (`passVerifier`). Both ok and stamped `at` (default now), which must not be before the milestone's lanes
+ * started. `head` defaults to the repo's HEAD, so call it after the commit being landed.
+ */
+export async function passGate(
+  run: Run,
+  m: string,
+  at = new Date().toISOString(),
+  head = headOf(run),
+): Promise<void> {
   await appendRecord(
     run,
     makeRecord({
@@ -343,16 +402,5 @@ export async function passGate(run: Run, m: string, at = new Date().toISOString(
       access: "read-only",
     }),
   );
-  appendAgentRun(run, {
-    at,
-    name: `verifier-${m}`,
-    role: "verifier",
-    rung: "claude:claude-opus-5-5#low",
-    agent: null,
-    totalTokens: 0,
-    costUsd: null,
-    secs: null,
-    status: "ok",
-    lane: null,
-  });
+  await passVerifier(run, m, at, head);
 }

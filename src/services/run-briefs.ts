@@ -7,6 +7,7 @@ import type { Action } from "../domain/run-machine.ts";
 import type { RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
+import { readChecks } from "./milestone-check.ts";
 import type { Run } from "./run-store.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
@@ -89,6 +90,37 @@ function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
   ].join("\n");
 }
 
+/** A fix round's worker sees this many lines of the failing milestone check's log. */
+export const CHECK_LOG_TAIL_LINES = 40;
+
+/**
+ * The end of the milestone's latest check in this run, when it failed (a later passing one removes it): what a
+ * fix round starts from when the finding names only the check.
+ */
+function failingCheck(run: Run, milestone: string): string[] {
+  const last = readChecks(run.meta.repo)
+    .filter((r) => r.run === run.id && r.milestone === milestone && !r.baseline)
+    .at(-1);
+  if (!last || last.exit === 0) return [];
+  let tail: string;
+  try {
+    tail = readFileSync(last.log, "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-CHECK_LOG_TAIL_LINES)
+      .join("\n");
+  } catch {
+    tail = `(log unreadable: ${last.log})`;
+  }
+  return [
+    "",
+    `The milestone check \`${last.command}\` exited ${last.exit} on ${last.head.slice(0, 12)}; the end of its log:`,
+    "```",
+    tail,
+    "```",
+  ];
+}
+
 function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   const lane = s.lanes[a.unit];
   const fix = a.brief === "fix";
@@ -104,6 +136,7 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
           "",
           "This is a fix round. Fix exactly these, each as it was reported, and nothing beside them:",
           ...a.notes.map((n) => `- ${n}`),
+          ...(a.notes.length && lane ? failingCheck(run, lane.milestone) : []),
         ]
       : []),
     "",

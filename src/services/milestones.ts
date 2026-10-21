@@ -189,6 +189,8 @@ export interface MilestoneVerifier {
   verdict: string;
   /** plan 23: the probe of a `VERDICT: BLOCKED: environment` attempt ("" when it named none); null otherwise */
   blocked: string | null;
+  /** plan 30b: the commit the verdict says it checked (a headless reply's `HEAD:` line); null for a native row */
+  head: string | null;
 }
 
 /** The one name a milestone's verifier is counted under (spec 1.5 "The ledger"): verifier-<m>, exactly. */
@@ -220,6 +222,7 @@ export function milestoneVerifier(
           passed: a.status === "ok",
           verdict: blocked === null ? a.status : (a.verdict ?? a.status),
           blocked,
+          head: null,
         };
       }),
     ...readRecords(run)
@@ -235,6 +238,7 @@ export function milestoneVerifier(
           passed,
           verdict: r.status === "ok" ? said : `${r.status}, ${said}`,
           blocked: r.status === "ok" ? blockedByEnvironment(first) : null,
+          head: r.head ?? null,
         };
       }),
   ];

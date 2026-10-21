@@ -24,6 +24,7 @@ import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, replyVerdict } from "./milestones.ts";
+import { machineGate } from "./milestone-check.ts";
 import { sendRunNotice } from "./notify-service.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
@@ -591,7 +592,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
         await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
         return;
       case "finish": {
-        const reportPath = writeRunReport(run, s, readEvents(run));
+        // what each landed milestone's check passed on only through the base or a rerun
+        const audits: Record<string, string[]> = {};
+        for (const m of s.milestones) {
+          if (!m.commit || (m.status !== "landed" && m.status !== "merged")) continue;
+          const g = await machineGate(run, m.id, m.commit).catch(() => null);
+          if (g?.audit.length) audits[m.id] = g.audit;
+        }
+        const reportPath = writeRunReport(run, s, readEvents(run), audits);
         return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
       }
       case "classify":

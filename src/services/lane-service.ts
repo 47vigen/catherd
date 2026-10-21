@@ -40,6 +40,7 @@ import {
   milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
+import { machineGate } from "./milestone-check.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendKnowledge,
@@ -339,7 +340,7 @@ export type LandSkip = (typeof LAND_SKIPS)[number];
  * Spec 1.1 §6: a milestone lands only with a reviewer record and a verifier verdict since its lanes
  * started, or with a `skip` the commit range bears out. Throws E_LAND_GATE naming what is missing.
  */
-async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefined): Promise<void> {
+async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefined): Promise<string[]> {
   // spec 1.1 §8: a parked milestone waits on the owner, whatever else it has
   const question = openQuestions(run).find((q) => q.milestone === m);
   if (question)
@@ -374,7 +375,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     }
     const against =
       skip === "docs-only" ? files.filter((f) => !isDocPath(f)) : files.filter((f) => isSourcePath(f));
-    if (against.length === 0) return;
+    if (against.length === 0) return [];
     const shown = `${against.slice(0, 5).join(", ")}${against.length > 5 ? `, and ${against.length - 5} more` : ""}`;
     throw new CatherdError(
       "E_LAND_GATE",
@@ -429,6 +430,35 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
         fix: `${marked}run reviewer-${m} (a dispatch, or a Claude subagent recorded with record_agent_run(name: "reviewer-${m}")) and the verifier on ${m}, recording it with record_agent_run(name: "verifier-${m}") (a FAIL with status "failed"), then land again; a docs-only milestone passes skip: "docs-only"`,
       },
     );
+  // plan 30b: the verdict must be about the commit being landed, and catherd's own check must have run on it
+  const landed = await fullCommit(run, commit);
+  const checked = verdict?.head ?? null;
+  if (verdict && checked === null)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: ${verdict.name}'s PASS names no HEAD, so it cannot be told to cover ${landed.slice(0, 12)}`,
+      {
+        fix: `a headless verifier's reply ends with HEAD: <sha>; run a fresh verifier-${m} on the committed milestone (${landed.slice(0, 7)})`,
+      },
+    );
+  if (verdict && checked !== null && !landed.startsWith(checked))
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: ${verdict.name} checked ${checked.slice(0, 12)}, and the commit being landed is ${landed.slice(0, 12)}: a PASS from before a later commit does not count`,
+      {
+        fix: `run a fresh ${verdict.name} on ${landed.slice(0, 7)}: what passed is carried over by gate_check`,
+      },
+    );
+  const machine = await machineGate(run, m, landed);
+  if (machine.missing.length)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: the machine gate on ${landed.slice(0, 12)}: ${machine.missing.join("; ")}`,
+      {
+        fix: `run the full check with gate_run(run, "${m}", <command>) on ${landed.slice(0, 7)}; fix what fails, commit, and verify again`,
+      },
+    );
+  return machine.audit;
 }
 
 /**
@@ -508,7 +538,7 @@ async function landRun(
     throw new CatherdError("E_RUN_COMMIT", `no commit ${i.commit} in ${run.meta.repo}`, {
       fix: "commit the milestone first, then pass its hash",
     });
-  await gate(run, i.milestone, i.commit, i.skip);
+  const audit = await gate(run, i.milestone, i.commit, i.skip);
   // read before the ledger row: the range runs from the previous landing to this commit
   const commits = await milestoneCommits(run, i.commit);
   const now = new Date(deps.now());
@@ -530,6 +560,7 @@ async function landRun(
   // the notes reach state.json first, with no git: the next landing counts its minutes from this one
   await critical(() => patchNotes(run, landRow));
   const { hints } = await refreshState(run);
+  hints.push(...audit);
   // spec §5.6: every routed lane of the milestone lands with it
   // under the routes lock, so a racing climb cannot slip between the read and the rows
   let routed: string[] = [];
