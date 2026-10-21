@@ -60,6 +60,10 @@ describe("orchestrator skill", () => {
       expect(md).toContain(s);
   });
 
+  it("tells the orchestrator what to do with the report's rules review (plan 34)", () => {
+    expect(skill("catherd")).toContain("rules review");
+  });
+
   it("names no tool the daemon took over", () => {
     const md = skill("catherd");
     for (const gone of [

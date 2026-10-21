@@ -9,6 +9,11 @@
 
 ## From 1.5 to 2.0
 
+- `knowledge.md` lines are standing rules in every role's brief, and a `[role, …]` tag after the source scopes one to
+  those roles (`catherd knowledge add "[worker, reviewer] <rule>"`); `catherd knowledge rm "<text>"` retires a line.
+  A finished run's report lists a judge's proposed changes with the command for each; none is applied for you.
+- A lane whose `After:` can never finish (it names itself, a lane with no file, or closes a cycle) now stops
+  preflight instead of waiting forever; preflight also reports lint on the plan's lanes.
 - Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile validate`
   on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`. `billing.grok`,
   `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no longer takes
