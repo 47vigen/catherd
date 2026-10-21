@@ -2,11 +2,12 @@ import { describe, expect, it } from "bun:test";
 import {
   applyPatch,
   defaultProfileDoc,
+  patchAt,
   type ProfilePatch,
   ProfileDocSchema,
   resolveProfile,
 } from "../../src/domain/profile.ts";
-import { repairs, validateProfile } from "../../src/domain/profile-rules.ts";
+import { repairs, routingProfileOf, validateProfile } from "../../src/domain/profile-rules.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
 const BACKENDS = ["codex", "claude-code", "opencode", "claude"];
@@ -425,15 +426,25 @@ describe("validateProfile: what a role can never start or reach (spec 1.5 plan 2
   });
 
   it("lists, on an explicit validate only, every difficulty no worker rung clears", () => {
-    expect(explicit().warnings).toEqual([
+    // the shipped bars (20/45/60/65) put one default worker rung at each difficulty: nothing is unreached
+    expect(explicit().warnings).toEqual([]);
+    const noXhigh = {
+      roles: {
+        worker: {
+          rungs: ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium", "codex:gpt-6-sol#high"],
+          defaultRung: "codex:gpt-6-sol#medium",
+        },
+      },
+    };
+    expect(explicit(noXhigh).warnings).toEqual([
       {
         path: "roles.worker.rungs",
         message:
           "no worker rung clears hard: those lanes start at the default rung and climb only onto rungs at least as intelligent (route names the closest)",
       },
     ]);
-    // a save, doctor and the TUI validate without it: the default profile stays clean there
-    expect(check().warnings).toEqual([]);
+    // a save, doctor and the TUI validate without it: the profile stays clean there
+    expect(check(noXhigh).warnings).toEqual([]);
     // Astra medium is above the hard bar
     const astra = explicit({
       roles: {
@@ -442,7 +453,6 @@ describe("validateProfile: what a role can never start or reach (spec 1.5 plan 2
             "codex:gpt-6-luna#high",
             "codex:gpt-6-sol#medium",
             "codex:gpt-6-sol#high",
-            "codex:gpt-6-sol#xhigh",
             "codex:gpt-6-astra#medium",
           ],
         },
@@ -504,5 +514,53 @@ describe("validateProfile: effort ceilings and the coding floor (plan 33)", () =
     expect(
       v.warnings.filter((w) => w.path === "roles.writer.rungs" && w.message.includes("below medium")),
     ).toEqual([]);
+  });
+});
+
+describe("validateProfile: bars (plan 33)", () => {
+  // the pool is [30, 36, 42, 46]; shipped bars: copy 33.6, build 38.1, logic 40.8, hard 41.7
+  const c = catalog({
+    index: indexOf({
+      "gpt-6-luna#high": 30,
+      "gpt-6-sol#medium": 36,
+      "gpt-6-sol#high": 42,
+      "gpt-6-sol#xhigh": 46,
+    }),
+  });
+  const explicit = (patch: ProfilePatch) =>
+    validateProfile(
+      resolveProfile(applyPatch(defaultProfileDoc(), patch), "p", "claude-code"),
+      c,
+      BACKENDS,
+      undefined,
+      "claude-code",
+      { reach: true },
+    );
+
+  it("names the difficulties no worker rung clears on the worker's own bars", () => {
+    const rungs = ["codex:gpt-6-luna#high", "codex:gpt-6-sol#medium"];
+    const roles = { worker: { rungs, defaultRung: rungs[1] as string } };
+    // Sol medium (36) clears copy only: build, logic and hard stay unreached
+    expect(
+      explicit({ roles }).warnings.find((w) => w.message.startsWith("no worker rung clears"))?.message,
+    ).toContain("build, logic, hard");
+    // hard at the 10th percentile (31.8) is cleared by Sol medium
+    const lowered = explicit({ roles: { worker: { ...roles.worker, bars: { hard: 10 } } } });
+    const msg = lowered.warnings.find((w) => w.message.startsWith("no worker rung clears"))?.message ?? "";
+    expect(msg).toContain("build, logic");
+    expect(msg).not.toContain("hard");
+  });
+
+  it("a role's bars reach only that role", () => {
+    const prof = resolveProfile(
+      applyPatch(
+        applyPatch(defaultProfileDoc(), patchAt("bars.logic", "55")),
+        patchAt("roles.worker.bars.logic", "30"),
+      ),
+      "x",
+      "claude-code",
+    );
+    expect(routingProfileOf(prof, "worker").bars).toEqual({ logic: 30 });
+    expect(routingProfileOf(prof, "reviewer").bars).toEqual({ logic: 55 });
   });
 });

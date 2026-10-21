@@ -1,5 +1,5 @@
 import type { OrchestrationHost } from "./host.ts";
-import { barOf } from "./bars.ts";
+import { barOf, percentilesOf } from "./bars.ts";
 import { type Catalog, capableFor, effortOffered, ROLE_NEEDS, rungInfo } from "./catalog.ts";
 import {
   catalogPairs,
@@ -11,7 +11,7 @@ import {
   rankStandIns,
 } from "./failover.ts";
 import { effortRank, tryParseRung } from "./ids.ts";
-import { DIFFICULTIES } from "./lane.ts";
+import { DIFFICULTIES, type Difficulty } from "./lane.ts";
 import { type Profile, type ProfileDoc, unknownValues } from "./profile.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "./roles.ts";
 import {
@@ -72,6 +72,7 @@ export const routingProfileOf = (p: Profile, role: Role): RoutingProfile => ({
   billing: p.billing,
   role: p.roles[role],
   maxEffort: p.maxEffort,
+  bars: { ...p.bars, ...p.roles[role].bars },
 });
 
 /**
@@ -218,7 +219,7 @@ export function validateProfile(
     // explicit validate says it (Ruling 3): the shipped bars put logic and hard above every Sol rung, the
     // owner's call, so every save and doctor would repeat it
     if (o.reach && role === "worker" && usable.length > 1) {
-      const unreached = unreachable(c, usable);
+      const unreached = unreachable(c, usable, percentilesOf(routingProfileOf(p, role)));
       if (unreached.length)
         warnings.push({
           path: `${at}.rungs`,
@@ -330,8 +331,8 @@ function aboveCeiling(maxEffort: Readonly<Record<string, string>>, rung: string,
 }
 
 /** The difficulties no rung of `usable` clears, as `logic, hard`. */
-function unreachable(c: Catalog, usable: Candidate[]): string[] {
-  return DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(x, barOf(c, d))));
+function unreachable(c: Catalog, usable: Candidate[], at: Record<Difficulty, number>): string[] {
+  return DIFFICULTIES.filter((d) => !usable.some((x) => clearsBar(x, barOf(c, d, at))));
 }
 
 /**

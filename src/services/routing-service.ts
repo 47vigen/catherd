@@ -1,4 +1,5 @@
 import { assertNativeHost } from "./backends.ts";
+import { percentilesOf } from "../domain/bars.ts";
 import { BUDGET_CHEAP_AT } from "../domain/budget.ts";
 import { errorMessage } from "../domain/errors.ts";
 import {
@@ -44,6 +45,7 @@ function routingProfile(
     objective: spentFraction >= BUDGET_CHEAP_AT ? "cost" : v.objective,
     billing: v.billing,
     maxEffort: v.maxEffort ?? {},
+    bars: { ...v.bars, ...rc?.bars },
     role: {
       enabled: rc?.enabled ?? false,
       rungs: rc?.rungs ?? [],
@@ -174,7 +176,15 @@ function decide(req: RouteRequest, { p, c }: Prepared, j: Judged | null): RouteA
   const fallback = () => defaultLadder(c, p, req.role);
   const finish = (out: RouteAnswer): RouteAnswer => {
     out.why = whyOf(out, req.laneText !== null);
-    out.provenance = provenanceOf(c, out.rung, out.kind, out.difficulty, p.billing, evidenceOrNone(c));
+    out.provenance = provenanceOf(
+      c,
+      out.rung,
+      out.kind,
+      out.difficulty,
+      p.billing,
+      evidenceOrNone(c),
+      percentilesOf(p),
+    );
     return out;
   };
   if (req.laneText === null || j === null)

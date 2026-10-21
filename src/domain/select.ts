@@ -1,4 +1,4 @@
-import { barOf } from "./bars.ts";
+import { type Bars, barOf, percentilesOf } from "./bars.ts";
 import { type Catalog, capableFor, effortOffered, type RungInfo, rungInfo } from "./catalog.ts";
 import { type BillingMode, type Cost, compareCost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { CatherdError } from "./errors.ts";
@@ -19,6 +19,8 @@ export interface RoutingProfile {
   usage?: Partial<Record<string, number>>;
   /** `<backend>:<model>` → the highest effort routing may start (plan 33); a rung above it is skipped */
   maxEffort?: Readonly<Record<string, string>>;
+  /** this role's bar percentiles over the profile's, laid over the shipped ones (`percentilesOf`) */
+  bars?: Bars;
 }
 
 /** What a start check reads of a profile: `ProfileView` and the resolved `Profile` both satisfy it. */
@@ -216,7 +218,8 @@ export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
 export function defaultDifficulty(c: Catalog, p: RoutingProfile, role: Role): Difficulty {
   const start = defaultLadder(c, p, role).rung;
   const cand = candidates(c, p, role).find((x) => x.rung === start);
-  const cleared = cand ? DIFFICULTIES.filter((d) => clearsBar(cand, barOf(c, d))) : [];
+  const at = percentilesOf(p);
+  const cleared = cand ? DIFFICULTIES.filter((d) => clearsBar(cand, barOf(c, d, at))) : [];
   return cleared.at(-1) ?? "build";
 }
 
@@ -251,7 +254,8 @@ export function noClearLine(all: Candidate[], bar: number, d: Difficulty, raised
 export function select(c: Catalog, p: RoutingProfile, role: Role, difficulty: Difficulty): Pick {
   const all = candidates(c, p, role);
   if (all.length === 0) throw noRung(role);
-  const bar = barOf(c, difficulty);
+  const at = percentilesOf(p);
+  const bar = barOf(c, difficulty, at);
   if (all.length === 1) {
     const only = all[0] as Candidate;
     const one = { rung: only.rung, ladder: [only.rung] };
@@ -274,7 +278,7 @@ export function select(c: Catalog, p: RoutingProfile, role: Role, difficulty: Di
   let start = base;
   let raisedFrom: Difficulty | undefined;
   for (const easier of DIFFICULTIES.slice(0, DIFFICULTIES.indexOf(difficulty)).reverse()) {
-    const s = byCost.find((x) => clearsBar(x, barOf(c, easier)));
+    const s = byCost.find((x) => clearsBar(x, barOf(c, easier, at)));
     if (!s) continue;
     if (s.intelligence >= start.intelligence) {
       start = s;

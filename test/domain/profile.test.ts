@@ -411,3 +411,38 @@ describe("maxEffort", () => {
     });
   });
 });
+
+describe("bars", () => {
+  it("keeps a profile's and a role's bars, and removes them with null", () => {
+    const doc = applyPatch(
+      applyPatch(defaultProfileDoc(), patchAt("bars.logic", "55")),
+      patchAt("roles.worker.bars.hard", "65"),
+    );
+    const p = resolveProfile(doc, "x", "claude-code");
+    expect(p.bars).toEqual({ logic: 55 });
+    expect(p.roles.worker.bars).toEqual({ hard: 65 });
+    expect(
+      resolveProfile(applyPatch(doc, patchAt("roles.worker.bars", "null")), "x", "claude-code").roles.worker
+        .bars,
+    ).toBeUndefined();
+    expect(() => patchAt("bars.hard", "150")).toThrow("cannot set bars.hard");
+    expect(() => patchAt("bars.extreme", "50")).toThrow("cannot set");
+  });
+
+  it("drops a stored bar it cannot read, and warns", () => {
+    const doc = ProfileDocSchema.parse({
+      schema: 1,
+      bars: { hard: 150, logic: 55 },
+      roles: { worker: { bars: "high" } },
+    });
+    const p = resolveProfile(doc, "x", "claude-code");
+    expect(p.bars).toEqual({ logic: 55 });
+    expect(p.roles.worker.bars).toBeUndefined();
+    expect(unknownValues(doc)).toEqual(
+      expect.arrayContaining([
+        { path: "bars.hard", value: "150", readAs: "the shipped percentile" },
+        { path: "roles.worker.bars", value: '"high"', readAs: "the profile's bar" },
+      ]),
+    );
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BAR_PERCENTILE, barOf, percentile } from "../../src/domain/bars.ts";
+import { BAR_PERCENTILE, BarsSchema, barOf, percentile, percentilesOf } from "../../src/domain/bars.ts";
 import { DIFFICULTIES } from "../../src/domain/lane.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
@@ -27,8 +27,7 @@ describe("barOf", () => {
 
   it("sets each difficulty's bar at its percentile of the pool", () => {
     expect(pool.pool).toEqual([10, 20, 30, 40, 50]);
-    expect(DIFFICULTIES.map((d) => barOf(pool, d))).toEqual([20, 30, 34, 40]);
-    expect(BAR_PERCENTILE).toEqual({ copy: 25, build: 50, logic: 60, hard: 75 });
+    expect(DIFFICULTIES.map((d) => barOf(pool, d))).toEqual([18, 28, 34, 36]);
   });
 
   it("puts every bar at 0 with an empty pool", () => {
@@ -45,5 +44,16 @@ describe("barOf", () => {
     const bars = DIFFICULTIES.map((d) => barOf(c, d));
     expect(bars).toEqual([...bars].sort((a, b) => a - b));
     expect(bars[0]).toBeGreaterThan(0);
+  });
+});
+
+describe("the bar percentiles", () => {
+  it("ships copy 20, build 45, logic 60, hard 65", () =>
+    expect(BAR_PERCENTILE).toEqual({ copy: 20, build: 45, logic: 60, hard: 65 }));
+
+  it("lays a role's bars over the profile's over the shipped percentiles, one difficulty at a time", () => {
+    expect(percentilesOf({})).toEqual(BAR_PERCENTILE);
+    expect(percentilesOf({ bars: { logic: 30 } })).toEqual({ ...BAR_PERCENTILE, logic: 30 });
+    expect(BarsSchema.safeParse({ hard: 150 }).success).toBe(false);
   });
 });

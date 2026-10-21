@@ -30,10 +30,11 @@ export function provenanceOf(
   difficulty: Difficulty | null,
   billing: Partial<Record<string, BillingMode>>,
   evidence: EvidenceTable | null,
+  at: Record<Difficulty, number> = BAR_PERCENTILE,
 ): Provenance {
   const info = rungInfo(c, rung);
   const intelligence = info.pair?.intelligence ?? null;
-  const min = difficulty ? barOf(c, difficulty) : null;
+  const min = difficulty ? barOf(c, difficulty, at) : null;
   return {
     rung,
     canonical: info.canonical,
@@ -42,7 +43,7 @@ export function provenanceOf(
       difficulty && min !== null
         ? {
             difficulty,
-            percentile: BAR_PERCENTILE[difficulty],
+            percentile: at[difficulty],
             min,
             clears: intelligence !== null && intelligence >= min,
           }

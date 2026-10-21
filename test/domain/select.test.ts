@@ -27,8 +27,8 @@ const LADDER = [LUNA, MED, HIGH, XHIGH];
 
 const price = { inputPrice: 2, outputPrice: 10 };
 /**
- * Five pairs in the shipped families, so the pool is [20, 30, 40, 50, 60] and the bars are copy 30, build 40,
- * logic 44, hard 50. Speeds, tokens per second: Luna high 100, Sol high 90, Sol xhigh 70, Sol medium 50.
+ * Five pairs in the shipped families, so the pool is [20, 30, 40, 50, 60] and the bars are copy 28, build 38,
+ * logic 44, hard 46. Speeds, tokens per second: Luna high 100, Sol high 90, Sol xhigh 70, Sol medium 50.
  */
 const PAIRS = {
   "gpt-6-luna#high": { intelligence: 30, speed: 100, inputPrice: 0.1, outputPrice: 0.5 },
@@ -50,8 +50,8 @@ const worker = (over: Partial<RoutingProfile> = {}, rungs = LADDER): RoutingProf
 describe("select", () => {
   it("starts on the cheapest rung that clears the difficulty's bar, one bar for every kind", () => {
     const c = cat();
-    expect(DIFFICULTIES.map((d) => barOf(c, d))).toEqual([30, 40, 44, 50]);
-    // copy 30: Luna high is the cheapest and clears; Sol medium (20) is below it and never climbed onto
+    expect(DIFFICULTIES.map((d) => barOf(c, d))).toEqual([28, 38, 44, 46]);
+    // copy 28: Luna high is the cheapest and clears; Sol medium (20) is below it and never climbed onto
     expect(select(c, worker(), "worker", "copy")).toEqual({ rung: LUNA, ladder: [LUNA, HIGH, XHIGH] });
     expect(select(c, worker(), "worker", "build")).toEqual({ rung: HIGH, ladder: [HIGH, XHIGH] });
     expect(select(c, worker(), "worker", "logic")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
@@ -63,7 +63,7 @@ describe("select", () => {
     expect(select(cat(), only, "architect", "copy")).toEqual({
       rung: MED,
       ladder: [MED],
-      noClear: "no rung clears copy (bar 30.0); best is codex:gpt-6-sol#medium (20.0)",
+      noClear: "no rung clears copy (bar 28.0); best is codex:gpt-6-sol#medium (20.0)",
     });
     expect(select(cat(), worker({}, [XHIGH]), "architect", "copy")).toEqual({ rung: XHIGH, ladder: [XHIGH] });
   });
@@ -157,14 +157,20 @@ describe("select", () => {
         "no rung clears logic (bar 44.0); best is codex:gpt-6-sol#high (40.0); started at build's start",
     });
     expect(select(c, worker({}, rungs), "worker", "hard").noClear).toMatch(
-      /^no rung clears hard \(bar 50\.0\); best is codex:gpt-6-sol#high \(40\.0\); started at build's start$/,
+      /^no rung clears hard \(bar 46\.0\); best is codex:gpt-6-sol#high \(40\.0\); started at build's start$/,
     );
   });
 
   it("starts on the default rung, with no raise, when no easier start is more intelligent", () => {
     // every bar above every candidate: the default rung starts, and the ladder goes up from it
     const c = shipped({
-      index: indexOf({ ...PAIRS, "claude-opus-5-5#max": 90, "claude-opus-5-5#xhigh": 90 }),
+      index: indexOf({
+        ...PAIRS,
+        "claude-opus-5-5#max": 90,
+        "claude-opus-5-5#xhigh": 90,
+        "claude-opus-5-5#high": 90,
+        "claude-opus-5-5#medium": 90,
+      }),
     });
     const pick = select(c, worker({}, [LUNA, MED]), "worker", "hard");
     expect(pick.noClear).toMatch(
@@ -388,5 +394,40 @@ describe("the effort ceiling and the coding floor (decision 22)", () => {
     };
     expect(rolesWithoutRung(c, v)).toEqual(["worker"]);
     expect(rolesWithoutRung(c, { ...v, maxEffort: {} })).toEqual([]);
+  });
+});
+
+describe("a profile's and a role's own bars (plan 33)", () => {
+  // the pool is [30, 36, 42, 46]; with the shipped 20/45/60/65 the bars are copy 33.6, build 38.1, logic 40.8, hard 41.7
+  const c = shipped({
+    index: indexOf({
+      "gpt-6-luna#high": 30,
+      "gpt-6-sol#medium": 36,
+      "gpt-6-sol#high": 42,
+      "gpt-6-sol#xhigh": 46,
+    }),
+  });
+  const W = [
+    "codex:gpt-6-luna#high",
+    "codex:gpt-6-sol#medium",
+    "codex:gpt-6-sol#high",
+    "codex:gpt-6-sol#xhigh",
+  ];
+  const p: RoutingProfile = {
+    objective: "cost",
+    billing: DEFAULT_BILLING,
+    role: { enabled: true, rungs: W },
+  };
+
+  it("routes on the profile's bar percentile for one difficulty, the others shipped", () => {
+    expect(select(c, p, "worker", "logic").rung).toBe("codex:gpt-6-sol#high");
+    expect(select(c, { ...p, bars: { logic: 30 } }, "worker", "logic").rung).toBe("codex:gpt-6-sol#medium"); // bar 35.4
+    expect(select(c, { ...p, bars: { logic: 30 } }, "worker", "build").rung).toBe("codex:gpt-6-sol#high"); // bar 38.1
+  });
+
+  it("defaultDifficulty reads the profile's bars", () => {
+    const d = { ...p, role: { ...p.role, defaultRung: "codex:gpt-6-sol#medium" } }; // Sol medium: 36
+    expect(defaultDifficulty(c, d, "worker")).toBe("copy"); // copy 33.6 cleared, build 38.1 missed
+    expect(defaultDifficulty(c, { ...d, bars: { build: 30, logic: 30 } }, "worker")).toBe("logic"); // both 35.4
   });
 });

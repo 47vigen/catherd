@@ -11,6 +11,7 @@ import { resetFreshen, writeRunIndex } from "../../src/services/catalog-service.
 import { indexOf } from "../domain/shipped.ts";
 import { runPaths } from "../../src/services/run-store.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
+import type { Bars } from "../../src/domain/bars.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { routingService } from "../../src/services/routing-service.ts";
@@ -34,12 +35,13 @@ beforeEach(() => {
 
 const fx = (n: string): unknown =>
   JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "jev", n), "utf8"));
-// the bars are percentiles of the shipped pool (copy 33.2, build 39.8, logic 42.3, hard 46.9 on the recorded
-// index): Luna high (32.9) clears none, Sol medium (39.81) clears build, Sol high (42.40) clears logic, and no
-// Sol rung clears hard; a ladder only climbs (spec 1.5 plan 24)
+// the bars are the 20th, 45th, 60th and 65th percentiles of the shipped pool (copy 30.0, build 38.8, logic
+// 42.3, hard 44.1 on the recorded index): Luna high (32.9) clears copy, Sol medium (39.81) clears build, Sol
+// high (42.40) clears logic, and Sol xhigh clears hard; a ladder only climbs (spec 1.5 plan 24)
 const TRACK_A = { rung: LADDER[1] as string, ladder: LADDER.slice(1) };
-const COPY = TRACK_A;
+const COPY = { rung: LADDER[0] as string, ladder: LADDER };
 const TRACK_B = { rung: LADDER[2] as string, ladder: LADDER.slice(2) };
+const HARD = { rung: LADDER[3] as string, ladder: LADDER.slice(3) };
 const noWait = { sleep: async () => {}, random: () => 0.5 };
 
 const view = (over: Partial<ProfileView> = {}) =>
@@ -148,7 +150,7 @@ describe("route without Jev", () => {
       source: "lane",
       kind: "repo_code",
       difficulty: "hard",
-      noClear: expect.stringContaining("no rung clears hard (bar 46.9); best is codex:gpt-6-sol#high (42.4)"),
+      noClear: expect.stringContaining("no rung clears hard (bar 44.1); best is codex:gpt-6-sol#high (42.4)"),
     });
     expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears hard");
     expect(f.sent).toHaveLength(0);
@@ -169,7 +171,7 @@ describe("route's provenance", () => {
     expect(a.provenance).toMatchObject({
       rung: TRACK_A.rung,
       canonical: "gpt-6-sol#medium",
-      bar: { difficulty: "build", percentile: 50, clears: true },
+      bar: { difficulty: "build", percentile: 45, clears: true },
     });
     const p = a.provenance;
     expect(p?.intelligence).toBeGreaterThanOrEqual(p?.bar?.min ?? Infinity);
@@ -471,7 +473,7 @@ describe("route and the profile", () => {
     const r = routingService();
     expect(await r.route(req(lane("repo_code", "copy"), { profile }))).toMatchObject(COPY);
     expect(await r.route(req(lane("terminal", "build"), { profile }))).toMatchObject(TRACK_A);
-    expect(await r.route(req(lane("prose", "hard"), { profile }))).toMatchObject(TRACK_B);
+    expect(await r.route(req(lane("prose", "hard"), { profile }))).toMatchObject(HARD);
   });
 
   it("under budget pressure a worker still starts at medium or above", async () => {
@@ -497,6 +499,29 @@ describe("route and the profile", () => {
     const a = await routingService({ ...noWait }).route(r);
     expect(a.rung).toBe("codex:gpt-6-sol#medium");
     expect(a.ladder).not.toContain("codex:gpt-6-sol#low");
+  });
+
+  it("routes a role on its own bar over the profile's, one difficulty at a time", async () => {
+    writeIndexFile(
+      indexPath(),
+      indexOf({
+        "gpt-6-luna#high": 30,
+        "gpt-6-sol#medium": 36,
+        "gpt-6-sol#high": 42,
+        "gpt-6-sol#xhigh": 46,
+      }),
+    );
+    const worker = (bars?: Bars) => ({ ...view().roles.worker!, ...(bars ? { bars } : {}) });
+    const on = (o: Partial<ProfileView>) =>
+      routingService({ ...noWait }).route(req(lane("repo_code", "logic"), { profile: view(o) }));
+    expect((await on({ bars: { logic: 30 } })).rung).toBe("codex:gpt-6-sol#medium");
+    expect(
+      (await on({ bars: { logic: 30 }, roles: { ...view().roles, worker: worker({ logic: 60 }) } })).rung,
+    ).toBe("codex:gpt-6-sol#high");
+    const a = await on({ roles: { ...view().roles, worker: worker({ logic: 30 }) } });
+    expect(a).toMatchObject({ rung: "codex:gpt-6-sol#medium" });
+    expect(a.provenance?.bar).toMatchObject({ difficulty: "logic", percentile: 30, clears: true });
+    expect((await on({})).provenance?.bar).toMatchObject({ percentile: 60 });
   });
 
   it("refuses a role with no usable rung with a fix", async () => {
