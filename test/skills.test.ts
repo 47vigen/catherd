@@ -333,4 +333,10 @@ describe("setup skill", () => {
     expect(md).toContain("Codex has none: it reports no per-request input");
     for (const bad of ["Vigen", "agora"]) expect(md).not.toContain(bad);
   });
+
+  it("names the Slopalytics intelligence index, not the removed benchmark sources", () => {
+    const md = skill("catherd-setup");
+    expect(md).toContain("Slopalytics intelligence index");
+    expect(md).not.toContain("Benchmark");
+  });
 });
