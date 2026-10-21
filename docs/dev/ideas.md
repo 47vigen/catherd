@@ -243,5 +243,7 @@ Owner rule: review Minors and non-correctness bot P2s land here, not in code. Fr
 
 An opencode lane, quota failover and a budget stop have run only in tests, never in a real orchestrated run; the
 live kit now scripts them, with parallel lanes and a forced climb (`live-verification.md` §6), and they leave this
-list once a release run records them. A climb and a multi-milestone, multi-MR build are covered live (the auth
-build, 8 climbs, 16 MRs).
+list once a release run records them. Quota failover runs live in the scorecard's `injected-lao` task
+(`docs/dev/scorecard.md`) from the 1.5.0 baseline on; it leaves this list once a recorded scorecard shows the
+stand-in ending ok. A climb and a multi-milestone, multi-MR build are covered live (the auth build, 8 climbs, 16
+MRs).
