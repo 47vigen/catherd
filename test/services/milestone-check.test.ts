@@ -115,11 +115,12 @@ describe("secretScan", () => {
 });
 
 describe("baselineFor", () => {
-  it("takes the baseline on the base, else the newest", () => {
+  it("takes only the baseline on the base: another commit's is no baseline, a missing base the newest", () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1 }));
     appendCheckRecord(repo, rec({ baseline: true, head: "c".repeat(40), exit: 0 }));
     expect(baselineFor(repo, "bun test", BASE)?.head).toBe(BASE);
-    expect(baselineFor(repo, "bun test", "d".repeat(40))?.head).toBe("c".repeat(40));
+    expect(baselineFor(repo, "bun test", "d".repeat(40))).toBeNull();
+    expect(baselineFor(repo, "bun test", null)?.head).toBe("c".repeat(40));
     expect(baselineFor(repo, "other", BASE)).toBeNull();
   });
 });
@@ -155,6 +156,12 @@ describe("machineGate", () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 2, fails: [] }));
     expect((await machineGate(run, "M1", HEAD)).missing[0]).toContain("no failing line");
+  });
+
+  it("does not excuse a failure by a baseline recorded on another commit", async () => {
+    appendCheckRecord(repo, rec({ baseline: true, head: "c".repeat(40), exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
+    expect((await machineGate(run, "M1", HEAD)).missing[0]).toContain("exits 1");
   });
 
   it("refuses a secret hit, and notes a skipped scan and a rerun in the audit", async () => {

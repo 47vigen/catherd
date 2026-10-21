@@ -64,10 +64,10 @@ export async function checkBase(run: Run): Promise<string | null> {
   return run.meta.startHead ?? null;
 }
 
-/** The baseline record of `command`: the one on `base`, else the newest. */
+/** The baseline record of `command` on `base`; another commit's is none. Without a base, the newest. */
 export function baselineFor(toplevel: string, command: string, base: string | null): CheckRecord | null {
   const all = readChecks(toplevel).filter((r) => r.baseline && r.command === command);
-  return (base ? all.filter((r) => r.head === base).at(-1) : undefined) ?? all.at(-1) ?? null;
+  return (base ? all.filter((r) => r.head === base) : all).at(-1) ?? null;
 }
 
 /** The scanner a test replaces. */
