@@ -19,8 +19,8 @@ import {
   stopWebSocket,
 } from "../../../../lib/live-socket";
 
-function liveUrl(runId: string): string {
-  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/runs/${encodeURIComponent(runId)}/live`;
+function liveUrl(runId: string, from: number): string {
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/runs/${encodeURIComponent(runId)}/live?from=${from}`;
 }
 
 // The socket, heartbeat and reconnect bookkeeping live in lib/live-socket so a
@@ -31,15 +31,20 @@ const listeners = new Set<(entry: TimelineEntry) => void>();
 
 /**
  * Streams a run's new timeline entries while `enabled`. The session cookie authenticates the socket; each text
- * frame is one TimelineEntry. Turning it off, changing the run or leaving the page closes the socket.
+ * frame is one TimelineEntry. `after` is the newest seq the page already holds: the socket asks the server to replay
+ * from the one after it (and, on a reconnect, from the one after the last frame it got), so nothing written between
+ * the page's fetch and the upgrade, or during a gap, is missed. Turning it off, changing the run or leaving the page
+ * closes the socket.
  */
 export function useLiveRun(
   runId: string,
   enabled: boolean,
   onEntry: (e: TimelineEntry) => void,
+  after: number,
 ): { isConnected: boolean } {
   const [isConnected, setIsConnected] = useState(false);
   const deliver = useEffectEvent((entry: TimelineEntry) => onEntry(entry));
+  const held = useEffectEvent(() => after);
 
   useEffect(() => {
     if (!enabled) return;
@@ -47,7 +52,11 @@ export function useLiveRun(
     // Set when this mount adopts a socket created by an earlier mount;
     // removes the open/close listeners that keep this mount's state honest.
     let detachAdopted: (() => void) | null = null;
-    const listener = (entry: TimelineEntry) => deliver(entry);
+    let last = 0;
+    const listener = (entry: TimelineEntry) => {
+      last = Math.max(last, entry.seq);
+      deliver(entry);
+    };
     listeners.add(listener);
 
     const connect = () => {
@@ -71,7 +80,7 @@ export function useLiveRun(
         return;
       }
 
-      const ws = new WebSocket(liveUrl(runId));
+      const ws = new WebSocket(liveUrl(runId, Math.max(last, held()) + 1));
       setSocket(ws);
 
       ws.onopen = () => {

@@ -132,6 +132,8 @@ test("a live entry joins page 1 only, once, and refreshes the run", async () => 
   const list = await screen.findByRole("list", { name: "Timeline" });
   await waitFor(() => expect(FakeSocket.last).toBeDefined());
   const ws = FakeSocket.last!;
+  // the page holds seq 1..3, so the socket replays from 4: nothing between the fetch and the upgrade is lost
+  expect(ws.url).toMatch(/\/api\/runs\/r1\/live\?from=4$/);
   act(() => {
     ws.readyState = 1;
     ws.onopen?.();

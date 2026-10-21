@@ -324,6 +324,15 @@ describe("the panel server", () => {
     await waitFor(() => tailed.length > 0);
     expect(tailed.map((t) => t.seq)).toEqual([e2.seq]);
     tail.close();
+    // `from` replays what the page missed between its fetch and the upgrade, in order, then keeps tailing
+    const replayed: { seq: number }[] = [];
+    const gap = new WebSocket(`${base.replace("http", "ws")}/api/runs/${id}/live?from=${e.seq}`, {
+      headers: { cookie },
+    } as never);
+    gap.onmessage = (m) => void replayed.push(JSON.parse(String(m.data)));
+    await waitFor(() => replayed.length >= 2);
+    expect(replayed.map((t) => t.seq)).toEqual([e.seq, e2.seq]);
+    gap.close();
     ws.close();
     const anon = await fetch(`${base}/api/runs/${id}/live`, {
       headers: {

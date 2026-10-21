@@ -131,10 +131,16 @@ function RunDetail({ runId }: { runId: string }) {
 
   // Live entries sit before the fetched ones on page 1; a frame the page already holds is dropped by its seq.
   const [liveEntries, setLiveEntries] = useState<TimelineEntry[]>([]);
-  const { isConnected } = useLiveRun(runId, live, (e) => {
-    setLiveEntries((all) => (all.some((x) => x.seq === e.seq) ? all : [e, ...all].sort((a, b) => b.seq - a.seq)));
-    void invalidateOps(queryClient, "getRun");
-  });
+  // The socket opens once page 1 is in hand and replays everything after its newest seq (the list is newest first).
+  const { isConnected } = useLiveRun(
+    runId,
+    live && page === 1 && timeline.isSuccess,
+    (e) => {
+      setLiveEntries((all) => (all.some((x) => x.seq === e.seq) ? all : [e, ...all].sort((a, b) => b.seq - a.seq)));
+      void invalidateOps(queryClient, "getRun");
+    },
+    timeline.data?.items[0]?.seq ?? 0,
+  );
   const fetched = timeline.data?.items ?? [];
   const seen = new Set(fetched.map((e) => e.seq));
   const entries = page === 1 ? [...liveEntries.filter((e) => !seen.has(e.seq)), ...fetched] : fetched;

@@ -43,9 +43,9 @@ const entry = { seq: 7, at: "2026-10-21T10:00:00Z", type: "report.posted", text:
 
 test("connects to the run's socket on this host, passes frames and reports the state", () => {
   const onEntry = vi.fn<(e: TimelineEntry) => void>();
-  const { result, unmount } = renderHook(() => useLiveRun("r 1", true, onEntry));
+  const { result, unmount } = renderHook(() => useLiveRun("r 1", true, onEntry, 4));
   const ws = FakeSocket.instances[0]!;
-  expect(ws.url).toBe(`ws://${location.host}/api/runs/r%201/live`);
+  expect(ws.url).toBe(`ws://${location.host}/api/runs/r%201/live?from=5`);
   expect(result.current.isConnected).toBe(false);
   act(() => ws.open());
   expect(result.current.isConnected).toBe(true);
@@ -61,7 +61,7 @@ test("connects to the run's socket on this host, passes frames and reports the s
 });
 
 test("nothing connects while disabled, and turning it off closes the socket", () => {
-  const { rerender } = renderHook(({ on }) => useLiveRun("r1", on, () => {}), { initialProps: { on: false } });
+  const { rerender } = renderHook(({ on }) => useLiveRun("r1", on, () => {}, 0), { initialProps: { on: false } });
   expect(FakeSocket.instances).toHaveLength(0);
   rerender({ on: true });
   expect(FakeSocket.instances).toHaveLength(1);
@@ -72,20 +72,23 @@ test("nothing connects while disabled, and turning it off closes the socket", ()
 test("a dropped connection reconnects with backoff", () => {
   vi.useFakeTimers();
   try {
-    const { result } = renderHook(() => useLiveRun("r1", true, () => {}));
+    const { result } = renderHook(() => useLiveRun("r1", true, () => {}, 4));
     const first = FakeSocket.instances[0]!;
     act(() => first.open());
+    act(() => first.onmessage?.({ data: JSON.stringify({ ...entry, seq: 9 }) }));
     act(() => first.close());
     expect(result.current.isConnected).toBe(false);
     act(() => vi.advanceTimersByTime(1000));
     expect(FakeSocket.instances).toHaveLength(2);
+    // the gap is replayed by the server: the reconnect asks from the last frame it got
+    expect(FakeSocket.instances[1]!.url).toMatch(/\/live\?from=10$/);
   } finally {
     vi.useRealTimers();
   }
 });
 
 test("another run opens its own socket", () => {
-  const { rerender } = renderHook(({ id }) => useLiveRun(id, true, () => {}), { initialProps: { id: "a" } });
+  const { rerender } = renderHook(({ id }) => useLiveRun(id, true, () => {}, 0), { initialProps: { id: "a" } });
   rerender({ id: "b" });
   expect(FakeSocket.instances.map((s) => s.url.split("/").at(-2))).toEqual(["a", "b"]);
   expect(FakeSocket.instances[0]!.readyState).toBe(3);
