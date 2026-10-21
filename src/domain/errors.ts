@@ -1,7 +1,6 @@
 export type ErrorCode =
   | "E_CONFIG_INVALID"
   | "E_CONFIG_NEWER_SCHEMA"
-  | "E_CONFIG_KEYBIND"
   | "E_BACKEND_MISSING"
   | "E_BACKEND_TOO_OLD"
   | "E_BACKEND_NOT_LOGGED_IN"
@@ -35,7 +34,7 @@ export type ErrorCode =
   | "E_RUNTIME_TOO_OLD";
 
 /**
- * How to get a newer catherd. `bunx catherd-cli@latest` alone opens the newest one's dashboard and upgrades
+ * How to get a newer catherd. `bunx catherd-cli@latest` alone prints the newest one's help and upgrades
  * nothing that is installed (audit N12).
  */
 export const UPGRADE = "bun add -g catherd-cli@latest (or run bunx catherd-cli@latest <command>)";

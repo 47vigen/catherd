@@ -67,7 +67,7 @@ describe("waiting for orchestrator (plan 22, #42 findings 3 and 7)", () => {
   it("never shows for an owner not seen in a day, and does once one of its dispatches is recent", async () => {
     const { run } = freshRun("Old owner");
     await claimRun(codexOwner(NOW - 3 * 24 * HOUR), run);
-    // a record a dashboard cancel left unread, from no session of the owner's
+    // a record a panel cancel left unread, from no session of the owner's
     await unreadAt(run, "worker-a", NOW - HOUR);
     expect(orchestratorWait(run, NOW)).toBeNull();
     await unreadAt(run, "worker-b", NOW - 2 * HOUR, THREAD.toUpperCase());

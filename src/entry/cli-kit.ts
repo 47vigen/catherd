@@ -46,7 +46,7 @@ export const printJson = (v: unknown): void => console.log(JSON.stringify(v, nul
 export const JSON_ARG = { json: { type: "boolean", description: "print JSON" } } as const;
 
 /**
- * The glyph for a state, as in `✓ ready`: the dashboard's own (spec §9.3), ASCII with `--plain` only;
+ * The glyph for a state, as in `✓ ready`: catherd's own (spec §9.3), ASCII with `--plain` only;
  * NO_COLOR drops colour, never glyphs. The caller adds the word.
  */
 export const mark = (state: State, plain = false): string => glyph(state, plain);

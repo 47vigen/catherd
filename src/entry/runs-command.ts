@@ -149,36 +149,20 @@ export function redrawMs(interval: string | undefined): number {
   return Math.max(1, secs) * 1000;
 }
 
-/** Spec §8 `catherd watch [--once]`: the TUI's Runs tab on a terminal, else a plain redraw. */
+/** Spec §8 `catherd watch [--once]`: the live runs redrawn as text. */
 export const watchCommand = defineCommand({
   meta: {
     name: "watch",
-    description:
-      "The live runs: the dashboard's Runs tab on a terminal, else redrawn as text (--once: print once)",
+    description: "The live runs, redrawn as text (--once: print once); catherd panel shows them in a browser",
   },
   args: {
     once: { type: "boolean", description: "print one snapshot and exit" },
-    interval: { type: "string", description: "seconds between text redraws when piped (default 2)" },
-    plain: {
-      type: "boolean",
-      description: "the dashboard in ASCII without colour (NO_COLOR also drops colour)",
-    },
-    "reduced-motion": { type: "boolean", description: "the dashboard without animation" },
+    interval: { type: "string", description: "seconds between text redraws (default 2)" },
     ...json,
   },
   async run({ args }) {
     const every = redrawMs(args.interval);
     if (args.once || args.json) return printStatus(undefined, args.json === true);
-    // on a terminal, watch is the dashboard's Runs tab (plan 6 Ruling 10); piped output keeps the plain view
-    if (process.stdin.isTTY && process.stdout.isTTY) {
-      const { openTui } = await import("./tui/run.tsx");
-      const rawArgs = [
-        ...(args.plain ? ["--plain"] : []),
-        ...(args["reduced-motion"] ? ["--reduced-motion"] : []),
-      ];
-      process.exitCode = await openTui({ rawArgs, tab: "runs", tty: true });
-      return;
-    }
     for (;;) {
       if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
       await printStatus(undefined, false, true);

@@ -1,13 +1,10 @@
-# spec §12: dependencies stay on latest through the lockfile and automated update PRs; OpenTUI is pinned
-# exactly and moves only by hand, since an update means regenerating the TUI frames.
+# spec §12: dependencies stay on latest through the lockfile and automated update PRs.
 version: 2
 updates:
   - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
-    ignore:
-      - dependency-name: "@opentui/*"
     groups:
       dependencies:
         patterns: ["*"]
