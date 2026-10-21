@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { type Finding, issueLine } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
   findingKey,
@@ -30,7 +31,7 @@ function reviewing() {
   return log;
 }
 
-function review(log: ReturnType<typeof makeLog>, findings: ReturnType<typeof bug>[]) {
+function review(log: ReturnType<typeof makeLog>, findings: Finding[]) {
   const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
   endDispatch(log, id, { name: "reviewer-M1", unit: "M1", findings });
 }
@@ -362,3 +363,36 @@ describe("run state", () => {
 });
 
 const START_AT = "2026-10-21T11:00:00.000Z";
+
+describe("a milestone's NITs (plan 34)", () => {
+  const nit = (text: string) => ({
+    label: "NIT" as const,
+    text,
+    file: text.match(/(src\/\S+?):/)?.[1] ?? null,
+  });
+
+  it("keeps only the latest round's NITs, and adds them and the verifier's to the known issues on a PASS", () => {
+    const log = reviewing();
+    review(log, [nit("NIT src/a.ts:9 — old — z")]);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [nit("**NIT** src/b.ts:4 — later — z")]);
+    expect(log.state().milestones[0]?.nits).toEqual(["**NIT** src/b.ts:4 — later — z"]);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "pass",
+      head: "c1",
+      findings: [nit("NIT src/v.ts:1 — v — w"), nit("**NIT** src/b.ts:4 — later — z")],
+    });
+    expect(log.state().milestones[0]?.knownIssues).toEqual([
+      "**NIT** src/b.ts:4 — later — z",
+      "NIT src/v.ts:1 — v — w",
+    ]);
+  });
+
+  it("a finding's issue line is its text, with its label put back when the text lost it", () => {
+    expect(issueLine({ label: "NIT", text: "- **NIT** a.ts — x", file: "a.ts" })).toBe("- **NIT** a.ts — x");
+    expect(issueLine({ label: "NIT", text: "a.ts — x", file: "a.ts" })).toBe("NIT a.ts — x");
+  });
+});

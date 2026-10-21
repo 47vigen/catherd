@@ -8,6 +8,7 @@ import type { NotifyMoment } from "./profile.ts";
 import type { ClimbReason } from "./route.ts";
 import {
   type Finding,
+  issueLine,
   type MilestonePlan,
   type ParkReason,
   type ReportKind,
@@ -123,6 +124,8 @@ export interface MilestoneState {
   open: Finding[];
   keys: string[][];
   knownIssues: string[];
+  /** plan 34: the NIT lines of the latest review round; a landing keeps them as known issues */
+  nits: string[];
   commit: string | null;
   verifierRuns: number;
   landRefusals: number;
@@ -330,6 +333,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       open: [],
       keys: [],
       knownIssues: [],
+      nits: [],
       commit: null,
       verifierRuns: 0,
       landRefusals: 0,
@@ -430,6 +434,8 @@ function laneDone(s: RunState, l: LaneState): void {
   const m = milestoneOf(s, l.milestone);
   if (m) settle(s, m);
 }
+
+const nitLines = (findings: Finding[]): string[] => findings.filter((f) => f.label === "NIT").map(issueLine);
 
 /** The review round's end: counts, keys and what happens next (a fix round, the verifier, or a stop). */
 function completeRound(s: RunState, m: MilestoneState): void {
@@ -670,6 +676,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
   if ((dv.role === "reviewer" || dv.role === "ui-reviewer") && m.status === "review") {
     if (e.status === "ok" && e.replyStatus !== "blocked" && e.replyStatus !== "refused") {
       m.open.push(...e.findings);
+      m.nits.push(...nitLines(e.findings));
       if (e.replyStatus === "partial" && e.name === `reviewer-${m.id}`)
         m.awaiting = m.awaiting.map((n) => (n === e.name ? `reviewer-${m.id}-2` : n));
       else m.awaiting = m.awaiting.filter((n) => n !== e.name);
@@ -691,6 +698,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
+        m.knownIssues = [...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings)])];
         m.tries = {};
         m.verifierNotes = [];
         m.status = "landing";
@@ -1009,6 +1017,7 @@ function apply(s: RunState, e: RunEvent): void {
       m.round = e.round;
       m.commit = e.commit;
       m.open = [];
+      m.nits = [];
       m.tries = {};
       m.awaiting = reviewersOf(s, m);
       if (m.awaiting.length === 0) completeRound(s, m);

@@ -59,6 +59,11 @@ export const FindingSchema = z.object({
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
+/** A finding as it is quoted in the known issues: its text, with the label put back when the text lost it. */
+export function issueLine(f: Finding): string {
+  return new RegExp(`^[\\s\\-*_\\d.)]*${f.label}\\b`, "i").test(f.text) ? f.text : `${f.label} ${f.text}`;
+}
+
 export const MilestonePlanSchema = z.object({
   id: z.string(),
   title: z.string(),

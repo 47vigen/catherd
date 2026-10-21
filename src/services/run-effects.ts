@@ -95,7 +95,11 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     const first = replyVerdict(run, record) ?? "";
     probe = blockedByEnvironment(first);
     if (probe !== null) verdict = "blocked";
-    else if (PASS_LINE.test(first)) verdict = "pass";
+    else if (PASS_LINE.test(first)) {
+      verdict = "pass";
+      // plan 34: a PASS lands with the NITs it lists as known issues
+      findings = parseFindings(reply).filter((f) => f.label === "NIT");
+    }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
     else if (record.status === "ok") verdict = "fail";
     if (verdict === "fail") {

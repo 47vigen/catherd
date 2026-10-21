@@ -10,7 +10,7 @@ import {
   judgeInputFor,
   next,
 } from "../../src/domain/run-machine.ts";
-import type { MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
+import type { Finding, MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
 import { liveDispatches, type RunState } from "../../src/domain/run-state.ts";
 import {
   endDispatch,
@@ -56,7 +56,7 @@ function plan(lanes: number): MilestonePlan[] {
   ];
 }
 
-function review(log: Log, findings: ReturnType<typeof bug>[], name = "reviewer-M1") {
+function review(log: Log, findings: Finding[], name = "reviewer-M1") {
   const id = startDispatch(log, { name, role: "reviewer", unit: "M1", lane: null });
   return endDispatch(log, id, { name, unit: "M1", findings });
 }
@@ -502,6 +502,25 @@ describe("the machine: review rounds", () => {
     const r = rounds([3, 2, 2]);
     expect(names(r.last)).toEqual(["verifier-M1"]);
     expect(r.state.milestones[0]?.knownIssues).toEqual(r.lastOpenLines);
+  });
+
+  it("lands with the round's NITs and its open lines as known issues, word for word", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const open = bug("BUG src/a/x.ts:1 — still wrong — fix", "src/a/x.ts");
+    const other = bug("BUG src/a/y.ts:1 — also wrong — fix", "src/a/y.ts");
+    review(log, [open, other]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    const nit = { label: "NIT" as const, text: "**NIT** src/a/z.ts:3 — naming — rename", file: "src/a/z.ts" };
+    review(log, [open, other, nit]);
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c1" });
+    expect(last(log)).toEqual([
+      { type: "land", milestone: "M1", knownIssues: [open.text, other.text, nit.text] },
+    ]);
   });
 
   it("stops at the soft cap", () => {

@@ -519,6 +519,13 @@ describe("what a dispatch said", () => {
       verdict: "blocked",
       environment: "docker ps says no daemon",
     });
+    // plan 34: a PASS lists its NITs, and "NIT: none" is no issue
+    expect(
+      ended("VERDICT: PASS\nNIT src/v.ts:1 — v — w\nNIT: none\nHEAD: abc\nSTATUS: complete — ok"),
+    ).toMatchObject({
+      verdict: "pass",
+      findings: [{ label: "NIT", text: "NIT src/v.ts:1 — v — w", file: "src/v.ts" }],
+    });
     // a verdict wrapped in markdown is no verdict: the milestone gets a fix round, never a landing
     expect(ended("**VERDICT: PASS**\nSTATUS: complete — ok")).toMatchObject({ verdict: "fail" });
     expect(ended("", { status: "failed" })).toMatchObject({ verdict: null });
