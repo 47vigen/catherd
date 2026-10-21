@@ -75,3 +75,5 @@ export const discoveryDir = (): string => join(dataDir(), "discovery");
 export const locksDir = (): string => join(dataDir(), "locks");
 /** Spec 1.2 §3.3: each source's last good answer, the sync state and lock, and what the sync derived. */
 export const sourcesDir = (): string => join(dataDir(), "sources");
+/** The Slopalytics index: the last good answer of the proxy, one intelligence per model and effort. */
+export const indexPath = (): string => join(dataDir(), "slopalytics.json");

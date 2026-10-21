@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  lstatSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { indexPath } from "../src/infra/paths.ts";
 
 /**
  * Points CATHERD_HOME, the Claude agents dir and Claude Code's config dir at a fresh temp dir for the duration of
@@ -33,6 +42,9 @@ export function withHome(): string {
     "CLAUDE_CODE_MESSAGING_TOKEN",
   ])
     delete process.env[k];
+  // the recorded Slopalytics index, so a catalog reads real intelligences and no test reaches the proxy
+  mkdirSync(dirname(indexPath()), { recursive: true });
+  copyFileSync(join(import.meta.dir, "fixtures", "slopalytics.json"), indexPath());
   return home;
 }
 

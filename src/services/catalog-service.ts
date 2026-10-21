@@ -30,7 +30,8 @@ import { median } from "../domain/util.ts";
 import { assetPath } from "../infra/assets.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
-import { configDir } from "../infra/paths.ts";
+import { configDir, indexPath } from "../infra/paths.ts";
+import { fetchProxy, readIndexFile, writeIndexFile } from "../infra/slopalytics.ts";
 import { readDerived } from "../infra/sources/cache.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import type { CatalogFilter } from "./ports.ts";
@@ -447,4 +448,64 @@ export function catalogQuery(
         a.backend.localeCompare(b.backend),
     );
   return { total: kept.length, models: kept.slice(0, f.limit) };
+}
+
+export interface IndexStatus {
+  fetchedAt: string | null;
+  checkedAt: string | null;
+  pairs: number;
+  error: string | null;
+}
+
+/** How long a fetched index is trusted before the next automatic refresh. */
+export const INDEX_TTL_MS = 3_600_000;
+
+export function indexStatus(): IndexStatus {
+  const f = readIndexFile(indexPath());
+  return {
+    fetchedAt: f?.fetchedAt ?? null,
+    checkedAt: f?.checkedAt ?? null,
+    pairs: f?.models.length ?? 0,
+    error: f?.error?.message ?? null,
+  };
+}
+
+/**
+ * Keeps `<data>/slopalytics.json` fresh: fetched when its last check is over an hour old (or `force`), the last
+ * good answer kept when the proxy fails and the error recorded beside it. Never throws. An `auto` refresh
+ * (MCP boot, `init`, run start) fetches nothing under `CATHERD_NO_SYNC=1`.
+ */
+export async function refreshIndex(
+  o: { force?: boolean; auto?: boolean; fetch?: typeof fetch; now?: number } = {},
+): Promise<IndexStatus> {
+  if (o.auto && process.env.CATHERD_NO_SYNC === "1") return indexStatus();
+  const now = o.now ?? Date.now();
+  const prev = readIndexFile(indexPath());
+  if (!o.force && prev && now - Date.parse(prev.checkedAt) < INDEX_TTL_MS) return indexStatus();
+  const at = new Date(now).toISOString();
+  try {
+    const got = await fetchProxy({ fetch: o.fetch });
+    writeIndexFile(indexPath(), {
+      schema: 1,
+      checkedAt: at,
+      fetchedAt: got.fetchedAt,
+      error: null,
+      models: got.models,
+    });
+  } catch (e) {
+    const message = errorMessage(e);
+    log("debug", "catalog", { index: message });
+    try {
+      writeIndexFile(indexPath(), {
+        schema: 1,
+        checkedAt: at,
+        fetchedAt: prev?.fetchedAt ?? null,
+        error: { at, message },
+        models: prev?.models ?? [],
+      });
+    } catch (w) {
+      log("debug", "catalog", { index: errorMessage(w) });
+    }
+  }
+  return indexStatus();
 }
