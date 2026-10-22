@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
-import { createRun } from "../../src/services/run-store.ts";
+import { writeFileSync } from "node:fs";
+import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
@@ -58,6 +59,19 @@ describe("reviving a daemon", () => {
     expect(launched).toEqual([]);
     summarizeRun(fakeDeps(), live);
     expect(launched).toEqual([live.id]);
+  });
+
+  it("reports an ended run's outcome and drops the next step state.md still holds", async () => {
+    const { run } = freshRun("done");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    const e = await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null });
+    writeFileSync(
+      runPaths(run.dir).state,
+      "# done\n\nLast check: ok\n\nNext: go on\nProtocol next: finish\n",
+    );
+    const s = summarizeRun(fakeDeps(), run);
+    expect(s.ended).toEqual({ at: e.at, outcome: "done" });
+    expect(s.stateTail).toEqual(["# done", "Last check: ok"]);
   });
 
   it("shows a failed revive as a warning, never as a failed read", async () => {
