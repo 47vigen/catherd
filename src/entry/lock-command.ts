@@ -95,7 +95,12 @@ export async function runForwarding(
   try {
     const code = await child.exited;
     // a process the command left behind may hold the pipes open: what it wrote by then is passed on
-    await Promise.race([Promise.all(pumps), Bun.sleep(PIPE_DRAIN_MS)]);
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all(pumps),
+      new Promise((done) => (drainTimer = setTimeout(done, PIPE_DRAIN_MS))),
+    ]);
+    clearTimeout(drainTimer); // a live timer would hold the process open for the rest of the 500 ms
     return code;
   } finally {
     watchdog.kill("SIGKILL");

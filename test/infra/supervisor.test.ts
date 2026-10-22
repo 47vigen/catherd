@@ -30,6 +30,25 @@ function fakeClock(start = Date.now()) {
   return clock;
 }
 
+/**
+ * A poll-loop clock that stands still until the test moves it: a quiet stretch is `advance(ms)`, so no real
+ * second passes and a slow runner cannot turn the stretch into an idle timeout. A poll waits a real millisecond
+ * so the child's output can land.
+ */
+function manualClock() {
+  let t = Date.now();
+  const clock = {
+    polls: 0,
+    now: () => t,
+    advance: (ms: number) => void (t += ms),
+    sleep: async () => {
+      clock.polls++;
+      await Bun.sleep(1);
+    },
+  };
+  return clock;
+}
+
 function spec(script: string, over: Partial<SuperviseSpec> = {}): SuperviseSpec {
   const dir = tempDir("catherd-sup-");
   return {
@@ -245,21 +264,35 @@ describe("supervise reports a stall (spec §3.6)", () => {
   });
 
   it("writes it once per dispatch, however many quiet stretches follow", async () => {
-    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again. Each
-    // stretch is half a second past the stall point and half a second short of the idle timeout, so a
-    // slow runner still sees both
-    const s = spec(`sleep 1.5; echo '{"type":"a"}'; sleep 1.5; echo '{"type":"b"}'`, { idleMs: 2000 });
-    let first: string | null = null;
-    const exit = await supervise(s, {
+    // quiet, a line, quiet again: the second stretch is a stall too, and is not reported again. Each stretch
+    // is past the stall point and short of the idle timeout, on a clock the test moves
+    const clock = manualClock();
+    const s = spec(
+      `until [ -e go1 ]; do sleep 0.02; done; echo '{"type":"a"}'; until [ -e go2 ]; do sleep 0.02; done; echo '{"type":"b"}'`,
+      { idleMs: 2000 },
+    );
+    const stall = dispatchPaths(s.dispatchDir).stall;
+    let lines = 0;
+    const running = supervise(s, {
       isBusy: async () => false,
+      clock,
       onLine: () => {
-        first ??= readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8");
+        lines++;
         return {};
       },
     });
-    expect(exit?.reason).toBe("exited");
-    expect(first).not.toBeNull();
-    expect(readFileSync(dispatchPaths(s.dispatchDir).stall, "utf8")).toBe(first as unknown as string);
+    await waitFor(() => clock.polls > 2);
+    clock.advance(1100);
+    const first = readFileSync(await waitFor(() => existsSync(stall) && stall), "utf8");
+    writeFileSync(join(s.dispatchDir, "go1"), "");
+    await waitFor(() => lines === 1);
+    clock.advance(1100);
+    const seen = clock.polls;
+    await waitFor(() => clock.polls > seen + 1);
+    writeFileSync(join(s.dispatchDir, "go2"), "");
+    expect((await running)?.reason).toBe("exited");
+    expect(lines).toBe(2);
+    expect(readFileSync(stall, "utf8")).toBe(first);
   });
 
   it("keeps supervising a healthy worker when the advisory stall.json write fails", async () => {
@@ -273,11 +306,25 @@ describe("supervise reports a stall (spec §3.6)", () => {
       real(file, value, o);
     });
     try {
-      const s = spec(`echo '{"type":"a"}'; sleep 2; echo '{"type":"b"}'`, { idleMs: 2400 });
-      const exit = await supervise(s, { isBusy: async () => false });
-      expect(exit).toMatchObject({ code: 0, reason: "exited" });
+      const clock = manualClock();
+      const s = spec(`echo '{"type":"a"}'; until [ -e go ]; do sleep 0.02; done; echo '{"type":"b"}'`, {
+        idleMs: 2400,
+      });
+      let lines = 0;
+      const running = supervise(s, {
+        isBusy: async () => false,
+        clock,
+        onLine: () => {
+          lines++;
+          return {};
+        },
+      });
+      await waitFor(() => lines === 1);
+      clock.advance(1300);
+      await waitFor(() => tried);
+      writeFileSync(join(s.dispatchDir, "go"), "");
+      expect(await running).toMatchObject({ code: 0, reason: "exited" });
       expect(readFileSync(dispatchPaths(s.dispatchDir).events, "utf8")).toContain('"b"');
-      expect(tried).toBe(true);
     } finally {
       spy.mockRestore();
     }

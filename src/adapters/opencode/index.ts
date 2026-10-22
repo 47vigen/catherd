@@ -107,6 +107,7 @@ async function listModels(repo?: string): Promise<DiscoveredModel[]> {
     if (attempt > 0) await Bun.sleep(opencodeShell.retryDelayMs);
     const r = await opencodeApi("GET", `/api/model${where}`);
     data = Array.isArray(r?.data) ? r.data : [];
+    if (r === null) break; // the CLI did not answer; a retry would only wait again
   }
   return data
     .filter(

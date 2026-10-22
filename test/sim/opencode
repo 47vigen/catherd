@@ -32,6 +32,7 @@ if (args[0] === "reload") {
 if (args[0] === "api") {
   if (v1) help();
   if (s.apiHangMs) await Bun.sleep(s.apiHangMs);
+  if (s.apiCallsTo) appendFileSync(s.apiCallsTo, "x");
   if (s.apiFails) {
     process.stderr.write("error: could not reach the opencode service\n");
     process.exit(1);

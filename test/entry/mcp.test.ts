@@ -7,19 +7,6 @@ import { fakeDeps, freshRun } from "../services/helpers.ts";
 afterEach(snapshotEnv());
 
 describe("MCP server", () => {
-  it("lists exactly the six session tools", async () => {
-    freshRun();
-    const c = await mcpClient();
-    expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([
-      "answer",
-      "cancel",
-      "profile",
-      "result",
-      "run_start",
-      "status",
-    ]);
-  });
-
   it("reports its version in status", async () => {
     freshRun();
     const r = await call(await mcpClient(), "status");

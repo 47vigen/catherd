@@ -12,7 +12,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LAUNCHER, mcpHandshake } from "../../src/entry/mcp/handshake.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { bunOnlyBin, snapshotEnv, withHome } from "../helpers.ts";
 import * as codexQueue from "../../src/infra/codex-queue.ts";
 import { type Notifier } from "../../src/services/notifier.ts";
 import * as notifier from "../../src/services/notifier.ts";
@@ -229,7 +229,7 @@ describe("doctor's MCP handshake (spec 1.1 §12)", () => {
     // the server reconciles every run it can see: give it a catherd home of its own, never the developer's
     withHome();
     // test/bin/catherd is this checkout: the launcher takes it for the global install
-    process.env.PATH = `${BIN}:${join(process.execPath, "..")}:/usr/bin:/bin`;
+    process.env.PATH = `${BIN}:${bunOnlyBin()}:/usr/bin:/bin`;
     process.env.ANTHROPIC_API_KEY = "";
     const h = await mcpHandshake();
     expect(h.ok).toBe(true);

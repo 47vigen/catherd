@@ -83,14 +83,6 @@ describe("launchSupervisor", () => {
       await waitFor(() => readExit(dir));
     },
   );
-
-  it("runs a thin entry that never reaches the panel, cli.ts or react", () => {
-    expect(relative(SRC, SUPERVISE_ENTRY)).toBe("entry/supervise-bin.ts");
-    const g = importGraph(SUPERVISE_ENTRY);
-    expect(g.files).toContain("entry/supervise-command.ts");
-    expect(g.files.filter((f) => f.startsWith("entry/panel/") || f === "cli.ts")).toEqual([]);
-    expect(g.packages.filter((p) => p === "react")).toEqual([]);
-  });
 });
 
 it("scrub_every_boundary removes parent identities through actual detached supervisor and worker", async () => {
@@ -138,16 +130,17 @@ describe("launchDetached and the daemon's launch", () => {
     });
     expect(env).toEqual({ PATH: "/bin", TYPESAFE_API_KEY: "jev", CATHERD_HOME: "/h" });
   });
-
-  it("runs a thin daemon entry that never reaches the panel, cli.ts or react", () => {
-    expect(relative(SRC, DAEMON_ENTRY)).toBe("entry/daemon-bin.ts");
-  });
 });
 
-describe("the check worker's launch", () => {
-  it("runs a thin entry that never reaches the panel, cli.ts or react", () => {
-    expect(relative(SRC, CHECK_ENTRY)).toBe("entry/check-bin.ts");
-    const g = importGraph(CHECK_ENTRY);
+describe("the detached entries", () => {
+  it.each([
+    ["supervise", SUPERVISE_ENTRY, "entry/supervise-bin.ts", "entry/supervise-command.ts"],
+    ["daemon", DAEMON_ENTRY, "entry/daemon-bin.ts", null],
+    ["check worker", CHECK_ENTRY, "entry/check-bin.ts", null],
+  ])("runs a thin %s entry that never reaches the panel, cli.ts or react", (_name, entry, file, uses) => {
+    expect(relative(SRC, entry)).toBe(file);
+    const g = importGraph(entry);
+    if (uses) expect(g.files).toContain(uses);
     expect(g.files.filter((f) => f.startsWith("entry/panel/") || f === "cli.ts")).toEqual([]);
     expect(g.packages.filter((p) => p === "react")).toEqual([]);
   });

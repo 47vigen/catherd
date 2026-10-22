@@ -23,7 +23,7 @@ import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
 import { activate, createProfile, patchProfile } from "../../src/services/profile-service.ts";
 import { configFile, profilesDir, projectsFile } from "../../src/services/profile-store.ts";
 import { fakeFetch } from "../fake-fetch.ts";
-import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { bunOnlyBin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { type CodexScenario, withScenario } from "../sim/scenario.ts";
 import {
   type CursorScenario,
@@ -78,7 +78,7 @@ function machine(
   const bin = binDir();
   for (const b of o.bins ?? ["codex", "claude", "opencode"]) symlinkSync(join(SIM, b), join(bin, b));
   if (o.agentBrowser !== false) writeFileSync(join(bin, "agent-browser"), "#!/bin/sh\n", { mode: 0o755 });
-  process.env.PATH = `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  process.env.PATH = `${bin}:${bunOnlyBin()}:/usr/bin:/bin`;
   process.env.CATHERD_PROBE_URL = `http://127.0.0.1:${ping.port}/-/ping`;
   process.env.CATHERD_PROBE_DOCKER = "catherd-no-docker";
   Object.assign(

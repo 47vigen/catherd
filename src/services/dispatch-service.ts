@@ -19,7 +19,7 @@ import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { admit, KILL_GRACE_MS, laneFile, laneOwns, launch } from "./admission.ts";
+import { admit, killLimits, laneFile, laneOwns, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
 import {
   type Dispatch,
@@ -746,8 +746,8 @@ export const unsettledLimits = (run: Run): { d: Dispatch; record: RunRecord }[] 
   });
 };
 
-/** How long an orphaned worker gets between SIGTERM and SIGKILL; tests shorten it. */
-export const orphanLimits = { killGraceMs: KILL_GRACE_MS };
+/** How long an orphaned worker gets between SIGTERM and SIGKILL; the same limit a live worker's supervisor gets. */
+export const orphanLimits = killLimits;
 
 /**
  * A worker whose supervisor died has no one to read the cancel file: stop its group here (SIGTERM, then

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -7,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,15 +60,35 @@ export function withHome(o: { index?: boolean } = {}): string {
  */
 export const tempDir = (prefix: string): string => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 
-/** A fresh git repo with one commit, for runner and snapshot tests. */
+let bunBin: string | undefined;
+
+/**
+ * A folder holding only `bun` and `bunx`, for a PATH that must find bun and nothing else: bun's own folder can be
+ * /opt/homebrew/bin, which also has the developer's real claude, codex, opencode and gh.
+ */
+export function bunOnlyBin(): string {
+  if (!bunBin) {
+    bunBin = tempDir("catherd-bun-bin-");
+    for (const name of ["bun", "bunx"]) symlinkSync(process.execPath, join(bunBin, name));
+  }
+  return bunBin;
+}
+
+let repoTemplate: string | undefined;
+
+/** A fresh git repo with one commit, for runner and snapshot tests: a copy of one template built per process. */
 export function tempRepo(): string {
+  if (!repoTemplate) {
+    repoTemplate = tempDir("catherd-repo-template-");
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repoTemplate, stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    // a CI runner has no global identity, and the daemon commits with whatever the repo gives it
+    git("config", "user.name", "t");
+    git("config", "user.email", "t@t");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  }
   const dir = tempDir("catherd-repo-");
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
-  git("init", "-q", "-b", "main");
-  // a CI runner has no global identity, and the daemon commits with whatever the repo gives it
-  git("config", "user.name", "t");
-  git("config", "user.email", "t@t");
-  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  cpSync(repoTemplate, dir, { recursive: true });
   return dir;
 }
 
