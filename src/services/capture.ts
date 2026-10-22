@@ -134,7 +134,7 @@ async function runOnce(
     stderr,
     exit: {
       code: p.signalCode ? null : code,
-      signal: p.signalCode ?? null,
+      signal: p.signalCode == null ? null : String(p.signalCode),
       reason: timedOut ? "wall-timeout" : "exited",
       endedAt: new Date().toISOString(),
     },
