@@ -29,16 +29,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      static: ${{ steps.diff.outputs.static }}
+      web: ${{ steps.diff.outputs.web }}
+      package: ${{ steps.diff.outputs.package }}
+      audit: ${{ steps.diff.outputs.audit }}
+      skills: ${{ steps.diff.outputs.skills }}
+      workflows: ${{ steps.diff.outputs.workflows }}
       release: ${{ steps.diff.outputs.release }}
       full: ${{ steps.diff.outputs.full }}
     steps:
-      # code = anything the tests, the typecheck or the package read. Docs, specs, plans, ideas and changesets are
-      # not code. A PR is judged by its files, a push from release.yml by its diff (a compare that hits the API's
-      # 300-file cap counts as code), and a nightly or manual run is code. The release PR is not code either, but
-      # only when it is this repository's own changeset-release/main (a fork can take the name) and it touches only
-      # what `bun run version-packages` writes: version stamps, CHANGELOG and removed changesets. Its package job
-      # still packs and runs the new version. A failed file listing fails the job, so the gate never passes on a
-      # guess. A rename counts under both of its paths.
+      # Each job runs only when a change can break it. A PR is judged by its files, a push from release.yml by its
+      # diff (a compare that hits the API's 300-file cap counts as everything), and a nightly, a manual run or a
+      # list that is empty is everything. A failed file listing fails the job, so the gate never passes on a guess.
+      # A rename counts under both of its paths.
+      #   code      the tests, the typecheck, lint: src, test, catalog, scripts, the manifest, lockfile, tool configs
+      #   static    the format check: everything but docs/ (oxfmt ignores it) and workflows other than this one
+      #   web       the panel: web/, and what its e2e server imports (src/, test/helpers.ts, its own server)
+      #   package   what npm pack ships and checks: plugin, web, scripts, manifest, lockfile, notices
+      #   audit     only a manifest or lockfile change can add a vulnerable dependency
+      #   skills    plugin/, scorecard/ and the plugin manifest: tests that read repo files outside src/
+      #   workflows .github/: actionlint
+      # The release PR is not code, but only when it is this repository's own changeset-release/main (a fork can
+      # take the name) and it touches only what `bun run version-packages` writes: version stamps, CHANGELOG and
+      # removed changesets. Its package job still packs and runs the new version.
       - id: diff
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,31 +60,43 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BEFORE: ${{ github.event.before }}
         run: |
-          code=true release=false full=false files=''
+          full=false files=''
           case "$GITHUB_EVENT_NAME" in schedule | workflow_dispatch) full=true ;; esac
           if [ -n "$PR" ]; then
             files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate -q '.[] | .filename, .previous_filename // empty')
           elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "${BEFORE//0/}" ]; then
             files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" \
-              -q 'if (.files | length) >= 300 then "src/" else .files[] | .filename, .previous_filename // empty end')
+              -q 'if (.files | length) >= 300 then "*" else .files[] | .filename, .previous_filename // empty end')
           fi
-          if [ -n "$files" ]; then
+          any() { grep -qE "$1" <<<"$files" && echo true || echo false; }
+          release=false
+          if [ "$full" = true ] || [ -z "$files" ] || [ "$files" = '*' ]; then
+            code=true static=true web=true package=true audit=true skills=true workflows=true
+          else
+            code=$(any '^(src|test|catalog|scripts)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json)$')
+            web=$(any '^(web|src)/|^test/(helpers|panel-e2e-serve)\.ts$|^(package\.json|bun\.lock)$')
+            package=$(any '^(plugin|scripts|web|\.claude-plugin)/|^(package\.json|bun\.lock|THIRD_PARTY_NOTICES\.md|LICENSE)$')
+            audit=$(any '^(package\.json|bun\.lock)$')
+            skills=$(any '^(plugin|scorecard|\.claude-plugin)/')
+            workflows=$(any '^\.github/')
+            static=false
+            if grep -qvE '^(docs/|\.github/)' <<<"$files" || grep -qE '^\.github/(workflows/ci\.yml|actions/)' <<<"$files"; then
+              static=true
+            fi
             stamped='^(\.changeset/[^/]+\.md|CHANGELOG\.md|package\.json|\.claude-plugin/marketplace\.json|plugin/\.claude-plugin/plugin\.json|plugin/bin/catherd-mcp|plugin/skills/catherd/SKILL\.md)$'
             if [ "$HEAD_REF" = changeset-release/main ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] &&
               ! grep -qvE "$stamped" <<<"$files"; then
-              code=false release=true
-            elif ! grep -qE '^(src|test|catalog|plugin|scripts|web|\.github|\.claude-plugin)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.oxfmtrc\.json|THIRD_PARTY_NOTICES\.md|LICENSE)$' <<<"$files"; then
-              code=false
+              code=false web=false audit=false skills=false workflows=false package=true release=true
             fi
           fi
-          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
-          echo "release=$release" | tee -a "$GITHUB_OUTPUT"
-          echo "full=$full" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "code=$code" "static=$static" "web=$web" "package=$package" "audit=$audit" \
+            "skills=$skills" "workflows=$workflows" "release=$release" "full=$full" | tee -a "$GITHUB_OUTPUT"
 
-  # one runner, one install: oxfmt also checks the Markdown and YAML outside docs/, so even a docs-only PR runs the
-  # format check (typecheck and lint only when code changed)
+  # one runner, one install: oxfmt also checks the Markdown and YAML outside docs/, so a PR that touches them runs
+  # the format check even without code (typecheck and lint only when code changed). A PR of docs/ alone skips it.
   static:
     needs: changes
+    if: needs.changes.outputs.static == 'true'
     name: static · format, types, lint
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +124,20 @@ jobs:
       - uses: ./.github/actions/setup
       - run: bun scripts/test-shard.ts ${{ matrix.shard }} ${{ strategy.job-total }}
 
+  # a change to the plugin, the skills or the scorecard fixtures reaches only the tests that read those files; with
+  # code changed too, the shards already run them
+  plugin:
+    needs: changes
+    if: needs.changes.outputs.skills == 'true' && needs.changes.outputs.code != 'true' && needs.changes.outputs.full != 'true'
+    name: test · plugin and skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: >-
+          bun test test/skills.test.ts test/plugin.test.ts test/wait-residue.test.ts test/scorecard-fixtures.test.ts
+          test/scorecard-shim.test.ts test/entry/plugin-packaging.test.ts test/entry/mcp-handshake.test.ts
+
   # the nightly and manual run: the whole suite in one process. macOS because most users run catherd there (process
   # groups and paths differ); Linux with the coverage floor over src/, which needs the one process.
   full:
@@ -124,7 +163,7 @@ jobs:
   # the panel (web/): its own gate, one build, and the e2e against a seeded server (no model, no daemon, no backend)
   web:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.web == 'true'
     name: web · gate and e2e
     runs-on: ubuntu-latest
     steps:
@@ -150,7 +189,7 @@ jobs:
 
   package:
     needs: changes
-    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.release == 'true'
+    if: needs.changes.outputs.package == 'true'
     name: package · audit and npm pack smoke
     runs-on: ubuntu-latest
     steps:
@@ -158,6 +197,7 @@ jobs:
       - uses: ./.github/actions/setup
       # a finding fails the job; npm's advisory service being down (5xx or no answer) is a warning, not a block
       - name: dependency audit (spec §12)
+        if: needs.changes.outputs.audit == 'true'
         timeout-minutes: 8
         run: |
           for _ in 1 2 3; do
@@ -172,10 +212,19 @@ jobs:
       - name: npm pack smoke (spec §12)
         run: bun test/pack-smoke.ts
 
+  actionlint:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+
   # the required status check: green when every job that ran passed, so a docs-only PR is never blocked
   ci:
     name: ci
-    needs: [changes, static, test, full, web, package]
+    needs: [changes, static, test, plugin, full, web, package, actionlint]
     if: always()
     runs-on: ubuntu-latest
     steps:
