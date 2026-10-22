@@ -4,6 +4,7 @@ import type { BillingMode } from "../domain/cost.ts";
 import type { Access, ExitInfo, RunStatus, Tokens } from "../domain/record.ts";
 import type { CliResult } from "./cli.ts";
 import type { RoleMcpContext } from "../domain/role-tools.ts";
+import type { TranscriptItem } from "../domain/transcript.ts";
 type AdapterId = (typeof ADAPTER_IDS)[number];
 
 export interface Probe {
@@ -145,6 +146,8 @@ export interface BackendAdapter {
   }): Promise<void>;
   plan(req: RunRequest): SpawnPlan;
   parse(line: string): EventDelta;
+  /** One stream line as transcript items (the panel's role view); absent: the line shows raw. */
+  transcript?(line: string, n: number): TranscriptItem[];
   finalize(run: FinishedRun): Outcome;
   /**
    * Spec §6.3: the backend's own account of a finished session, for a stream that undercounts. Returns

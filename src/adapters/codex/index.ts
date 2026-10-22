@@ -18,6 +18,7 @@ import {
 } from "../backend.ts";
 import { type CliResult, runCli } from "../cli.ts";
 import { scratchShell, writableRoots } from "../access.ts";
+import { codexTranscript } from "./transcript.ts";
 import { CODEX_LIMIT, CODEX_TOO_OLD, foldCodexEvents, parseCodexLine } from "./events.ts";
 
 /** The item types that are a tool call running, as the idle watchdog counts them. */
@@ -286,6 +287,7 @@ export const codexAdapter: BackendAdapter = {
       ...(f.tooOld ? { tooOld: true } : {}),
     };
   },
+  transcript: codexTranscript,
   finalize,
   enforcement: { "read-only": "enforced", "workspace-write": "enforced", full: "enforced" },
   errors: { limit: CODEX_LIMIT, tooOld: CODEX_TOO_OLD },
