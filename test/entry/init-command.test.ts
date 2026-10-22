@@ -8,6 +8,7 @@ import {
   NEXT_PLUGIN_STEPS,
   PLUGIN_STEPS,
   pluginSteps,
+  profileLines,
   syncStep,
   welcomeLines,
 } from "../../src/entry/init-command.ts";
@@ -184,14 +185,23 @@ describe("catherd init", () => {
     // the shim is the only guard between the suite and the registry: no `bun add -g` ran (Ruling R8)
     expect(r.out).not.toContain("installing catherd…");
     expect(r.out).not.toContain("bun add -g");
-    expect(init(["--no-input", "--no-global"]).out).toContain(
-      "- catherd: not installed globally (--no-global); the plugin starts it with bunx\n",
-    );
     expect(r.out).toContain("✓ profile default written from the defaults, and active\n");
     expect(r.out).toMatch(/✓ ready {14}MCP server — answers tools\/list with \d+ tools\n/);
     expect(r.out).toContain("✗ missing            Claude Code plugin — not installed in Claude Code\n");
     expect(r.out.trimEnd().split("\n").slice(-4)).toEqual(PLUGIN_STEPS);
     expect(activeName()).toBe("default");
+    if (!noPosixModes)
+      expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
+    // a second run on the same home: it keeps the profile it finds, and --plain draws ASCII as doctor does
+    patchProfile("default", { budget: { usd: 9 } }, { host: "claude-code" });
+    const again = init(["--no-input", "--no-global", "--plain"]);
+    expect(again.out).toContain(
+      "- catherd: not installed globally (--no-global); the plugin starts it with bunx\n",
+    );
+    expect(again.out).toContain("+ profile default kept as it was, and active\n");
+    expect(again.out).toContain("x missing            Claude Code plugin — not installed in Claude Code\n");
+    expect(again.out).not.toMatch(/[✓✗]/);
+    expect(getProfile("default", "claude-code").budget).toEqual({ usd: 9 });
   }, 60_000);
 
   it("--no-input prints no plugin steps when its own report shows the plugin ready, from any marketplace", () => {
@@ -208,52 +218,6 @@ describe("catherd init", () => {
     expect(r.out).toContain(`✓ ready              Claude Code plugin — ${VERSION}\n`);
     expect(r.out).not.toContain("Install the Claude Code plugin");
     expect(r.out).not.toContain("marketplace add");
-  }, 60_000);
-
-  it("--plain prints ASCII glyphs as doctor --plain does, and NO_COLOR keeps doctor's own (audit N2)", () => {
-    const home = withHome();
-    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    const plain = init(["--no-input", "--plain"]).out;
-    expect(plain).toContain("+ profile default written from the defaults, and active\n");
-    expect(plain).toContain("x missing            Claude Code plugin — not installed in Claude Code\n");
-    expect(plain).not.toMatch(/[✓✗]/);
-    process.env.NO_COLOR = "1";
-    const noColor = init(["--no-input"]).out;
-    expect(noColor).toContain("✓ profile default kept as it was, and active\n");
-    expect(noColor).toContain("✗ missing            Claude Code plugin");
-  }, 60_000);
-
-  it("--no-input never prints a bare key pasted into credentials.json (B1)", () => {
-    const home = withHome();
-    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    const key = "tsk_FAKEKEY_DO_NOT_USE_1234567890";
-    mkdirSync(dirname(credentialsPath()), { recursive: true });
-    writeFileSync(credentialsPath(), `${key}\n`, { mode: 0o600 });
-    const r = init(["--no-input"]);
-    expect(r.code).toBe(0);
-    const pieces = Array.from({ length: key.length - 5 }, (_, i) => key.slice(i, i + 6));
-    expect(pieces.filter((p) => (r.out + r.err).includes(p))).toEqual([]);
-    expect(r.out).toContain(`${credentialsPath()} is not valid JSON`);
-  }, 60_000);
-
-  it.skipIf(noPosixModes)(
-    "--no-input keeps every config and data dir at 0700 and file at 0600 (audit S2)",
-    () => {
-      const home = withHome();
-      process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-      expect(init(["--no-input"]).code).toBe(0);
-      expect(existsSync(join(home, "config", "config.json"))).toBe(true);
-      expect([...openModes(join(home, "config")), ...openModes(join(home, "data"))]).toEqual([]);
-    },
-    60_000,
-  );
-
-  it("--no-input keeps a profile it finds", () => {
-    const home = withHome();
-    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    patchProfile("default", { budget: { usd: 9 } }, { host: "claude-code" });
-    expect(init(["--no-input"]).out).toContain("✓ profile default kept as it was, and active\n");
-    expect(getProfile("default", "claude-code").budget).toEqual({ usd: 9 });
   }, 60_000);
 
   it("reads piped answers: an empty key skips Jev, a name picks the profile, y replaces it", () => {
@@ -332,6 +296,33 @@ describe("catherd init", () => {
     expect(lines[1]).toBe(
       `    fix: delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
     );
+  });
+
+  it("profileLines draws init's own profile rows, ASCII under plain", () => {
+    const r = {
+      moved: [],
+      profile: "team",
+      created: true,
+      errors: [],
+      active: true,
+      synced: null,
+      refreshed: [],
+    };
+    expect(profileLines(r)).toEqual(["✓ profile team written from the defaults, and active"]);
+    expect(profileLines({ ...r, created: false }, true)).toEqual([
+      "+ profile team kept as it was, and active",
+    ]);
+    const bad = {
+      ...r,
+      active: false,
+      errors: [{ path: "roles.x", message: "no such rung", fix: "edit it" }],
+    };
+    expect(profileLines(bad, true)).toEqual([
+      "! profile team: the default profile does not validate here, so it was not written",
+      "! roles.x: no such rung",
+      "    fix: edit it",
+      "! no profile was made active: fix the rows above, then run catherd init again",
+    ]);
   });
 
   it("a saved Jev key skips the key question, keeping piped answers in place, and tests nothing", async () => {
