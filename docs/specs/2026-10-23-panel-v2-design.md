@@ -55,7 +55,8 @@ and act. Any user, at any level of knowledge, can follow a run and use catherd f
   `127.0.0.1` only; the one-time token login; OpenAPI generated from zod.
 - Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`).
 - Tests never touch the network or real CLIs.
-- New runtime dependencies for the UI only: `@xyflow/react` (React Flow) and `elkjs` (layout). Provider logos are
+- New runtime dependencies for the UI only: `@xyflow/react` (React Flow), `elkjs` (layout) and `react-markdown` +
+  `remark-gfm` (rendered prompts, plans and reports; raw HTML stays escaped). Provider logos are
   bundled SVGs (simple-icons, CC0 or the vendor's published mark), no icon runtime package.
 
 ## What exists to build on (verified 2026-10-23)
