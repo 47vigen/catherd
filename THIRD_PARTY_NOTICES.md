@@ -7,6 +7,7 @@ catherd's panel (`web/`) is derived from remora's `web/` (<https://github.com/47
 These files in `web/src` are derived from Bifrost's `ui/` source and carry a header naming the file they come from.
 They were copied once and modified; they are not kept in sync.
 
+- `web/src/components/provider-icon/marks.tsx`
 - `web/src/lib/live-socket.ts`
 - `web/src/lib/live-socket.test.ts`
 - `web/src/routes/_app/runs/-hooks/useLiveRun.ts`

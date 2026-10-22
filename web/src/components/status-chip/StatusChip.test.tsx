@@ -18,6 +18,9 @@ test.each([
   ["cancelled", "default", "Cancelled"],
   ["skip", "default", "Skip"],
   ["info", "default", "Info"],
+  ["pending", "default", "Pending"],
+  ["skipped", "default", "Skipped"],
+  ["paused", "warning", "Paused"],
 ] as const)("%s uses HeroUI color %s", (status, color, label) => {
   const { container } = render(<StatusChip status={status} />);
   const chip = container.querySelector('[data-slot="chip"]');

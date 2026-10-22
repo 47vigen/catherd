@@ -15,7 +15,10 @@ export type Status =
   | "warn"
   | "fail"
   | "skip"
-  | "info";
+  | "info"
+  | "pending"
+  | "skipped"
+  | "paused";
 
 type ChipColor = "success" | "warning" | "danger" | "default";
 
@@ -35,6 +38,9 @@ const COLORS: Record<Status, ChipColor> = {
   cancelled: "default",
   skip: "default",
   info: "default",
+  pending: "default",
+  skipped: "default",
+  paused: "warning",
 };
 
 const DOT: Record<ChipColor, string> = {
