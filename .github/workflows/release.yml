@@ -15,7 +15,8 @@ on:
     branches: [main, beta, 1.x]
 
 # never cancel: a cancelled run could stop halfway through a publish
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# 1.x shares main's group, so a 1.x publish never reads npm's latest while a main release is publishing.
+concurrency: ${{ github.workflow }}-${{ github.ref_name == '1.x' && 'refs/heads/main' || github.ref }}
 
 permissions:
   contents: write
