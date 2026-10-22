@@ -152,8 +152,19 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      # a finding fails the job; npm's advisory service being down (5xx or no answer) is a warning, not a block
       - name: dependency audit (spec §12)
-        run: bun audit --audit-level=high
+        timeout-minutes: 8
+        run: |
+          for _ in 1 2 3; do
+            code=0
+            timeout 120 bun audit --audit-level=high >audit.log 2>&1 || code=$?
+            cat audit.log
+            [ "$code" = 0 ] && exit 0
+            if ! grep -qE 'advisories/bulk - 5[0-9][0-9]' audit.log && [ "$code" != 124 ]; then exit "$code"; fi
+            sleep 20
+          done
+          echo "::warning::npm's advisory service did not answer; the dependency audit was skipped"
       - name: npm pack smoke (spec §12)
         run: bun test/pack-smoke.ts
 
