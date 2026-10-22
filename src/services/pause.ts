@@ -3,9 +3,12 @@ import { CatherdError } from "../domain/errors.ts";
 import type { Span } from "../domain/util.ts";
 import { dataDir } from "../infra/paths.ts";
 import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
+import { readEvents } from "./run-events-store.ts";
+import type { Run } from "./run-store.ts";
+import { findWorkspace, workspaceDirectory } from "./workspace-store.ts";
+
 /** What a pause is checked against: a run, or a workspace step about to start one. */
 type Covered = { meta: { workspace?: { id: string; step: string } } };
-import { findWorkspace, workspaceDirectory } from "./workspace-store.ts";
 
 // Spec 1.5 plan 25, "Group pause": one environment blocker (a VPN, Docker down) pauses every run on the
 // machine, or every child of a workspace, at once: admission refuses with the reason until it is resumed.
@@ -119,13 +122,31 @@ export function pausesFor(run: Covered | null): Pause[] {
   return out;
 }
 
-/** Every stretch the machine, or the run's workspace, was paused, in epoch ms: `land` leaves them out. */
-export function pauseSpans(run: Covered): Span[] {
+/** Every stretch the owner paused this run itself (`run.paused` to `run.resumed`), in epoch ms; none for a 1.5 run. */
+export function runPauseSpans(run: Run): Span[] {
+  const out: Span[] = [];
+  for (const e of readEvents(run)) {
+    const open = out.at(-1);
+    if (e.type === "run.paused" && (!open || open.to !== null))
+      out.push({ from: Date.parse(e.at), to: null });
+    else if (e.type === "run.resumed" && open && open.to === null) open.to = Date.parse(e.at);
+  }
+  return out;
+}
+
+/** Every stretch the machine, the run's workspace or the run itself was paused, in epoch ms: `land` and the budget leave them out. */
+export function pauseSpans(run: Run): Span[] {
   const id = run.meta.workspace?.id;
   const files = [machinePauseFile(), ...(id ? [workspacePauseFile(id)] : [])];
-  return files.flatMap((f) =>
-    pauseIntervals(f).map((p) => ({ from: Date.parse(p.from), to: p.to === null ? null : Date.parse(p.to) })),
-  );
+  return [
+    ...files.flatMap((f) =>
+      pauseIntervals(f).map((p) => ({
+        from: Date.parse(p.from),
+        to: p.to === null ? null : Date.parse(p.to),
+      })),
+    ),
+    ...runPauseSpans(run),
+  ];
 }
 
 /** The pauses in force over any of `runs`, each once, the machine's first. */

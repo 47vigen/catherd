@@ -5,6 +5,8 @@ import { type Budget, type BudgetStatus, budgetStatus, type Spend } from "../dom
 import { CatherdError } from "../domain/errors.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { dispatchPaths } from "../infra/dispatch-dir.ts";
+import { coveredMs } from "../domain/util.ts";
+import { pauseSpans } from "./pause.ts";
 import { type Dispatch, liveDispatches } from "./dispatches.ts";
 import { readAgentRuns, readRecords, type Run } from "./run-store.ts";
 
@@ -51,9 +53,10 @@ export function spendOf(
     )
       throw new CatherdError("E_RUN_CORRUPT", `run ${run.id} has invalid cost or token usage`);
   }
+  const from = Date.parse(run.meta.createdAt);
   const sum = <T>(xs: T[], f: (x: T) => number) => xs.reduce((n, x) => n + f(x), 0);
   return {
-    minutes: Math.max(0, (now - Date.parse(run.meta.createdAt)) / 60_000),
+    minutes: Math.max(0, (now - from - coveredMs(from, now, pauseSpans(run))) / 60_000),
     tokens:
       sum(records, (r) => r.tokens.input + r.tokens.output) +
       sum(agents, (a) => a.totalTokens) +

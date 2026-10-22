@@ -63,6 +63,8 @@ export const RunViewSchema = z.object({
   holds: z.array(z.object({ quota: z.string(), until: z.string() })),
   /** the latest event, in one line */
   last: z.string().nullable(),
+  /** the start of the pause in force */
+  paused: z.string().nullable(),
   startedAt: z.string(),
   updatedAt: z.string(),
 });
@@ -128,6 +130,7 @@ function view15(deps: Deps, run: Run): RunView {
     })),
     holds: [],
     last: null,
+    paused: null,
     startedAt: run.meta.createdAt,
     updatedAt: run.meta.createdAt,
   };
@@ -171,6 +174,7 @@ export function runView(deps: Deps, runId: string): RunView {
     parked: parkedOf(run, s),
     holds: Object.entries(s.holds).map(([quota, until]) => ({ quota, until })),
     last: last ? describeEvent(last, (id) => s.dispatches[id]?.rung) : null,
+    paused: s.paused,
     startedAt: run.meta.createdAt,
     updatedAt: last?.at ?? run.meta.createdAt,
   };
