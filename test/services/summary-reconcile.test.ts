@@ -50,7 +50,7 @@ describe("reviving a daemon", () => {
     await report.done;
   });
 
-  it("revives a dead daemon from the CLI and TUI summary, and says nothing for a 1.5 run", async () => {
+  it("revives a dead daemon from the run summary, and says nothing for a 1.5 run", async () => {
     const { repo, run: old } = freshRun("old");
     const live = createRun({ repo, title: "live", aLines: [], version: "0.0.0-test" });
     await appendEvent(live, { type: "run.started", ...startedFields });

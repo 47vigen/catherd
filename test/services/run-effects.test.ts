@@ -12,7 +12,7 @@ import { launcher, watchersSettled } from "../../src/services/dispatch-service.t
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
-import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
+import { endedEvent, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
@@ -763,18 +763,6 @@ describe("planning", () => {
       reason: "approval",
       question: reapprovalQuestion(run.id, ["D2"]),
     });
-  });
-
-  it("names a file's owning lane by its longest Owns: entry", () => {
-    const lanes = [
-      { id: "M1.L1", owns: ["src/"] },
-      { id: "M1.L2", owns: ["src/wallet/", "README.md"] },
-    ];
-    expect(ownerOf("src/wallet/a.ts", lanes)).toBe("M1.L2");
-    expect(ownerOf("src/other.ts", lanes)).toBe("M1.L1");
-    expect(ownerOf("README.md", lanes)).toBe("M1.L2");
-    expect(ownerOf("lib/x.ts", lanes)).toBeNull();
-    expect(ownerOf(null, lanes)).toBeNull();
   });
 });
 

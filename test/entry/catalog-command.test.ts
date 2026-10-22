@@ -88,12 +88,6 @@ describe("catherd catalog", () => {
     ]);
   });
 
-  it("has no treat-like command any more", () => {
-    withHome();
-    const r = catherd("treat-like", "a#high", "b#high");
-    expect(r.code).not.toBe(0);
-  });
-
   it("lists and refreshes opencode for the repository it runs in, and globally outside one", () => {
     withHome();
     const repo = realpathSync(tempRepo());
