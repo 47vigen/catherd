@@ -27,6 +27,20 @@ export const PLUGIN_STEPS = [
   "Then start a new Claude Code session, so it loads the plugin and the catherd agents.",
 ];
 
+/** The same, for a pre-release build: its plugin comes from the next channel's marketplace. */
+export const NEXT_PLUGIN_STEPS = [
+  "Install the Claude Code plugin:",
+  "  claude plugin marketplace add https://github.com/47vigen/catherd.git#plugin-next",
+  "  claude plugin install catherd@catherd-next",
+  "Then start a new Claude Code session, so it loads the plugin and the catherd agents.",
+];
+
+/** What init prints last: nothing for a plugin that is ready, else the install steps of this version's channel. */
+export function pluginSteps(ready: boolean, version: string): string[] {
+  if (ready) return [];
+  return version.includes("-") ? NEXT_PLUGIN_STEPS : PLUGIN_STEPS;
+}
+
 /** Spec §9.3: the full mascot greets `init` nowhere else. */
 export function welcomeLines(version: string): string[] {
   const [ears, face, paws] = mascot("good");
@@ -206,7 +220,9 @@ export const initCommand = defineCommand({
       });
       for (const l of formatReport(report, plain)) console.log(l);
       console.log("");
-      for (const l of terminalHost(args.host).host === "claude-code" ? PLUGIN_STEPS : []) console.log(l);
+      const ready = report.checks.some((c) => c.id === "plugin" && c.state === "ok");
+      if (terminalHost(args.host).host === "claude-code")
+        for (const l of pluginSteps(ready, VERSION)) console.log(l);
     } finally {
       ask?.close();
     }
