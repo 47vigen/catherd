@@ -86,4 +86,22 @@ describe("lintLanes (plan 34)", () => {
     expect(lintLanes(landed, known, ["M0"]).stuck).toEqual([]);
     expect(lintLanes(landed, known, []).stuck).toHaveLength(1);
   });
+
+  it("reads a bare milestone After: (plan 35): fine when finished, a stop when not, unknown is no lane", () => {
+    const known = ["M1.L1", "M2.L1"];
+    const dependent = [lane("M2.L1", ["b.ts"], ["M1"])];
+    expect(lintLanes(dependent, known, ["M1"]).stuck).toEqual([]);
+    expect(lintLanes(dependent, known, []).stuck).toEqual([
+      {
+        lane: "M2.L1",
+        note: "M2.L1: After: M1 is in milestone M1, which has not finished: this lane never starts",
+      },
+    ]);
+    expect(lintLanes([lane("M2.L1", ["b.ts"], ["M9"])], known, ["M1"]).stuck).toEqual([
+      { lane: "M2.L1", note: "M2.L1: After: M9 has no lane file" },
+    ]);
+    expect(lintLanes([lane("M2.L1", ["b.ts"], ["M2"])], known, ["M1"]).stuck).toEqual([
+      { lane: "M2.L1", note: "M2.L1: After: M2 is its own milestone: this lane never starts" },
+    ]);
+  });
 });

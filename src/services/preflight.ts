@@ -12,7 +12,7 @@ import { readGateEnv, resolveGateEnv } from "./gate-env.ts";
 import { landedMilestones } from "./milestones.ts";
 import { planDocs } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
-import { isDaemonRun } from "./run-events-store.ts";
+import { isDaemonRun, replayRun } from "./run-events-store.ts";
 import { TAIL_LINES } from "./run-debug.ts";
 import { findRun, type Run, runPaths } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
@@ -310,7 +310,12 @@ export async function preflight(
   const { warnings: lint, stuck } = lintLanes(
     lanes.flatMap((l) => (l.text === null ? [] : [{ id: l.lane, text: l.text }])),
     laneChecks(run).map((l) => l.lane),
-    [...landed],
+    // a base run's milestone starts after the ones it names are merged, not only landed (plan 35)
+    run.meta.base
+      ? replayRun(run)
+          .milestones.filter((m) => m.status === "merged")
+          .map((m) => m.id)
+      : [...landed],
   );
   // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
   if (isDaemonRun(run)) {
