@@ -31,15 +31,35 @@ bun run format:check
 bun test
 ```
 
-The existing historical CI configuration runs them once, on the pull request, and only when it touches code (`src/`, `test/`, `catalog/`, `plugin/`,
-`scripts/`, `.github/`, `package.json`, `bun.lock` or the tool configs): on Linux with Bun 1.4.0 and the latest Bun,
-and on macOS with the latest Bun. A nightly run on `main` adds macOS with Bun 1.4.0. A docs-only pull request runs
-only `format:check`. The required check is the `ci` job, which passes when every job that ran passed. One job also
-checks the coverage floor over `src/`:
+The existing historical CI configuration runs only what a change can break, once, on the pull request, on Linux with
+the latest Bun (`.github/workflows/ci.yml`; the `changes` job decides from the changed files):
+
+| Changed                                                                                             | Runs                                                                            |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `docs/` only                                                                                        | nothing                                                                         |
+| any other file (Markdown, YAML, JSON outside `docs/`)                                               | `format:check`                                                                  |
+| `src/`, `test/`, `catalog/`, `scripts/`, `package.json`, `bun.lock`, `bunfig.toml`, `tsconfig.json` | `typecheck`, `lint`, and `bun test` in 4 parallel shards                        |
+| `plugin/`, `scorecard/`, `.claude-plugin/` (without code)                                           | only the tests that read those files                                            |
+| `web/`, `src/`                                                                                      | the panel's gate and e2e                                                        |
+| `src/`, `package.json`, `bun.lock`, `plugin/`, `scripts/`, `web/`, `.claude-plugin/`                | `npm pack` smoke; the dependency audit only for the manifest or lockfile        |
+| `.github/`                                                                                          | `actionlint`; a change to `ci.yml` or the setup action also runs `format:check` |
+
+The required check is the `ci` job, which passes when every job that ran passed. The nightly run on `main`, and a
+manual run, do everything: the whole suite in one process on macOS, and on Linux with the coverage floor over
+`src/` (coverage needs one process):
 
 ```sh
 bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
 bun test/coverage-floor.ts coverage/lcov.info
+```
+
+The shards come from `scripts/test-shard.ts`, which balances the test files by `test/timings.json` (file to seconds;
+a file missing from it weighs the median). Run one locally with `bun scripts/test-shard.ts <index> <count>`. When the
+suite changes a lot, regenerate the timings:
+
+```sh
+bun test --reporter=junit --reporter-outfile=junit.xml
+bun scripts/test-timings.ts junit.xml   # rewrites test/timings.json
 ```
 
 Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun test/pack-smoke.ts`).
@@ -89,7 +109,7 @@ catherd" pull request is that step.
 1. A pull request with a changeset merges into `main`.
 2. The release workflow opens or updates the "chore: release catherd" pull request, which bumps the version, writes
    `CHANGELOG.md` and stamps both plugin manifests, the shared launcher and shared skill pins from the package version (`bun run version-packages`). Its CI is short: it checks the
-   format and runs the npm pack smoke on the new version, and skips the test matrix.
+   format and runs the npm pack smoke on the new version, and skips the tests.
 3. Merging it publishes `catherd-cli` to npm under `latest` (after the pack smoke, about a minute), pushes the
    `v<version>` tag, which the plugin marketplace serves, and creates a GitHub release.
 

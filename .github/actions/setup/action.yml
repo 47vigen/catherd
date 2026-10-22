@@ -1,0 +1,26 @@
+name: setup
+description: The latest Bun, its install cache, and a frozen install (and web/'s, when asked)
+
+inputs:
+  web:
+    description: install web/ as well
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+    # bun's global cache: a hit turns the install into links. Whichever job saves first holds the key.
+    - uses: actions/cache@v6
+      with:
+        path: ~/.bun/install/cache
+        key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
+        restore-keys: bun-${{ runner.os }}-
+    - run: bun install --frozen-lockfile
+      shell: bash
+    - if: inputs.web == 'true'
+      run: bun install --frozen-lockfile
+      shell: bash
+      working-directory: web

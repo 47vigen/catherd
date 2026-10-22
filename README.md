@@ -336,7 +336,7 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the checks on every pull request on Linux and macOS, with Bun 1.4.0 and the latest Bun (the full matrix nightly);
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the checks a change can break on every pull request, on Linux with the latest Bun (macOS and the coverage floor nightly);
 live verification is in [`docs/dev/live-verification.md`](docs/dev/live-verification.md). Report security issues
 privately, as [SECURITY.md](SECURITY.md) describes. Everyone taking part follows the
 [Code of Conduct](CODE_OF_CONDUCT.md).
