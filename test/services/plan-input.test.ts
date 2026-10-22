@@ -178,4 +178,16 @@ describe("a lane's tasks", () => {
     expect(planProblems(bare)).toContain('plan.md has no "## Contracts" section');
     expect(existsSync(join(run.dir, "plan.md"))).toBe(false);
   });
+
+  it("refuses a plan that leaves an A-line with no milestone, naming the missing ids", () => {
+    const { run } = freshRun();
+    writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core\n- A1 it works\n## M2 — docs\n- A3 x\n");
+    // the run's lines: A1 (owned by M1), A2 and A3 as the architect wrote them
+    run.meta.aLines = ["A1 it works", "A2 more", "A3 x", "plan: p.md"];
+    expect(planProblems(run).filter((p) => p.includes("under no milestone"))).toEqual([
+      "A2 is cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
+    ]);
+    writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core (A1, A2)\n## M2 — docs\n- A3 x\n");
+    expect(planProblems(run).filter((p) => p.includes("under no milestone"))).toEqual([]);
+  });
 });

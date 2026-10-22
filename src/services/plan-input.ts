@@ -132,9 +132,37 @@ export function milestoneTasks(run: Run, milestone: string): PlanTask[] {
   return [...seen.values()];
 }
 
+/** The `A<n>` id an A-line starts with (an owner line without one, like `plan: x`, has none). */
+export const aLineId = (line: string): string | undefined => /^\s*(A\d+)\b/.exec(line)?.[1];
+
+/** The `A<n>` ids plan.md's `## M<n>` section for `milestone` cites: its heading down to the next `## ` heading. */
+export function milestoneALines(plan: string, milestone: string): Set<string> {
+  const cited = new Set<string>();
+  let inside = false;
+  for (const line of plan.split("\n")) {
+    if (/^##\s/.test(line)) inside = new RegExp(`^##\\s+${milestone}\\b`).test(line);
+    if (inside) for (const m of line.matchAll(/\bA\d+\b/g)) cited.add(m[0]);
+  }
+  return cited;
+}
+
+/** The run's A<n> lines that no milestone section of plan.md cites: nothing ties a landed commit to them. */
+function unownedALines(run: Run): string[] {
+  const plan = read(runPaths(run.dir).plan);
+  if (plan === null) return [];
+  const owned = new Set(
+    [...plan.matchAll(/^##\s+(M\d+)\b/gm)].flatMap((m) => [...milestoneALines(plan, m[1] as string)]),
+  );
+  return run.meta.aLines.flatMap((l) => {
+    const id = aLineId(l);
+    return id && !owned.has(id) ? [id] : [];
+  });
+}
+
 /**
- * What the architect can fix: a lane that names no task or a missing one, and with no plan input plan.md's depth.
- * A task of the owner's plan with neither a signature nor a test is the owner's, and preflight refuses it.
+ * What the architect can fix: a lane that names no task or a missing one, an A-line no milestone owns, and with
+ * no plan input plan.md's depth. A task of the owner's plan with neither a signature nor a test is the owner's,
+ * and preflight refuses it.
  */
 export function planProblems(run: Run): string[] {
   const docs = planDocs(run);
@@ -142,6 +170,11 @@ export function planProblems(run: Run): string[] {
   const out = coverageProblems(docs, lanes)
     .filter((p) => p.lane !== "")
     .map((p) => p.note);
+  const unowned = unownedALines(run);
+  if (unowned.length)
+    out.push(
+      `${unowned.join(", ")} ${unowned.length > 1 ? "are" : "is"} cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line`,
+    );
   if (replayRun(run).plan.length === 0) out.push(...depthProblems(docs[0] ?? parsePlanDoc("plan.md", "")));
   return out;
 }

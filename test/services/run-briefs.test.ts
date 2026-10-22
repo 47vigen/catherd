@@ -214,6 +214,7 @@ describe("briefs", () => {
     const log = runningLog();
     const id = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, id, { name: "verifier-M1", unit: "M1", verdict: "fail" });
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — core\n- A1 it works\n");
     mkdirSync(join(run.dir, "roles", "verifier-M1", id), { recursive: true });
     writeFileSync(
       join(run.dir, "roles", "verifier-M1", id, "reply.md"),
@@ -226,6 +227,7 @@ describe("briefs", () => {
     );
     expect(text).toContain("VERDICT: PASS");
     expect(text).toContain(join(run.dir, "plan.md"));
+    expect(text).toContain("This milestone delivers A1: report each as `A<n> PASS|FAIL`");
     expect(text).toContain("- bun test src/a fails: 2 red");
   });
 
@@ -302,6 +304,9 @@ describe("briefs from the plan (plan 32)", () => {
       notes: ["The owner asked for these changes to plan.md: rename Ledger"],
     });
     expect(written).toContain("No plan was given: write plan.md to the depth your role text sets.");
+    expect(written).toContain(
+      "Every A-line above must be cited as A<n> under the milestone that delivers it",
+    );
     expect(written).toContain("The run waits for the owner's approval of it before any lane runs.");
     expect(written).toContain(
       "What to change:\n- The owner asked for these changes to plan.md: rename Ledger",

@@ -19,6 +19,7 @@ import {
   partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
+import { aLineId, milestoneALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
@@ -242,8 +243,13 @@ export function writeDigest(
   const m = i.milestone;
   const start = milestoneStart(run, m);
   const inM = (lane: string | null | undefined) => typeof lane === "string" && lane.startsWith(`${m}.`);
-  const named = new Set([...`${i.what} ${i.evidence}`.matchAll(/\bA(\d+)\b/g)].map((x) => `A${x[1]}`));
-  const aLines = run.meta.aLines.filter((a) => named.has(/^\s*(A\d+)/.exec(a)?.[1] ?? ""));
+  // cited in the milestone's title or evidence, or anywhere in its plan.md section
+  const planText = existsSync(runPaths(run.dir).plan) ? readFileSync(runPaths(run.dir).plan, "utf8") : "";
+  const named = new Set([
+    ...[...`${i.what} ${i.evidence}`.matchAll(/\bA\d+\b/g)].map((x) => x[0]),
+    ...milestoneALines(planText, m),
+  ]);
+  const aLines = run.meta.aLines.filter((a) => named.has(aLineId(a) ?? ""));
   const routes = readRoutes(run).filter((r) => inM(r.lane));
   const lanes = [...new Set(routes.map((r) => r.lane))].sort(byNumber).map((lane) => {
     const rows = routes.filter((r) => r.lane === lane);
