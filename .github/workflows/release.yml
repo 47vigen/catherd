@@ -95,6 +95,7 @@ jobs:
       - name: Publish a beta snapshot under the beta dist-tag
         id: beta
         if: github.ref_name == 'beta'
+        timeout-minutes: 15
         run: |
           bunx changeset version --snapshot beta
           version=$(node -p 'require("./package.json").version')
@@ -104,7 +105,8 @@ jobs:
           esac
           bun scripts/stamp-plugin-version.mjs
           bun test/pack-smoke.ts
-          bunx changeset publish --tag beta --no-git-tag
+          # npm itself, not changeset publish: changesets 3 waits at a prompt on the runner after listing the package
+          npm publish --tag beta --provenance --access public
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # The beta plugin: a commit of the stamped plugin, force-pushed to the plugin-beta branch, whose own
