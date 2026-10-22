@@ -7,7 +7,7 @@ import type { Issue } from "../domain/profile-rules.ts";
 import { configDir } from "../infra/paths.ts";
 import { type Refreshed, refreshDiscovery } from "./catalog-service.ts";
 import type { Synced } from "./agent-links.ts";
-import { activate, resetProfile, withProfilesLock } from "./profile-service.ts";
+import { activate, recordHost, resetProfile, withProfilesLock } from "./profile-service.ts";
 import {
   activeName,
   configFile,
@@ -98,6 +98,7 @@ export async function initSetup(o: {
   const repo =
     o.profile === undefined && o.repo && readProjects().bindings[o.repo] !== undefined ? o.repo : null;
   const synced = active ? activate(profile, repo, o.host.host) : null;
+  if (active) recordHost(o.host.host);
   const used = usedBackends(active ? [getProfile(profile, o.host.host)] : []);
   const backends =
     o.host.host === "codex" && !used.has("claude-code")

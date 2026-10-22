@@ -90,6 +90,18 @@ export function beat(run: Run, deps: Deps, seq: number): void {
   } satisfies Heartbeat);
 }
 
+/**
+ * The deps the daemon drives `run` with: the detached process has no host of its own, so its profile
+ * resolves on the host the run recorded (`startedBy`); a run no host started keeps the deps as they are.
+ */
+export function daemonDeps(deps: Deps, run: Run): Deps {
+  const host = run.meta.startedBy?.host;
+  if (!host) return deps;
+  const scoped: Deps = { ...deps, host: { host, session: null, conflict: null } };
+  scoped.profiles = deps.profiles.withHost?.(() => scoped.host) ?? deps.profiles;
+  return scoped;
+}
+
 export interface DaemonOptions {
   /** what carries the machine's actions out; the real services when absent */
   effects?: Effects;
@@ -110,11 +122,12 @@ const REAL_CLOCK: SuperviseClock = { now: () => Date.now(), sleep: (ms) => Bun.s
  * what never got its event.
  */
 export async function runDaemon(
-  deps: Deps,
+  daemonSide: Deps,
   runId: string,
   o: DaemonOptions = {},
 ): Promise<"ended" | "lost-lock"> {
   const run = findRun(runId);
+  const deps = daemonDeps(daemonSide, run);
   const release = tryLock(daemonLockTarget(run));
   if (!release) return "lost-lock";
   try {

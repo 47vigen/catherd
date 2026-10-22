@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { panelHost } from "../../src/entry/panel-command.ts";
+import { configFile } from "../../src/services/profile-store.ts";
+import { recordHost } from "../../src/services/profile-service.ts";
 import { SRC } from "../import-graph.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
@@ -80,5 +83,44 @@ describe("catherd panel", () => {
     const p = panel(["--no-open", "--port", "abc"], distDir());
     expect(await p.exited).toBe(2);
     expect(await new Response(p.stderr as ReadableStream).text()).toContain("--port takes a number");
+  });
+});
+
+describe("the panel's host", () => {
+  const bare = (): void => {
+    withHome();
+    for (const k of Object.keys(process.env))
+      if (/^(CODEX_|CLAUDE|CATHERD_HOST)/.test(k)) delete process.env[k];
+  };
+
+  it("is the host catherd init recorded when --host is not given and no session says otherwise", () => {
+    bare();
+    expect(panelHost(undefined).host).toBe("unknown");
+    recordHost("claude-code");
+    expect(panelHost(undefined)).toEqual({ host: "claude-code", session: null, conflict: null });
+    expect(panelHost("auto").host).toBe("claude-code");
+  });
+
+  it("gives way to an explicit --host", () => {
+    bare();
+    recordHost("claude-code");
+    expect(panelHost("codex").host).toBe("codex");
+  });
+
+  const writeConfig = (text: string): void => {
+    mkdirSync(dirname(configFile()), { recursive: true });
+    writeFileSync(configFile(), text);
+  };
+
+  it("never reads a broken config.json when --host already names the host", () => {
+    bare();
+    writeConfig("{ not json");
+    expect(panelHost("codex").host).toBe("codex");
+  });
+
+  it("stays unknown, and still starts, when the stored host cannot be read", () => {
+    bare();
+    writeConfig(JSON.stringify({ schema: 2, host: "codex" }));
+    expect(panelHost(undefined).host).toBe("unknown");
   });
 });

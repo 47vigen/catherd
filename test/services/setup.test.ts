@@ -12,9 +12,11 @@ import {
   activeName,
   configFile,
   getProfile,
+  initHost,
   profilesDir,
   projectsFile,
 } from "../../src/services/profile-store.ts";
+import { recordHost } from "../../src/services/profile-service.ts";
 import { initSetup, moveLegacy } from "../../src/services/setup.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
@@ -59,8 +61,20 @@ describe("initSetup", () => {
       "catherd-default-architect-claude-opus-5-5-high",
       "catherd-default-verifier-claude-opus-5-5-low",
     ]);
-    expect(JSON.parse(readFileSync(configFile(), "utf8"))).toEqual({ schema: 1, activeProfile: "default" });
+    // the host init ran on is stored, for the panel and any other process that has no host of its own
+    expect(JSON.parse(readFileSync(configFile(), "utf8"))).toEqual({
+      schema: 1,
+      activeProfile: "default",
+      host: "claude-code",
+    });
     expect(r.refreshed.map((x) => x.backend)).toContain("codex");
+  });
+
+  it("keeps the stored host when a later run cannot tell its own", () => {
+    withHome();
+    recordHost("codex");
+    recordHost("unknown");
+    expect(initHost()).toBe("codex");
   });
 
   it("replaces the 0.x agent links with 1.0 ones, never a file of the user's, and keeps the Jev key", async () => {

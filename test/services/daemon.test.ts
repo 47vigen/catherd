@@ -5,6 +5,7 @@ import {
   beat,
   daemonAlive,
   daemonLauncher,
+  daemonDeps,
   daemonLockTarget,
   ensureDaemon,
   heartbeatFile,
@@ -13,7 +14,11 @@ import {
 } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import type { Deps } from "../../src/services/ports.ts";
+import { profileService } from "../../src/services/profile-service.ts";
+import { runProfile } from "../../src/services/run-pin.ts";
+import { createRun } from "../../src/services/run-store.ts";
 import { fakeDeps, freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -117,5 +122,44 @@ describe("runDaemon", () => {
     await appendEvent(run, started);
     await runDaemon(fakeDeps(), run.id, { until: () => true });
     expect(daemonAlive(run)).toBe(false);
+  });
+});
+
+describe("daemonDeps", () => {
+  /** the shipped default profile (no architect or verifier rungs) on deps whose own host is unknown, like the daemon's */
+  function daemonSide(host: "claude-code" | "codex") {
+    withHome();
+    const run = createRun({
+      repo: tempRepo(),
+      title: "t",
+      aLines: [],
+      version: "0.0.0-test",
+      startedBy: { host, sessionId: "s-1", hostSessionId: null, name: null },
+    });
+    const deps: Deps = fakeDeps({ host: { host: "unknown", session: null, conflict: null } });
+    deps.profiles = profileService(() => deps.host);
+    return { run, deps };
+  }
+
+  it("cannot read the profile on an unknown host, which is how the daemon used to read it", () => {
+    const { run, deps } = daemonSide("claude-code");
+    expect(() => runProfile(deps, run)).toThrow("needs an orchestration host");
+  });
+
+  it.each([
+    ["claude-code", "claude:"],
+    ["codex", "codex:"],
+  ] as const)("resolves the profile on the host %s that started the run", (host, backend) => {
+    const { run, deps } = daemonSide(host);
+    const scoped = daemonDeps(deps, run);
+    expect(scoped.host.host).toBe(host);
+    expect(runProfile(scoped, run).roles.architect?.rungs[0]).toStartWith(backend);
+    expect(runProfile(scoped, run).roles.verifier?.rungs[0]).toStartWith(backend);
+  });
+
+  it("keeps the deps' own host for a run no host started", () => {
+    const { deps } = daemonSide("codex");
+    const run = createRun({ repo: tempRepo(), title: "t2", aLines: [], version: "0.0.0-test" });
+    expect(daemonDeps(deps, run)).toBe(deps);
   });
 });

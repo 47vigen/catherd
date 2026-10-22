@@ -73,6 +73,7 @@ export type SetupView = {
     roles: Array<{
         role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | 'judge';
         enabled: boolean;
+        hostSet: boolean;
         rungs: Array<{
             rung: string;
             intelligence: number | null;

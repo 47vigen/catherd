@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
 import { dirname, join } from "node:path";
-import { globalStep, jevStep, PLUGIN_STEPS, syncStep, welcomeLines } from "../../src/entry/init-command.ts";
+import {
+  globalStep,
+  jevStep,
+  NEXT_PLUGIN_STEPS,
+  PLUGIN_STEPS,
+  pluginSteps,
+  syncStep,
+  welcomeLines,
+} from "../../src/entry/init-command.ts";
 import type { Prompter } from "../../src/entry/prompt.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { credentialsPath, saveJevKey } from "../../src/services/jev-service.ts";
@@ -42,6 +50,19 @@ function init(args: string[], stdin = "", cwd?: string) {
   });
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
+
+describe("pluginSteps", () => {
+  it("prints nothing for a ready plugin, the stable marketplace for a release, the next one for a pre-release", () => {
+    expect(pluginSteps(true, "2.0.0")).toEqual([]);
+    expect(pluginSteps(true, "2.0.0-next.20261022113309")).toEqual([]);
+    expect(pluginSteps(false, "2.0.0")).toEqual(PLUGIN_STEPS);
+    expect(pluginSteps(false, "2.0.0-next.20261022113309")).toEqual(NEXT_PLUGIN_STEPS);
+    expect(NEXT_PLUGIN_STEPS).toContain(
+      "  claude plugin marketplace add https://github.com/47vigen/catherd.git#plugin-next",
+    );
+    expect(NEXT_PLUGIN_STEPS).toContain("  claude plugin install catherd@catherd-next");
+  });
+});
 
 describe("globalStep (spec 1.1 §12)", () => {
   const lines = async (f: () => Promise<void>) => {
@@ -171,6 +192,22 @@ describe("catherd init", () => {
     expect(r.out).toContain("✗ missing            Claude Code plugin — not installed in Claude Code\n");
     expect(r.out.trimEnd().split("\n").slice(-4)).toEqual(PLUGIN_STEPS);
     expect(activeName()).toBe("default");
+  }, 60_000);
+
+  it("--no-input prints no plugin steps when its own report shows the plugin ready, from any marketplace", () => {
+    const home = withHome();
+    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
+    const plugins = join(home, "claude", "plugins");
+    mkdirSync(plugins, { recursive: true });
+    writeFileSync(
+      join(plugins, "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "catherd@catherd-next": [{ version: VERSION }] } }),
+    );
+    const r = init(["--no-input"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(`✓ ready              Claude Code plugin — ${VERSION}\n`);
+    expect(r.out).not.toContain("Install the Claude Code plugin");
+    expect(r.out).not.toContain("marketplace add");
   }, 60_000);
 
   it("--plain prints ASCII glyphs as doctor --plain does, and NO_COLOR keeps doctor's own (audit N2)", () => {

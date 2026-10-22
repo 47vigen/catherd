@@ -2,7 +2,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
+import type { HostContext } from "../domain/host.ts";
 import { gitToplevel } from "../infra/git.ts";
+import { initHost } from "../services/profile-store.ts";
 import { defaultDeps } from "./deps.ts";
 import { refuseInRole } from "./cli-kit.ts";
 import { HOST_ARG, terminalHost } from "./host-arg.ts";
@@ -21,6 +23,19 @@ export const panelServer = {
 export const panelDist = (): string =>
   process.env.CATHERD_PANEL_DIST ?? join(import.meta.dir, "../../web/dist");
 
+/** The panel's host: --host, else the session evidence, else the host `catherd init` recorded. */
+export function panelHost(value: string | undefined): HostContext {
+  const host = terminalHost(value);
+  if (host.host !== "unknown" || host.conflict) return host;
+  try {
+    const stored = initHost();
+    return stored ? { host: stored, session: null, conflict: null } : host;
+  } catch {
+    // a broken config.json must not keep Runs and Questions out of the panel
+    return host;
+  }
+}
+
 /** `catherd panel`'s run, and a bare `catherd`'s: serves the panel until Ctrl-C. */
 export async function runPanel(o: { port: number; open: boolean; host?: string }): Promise<void> {
   refuseInRole(process.env, "catherd panel");
@@ -29,7 +44,7 @@ export async function runPanel(o: { port: number; open: boolean; host?: string }
     throw new CatherdError("E_CONFIG_INVALID", "the panel is not built", { fix: "bun run panel:build" });
   const token = newToken();
   const panel = panelServer.serve({
-    deps: defaultDeps(terminalHost(o.host)),
+    deps: defaultDeps(panelHost(o.host)),
     repo: await gitToplevel(process.cwd()),
     token,
     port: o.port,
