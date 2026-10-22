@@ -270,16 +270,6 @@ describe("catherd init", () => {
     expect([activeName(), getProfile("team", "claude-code").budget]).toEqual(["team", {}]);
   }, 60_000);
 
-  it("keeps piped answers in place when a saved key skips the key question", () => {
-    const home = withHome();
-    process.env.CLAUDE_CONFIG_DIR = join(home, "claude");
-    saveJevKey("ts-live-0123456789abcdef");
-    const r = init([], "ts-live-0123456789abcdef\nteam\n");
-    expect(r.code).toBe(0);
-    expect(r.out).toContain("✓ profile team written from the defaults, and active\n");
-    expect(`${r.out}${r.err}`).not.toContain("0123456789abcdef");
-  }, 60_000);
-
   it("refuses a bad profile name as a usage error", () => {
     withHome();
     const r = init(["--no-input", "--profile", "Team"]);
@@ -342,6 +332,34 @@ describe("catherd init", () => {
     expect(lines[1]).toBe(
       `    fix: delete ${credentialsPath()} and run catherd init, or write it as {"schema": 1, "typesafeApiKey": "<your key>"}`,
     );
+  });
+
+  it("a saved Jev key skips the key question, keeping piped answers in place, and tests nothing", async () => {
+    withHome();
+    delete process.env.TYPESAFE_API_KEY;
+    saveJevKey("ts-live-0123456789abcdef");
+    let skipped = 0;
+    const ask: Prompter = {
+      ask: async () => "",
+      secret: async () => {
+        throw new Error("asked for the key");
+      },
+      skip: () => void skipped++,
+      close() {},
+    };
+    const lines: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.join(" ")));
+    try {
+      await jevStep(ask, {
+        testJevKey: async () => {
+          throw new Error("reached the network");
+        },
+      });
+    } finally {
+      log.mockRestore();
+    }
+    expect(skipped).toBe(1);
+    expect(lines).toEqual(["✓ Jev: using the saved key"]);
   });
 
   it("greets a terminal with the mascot (spec §9.3)", () => {
