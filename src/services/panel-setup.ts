@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CatherdError } from "../domain/errors.ts";
 import type { HostContext } from "../domain/host.ts";
 import { BILLING_MODES } from "../domain/cost.ts";
 import { pairOf } from "../domain/catalog.ts";
@@ -65,6 +66,23 @@ export type SetupView = z.infer<typeof SetupViewSchema>;
 /** Read only: a panel with no host lists the host-set roles as such, instead of failing the whole list. */
 const READ_AS: HostContext = { host: "claude-code", session: null, conflict: null };
 
+/** The roles a profile leaves to the host, when the panel has none: they cannot resolve, so they cannot be saved. */
+function hostSetRoles(deps: Deps, repo: string | null): Set<Role> {
+  if (deps.host.host !== "unknown") return new Set();
+  const profiles = deps.profiles.withHost?.(() => READ_AS) ?? deps.profiles;
+  const stored = profiles.raw?.(undefined, repo);
+  const g = profiles.get(undefined, repo);
+  return new Set(
+    ROLES.filter(
+      (role) =>
+        (role === "architect" || role === "verifier") &&
+        stored !== undefined &&
+        stored.roles?.[role]?.rungs === undefined &&
+        (g.profile.roles[role]?.enabled ?? false),
+    ),
+  );
+}
+
 /** What the Setup page shows: the profile `repo` runs on (the active one without a repo). */
 export async function setupView(deps: Deps, repo: string | null): Promise<SetupView> {
   const unknown = deps.host.host === "unknown";
@@ -72,12 +90,8 @@ export async function setupView(deps: Deps, repo: string | null): Promise<SetupV
   const g = profiles.get(undefined, repo);
   const p = profileFor(repo, unknown ? READ_AS.host : deps.host.host);
   const issues = profiles.validate(undefined, repo);
-  const stored = unknown ? profiles.raw?.(undefined, repo) : undefined;
-  const hostSet = (role: Role): boolean =>
-    (role === "architect" || role === "verifier") &&
-    stored !== undefined &&
-    stored.roles?.[role]?.rungs === undefined &&
-    (g.profile.roles[role]?.enabled ?? false);
+  const hostSetOf = hostSetRoles(deps, repo);
+  const hostSet = (role: Role): boolean => hostSetOf.has(role);
   const catalog = loadCatalog({ repo: repo ?? undefined });
   const intelligence = (rung: string) => pairOf(catalog, rung)?.intelligence ?? null;
   return {
@@ -127,6 +141,14 @@ export function orderRungs(
 
 /** Saves a role's rungs, in ladder order, through the profile service (its validation is the gate). */
 export function setRoleRungs(deps: Deps, repo: string | null, role: Role, rungs: string[]): ProfileSaved {
+  if (hostSetRoles(deps, repo).size > 0)
+    throw new CatherdError(
+      "E_INPUT_INVALID",
+      "no orchestration host is known, so the rungs cannot be saved",
+      {
+        fix: "start the panel with --host codex|claude-code, or run catherd init",
+      },
+    );
   const current = deps.profiles.get(undefined, repo).profile.roles[role]?.rungs ?? [];
   const catalog = loadCatalog({ repo: repo ?? undefined });
   const ordered = orderRungs(rungs, current, (r) => pairOf(catalog, r)?.intelligence ?? null);

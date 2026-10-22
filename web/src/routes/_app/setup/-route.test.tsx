@@ -106,6 +106,15 @@ test("a role whose rungs the session's host sets says so instead of listing none
   expect(within(architect).queryByText("No rungs.")).not.toBeInTheDocument();
 });
 
+test("Edit rungs is off for a role the host sets, with the way to fix it", async () => {
+  renderRoute("/setup", api());
+  const architect = await screen.findByRole("group", { name: "architect" });
+  expect(within(architect).getByRole("button", { name: "Edit rungs" })).toBeDisabled();
+  expect(within(architect).getByText(/--host codex\|claude-code|catherd init/)).toBeInTheDocument();
+  const reviewer = await screen.findByRole("group", { name: "reviewer" });
+  expect(within(reviewer).getByRole("button", { name: "Edit rungs" })).toBeEnabled();
+});
+
 test("Edit rungs offers only the role's indexed pairs with the current ones selected", async () => {
   renderRoute("/setup", api());
   await userEvent.click(

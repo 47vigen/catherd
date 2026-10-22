@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { rmSync } from "node:fs";
+import { CatherdError } from "../../src/domain/errors.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { defaultDeps } from "../../src/entry/deps.ts";
 import { indexPath } from "../../src/infra/paths.ts";
@@ -80,6 +81,27 @@ describe("the panel's Setup view on a host that is not known", () => {
     expect(v.roles.find((r) => r.role === "worker")?.rungs.map((r) => r.rung)).toEqual(
       BUILTIN_ROLES.worker.rungs,
     );
+  });
+
+  it("refuses a save with a fix instead of a validation error, and writes nothing", () => {
+    const bare = defaultDeps({ host: "unknown", session: null, conflict: null });
+    const err = (() => {
+      try {
+        setRoleRungs(bare, repo, "worker", ["codex:gpt-6-sol#high"]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toBeInstanceOf(CatherdError);
+    expect((err as CatherdError).code).toBe("E_INPUT_INVALID");
+    expect((err as CatherdError).fix).toContain("--host codex|claude-code");
+    expect((err as CatherdError).fix).toContain("catherd init");
+    expect(bare.profiles.raw?.(undefined, repo).roles?.worker?.rungs).toEqual(BUILTIN_ROLES.worker.rungs);
+  });
+
+  it("saves on the host init recorded, as the panel resolves it", () => {
+    const stored = defaultDeps({ host: "claude-code", session: null, conflict: null });
+    expect(setRoleRungs(stored, repo, "reviewer", ["codex:gpt-6-sol#high"]).saved).toBe(true);
   });
 
   it("shows no role as set by the host when the host is known", async () => {

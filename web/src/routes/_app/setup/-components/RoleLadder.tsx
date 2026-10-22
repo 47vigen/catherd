@@ -13,12 +13,17 @@ export function RoleLadder({ role, onEdit }: { role: SetupView["roles"][number];
       <div className="flex items-center gap-3">
         <span className="font-mono text-[13px] font-medium">{role.role}</span>
         <StatusChip status={role.enabled ? "ok" : "skip"} label={role.enabled ? "enabled" : "off"} />
-        <Button size="sm" variant="secondary" className="ml-auto" onPress={onEdit}>
+        <Button size="sm" variant="secondary" className="ml-auto" onPress={onEdit} isDisabled={role.hostSet}>
           Edit rungs
         </Button>
       </div>
       {role.hostSet ? (
-        <p className="text-muted text-sm">Set by the session&apos;s host.</p>
+        <>
+          <p className="text-muted text-sm">Set by the session&apos;s host.</p>
+          <p className="text-muted text-xs">
+            To edit it, start the panel with --host codex|claude-code, or run catherd init.
+          </p>
+        </>
       ) : role.rungs.length === 0 ? (
         <p className="text-muted text-sm">No rungs.</p>
       ) : (
