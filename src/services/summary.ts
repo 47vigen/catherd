@@ -85,6 +85,8 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     warnings.push(`events: ${errorMessage(e)}`);
   }
   const live = liveDispatches(run, now);
+  // an ended run's clock stops at run.ended: its wall minutes and its minute budget
+  const until = ended ? Date.parse(ended.at) : now;
   const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
@@ -96,7 +98,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   for (const c of pinned) warnings.push(`pinned: ${c}; dispatch keeps the pinned value (run_pin re-pins)`);
   try {
     budget = budgetStatus(
-      spendOf(run, records, live, now),
+      spendOf(run, records, live, until),
       deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
     );
   } catch (e) {
@@ -146,9 +148,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       notOk: records.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
       tokens: { input: sum((t) => t.input), cached: sum((t) => t.cached), output: sum((t) => t.output) },
       costUsd: records.reduce((n, r) => n + (r.costUsd ?? 0), 0),
-      wallMinutes: Math.round(
-        ((ended ? Date.parse(ended.at) : now) - Date.parse(run.meta.createdAt)) / 60_000,
-      ),
+      wallMinutes: Math.round((until - Date.parse(run.meta.createdAt)) / 60_000),
     },
     agents: {
       runs: agents.length,

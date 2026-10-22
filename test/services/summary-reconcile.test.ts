@@ -7,7 +7,7 @@ import { createRun, runPaths } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
-import { fakeDeps, fakeDispatch, freshRun } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -72,6 +72,16 @@ describe("reviving a daemon", () => {
     const s = summarizeRun(fakeDeps(), run);
     expect(s.ended).toEqual({ at: e.at, outcome: "done" });
     expect(s.stateTail).toEqual(["# done", "Last check: ok"]);
+  });
+
+  it("stops an ended run's clock: its wall minutes and minute budget end at run.ended", async () => {
+    const { run } = freshRun("done");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    const e = await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null });
+    const later = Date.parse(e.at) + 6 * 60 * 60_000;
+    const s = summarizeRun(fakeDeps({ view: testView({ budget: { minutes: 60 } }), now: () => later }), run);
+    expect(s.totals.wallMinutes).toBeLessThan(1);
+    expect(s.budget?.minutes?.spent).toBeLessThan(1);
   });
 
   it("shows a failed revive as a warning, never as a failed read", async () => {
