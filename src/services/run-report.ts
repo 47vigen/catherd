@@ -140,7 +140,8 @@ export function writeRunReport(
     lines.push(
       `## ${e.milestone}${title && title !== e.milestone ? `: ${title}` : ""}`,
       "",
-      digest || `Landed at ${e.commit.slice(0, 12)}.`,
+      // the section heading above is the digest's own H1
+      digest.replace(/^# .*\n+/, "") || `Landed at ${e.commit.slice(0, 12)}.`,
       "",
       roundsLine(events, e.milestone),
       ...gateLines(run, e.milestone),
