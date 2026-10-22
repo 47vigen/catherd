@@ -68,8 +68,8 @@ export interface AdmitInput {
   cwd?: string;
 }
 
-/** Spec §3.3: SIGTERM, then SIGKILL this long after. */
-export const KILL_GRACE_MS = 10_000;
+/** Spec §3.3: SIGTERM, then SIGKILL this long after; tests shorten it. */
+export const killLimits = { killGraceMs: 10_000 };
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
@@ -392,7 +392,7 @@ export async function admit(
         // plan 23: a role's own timeouts win over the profile's (a verifier's long gate)
         idleMs: roleTimeouts(profile, rc).idleMin * 60_000,
         wallMs: roleTimeouts(profile, rc).wallMin * 60_000,
-        killGraceMs: KILL_GRACE_MS,
+        killGraceMs: killLimits.killGraceMs,
         graceAfterFinalMs: adapter.graceAfterFinalMs,
         pollMs: deps.pollMs,
       },

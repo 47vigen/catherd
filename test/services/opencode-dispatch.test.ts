@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { agentsDir, isolatedConfigRoot } from "../../src/adapters/opencode/agents.ts";
 import { opencodeShell } from "../../src/adapters/opencode/index.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
-import { dispatch, type DispatchInput } from "../../src/services/dispatch-service.ts";
+import { dispatch, type DispatchInput, orphanLimits } from "../../src/services/dispatch-service.ts";
 import { readRecords } from "../../src/services/run-store.ts";
 import { latestDispatch, scratchDir } from "../../src/services/dispatches.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
@@ -14,7 +14,11 @@ import { simPath } from "../sim/scenario.ts";
 import { type OpencodeModel, type OpencodeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
 import { briefFor, fakeDeps, freshRun, runRole, testView, writeLane } from "./helpers.ts";
 
+const graceMs = orphanLimits.killGraceMs;
 afterEach(snapshotEnv());
+afterEach(() => {
+  orphanLimits.killGraceMs = graceMs;
+});
 beforeEach(() => {
   resetReadiness();
   opencodeShell.retryDelayMs = 0;
@@ -147,6 +151,7 @@ describe("dispatch on opencode v2 (simulator)", () => {
       interruptsTo: interrupts,
     });
     deps.view.timeouts = { idleMin: 0.01, wallMin: 5 };
+    orphanLimits.killGraceMs = 300;
     const { record } = await runRole(deps, input(run.id));
     expect(record.status).toBe("timeout");
     expect(readFileSync(interrupts, "utf8")).toBe("ses_f2679cc68ffeAfP2dtLA9zEfTh\n");
