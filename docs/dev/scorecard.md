@@ -34,13 +34,18 @@ the pinned commit, on branch `scorecard/<task>`, with no remote, so nothing can 
 ## What each column counts
 
 - **Finished:** the run has milestones, every one landed, no open question, and it was not superseded.
-- **Interventions:** the sum of a park (each question row of `questions.jsonl`), a takeover (each change of owner
-  session after the first, from `meta.startedBy` and `sessions.jsonl`), a manual dispatch (only in a daemon run, one
-  with `events.jsonl`: each record carrying a `sessionId`), a pause begun during the run, a run this one
-  superseded, and each chat message you typed after the start prompt (`record --chat <n>`). Answers are shown, not
-  added: each closes a park already counted. A daemon revival is not counted. In 1.5 another session's dispatch
-  first claims the run, so it is a takeover; any catherd call revives a 2.0 daemon, so a chat nudge you forget to
-  report is missed.
+- **Interventions:** the sum of a park, a takeover (each change of owner session after the first, from
+  `meta.startedBy` and `sessions.jsonl`), a manual dispatch (only in a daemon run, one with `events.jsonl`: each
+  record carrying a `sessionId`), a pause begun during the run, a run this one superseded, and each chat message you
+  typed after the start prompt (`record --chat <n>`). Answers are shown, not added: each closes a park already
+  counted. A daemon revival is not counted. In 1.5 another session's dispatch first claims the run, so it is a
+  takeover; any catherd call revives a 2.0 daemon, so a chat nudge you forget to report is missed.
+  - A 1.5 run: a park is each question row of `questions.jsonl`.
+  - A daemon run: `questions.jsonl` is not read. A park is each `question.answered` event answered `by: "owner"`
+    plus each question still open at the end (a stop only the owner can clear); a judge's answer is not counted.
+    Two more interventions exist here: an owner's cancel (`cancel.requested`) and an owner's plan approval
+    (`plan.approved` with `by: "owner"`). A plan given as input is `by: "input"` and is not counted; a session that
+    started the run without its plan makes the run wait for the owner, and `compare` fails that task.
 - **Rounds:** a milestone's full reviewer passes (`reviewer-<M>`, ended ok, not `STATUS: partial`) since its lanes
   started, summed over milestones.
 - **Wall-clock:** from the run's start to its last landing (the last landed milestone's digest line
@@ -85,6 +90,13 @@ rounds and the first try are reported, never gated.
 Labels match `^[a-z0-9][a-z0-9.-]{0,40}$` (`1.5.0`, `plan-29`, `2.0.0-beta.3`). Results are
 `scorecard/results/<label>.json`, one row per task; a re-record replaces that task's row. `--results <dir>` moves
 them.
+
+## Release gate
+
+A major's beta is measured under its exact version label (`2.0.0-beta.<datetime>`), so one label measures one
+version. `latest` follows only when `catherd scorecard compare <label>` exits 0 and the owner says so. Nothing under
+`src`, `plugin`, `catalog`, `package.json` or `bun.lock` may differ between the beta's commit and `main` at that
+moment; if it does, cut a new beta and measure again.
 
 ## The 1.5.0 baseline: commands
 

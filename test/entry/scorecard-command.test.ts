@@ -27,7 +27,17 @@ function catherd(args: string[], env: Record<string, string> = {}) {
 }
 
 const score = (task: ScorecardTaskId, over: Partial<TaskScore> = {}): TaskScore => {
-  const i = { parks: 0, answers: 0, takeovers: 0, manualDispatches: 0, pauses: 0, superseded: 0, chat: 0 };
+  const i = {
+    parks: 0,
+    answers: 0,
+    takeovers: 0,
+    manualDispatches: 0,
+    pauses: 0,
+    superseded: 0,
+    chat: 0,
+    cancels: 0,
+    approvals: 0,
+  };
   return {
     task,
     run: "r",

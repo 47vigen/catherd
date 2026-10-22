@@ -47,6 +47,10 @@ export interface Interventions {
   pauses: number;
   superseded: number;
   chat: number;
+  /** the owner's cancel requests (a daemon run) */
+  cancels: number;
+  /** the owner's plan approvals, not a plan given as input (a daemon run) */
+  approvals: number;
   total: number;
 }
 
@@ -144,7 +148,9 @@ export function assertLabel(label: string): string {
 
 /** Answers are shown, not added: each one closes a park that is already counted. */
 export function interventionTotal(i: Omit<Interventions, "total">): number {
-  return i.parks + i.takeovers + i.manualDispatches + i.pauses + i.superseded + i.chat;
+  return (
+    i.parks + i.takeovers + i.manualDispatches + i.pauses + i.superseded + i.chat + i.cancels + i.approvals
+  );
 }
 
 /** The injected task recovered by itself: a limit hit, a stand-in that ended ok, and nobody stepped in. */
