@@ -718,6 +718,28 @@ describe("planning", () => {
     expect(lastOf(run, "plan.ready")).toBeDefined();
   });
 
+  it("refuses a plan whose lane After: lines make milestones wait on each other, until the run parks", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", `${WITH_TASK}After: M2.L1\n`);
+    writeLane(run, "M2.L1", ["src/b/"], "true", `${WITH_TASK}After: M1.L1\n`);
+    backed(run);
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    for (let i = 0; i < 3; i++) await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "effect.failed")?.message).toContain("cycle M1 → M2 → M1");
+    expect(lastOf(run, "plan.ready")).toBeUndefined();
+    expect(replayRun(run).stuck.run?.question).toContain("cycle M1 → M2 → M1");
+  });
+
+  it("refuses a plan whose milestone waits on one the plan does not have", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", `${WITH_TASK}After: M7\n`);
+    backed(run);
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "effect.failed")?.message).toContain("M1: After: M7 is no milestone of the plan");
+    expect(lastOf(run, "plan.ready")).toBeUndefined();
+  });
+
   it("parks again for approval when an architect change edits a decision, and not otherwise", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");

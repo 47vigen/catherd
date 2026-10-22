@@ -117,3 +117,25 @@ export function lintLanes(
   }
   return { warnings, stuck };
 }
+
+/** What keeps the milestones from ever starting: an `after` naming no milestone of the plan, or a wait cycle. */
+export function milestoneProblems(milestones: { id: string; after: string[] }[]): string[] {
+  const after = new Map(milestones.map((m) => [m.id, m.after]));
+  const out: string[] = [];
+  for (const m of milestones)
+    for (const a of m.after) if (!after.has(a)) out.push(`${m.id}: After: ${a} is no milestone of the plan`);
+  const done = new Set<string>();
+  const path: string[] = [];
+  const visit = (id: string): void => {
+    path.push(id);
+    for (const a of after.get(id) ?? []) {
+      if (path.includes(a))
+        out.push(`milestones wait on each other (cycle ${[...path.slice(path.indexOf(a)), a].join(" → ")})`);
+      else if (!done.has(a) && after.has(a)) visit(a);
+    }
+    path.pop();
+    done.add(id);
+  };
+  for (const m of milestones) if (!done.has(m.id)) visit(m.id);
+  return out;
+}

@@ -8,6 +8,7 @@ import { parseFailLines, parseFindings } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
+import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
 import { changedDecisions, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
@@ -412,7 +413,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
    */
   async function readPlan(): Promise<void> {
     const milestones = planOf(run);
-    const problems = planProblems(run);
+    const problems = [...planProblems(run), ...milestoneProblems(milestones)];
     if (problems.length > 0) {
       await append({
         type: "effect.failed",
