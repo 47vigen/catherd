@@ -1,3 +1,5 @@
+import { daemonLauncher } from "../src/services/daemon.ts";
+
 // Loaded before every test file (bunfig.toml). The MCP server's boot sync and `init`'s sync would fetch the
 // public sources (spec 1.2 §3.2); no test may reach the network, and every process a test starts with its
 // env inherits this. A test of the sync itself deletes it and injects a fetch.
@@ -13,3 +15,6 @@ delete process.env.CATHERD_CONFIG_DIR;
 // is that busy, so no lock in a test, nor any `catherd lock` a test spawns, may wait on it. A test of the wait sets
 // heavyLimits.loadWaitMs itself.
 process.env.CATHERD_HEAVY_LOAD_WAIT_MS = "0";
+// A run's daemon runs until its run ends: one a test started for a run it never finished would outlive the suite
+// (25 orphans after a few runs). No test spawns one; a test of the launch itself calls launchDaemon directly.
+daemonLauncher.launch = () => 0;
