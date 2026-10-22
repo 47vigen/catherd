@@ -41,7 +41,7 @@ the latest Bun (`.github/workflows/ci.yml`; the `changes` job decides from the c
 | `src/`, `test/`, `catalog/`, `scripts/`, `package.json`, `bun.lock`, `bunfig.toml`, `tsconfig.json` | `typecheck`, `lint`, and `bun test` in 4 parallel shards                        |
 | `plugin/`, `scorecard/`, `.claude-plugin/` (without code)                                           | only the tests that read those files                                            |
 | `web/`, `src/`                                                                                      | the panel's gate and e2e                                                        |
-| `package.json`, `bun.lock`, `plugin/`, `scripts/`, `web/`, `.claude-plugin/`                        | `npm pack` smoke; the dependency audit only for the manifest or lockfile        |
+| `src/`, `package.json`, `bun.lock`, `plugin/`, `scripts/`, `web/`, `.claude-plugin/`                | `npm pack` smoke; the dependency audit only for the manifest or lockfile        |
 | `.github/`                                                                                          | `actionlint`; a change to `ci.yml` or the setup action also runs `format:check` |
 
 The required check is the `ci` job, which passes when every job that ran passed. The nightly run on `main`, and a

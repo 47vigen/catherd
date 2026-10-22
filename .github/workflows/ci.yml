@@ -45,7 +45,7 @@ jobs:
       #   code      the tests, the typecheck, lint: src, test, catalog, scripts, the manifest, lockfile, tool configs
       #   static    the format check: everything but docs/ (oxfmt ignores it) and workflows other than this one
       #   web       the panel: web/, and what its e2e server imports (src/, test/helpers.ts, its own server)
-      #   package   what npm pack ships and checks: plugin, web, scripts, manifest, lockfile, notices
+      #   package   what npm pack ships and checks: src, plugin, web, scripts, manifest, lockfile, notices
       #   audit     only a manifest or lockfile change can add a vulnerable dependency
       #   skills    plugin/, scorecard/ and the plugin manifest: tests that read repo files outside src/
       #   workflows .github/: actionlint
@@ -75,7 +75,7 @@ jobs:
           else
             code=$(any '^(src|test|catalog|scripts)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json)$')
             web=$(any '^(web|src)/|^test/(helpers|panel-e2e-serve)\.ts$|^(package\.json|bun\.lock)$')
-            package=$(any '^(plugin|scripts|web|\.claude-plugin)/|^(package\.json|bun\.lock|THIRD_PARTY_NOTICES\.md|LICENSE)$')
+            package=$(any '^(src|plugin|scripts|web|\.claude-plugin)/|^(package\.json|bun\.lock|THIRD_PARTY_NOTICES\.md|LICENSE)$')
             audit=$(any '^(package\.json|bun\.lock)$')
             skills=$(any '^(plugin|scorecard|\.claude-plugin)/')
             workflows=$(any '^\.github/')
