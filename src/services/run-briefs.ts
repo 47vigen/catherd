@@ -12,7 +12,7 @@ import { integrateName, lanesOf, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
-import { laneTasks, milestoneTasks, PLAN_INPUT_DIR, taskBlock } from "./plan-input.ts";
+import { laneTasks, milestoneALines, milestoneTasks, PLAN_INPUT_DIR, taskBlock } from "./plan-input.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
@@ -93,6 +93,7 @@ function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
     ...(a.notes.length ? ["", "What to change:", ...a.notes.map((n) => `- ${n}`)] : []),
     "",
     "Write plan.md and every lanes/Mx.Ly.md yourself with write_run_file. In plan.md, one heading per milestone, `## M1 — <title>`, then its full check (the whole suite), and an `After: M0, …` line only when the milestone needs another milestone landed first (none otherwise, so a parked milestone does not hold the rest).",
+    "Every A-line above must be cited as A<n> under the milestone that delivers it, in that milestone's section of plan.md (a line per A-line, starting with its id); one milestone may own several, and catherd sends back a plan that leaves one without a milestone.",
     "A full check slower than about five minutes is a problem to solve: make speeding it up an early lane.",
     ...(s.base !== null
       ? [
@@ -348,6 +349,10 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
 
 function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
   const m = s.milestones.find((x) => x.id === a.unit);
+  const planFile = runPaths(run.dir).plan;
+  const delivered = [
+    ...milestoneALines(existsSync(planFile) ? readFileSync(planFile, "utf8") : "", a.unit),
+  ].sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
   const previous = lastReply(run, s, a.name)
     .split("\n")
     .map((l) => l.trim())
@@ -361,6 +366,12 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
     "",
+    ...(delivered.length
+      ? [
+          `This milestone delivers ${delivered.join(", ")}: report each as \`A<n> PASS|FAIL\`, with the command you ran and the decisive output.`,
+          "",
+        ]
+      : []),
     ...(a.notes.length ? ["Before you start:", ...a.notes.map((n) => `- ${n}`), ""] : []),
     ...(previous.length
       ? [

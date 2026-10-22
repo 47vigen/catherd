@@ -283,6 +283,7 @@ describe("the panel server", () => {
   });
 
   it("saves a role's rungs through the profile service and refuses a role that does not exist", async () => {
+    process.env.PATH = "/nonexistent"; // GET /api/setup probes each backend's CLI: none is found, none is spawned
     const cookie = await signIn();
     const put = (role: string, rungs: string[]) =>
       call(cookie, `/api/setup/roles/${role}`, {

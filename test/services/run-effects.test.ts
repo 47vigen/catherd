@@ -78,6 +78,7 @@ const DEEP = [
   "D1 — use a map — rejected: an array — slower",
   "D2 — keep it flat — rejected: nesting — simpler",
   "## M1 — core",
+  "- A1 it works",
   "### Task 1: do it",
   "Test: `test/a.test.ts` — asserts a",
   "",
@@ -716,6 +717,16 @@ describe("planning", () => {
     writeFileSync(join(run.dir, "plan.md"), DEEP);
     await fx.run({ type: "readPlan" }, replayRun(run));
     expect(lastOf(run, "plan.ready")).toBeDefined();
+  });
+
+  it("sends a plan that leaves an A-line without a milestone back to the architect, naming it", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
+    writeFileSync(join(run.dir, "plan.md"), DEEP.replace("- A1 it works\n", ""));
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "effect.failed")?.message).toContain("A1 is cited under no milestone");
+    expect(lastOf(run, "plan.ready")).toBeUndefined();
   });
 
   it("refuses a plan whose lane After: lines make milestones wait on each other, until the run parks", async () => {

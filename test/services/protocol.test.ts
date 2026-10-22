@@ -434,4 +434,32 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       "A-lines: not mapped to this milestone (none cited as A<n>): truncate cuts at 8; bun test passes",
     );
   });
+
+  it("takes the A-lines from the milestone's plan.md section, not only its title", async () => {
+    withHome();
+    const repo = tempRepo();
+    const deps = fakeDeps();
+    const r = findRun(
+      (
+        await startRun(deps, {
+          repo,
+          title: "t",
+          aLines: ["A1 login works", "A2 logout works", "A3 bun test"],
+        })
+      ).run,
+    );
+    writeFileSync(join(r.dir, "plan.md"), "# P\n## M1 — login\n- A1 login works\n## M2 — logout\n- A2 x\n");
+    writeLane(r, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await passGate(r, "M1");
+    const landed = await land(deps, {
+      run: r.id,
+      milestone: "M1",
+      what: "login",
+      commit: head(repo),
+      evidence: "verifier PASS",
+      next: "M2",
+    });
+    expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain("A-lines: A1 login works\n");
+  });
 });
