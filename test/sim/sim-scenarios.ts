@@ -66,6 +66,8 @@ export interface OpencodeScenario extends Common {
   messagesFail?: boolean;
   /** every `opencode api` call fails with exit 1 and no output */
   apiFails?: boolean;
+  /** each `opencode api` call appends an "x" here */
+  apiCallsTo?: string;
   /** every `opencode api` call sleeps this long first */
   apiHangMs?: number;
   /** each interrupted session id is appended here, one per line */

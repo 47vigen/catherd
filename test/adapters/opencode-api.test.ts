@@ -106,6 +106,16 @@ describe("opencode discovery", () => {
     expect(await opencodeAdapter.listModels()).toEqual([]);
   });
 
+  it("does not retry when the CLI did not answer", async () => {
+    const calls = join(mkdtempSync(join(tmpdir(), "catherd-calls-")), "log");
+    onSim({ apiFails: true, apiCallsTo: calls });
+    expect(await opencodeAdapter.listModels()).toEqual([]);
+    expect(readFileSync(calls, "utf8")).toBe("x");
+    onSim({ models: [], warmup: true, apiCallsTo: calls });
+    await opencodeAdapter.listModels();
+    expect(readFileSync(calls, "utf8")).toBe("xxx");
+  });
+
   it("lists what the repository's location enables, and the home location's without a repository", async () => {
     const asked = join(mkdtempSync(join(tmpdir(), "catherd-loc-")), "log");
     const only = MODELS.filter((m) => m.id === "glm-5.3");
