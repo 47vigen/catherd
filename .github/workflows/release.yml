@@ -5,15 +5,18 @@ name: Release
 #   beta: a push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR. Latest
 #   only: GitHub keeps one pending run per group, so pushes that land during a run collapse into the newest one,
 #   whose snapshot holds all of them.
+#   1.x: like main, a release PR ("chore: release catherd 1.x"); it publishes under `latest` while npm's `latest` is
+#   a 1.x version, else under `v1-latest`, so a 1.x patch never moves `latest` past a 2.x release.
 # A commit that a PR merged with its `ci` check green is not tested again: ci.yml already ran on that PR. Any other
 # commit (a direct push) runs ci.yml here first, sized by its diff, so a direct docs push costs only the format
 # check. The npm pack smoke runs right before a publish, because it tests the exact version about to ship.
 on:
   push:
-    branches: [main, beta]
+    branches: [main, beta, 1.x]
 
 # never cancel: a cancelled run could stop halfway through a publish
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# 1.x shares main's group, so a 1.x publish never reads npm's latest while a main release is publishing.
+concurrency: ${{ github.workflow }}-${{ github.ref_name == '1.x' && 'refs/heads/main' || github.ref }}
 
 permissions:
   contents: write
@@ -76,15 +79,25 @@ jobs:
       - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
 
-      # On main with changesets: opens or updates the "chore: release catherd" PR. On that PR's merge:
-      # publishes to npm, pushes the v<version> tag (the plugin marketplace's release tag) and a GitHub release.
-      - if: github.ref_name == 'main'
+      # 1.x publishes under `latest` only while npm's `latest` is still a 1.x version (before 2.0 is promoted);
+      # after that, under `v1-latest`. npm refuses `1.x` and `v1` as tags: they are semver ranges.
+      - name: Pick the 1.x dist-tag
+        id: tag
+        if: github.ref_name == '1.x'
+        run: |
+          latest=$(npm view catherd-cli dist-tags.latest)
+          if [ "${latest%%.*}" = 1 ]; then tag=latest; else tag=v1-latest; fi
+          echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+
+      # On main or 1.x with changesets: opens or updates the "chore: release catherd" PR ("... 1.x" on 1.x). On that
+      # PR's merge: publishes to npm, pushes the v<version> tag (the plugin marketplace's release tag) and a GitHub release.
+      - if: contains(fromJSON('["main","1.x"]'), github.ref_name)
         uses: changesets/action@v2
         with:
           version-script: bun run version-packages
-          publish-script: bun run release:publish
-          pr-title: "chore: release catherd"
-          commit-message: "chore: release catherd"
+          publish-script: ${{ github.ref_name == '1.x' && format('bun run release:publish -- --tag {0}', steps.tag.outputs.tag) || 'bun run release:publish' }}
+          pr-title: "${{ github.ref_name == '1.x' && 'chore: release catherd 1.x' || 'chore: release catherd' }}"
+          commit-message: "${{ github.ref_name == '1.x' && 'chore: release catherd 1.x' || 'chore: release catherd' }}"
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
