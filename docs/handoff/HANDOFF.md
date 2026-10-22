@@ -18,8 +18,8 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md` | merged (#65; ledger `plan32-ledger.md`) |
 | 33 routing | `docs/plans/2026-10-21-33-routing.md` | merged (#66; ledger `plan33-ledger.md`) |
 | 34 knowledge and digest | `docs/plans/2026-10-21-34-knowledge-digest.md` | merged (#67; ledger `plan34-ledger.md`) |
-| 35 milestone branches | `docs/plans/2026-10-21-35-milestone-branches.md` | in PR (final review 0 C / 2 I fixed, 1 minor fixed; ledger `plan35-ledger.md`) |
-| 36 release 2.0 | `docs/plans/2026-10-21-36-release.md` | written |
+| 35 milestone branches | `docs/plans/2026-10-21-35-milestone-branches.md` | in PR (#69; final review 0 C / 2 I fixed, 1 minor fixed; ledger `plan35-ledger.md`) |
+| 36 release 2.0 | `docs/plans/2026-10-21-36-release.md` | in PR (stacked on plan 35; Tasks 3–8 done: the scorecard counts a daemon run, the docs, MIGRATION, the changeset). Task 2, the `1.x` line (cut from v1.5.0), merged as PR #68. Tasks 9–12 (beta, scorecard, compare, promote) are the controller's and the owner's, after this PR merges |
 
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 

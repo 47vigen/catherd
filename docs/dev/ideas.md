@@ -1,20 +1,22 @@
-# Ideas for 1.x
+# Ideas
 
 Improvements collected from real catherd runs and from designing it, not yet planned. When one is picked up it moves
 into a spec or plan under `docs/specs/` or `docs/plans/` (or a GitHub issue) and leaves this list. One entry per idea: what, why
 (the evidence), and where it would live.
 
-After 1.5 the list holds only what the 1.5 spec (`docs/specs/2026-10-02-catherd-1.5-design.md`) names under "Not in
-1.5" ("Routing and cost", "Orchestration", "Later" and "Live coverage" sections), the 1.5 follow-ups below, and the open entries of the older sections
-that no 1.5 plan fixed (under "Found while releasing 1.5").
+After 2.0 the list holds the follow-ups the reviews of plans 28–35 and 21–26 left open (each one's code is still in
+2.0, checked against the head of plan 36), the longer-term ideas ("Routing and cost", "Orchestration", "Later" and
+"Live coverage" below), and what the scorecard finds.
 
-Shipped in 1.0, so not re-proposed here: `catherd doctor`; the harness-cost line in `runs_summary` and the final
-report; quota failover (the profile's `failover` map); the `preflight` tool; per-repo knowledge
-(`knowledge.md`, keyed since 1.5 by the repository's git origin, its toplevel when it has none; read with
-`read_knowledge`, appended by `land`); the run budget (from 80 %
-`route` starts at the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); the trimmed catalog (`catalog/models.json`, `scores.json`, `jev.json`); a plan in hand (a `plan:` A-line: no dossier, the architect translates); lint and type check in each lane's fast check; `status` showing the run's native and isolated dispatches, with the harness figure compared within one repo; and a sure Jev kind kept when its difficulty is unsure (`source: "jev-kind"`).
+Shipped, so not re-proposed here: `catherd doctor`; quota failover; preflight; per-repo knowledge (`knowledge.md`,
+keyed by the repository's git origin, its toplevel when it has none); the run budget (from 80 % routing starts at
+the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run); a plan in hand (`run_start`'s
+`plan:`); lint and type check in each lane's fast check; and a sure Jev kind kept when its difficulty is unsure
+(`source: "jev-kind"`). Since 2.0 the daemon runs all of it (MIGRATION.md, "From 1.5 to 2.0").
 
-## 2.0 follow-ups (plan 33)
+## 2.0 follow-ups
+
+### From plan 33
 
 - **A lane on a held quota waits instead of failing over.** Plan 30's advance dispatches a pending lane only while
   its quota is free, so a lane routed onto a held quota waits up to 30 minutes (plan 33, Ruling 16). _Where:_
@@ -22,7 +24,7 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **The panel cannot show or edit `maxEffort` or `bars`** (plan 33, Ruling 17); only `catherd profile set` and the
   session's `profile` tool do. _Where:_ the panel's Setup page (plan 31).
 
-## 2.0 follow-ups (plan reviews, 2026-10-21)
+### From the plan 28–35 reviews (2026-10-21)
 
 - **An explicit rung for a lane-less dispatch skips the floor and the cap.** `else rung = i.rung`
   (`src/services/dispatch-service.ts:457`) takes the caller's rung as is, while a lane's rung goes through routing,
@@ -83,7 +85,10 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   its tree. Neither is reachable from the daemon today; a caller that reaches them in a base run gets the wrong
   commit. Fix: resolve them through `treeOf(run, milestone)`.
 
-## 1.5 follow-ups (plan reviews, 2026-10-02)
+### From the 1.5 plan reviews (2026-10-02, still open)
+
+These concern code 2.0 kept: the 1.5 notifier, end push and `result` paths still serve a run started on 1.5, and the
+services behind the removed session tools stay for the CLI.
 
 Plan 21 (roles and ownership) review:
 
@@ -196,8 +201,8 @@ Plan 26 (the minors sweep) review:
   committed since the run started" (it fails safe). Evidence: `src/services/lane-service.ts:368-373`,
   `milestoneFiles`. Fix: special-case commit == startHead with the clearer message. (Minor 2.)
 
-Found while releasing 1.5 (open entries of the older sections that no 1.5 plan fixed and the spec's "Not in 1.5"
-does not name):
+### Found while releasing 1.5 (still open)
+
 
 - **`status` lists a previous owner session as live.** After a new session took the run on the 2026-09-29 resume of
   that run, `status` and `peek` still listed the previous owner session as `live: true` (plan 22 closes the stale
@@ -209,14 +214,14 @@ does not name):
   (`config`, a parse error) as `cannot-start`.
 - **Clone-driven work needs a "discover, then split" step.** In the 1.1.0 platform run L4 (Task 12) stopped on
   four panel clones that `dupes` found only after the allowlist emptied, and needed a hand-written rescoped lane.
-  `owns_add` (1.5) grows one lane's Owns; splitting work the gate discovers into new lanes is still by hand.
+  `owns_add` (a role's tool in 1.5, off the session since 2.0) grows one lane's Owns; splitting work the gate discovers into new lanes is still by hand.
 - **First-turn cost on small lanes.** A native Codex turn starts at about 280k input tokens (mostly cached)
   whatever the lane's size; an easy lane in the 1.0.0 headless test still read 583k isolated. A profile rule such as
   "isolated below difficulty build" could save most of it without touching the user's harness for real work.
   _Where:_ the profile's `harness.<backend>.isolated`, made conditional.
 - **`run_start` could warn about an active Codex goal.** In the identity run (2026-10-02) a thread goal made Codex
-  start a goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). Since 1.5 the
-  skill ends such a turn with no tool call and `peek` answers `actionable: false`; a warning at `run_start` when the
+  start a goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). In 2.0 the
+  skill ends the turn after `run_start` and nothing polls; a warning at `run_start` when the
   thread has an active goal would catch it before the first poll.
 - **`protocol.next` names failed items from history, the verifier from content.** `failedItems`
   (`src/services/gate-service.ts:359`, used by `src/services/protocol.ts:186`) reads the step history alone (sync),
@@ -231,7 +236,7 @@ does not name):
 
 - **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
   "build lanes on `codex:gpt-6-luna#high` climbed 3 of 10". _Why:_ it is the raw material for catalog tuning, and it
-  tells the user whether a bar is too low today. _Where:_ `runs_summary`, `watch`, and the setup skill.
+  tells the user whether a bar is too low today. _Where:_ `catherd runs`, the panel's Runs page, and the setup skill.
 - **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty
   (0.4), so 3 of 4 routes fell back to the default. Since 1.5 each lane's final outcome (climbed or not) is logged
   beside Jev's answer in `routes.jsonl` (plan 24): tune the difficulty question's wording, its options or its
