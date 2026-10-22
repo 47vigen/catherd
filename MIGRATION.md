@@ -9,84 +9,101 @@
 
 ## From 1.5 to 2.0
 
-- `knowledge.md` lines are standing rules in every role's brief, and a `[role, …]` tag after the source scopes one to
-  those roles (`catherd knowledge add "[worker, reviewer] <rule>"`); `catherd knowledge rm "<text>"` retires a line.
-  A finished run's report lists a judge's proposed changes with the command for each; none is applied for you.
-- A lane whose `After:` can never finish (it names itself, a lane with no file, or closes a cycle) now stops
-  preflight instead of waiting forever; preflight also reports lint on the plan's lanes.
-- Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile validate`
-  on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`. `billing.grok`,
-  `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no longer takes
-  them; a failover entry that names a Grok or Antigravity rung is removed by editing the profile file
-  (`catherd profile show --raw` prints it).
+2.0 changes how a run is driven. Read "The run drives itself" first; the rest are the changes that break a 1.5 setup,
+one heading each.
+
+Upgrade the CLI and the plugin, then open a new session:
+
+```sh
+bun add -g catherd-cli@latest && catherd doctor
+claude plugin marketplace update catherd && claude plugin update catherd@catherd
+```
+
+Before 2.0 is stable, `catherd-cli@beta` and the `plugin-beta` marketplace (CONTRIBUTING.md, "Beta channel") carry it.
+
+**Runs in flight.** A run started on 1.5 finishes on 1.5, and 2.0 does not adopt its folder (`ensureDaemon` answers
+`"1.5"` for a run without an `events.jsonl`, and `status` reports its `engine` as `"1.5"`). Finish or cancel each
+one first, or keep 1.5 installed for them (`bun add -g catherd-cli@1.5.0`) and start new runs on 2.0.
+
+**Staying on 1.x.** `1.x` is a maintenance line that receives bug fixes only (CONTRIBUTING.md, "Maintenance line").
+Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` marketplace and add the `1.x` one
+(`https://github.com/47vigen/catherd.git#1.x`, also named `catherd`).
+
+### The run drives itself
+
+- `run_start` launches a detached daemon that plans, dispatches, reviews, verifies and lands from the run's
+  `events.jsonl`; the session no longer routes, dispatches, lands or waits. Nothing to wait for or poll: end the turn
+  after `run_start`. `status(run)` revives a dead daemon.
+- The session has six tools: `run_start`, `status`, `answer`, `cancel`, `result` and `profile` (`get`, `validate`,
+  `set`, and `notify_url`). `route`, `preflight`, `dispatch`, `peek`, `climb`, `ask`, `park`, `land`, `set_next`,
+  `lane_set`, `owns_add`, `run_pin`, `record_agent_run`, `runs_summary`, `test_push`, `catalog_query`,
+  `catalog_sync`, the `workspace_*` tools, `profile_get`, `profile_set` and `profile_validate` are gone from it;
+  their services and the CLI (`catherd catalog`, `catherd runs`, `catherd workspace`) stay. `gate_check` and
+  `gate_pass` are a verifier's tools now. A role that calls `run_start`, `answer`, `cancel`, `result` or `profile`
+  gets `E_ROLE_SCOPE`. The `catherd` and `catherd-setup` skills are rewritten for this surface: update the plugin and
+  start a new session.
+- Every role runs headless: the daemon runs a `claude:` rung as its `claude-code:` twin. A judge role (read-only,
+  Opus by default) decides what no rule can.
+- Questions go to your phone. Set `notify.url` (in `config.json`) to an ntfy topic url, with `profile` and
+  `notify_url` or in `catherd-setup`: the daemon sends a parked question and the final report there from the
+  machine, with no session open. Answer in the session with `answer(run, unit, answer)` or in a terminal with
+  `catherd answer <run> <unit> <text>`.
+- A question parks its unit (a lane, a milestone or the run); the other units go on.
+- A finished run's report lists the known issues word for word, with the review rounds and what they fixed.
+
+### Unattended
+
+- A blocked reply names a reason: `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
+out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then fail over (`provider_error`), park
+  (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). Jev classifies a stop that names none; with
+  Jev off, or unsure, the stop stays unclassified.
+- A limit fails over to any backend you have configured, never to a weaker rung, with Claude last.
+- `land` rests on catherd's own check. A verifier's reply ends with `HEAD: <the full sha it checked>`, and `land`
+  refuses a verdict whose HEAD is not the commit it lands, or that has no `gate_run` record (`catherd gate run` runs
+  the check detached). Failures the base already has do not block; a failure with lines the base lacks is rerun
+  once. Install `gitleaks` for the secret scan (optional: without it the scan is skipped and the record says so).
+
+### One catalog source
+
 - The catalog reads one source, the Slopalytics index: one `intelligence` per model and effort, fetched hourly and
-  kept in `~/.local/share/catherd/slopalytics.json` (the last good one is kept when a fetch fails). Every
-  benchmark source, `catalog/scores.json`, treat-likes and `catalog.override.json` are gone, and so is the
-  Artificial Analysis key. Delete `~/.config/catherd/catalog.override.json` and `~/.local/share/catherd/sources/`;
-  nothing reads them any more.
-- A model and effort the index does not list is not offered, and a profile rung or failover stand-in that names one
+  kept in `~/.local/share/catherd/slopalytics.json` (the last good one is kept when a fetch fails; `catherd catalog
+sync [--force]` fetches now). Every benchmark source, `catalog/scores.json`, treat-likes, `catalog.override.json`,
+  calibration and the Artificial Analysis key are gone. Delete `~/.config/catherd/catalog.override.json` and
+  `~/.local/share/catherd/sources/`; nothing reads them any more.
+- A model and effort the index does not list is not offered. A profile rung or failover stand-in that names one
   fails `profile validate` (doctor shows it as a warning). A profile may need its rungs picked again:
   `catherd catalog list --role <role>` shows what is offered.
-- Bars are the 20th, 45th, 60th and 65th percentiles of the intelligence of the shipped models' indexed pairs, one
-  bar per difficulty for every kind. A failover stand-in must be indexed, on another quota and at least as
-  intelligent as its rung.
+- A failover stand-in must be indexed, on another quota and at least as intelligent as its rung.
 - A run starts only when every enabled role has an indexed rung, and it keeps the index it started on
   (`<run>/slopalytics.json`).
-- The bars that `catalog.override.json` set are now percentiles in the profile, `bars.<difficulty>` or
-  `roles.<role>.bars.<difficulty>`; the shipped ones are copy 20, build 45, logic 60, hard 65. A new default profile
-  caps Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh; an existing profile has no caps until
-  `catherd profile set maxEffort.<backend>:<model> <effort>`. A worker rung below medium effort is never routed, and
-  `profile validate` names it. `readRoleRoutes` consumers see `failover` rows in `routes.jsonl`, which they skip by
-  `source`.
 - `init` asks one question fewer (no Artificial Analysis key): piped `init` reads three lines, the Jev key, the
-  profile and whether to replace it. `catalog_query` has no `scored_only`, and `catherd catalog treat-like` and
-  `catalog sync --unmatched` are removed. The provenance in `routes.jsonl` changed shape: the rung's
-  `intelligence`, the bar it was held to (`bar`), its price, speed and cost, and the index's `indexedAt`.
+  profile and whether to replace it. `catherd catalog treat-like` and `catalog sync --unmatched` are removed. The
+  provenance in `routes.jsonl` changed shape: the rung's `intelligence`, the bar it was held to (`bar`), its price,
+  speed and cost, and the index's `indexedAt`.
 
-- **A run is driven by a daemon.** `run_start` launches a detached process that plans, dispatches, reviews, verifies
-  and lands from the run's `events.jsonl`; the session no longer routes, dispatches, lands or waits. A run started
-  on 1.5 finishes on 1.5: keep 1.5 installed (`bun add -g catherd-cli@1.5.0`) until those runs end, and start new
-  ones on 2.0. 2.0 does not adopt a 1.5 run's folder.
-- **The session has six tools:** `run_start`, `status`, `answer`, `cancel`, `result` and `profile` (`get`, `validate`,
-  `set`, and `notify_url`). `route`, `preflight`, `dispatch`, `peek`, `climb`, `ask`, `park`, `land`, `set_next`,
-  `gate_check`, `gate_pass`, `lane_set`, `owns_add`, `run_pin`, `record_agent_run`, `runs_summary`, `test_push`,
-  `catalog_query`, `catalog_sync`, the `workspace_*` tools, `profile_get`, `profile_set` and `profile_validate` are
-  off the session; their services and the CLI (`catherd catalog`, `catherd runs`, `catherd workspace`) stay. A role
-  that calls a session tool gets `E_ROLE_SCOPE`. The `catherd` and `catherd-setup` skills are rewritten for this
-  surface: update the plugin and start a new session.
-- **Every role runs headless.** A `claude:` rung runs as its `claude-code:` twin; there are no native subagents to
-  record, so `newSessionNeededFor` stays empty. A judge role (read-only, headless Opus) decides what no rule can.
-- **Questions go to your phone.** Set `notify.url` to an ntfy topic url (`profile` with `notify_url`, or
-  `catherd-setup`): the daemon sends a parked question and the final report there from the machine, with no session
-  open. Answer in the session with `answer(run, unit, answer)` or in a terminal with `catherd answer <run> <unit>
-<text>`.
-- **Nothing to wait for or poll.** End the turn after `run_start`; `status(run)` revives a dead daemon.
-- **A blocked reply names a reason.** `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
-out_of_scope` decides what the daemon does: climb, retry then fail over, park, or wait. Jev classifies a stop that
-  names none; with Jev off it is handled as in 1.5. A limit fails over to any backend you have configured, never to
-  a weaker rung, with Claude last.
-- **`land` rests on catherd's own check.** A verifier's reply ends with `HEAD: <the full sha it checked>`, and
-  `land` refuses a verdict whose HEAD is not the commit it lands or that has no `gate_run` record (`catherd gate run`
-  runs it detached). Failures the base already has do not block; a new failure is rerun once. Install `gitleaks` for
-  the secret scan (optional: without it the scan is skipped and the record says so).
-- **A run with a base branch lands when origin holds it.** A base that moved is merged into the run's branch first
-  (conflicts go to a worker, a fresh verifier gates the merge); a landed milestone then parks with a `push`
-  question, because merging is yours. It counts as merged when `origin/<base>` holds its commit (checked every
-  ten minutes) or when you answer the question (a squash merge needs that answer). Dependants and the run's end
-  wait for merged. A run without a base behaves as in 1.5.
-- **The panel replaces the TUI.** `catherd` alone runs `catherd panel`; `catherd --help` prints the help. `catherd panel
-[--port <n>] [--no-open]` serves a browser panel on `127.0.0.1` (port 4317) and opens it with a one-time token:
-  Setup (backends, the catalog, each role's rungs from indexed pairs), Runs (every run, its live timeline, Cancel run)
-  and Questions (answer a parked unit). The TUI's tabs became: Status → Setup and `catherd doctor`; Profiles → Setup
-  for rungs, `catherd profile set` for the rest; Runs → Runs. `catherd watch` prints text only. Gone: `--plain` and
-  `--reduced-motion` on `catherd` and `catherd watch`, `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`,
-  `CATHERD_STORY`, the `keybinds` config key (ignored), `E_CONFIG_KEYBIND`, `docs/tui-frames.md`. New:
-  `CATHERD_PANEL_DIST`.
+### Grok Build and Antigravity are removed
+
+- Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile
+validate` on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`.
+  `billing.grok`, `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no
+  longer takes them; a failover entry that names a Grok or Antigravity rung is removed by editing the profile file
+  (`catherd profile show --raw` prints it).
+
+### The panel replaces the TUI
+
+- `catherd` alone runs `catherd panel`; `catherd --help` prints the help. `catherd panel [--port <n>] [--no-open]`
+  serves a browser panel on `127.0.0.1` (port 4317) and opens it with a one-time token: Setup (backends, the
+  catalog, each role's rungs from indexed pairs), Runs (every run, its live timeline, Cancel run) and Questions
+  (answer a parked unit). The TUI's tabs became: Status → Setup and `catherd doctor`; Profiles → Setup for rungs,
+  `catherd profile set` for the rest; Runs → Runs. `catherd watch` prints text only.
+- Gone: `--plain` and `--reduced-motion` on `catherd` and `catherd watch`, `CATHERD_REDUCED_MOTION`,
+  `CATHERD_NO_KITTY`, `CATHERD_STORY`, the `keybinds` config key (ignored), `E_CONFIG_KEYBIND`,
+  `docs/tui-frames.md`. New: `CATHERD_PANEL_DIST`.
 
 ### The plan is the input
 
 - `run_start` takes `plan:` (the reviewed plan files; a `plan:` A-line still works). Each lane carries a `Tasks:`
-  header line naming the plan tasks it implements, and its worker gets them verbatim; preflight refuses a lane
+  header line naming the plan tasks it implements, and its worker gets them verbatim. Preflight refuses a lane
   without one, and a task with neither a signature nor a test.
 - Without a plan, the architect writes one (what already exists, contracts, decisions with their rejected
   alternatives, a test per task) and the run stops once for your approval: read it with `catherd run-file read <run>
@@ -96,7 +113,28 @@ plan.md` and answer `approve`, or say what to change. It asks again only when a 
   plan task conflicts with the code; the reply ends `blocked`, `needs_user`).
 - `plan-input/` in the run folder holds the copies roles read; it and `plan-approved.md` are read-only to roles.
 - Every role's brief is its role text, team, the plan's preamble, the task, its done-when rules and its reply
-  contract, as labelled sections. The medium-effort floor for coding workers belongs to routing, not to the plan input.
+  contract, as labelled sections.
+
+### Routing on one scale
+
+- Bars are percentiles of the intelligence of the shipped models' indexed pairs: copy 20, build 45, logic 60, hard 65. The bars that `catalog.override.json` set are now `bars.<difficulty>` in the profile or
+  `roles.<role>.bars.<difficulty>`, one difficulty at a time.
+- Jev's yes/no answers can lift a lane to logic or hold it at build.
+- A new default profile caps Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh; an existing profile has no
+  caps until `catherd profile set maxEffort.<backend>:<model> <effort>`.
+- A worker rung below medium effort is never routed, and `profile validate` names it. Cost never comes ahead of
+  that floor in a route, a climb or a failover.
+- Every failover is a row in `routes.jsonl` with `source: "failover"`; a reader of that file skips rows by `source`.
+
+### Knowledge
+
+- `knowledge.md` lines are standing rules in every role's brief, and a `[role, …]` tag after the source scopes one
+  to those roles (`catherd knowledge add "[worker, reviewer] <rule>"`); `catherd knowledge show --role <role>` shows
+  what reaches a role, and `catherd knowledge rm "<text>"` retires a line.
+- A finished run asks a judge to review the standing rules; its report lists the proposed changes with the command
+  for each. None is applied for you.
+- A lane whose `After:` can never finish (it names itself, a lane with no file, or closes a cycle) now stops
+  preflight instead of waiting forever; preflight also reports lint on the plan's lanes.
 
 ### A milestone per branch
 
@@ -105,11 +143,23 @@ plan.md` and answer `approve`, or say what to change. It asks again only when a 
   work there. A run without `base` works in the repo as before.
 - `After: M1` (a whole milestone) is now valid in a lane header. Milestones whose `After:` milestones are merged run
   side by side while the machine has the memory for them.
-- The profile gains `limits.memory` (`reserveMb`, `perMilestoneMb`, `floorMb`: by default 2 GB held back and 3 GB
-  per milestone): `catherd profile set limits.memory.reserveMb 4096`.
-- Answering `push` to a landed milestone's question has catherd push its branch, then ask again with the command
-  that opens its MR; any other answer still counts as merged. catherd never opens an MR or merges. A merged,
-  clean worktree is removed.
+- The profile gains `limits.memory` (`reserveMb`, `perMilestoneMb`, `floorMb`: by default 2 GB held back and 3 GB per
+  milestone): `catherd profile set limits.memory.reserveMb 4096`.
+- A base that moved is merged into the milestone's branch first (conflicts go to a worker, a fresh verifier gates
+  the merge). A landed milestone then parks with a `push` question, because merging is yours. It counts as merged
+  when `origin/<base>` holds its commit (checked every ten minutes) or when you answer the question (a squash merge
+  needs that answer). Dependants and the run's end wait for merged.
+- Answering `push` has catherd push the milestone's branch, then ask again with the command that opens its MR; any
+  other answer counts as merged. catherd never opens an MR or merges. A merged, clean worktree is removed.
+
+### New and removed names
+
+|                         | Added                                                                                                                        | Removed                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                 |
+| Environment variables   | `CATHERD_PANEL_DIST`                                                                                                         | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                      |
+| Config and profile keys | `notify.url`, `bars`, `roles.<role>.bars`, `maxEffort`, `limits.memory`                                                      | `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored) |
+| Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                   |
 
 ## From 1.4 to 1.5
 
