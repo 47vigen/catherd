@@ -26,9 +26,14 @@ export const panelDist = (): string =>
 /** The panel's host: --host, else the session evidence, else the host `catherd init` recorded. */
 export function panelHost(value: string | undefined): HostContext {
   const host = terminalHost(value);
-  const stored = initHost();
-  if (host.host !== "unknown" || host.conflict || !stored) return host;
-  return { host: stored, session: null, conflict: null };
+  if (host.host !== "unknown" || host.conflict) return host;
+  try {
+    const stored = initHost();
+    return stored ? { host: stored, session: null, conflict: null } : host;
+  } catch {
+    // a broken config.json must not keep Runs and Questions out of the panel
+    return host;
+  }
 }
 
 /** `catherd panel`'s run, and a bare `catherd`'s: serves the panel until Ctrl-C. */

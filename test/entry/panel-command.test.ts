@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { panelHost } from "../../src/entry/panel-command.ts";
+import { configFile } from "../../src/services/profile-store.ts";
 import { recordHost } from "../../src/services/profile-service.ts";
 import { SRC } from "../import-graph.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
@@ -104,5 +105,22 @@ describe("the panel's host", () => {
     bare();
     recordHost("claude-code");
     expect(panelHost("codex").host).toBe("codex");
+  });
+
+  const writeConfig = (text: string): void => {
+    mkdirSync(dirname(configFile()), { recursive: true });
+    writeFileSync(configFile(), text);
+  };
+
+  it("never reads a broken config.json when --host already names the host", () => {
+    bare();
+    writeConfig("{ not json");
+    expect(panelHost("codex").host).toBe("codex");
+  });
+
+  it("stays unknown, and still starts, when the stored host cannot be read", () => {
+    bare();
+    writeConfig(JSON.stringify({ schema: 2, host: "codex" }));
+    expect(panelHost(undefined).host).toBe("unknown");
   });
 });
