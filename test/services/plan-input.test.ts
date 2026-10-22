@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
@@ -169,7 +169,7 @@ describe("a lane's tasks", () => {
   it("lists every lane's coverage problem, and plan.md's depth only with no plan input", async () => {
     const { run } = await planRun(["p.md"]);
     writeLane(run, "M1.L1", ["src/a.ts"]);
-    expect(planProblems(run)).toEqual([
+    expect(planProblems(run).filter((p) => !p.includes("under no milestone"))).toEqual([
       "lanes/M1.L1.md has no Tasks: line: name the plan tasks it implements",
     ]);
     const bare = freshRun().run;
@@ -184,10 +184,26 @@ describe("a lane's tasks", () => {
     writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core\n- A1 it works\n## M2 — docs\n- A3 x\n");
     // the run's lines: A1 (owned by M1), A2 and A3 as the architect wrote them
     run.meta.aLines = ["A1 it works", "A2 more", "A3 x", "plan: p.md"];
-    expect(planProblems(run).filter((p) => p.includes("under no milestone"))).toEqual([
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    writeLane(run, "M2.L1", ["docs/a.md"]);
+    const unowned = () => planProblems(run).filter((p) => p.includes("under no milestone"));
+    expect(unowned()).toEqual([
       "A2 is cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
     ]);
     writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — core (A1, A2)\n## M2 — docs\n- A3 x\n");
-    expect(planProblems(run).filter((p) => p.includes("under no milestone"))).toEqual([]);
+    expect(unowned()).toEqual([]);
+    // a section whose milestone has no lane never runs, so it owns nothing
+    writeFileSync(
+      join(run.dir, "plan.md"),
+      "# P\n## M1 — core (A1, A2)\n## M2 — docs\n## M3 — gone\n- A3 x\n",
+    );
+    expect(unowned()).toEqual([
+      "A3 is cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
+    ]);
+    // no plan.md: every numbered line is unowned
+    rmSync(join(run.dir, "plan.md"));
+    expect(unowned()).toEqual([
+      "A1, A2, A3 are cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
+    ]);
   });
 });

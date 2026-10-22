@@ -146,13 +146,12 @@ export function milestoneALines(plan: string, milestone: string): Set<string> {
   return cited;
 }
 
-/** The run's A<n> lines that no milestone section of plan.md cites: nothing ties a landed commit to them. */
+/** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */
 function unownedALines(run: Run): string[] {
-  const plan = read(runPaths(run.dir).plan);
-  if (plan === null) return [];
-  const owned = new Set(
-    [...plan.matchAll(/^##\s+(M\d+)\b/gm)].flatMap((m) => [...milestoneALines(plan, m[1] as string)]),
-  );
+  // no plan.md owns nothing; a milestone section with no lane never runs, so it owns nothing either
+  const plan = read(runPaths(run.dir).plan) ?? "";
+  const milestones = new Set(laneIds(run).map((id) => id.slice(0, id.indexOf("."))));
+  const owned = new Set([...milestones].flatMap((m) => [...milestoneALines(plan, m)]));
   return run.meta.aLines.flatMap((l) => {
     const id = aLineId(l);
     return id && !owned.has(id) ? [id] : [];
