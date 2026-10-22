@@ -22,6 +22,7 @@ let HEAD: string;
 let i: { run: string; milestone: string; command: string };
 
 beforeEach(() => {
+  checkLimits.pollMs = 20;
   withHome();
   process.env.ANTHROPIC_API_KEY = "";
   repo = tempRepo();
