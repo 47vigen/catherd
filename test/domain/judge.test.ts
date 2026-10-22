@@ -5,6 +5,46 @@ import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { replyContract, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { ROLES } from "../../src/domain/roles.ts";
 
+describe("the rules review's reply (plan 34)", () => {
+  it("reads a rules review's changes, at most five, and none", () => {
+    expect(
+      parseJudgeReply(
+        "DECISION: rules\n1. ADD [worker] run bun test <file> — M1 round 2\n- **REMOVE** use the v1 client — stale since M2\nSTATUS: complete — ok",
+        "rules",
+      ),
+    ).toEqual({
+      verb: "rules",
+      changes: [
+        { op: "add", text: "[worker] run bun test <file>", why: "M1 round 2" },
+        { op: "remove", text: "use the v1 client", why: "stale since M2" },
+      ],
+    });
+    expect(parseJudgeReply("DECISION: rules\nSTATUS: complete — nothing to change", "rules")).toEqual({
+      verb: "rules",
+      changes: [],
+    });
+    expect(
+      (parseJudgeReply(`DECISION: rules\n${"ADD x — y\n".repeat(7)}`, "rules") as { changes: unknown[] })
+        .changes,
+    ).toHaveLength(5);
+    expect(parseJudgeReply("DECISION: retry\nWHY: x", "rules")).toBeNull();
+    expect(parseJudgeReply("DECISION: rules\nADD x — y", "triage")).toBeNull();
+  });
+
+  it("reads only the contract's upper-case ADD and REMOVE, not prose that starts with the word", () => {
+    expect(
+      parseJudgeReply(
+        "DECISION: rules\nAdd a note to the report about this.\nRemove the stale lines if you agree.\nADD x — y\nSTATUS: complete — ok",
+        "rules",
+      ),
+    ).toEqual({ verb: "rules", changes: [{ op: "add", text: "x", why: "y" }] });
+  });
+
+  it("lists the rules verb in the contract", () => {
+    expect(JUDGE_CONTRACT).toContain("- rules: up to five lines, ADD <a one-line rule");
+  });
+});
+
 describe("the judge's reply", () => {
   it("reads each verb, and refuses a verb its kind does not allow", () => {
     expect(

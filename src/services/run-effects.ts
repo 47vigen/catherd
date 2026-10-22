@@ -95,7 +95,11 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     const first = replyVerdict(run, record) ?? "";
     probe = blockedByEnvironment(first);
     if (probe !== null) verdict = "blocked";
-    else if (PASS_LINE.test(first)) verdict = "pass";
+    else if (PASS_LINE.test(first)) {
+      verdict = "pass";
+      // plan 34: a PASS lands with the NITs it lists as known issues
+      findings = parseFindings(reply).filter((f) => f.label === "NIT");
+    }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
     else if (record.status === "ok") verdict = "fail";
     if (verdict === "fail") {
@@ -443,6 +447,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
             milestone: a.milestone,
             blocking: [],
             confirm: rep.commands.map((c) => `${c.lane}: ${c.check ?? "(no fast check)"}`),
+            lint: rep.lint,
           }
         : {
             type: "preflight.done",
@@ -454,6 +459,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
                 note: r.note ?? (tailOf(r.tail.join("\n"), 3) || "cannot start"),
               })),
             confirm: null,
+            lint: rep.lint,
           },
     );
   }
@@ -725,7 +731,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           const g = await machineGate(run, m.id, m.commit).catch(() => null);
           if (g?.audit.length) audits[m.id] = g.audit;
         }
-        const reportPath = writeRunReport(run, s, readEvents(run), audits);
+        const reportPath = writeRunReport(run, s, readEvents(run), audits, a.proposals);
         return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
       }
       case "classify":

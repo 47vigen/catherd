@@ -63,6 +63,12 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
   triggers no re-approval. Fix: read a decision up to the next `D<n>` line or blank line, and accept a list marker.
 - **The `labelled` parser splits a finding that contains ` - ` at the first separator.** A finding whose own text
   holds a spaced hyphen loses the tail to the wrong field. Fix: split on the label once, or require the em dash.
+- **The rules review's `" — "` splitter cuts a rule that contains `" — "`.** `parseJudgeReply` (`src/domain/judge.ts`)
+  splits a `ADD`/`REMOVE` line at the last `" — "`, so a rule whose text holds one loses its tail to the reason.
+  _Where:_ ask the judge for a field separator a rule cannot hold, or parse the reason from a tagged suffix.
+- **The report has no cap.** `writeRunReport` (`src/services/run-report.ts`) lists every known issue, every standing
+  rule and every research block in full; a long run's report grows without bound. _Where:_ cap each list, with a
+  "+N more" line that points at the files.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
@@ -161,10 +167,6 @@ Plan 25 (runs, programs and lanes) review:
 - **`Allow:` misses a hit printed as `./path`.** `onlyAllowedHits` compares the hit's path verbatim, so
   `./src/x.ts:12:` (a grep under `./`) does not match `Allow: src/x.ts`. Evidence: `src/domain/lane.ts:143-158`. Fix:
   normalize both sides with `normalizeOwned`. (Minor 6.)
-- **A bad `After:` blocks a lane forever.** `After:` is not checked for a cycle, the lane itself, or a lane with no
-  file, so such a lane is refused `E_ADMIT_ORDER` for good. Evidence: `src/services/admission.ts:226`,
-  `src/services/protocol.ts:90`. Fix: refuse them in `assertLaneValues` where the run is known (`write_run_file`,
-  `lane_set`), or at least name them in `protocol.next` or a status warning. (Minor 7.)
 - **Carried gate passes are not shared between worktrees of one repo.** `gates.jsonl` stays keyed by the toplevel
   (Ruling 20), so a worktree never reuses a pass recorded in another worktree of the same origin. Evidence:
   `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass

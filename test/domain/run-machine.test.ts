@@ -10,7 +10,7 @@ import {
   judgeInputFor,
   next,
 } from "../../src/domain/run-machine.ts";
-import type { MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
+import type { Finding, MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
 import { liveDispatches, type RunState } from "../../src/domain/run-state.ts";
 import {
   endDispatch,
@@ -56,7 +56,7 @@ function plan(lanes: number): MilestonePlan[] {
   ];
 }
 
-function review(log: Log, findings: ReturnType<typeof bug>[], name = "reviewer-M1") {
+function review(log: Log, findings: Finding[], name = "reviewer-M1") {
   const id = startDispatch(log, { name, role: "reviewer", unit: "M1", lane: null });
   return endDispatch(log, id, { name, unit: "M1", findings });
 }
@@ -164,6 +164,7 @@ describe("the machine: a milestone's lanes", () => {
       milestone: "M1",
       blocking: [{ lane: "M1.L1", note: "no docker" }],
       confirm: null,
+      lint: [],
     });
     expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "preflight" }]);
     expect(of(last(log), "park")[0]?.question).toContain("no docker");
@@ -176,7 +177,7 @@ describe("the machine: a milestone's lanes", () => {
     c.add("plan.ready", { milestones: PLAN });
     c.add("plan.approved", { by: "owner" });
     c.add("lanes.routed", { milestone: "M1", lanes: [] });
-    c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"] });
+    c.add("preflight.done", { milestone: "M1", blocking: [], confirm: ["bun test"], lint: [] });
     expect(of(last(c), "park")).toMatchObject([{ unit: "M1", reason: "confirm" }]);
   });
 
@@ -501,6 +502,25 @@ describe("the machine: review rounds", () => {
     const r = rounds([3, 2, 2]);
     expect(names(r.last)).toEqual(["verifier-M1"]);
     expect(r.state.milestones[0]?.knownIssues).toEqual(r.lastOpenLines);
+  });
+
+  it("lands with the round's NITs and its open lines as known issues, word for word", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const open = bug("BUG src/a/x.ts:1 — still wrong — fix", "src/a/x.ts");
+    const other = bug("BUG src/a/y.ts:1 — also wrong — fix", "src/a/y.ts");
+    review(log, [open, other]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    const nit = { label: "NIT" as const, text: "**NIT** src/a/z.ts:3 — naming — rename", file: "src/a/z.ts" };
+    review(log, [open, other, nit]);
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c1" });
+    expect(last(log)).toEqual([
+      { type: "land", milestone: "M1", knownIssues: [open.text, other.text, nit.text] },
+    ]);
   });
 
   it("stops at the soft cap", () => {
@@ -846,6 +866,24 @@ function baseRun(): Log {
   return log;
 }
 
+/** the rules judge answers with no change */
+function reviewRules(log: Log): void {
+  const j = startDispatch(log, {
+    name: "judge-rules",
+    role: "judge",
+    unit: "run",
+    lane: null,
+    judgeKind: "rules",
+  });
+  log.add("judge.decided", {
+    id: "rules",
+    unit: "run",
+    kind: "rules",
+    decision: { verb: "rules", changes: [] },
+    dispatchId: j,
+  });
+}
+
 const landed = (log: Log, branch?: string) =>
   log.add("milestone.landed", {
     milestone: "M1",
@@ -947,7 +985,8 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
     expect(of(last(log), "finish")).toEqual([]);
     log.add("milestone.merged", { milestone: "M2" });
-    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    reviewRules(log);
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done", proposals: [] }]);
   });
 
   it("a run without base lands as 1.5: no push question, no merge check, dependants wait for landed only", () => {
@@ -984,7 +1023,8 @@ describe("the machine: the run", () => {
     expect(last(log).filter((a) => a.type !== "report" && a.type !== "notify")).toEqual([]);
     log.add("question.answered", { unit: "M2", answer: "go", by: "owner" });
     log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
-    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    reviewRules(log);
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done", proposals: [] }]);
     for (const [kind, unit] of [
       ["landed", "M1"],
       ["parked", "M2"],
@@ -996,6 +1036,134 @@ describe("the machine: the run", () => {
     expect(of(out, "report")).toMatchObject([{ kind: "finished" }]);
     expect(of(out, "notify")).toEqual([{ type: "notify", unit: "run", moment: "finish" }]);
     expect(of(out, "finish")).toEqual([]);
+  });
+
+  /** both milestones landed: the run is ready for its rules review */
+  const landedAll = () => {
+    const log = runningLog(plan(1));
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: ["a nit"], digestPath: "d" });
+    return log;
+  };
+  const rulesJudge = (log: Log) =>
+    startDispatch(log, { name: "judge-rules", role: "judge", unit: "run", lane: null, judgeKind: "rules" });
+
+  it("reviews the rules once every milestone landed, before it finishes (plan 34)", () => {
+    const log = landedAll();
+    const out = last(log);
+    expect(of(out, "finish")).toEqual([]);
+    expect(of(out, "judge")).toMatchObject([
+      { input: { id: "rules", kind: "rules", unit: "run", findings: [], lanes: [] } },
+    ]);
+    expect(of(out, "judge")[0]?.input.context).toContain("M2 docs: 0 review round(s), 1 known issue(s)");
+    rulesJudge(log);
+    expect(of(last(log), "judge")).toEqual([]);
+    log.add("tick", {});
+    expect(of(last(log), "judge")).toEqual([]);
+  });
+
+  it("finishes at once when the judge proposes no change (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    log.add("judge.decided", {
+      id: "rules",
+      unit: "run",
+      kind: "rules",
+      decision: { verb: "rules", changes: [] },
+      dispatchId: j,
+    });
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "done", proposals: [] }]);
+  });
+
+  it("finishes at once with the proposals, applying none and parking nothing (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    const changes = [
+      { op: "add" as const, text: "[worker] run bun test <file>", why: "M1 round 2" },
+      { op: "remove" as const, text: "use the v1 client", why: "stale" },
+    ];
+    log.add("judge.decided", {
+      id: "rules",
+      unit: "run",
+      kind: "rules",
+      decision: { verb: "rules", changes },
+      dispatchId: j,
+    });
+    const out = last(log);
+    expect(of(out, "park")).toEqual([]);
+    expect(of(out, "finish")).toEqual([{ type: "finish", outcome: "done", proposals: changes }]);
+  });
+
+  it("says in the finished report how many proposed changes wait (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    log.add("judge.decided", {
+      id: "rules",
+      unit: "run",
+      kind: "rules",
+      decision: { verb: "rules", changes: [{ op: "add", text: "x", why: "y" }] },
+      dispatchId: j,
+    });
+    log.add("run.ended", { outcome: "done", reportPath: "report.md" });
+    expect(of(last(log), "report")[0]?.text).toContain("1 proposed change(s) to the standing rules wait");
+  });
+
+  it("finishes without a review when the rules judge fails twice (plan 34)", () => {
+    const log = landedAll();
+    for (let i = 0; i < 2; i++) {
+      expect(of(last(log), "judge")).toHaveLength(1);
+      const j = rulesJudge(log);
+      log.add("judge.failed", { id: "rules", unit: "run", why: "unreadable" });
+      endDispatch(log, j, { name: "judge-rules", unit: "run" });
+    }
+    const out = last(log);
+    expect(of(out, "park")).toEqual([]);
+    expect(of(out, "judge")).toEqual([]);
+    expect(of(out, "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    expect(log.state().rulesReview).toEqual({ changes: [], failed: true });
+  });
+
+  /** the review is advisory: whatever goes wrong with its judge, the run finishes with the review marked failed */
+  const finishesFailed = (log: Log) => {
+    const out = last(log);
+    expect(log.state().stuck.run).toBeUndefined();
+    expect(of(out, "park")).toEqual([]);
+    expect(of(out, "judge")).toEqual([]);
+    expect(of(out, "finish")).toEqual([{ type: "finish", outcome: "done" }]);
+    expect(log.state().rulesReview).toEqual({ changes: [], failed: true });
+  };
+  const refuse = (log: Log, code: string) =>
+    log.add("dispatch.refused", { name: "judge-rules", unit: "run", code, message: "no" });
+
+  it.each(["E_RUN_BUDGET", "E_ADMIT_RUNG", "E_ADMIT_PAUSED", "E_ALL_HELD", "E_SOMETHING_ELSE"])(
+    "finishes with the review failed when the rules judge is refused with %s (plan 34)",
+    (code) => {
+      const log = landedAll();
+      refuse(log, code);
+      finishesFailed(log);
+    },
+  );
+
+  it("finishes with the review failed when the judge effect fails twice (plan 34)", () => {
+    const log = landedAll();
+    for (let i = 0; i < 2; i++) log.add("effect.failed", { action: "judge", unit: "run", message: "boom" });
+    finishesFailed(log);
+  });
+
+  it("finishes with the review failed when the rules judge hits a usage limit (plan 34)", () => {
+    const log = landedAll();
+    const j = rulesJudge(log);
+    endDispatch(log, j, { name: "judge-rules", unit: "run", status: "limit" });
+    finishesFailed(log);
+  });
+
+  it("a cancelled run gets no rules review (plan 34)", () => {
+    const log = runningLog(plan(1));
+    log.add("milestone.landed", { milestone: "M1", commit: "c1", knownIssues: [], digestPath: "d" });
+    log.add("cancel.requested", { by: "owner" });
+    log.add("milestone.landed", { milestone: "M2", commit: "c2", knownIssues: [], digestPath: "d" });
+    expect(of(last(log), "judge")).toEqual([]);
+    expect(of(last(log), "finish")).toEqual([{ type: "finish", outcome: "cancelled" }]);
   });
 
   it("reports and notifies a park", () => {

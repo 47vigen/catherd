@@ -4,7 +4,8 @@ import { CatherdError } from "../domain/errors.ts";
 import { assertId, parseRung } from "../domain/ids.ts";
 import { assertLaneValues } from "../domain/lane.ts";
 import type { RunRecord } from "../domain/record.ts";
-import type { Role } from "../domain/roles.ts";
+import { ROLES, type Role } from "../domain/roles.ts";
+import { rulesFor, tagNames } from "../domain/rules.ts";
 import { awaitsCollect, dispatchPaths, endCollect, tryCollect } from "../infra/dispatch-dir.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { git, gitToplevel } from "../infra/git.ts";
@@ -28,6 +29,7 @@ import {
   findRun,
   knowledgeFor,
   readRecords,
+  removeKnowledgeLine,
   runFile,
   type Run,
   runPaths,
@@ -375,12 +377,33 @@ export async function knowledgeLines(repo: string): Promise<{ repo: string; path
 /** The source a line added by hand carries, where a landing puts its run's title and milestone. */
 const BY_HAND = "by hand";
 
-/** Appends one line of the user's own to the repo's knowledge.md, as `land`'s `learned` does; returns it. */
-export async function addKnowledge(repo: string, text: string, now: Date = new Date()): Promise<string> {
+/** The repo's standing rules for `role`: its knowledge.md as `rulesFor` gives it, "" when missing or blank. */
+export async function standingRules(repo: string, role: Role): Promise<string> {
+  const { lines } = await knowledgeLines(repo);
+  return rulesFor(lines.join("\n"), role);
+}
+
+/** Appends one line to the repo's knowledge.md (a hand-written one by default), as `land`'s `learned` does; returns it. */
+export async function addKnowledge(
+  repo: string,
+  text: string,
+  now: Date = new Date(),
+  source = BY_HAND,
+): Promise<string> {
   const top = await repoTop(repo);
   if (!text.trim())
     throw new CatherdError("E_INPUT_INVALID", "the knowledge line is empty", {
       fix: 'pass one line of text, e.g. catherd knowledge add "the targeted test is bun test <file>"',
     });
-  return appendKnowledge(top, now, BY_HAND, text);
+  const bad = (tagNames(text) ?? []).find((n) => !(ROLES as readonly string[]).includes(n));
+  if (bad !== undefined)
+    throw new CatherdError("E_INPUT_INVALID", `"${bad}" is not a role: tag a rule with ${ROLES.join(", ")}`, {
+      fix: 'catherd knowledge add "[worker, reviewer] <rule>"',
+    });
+  return appendKnowledge(top, now, source, text);
+}
+
+/** Removes the one line of the repo's knowledge.md that contains `match`; returns it. */
+export async function removeKnowledge(repo: string, match: string): Promise<string> {
+  return removeKnowledgeLine(await repoTop(repo), match);
 }

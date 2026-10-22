@@ -14,6 +14,7 @@ import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, ownerOf, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
+import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
@@ -519,6 +520,13 @@ describe("what a dispatch said", () => {
       verdict: "blocked",
       environment: "docker ps says no daemon",
     });
+    // plan 34: a PASS lists its NITs, and "NIT: none" is no issue
+    expect(
+      ended("VERDICT: PASS\nNIT src/v.ts:1 — v — w\nNIT: none\nHEAD: abc\nSTATUS: complete — ok"),
+    ).toMatchObject({
+      verdict: "pass",
+      findings: [{ label: "NIT", text: "NIT src/v.ts:1 — v — w", file: "src/v.ts" }],
+    });
     // a verdict wrapped in markdown is no verdict: the milestone gets a fix round, never a landing
     expect(ended("**VERDICT: PASS**\nSTATUS: complete — ok")).toMatchObject({ verdict: "fail" });
     expect(ended("", { status: "failed" })).toMatchObject({ verdict: null });
@@ -757,6 +765,19 @@ describe("routing, checking, committing, landing", () => {
       lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-luna#high" }, { lane: "M1.L2" }],
     });
     expect(lastOf(run, "preflight.done")).toMatchObject({ milestone: "M1", blocking: [], confirm: null });
+  });
+
+  it("copies preflight's lint onto preflight.done (plan 34)", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
+    writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
+    backed(run);
+    await seed(run);
+    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
+    expect(lastOf(run, "preflight.done")?.lint).toEqual([
+      "M1.L1: Owns names whole folders (src/a/): name the files, unless the lane creates the folder",
+      "M1.L2: Owns names whole folders (src/b/): name the files, unless the lane creates the folder",
+    ]);
   });
 
   it("asks for confirmation when the profile wants the commands confirmed first", async () => {
@@ -1086,6 +1107,24 @@ describe("parking, reporting, finishing", () => {
     const ended = lastOf(run, "run.ended");
     expect(ended).toMatchObject({ outcome: "cancelled", reportPath: join(run.dir, "report.md") });
     expect(readFileSync(join(run.dir, "report.md"), "utf8")).toContain("# wallet");
+  });
+
+  it("finishes with the rules proposals in the report and writes knowledge.md never (plan 34)", async () => {
+    const { run, repo, fx } = setup();
+    await addKnowledge(repo, "[worker] keep");
+    const file = (await knowledgePath(repo)).path;
+    const before = readFileSync(file, "utf8");
+    await seed(run);
+    const proposals = [
+      { op: "add" as const, text: "[worker] run bun test <file>", why: "M1 round 2" },
+      { op: "remove" as const, text: "use the v1 client", why: "stale" },
+    ];
+    await fx.run({ type: "finish", outcome: "done", proposals }, replayRun(run));
+    const text = readFileSync(join(run.dir, "report.md"), "utf8");
+    expect(text).toContain("catherd knowledge add '[worker] run bun test <file>'");
+    expect(text).toContain("catherd knowledge rm 'use the v1 client'");
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(lastOf(run, "run.ended")).toMatchObject({ outcome: "done" });
   });
 
   it("lists what a landed milestone's check passed on only through the base under Audit", async () => {

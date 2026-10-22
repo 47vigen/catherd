@@ -141,6 +141,7 @@ describe("preflight", () => {
     expect(await preflight(deps, { run: run.id })).toEqual({
       needsConfirmation: true,
       commands: [{ lane: "M1.L1", check: "touch ran" }],
+      lint: [],
     });
     expect(existsSync(join(repo, "ran"))).toBe(false);
     expect(outcomes(await preflight(deps, { run: run.id, confirmed: true }))).toEqual([["M1.L1", "pass"]]);
@@ -288,6 +289,41 @@ describe("preflight", () => {
     expect(r.warnings).toEqual([
       "M1.L1: its fast check runs no linter, and the repo has one (golangci-lint): add the linter of every package the lane touches to its Fast check: line",
     ]);
+  });
+});
+
+describe("preflight lint (plan 34)", () => {
+  const LINT = "M1.L2: After: M1.L1 shares no file with it: drop it unless M1.L2 needs M1.L1's output";
+
+  it("returns the plan's lint beside its results, and lint never blocks (plan 34)", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    writeLane(run, "M1.L2", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L1\n");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.blocked).toBe(false);
+    expect(r.lint).toContain(LINT);
+    const confirm = await preflight(fakeDeps({ view: testView({ preflight: { confirm: true } }) }), {
+      run: run.id,
+    });
+    expect(confirm.needsConfirmation).toBe(true);
+    expect(confirm.lint).toContain(LINT);
+  });
+
+  it("blocks a lane whose After: can never finish, naming why (plan 34)", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nAfter: M1.L9\n");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.blocked).toBe(true);
+    expect(r.results).toContainEqual({
+      lane: "M1.L1",
+      check: null,
+      outcome: "cannot-start",
+      exitCode: null,
+      tail: [],
+      note: "M1.L1: After: M1.L9 has no lane file",
+    });
   });
 });
 

@@ -78,6 +78,11 @@ When `status(run)` shows the run ended, call `result(run)` and relay the report 
 landed, the known issues, and what the judge decided and why. `result(run, name)` shows one role's record when the
 owner asks how a lane went.
 
+The report may end with a rules review: a judge's proposed changes to the repo's standing rules, each with its
+`catherd knowledge add` or `catherd knowledge rm` command, and the run has already ended. Give the owner each change in
+one line and run a command only on their yes; a rule for some roles only is written
+`catherd knowledge add "[worker, reviewer] <rule>"`.
+
 **Push and the merge request only on the owner's word.** The run lands milestones on its own branch and never
 pushes by itself. A merge request title is the run's outcome, under 72 characters, never the branch name.
 

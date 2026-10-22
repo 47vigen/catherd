@@ -108,7 +108,7 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
               ladder: ["codex:gpt-6-sol#medium"],
             })),
           },
-          { type: "preflight.done", milestone: a.milestone, blocking: [], confirm: null },
+          { type: "preflight.done", milestone: a.milestone, blocking: [], confirm: null, lint: [] },
         ];
       }
       case "fastCheck":
@@ -127,6 +127,18 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
         ];
       case "report":
         return [{ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }];
+      case "judge":
+        // plan 34: the finished run's rules review proposes no change
+        return [
+          {
+            type: "judge.decided",
+            id: a.input.id,
+            unit: a.input.unit,
+            kind: a.input.kind,
+            decision: { verb: "rules", changes: [] },
+            dispatchId: newId(),
+          },
+        ];
       case "finish":
         return [{ type: "run.ended", outcome: a.outcome, reportPath: null }];
       default:
@@ -187,7 +199,7 @@ describe("the daemon loop", () => {
     );
     await appendEvent(
       run,
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null },
+      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       new Date(T0),
     );
     await appendEvent(
@@ -238,7 +250,7 @@ describe("the daemon loop", () => {
     );
     await appendEvent(
       run,
-      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null },
+      { type: "preflight.done", milestone: "M1", blocking: [], confirm: null, lint: [] },
       new Date(T0),
     );
     const fx = scripted(run, clock, happy());

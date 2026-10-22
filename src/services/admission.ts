@@ -9,6 +9,7 @@ import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import { roleTimeouts } from "../domain/profile.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { composeBrief } from "../domain/brief.ts";
+import { rulesBlock } from "../domain/rules.ts";
 import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
 import { grantsScratch, ROLE_SERVER_BACKENDS } from "../domain/role-tools.ts";
 import type { Role } from "../domain/roles.ts";
@@ -41,6 +42,7 @@ import { gateEnvParts, readGateEnv } from "./gate-env.ts";
 import { assertNotPaused } from "./pause.ts";
 import { currentOwns } from "./lane-edit.ts";
 import { planContext } from "./plan-input.ts";
+import { standingRules } from "./run-service.ts";
 import { unfinishedAfter } from "./protocol.ts";
 import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
@@ -336,6 +338,8 @@ export async function admit(
       ...(sessionId ? { sessionId, host: i.host ?? session?.host ?? "claude-code" } : {}),
     };
     ensurePrivateDir(dir);
+    // plan 34: the repo's standing rules for this role; a knowledge file that cannot be read adds nothing
+    const rules = await standingRules(run.meta.repo, i.role).catch(() => "");
     // plan 23: the verifier runs with the repo's gate environment (DOCKER_HOST, a proxy, …)
     const gate =
       i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
@@ -352,7 +356,7 @@ export async function admit(
         scratch,
         roleServer,
         version: deps.version,
-        context: planContext(run, i.role),
+        context: [planContext(run, i.role), rulesBlock(rules, i.role)].filter(Boolean).join("\n\n") || null,
       }),
     );
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn

@@ -19,6 +19,7 @@ function oneOfEach(): RunEvent[] {
     milestone: "M1",
     blocking: [{ lane: "M1.L1", note: "no docker" }],
     confirm: null,
+    lint: [],
   });
   const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
   log.add("dispatch.refused", { name: "worker-M1.L2", unit: "M1.L2", code: "E_ALL_HELD", message: "held" });
@@ -85,5 +86,23 @@ describe("run events", () => {
       expect(line.includes("\n")).toBe(false);
       expect(line.length).toBeGreaterThan(0);
     }
+  });
+
+  it("reads a preflight.done without lint as no lint, and counts lint in its line (plan 34)", () => {
+    const base = {
+      v: 1,
+      seq: 1,
+      at: "2026-10-21T10:00:00.000Z",
+      type: "preflight.done",
+      milestone: "M1",
+      blocking: [],
+      confirm: null,
+    };
+    const old = RunEventSchema.parse(base);
+    if (old.type !== "preflight.done") throw new Error("unexpected");
+    expect(old.lint).toEqual([]);
+    expect(describeEvent(old)).toBe("M1 preflight passed");
+    const withLint = RunEventSchema.parse({ ...base, lint: ["a", "b"] });
+    expect(describeEvent(withLint)).toBe("M1 preflight passed · 2 lint warning(s)");
   });
 });

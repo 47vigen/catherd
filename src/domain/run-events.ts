@@ -59,6 +59,11 @@ export const FindingSchema = z.object({
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
+/** A finding as it is quoted in the known issues: its text, with the label put back when the text lost it. */
+export function issueLine(f: Finding): string {
+  return new RegExp(`^[\\s\\-*_\\d.)]*${f.label}\\b`, "i").test(f.text) ? f.text : `${f.label} ${f.text}`;
+}
+
 export const MilestonePlanSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -111,6 +116,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     milestone: z.string(),
     blocking: z.array(z.object({ lane: z.string(), note: z.string() })),
     confirm: strings.nullable(),
+    /** plan 34: the plan lint's warnings; older lines have none */
+    lint: strings.default([]),
   }),
   ev("dispatch.started", {
     dispatchId: z.string(),
@@ -206,12 +213,14 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `plan approved by the ${e.by}`;
     case "lanes.routed":
       return `${e.milestone} routed: ${e.lanes.map((l) => `${l.lane} on ${l.rung}`).join(", ") || "no lanes"}`;
-    case "preflight.done":
+    case "preflight.done": {
+      const lint = e.lint.length ? ` · ${e.lint.length} lint warning(s)` : "";
       return e.blocking.length
-        ? `${e.milestone} preflight blocked: ${e.blocking.map((b) => b.lane).join(", ")}`
+        ? `${e.milestone} preflight blocked: ${e.blocking.map((b) => b.lane).join(", ")}${lint}`
         : e.confirm
-          ? `${e.milestone} preflight waits for confirmation`
-          : `${e.milestone} preflight passed`;
+          ? `${e.milestone} preflight waits for confirmation${lint}`
+          : `${e.milestone} preflight passed${lint}`;
+    }
     case "dispatch.started":
       return `${e.name} started on ${e.rung}`;
     case "dispatch.refused":

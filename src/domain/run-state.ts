@@ -1,13 +1,14 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
-import type { JudgeKind } from "./judge.ts";
+import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
 import type { ClimbReason } from "./route.ts";
 import {
   type Finding,
+  issueLine,
   type MilestonePlan,
   type ParkReason,
   type ReportKind,
@@ -123,6 +124,8 @@ export interface MilestoneState {
   open: Finding[];
   keys: string[][];
   knownIssues: string[];
+  /** plan 34: the NIT lines of the latest review round; a landing keeps them as known issues */
+  nits: string[];
   commit: string | null;
   verifierRuns: number;
   landRefusals: number;
@@ -202,6 +205,8 @@ export interface RunState {
   /** quota → until */
   holds: Record<string, string>;
   judges: Record<string, { unit: string; kind: JudgeKind; tries: number }>;
+  /** plan 34: the finished run's rules review: what the judge proposed, or that it gave no readable answer */
+  rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
   wakeAt: string | null;
@@ -237,6 +242,7 @@ export function emptyState(run: string): RunState {
     questions: {},
     holds: {},
     judges: {},
+    rulesReview: null,
     failedEffects: {},
     cancelling: false,
     wakeAt: null,
@@ -330,6 +336,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       open: [],
       keys: [],
       knownIssues: [],
+      nits: [],
       commit: null,
       verifierRuns: 0,
       landRefusals: 0,
@@ -430,6 +437,8 @@ function laneDone(s: RunState, l: LaneState): void {
   const m = milestoneOf(s, l.milestone);
   if (m) settle(s, m);
 }
+
+const nitLines = (findings: Finding[]): string[] => findings.filter((f) => f.label === "NIT").map(issueLine);
 
 /** The review round's end: counts, keys and what happens next (a fix round, the verifier, or a stop). */
 function completeRound(s: RunState, m: MilestoneState): void {
@@ -620,6 +629,12 @@ function mergedIn(m: MilestoneState, commit: string): void {
   m.status = "verifying";
 }
 
+/** The rules review is advisory: whatever stops its judge, the run ends without one and is never parked or held. */
+function failRulesReview(s: RunState): void {
+  delete s.judges.rules;
+  s.rulesReview = { changes: [], failed: true };
+}
+
 function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
   const dv = s.dispatches[e.dispatchId];
   if (!dv) return;
@@ -632,7 +647,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     else if (e.status === "ok" && e.replyStatus === "complete") delete s.holds[quota];
   }
   recomputeWake(s);
-  if (dv.role === "judge") return;
+  if (dv.role === "judge") {
+    if (e.status === "limit" && dv.name === judgeName("rules")) failRulesReview(s);
+    return;
+  }
   const lane = dv.lane ? s.lanes[dv.lane] : undefined;
   if (lane) {
     const x: LaneEnd = {
@@ -670,6 +688,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
   if ((dv.role === "reviewer" || dv.role === "ui-reviewer") && m.status === "review") {
     if (e.status === "ok" && e.replyStatus !== "blocked" && e.replyStatus !== "refused") {
       m.open.push(...e.findings);
+      m.nits.push(...nitLines(e.findings));
       if (e.replyStatus === "partial" && e.name === `reviewer-${m.id}`)
         m.awaiting = m.awaiting.map((n) => (n === e.name ? `reviewer-${m.id}-2` : n));
       else m.awaiting = m.awaiting.filter((n) => n !== e.name);
@@ -691,6 +710,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
+        m.knownIssues = [...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings)])];
         m.tries = {};
         m.verifierNotes = [];
         m.status = "landing";
@@ -813,6 +833,9 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
         lm?.knownIssues.push(`${lane.id} skipped: ${d.why}`);
         laneDone(s, lane);
       }
+      return;
+    case "rules":
+      s.rulesReview = { changes: d.changes, failed: false };
   }
 }
 
@@ -953,6 +976,7 @@ function apply(s: RunState, e: RunEvent): void {
         recomputeWake(s);
       };
       if (e.code === "E_RUN_CANCELLED") return;
+      if (e.name === judgeName("rules") && e.unit === RUN_UNIT) return failRulesReview(s);
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
       else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
@@ -1009,6 +1033,7 @@ function apply(s: RunState, e: RunEvent): void {
       m.round = e.round;
       m.commit = e.commit;
       m.open = [];
+      m.nits = [];
       m.tries = {};
       m.awaiting = reviewersOf(s, m);
       if (m.awaiting.length === 0) completeRound(s, m);
@@ -1035,7 +1060,10 @@ function apply(s: RunState, e: RunEvent): void {
       j.tries += 1;
       if (j.tries >= MAX_TRIES) {
         delete s.judges[e.id];
-        s.stuck[e.unit] = { reason: "judge", question: `The judge could not decide ${e.unit}: ${e.why}` };
+        // the rules review is advisory: a judge that cannot answer ends the run without one, never parks it
+        if (j.kind === "rules") s.rulesReview = { changes: [], failed: true };
+        else
+          s.stuck[e.unit] = { reason: "judge", question: `The judge could not decide ${e.unit}: ${e.why}` };
       }
       return;
     }
@@ -1133,6 +1161,16 @@ function apply(s: RunState, e: RunEvent): void {
       }
       const key = `${e.action}@${e.unit}`;
       s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+      // only the rules review's judge acts on the run itself, once every milestone is finished
+      if (
+        e.action === "judge" &&
+        e.unit === RUN_UNIT &&
+        s.milestones.length > 0 &&
+        s.milestones.every((m) => isFinished(s, m))
+      ) {
+        if ((s.failedEffects[key] as number) >= MAX_TRIES) failRulesReview(s);
+        return;
+      }
       // a plan the check refused: its architect fixes it, PLAN_REVISIONS times, before the run parks
       const planning = e.action === "readPlan" && (s.phase === "planning" || s.phase === "approval");
       if (planning) s.revise = [e.message];

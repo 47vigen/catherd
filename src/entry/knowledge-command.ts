@@ -2,7 +2,15 @@ import { resolve } from "node:path";
 import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import { gateEnvLines, readGateEnv, removeGateEnv, setGateEnv } from "../services/gate-env.ts";
-import { addKnowledge, knowledgeLines, knowledgePath, readKnowledge } from "../services/run-service.ts";
+import { ROLES, type Role } from "../domain/roles.ts";
+import {
+  addKnowledge,
+  knowledgeLines,
+  knowledgePath,
+  readKnowledge,
+  removeKnowledge,
+  standingRules,
+} from "../services/run-service.ts";
 import { JSON_ARG, printJson, refuseInRole } from "./cli-kit.ts";
 
 /** `--repo`, else the repository the command runs in, as run_start and read_knowledge resolve it. */
@@ -13,8 +21,26 @@ const repoOf = (repo: string | undefined): string => resolve(repo ?? process.cwd
 
 const show = defineCommand({
   meta: { name: "show", description: "Print what catherd knows about the repo (its knowledge.md)" },
-  args: { ...REPO_ARG, ...JSON_ARG },
+  args: {
+    ...REPO_ARG,
+    role: { type: "string", description: "only the rules that reach this role" },
+    ...JSON_ARG,
+  },
   async run({ args }) {
+    if (args.role !== undefined) {
+      if (!(ROLES as readonly string[]).includes(args.role))
+        throw new CatherdError("E_INPUT_INVALID", `"${args.role}" is not a role`, {
+          fix: `pass one of ${ROLES.join(", ")}`,
+        });
+      const rules = await standingRules(repoOf(args.repo), args.role as Role);
+      if (args.json) {
+        const at = await knowledgePath(repoOf(args.repo));
+        return printJson({ ...at, role: args.role, rules });
+      }
+      const out = rules || "catherd: no knowledge recorded yet for this repo";
+      process.stdout.write(`${out}\n`);
+      return;
+    }
     if (args.json) return printJson(await knowledgeLines(repoOf(args.repo)));
     const text = await readKnowledge(repoOf(args.repo));
     process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
@@ -33,6 +59,21 @@ const add = defineCommand({
   async run({ args }) {
     refuseInRole(process.env, "catherd knowledge add");
     console.log(await addKnowledge(repoOf(args.repo), args.line));
+  },
+});
+
+const rm = defineCommand({
+  meta: {
+    name: "rm",
+    description: "Remove the one line of the repo's knowledge.md that contains the text",
+  },
+  args: {
+    text: { type: "positional", required: true, description: "text of the one line to remove" },
+    ...REPO_ARG,
+  },
+  async run({ args }) {
+    refuseInRole(process.env, "catherd knowledge rm");
+    console.log(await removeKnowledge(repoOf(args.repo), args.text));
   },
 });
 
@@ -119,7 +160,7 @@ const env = defineCommand({
 export const knowledgeCommand = defineCommand({
   meta: {
     name: "knowledge",
-    description: "What catherd knows about a repo: show, add or path, and its gate environment (env)",
+    description: "What catherd knows about a repo: show, add, rm or path, and its gate environment (env)",
   },
-  subCommands: { show, add, path, env },
+  subCommands: { show, add, rm, path, env },
 });

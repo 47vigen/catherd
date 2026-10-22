@@ -1,4 +1,5 @@
 import type { BlockedReason } from "../../src/domain/blocked.ts";
+import type { JudgeKind } from "../../src/domain/judge.ts";
 import type { RunEvent, RunEventType, MilestonePlan } from "../../src/domain/run-events.ts";
 import { type RunState, replay } from "../../src/domain/run-state.ts";
 
@@ -70,7 +71,7 @@ export function startDispatch(
     lane?: string | null;
     rung?: string;
     thread?: string | null;
-    judgeKind?: "triage" | "question" | "unexpected";
+    judgeKind?: JudgeKind;
   },
 ): string {
   const dispatchId = newId();
@@ -150,7 +151,7 @@ export function routeMilestone(log: Log, mp: MilestonePlan, rung = "codex:gpt-6-
     milestone: mp.id,
     lanes: mp.lanes.map((l) => ({ lane: l.id, rung, ladder: [rung, "codex:gpt-6-sol#high"] })),
   });
-  log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null });
+  log.add("preflight.done", { milestone: mp.id, blocking: [], confirm: null, lint: [] });
 }
 
 /** Runs one lane dispatch to a passing fast check. */

@@ -20,6 +20,7 @@ import {
   ensureJsonlHeader,
   ensurePrivateDir,
   PRIVATE_DIR,
+  PRIVATE_FILE,
   appendPrivate,
   nonBlankLines,
   readJsonl,
@@ -363,7 +364,7 @@ export async function knowledgeFor(toplevel: string): Promise<string> {
 
 /**
  * Appends one line to the repo's knowledge.md, `- <date> <source>: <text>` with `text` on one line, and returns
- * it. The single writer of knowledge.md: `land`'s `learned` and `catherd knowledge add` both come through here.
+ * it. `land`'s `learned` and `catherd knowledge add` both come through here; `removeKnowledgeLine` is the other writer.
  */
 export async function appendKnowledge(
   toplevel: string,
@@ -372,8 +373,36 @@ export async function appendKnowledge(
   text: string,
 ): Promise<string> {
   const line = `- ${at.toISOString().slice(0, 10)} ${source}: ${cell(text)}`;
-  appendPrivate(await knowledgeFor(toplevel), `${line}\n`);
+  const file = await knowledgeFor(toplevel);
+  ensurePrivateDir(dirname(file));
+  await withFileLock(file, () => appendPrivate(file, `${line}\n`));
   return line;
+}
+
+/** Removes the one line of the repo's knowledge.md that contains `match`, and returns it. */
+export async function removeKnowledgeLine(toplevel: string, match: string): Promise<string> {
+  const file = await knowledgeFor(toplevel);
+  const needle = match.trim();
+  ensurePrivateDir(dirname(file));
+  return withFileLock(file, () => {
+    const lines = existsSync(file) ? nonBlankLines(file) : [];
+    const hits = needle ? lines.filter((l) => l.includes(needle)) : [];
+    if (hits.length === 0)
+      throw new CatherdError("E_INPUT_INVALID", `no line of knowledge.md contains "${match}"`, {
+        fix: "catherd knowledge show",
+      });
+    if (hits.length > 1)
+      throw new CatherdError(
+        "E_INPUT_INVALID",
+        `${hits.length} lines contain "${match}": quote more of the one to remove`,
+        {
+          fix: "catherd knowledge show",
+        },
+      );
+    const rest = lines.filter((l) => l !== hits[0]);
+    writeTextAtomic(file, rest.length ? `${rest.join("\n")}\n` : "", { mode: PRIVATE_FILE });
+    return hits[0] as string;
+  });
 }
 
 /** Spec 1.5 "runs supersede": the run that took over a closed one, and when. */
