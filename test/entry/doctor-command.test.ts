@@ -8,7 +8,7 @@ import { logsDir } from "../../src/infra/paths.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { credentialsPath } from "../../src/services/jev-service.ts";
 import { patchProfile } from "../../src/services/profile-service.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { bunOnlyBin, snapshotEnv, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 import { withScenario } from "../sim/scenario.ts";
 import { withClaudeScenario, withOpencodeScenario } from "../sim/sim-scenarios.ts";
@@ -37,7 +37,7 @@ function machine(): void {
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
-  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${join(import.meta.dir, "..", "bin")}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  process.env.PATH = `${join(import.meta.dir, "..", "sim")}:${join(import.meta.dir, "..", "bin")}:${bunOnlyBin()}:/usr/bin:/bin`;
   Object.assign(
     process.env,
     withScenario({ models: fx("codex/models.json"), sandbox: "allow" }).env,

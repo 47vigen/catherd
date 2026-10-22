@@ -10,7 +10,7 @@ import {
   realGlobalInstall,
   run,
 } from "../../src/services/global-install.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { bunOnlyBin, snapshotEnv } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -127,7 +127,7 @@ describe("realGlobalInstall.globalVersion (Codex P1: under bunx, PATH finds bunx
   it("asks bun's global bin, not PATH: a bunx shim at this version and an empty global bin install", async () => {
     const globalBin = mkdtempSync(join(tmpdir(), "catherd-global-empty-"));
     process.env.BUN_INSTALL_BIN = globalBin;
-    process.env.PATH = `${bunxBin("1.1.0")}:${globalBin}:${join(process.execPath, "..")}:/usr/bin:/bin`;
+    process.env.PATH = `${bunxBin("1.1.0")}:${globalBin}:${bunOnlyBin()}:/usr/bin:/bin`;
     expect(await realGlobalInstall.globalVersion()).toBeNull();
     const installed: string[] = [];
     const d: GlobalInstallDeps = {
@@ -145,7 +145,7 @@ describe("realGlobalInstall.globalVersion (Codex P1: under bunx, PATH finds bunx
 
   it("is current when the catherd in the global bin is this version", async () => {
     process.env.BUN_INSTALL_BIN = fakeCatherdDir("echo 1.1.0");
-    process.env.PATH = `${process.env.BUN_INSTALL_BIN}:${join(process.execPath, "..")}:/usr/bin:/bin`;
+    process.env.PATH = `${process.env.BUN_INSTALL_BIN}:${bunOnlyBin()}:/usr/bin:/bin`;
     expect(await realGlobalInstall.globalVersion()).toBe("1.1.0");
     const d: GlobalInstallDeps = {
       ...realGlobalInstall,

@@ -19,7 +19,7 @@ import { activate, patchProfile } from "../../src/services/profile-service.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { claudeAgentsDir } from "../../src/infra/paths.ts";
 import { activeName, getProfile } from "../../src/services/profile-store.ts";
-import { noPosixModes, openModes, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
+import { bunOnlyBin, noPosixModes, openModes, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { SRC } from "../import-graph.ts";
 
 afterEach(snapshotEnv());
@@ -34,7 +34,7 @@ function init(args: string[], stdin = "", cwd?: string) {
       ...process.env,
       CATHERD_ORCHESTRATION_HOST: args.includes("--host") ? "" : "claude-code",
       // test/bin: the MCP launcher's "global catherd" is this checkout, so doctor's handshake never runs bunx
-      PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      PATH: `/nonexistent:${join(import.meta.dir, "..", "bin")}:${bunOnlyBin()}:/usr/bin:/bin`,
       // bun's global bin is test/bin too, so init finds "this version installed globally" and never runs bun add -g
       BUN_INSTALL_BIN: join(import.meta.dir, "..", "bin"),
       // and should that ever miss, bun add -g lands in a scratch folder and its registry refuses at once

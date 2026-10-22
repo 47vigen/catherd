@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,6 +59,20 @@ export function withHome(o: { index?: boolean } = {}): string {
  * `pwd` and a child's cwd all report the real path, so a test comparing paths must start from it.
  */
 export const tempDir = (prefix: string): string => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+
+let bunBin: string | undefined;
+
+/**
+ * A folder holding only `bun` and `bunx`, for a PATH that must find bun and nothing else: bun's own folder can be
+ * /opt/homebrew/bin, which also has the developer's real claude, codex, opencode and gh.
+ */
+export function bunOnlyBin(): string {
+  if (!bunBin) {
+    bunBin = tempDir("catherd-bun-bin-");
+    for (const name of ["bun", "bunx"]) symlinkSync(process.execPath, join(bunBin, name));
+  }
+  return bunBin;
+}
 
 let repoTemplate: string | undefined;
 

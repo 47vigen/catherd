@@ -28,13 +28,13 @@ import { readDiscovery } from "../../src/adapters/discovery.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { parseRung } from "../../src/domain/ids.ts";
 import { configDir, dataDir } from "../../src/infra/paths.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { bunOnlyBin, snapshotEnv, withHome } from "../helpers.ts";
 import { withCursorScenario } from "../sim/sim-scenarios.ts";
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "cursor");
 const SIM = join(import.meta.dir, "..", "sim", "cursor-agent");
 /** The simulators, Bun and the system tools, and nothing of this machine's own: its `agent` may be anyone's. */
-const SIMS = [dirname(SIM), dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+const SIMS = [dirname(SIM), bunOnlyBin(), "/usr/bin", "/bin"].join(":");
 const lines = (n: string) =>
   readFileSync(join(FX, n), "utf8")
     .split("\n")
@@ -83,7 +83,7 @@ function pathWith(name: string, target: string | null, script?: string, sims = f
     writeFileSync(join(dir, name), script ?? "");
     chmodSync(join(dir, name), 0o755);
   }
-  return [dir, ...(sims ? [dirname(SIM)] : []), dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+  return [dir, ...(sims ? [dirname(SIM)] : []), bunOnlyBin(), "/usr/bin", "/bin"].join(":");
 }
 
 const ANOTHER_AGENT = "#!/bin/sh\necho 'agent 1.0.44 (grok)'\n";
