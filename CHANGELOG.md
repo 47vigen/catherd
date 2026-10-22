@@ -1,5 +1,11 @@
 # catherd-cli
 
+## 1.5.1
+
+### Patch Changes
+
+- c1d85f3: Dependency security updates: shell-quote, launch-editor and the other packages `bun audit` flags as high or critical.
+
 ## 1.5.0
 
 ### Minor Changes
