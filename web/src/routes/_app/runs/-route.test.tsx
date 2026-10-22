@@ -66,10 +66,37 @@ const run = (over: object = {}) => ({
   updatedAt: now(),
   ...over,
 });
+const card = (over: object = {}) => ({
+  id: "r1",
+  title: "wallet split",
+  repo: "/work/wallet",
+  engine: "2.0",
+  phase: "running",
+  outcome: null,
+  startedAt: now(),
+  endedAt: null,
+  wallMinutes: null,
+  milestones: { total: 2, landed: 1 },
+  live: [{ name: "worker-M2.L1", role: "worker", rung: "codex:gpt-6-sol#high", unit: "M2.L1" }],
+  openQuestions: 1,
+  totals: {
+    dispatches: 3,
+    tokens: { input: 0, cached: 0, output: 0 },
+    costUsd: 0,
+    interventions: 0,
+    failovers: 0,
+    climbs: 0,
+    rounds: 1,
+  },
+  byBackend: [],
+  byModel: [],
+  byRole: [],
+  ...over,
+});
 const entry = (seq: number, text: string) => ({ seq, at: now(), type: "report.posted", text });
 
 function api(_req: Request, url: URL) {
-  if (url.pathname === "/api/runs") return Response.json({ items: [run()], total: 1 });
+  if (url.pathname === "/api/runs") return Response.json({ items: [card()], total: 1 });
   if (url.pathname === "/api/runs/r1") return Response.json(run());
   if (url.pathname === "/api/runs/r1/timeline")
     return Response.json({
@@ -86,14 +113,13 @@ test("the list query carries the search, the phase and the page", async () => {
   );
 });
 
-test("a row shows the run's status, milestones, live roles, questions and daemon, and opens the run", async () => {
+test("a row shows the run's status, milestones, live roles and questions, and opens the run", async () => {
   const { router } = renderRoute("/runs", api);
   const title = await screen.findByText("wallet split");
   const row = title.closest<HTMLElement>('[role="row"]')!;
   expect(within(row).getByText("r1")).toBeInTheDocument();
   expect(within(row).getByText("Parked")).toBeInTheDocument();
   expect(within(row).getByText("1/2")).toBeInTheDocument();
-  expect(within(row).getByText("Alive")).toBeInTheDocument();
   await userEvent.click(row);
   await waitFor(() => expect(router.state.location.pathname).toBe("/runs/r1"));
 });

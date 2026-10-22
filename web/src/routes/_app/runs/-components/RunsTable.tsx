@@ -1,14 +1,19 @@
 import { Link, Table } from "@heroui/react";
 
-import { daemonStatus, runStatus } from "../-lib/run-status";
-import type { RunView } from "../../../../client";
-import { StatusChip } from "../../../../components/status-chip/StatusChip";
+import type { RunCard } from "../../../../client";
+import { StatusChip, type Status } from "../../../../components/status-chip/StatusChip";
 import { formatRelative } from "../../../../lib/time";
 
-const landed = (r: RunView) => r.milestones.filter((m) => m.status === "landed" || m.status === "merged").length;
+/** What a run is doing: a 1.5 run is only informational, an outcome ends the story, a question comes next. */
+const cardStatus = (r: RunCard): Status => {
+  if (r.engine === "1.5") return "info";
+  if (r.outcome) return r.outcome;
+  if (r.openQuestions > 0) return "parked";
+  return r.phase === "planning" || r.phase === "approval" ? r.phase : "running";
+};
 
-/** One page of runs; a row opens the run. A 1.5 run has no daemon or milestones of its own to show. */
-export function RunsTable({ items, now, onOpen }: { items: RunView[]; now: Date; onOpen(id: string): void }) {
+/** One page of runs; a row opens the run. */
+export function RunsTable({ items, now, onOpen }: { items: RunCard[]; now: Date; onOpen(id: string): void }) {
   return (
     <Table>
       <Table.ScrollContainer>
@@ -19,7 +24,6 @@ export function RunsTable({ items, now, onOpen }: { items: RunView[]; now: Date;
             <Table.Column className="text-right">Milestones</Table.Column>
             <Table.Column className="text-right">Live</Table.Column>
             <Table.Column className="text-right">Questions</Table.Column>
-            <Table.Column>Daemon</Table.Column>
             <Table.Column>Updated</Table.Column>
           </Table.Header>
           <Table.Body items={items}>
@@ -34,22 +38,15 @@ export function RunsTable({ items, now, onOpen }: { items: RunView[]; now: Date;
                   </div>
                 </Table.Cell>
                 <Table.Cell>
-                  <StatusChip status={runStatus(r)} />
+                  <StatusChip status={cardStatus(r)} />
                 </Table.Cell>
                 <Table.Cell className="text-right font-mono text-[13px] tabular-nums">
-                  {landed(r)}/{r.milestones.length}
+                  {r.milestones.landed}/{r.milestones.total}
                 </Table.Cell>
                 <Table.Cell className="text-right font-mono text-[13px] tabular-nums">{r.live.length}</Table.Cell>
-                <Table.Cell className="text-right font-mono text-[13px] tabular-nums">{r.parked.length}</Table.Cell>
-                <Table.Cell>
-                  {r.engine === "1.5" || r.phase === "ended" ? (
-                    <span className="text-muted">–</span>
-                  ) : (
-                    <StatusChip status={daemonStatus(r)} />
-                  )}
-                </Table.Cell>
+                <Table.Cell className="text-right font-mono text-[13px] tabular-nums">{r.openQuestions}</Table.Cell>
                 <Table.Cell className="text-muted text-[13px] whitespace-nowrap">
-                  {formatRelative(r.updatedAt, now)}
+                  {formatRelative(r.endedAt ?? r.startedAt, now)}
                 </Table.Cell>
               </Table.Row>
             )}
