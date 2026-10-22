@@ -8,7 +8,8 @@ import { landedMilestones } from "./milestones.ts";
 import { pauseSpans } from "./pause.ts";
 import { runMilestones } from "./protocol.ts";
 import { parkedSpans, questionCounts } from "./questions.ts";
-import { isDaemonRun, readEvents, replayRun } from "./run-events-store.ts";
+import { replay } from "../domain/run-state.ts";
+import { isDaemonRun, readEvents } from "./run-events-store.ts";
 import { listRuns, readAgentRuns, readRecords, type Run, supersededBy } from "./run-store.ts";
 import { readSessionRows } from "./sessions.ts";
 
@@ -21,7 +22,8 @@ import { readSessionRows } from "./sessions.ts";
 function eventCounts(run: Run): { parks: number; answers: number; cancels: number; approvals: number } {
   const events = readEvents(run);
   const n = (f: (e: RunEvent) => boolean) => events.filter(f).length;
-  const open = Object.keys(replayRun(run).questions).length;
+  // one snapshot: an answer written between two reads would otherwise count nowhere
+  const open = Object.keys(replay(events, run.id).questions).length;
   return {
     parks: n((e) => e.type === "question.answered" && e.by === "owner") + open,
     answers: n((e) => e.type === "question.answered"),
