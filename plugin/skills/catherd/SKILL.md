@@ -27,14 +27,14 @@ isolate it (the profile's `harness.<name>.isolated` is the user's own choice, an
 
 Six tools, nothing else.
 
-| Tool                                     | Use                                                                                                                                |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `run_start(repo, title, a_lines, plan?)` | Starts a run. Returns its id and the notify url its questions go to.                                                               |
-| `status(run?)`                           | Each run's phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive (a dead one is restarted). |
-| `answer(run, unit, answer)`              | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer.                                             |
-| `cancel(run)`                            | Stops the run: every live role is cancelled.                                                                                       |
-| `result(run, name?)`                     | The run's report, or with `name` one role's record.                                                                                |
-| `profile(action, …)`                     | Reads, validates or changes a profile, or sets `notify_url`. Tuning is the `catherd-setup` skill's.                                |
+| Tool                                            | Use                                                                                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `run_start(repo, title, a_lines, plan?, base?)` | Starts a run. Returns its id and the notify url its questions go to.                                                               |
+| `status(run?)`                                  | Each run's phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive (a dead one is restarted). |
+| `answer(run, unit, answer)`                     | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer.                                             |
+| `cancel(run)`                                   | Stops the run: every live role is cancelled.                                                                                       |
+| `result(run, name?)`                            | The run's report, or with `name` one role's record.                                                                                |
+| `profile(action, …)`                            | Reads, validates or changes a profile, or sets `notify_url`. Tuning is the `catherd-setup` skill's.                                |
 
 ## Starting a run
 
@@ -100,7 +100,7 @@ tell the owner when the fix is theirs. Codes you will meet:
 - `E_RUN_BUDGET`: the run's budget is spent; the owner raises it in the profile (`catherd-setup`) or ends the run.
 - `E_BACKEND_NOT_LOGGED_IN`: a backend the run needs has no login; the owner logs in, then the daemon proceeds.
 - `E_ADMIT_RUNG`: no rung can fill a role; the profile needs one (`catherd-setup`).
-- `E_ROLE_SCOPE`: a role session called a session tool; only you, the owner's session, may.
+- `E_ROLE_SCOPE`: a role session called `run_start`, `answer`, `cancel`, `result` or `profile`; only you, the owner's session, may.
 
 ## What not to do
 

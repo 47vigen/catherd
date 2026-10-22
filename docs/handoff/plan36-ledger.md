@@ -1,0 +1,39 @@
+Plan 36: release 2.0 (Tasks 3-8; Task 2 done: 1.x branch + PR #68)
+
+Task 3 done. Step 4: src/services/run-effects.ts:368 passes the action's failoverFrom into admit(); admission.ts:332 and finalize.ts:223 carry it to the record. No change needed, no new test.
+
+## Task 4 done (852bf89). Ruling: 1.x facts in CONTRIBUTING come from the brief (PR 47vigen/catherd#68: shares main's concurrency group, publishes to latest while npm latest is 1.x else v1-latest) — not re-read from the 1.x workflows — a wrong detail is a doc fix.
+
+## Task 5: MIGRATION "From 1.5 to 2.0" — every bullet traced to a grep hit in src/ (greps at head 1760179)
+- 1.5 runs not adopted: src/services/daemon.ts:72-73 ensureDaemon returns "1.5" without events.jsonl; src/services/run-read.ts:16 engine "1.5"; src/domain/run-events.ts:106 engine "2.0".
+- Six session tools: src/entry/mcp/session-tools.ts (run_start, status, answer, cancel, result, profile get|validate|set + notify_url). No other registerTool for route/dispatch/land/...: grep of src/entry shows only role-server tools (read_run_file, read_knowledge, write_run_file, gate_check, gate_pass, gate_run). gate_check/gate_pass: src/domain/role-tools.ts:32 (verifier).
+- E_ROLE_SCOPE: src/domain/role-scope.ts:57 COORDINATOR_TOOLS = run_start, answer, cancel, result, profile.
+- claude: -> claude-code twin: src/services/admission.ts:194-195 headlessRung. Judge read-only: src/domain/roles.ts:26; Opus default src/domain/profile.ts:223.
+- notify.url: src/services/profile-store.ts:46, profile-service.ts:354-369, notify-service.ts; catherd answer: src/entry/answer-command.ts.
+- Blocked reasons/actions: src/domain/blocked.ts REASON_ACTION; Jev classify: src/services/run-effects.ts:517-536 (null when off/unsure).
+- Failover any configured backend, never weaker, Claude last: src/services/failover-rungs.ts failoverRung/failoverBackends; src/domain/failover.ts rankStandIns.
+- HEAD:/gate_run/land: src/domain/record.ts:116-123; src/services/lane-service.ts:420+ (E_LAND_GATE head check); src/services/milestone-check.ts:79-95 (rerun once, base failures, gitleaks skipped note); src/entry/role-cli-command.ts gate run.
+- Catalog: src/infra/paths.ts:16,77 (dataDir/slopalytics.json); catalog-service.ts:300 hourly refresh, last good kept; entry/catalog-command.ts sync --force; no hit in src/catalog for treat-like|scores.json|sources.json|catalog.override|scored_only|unmatched; git v1.5.0 had paths.sourcesDir = <data>/sources, credentials.artificialAnalysisApiKey (src/services/credentials.ts:10 now loose/unread).
+- Unindexed -> validate error / doctor warning: src/domain/profile-rules.ts:186-194,296-302; src/services/doctor.ts:179 {unindexed:"warning"}. Run needs every enabled role indexed: src/services/run-service.ts:127. Run copy: catalog-service.ts:50 RUN_INDEX.
+- Stand-in indexed/other quota/not weaker: src/domain/failover.ts:41-62.
+- init 3 lines: src/entry/init-command.ts:149. routes.jsonl provenance: src/services/provenance.ts; failover rows: src/domain/route.ts:82-92.
+- Grok/agy: src/domain/ids.ts:15 ADAPTER_IDS = codex, claude-code, opencode, cursor; src/domain/catalog.ts:10 BILLING_KEYS; src/domain/profile.ts:411-413 patch schema (strict) ; stored docs loose. profile show --raw: src/entry/profile-command.ts:183.
+- Panel: src/cli.ts (bare catherd -> panel, "panel" subcommand), src/entry/panel-command.ts (port 4317, --no-open, CATHERD_PANEL_DIST, token); web/src/routes/_app/{setup,runs,questions}; "Cancel run" web/src/components/confirm-delete tests/routes. No hit in src for CATHERD_REDUCED_MOTION|NO_KITTY|STORY, E_CONFIG_KEYBIND, keybinds (v1.5.0 had them in src/entry/tui/commands.ts); --plain remains on init and doctor only (src/entry/init-command.ts:164, doctor-command.ts:57), not on catherd/watch (src/entry/runs-command.ts has none). docs/tui-frames.md absent.
+- Plan input: src/domain/plan-doc.ts (Tasks: coverage, signature/test, D<n>, APPROVE_WORDS, approval question text); src/domain/record.ts:78-82,139-150 EXTRA/REJECTED/DESIGN; src/services/run-client.ts:122 plan-approved.md; src/services/run-service.ts:187 read-only for roles; run-effects.ts:425 readPlan.
+- Routing: src/domain/bars.ts:6 BAR_PERCENTILE 20/45/60/65; profile.ts:243 DEFAULT_MAX_EFFORT; select.ts:37-52 CODING_FLOOR/effortAllowed; profile-rules.ts:160 names a worker rung below medium; jev.ts:36,271-291 floorLogic/capBuild; failover-rungs.ts free() uses effortAllowed.
+- Knowledge: src/domain/rules.ts RULE_TAG; admission.ts:345 rulesBlock; src/entry/knowledge-command.ts (show --role, add, rm); run-machine.ts:550 rulesReviewActions + run-report.ts rulesSection (proposals listed, none applied); src/domain/plan-lint.ts + preflight.ts:396 (After: cycles).
+- Milestone per branch: src/domain/branch.ts:17 Setup:; milestone-tree.ts; lane.ts:23 After: whole milestone; milestone-memory.ts:6-9 defaults 2048/3072/3072; profile.ts:431-440 limits.memory; run-machine.ts:299,520-545 push question + mrCommand; run-effects.ts:668-724 checkMerged/pushBranch; run-state.ts:272 MERGE_CHECK_MS 10 min, :279 isFinished (base run: merged); integrate events run-state.ts base.behind/integrate.conflict.
+- New/removed names: git grep v1.5.0 vs head: error codes + E_ALL_HELD, E_RUN_CANCELLED, E_TREE; - E_CONFIG_KEYBIND. Env vars + CATHERD_PANEL_DIST (also CATHERD_HEAVY_LOAD_WAIT_MS, CATHERD_SCORECARD_LIMITS: tuning/scorecard internals, not listed); - REDUCED_MOTION, NO_KITTY, STORY.
+
+Ruling: dropped plan 34's claim "a finished run asks you to approve its rules review before it ends" — run-machine.ts:547 says the run never waits on the owner; the report lists proposals and applies none (the existing MIGRATION bullet was right) — none.
+Ruling: dropped plan 29's "bars are the 25th/50th/60th/75th percentiles" (README text) — src/domain/bars.ts:6 is 20/45/60/65 (plan 33) — README is Task 6.
+Ruling: dropped "so newSessionNeededFor stays empty" (plan 30) — profile-service still returns newSessionNeededFor for native Claude agent files (profile-service.ts:104, panel-setup.ts:43); no code makes it empty — none.
+Ruling: "A role that calls a session tool gets E_ROLE_SCOPE" narrowed to run_start/answer/cancel/result/profile — status is not a coordinator tool (role-scope.ts:57) — none.
+Ruling: "with Jev off it is handled as in 1.5" -> "stays unclassified" — run-effects.ts classify returns reason null when off/unsure; no hit equates it to 1.5 behaviour — none.
+Ruling: "one bar per difficulty for every kind" kept as "Every kind of lane is held to the same bar" (bars.ts barOf takes a difficulty only; my first draft wrongly dropped it) — none.
+Ruling: closing list is a table of names verified by git grep v1.5.0 vs head (errors, env vars, config keys, files); config key rows: notify.url (ntfy absent in v1.5.0), bars, maxEffort, limits.memory (absent in v1.5.0 profile.ts) — none.
+Task 6 done: README Upgrading/Install channels/Docs 2.0 spec row/run_start row/E_ROLE_SCOPE narrowing; setup skill claude: twin + failover text. README grep: only 'Composer, Grok' (Cursor's own model, not Grok Build) — left.
+
+## Task 7 done
+Ruling: removed no ideas.md entry as "fixed by 2.0" — every entry's evidence code is still present at the head (notifier.ts, end-push.ts, dispatch-service.ts:457 `else rung = i.rung`, run-service.ts:131 message, milestone-tree.ts:111 prune, state.ts:51 gitHead, panel server.ts:53 CSP, web/src has no maxEffort/bars, protocol.ts failedItems, preflight.ts:231, routing-service.ts:244 Promise.all, ...). Restructured under one "## 2.0 follow-ups" with ### groups, updated tool names that left the session (owns_add, runs_summary, peek). — cost if wrong: a stale entry stays a line longer.
+Task 8: re-read all 9 existing changesets against src (research answer: run-briefs.ts:171; opentui absent from package.json; 20/45/60/65 bars.ts:6; limits.memory defaults milestone-memory.ts:7-9; push+MR command run-effects.ts:716): none false, none edited. New .changeset/2-0-release.md.

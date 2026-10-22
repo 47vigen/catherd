@@ -285,6 +285,8 @@ describe("scorecard results", () => {
         pauses: 0,
         superseded: 0,
         chat: 0,
+        cancels: 0,
+        approvals: 0,
         total: 0,
       },
       reviewRounds: 0,

@@ -7,6 +7,7 @@ import { reviewRounds } from "../../src/services/milestones.ts";
 import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { runMilestones } from "../../src/services/protocol.ts";
 import { answer, park, questionCounts } from "../../src/services/questions.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
 import {
   appendAgentRun,
   appendLedger,
@@ -87,6 +88,64 @@ describe("scorecard metrics", () => {
     await answer(deps, { run: run.id, milestone: "M1", answer: "that" });
     expect(questionCounts(run)).toEqual({ questions: 1, answers: 1 });
     expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ parks: 1, answers: 1, total: 1 });
+  });
+
+  /** `events` appended to a daemon run, `run.started` first. */
+  async function daemonRun(...events: Parameters<typeof appendEvent>[1][]): Promise<Run> {
+    const { repo, run } = runAt("10:00");
+    await appendEvent(run, {
+      type: "run.started",
+      repo,
+      title: "t",
+      aLines: [],
+      plan: [],
+      base: null,
+      engine: "2.0",
+    });
+    for (const e of events) await appendEvent(run, e);
+    return run;
+  }
+  const parked = (unit: string) =>
+    ({ type: "question.parked", unit, question: "which?", reason: "needs_user" }) as const;
+  const answered = (unit: string, by: "owner" | "judge") =>
+    ({ type: "question.answered", unit, answer: "that", by }) as const;
+
+  it("counts in a daemon run the owner's answers and the questions still open, not the judge's answers", async () => {
+    const run = await daemonRun(
+      parked("M1.L1"),
+      answered("M1.L1", "owner"),
+      parked("M1.L2"),
+      parked("M1.L3"),
+      answered("M1.L3", "judge"),
+    );
+    expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ parks: 2, answers: 2, total: 2 });
+  });
+
+  it("adds an owner's cancel and an owner's plan approval, not a plan given as input", async () => {
+    const run = await daemonRun(
+      { type: "cancel.requested", by: "owner" },
+      { type: "plan.approved", by: "owner" },
+    );
+    expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ cancels: 1, approvals: 1, total: 2 });
+    const input = await daemonRun({ type: "plan.approved", by: "input" });
+    expect(interventionsOf(input, ms("12:00"), 0)).toMatchObject({ cancels: 0, approvals: 0, total: 0 });
+  });
+
+  it("reads questions.jsonl only in a 1.5 run", async () => {
+    const run = await daemonRun(parked("M1"), answered("M1", "owner"));
+    const deps = fakeDeps();
+    await park(deps, { run: run.id, milestone: "M1", question: "which?" });
+    await answer(deps, { run: run.id, milestone: "M1", answer: "that" });
+    expect(interventionsOf(run, ms("12:00"), 0)).toMatchObject({ parks: 1, answers: 1 });
+    const { run: old } = freshRun();
+    await park(deps, { run: old.id, milestone: "M1", question: "which?" });
+    await answer(deps, { run: old.id, milestone: "M1", answer: "that" });
+    expect(interventionsOf(old, ms("12:00"), 0)).toMatchObject({
+      parks: 1,
+      answers: 1,
+      cancels: 0,
+      approvals: 0,
+    });
   });
 
   it("counts each change of owner session after the start as a takeover", () => {

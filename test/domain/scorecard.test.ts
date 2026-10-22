@@ -14,7 +14,17 @@ import {
 } from "../../src/domain/scorecard.ts";
 
 const ivs = (over: Partial<Omit<Interventions, "total">> = {}): Interventions => {
-  const base = { parks: 0, answers: 0, takeovers: 0, manualDispatches: 0, pauses: 0, superseded: 0, chat: 0 };
+  const base = {
+    parks: 0,
+    answers: 0,
+    takeovers: 0,
+    manualDispatches: 0,
+    pauses: 0,
+    superseded: 0,
+    chat: 0,
+    cancels: 0,
+    approvals: 0,
+  };
   const i = { ...base, ...over };
   return { ...i, total: interventionTotal(i) };
 };
@@ -84,7 +94,7 @@ describe("scorecard", () => {
     }
   });
 
-  it("adds parks, takeovers, manual dispatches, pauses, superseded runs and chat, not answers", () => {
+  it("adds parks, takeovers, manual dispatches, pauses, superseded runs, chat, cancels and approvals, not answers", () => {
     expect(
       interventionTotal({
         parks: 1,
@@ -94,8 +104,10 @@ describe("scorecard", () => {
         pauses: 1,
         superseded: 1,
         chat: 2,
+        cancels: 1,
+        approvals: 1,
       }),
-    ).toBe(10);
+    ).toBe(12);
   });
 
   it("passes four finished tasks with no intervention, a recovered injected task and wall-clock within 10 % of the baseline", () => {
