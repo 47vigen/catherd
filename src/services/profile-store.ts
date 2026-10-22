@@ -1,4 +1,4 @@
-import type { OrchestrationHost } from "../domain/host.ts";
+import type { KnownHost, OrchestrationHost } from "../domain/host.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -42,6 +42,8 @@ export const profileFile = (name: string): string => join(profilesDir(), `${name
 const ConfigSchema = z.looseObject({
   schema: z.literal(1),
   activeProfile: z.string().optional(),
+  /** the host `catherd init` last ran on: what a process with no host of its own (the panel) resolves on */
+  host: z.enum(["claude-code", "codex"]).optional(),
   /** where the phone messages go (an ntfy topic), made at the first run */
   notify: z.looseObject({ url: z.string().optional() }).optional(),
 });
@@ -81,6 +83,8 @@ function readV1<T>(file: string, schema: z.ZodType<T>): T {
 
 export const readConfig = (): Config =>
   existsSync(configFile()) ? readV1(configFile(), ConfigSchema) : { schema: 1 };
+/** The host `catherd init` recorded, or null before it ran on a known one. */
+export const initHost = (): KnownHost | null => readConfig().host ?? null;
 export const readProjects = (): Projects =>
   existsSync(projectsFile()) ? readV1(projectsFile(), ProjectsSchema) : { schema: 1, bindings: {} };
 

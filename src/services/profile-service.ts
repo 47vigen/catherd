@@ -262,6 +262,15 @@ export function activate(
   });
 }
 
+/** `catherd init`: stores the host it ran on in config.json; an unknown host leaves what is stored alone. */
+export function recordHost(host: OrchestrationHost): void {
+  if (host === "unknown") return;
+  locked(() => {
+    const config = readConfig();
+    if (config.host !== host) writeJsonAtomic(configFile(), { ...config, schema: 1, host });
+  });
+}
+
 /** `catherd profile use --repo --clear`: removes `repo`'s binding, so it runs on the active profile again. */
 export function unbind(repo: string, host: OrchestrationHost): Synced & { repo: string; was: string } {
   return locked(() => {

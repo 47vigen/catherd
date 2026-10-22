@@ -17,7 +17,9 @@ export function RoleLadder({ role, onEdit }: { role: SetupView["roles"][number];
           Edit rungs
         </Button>
       </div>
-      {role.rungs.length === 0 ? (
+      {role.hostSet ? (
+        <p className="text-muted text-sm">Set by the session&apos;s host.</p>
+      ) : role.rungs.length === 0 ? (
         <p className="text-muted text-sm">No rungs.</p>
       ) : (
         <ol className="flex flex-col gap-1">

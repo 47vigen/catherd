@@ -69,3 +69,21 @@ describe("the panel's Setup view", () => {
     expect(v.roles.every((r) => r.offered.length === 0)).toBe(true);
   });
 });
+
+describe("the panel's Setup view on a host that is not known", () => {
+  it("lists every role, showing the architect and verifier as set by the session's host", async () => {
+    const bare = defaultDeps({ host: "unknown", session: null, conflict: null });
+    const v = SetupViewSchema.parse(await setupView(bare, repo));
+    const hostSet = v.roles.filter((r) => r.hostSet).map((r) => r.role);
+    expect(hostSet).toEqual(["architect", "verifier"]);
+    expect(v.roles.find((r) => r.role === "architect")?.rungs).toEqual([]);
+    expect(v.roles.find((r) => r.role === "worker")?.rungs.map((r) => r.rung)).toEqual(
+      BUILTIN_ROLES.worker.rungs,
+    );
+  });
+
+  it("shows no role as set by the host when the host is known", async () => {
+    const v = await setupView(deps, repo);
+    expect(v.roles.some((r) => r.hostSet)).toBe(false);
+  });
+});

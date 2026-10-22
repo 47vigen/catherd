@@ -43,6 +43,7 @@ const setup = (over: object = {}) => ({
     {
       role: "worker",
       enabled: true,
+      hostSet: false,
       rungs: [
         { rung: LUNA, intelligence: 40.2 },
         { rung: SOL, intelligence: 50 },
@@ -52,10 +53,12 @@ const setup = (over: object = {}) => ({
     {
       role: "reviewer",
       enabled: true,
+      hostSet: false,
       rungs: [{ rung: SOL, intelligence: 50 }],
       offered: [pair(SOL, 50), pair(XHIGH, 55)],
     },
-    { role: "artist", enabled: false, rungs: [], offered: [] },
+    { role: "artist", enabled: false, hostSet: false, rungs: [], offered: [] },
+    { role: "architect", enabled: true, hostSet: true, rungs: [], offered: [pair(SOL, 50)] },
   ],
   ...over,
 });
@@ -94,6 +97,13 @@ test("shows the catalog and backend rows, the profile's issues and each role's l
       .map((l) => l.textContent),
   ).toEqual([expect.stringContaining(LUNA), expect.stringContaining(SOL)]);
   expect(within(worker).getByText("40.2")).toBeInTheDocument();
+});
+
+test("a role whose rungs the session's host sets says so instead of listing none", async () => {
+  renderRoute("/setup", api());
+  const architect = await screen.findByRole("group", { name: "architect" });
+  expect(within(architect).getByText("Set by the session's host.")).toBeInTheDocument();
+  expect(within(architect).queryByText("No rungs.")).not.toBeInTheDocument();
 });
 
 test("Edit rungs offers only the role's indexed pairs with the current ones selected", async () => {

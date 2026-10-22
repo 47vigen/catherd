@@ -886,6 +886,9 @@
                 "enabled": {
                   "type": "boolean"
                 },
+                "hostSet": {
+                  "type": "boolean"
+                },
                 "rungs": {
                   "type": "array",
                   "items": {
@@ -918,6 +921,7 @@
               "required": [
                 "role",
                 "enabled",
+                "hostSet",
                 "rungs",
                 "offered"
               ],
