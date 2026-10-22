@@ -55,7 +55,7 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 ### Unattended
 
 - A blocked reply names a reason: `BLOCKED: needs_user | too_hard | provider_error | no_access | check_broken |
-out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then fail over (`provider_error`), park
+  out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then fail over (`provider_error`), park
   (`needs_user`, `no_access`, `out_of_scope`) or wait (`check_broken`). Jev classifies a stop that names none; with
   Jev off, or unsure, the stop stays unclassified.
 - A limit fails over to any backend you have configured, never to a weaker rung, with Claude last.
@@ -68,7 +68,7 @@ out_of_scope`. It decides what the daemon does: climb (`too_hard`), retry then f
 
 - The catalog reads one source, the Slopalytics index: one `intelligence` per model and effort, fetched hourly and
   kept in `~/.local/share/catherd/slopalytics.json` (the last good one is kept when a fetch fails; `catherd catalog
-sync [--force]` fetches now). Every benchmark source, `catalog/scores.json`, treat-likes, `catalog.override.json`,
+  sync [--force]` fetches now). Every benchmark source, `catalog/scores.json`, treat-likes, `catalog.override.json`,
   calibration and the Artificial Analysis key are gone. Delete `~/.config/catherd/catalog.override.json` and
   `~/.local/share/catherd/sources/`; nothing reads them any more.
 - A model and effort the index does not list is not offered. A profile rung or failover stand-in that names one
@@ -85,7 +85,7 @@ sync [--force]` fetches now). Every benchmark source, `catalog/scores.json`, tre
 ### Grok Build and Antigravity are removed
 
 - Grok Build (`grok:`) and Antigravity (`antigravity:`) are removed. A profile that names one fails `profile
-validate` on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`.
+  validate` on that rung: set the role's rungs again with `catherd profile set roles.<role>.rungs …`.
   `billing.grok`, `billing.antigravity`, `harness.grok` and `harness.antigravity` are ignored, and `profile set` no
   longer takes them; a failover entry that names a Grok or Antigravity rung is removed by editing the profile file
   (`catherd profile show --raw` prints it).
@@ -108,7 +108,7 @@ validate` on that rung: set the role's rungs again with `catherd profile set rol
   without one, and a task with neither a signature nor a test.
 - Without a plan, the architect writes one (what already exists, contracts, decisions with their rejected
   alternatives, a test per task) and the run stops once for your approval: read it with `catherd run-file read <run>
-plan.md` and answer `approve`, or say what to change. It asks again only when a later architect change edits an
+  plan.md` and answer `approve`, or say what to change. It asks again only when a later architect change edits an
   approved decision line (`D<n>`).
 - Replies gain `EXTRA:` (a file outside the lane), `REJECTED:` (a finding a fix round rejects) and `DESIGN:` (the
   plan task conflicts with the code; the reply ends `blocked`, `needs_user`).

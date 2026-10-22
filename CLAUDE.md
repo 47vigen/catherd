@@ -26,7 +26,7 @@ lane's model and effort ("rungs", written `backend:model#effort`). npm package `
 - A missing profile name means the profile the current repo runs on.
 - The gate: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun test`;
   the panel's, in `web/`: `bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check &&
-bun run test`.
+  bun run test`.
 - Tests that could reach the network delete `ANTHROPIC_API_KEY` (in-process) or pass `ANTHROPIC_API_KEY: ""`
   (spawned); spawned processes get an explicit `env`. Never use wall-clock sleeps for correctness.
 - Bun ≥ 1.4. Never commit a `bun.lock` an older Bun rewrote.
@@ -61,9 +61,9 @@ outside the repo). Record every other ambiguity as a ruling and keep going.
 1. Use the superpowers skills throughout (`using-superpowers` first, then `subagent-driven-development`,
    `writing-plans`, `requesting-code-review`). Their helper scripts are in
    `subagent-driven-development/scripts/`: `sdd-workspace PLAN`, `task-brief PLAN N`, `review-package PLAN BASE
-HEAD`. If the skills are not listed, read them from `~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/`.
+   HEAD`. If the skills are not listed, read them from `~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/`.
 2. The dispatch contracts must be in `.superpowers/sdd/` (gitignored): `cp docs/handoff/process/*.md
-.superpowers/sdd/`.
+   .superpowers/sdd/`.
 3. Run the gate on `main`; it must be green before any work starts.
 4. Read, in order: `docs/handoff/HANDOFF.md`, the spec, the ledgers HANDOFF points at, then the plan you execute
    (its Global Constraints, Review Focus, Rulings and Parallelism sections). Never make a worker read a whole plan;
@@ -98,7 +98,7 @@ for mostly edge-case findings.)
   against each other, the spec and the code as it is. Rule on each and hand the rulings to the workers.
 - **Waves in parallel.** Dispatch every batch of a wave at once, each in its own worktree
   (`isolation: "worktree"`); worktrees start at `main`, so each agent first runs `git reset --hard <current branch
-sha>`. A worktree agent's final message is its report: cherry-pick its commits onto the branch and run the full
+  sha>`. A worktree agent's final message is its report: cherry-pick its commits onto the branch and run the full
   gate **once** on the combined head after each wave (for a known load flake, rerun only that file). Worker scratch
   files stay inside the worker's worktree.
 - **One review, at the end.** No per-batch task reviews. One whole-branch review on `opus-medium` (superpowers'
