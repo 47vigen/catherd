@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { assign, listTests, loadTimings } from "../../scripts/test-shard.ts";
 
 const load = (shard: string[], t: Record<string, number>, median: number) =>
@@ -25,5 +28,25 @@ describe("test sharding", () => {
     const shards = assign(["a", "b", "c"], { a: 10, b: 2 }, 4);
     expect(shards.flat().sort()).toEqual(["a", "b", "c"]);
     expect(shards.filter((s) => s.length === 0)).toHaveLength(1);
+  });
+
+  it("finds every file name bun test treats as a test, and nothing else", () => {
+    const root = mkdtempSync(join(tmpdir(), "catherd-shard-"));
+    const names = [
+      "a.test.ts",
+      "b_test.ts",
+      "c.spec.tsx",
+      "d_spec.js",
+      "deep/e.test.mjs",
+      "helpers.ts",
+      "f.testx.ts",
+    ];
+    for (const n of names) {
+      mkdirSync(join(root, "test", n, ".."), { recursive: true });
+      writeFileSync(join(root, "test", n), "");
+    }
+    expect(listTests(root)).toEqual(
+      ["a.test.ts", "b_test.ts", "c.spec.tsx", "d_spec.js", "deep/e.test.mjs"].map((n) => `test/${n}`),
+    );
   });
 });

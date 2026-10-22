@@ -73,7 +73,7 @@ jobs:
           if [ "$full" = true ] || [ -z "$files" ] || [ "$files" = '*' ]; then
             code=true static=true web=true package=true audit=true skills=true workflows=true
           else
-            code=$(any '^(src|test|catalog|scripts)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json)$')
+            code=$(any '^(src|test|catalog|scripts)/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|web/openapi\.json)$')
             web=$(any '^(web|src)/|^test/(helpers|panel-e2e-serve)\.ts$|^(package\.json|bun\.lock)$')
             package=$(any '^(src|plugin|scripts|web|\.claude-plugin)/|^(package\.json|bun\.lock|THIRD_PARTY_NOTICES\.md|LICENSE)$')
             audit=$(any '^(package\.json|bun\.lock)$')
