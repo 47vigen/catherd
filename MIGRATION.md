@@ -37,8 +37,8 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
 - The session has six tools: `run_start`, `status`, `answer`, `cancel`, `result` and `profile` (`get`, `validate`,
   `set`, and `notify_url`). `route`, `preflight`, `dispatch`, `peek`, `climb`, `ask`, `park`, `land`, `set_next`,
   `lane_set`, `owns_add`, `run_pin`, `record_agent_run`, `runs_summary`, `test_push`, `catalog_query`,
-  `catalog_sync`, the `workspace_*` tools, `profile_get`, `profile_set` and `profile_validate` are gone from it;
-  their services and the CLI (`catherd catalog`, `catherd runs`, `catherd workspace`) stay. `gate_check` and
+  `catalog_sync`, `read_run_file`, `write_run_file`, `read_knowledge`, the `workspace_*` tools, `profile_get`, `profile_set` and `profile_validate` are gone from it (roles still have `read_run_file`, `write_run_file` and
+  `read_knowledge`, on the role server); their services and the CLI (`catherd catalog`, `catherd runs`, `catherd workspace`) stay. `gate_check` and
   `gate_pass` are a verifier's tools now. A role that calls `run_start`, `answer`, `cancel`, `result` or `profile`
   gets `E_ROLE_SCOPE`. The `catherd` and `catherd-setup` skills are rewritten for this surface: update the plugin and
   start a new session.
@@ -46,7 +46,8 @@ Install `catherd-cli@1` for the CLI. For the plugin, remove the `catherd` market
   Opus by default) decides what no rule can.
 - Questions go to your phone. Set `notify.url` (in `config.json`) to an ntfy topic url, with `profile` and
   `notify_url` or in `catherd-setup`: the daemon sends a parked question and the final report there from the
-  machine, with no session open. Answer in the session with `answer(run, unit, answer)` or in a terminal with
+  machine, with no session open. If `notify.url` is unset, `run_start` makes a random, unlisted topic on the public
+  ntfy.sh and sends questions there; set `notify.url` to your own ntfy server for privacy. Answer in the session with `answer(run, unit, answer)` or in a terminal with
   `catherd answer <run> <unit> <text>`.
 - A question parks its unit (a lane, a milestone or the run); the other units go on.
 - A finished run's report lists the known issues word for word, with the review rounds and what they fixed.
@@ -158,7 +159,7 @@ plan.md` and answer `approve`, or say what to change. It asks again only when a 
 |                         | Added                                                                                                                        | Removed                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Error codes             | `E_ALL_HELD`, `E_RUN_CANCELLED`, `E_TREE`                                                                                    | `E_CONFIG_KEYBIND`                                                                                 |
-| Environment variables   | `CATHERD_PANEL_DIST`                                                                                                         | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                      |
+| Environment variables   | `CATHERD_PANEL_DIST`, `CATHERD_HEAVY_LOAD_WAIT_MS` (how long a heavy slot waits while the load is high; `0` = no wait)       | `CATHERD_REDUCED_MOTION`, `CATHERD_NO_KITTY`, `CATHERD_STORY`                                      |
 | Config and profile keys | `notify.url`, `bars`, `roles.<role>.bars`, `maxEffort`, `limits.memory`                                                      | `keybinds`, `billing.grok`, `billing.antigravity`, `harness.grok`, `harness.antigravity` (ignored) |
 | Files                   | `<run>/events.jsonl`, `<run>/slopalytics.json`, `plan-input/`, `plan-approved.md`, `~/.local/share/catherd/slopalytics.json` | `catalog.override.json`, `~/.local/share/catherd/sources/`, `docs/tui-frames.md`                   |
 

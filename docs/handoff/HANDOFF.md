@@ -1,6 +1,5 @@
 # catherd — handoff (2026-09-29, seventh session: the 1.3 backend designs)
 
-
 ## catherd 2.0 (2026-10-21, autopilot): the run drives itself
 
 Binding spec: `docs/specs/2026-10-12-catherd-2.0-design.md` (owner-approved over four design rounds; decisions 1–26).
@@ -8,18 +7,18 @@ Plans 28–36 were written on 2061e6e (1.5.0) in two waves; each executes after 
 `main`. The owner's answers to the plans' open questions sit in each plan's "Owner answers" section and bind over
 its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30b reuses their tests by number).
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 28 run scorecard | `docs/plans/2026-10-21-28-run-scorecard.md` | merged (#57; ledger `plan28-ledger.md`); the 1.5.0 baseline is the owner's (Task 8) |
-| 29 shrink | `docs/plans/2026-10-21-29-shrink.md` | merged (#60; ledger `plan29-ledger.md`) |
-| 30 run daemon | `docs/plans/2026-10-21-30-run-daemon.md` | merged (#61; ledger `plan30-ledger.md`) |
-| 30b unattended | `docs/plans/2026-10-21-30b-unattended.md` | merged (#62; ledger `plan30b-ledger.md`) |
-| 31 panel | `docs/plans/2026-10-21-31-panel.md` | merged (#63; ledger `plan31-ledger.md`) |
-| 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md` | merged (#65; ledger `plan32-ledger.md`) |
-| 33 routing | `docs/plans/2026-10-21-33-routing.md` | merged (#66; ledger `plan33-ledger.md`) |
-| 34 knowledge and digest | `docs/plans/2026-10-21-34-knowledge-digest.md` | merged (#67; ledger `plan34-ledger.md`) |
-| 35 milestone branches | `docs/plans/2026-10-21-35-milestone-branches.md` | in PR (#69; final review 0 C / 2 I fixed, 1 minor fixed; ledger `plan35-ledger.md`) |
-| 36 release 2.0 | `docs/plans/2026-10-21-36-release.md` | in PR (stacked on plan 35; Tasks 3–8 done: the scorecard counts a daemon run, the docs, MIGRATION, the changeset). Task 2, the `1.x` line (cut from v1.5.0), merged as PR #68. Tasks 9–12 (beta, scorecard, compare, promote) are the controller's and the owner's, after this PR merges |
+| Plan                     | File                                             | State                                                                               |
+| ------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 28 run scorecard         | `docs/plans/2026-10-21-28-run-scorecard.md`      | merged (#57; ledger `plan28-ledger.md`); the 1.5.0 baseline is the owner's (Task 8) |
+| 29 shrink                | `docs/plans/2026-10-21-29-shrink.md`             | merged (#60; ledger `plan29-ledger.md`)                                             |
+| 30 run daemon            | `docs/plans/2026-10-21-30-run-daemon.md`         | merged (#61; ledger `plan30-ledger.md`)                                             |
+| 30b unattended           | `docs/plans/2026-10-21-30b-unattended.md`        | merged (#62; ledger `plan30b-ledger.md`)                                            |
+| 31 panel                 | `docs/plans/2026-10-21-31-panel.md`              | merged (#63; ledger `plan31-ledger.md`)                                             |
+| 32 briefs and plan input | `docs/plans/2026-10-21-32-briefs-plan-input.md`  | merged (#65; ledger `plan32-ledger.md`)                                             |
+| 33 routing               | `docs/plans/2026-10-21-33-routing.md`            | merged (#66; ledger `plan33-ledger.md`)                                             |
+| 34 knowledge and digest  | `docs/plans/2026-10-21-34-knowledge-digest.md`   | merged (#67; ledger `plan34-ledger.md`)                                             |
+| 35 milestone branches    | `docs/plans/2026-10-21-35-milestone-branches.md` | merged (#69; ledger `plan35-ledger.md`)                                             |
+| 36 release 2.0           | `docs/plans/2026-10-21-36-release.md`            | in PR (Tasks 3–8; 1.x line #68 merged; Tasks 9–12 wait for the owner)               |
 
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 
@@ -27,15 +26,15 @@ Binding spec: `docs/specs/2026-10-02-catherd-1.5-design.md`. Plans 21–26 were 
 each pre-validated as a scratch branch, then replayed in order onto the previous merged plan by one integration
 worker per plan; one final review, one fix wave, one Codex round, merge on green CI. Plan 27 is the 1.5.0 release.
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 21 roles and ownership | `docs/plans/2026-10-02-21-roles-ownership.md` | **merged** (PR #46; final review 0 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan21-ledger.md`) |
-| 22 delivery and the loop | `docs/plans/2026-10-02-22-delivery-loop.md` | **merged** (PR #47; final review 0 C / 2 I fixed; Codex 2 P1 fixed; ledger `plan22-ledger.md`) |
-| 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md` | **merged** (PR #48; final review 1 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; CI flake root-caused (test-side fsync starving the poll) and made deterministic; ledger `plan23-ledger.md`) |
-| 24 routing and cost | `docs/plans/2026-10-02-24-routing-cost.md` | **merged** (PR #49; final review 0 C / 1 I + 1 upgraded minor fixed; Codex 1 P2 fixed; ledger `plan24-ledger.md`) |
-| 25 runs, programs and lanes | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | **merged** (PR #50; final review 1 C / 4 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan25-ledger.md`) |
-| 26 the minors sweep | `docs/plans/2026-10-02-26-minors-sweep.md` | **merged** (PR #51; final review 0 C / 1 I fixed; Codex 2 P2 fixed; ledger `plan26-ledger.md`) |
-| 27 release 1.5.0 | `docs/plans/2026-10-02-27-release.md` | in PR (1.5.0 changeset, MIGRATION 1.4→1.5, README/skills, ideas.md sweep; ledger `plan27-ledger.md`). After it merges: merge "chore: release catherd" → catherd-cli@1.5.0 on npm |
+| Plan                              | File                                              | State                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 21 roles and ownership            | `docs/plans/2026-10-02-21-roles-ownership.md`     | **merged** (PR #46; final review 0 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan21-ledger.md`)                                                                                  |
+| 22 delivery and the loop          | `docs/plans/2026-10-02-22-delivery-loop.md`       | **merged** (PR #47; final review 0 C / 2 I fixed; Codex 2 P1 fixed; ledger `plan22-ledger.md`)                                                                                         |
+| 23 verifier, gate and environment | `docs/plans/2026-10-02-23-verifier-gate.md`       | **merged** (PR #48; final review 1 C / 3 I fixed; Codex 1 P1 + 2 P2 fixed; CI flake root-caused (test-side fsync starving the poll) and made deterministic; ledger `plan23-ledger.md`) |
+| 24 routing and cost               | `docs/plans/2026-10-02-24-routing-cost.md`        | **merged** (PR #49; final review 0 C / 1 I + 1 upgraded minor fixed; Codex 1 P2 fixed; ledger `plan24-ledger.md`)                                                                      |
+| 25 runs, programs and lanes       | `docs/plans/2026-10-02-25-runs-programs-lanes.md` | **merged** (PR #50; final review 1 C / 4 I fixed; Codex 1 P1 + 2 P2 fixed; ledger `plan25-ledger.md`)                                                                                  |
+| 26 the minors sweep               | `docs/plans/2026-10-02-26-minors-sweep.md`        | **merged** (PR #51; final review 0 C / 1 I fixed; Codex 2 P2 fixed; ledger `plan26-ledger.md`)                                                                                         |
+| 27 release 1.5.0                  | `docs/plans/2026-10-02-27-release.md`             | in PR (1.5.0 changeset, MIGRATION 1.4→1.5, README/skills, ideas.md sweep; ledger `plan27-ledger.md`). After it merges: merge "chore: release catherd" → catherd-cli@1.5.0 on npm       |
 
 Review minors of 1.5 land in `docs/dev/ideas.md` under "1.5 follow-ups". Live checks for vendor behaviour the sandbox
 cannot run are in `docs/dev/live-verification.md` §15 onward.
@@ -76,11 +75,11 @@ with host-aware sessions/defaults, optional Claude dependencies and native Codex
 The owner selected `codex:gpt-6.1-sol#high` for architect and `codex:gpt-6.1-sol#low` for verifier defaults;
 the live native catalog confirmed that spelling and both efforts on 2026-10-01. Execution is owner-approved. Explicit profiles remain authoritative.
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md` | Implemented and personally verified; source head50468a7; see plan18-ledger.md |
-| 19 native Codex completion delivery | `docs/plans/2026-10-01-19-codex-completion-delivery.md` | All tasks implemented and personally verified atb14c5e6;311/0 combined gate; see plan19-ledger.md |
-| 20 native packaging and live acceptance | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Native packaging and portable skills implemented; final source head09f9561; full local gate1929/0; actual conversation acceptance and release remain held |
+| Plan                                                        | File                                                     | State                                                                                                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 18 host context, profile defaults and optional dependencies | `docs/plans/2026-10-01-18-host-context-profiles.md`      | Implemented and personally verified; source head50468a7; see plan18-ledger.md                                                                             |
+| 19 native Codex completion delivery                         | `docs/plans/2026-10-01-19-codex-completion-delivery.md`  | All tasks implemented and personally verified atb14c5e6;311/0 combined gate; see plan19-ledger.md                                                         |
+| 20 native packaging and live acceptance                     | `docs/plans/2026-10-01-20-codex-packaging-acceptance.md` | Native packaging and portable skills implemented; final source head09f9561; full local gate1929/0; actual conversation acceptance and release remain held |
 
 Execute in order 18 → 19 → 20 on the dependent managed feature head. Owner approved all plans. The shared release remains held for actual packaged acceptance on Claude Code, Codex CLI and Codex Desktop; no push, release or CI checks are authorized. Native implementation uses the configured Codex model at low/medium effort, and the controller personally verifies implementation.
 
@@ -97,7 +96,6 @@ Git/release state before acting on any older pending-release instruction.
 
 Plan20 native packaging1d6d140 and supplemental optional-Claude probe fix5b5d756 passed controller90/0. Portable skills345d257/catalog-resolution80d9483 were read end to end personally. Existing skill assertions09f9561 were aligned with the host-conditional protocol after the full gate exposed exactly two obsolete prose failures. Final complete local gate:1929pass23skip0fail across176files, plus typecheck/lint/format and actual tarball smoke. One minor Changeset covers plans18–20 without stamping or publishing. See `docs/dev/reports/2026-10-01-codex-entry-acceptance.md` and plan20-ledger.md for exact package/native proof and required unverified cases. Current Desktop tools do not expose the candidate catherd MCP; the live native config still contains the legacy literal Claude-root declaration. Source/packaging verification does not establish idle/busy original-thread processing. **Release held for owner packaged acceptance.** No push, CI or publication.
 
-
 ## catherd 1.3 design (session 7, docs only): Cursor, Grok Build, Antigravity
 
 Binding spec, **approved 2026-09-29**: `docs/specs/2026-09-29-catherd-1.3-design.md`. It supersedes spec 1.0's
@@ -105,11 +103,11 @@ D5 phasing and §6.4/§6.5; plan 8 is superseded. Evidence: `docs/research/2026-
 which ran the real binaries (Cursor 2026.09.28, grok 1.0.44, agy 1.2.13) on the owner's Mac. None was signed in, so
 every model-turn behaviour is a Ruling plus a live-verification step.
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | **merged** (PR #30: replayed from the pre-validated scratch; one Codex round, 2 P2 fixed; final review 0 C / 1 I fixed; ledger `plan15-ledger.md`) |
-| 16 the Grok Build adapter (§5) | `docs/plans/2026-09-29-16-grok.md` | **merged** (PR #31: replayed from the pre-validated scratch; final review 0 C / 2 I fixed + scoped re-review clean; one Codex round, 1 P2 fixed, 2 tracked; ledger `plan16-ledger.md`) |
-| 17 the Antigravity adapter (§6) | `docs/plans/2026-09-29-17-antigravity.md` | **merged** (PR #32: replayed after plan 16; final review 0 C / 1 I fixed; one Codex round, P1 + 1 P2 fixed, 1 P2 tracked; carries the 1.3.0 changeset; ledger `plan17-ledger.md`). The release PR is held for the owner's live acceptance (`docs/dev/live-verification.md` §11–§13) |
+| Plan                                               | File                                            | State                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 15 groundwork (§3) and the Cursor adapter (§4, §7) | `docs/plans/2026-09-29-15-groundwork-cursor.md` | **merged** (PR #30: replayed from the pre-validated scratch; one Codex round, 2 P2 fixed; final review 0 C / 1 I fixed; ledger `plan15-ledger.md`)                                                                                                                                  |
+| 16 the Grok Build adapter (§5)                     | `docs/plans/2026-09-29-16-grok.md`              | **merged** (PR #31: replayed from the pre-validated scratch; final review 0 C / 2 I fixed + scoped re-review clean; one Codex round, 1 P2 fixed, 2 tracked; ledger `plan16-ledger.md`)                                                                                              |
+| 17 the Antigravity adapter (§6)                    | `docs/plans/2026-09-29-17-antigravity.md`       | **merged** (PR #32: replayed after plan 16; final review 0 C / 1 I fixed; one Codex round, P1 + 1 P2 fixed, 1 P2 tracked; carries the 1.3.0 changeset; ledger `plan17-ledger.md`). The release PR is held for the owner's live acceptance (`docs/dev/live-verification.md` §11–§13) |
 
 **The owner said go on 2026-09-29; plans run in order 15 → 16 → 17.** The spec's §9 questions are closed: on 2026-09-29 the owner
 accepted all nine recommendations, which the plans already follow (one 1.3.0 release, no native read-only on agy,
@@ -127,9 +125,9 @@ with `FORCE_COLOR` unset: an exported `FORCE_COLOR=3` breaks 30 CLI output tests
 
 Binding spec: `docs/specs/2026-09-28-catherd-1.2-design.md` (above 1.1 and 1.0). Two plans, one PR each, in order:
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 13 sources and sync (§3, §4, §9, §10, §11) | `docs/plans/2026-09-28-13-sources-sync.md` | **merged** (PR #22: 14 tasks in 4 parallel waves from a pre-validated scratch, final review 0 C / 4 I fixed in one wave, one Codex round (2 P2, same as I3); ledger `plan13-ledger.md`) |
+| Plan                                                                                               | File                                           | State                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13 sources and sync (§3, §4, §9, §10, §11)                                                         | `docs/plans/2026-09-28-13-sources-sync.md`     | **merged** (PR #22: 14 tasks in 4 parallel waves from a pre-validated scratch, final review 0 C / 4 I fixed in one wave, one Codex round (2 P2, same as I3); ledger `plan13-ledger.md`)                                                                                                |
 | 14 routing and profiles (§5–§8, §9 TUI/route, §7 shipped scores + weekly refresh, 1.2.0 changeset) | `docs/plans/2026-09-28-14-routing-profiles.md` | PR #23: written on plan 13's scratch, replayed onto main `cff7d19`; 12 tasks in 2 parallel waves (scratch `plan14-scratch` c3a94f2, executed identical), final review 0 C / 2 I + Codex 3 P2 fixed in one wave, scoped re-review clean; ledger `plan14-ledger.md`. **merged** (PR #23) |
 
 The release PR #24 ("chore: release catherd", catherd-cli@1.2.0) is **held** for the owner's acceptance (spec §11,
@@ -141,11 +139,11 @@ owner reports the acceptance; then merge #24 (npm OIDC publish, plugin stamped 1
 
 Binding spec: `docs/specs/2026-09-28-catherd-1.1-design.md` (above the 1.0 spec). Three plans, one PR each, in order:
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 10 push results, `peek`, sessions and the runs page (§3, §4, §14) | `docs/plans/2026-09-28-10-push-sessions.md` | **merged** (PR #15; 5 task-review batches + 1 fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan10-ledger.md`) |
-| 11 worker access, the enforced protocol, verifier gate ledger, park/answer, climb, re-entry, skill (§5–§10) | `docs/plans/2026-09-28-11-access-protocol.md` | **merged** (PR #16: executed on plan 10's head, replayed onto main; 6 task-review batches + fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan11-ledger.md`) |
-| 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13) | `docs/plans/2026-09-28-12-failover-install-release.md` | **merged** (PR #17: conflict read + parallel waves, one final review + one fix wave, one Codex round, per the owner's faster process; ledger `plan12-ledger.md`). The 1.1.0 release PR is **held for the owner's acceptance** (`docs/dev/live-verification.md` §9) |
+| Plan                                                                                                        | File                                                   | State                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 10 push results, `peek`, sessions and the runs page (§3, §4, §14)                                           | `docs/plans/2026-09-28-10-push-sessions.md`            | **merged** (PR #15; 5 task-review batches + 1 fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan10-ledger.md`)                                                                                                                                 |
+| 11 worker access, the enforced protocol, verifier gate ledger, park/answer, climb, re-entry, skill (§5–§10) | `docs/plans/2026-09-28-11-access-protocol.md`          | **merged** (PR #16: executed on plan 10's head, replayed onto main; 6 task-review batches + fix round, final review + fix wave, 4 Codex rounds (cap); ledger `plan11-ledger.md`)                                                                                   |
+| 12 failover + validation, install and launch, small items, docs, 1.1.0 changeset (§11–§13)                  | `docs/plans/2026-09-28-12-failover-install-release.md` | **merged** (PR #17: conflict read + parallel waves, one final review + one fix wave, one Codex round, per the owner's faster process; ledger `plan12-ledger.md`). The 1.1.0 release PR is **held for the owner's acceptance** (`docs/dev/live-verification.md` §9) |
 
 The §3.9 spike was done statically against the Claude Code 2.1.283 binary (delivery works on Linux and macOS for
 an MCP-server child with no settings; never declare `from-mode`). The owner confirms live delivery with
@@ -155,19 +153,19 @@ Plans 11 and 12 were pre-validated on `main` and replayed onto each merged prede
 
 ## Where things stand (1.0)
 
-| Plan | File | State |
-| ---- | ---- | ----- |
-| 1 foundation | `docs/plans/2026-09-25-01-foundation.md` | merged (PR #3) |
-| 2 run service + MCP | `…-02-run-service.md` | merged (PR #4) |
-| 3 adapters (claude-code, opencode v2, capture kit) | `…-03-adapters.md` | merged (PR #5) |
-| 4 catalog + routing (Jev route-v2, outcomes) | `…-04-catalog-routing.md` | merged (PR #6) |
-| 5 profiles, CLI, doctor, init | `…-05-profiles-cli-doctor.md` | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds) |
-| 6 TUI (opencode-style, `@opentui/keymap`) | `docs/plans/2026-09-26-06-tui.md` | **merged** (PR #9; final review + fix wave, 6 Codex rounds; ledger `plan6-ledger.md`) |
-| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/plans/2026-09-26-07-hardening-release.md` | **merged** (PR #10; 14 tasks, final review + fix wave, 3 Codex rounds; ledger `plan7-ledger.md`). Release PR #11 (catherd-cli@1.0.0) **held for the owner's live-verification results** (`docs/dev/live-verification.md`) |
-| — pre-1.0 cleanup | (no plan file; audits + briefs in the PR) | **merged** PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC |
-| — whole-project review fixes | (another session) | **merged** (PR #13: 30 of 32 review findings; a macOS supervisor-test race fixed before merge) |
-| 9 findings from the real 0.x runs | `docs/plans/2026-09-27-09-run-findings.md` | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
-| 8 Cursor CLI (1.1), Grok CLI (1.2) | `docs/plans/2026-09-26-08-cursor-grok.md` | **Superseded by plans 15–17 (spec 1.3).** Was: written, pre-validated on `d87a791`, never executed. Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1) |
+| Plan                                                | File                                            | State                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 foundation                                        | `docs/plans/2026-09-25-01-foundation.md`        | merged (PR #3)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 2 run service + MCP                                 | `…-02-run-service.md`                           | merged (PR #4)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 3 adapters (claude-code, opencode v2, capture kit)  | `…-03-adapters.md`                              | merged (PR #5)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 4 catalog + routing (Jev route-v2, outcomes)        | `…-04-catalog-routing.md`                       | merged (PR #6)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 5 profiles, CLI, doctor, init                       | `…-05-profiles-cli-doctor.md`                   | **merged** (PR #7 tasks 1–3, 7, 8; PR #8 the rest, final review, 3 Codex rounds)                                                                                                                                                                                                                                                                                                                                         |
+| 6 TUI (opencode-style, `@opentui/keymap`)           | `docs/plans/2026-09-26-06-tui.md`               | **merged** (PR #9; final review + fix wave, 6 Codex rounds; ledger `plan6-ledger.md`)                                                                                                                                                                                                                                                                                                                                    |
+| 7 hardening, CI matrix, live-test docs, release 1.0 | `docs/plans/2026-09-26-07-hardening-release.md` | **merged** (PR #10; 14 tasks, final review + fix wave, 3 Codex rounds; ledger `plan7-ledger.md`). Release PR #11 (catherd-cli@1.0.0) **held for the owner's live-verification results** (`docs/dev/live-verification.md`)                                                                                                                                                                                                |
+| — pre-1.0 cleanup                                   | (no plan file; audits + briefs in the PR)       | **merged** PR #12: security (no key in parse errors, one secrets module, 0700/0600), CLI UX, dead code/duplicates/splits, docs layout (`docs/dev/`, `docs/archive/0.x/`), CONTRIBUTING/SECURITY/CoC                                                                                                                                                                                                                      |
+| — whole-project review fixes                        | (another session)                               | **merged** (PR #13: 30 of 32 review findings; a macOS supervisor-test race fixed before merge)                                                                                                                                                                                                                                                                                                                           |
+| 9 findings from the real 0.x runs                   | `docs/plans/2026-09-27-09-run-findings.md`      | PR #14: non-blocking `dispatch` + a new `wait` tool (21 MCP tools; collect mark written at admission, crash-safe lease, prompt finalize watcher, serialized claim/lease takeovers), plan-in-hand A-line, lint in the fast check, five lane header lines, `jev-kind` routing, harness line scoped per repo, live kit §6 extended. Ledger `plan9-ledger.md`. 7 Codex rounds (owner lifted the cap for #14), last one clean |
+| 8 Cursor CLI (1.1), Grok CLI (1.2)                  | `docs/plans/2026-09-26-08-cursor-grok.md`       | **Superseded by plans 15–17 (spec 1.3).** Was: written, pre-validated on `d87a791`, never executed. Before executing: re-check anchors after PR #12 (doctor/profile-service/profile-tree split, `*-command.ts` renames, `docs/dev/` paths). Part A merges only after the 1.0.0 release, Part B only after 1.1.0 (plan Ruling R1)                                                                                         |
 
 Owner process rules added in session 4: Codex review rounds are capped at 4 per PR (PR #14 exempt: rounds until clean; request Codex right after each push without waiting for CI); worker scratch files stay inside the worker's worktree (a shared scratchpad collided).
 

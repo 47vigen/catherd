@@ -155,8 +155,8 @@ A fix that lands on `main` while a beta is open reaches `beta` by merging `main`
   ```
 
 - **A fix for code 2.0 deleted** (the TUI, Grok Build, the benchmark sync) lands on `1.x` alone.
-- **Release:** `ci.yml` and `release.yml` run on `1.x` like on `main`, in the same concurrency group, and the
-  Release workflow opens "chore: release catherd 1.x". Merging it publishes the patch.
+- **Release:** `ci.yml` and `release.yml` run on `1.x` like on `main`; only `release.yml` shares main's concurrency
+  group (`ci.yml` groups per pull request), and the Release workflow opens "chore: release catherd 1.x". Merging it publishes the patch.
 - **Dist-tag:** a 1.x publish goes to `latest` while npm's `latest` is a 1.x version, and to `v1-latest` once 2.x
   holds `latest`. (`v1` and `1.x` are semver ranges, which npm refuses as tags.) Users install `catherd-cli@1`; npm
   resolves it by range whatever the tags. After a 2.0 promotion, check `npm view catherd-cli dist-tags` once.

@@ -43,7 +43,7 @@ of work, climbing a ladder only when a cheaper rung falls short.
 
 `catherd doctor` checks each backend's version and login and prints the fix for anything missing. The default
 profile runs its workers on Codex; without Codex, doctor's fix also names how to move those roles to a backend
-you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session (`--thread <uuid>` names the Codex thread from a shell; inside a session, the `test_push` tool does the same).
+you have (`/catherd-setup`, or `catherd profile set roles.<role>.rungs <rung> --host <codex|claude-code>`). Codex-only setup does not require or configure Claude; enabled selected roles and reachable failover decide optional dependencies. Doctor sends nothing by default; `--test-push` is an explicit smoke send from a validated host session (`--thread <uuid>` names the Codex thread from a shell).
 
 ### Cursor
 
@@ -133,7 +133,8 @@ A session sees six tools:
 
 Set where questions go once: `notify.url` is an [ntfy](https://ntfy.sh) topic url (`catherd-setup`, or the `profile`
 tool's `notify_url`). The daemon sends to it from your machine, so a question and the final report reach the phone
-with no session open. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` /
+with no session open. If `notify.url` is unset, `run_start` makes a random, unlisted topic on the public ntfy.sh and
+sends questions there; set `notify.url` to your own ntfy server for privacy. Omitted Codex architect/verifier choices are exactly `codex:gpt-6.1-sol#high` /
 `codex:gpt-6.1-sol#low`; omitted Claude choices retain their existing defaults, and a `claude:` rung runs as its
 headless `claude-code:` twin. To opt into host defaults, review and save the narrow reset:
 
