@@ -66,6 +66,10 @@ usage, so a Cursor rung ranks as `metered`.
 
 catherd runs from Claude Code or, since 1.4, from native Codex; one global `catherd` and one plugin version serve both. To check a packaged build before you rely on it, follow the [local packaged acceptance procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance); a matching version alone does not prove that the feature core ran.
 
+Channels: `catherd-cli@latest` is the stable release. `catherd-cli@beta` and the `plugin-beta` marketplace carry
+the next one before it is stable (CONTRIBUTING.md, "Beta channel"). `catherd-cli@1` is the 1.x line, which receives
+bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)").
+
 ### Claude Code
 
 ```sh
@@ -118,14 +122,14 @@ In either supported host, use the installed shared skills through that host's sk
 
 A session sees six tools:
 
-| Tool                              | What it does                                                                                 |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `run_start(repo, title, a_lines)` | Starts a run and returns its id and the notify url its questions go to                       |
-| `status(run?)`                    | Phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive |
-| `answer(run, unit, answer)`       | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer        |
-| `cancel(run)`                     | Stops the run and every live role                                                            |
-| `result(run, name?)`              | The run's report (the merge request body), or one role's record                              |
-| `profile(action, …)`              | Reads, validates or changes a profile, or sets `notify_url`                                  |
+| Tool                                            | What it does                                                                                 |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `run_start(repo, title, a_lines, plan?, base?)` | Starts a run and returns its id and the notify url its questions go to                       |
+| `status(run?)`                                  | Phase, milestones, live roles, parked questions, quota holds and whether the daemon is alive |
+| `answer(run, unit, answer)`                     | Answers a parked unit (the run, a milestone or a lane); it runs again with the answer        |
+| `cancel(run)`                                   | Stops the run and every live role                                                            |
+| `result(run, name?)`                            | The run's report (the merge request body), or one role's record                              |
+| `profile(action, …)`                            | Reads, validates or changes a profile, or sets `notify_url`                                  |
 
 Set where questions go once: `notify.url` is an [ntfy](https://ntfy.sh) topic url (`catherd-setup`, or the `profile`
 tool's `notify_url`). The daemon sends to it from your machine, so a question and the final report reach the phone
@@ -145,7 +149,7 @@ A run's reports reach the session that started it (Claude Code's peer inbox, Cod
 `status` revives a daemon that died, so asking "how is it going?" is always safe. Roles get catherd's tools too:
 headless Codex and Claude Code roles get a `catherd_role` MCP server, and other roles run
 `catherd run-file read|write <run> <path>` and `catherd gate check|pass <run> …` from their shell, bound to their own
-run and role (anything else is `E_ROLE_SCOPE`). The six session tools are the owner's: a role's process gets
+run and role (anything else is `E_ROLE_SCOPE`). `run_start`, `answer`, `cancel`, `result` and `profile` are the owner's: a role's process gets
 `E_ROLE_SCOPE` for them, so a role can never take the run over.
 
 In a terminal:
@@ -282,10 +286,13 @@ socket from another origin.
 
 ## Upgrading
 
-From 1.5: `bun add -g catherd-cli@latest && catherd doctor`, update the plugin and start a new session. A run
-started on 1.5 finishes on 1.5, so keep it installed until those end; new runs go through the daemon. The session
-has six tools (`run_start`, `status`, `answer`, `cancel`, `result`, `profile`), every role runs headless, and a
-parked question goes to `notify.url`. [MIGRATION.md](MIGRATION.md), "From 1.5 to 2.0", has the rest.
+From 1.5: `bun add -g catherd-cli@latest && catherd doctor`, then `claude plugin marketplace update catherd && claude
+plugin update catherd@catherd` and a new session. A run started on 1.5 finishes on 1.5, so keep it installed until
+those end; new runs go through the daemon. The session has six tools (`run_start`, `status`, `answer`, `cancel`,
+`result`, `profile`), every role runs headless, and a parked question goes to `notify.url`. `catherd` opens the
+browser panel in place of the TUI. The catalog reads one source, the Slopalytics index, so a profile rung it does
+not list must be picked again (`catherd catalog list --role <role>`). Grok Build and Antigravity are gone.
+[MIGRATION.md](MIGRATION.md), "From 1.5 to 2.0", has the rest.
 
 From 1.4: `bun add -g catherd-cli@latest && catherd doctor`, update the plugin and start a new session; `doctor`
 names the Claude agent links to refresh. There is still no `wait` tool (it never shipped and is gone): end the
@@ -317,6 +324,7 @@ Code session. The details are in [MIGRATION.md](MIGRATION.md).
 | [CHANGELOG.md](CHANGELOG.md)                                                                       | Releases                                                              |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                 | Development setup, the checks, commits, changesets, live tests        |
 | [SECURITY.md](SECURITY.md)                                                                         | Reporting a vulnerability; what catherd stores and how                |
+| [`docs/specs/2026-10-12-catherd-2.0-design.md`](docs/specs/2026-10-12-catherd-2.0-design.md)       | The 2.0 design (binding where it differs from the earlier ones)       |
 | [`docs/specs/2026-10-02-catherd-1.5-design.md`](docs/specs/2026-10-02-catherd-1.5-design.md)       | The 1.5 design (binding where it differs from the earlier ones)       |
 | [`docs/specs/2026-09-28-catherd-1.1-design.md`](docs/specs/2026-09-28-catherd-1.1-design.md)       | The 1.1 design (binding; builds on 1.0's)                             |
 | [`docs/specs/2026-09-25-catherd-1.0-design.md`](docs/specs/2026-09-25-catherd-1.0-design.md)       | The 1.0 design                                                        |

@@ -119,6 +119,7 @@ plan.md` and answer `approve`, or say what to change. It asks again only when a 
 
 - Bars are percentiles of the intelligence of the shipped models' indexed pairs: copy 20, build 45, logic 60, hard 65. The bars that `catalog.override.json` set are now `bars.<difficulty>` in the profile or
   `roles.<role>.bars.<difficulty>`, one difficulty at a time.
+- Every kind of lane is held to the same bar, which only its difficulty picks.
 - Jev's yes/no answers can lift a lane to logic or hold it at build.
 - A new default profile caps Opus 5.5 and Sonnet 5.5 at high and GPT-6.1 Sol at xhigh; an existing profile has no
   caps until `catherd profile set maxEffort.<backend>:<model> <effort>`.
