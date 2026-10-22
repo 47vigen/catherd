@@ -1,0 +1,13 @@
+bun test v1.4.3 (c6da4a4d3)
+
+src/text.test.ts:
+(pass) words splits on whitespace [0.19ms]
+(pass) capitalize uppercases the first character [0.06ms]
+(pass) titleCase capitalizes each word [0.09ms]
+(pass) slugify normalizes separators [0.04ms]
+(pass) truncate respects its maximum length [0.02ms]
+
+ 5 pass
+ 0 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [5.00ms]
