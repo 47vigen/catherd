@@ -77,12 +77,14 @@ opencode) is an adapter under `src/adapters/`. Each CLI subcommand file is named
 
 ## Releases
 
-The native Codex feature remains unpublished until actual installed CLI, Desktop and legacy Claude acceptance passes. Daemon wake research, a generic MCP handshake, a matching version, or a skipped opt-in test is not that evidence. Use the [local packaged procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance) without touching the release tag or real version. The existing Changesets flow below remains intact; publication and CI are outside this feature's local verification scope.
-
 Releases go through [Changesets](https://github.com/changesets/changesets) and `.github/workflows/release.yml`, the
 workflow npm's trusted publisher is bound to (OIDC, no npm token). A commit that a pull request merged with its `ci`
 check green, while up to date with its base, is not tested again. Any other commit, a direct push, first runs CI in the release workflow, sized by its
 diff (a docs-only push runs only the format check).
+
+A major ships on `beta` first. It becomes `latest` when its beta passes the scorecard
+([`docs/dev/scorecard.md`](docs/dev/scorecard.md), "Release gate") and the owner says so; merging the "chore: release
+catherd" pull request is that step.
 
 1. A pull request with a changeset merges into `main`.
 2. The release workflow opens or updates the "chore: release catherd" pull request, which bumps the version, writes
@@ -139,6 +141,33 @@ Promote beta to stable:
    release consumed the changesets.
 
 A fix that lands on `main` while a beta is open reaches `beta` by merging `main` into it.
+
+## Maintenance line (1.x)
+
+`1.x` is a long-lived branch cut from `v1.5.0`. It receives bug fixes only, so its changesets are `patch`; a stray
+`minor` would release 1.6.0. This is a written rule, not a CI check.
+
+- **A fix for code both lines have** lands on `main` first, then is cherry-picked onto a branch from `origin/1.x`,
+  with its changeset:
+
+  ```sh
+  git switch -c fix-x origin/1.x && git cherry-pick -x <sha>   # open the pull request against 1.x
+  ```
+
+- **A fix for code 2.0 deleted** (the TUI, Grok Build, the benchmark sync) lands on `1.x` alone.
+- **Release:** `ci.yml` and `release.yml` run on `1.x` like on `main`, in the same concurrency group, and the
+  Release workflow opens "chore: release catherd 1.x". Merging it publishes the patch.
+- **Dist-tag:** a 1.x publish goes to `latest` while npm's `latest` is a 1.x version, and to `v1-latest` once 2.x
+  holds `latest`. (`v1` and `1.x` are semver ranges, which npm refuses as tags.) Users install `catherd-cli@1`; npm
+  resolves it by range whatever the tags. After a 2.0 promotion, check `npm view catherd-cli dist-tags` once.
+- **Plugin:** the `1.x` branch has its own marketplace, `https://github.com/47vigen/catherd.git#1.x`, stamped by its
+  release pull request. The marketplace on `main` pins `v1.5.0` until 2.0.0 is released, because the plugin launcher
+  pins the CLI version (`scripts/stamp-plugin-version.mjs`); before that, a 1.5.x fix reaches a plugin user only
+  through `#1.x`.
+- **Protection:** the owner sets branch protection for `1.x` (the required `ci` check) in the repository settings.
+  Without it, a 1.x push is still tested by `release.yml`.
+
+Runs started on 1.5 finish on 1.5 and are not migrated.
 
 ## Live tests and fixture capture
 

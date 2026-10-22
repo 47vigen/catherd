@@ -45,6 +45,8 @@ bun run test`.
   publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
   Release re-tests only a direct push, and runs the pack smoke before a publish. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
   `beta` dist-tag. CONTRIBUTING.md, "Releases" and "Beta channel", has the flow and the promotion steps.
+  `1.x` gets bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)"); a major reaches `latest` only after its beta
+  passes the scorecard and the owner says so.
 - Cursor stays; Grok Build and Antigravity were removed in 2.0 (git keeps them).
 
 ## Autopilot: executing plans end to end
