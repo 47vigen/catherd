@@ -9,6 +9,7 @@ import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
 import { gateEnvLines, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
+import { treeOf } from "./tree-path.ts";
 
 // Spec 1.1 §7: the verifier's gate ledger. A gate item that passed on the same content, with the same
 // command, is carried over instead of run again; every check is a verifier step `peek` and `status` show.
@@ -316,8 +317,13 @@ const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
   );
 
 /** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
-async function carryingPass(repo: string, command: string, paths: string[]): Promise<GatePass | undefined> {
-  const { hash } = await contentHash(repo, paths);
+async function carryingPass(
+  repo: string,
+  command: string,
+  paths: string[],
+  cwd: string = repo,
+): Promise<GatePass | undefined> {
+  const { hash } = await contentHash(cwd, paths);
   return readPasses(repo).findLast((p) => p.command === command && p.hash === hash);
 }
 
@@ -340,7 +346,7 @@ export async function recordedItems(run: Run, m: string): Promise<RecordedItem[]
       let passed = false;
       if (command !== null && paths !== undefined) {
         try {
-          passed = (await carryingPass(repo, command, paths)) !== undefined;
+          passed = (await carryingPass(repo, command, paths, treeOf(run, m))) !== undefined;
         } catch (e) {
           // a path gone from the tree carries no pass
           if (!isCatherdError(e)) throw e;
@@ -379,7 +385,11 @@ export async function gateCheck(
 > {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  const pass = await carryingPass(run.meta.repo, i.command, paths);
+  if (run.meta.base && !i.milestone)
+    throw new CatherdError("E_INPUT_INVALID", "a base run's gate_check names its milestone", {
+      fix: "pass milestone",
+    });
+  const pass = await carryingPass(run.meta.repo, i.command, paths, treeOf(run, i.milestone ?? null));
   recordStep(run, {
     at: new Date(deps.now()).toISOString(),
     item: i.item,
@@ -440,8 +450,13 @@ export async function gatePass(
 ): Promise<{ recorded: true; hash: string; commit: string }> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  const { hash, dirty } = await contentHash(run.meta.repo, paths);
-  const head = (await gitHead(run.meta.repo)) ?? "none";
+  // a base run's milestone has its own tree: the one of the latest step that checked this item with this command
+  const step = readJsonl<VerifierStep>(stepsFile(run)).rows.findLast(
+    (s) => s?.item === i.item && s.command === i.command,
+  );
+  const cwd = treeOf(run, step?.milestone ?? null);
+  const { hash, dirty } = await contentHash(cwd, paths);
+  const head = (await gitHead(cwd)) ?? "none";
   const commit = dirty ? `${head}+uncommitted` : head;
   const file = gatesFile(run.meta.repo);
   ensureJsonlHeader(file, "gates");

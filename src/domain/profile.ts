@@ -73,8 +73,19 @@ export const ProfileDocSchema = z.looseObject({
     .looseObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]).optional() })
     .optional(),
   notify: z.array(z.string()).optional(),
+  // plan 35: unknown, so a hand edit never makes the file unreadable; resolveProfile reads what it can
+  limits: z.unknown().optional(),
 });
 export type ProfileDoc = z.infer<typeof ProfileDocSchema>;
+
+/** plan 35: the profile's memory numbers for starting milestones side by side (megabytes). */
+const MEMORY_KEYS = ["reserveMb", "perMilestoneMb", "floorMb"] as const;
+type MemoryKey = (typeof MEMORY_KEYS)[number];
+const positiveInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v > 0;
+const storedMemory = (doc: ProfileDoc): Record<string, unknown> => {
+  const memory = isPlain(doc.limits) ? doc.limits.memory : undefined;
+  return isPlain(memory) ? memory : {};
+};
 
 const OBJECTIVES = ["cost", "speed"] as const;
 const JEV_USES = ["auto", "off"] as const;
@@ -136,6 +147,9 @@ export function unknownValues(doc: ProfileDoc): UnknownValue[] {
   for (const role of ROLES)
     check(`roles.${role}.access`, ACCESS, doc.roles?.[role]?.access, STORED_FALLBACK.access);
   for (const n of doc.notify ?? []) check("notify", NOTIFY, n, "skipped");
+  for (const [k, v] of Object.entries(storedMemory(doc)))
+    if (!(MEMORY_KEYS as readonly string[]).includes(k) || !positiveInt(v))
+      out.push({ path: `limits.memory.${k}`, value: JSON.stringify(v), readAs: "the default" });
   return out;
 }
 
@@ -181,6 +195,8 @@ export interface Profile {
   preflight: { confirm: boolean };
   lock: { heavy: number | "cpus/2" };
   notify: NotifyMoment[];
+  /** plan 35: only the memory numbers the profile sets; the defaults are `MEMORY_LIMITS` */
+  limits: { memory: Partial<Record<MemoryKey, number>> };
 }
 
 const LUNA_HIGH = "codex:gpt-6-luna#high";
@@ -350,6 +366,14 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     preflight: { confirm: doc.preflight?.confirm ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
     notify: doc.notify === undefined ? [...NOTIFY] : doc.notify.filter((n) => known(NOTIFY, n)),
+    limits: {
+      memory: Object.fromEntries(
+        MEMORY_KEYS.flatMap((k) => {
+          const v = storedMemory(doc)[k];
+          return positiveInt(v) ? [[k, v]] : [];
+        }),
+      ),
+    },
   };
 }
 
@@ -403,6 +427,18 @@ export const ProfilePatchSchema = z.strictObject({
   preflight: z.strictObject({ confirm: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),
   notify: z.array(z.enum(NOTIFY)).optional(),
+  limits: z
+    .strictObject({
+      memory: z
+        .strictObject({
+          reserveMb: z.number().int().positive().nullable(),
+          perMilestoneMb: z.number().int().positive().nullable(),
+          floorMb: z.number().int().positive().nullable(),
+        })
+        .partial(),
+    })
+    .partial()
+    .optional(),
 });
 export type ProfilePatch = z.infer<typeof ProfilePatchSchema>;
 

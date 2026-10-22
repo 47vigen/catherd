@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CatherdError } from "../../domain/errors.ts";
+import { BaseBranchSchema } from "../../domain/branch.ts";
 import { ID_PATTERN } from "../../domain/ids.ts";
 import { PROFILE_NAME, ProfilePatchSchema } from "../../domain/profile.ts";
 import { knownQueueCapability } from "../../infra/codex-queue.ts";
@@ -52,9 +53,15 @@ export function registerSessionTools(server: McpServer, deps: Deps): void {
           .describe(
             "The reviewed plan files the run implements as written (paths, relative to repo or absolute). Without one, the architect writes a plan and the run waits for your approval.",
           ),
+        base: BaseBranchSchema.optional().describe(
+          "A branch on origin (main, staging): each milestone then gets its own branch and worktree from origin/<base>, and independent milestones run side by side; without it the run works in the repo.",
+        ),
       },
     },
-    (a) => handle(() => runStart(deps, { repo: a.repo, title: a.title, aLines: a.a_lines, plan: a.plan })),
+    (a) =>
+      handle(() =>
+        runStart(deps, { repo: a.repo, title: a.title, aLines: a.a_lines, plan: a.plan, base: a.base }),
+      ),
   );
 
   server.registerTool(

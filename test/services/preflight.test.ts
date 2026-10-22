@@ -17,7 +17,8 @@ import { appendEvent } from "../../src/services/run-events-store.ts";
 import { runPaths } from "../../src/services/run-store.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempDir } from "../helpers.ts";
-import { fakeDeps, freshRun, PLAN_TEXT, testView, writeLane } from "./helpers.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
+import { branchRun, fakeDeps, freshRun, PLAN_TEXT, testView, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 // every other test runs its checks as a normal user, whoever runs the suite
@@ -31,6 +32,68 @@ afterEach(() => {
 
 const outcomes = (r: Awaited<ReturnType<typeof preflight>>) =>
   r.needsConfirmation ? [] : r.results.map((x) => [x.lane, x.outcome]);
+
+describe("preflight in a worktree (plan 35)", () => {
+  it("preflights a base-run milestone's lanes in its tree", async () => {
+    const { run } = branchRun();
+    const { tree } = await claimTree(fakeDeps(), run, "M1", { known: false });
+    writeFileSync(join(tree, "marker"), "here");
+    writeLane(run, "M1.L1", ["src/a.ts"], "test -f marker");
+    // the marker is in the tree only: the repo would fail this check
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id, milestone: "M1" }))).toEqual([
+      ["M1.L1", "pass"],
+    ]);
+    // a run without base checks in the repo as before
+    const plain = freshRun();
+    writeLane(plain.run, "M1.L1", ["src/a.ts"], "test -f marker");
+    expect(outcomes(await preflight(fakeDeps(), { run: plain.run.id, milestone: "M1" }))).toEqual([
+      ["M1.L1", "fails-as-expected"],
+    ]);
+  });
+});
+
+describe("preflight with a bare milestone After: (plan 35)", () => {
+  const lane = (id: string, after: string[]) => ({
+    id,
+    role: "worker" as const,
+    kind: null,
+    after,
+    owns: [],
+  });
+
+  it("lets a milestone start after a merged milestone and stops one whose milestone is unmerged", async () => {
+    const { repo, run } = branchRun();
+    const file = join(repo, "p.md");
+    writeFileSync(file, PLAN_TEXT);
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [file] });
+    copyPlanInputs(run, [file]);
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1, 2\n");
+    writeLane(
+      run,
+      "M2.L1",
+      ["src/b.ts"],
+      "true",
+      "Kind: repo_code\nDifficulty: build\nTasks: 3\nAfter: M1\n",
+    );
+    await appendEvent(run, {
+      type: "plan.ready",
+      milestones: [
+        { id: "M1", title: "one", after: [], lanes: [lane("M1.L1", [])] },
+        { id: "M2", title: "two", after: ["M1"], lanes: [lane("M2.L1", ["M1"])] },
+      ],
+    });
+    await claimTree(fakeDeps(), run, "M2", { known: false });
+    const unmerged = await preflight(fakeDeps(), { run: run.id, milestone: "M2" });
+    expect(outcomes(unmerged)).toContainEqual(["M2.L1", "cannot-start"]);
+    expect(unmerged.needsConfirmation ? [] : unmerged.results.map((x) => x.note)).toContain(
+      "M2.L1: After: M1 is in milestone M1, which has not finished: this lane never starts",
+    );
+    await appendEvent(run, { type: "milestone.merged", milestone: "M1" });
+    expect(outcomes(await preflight(fakeDeps(), { run: run.id, milestone: "M2" }))).toEqual([
+      ["M2.L1", "pass"],
+    ]);
+  });
+});
 
 describe("preflight", () => {
   it("sorts each lane's check into pass, fails-as-expected, skipped and cannot-start", async () => {

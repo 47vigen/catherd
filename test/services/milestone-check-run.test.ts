@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkLimits, readChecks, runMilestoneCheck } from "../../src/services/milestone-check.ts";
+import { checkBase, checkLimits, readChecks, runMilestoneCheck } from "../../src/services/milestone-check.ts";
+import { claimTree } from "../../src/services/milestone-tree.ts";
+import { branchRun, fakeDeps } from "./helpers.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
@@ -80,5 +82,26 @@ describe("runMilestoneCheck", () => {
     const r = await runMilestoneCheck({ ...i, command: "echo 'FAIL a'; exit 1" });
     expect(r.running === false && r.hints?.[0]).toContain("git worktree add --detach");
     expect(r.running === false && r.missing[0]).toContain("exits 1");
+  });
+});
+
+describe("runMilestoneCheck in a base run (plan 35)", () => {
+  it("runs gate_run in the milestone's tree and takes its base from origin's base", async () => {
+    const b = branchRun();
+    const { tree } = await claimTree(fakeDeps(), b.run, "M1", { known: false });
+    const originMain = git(b.repo, "rev-parse", "origin/main");
+    writeFileSync(join(tree, "work.txt"), "w");
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "work");
+    const head = git(tree, "rev-parse", "HEAD");
+    const r = await runMilestoneCheck({ run: b.run.id, milestone: "M1", command: "test -f work.txt" });
+    expect(r).toMatchObject({ running: false, record: { exit: 0, head } });
+    expect(head).not.toBe(git(b.repo, "rev-parse", "HEAD"));
+    expect(await checkBase(b.run, "M1")).toBe(originMain);
+  });
+
+  it("checkBase is the start HEAD in a run without base", async () => {
+    expect(await checkBase(run, "M1")).toBe(BASE);
+    expect(await checkBase(run)).toBe(BASE);
   });
 });

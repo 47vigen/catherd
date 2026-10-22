@@ -6,7 +6,7 @@ import { daemonLauncher } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { findRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { repoWithOrigin, snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun, PLAN_TEXT, waitFor } from "../services/helpers.ts";
 
@@ -47,6 +47,17 @@ describe("the session tools", () => {
       "run.started",
       "plan.approved",
     ]);
+  });
+
+  it("passes run_start's base, and refuses a remote ref as base", async () => {
+    withHome();
+    const { repo } = repoWithOrigin();
+    const c = await mcpClient(fakeDeps());
+    const started = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], base: "main" });
+    expect(started.isError).toBe(false);
+    expect(findRun(started.data.run).meta.base).toBe("main");
+    const bad = await call(c, "run_start", { repo, title: "wallet", a_lines: ["A1 x"], base: "origin/main" });
+    expect(bad.isError).toBe(true);
   });
 
   it("starts, shows, answers, cancels and reads a run through the client", async () => {

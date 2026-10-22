@@ -213,6 +213,20 @@ the budget. Every failover is a `failover` row in the run's `routes.jsonl`.
 Run data lives in `~/.local/share/catherd/`, config in `~/.config/catherd/` (both follow
 `XDG_*`).
 
+### A milestone per branch
+
+Start a run with `base` (a branch on origin, such as `main`) and each milestone becomes its own branch and git
+worktree, made from `origin/<base>` under the run's folder (`trees/<milestone>`) and set up once with the `Setup:`
+line the plan carries under its `#` title. Every role of the milestone works in that tree. Milestones whose `After:`
+milestones are merged run side by side, a new one starting only while the machine has the memory for it: it counts
+what is free (on macOS through `kern.memorystatus_level`, since `os.freemem()` reads almost nothing there), less a
+reserve, and starts one more only when a milestone's share still fits above a floor. The defaults are 2 GB of
+reserve and 3 GB per milestone and floor; set them per profile with `catherd profile set limits.memory.reserveMb
+<MB>` (or `perMilestoneMb`, `floorMb`). A landed milestone asks you to push its branch and merge its merge request;
+answer `push` and catherd pushes the branch and prints the command that opens the MR. catherd never opens an MR and
+never merges; once you answer that it is merged (or origin's base holds it), a clean worktree is removed. A run
+without `base` works in the repo, one milestone at a time.
+
 ### Coordinating several repositories
 
 A workspace can be a plain directory containing independent Git repositories. Declare its members explicitly

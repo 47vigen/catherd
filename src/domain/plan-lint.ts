@@ -11,7 +11,7 @@ const milestoneOf = (id: string): string => id.split(".")[0] as string;
 const isFolder = (p: string): boolean => p.endsWith("/");
 
 /**
- * Lint of the lanes in scope. `known` is every lane id of the run, the landed milestones' too, so an `After:` on a
+ * Lint of the lanes in scope. `known` is every lane id of the run (a bare milestone `Mx` is known when one of its lanes is), the landed milestones' too, so an `After:` on a
  * lane that already landed is no error. `finished` is the milestones that landed (merged, in a base run): an `After:`
  * on a lane of any other milestone can never finish, as that milestone does not start before this one is done. Never throws: a lane whose header cannot be read is left out.
  */
@@ -31,6 +31,7 @@ export function lintLanes(
     }
   }
   const inScope = lanes.filter((l) => headers.has(l.id));
+  const milestones = new Set(known.map(milestoneOf));
 
   for (const { id } of inScope) {
     const h = headers.get(id) as LaneHeader;
@@ -41,7 +42,10 @@ export function lintLanes(
       );
     for (const a of h.after) {
       if (a === id) stuck.push({ lane: id, note: `${id}: After: names the lane itself` });
-      else if (!known.includes(a)) stuck.push({ lane: id, note: `${id}: After: ${a} has no lane file` });
+      else if (!a.includes(".") && a === milestoneOf(id))
+        stuck.push({ lane: id, note: `${id}: After: ${a} is its own milestone: this lane never starts` });
+      else if (a.includes(".") ? !known.includes(a) : !milestones.has(a))
+        stuck.push({ lane: id, note: `${id}: After: ${a} has no lane file` });
       else if (milestoneOf(a) !== milestoneOf(id) && !finished.includes(milestoneOf(a)))
         stuck.push({
           lane: id,
@@ -112,4 +116,26 @@ export function lintLanes(
     );
   }
   return { warnings, stuck };
+}
+
+/** What keeps the milestones from ever starting: an `after` naming no milestone of the plan, or a wait cycle. */
+export function milestoneProblems(milestones: { id: string; after: string[] }[]): string[] {
+  const after = new Map(milestones.map((m) => [m.id, m.after]));
+  const out: string[] = [];
+  for (const m of milestones)
+    for (const a of m.after) if (!after.has(a)) out.push(`${m.id}: After: ${a} is no milestone of the plan`);
+  const done = new Set<string>();
+  const path: string[] = [];
+  const visit = (id: string): void => {
+    path.push(id);
+    for (const a of after.get(id) ?? []) {
+      if (path.includes(a))
+        out.push(`milestones wait on each other (cycle ${[...path.slice(path.indexOf(a)), a].join(" → ")})`);
+      else if (!done.has(a) && after.has(a)) visit(a);
+    }
+    path.pop();
+    done.add(id);
+  };
+  for (const m of milestones) if (!done.has(m.id)) visit(m.id);
+  return out;
 }

@@ -50,6 +50,14 @@ function oneOfEach(): RunEvent[] {
   log.add("base.behind", { milestone: "M1" });
   log.add("integrate.done", { milestone: "M1", commit: "def5678" });
   log.add("integrate.conflict", { milestone: "M1", files: ["a.ts"] });
+  log.add("tree.ready", { milestone: "M1", tree: "/t/M1", branch: "t-m1", base: "main", hints: [] });
+  log.add("tree.deferred", { milestone: "M2", availableMb: 3100, needMb: 5120 });
+  log.add("branch.pushed", {
+    milestone: "M1",
+    branch: "t-m1",
+    remote: "origin",
+    mr: "gh pr create --base main",
+  });
   log.add("cancel.requested", { by: "owner" });
   log.add("effect.failed", { action: "commit", unit: "M1", message: "boom" });
   log.add("report.posted", { kind: "landed", unit: "M1", text: "landed" });
@@ -86,6 +94,13 @@ describe("run events", () => {
       expect(line.includes("\n")).toBe(false);
       expect(line.length).toBeGreaterThan(0);
     }
+  });
+
+  it("describes a milestone's worktree, a memory wait and a push (plan 35)", () => {
+    const lines = oneOfEach().map((e) => describeEvent(e));
+    expect(lines).toContain("M1 has its worktree on branch t-m1");
+    expect(lines).toContain("M2 waits for memory: 3100 MB available, 5120 MB needed");
+    expect(lines).toContain("M1's branch t-m1 is pushed to origin");
   });
 
   it("reads a preflight.done without lint as no lint, and counts lint in its line (plan 34)", () => {

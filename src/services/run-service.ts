@@ -112,7 +112,7 @@ async function supersededHints(run: Run, by: string): Promise<{ hints?: string[]
 
 export async function startRun(
   deps: Deps,
-  i: { repo: string; title: string; aLines: string[]; from?: string },
+  i: { repo: string; title: string; aLines: string[]; from?: string; base?: string },
 ): Promise<{
   run: string;
   dir: string;
@@ -145,6 +145,7 @@ export async function startRun(
       aLines: i.aLines,
       version: deps.version,
       startHead: head.kind === "ok" ? head.out.trim() || null : null,
+      ...(i.base ? { base: i.base } : {}),
       now: new Date(deps.now()),
       startedBy: currentSession(deps),
     });

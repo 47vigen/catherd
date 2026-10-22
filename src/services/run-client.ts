@@ -6,7 +6,7 @@ import { isApproval } from "../domain/plan-doc.ts";
 import { ROLES } from "../domain/roles.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import { liveDispatches } from "../domain/run-state.ts";
-import { gitToplevel } from "../infra/git.ts";
+import { fetchBase, git, gitToplevel } from "../infra/git.ts";
 import { writeTextAtomic } from "../infra/store.ts";
 import { ensureDaemon } from "./daemon.ts";
 import type { Deps } from "./ports.ts";
@@ -37,13 +37,23 @@ function daemonRun(id: string): Run {
   return run;
 }
 
+/** Fetches `origin/<base>` and refuses a base origin does not have (E_INPUT_INVALID); works from the last fetch offline. */
+async function assertBase(repo: string, base: string): Promise<void> {
+  await fetchBase(repo, base);
+  const r = await git(repo, ["rev-parse", "--verify", "--quiet", `origin/${base}^{commit}`]);
+  if (r.kind !== "ok")
+    throw new CatherdError("E_INPUT_INVALID", `origin/${base} does not exist in ${repo}`, {
+      fix: "pass a branch origin has, or omit base",
+    });
+}
+
 /**
  * Starts a 2.0 run: its folder, its pin, `run.started`, and its daemon. The owner's plan files (`plan`, and any
  * `plan:` A-line) are checked before the run exists, copied into it, and approved as input.
  */
 export async function runStart(
   deps: Deps,
-  i: { repo: string; title: string; aLines: string[]; plan?: string[] },
+  i: { repo: string; title: string; aLines: string[]; plan?: string[]; base?: string },
 ): Promise<{
   run: string;
   dir: string;
@@ -55,7 +65,9 @@ export async function runStart(
   const top = await gitToplevel(i.repo);
   // a repo outside git is startRun's refusal
   const plan = top ? resolvePlanInputs(top, [...(i.plan ?? []), ...planInputPaths(i.aLines)]) : [];
-  const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines });
+  // a base run's branch must exist on origin before any run folder does
+  if (i.base && top) await assertBase(top, i.base);
+  const started = await startRun(deps, { repo: i.repo, title: i.title, aLines: i.aLines, base: i.base });
   const run = findRun(started.run);
   copyPlanInputs(run, plan);
   await appendEvent(
@@ -66,7 +78,7 @@ export async function runStart(
       title: i.title,
       aLines: i.aLines,
       plan,
-      base: null,
+      base: i.base ?? null,
       engine: "2.0",
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },

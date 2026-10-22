@@ -499,3 +499,65 @@ describe("the rules review's brief (plan 34)", () => {
     expect(text).not.toContain("bun test src/a");
   });
 });
+
+describe("briefs in a base run's worktrees (plan 35)", () => {
+  const baseLog = () => {
+    const log = runningLog(undefined, "main");
+    log.add("tree.ready", { milestone: "M1", tree: "/t/M1", branch: "w-m1", base: "main", hints: [] });
+    return log;
+  };
+  const line =
+    "You work in /t/M1, on branch w-m1, which starts from origin/main. The milestone's diff is `git diff origin/main...HEAD`: three dots, because other milestones land on the base meanwhile and a two-dot diff shows their work as deleted here.";
+
+  it("gives every role of a base-run milestone its tree, branch and three-dot diff, and no role without base", () => {
+    const { run } = freshRun();
+    const s = baseLog().state();
+    const acts: Dispatch[] = [
+      act({}),
+      act({ brief: "review", role: "reviewer", name: "reviewer-M1", unit: "M1", lane: null }),
+      act({ brief: "verify", role: "verifier", name: "verifier-M1", unit: "M1", lane: null }),
+      act({ unit: "M1", name: "worker-M1-integrate", lane: null, brief: "fix", notes: ["a.ts"] }),
+    ];
+    for (const a of acts) expect(briefFor(run, s, a)).toContain(line);
+    const review = briefFor(run, s, acts[1] as Dispatch);
+    expect(review).toContain("git diff origin/main...HEAD");
+    expect(review).not.toMatch(/commit range/);
+    // the run's own roles have no milestone, and a run without base names no tree
+    const planning = act({
+      brief: "architect",
+      role: "architect",
+      lane: null,
+      unit: "run",
+      name: "architect",
+    });
+    expect(briefFor(run, s, planning)).not.toContain("You work in");
+    expect(briefFor(run, runningLog().state(), acts[0] as Dispatch)).not.toContain("You work in");
+    // the line comes before the owner's answers
+    const log = baseLog();
+    log.add("question.parked", { unit: "M1", question: "q", reason: "needs_user" });
+    log.add("question.answered", { unit: "M1", answer: "use postgres", by: "owner" });
+    const text = briefFor(run, log.state(), acts[1] as Dispatch);
+    expect(text.indexOf("You work in")).toBeLessThan(text.indexOf("use postgres"));
+  });
+
+  it("tells a base run's architect that milestones run side by side unless After: names one, and where Setup: goes", () => {
+    const { run } = freshRun();
+    const arch = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
+    const base = briefFor(run, baseLog().state(), arch);
+    expect(base).toContain("milestones run side by side");
+    expect(base).toContain("names it on its first lane's After: line (After: M1)");
+    expect(base).toContain("put Setup: <command> on the line under plan.md's # title");
+    expect(briefFor(run, runningLog().state(), arch)).not.toContain("side by side");
+  });
+
+  it("tells the integrate worker to edit the conflicted files only and leave git add and commit to catherd", () => {
+    const { run } = freshRun();
+    const text = briefFor(
+      run,
+      baseLog().state(),
+      act({ unit: "M1", name: "worker-M1-integrate", lane: null, brief: "fix", notes: ["a.ts"] }),
+    );
+    expect(text).toContain("Edit the conflicted files only");
+    expect(text).toContain("no git add, no git commit");
+  });
+});

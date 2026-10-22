@@ -53,6 +53,8 @@ export interface ProfileView {
   preflight: { confirm: boolean };
   heavy: number | "cpus/2";
   notify: string[];
+  /** plan 35: the memory numbers that cap milestones side by side, defaults filled */
+  limits: { memory: { reserveMb: number; perMilestoneMb: number; floorMb: number } };
 }
 
 /** What a profile write returns (spec §7.3): whether it saved, why not, what changed, and the agents it touched. */

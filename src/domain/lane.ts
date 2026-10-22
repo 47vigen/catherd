@@ -20,8 +20,8 @@ export interface LaneHeader {
   tasks: string[];
 }
 
-/** A lane id in an After: line: Mx.Ly, the shape lanes/<id>.md takes. */
-const LANE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** An After: entry: a lane id (Mx.Ly, the shape lanes/<id>.md takes) or a whole milestone (Mx). */
+const LANE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9][A-Za-z0-9._-]*)?$/;
 
 /** An Allow: entry: a repo-relative path, optionally `:<line>`. */
 const ALLOW_ENTRY = /^([^\s:]+)(?::(\d+))?$/;
@@ -96,10 +96,23 @@ export function parseLaneHeader(text: string): LaneHeader {
   };
 }
 
+/** The milestones, other than `m`, that `m`'s lanes wait on (After: entries, lane or milestone), in numeric order. */
+export function milestoneAfter(lanes: { id: string; after: string[] }[], m: string): string[] {
+  const out = new Set<string>();
+  for (const l of lanes)
+    if (l.id.split(".")[0] === m)
+      for (const a of l.after) {
+        const dep = a.split(".")[0] as string;
+        if (dep !== m) out.add(dep);
+      }
+  return [...out].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+}
+
 /** What is wrong with the After: and Allow: entries, one line each; none when they are well formed. */
 function orderProblems(h: LaneHeader): string[] {
   const out: string[] = [];
-  for (const a of h.after) if (!LANE_ID.test(a)) out.push(`After "${a}" is not a lane id like M1.L1`);
+  for (const a of h.after)
+    if (!LANE_ID.test(a)) out.push(`After "${a}" is not a lane or milestone id like M1.L1 or M1`);
   for (const t of h.tasks)
     if (!TASK_REF.test(t)) out.push(`Tasks "${t}" is not a task number like 3 or plan.md#3`);
   for (const a of h.allow) {

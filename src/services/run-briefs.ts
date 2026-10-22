@@ -7,6 +7,7 @@ import { planInputNames } from "../domain/plan-doc.ts";
 import { parseReplyDesign } from "../domain/record.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
+import { unitMilestone } from "../domain/branch.ts";
 import { integrateName, lanesOf, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
@@ -93,6 +94,12 @@ function architectBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     "Write plan.md and every lanes/Mx.Ly.md yourself with write_run_file. In plan.md, one heading per milestone, `## M1 — <title>`, then its full check (the whole suite), and an `After: M0, …` line only when the milestone needs another milestone landed first (none otherwise, so a parked milestone does not hold the rest).",
     "A full check slower than about five minutes is a problem to solve: make speeding it up an early lane.",
+    ...(s.base !== null
+      ? [
+          "",
+          `In this run each milestone is its own branch and merge request from origin/${s.base}, and milestones run side by side: a milestone that builds on another's code names it on its first lane's After: line (After: M1), and only those wait. When a fresh checkout needs a command before anything runs (installing dependencies, generating code), put Setup: <command> on the line under plan.md's # title.`,
+        ]
+      : []),
     "",
     ...LANE_HEADER,
     "",
@@ -219,7 +226,7 @@ function integrateBrief(run: Run, s: RunState, a: DispatchAction): string {
     `You are ${a.name} of catherd run ${run.id} (${run.meta.title}). The base branch ${s.base ?? ""} moved while milestone ${a.unit} was being verified, and catherd merged it into the run's branch. The merge stopped on conflicts in the repository you are in:`,
     ...a.notes.map((n) => `- ${n}`),
     "",
-    "Resolve every conflict, keeping both sides' intent: the base's change and this run's. Edit only those files, remove every conflict marker, and do not commit or stage anything: catherd commits the merge.",
+    "Resolve every conflict, keeping both sides' intent: the base's change and this run's. Edit the conflicted files only, remove every conflict marker, and do not commit or stage anything (no git add, no git commit): catherd does.",
     "",
     "The A-lines this run must meet:",
     ALINES(run),
@@ -280,7 +287,9 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
   const base = milestoneBase(run);
   const ui = a.role === "ui-reviewer";
   const head = `You review milestone ${a.unit}${m ? ` (${m.title})` : ""} of catherd run ${run.id}${ui ? ", by its screens" : ""}. You did not write it. Change nothing in the project.`;
-  const range = `The milestone is the commit range ${base}..HEAD: read \`git diff ${base}..HEAD\` and \`git diff --name-only ${base}..HEAD\`; read new files in full.`;
+  const range = s.base
+    ? `The milestone is its branch's diff from origin/${s.base}: read \`git diff origin/${s.base}...HEAD\` and \`git diff --name-only origin/${s.base}...HEAD\` (three dots: other milestones land on the base meanwhile); read new files in full.`
+    : `The milestone is the commit range ${base}..HEAD: read \`git diff ${base}..HEAD\` and \`git diff --name-only ${base}..HEAD\`; read new files in full.`;
   if (a.brief === "recheck") {
     const second = a.name.endsWith("-2");
     const first = lastReply(run, s, `reviewer-${a.unit}`);
@@ -379,9 +388,18 @@ function researchBrief(run: Run): string {
   ].join("\n");
 }
 
+/** Plan 35 D8: the tree, branch and diff of a base-run milestone that has its worktree; nothing otherwise. */
+function branchLine(s: RunState, a: DispatchAction): string[] {
+  const m = s.base === null ? undefined : s.milestones.find((x) => x.id === unitMilestone(a.unit));
+  if (!m?.tree || s.base === null) return [];
+  return [
+    `You work in ${m.tree}, on branch ${m.branch ?? ""}, which starts from origin/${s.base}. The milestone's diff is \`git diff origin/${s.base}...HEAD\`: three dots, because other milestones land on the base meanwhile and a two-dot diff shows their work as deleted here.`,
+  ];
+}
+
 /** The brief of one dispatch: what its role is to do, from the run's own facts. Admission adds the lane file and the reply contract. */
 export function briefFor(run: Run, s: RunState, a: DispatchAction): string {
-  const text = briefBody(run, s, a);
+  const text = [briefBody(run, s, a), ...branchLine(s, a)].join("\n\n");
   // a lane's answers ride in its own notes; a milestone's go to every role that works on it; the run's, to planning
   const answered = a.lane
     ? []

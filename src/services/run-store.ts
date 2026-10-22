@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
+import { runSlug } from "../domain/branch.ts";
 import { assertId } from "../domain/ids.ts";
 import { type RunRecord, RunRecordSchema } from "../domain/record.ts";
 import type {
@@ -11,7 +12,7 @@ import type {
   RoleRouteRow,
   RouteRow,
 } from "../domain/route.ts";
-import { cell, slug } from "../domain/util.ts";
+import { cell } from "../domain/util.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { gitOrigin } from "../infra/git.ts";
 import { dataDir, originDir, repoDir, runsDir } from "../infra/paths.ts";
@@ -50,6 +51,8 @@ const RunMetaSchema = z.looseObject({
   workspace: z.strictObject({ id: z.string(), step: z.string() }).optional(),
   /** the repo's HEAD when run_start ran: where the first milestone's commit range starts (absent before 1.5) */
   startHead: z.string().optional(),
+  /** plan 35: the branch on origin each milestone's own branch starts from; absent for a run in the repo itself */
+  base: z.string().optional(),
 });
 type RunMeta = z.infer<typeof RunMetaSchema>;
 
@@ -87,7 +90,6 @@ export function runPaths(dir: string) {
 
 export const LEDGER_HEADER = "milestone | what | commit | minutes | evidence";
 
-const runSlug = (title: string) => slug(title).slice(0, 40) || "run";
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
 /** Creates a run folder under the repo's runs dir. `repo` is a git toplevel; meta.json is written last. */
@@ -100,6 +102,8 @@ export function createRun(o: {
   workspace?: { id: string; step: string };
   /** the repo's full HEAD at the start, when it has a commit */
   startHead?: string | null;
+  /** plan 35: the branch on origin each milestone's branch starts from */
+  base?: string;
   startedBy?: {
     host?: StartedBy["host"];
     sessionId: string;
@@ -152,6 +156,7 @@ export function createRun(o: {
     ...(o.startedBy ? { startedBy: StartedBySchema.parse(o.startedBy) } : {}),
     ...(workspace ? { workspace } : {}),
     ...(o.startHead ? { startHead: o.startHead } : {}),
+    ...(o.base ? { base: o.base } : {}),
   };
   writeJsonAtomic(p.meta, meta);
   return { id, dir, meta };

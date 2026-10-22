@@ -69,6 +69,19 @@ report; quota failover (the profile's `failover` map); the `preflight` tool; per
 - **The report has no cap.** `writeRunReport` (`src/services/run-report.ts`) lists every known issue, every standing
   rule and every research block in full; a long run's report grows without bound. _Where:_ cap each list, with a
   "+N more" line that points at the files.
+- **`git worktree prune` in `claimTree` prunes the owner's own stale entries too.** `claimTree`
+  (`src/services/milestone-tree.ts:111`) runs `git worktree prune` on the owner's repo, which drops every worktree
+  entry whose folder is missing, such as one on an unmounted drive. Fix: scope it to catherd's trees (prune only when
+  the missing folder is under `<run dir>/trees`), or drop the call and let `worktree add` report the stale entry.
+- **A memory deferral never tells the owner.** `claim` (`src/services/run-effects.ts:684-697`) appends `tree.deferred`
+  every `MEMORY_LIMITS.recheckMs` (2 minutes) while memory is short, and nothing reports it, so a milestone can wait
+  for hours with no sign. Fix: report once on the first deferral of a milestone (and when it is claimed after), with
+  the numbers the event already carries.
+- **In a base run `updateState` and the skip path read the main checkout's HEAD.** `updateState`
+  (`src/services/state.ts:51`) takes `gitHead(run.meta.repo)`, and the skip path's `fullCommit(run, "HEAD")`
+  (`src/services/lane-service.ts:357`) resolves in the repo as well, while the work is on the milestone's branch in
+  its tree. Neither is reachable from the daemon today; a caller that reaches them in a base run gets the wrong
+  commit. Fix: resolve them through `treeOf(run, milestone)`.
 
 ## 1.5 follow-ups (plan reviews, 2026-10-02)
 
@@ -167,8 +180,9 @@ Plan 25 (runs, programs and lanes) review:
 - **`Allow:` misses a hit printed as `./path`.** `onlyAllowedHits` compares the hit's path verbatim, so
   `./src/x.ts:12:` (a grep under `./`) does not match `Allow: src/x.ts`. Evidence: `src/domain/lane.ts:143-158`. Fix:
   normalize both sides with `normalizeOwned`. (Minor 6.)
-- **Carried gate passes are not shared between worktrees of one repo.** `gates.jsonl` stays keyed by the toplevel
-  (Ruling 20), so a worktree never reuses a pass recorded in another worktree of the same origin. Evidence:
+- **Carried gate passes are not shared between worktrees the user made.** `gates.jsonl` stays keyed by the toplevel
+  (Ruling 20), so a worktree of the same origin that catherd did not make never reuses a pass recorded in another.
+  A base run's worktrees (plan 35) are one run's and share the repo's passes. Evidence:
   `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass
   checkout-independent. (Controller carry-over.)
 
@@ -196,9 +210,6 @@ does not name):
 - **Clone-driven work needs a "discover, then split" step.** In the 1.1.0 platform run L4 (Task 12) stopped on
   four panel clones that `dupes` found only after the allowlist emptied, and needed a hand-written rescoped lane.
   `owns_add` (1.5) grows one lane's Owns; splitting work the gate discovers into new lanes is still by hand.
-- **One run per worktree: `dispatch` takes no cwd.** The platform review-fix run (2026-09-30, plans 1–7, seven
-  MRs) needed one run per plan and its worktree. Workspaces (1.5) coordinate several runs; one run still cannot
-  dispatch into two worktrees. Fix: an optional `cwd` (a worktree of the run's repository) on `dispatch`.
 - **First-turn cost on small lanes.** A native Codex turn starts at about 280k input tokens (mostly cached)
   whatever the lane's size; an easy lane in the 1.0.0 headless test still read 583k isolated. A profile rule such as
   "isolated below difficulty build" could save most of it without touching the user's harness for real work.
@@ -228,9 +239,11 @@ does not name):
 
 ## Orchestration
 
-- **Milestone per branch.** A real multi-MR build wants one branch and one MR per milestone, some in parallel. `land`
-  only commits. _Where:_ an optional `branch` on milestones, and a finish step that opens the MR through the repo's
-  own tooling.
+- **The milestone memory defaults are a guess.** `limits.memory`'s defaults (2 GB reserve, 3 GB per milestone, 3 GB
+  floor) were set from the shop run's 9 GB swap, not measured per milestone. Fix: record the peak RSS of each
+  milestone's process tree on the scorecard runs, then retune the defaults.
+- **A kept worktree is only logged.** A merged milestone's tree with untracked files stays under `<run>/trees/` and
+  only the daemon log says so. Fix: list kept trees in the run's report.
 - **Stacked milestones.** Starting M2 only after M1 merged serializes the run behind review and the gate. M2 could
   start on a branch stacked on M1 while M1's gate and MR run, and rebase once it merges.
 

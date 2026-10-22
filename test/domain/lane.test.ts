@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   assertLaneValues,
+  milestoneAfter,
   normalizeOwned,
   onlyAllowedHits,
   overlaps,
@@ -79,8 +80,8 @@ describe("assertLaneValues (write_run_file)", () => {
     expect(() => assertLaneValues("# M1.L1\nDifficulty: medium\n", "lanes/M1.L1.md")).toThrow(
       'lanes/M1.L1.md: Difficulty "medium" is not one the catalog knows',
     );
-    expect(() => assertLaneValues("# x\nAfter: L1\nAllow: /etc/passwd\n", "lanes/x.md")).toThrow(
-      'After "L1" is not a lane id like M1.L1; Allow "/etc/passwd" is not a repo path, or path:line',
+    expect(() => assertLaneValues("# x\nAfter: M1 L1\nAllow: /etc/passwd\n", "lanes/x.md")).toThrow(
+      'After "M1 L1" is not a lane or milestone id like M1.L1 or M1; Allow "/etc/passwd" is not a repo path, or path:line',
     );
     expect(() => assertLaneValues("# x\nOwns: ../out\n", "lanes/x.md")).toThrow("lanes/x.md: owned path");
   });
@@ -149,4 +150,24 @@ describe("overlaps", () => {
     expect(overlaps(["src/app"], ["src/apple.ts"])).toEqual([]);
     expect(overlaps(["a.ts", "b.ts"], ["c.ts"])).toEqual([]);
   });
+});
+
+describe("whole-milestone After:", () => {
+  it("accepts a whole milestone in After:", () => {
+    expect(parseLaneHeader("# M2.L1 — x\nAfter: M1, M1.L2\n").after).toEqual(["M1", "M1.L2"]);
+    expect(() => assertLaneValues("# M2.L1 — x\nAfter: M1 L2\n", "lanes/M2.L1.md")).toThrow(
+      /lane or milestone id/,
+    );
+  });
+  it("lists the milestones a milestone's lanes wait on, other than itself", () =>
+    expect(
+      milestoneAfter(
+        [
+          { id: "M3.L1", after: ["M10", "M2.L1"] },
+          { id: "M3.L2", after: ["M3.L1", "M2"] },
+          { id: "M1.L1", after: [] },
+        ],
+        "M3",
+      ),
+    ).toEqual(["M2", "M10"]));
 });

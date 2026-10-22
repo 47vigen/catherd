@@ -161,6 +161,24 @@ describe("run state", () => {
     expect(activeMilestones(s).map((m) => m.id)).toEqual(["M1"]);
   });
 
+  it("a base run keeps every milestone with a tree active, plus the first without one (plan 35)", () => {
+    const independent = PLAN.map((m) => ({ ...m, after: [] }));
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, base: "main" });
+    log.add("plan.ready", { milestones: independent });
+    expect(activeMilestones(log.state()).map((m) => m.id)).toEqual(["M1"]);
+    log.add("tree.ready", { milestone: "M1", tree: "/t/M1", branch: "w-m1", base: "main", hints: [] });
+    const s = log.state();
+    expect(s.milestones[0]).toMatchObject({ tree: "/t/M1", branch: "w-m1", claimAfter: null });
+    expect(s.milestones[0]?.treeAt).toBe(s.at);
+    expect(activeMilestones(s).map((m) => m.id)).toEqual(["M1", "M2"]);
+    // a run without base: still one
+    const plain = makeLog();
+    plain.add("run.started", startedFields);
+    plain.add("plan.ready", { milestones: independent });
+    expect(activeMilestones(plain.state()).map((m) => m.id)).toEqual(["M1"]);
+  });
+
   it("parks a lane, and runs it again with the owner's answer on its notes", () => {
     const log = runningLog();
     const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });

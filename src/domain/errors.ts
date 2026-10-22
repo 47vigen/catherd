@@ -20,6 +20,7 @@ export type ErrorCode =
   | "E_ADMIT_ORDER"
   | "E_LANE_INVALID"
   | "E_LAND_GATE"
+  | "E_TREE"
   | "E_CLIMB_DESIGN"
   | "E_CLIMB_ENV"
   | "E_JEV_KEY"
