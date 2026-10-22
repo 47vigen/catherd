@@ -158,6 +158,24 @@ export function patchProfile(
   });
 }
 
+/**
+ * What `patchProfile` would do, without writing: the diff, the validation, and the stored document the patch
+ * was applied to (`expect`, which the save sends back).
+ */
+export function previewProfile(
+  name: string | undefined,
+  patch: ProfilePatch,
+  host: OrchestrationHost,
+): Saved & { expect: ProfileDoc } {
+  return locked(() => {
+    const n = assertProfileName(name ?? activeName());
+    const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    const after = applyPatch(before, patch);
+    const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
+    return { ...unsaved(validate(after, n, host)), diff, expect: before };
+  });
+}
+
 /** Spec §7.3 `create` and `copy`: a new profile from `from` (default: the default profile). */
 export function createProfile(name: string, from: string | undefined, host: OrchestrationHost): Saved {
   return locked(() => {
@@ -357,7 +375,9 @@ export function profileService(host: () => HostContext): ProfilePort {
       return { valid: v.errors.length === 0, ...v };
     },
     // a name that does not exist yet starts from the default profile
-    set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch, { host: host().host }),
+    set: (name, patch, repo = null, expect) =>
+      patchProfile(name ?? activeName(repo), patch, { host: host().host, expect }),
+    preview: (name, patch, repo = null) => previewProfile(name ?? activeName(repo), patch, host().host),
     agentFor: (repo, role, rung) =>
       parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
     notifyUrl: () =>

@@ -1,14 +1,19 @@
 import { z } from "zod";
+import type { BackendAdapter } from "../adapters/backend.ts";
 import { CatherdError } from "../domain/errors.ts";
 import type { HostContext } from "../domain/host.ts";
 import { BILLING_MODES } from "../domain/cost.ts";
 import { pairOf } from "../domain/catalog.ts";
-import { ROLES, type Role } from "../domain/roles.ts";
+import { effectiveBars } from "../domain/bars.ts";
+import { NOTIFY, roleTimeouts } from "../domain/profile.ts";
+import { ACCESS } from "../domain/record.ts";
+import { DEFAULT_ACCESS, ROLES, type Role } from "../domain/roles.ts";
 import { catalogQuery, loadCatalog, type IndexedPair } from "./catalog-service.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { indexCheck } from "./doctor-checks.ts";
 import type { Deps, ProfileSaved } from "./ports.ts";
-import { profileFor } from "./profile-store.ts";
+import { cachedProbe } from "./probe-cache.ts";
+import { activeName, profileFor, readConfig, readProjects } from "./profile-store.ts";
 
 // The panel's Setup page (spec 2.0 decision 25): backends with their doctor status, and each role's rungs picked
 // from the indexed pairs. Every write goes through the ProfilePort.
@@ -44,9 +49,43 @@ export const ProfileSavedSchema = z.object({
   pruned: z.array(z.string()),
   newSessionNeededFor: z.array(z.string()),
 });
+/** Every profile setting, resolved (defaults filled): what the profile editor starts from. */
+export const SettingsSchema = z.object({
+  objective: z.enum(["cost", "speed"]),
+  budget: z.object({
+    minutes: z.number().optional(),
+    tokens: z.number().optional(),
+    usd: z.number().optional(),
+  }),
+  timeouts: z.object({ idleMin: z.number(), wallMin: z.number() }),
+  failover: z.record(z.string(), z.string()),
+  maxEffort: z.record(z.string(), z.string()),
+  bars: z.record(z.string(), z.number()),
+  heavy: z.union([z.number().int(), z.literal("cpus/2")]),
+  memory: z.object({ reserveMb: z.number(), perMilestoneMb: z.number(), floorMb: z.number() }),
+  preflightConfirm: z.boolean(),
+  notify: z.array(z.enum(NOTIFY)),
+  jev: z.enum(["auto", "off"]),
+  billing: z.record(z.string(), z.enum(BILLING_MODES)),
+  isolated: z.record(z.string(), z.boolean()),
+});
 export const SetupViewSchema = z.object({
   repo: z.string().nullable(),
-  profile: z.object({ name: z.string(), active: z.string(), profiles: z.array(z.string()) }),
+  host: z.enum(["claude-code", "codex", "unknown"]),
+  /** every bound repo, plus the one the panel was asked about */
+  repos: z.array(z.object({ path: z.string(), profile: z.string() })),
+  profile: z.object({
+    name: z.string(),
+    active: z.string(),
+    profiles: z.array(z.string()),
+    bindings: z.record(z.string(), z.string()),
+  }),
+  /** when the oldest backend probe shown was taken */
+  probedAt: z.string().nullable(),
+  settings: SettingsSchema,
+  notifyUrl: z.string().nullable(),
+  /** the stored document, sent back with a save as `expect` */
+  doc: z.record(z.string(), z.unknown()),
   catalog: CheckSchema,
   backends: z.array(CheckSchema),
   issues: z.object({ errors: z.array(IssueSchema), warnings: z.array(IssueSchema) }),
@@ -54,6 +93,10 @@ export const SetupViewSchema = z.object({
     z.object({
       role: z.enum(ROLES),
       enabled: z.boolean(),
+      access: z.enum(ACCESS),
+      network: z.boolean(),
+      /** the role's own timeouts over the profile's; null when it sets none */
+      timeouts: z.object({ idleMin: z.number(), wallMin: z.number() }).nullable(),
       /** the profile leaves this role's rungs to the session's host, which the panel cannot see */
       hostSet: z.boolean(),
       rungs: z.array(z.object({ rung: z.string(), intelligence: z.number().nullable() })),
@@ -84,7 +127,11 @@ function hostSetRoles(deps: Deps, repo: string | null): Set<Role> {
 }
 
 /** What the Setup page shows: the profile `repo` runs on (the active one without a repo). */
-export async function setupView(deps: Deps, repo: string | null): Promise<SetupView> {
+export async function setupView(
+  deps: Deps,
+  repo: string | null,
+  o?: { fresh?: boolean },
+): Promise<SetupView> {
   const unknown = deps.host.host === "unknown";
   const profiles = (unknown ? deps.profiles.withHost?.(() => READ_AS) : undefined) ?? deps.profiles;
   const g = profiles.get(undefined, repo);
@@ -94,11 +141,43 @@ export async function setupView(deps: Deps, repo: string | null): Promise<SetupV
   const hostSet = (role: Role): boolean => hostSetOf.has(role);
   const catalog = loadCatalog({ repo: repo ?? undefined });
   const intelligence = (rung: string) => pairOf(catalog, rung)?.intelligence ?? null;
+  const probedAt: string[] = [];
+  const probe = async (a: BackendAdapter) => {
+    const r = await cachedProbe(a, { force: o?.fresh });
+    probedAt.push(r.probedAt);
+    return r;
+  };
+  const backends = await backendChecks(usedBackends([p]), [p], undefined, deps.host.host, probe);
+  const bindings = readProjects().bindings;
+  const v = g.profile;
   return {
     repo,
-    profile: { name: g.here, active: g.active, profiles: g.profiles },
+    host: deps.host.host,
+    repos: [
+      ...Object.entries(bindings).map(([path, profile]) => ({ path, profile })),
+      ...(repo !== null && !(repo in bindings) ? [{ path: repo, profile: activeName(repo) }] : []),
+    ],
+    profile: { name: g.here, active: g.active, profiles: g.profiles, bindings },
+    probedAt: probedAt.toSorted()[0] ?? null,
+    settings: {
+      objective: v.objective,
+      budget: v.budget,
+      timeouts: v.timeouts,
+      failover: v.failover,
+      maxEffort: v.maxEffort ?? {},
+      bars: effectiveBars(v),
+      heavy: v.heavy,
+      memory: v.limits.memory,
+      preflightConfirm: v.preflight.confirm,
+      notify: v.notify as (typeof NOTIFY)[number][],
+      jev: v.jev.use,
+      billing: v.billing as Record<string, (typeof BILLING_MODES)[number]>,
+      isolated: v.isolated as Record<string, boolean>,
+    },
+    notifyUrl: readConfig().notify?.url ?? null,
+    doc: { ...profiles.raw?.(undefined, repo) },
     catalog: indexCheck(),
-    backends: await backendChecks(usedBackends([p]), [p]),
+    backends,
     issues: { errors: issues.errors, warnings: issues.warnings },
     roles: ROLES.map((role) => {
       const r = g.profile.roles[role];
@@ -108,6 +187,9 @@ export async function setupView(deps: Deps, repo: string | null): Promise<SetupV
       return {
         role,
         enabled: r?.enabled ?? false,
+        access: r?.access ?? DEFAULT_ACCESS[role],
+        network: r?.network !== false,
+        timeouts: r?.timeouts ? roleTimeouts(v, r) : null,
         hostSet: hostSet(role),
         rungs: (hostSet(role) ? [] : (r?.rungs ?? [])).map((rung) => ({
           rung,

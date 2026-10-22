@@ -5,6 +5,8 @@ import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { defaultDeps } from "../../src/entry/deps.ts";
 import { indexPath } from "../../src/infra/paths.ts";
 import { orderRungs, setRoleRungs, setupView, SetupViewSchema } from "../../src/services/panel-setup.ts";
+import { probeCache } from "../../src/services/probe-cache.ts";
+import { activate } from "../../src/services/profile-service.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
@@ -14,6 +16,7 @@ let repo: string;
 const deps = defaultDeps({ host: "codex", session: null, conflict: null });
 beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
+  probeCache.clear();
   withHome();
   repo = tempRepo();
   process.env.PATH = "/nonexistent"; // no backend CLI is probed
@@ -33,6 +36,36 @@ describe("the panel's Setup view", () => {
     expect(w.offered.map((o) => o.intelligence)).toEqual(
       w.offered.map((o) => o.intelligence).toSorted((a, b) => b - a),
     );
+  });
+
+  it("names the host, the repos bound, the resolved settings and the stored document", async () => {
+    activate("default", repo, "codex");
+    const v = SetupViewSchema.parse(await setupView(deps, repo));
+    expect(v.host).toBe("codex");
+    expect(v.repos).toEqual([{ path: repo, profile: "default" }]);
+    expect(v.profile.bindings).toEqual({ [repo]: "default" });
+    expect(v.settings.objective).toBe("cost");
+    expect(v.settings.bars).toEqual({ copy: 20, build: 45, logic: 60, hard: 65 });
+    expect(v.settings.timeouts).toEqual({ idleMin: expect.any(Number), wallMin: expect.any(Number) });
+    expect(v.doc).toEqual(deps.profiles.raw?.(undefined, repo) as Record<string, unknown>);
+    expect(v.notifyUrl).toBeNull();
+    const w = v.roles.find((r) => r.role === "worker")!;
+    expect([w.access, w.network, w.timeouts]).toEqual(["workspace-write", true, null]);
+    expect(v.probedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it("a second setup read probes no CLI", async () => {
+    await setupView(deps, repo);
+    const probes = probeCache.probes;
+    await setupView(deps, repo);
+    expect(probeCache.probes).toBe(probes);
+  });
+
+  it("a fresh read probes again", async () => {
+    await setupView(deps, repo);
+    const probes = probeCache.probes;
+    await setupView(deps, repo, { fresh: true });
+    expect(probeCache.probes).toBeGreaterThan(probes);
   });
 
   it("orders picked rungs by rising intelligence, ties in the profile's order, then the pick order", () => {
