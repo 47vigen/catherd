@@ -370,7 +370,7 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
   if (!stopped && groupAlive(child.pid)) await stopGroup(child.pid, spec.killGraceMs, spec.pollMs);
   const info = finish({
     code: child.signalCode ? null : code,
-    signal: child.signalCode ?? null,
+    signal: child.signalCode == null ? null : String(child.signalCode),
     reason: reason ?? "exited",
     endedAt: new Date().toISOString(),
   });
