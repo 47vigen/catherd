@@ -82,7 +82,7 @@ workflow npm's trusted publisher is bound to (OIDC, no npm token). A commit that
 check green, while up to date with its base, is not tested again. Any other commit, a direct push, first runs CI in the release workflow, sized by its
 diff (a docs-only push runs only the format check).
 
-A major ships on `beta` first. It becomes `latest` when its beta passes the scorecard
+A major is measured from `@next` first. It becomes `latest` when that build passes the scorecard
 ([`docs/dev/scorecard.md`](docs/dev/scorecard.md), "Release gate") and the owner says so; merging the "chore: release
 catherd" pull request is that step.
 
@@ -93,54 +93,38 @@ catherd" pull request is that step.
 3. Merging it publishes `catherd-cli` to npm under `latest` (after the pack smoke, about a minute), pushes the
    `v<version>` tag, which the plugin marketplace serves, and creates a GitHub release.
 
-## Beta channel
+## Next channel
 
-`beta` is a long-lived branch. A push to it publishes a snapshot, `x.y.z-beta.<datetime>` (for example
-`1.3.0-beta.20260929095202`), under npm's `beta` dist-tag, in a few minutes. There is no release pull request, and
-`latest` never moves. Publishing is latest-only: pushes that land while a beta publish runs collapse into one
-snapshot of the newest commit. `x.y.z` is the version the branch's changesets would release, so a beta needs at least one
-changeset; a push with none publishes nothing.
+Every merge to `main` publishes a snapshot, `x.y.z-next.<datetime>` (for example `2.1.0-next.20261022113309`), under
+npm's `next` dist-tag, in a few minutes. `latest` never moves on a snapshot: it moves only when the "chore: release
+catherd" pull request merges, after the scorecard passes and the owner says so. The run that merges the release pull
+request publishes `latest` and no snapshot. Publishing is latest-only: merges that land while a publish runs collapse
+into one snapshot of the newest commit. `x.y.z` is the version the pending changesets would release, so a merge
+without a changeset publishes nothing.
 
-Why snapshots and not changesets pre mode: pre mode needs a version pull request on `beta` and a `changeset pre
-exit` before promotion, and it commits `pre.json` and prerelease changelog entries that then conflict with `main`.
-A snapshot changes only the release runner's copy, so `beta` keeps its changesets and promotes to `main` as a plain
-merge.
+Why snapshots and not changesets pre mode: pre mode commits `pre.json` and prerelease changelog entries to `main`.
+A snapshot changes only the release runner's copy, so `main` keeps its changesets and nothing is committed to it.
 
-Cut a beta:
+A transient registry error (5xx, ETIMEDOUT, ECONNRESET) is retried up to three times, 60 seconds apart; a refusal
+such as E403 or E409 fails the run at once. After the publish, `npm view catherd-cli dist-tags` shows the tag.
 
-```sh
-git switch -c my-change origin/beta
-bunx changeset                      # the bump the stable release will get
-git push -u origin my-change        # open the pull request against beta; merge it when ci is green
-```
+Use the next channel:
 
-A direct push to `beta` also publishes, after CI passes in the release workflow. After the publish,
-`npm view catherd-cli dist-tags` shows it.
-
-Use a beta:
-
-- The CLI: `bunx catherd-cli@beta`, or `bun add -g catherd-cli@beta`.
-- The plugin: each beta publish also force-pushes the `plugin-beta` branch, whose marketplace is named
-  `catherd-beta` and pins the plugin to that beta. In Claude Code, uninstall the stable `catherd@catherd` first
+- The CLI: `bunx catherd-cli@next`, or `bun add -g catherd-cli@next`.
+- The plugin: each snapshot also force-pushes the `plugin-next` branch, whose marketplace is named
+  `catherd-next` and pins the plugin to that snapshot. In Claude Code, uninstall the stable `catherd@catherd` first
   (both would start an MCP server named catherd), then:
 
   ```
-  /plugin marketplace add https://github.com/47vigen/catherd.git#plugin-beta
-  /plugin install catherd@catherd-beta
+  /plugin marketplace add https://github.com/47vigen/catherd.git#plugin-next
+  /plugin install catherd@catherd-next
   ```
 
-  After the next beta, run `/plugin marketplace update catherd-beta` and restart Claude Code. To go back,
-  uninstall `catherd@catherd-beta` and install `catherd@catherd` again.
+  After the next snapshot, run `/plugin marketplace update catherd-next` and restart Claude Code. To go back,
+  uninstall `catherd@catherd-next` and install `catherd@catherd` again.
 
-Promote beta to stable:
-
-1. Open a pull request from `beta` to `main` and merge it **with a merge commit** (not squash), so `beta` stays an
-   ancestor of `main`. Its changesets come along.
-2. Merge the "chore: release catherd" pull request as usual; that publishes `latest`.
-3. Bring `beta` up to date: `git push origin origin/main:beta` (a fast-forward). It publishes nothing, because the
-   release consumed the changesets.
-
-A fix that lands on `main` while a beta is open reaches `beta` by merging `main` into it.
+The 2.0.0 beta, `2.0.0-beta.20261022113309`, was published before this channel and keeps its `beta` dist-tag; the
+`beta` branch is retired.
 
 ## Maintenance line (1.x)
 

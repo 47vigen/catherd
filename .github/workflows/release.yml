@@ -1,16 +1,16 @@
 name: Release
 
 # npm's trusted publisher for catherd-cli is bound to this file name, so both channels publish from here.
-#   main: opens or updates the "chore: release catherd" PR; merging that PR publishes `latest`.
-#   beta: a push publishes a snapshot, x.y.z-beta.<datetime>, under the `beta` dist-tag. No release PR. Latest
-#   only: GitHub keeps one pending run per group, so pushes that land during a run collapse into the newest one,
-#   whose snapshot holds all of them.
+#   main: opens or updates the "chore: release catherd" PR; merging that PR publishes `latest`. Every other push to
+#   main publishes a snapshot, x.y.z-next.<datetime>, under the `next` dist-tag, unless that run just published a
+#   release. Latest only: GitHub keeps one pending run per group, so pushes that land during a run collapse into the
+#   newest one, whose snapshot holds all of them.
 # A commit that a PR merged with its `ci` check green is not tested again: ci.yml already ran on that PR. Any other
 # commit (a direct push) runs ci.yml here first, sized by its diff, so a direct docs push costs only the format
 # check. The npm pack smoke runs right before a publish, because it tests the exact version about to ship.
 on:
   push:
-    branches: [main, beta]
+    branches: [main]
 
 # never cancel: a cancelled run could stop halfway through a publish
 concurrency: ${{ github.workflow }}-${{ github.ref }}
@@ -78,7 +78,8 @@ jobs:
 
       # On main with changesets: opens or updates the "chore: release catherd" PR. On that PR's merge:
       # publishes to npm, pushes the v<version> tag (the plugin marketplace's release tag) and a GitHub release.
-      - if: github.ref_name == 'main'
+      - id: changesets
+        if: github.ref_name == 'main'
         uses: changesets/action@v2
         with:
           version-script: bun run version-packages
@@ -88,39 +89,61 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # Snapshot, not changesets pre mode: pre mode needs a version PR on beta and a `pre exit` before promotion,
-      # and it commits pre.json and prerelease CHANGELOG entries that then conflict with main. A snapshot
-      # versions only this runner's working tree, so beta keeps its changesets untouched and promotes to main as
-      # a plain merge. {datetime} keeps successive betas in semver order.
-      - name: Publish a beta snapshot under the beta dist-tag
-        id: beta
-        if: github.ref_name == 'beta'
-        timeout-minutes: 15
+      # Snapshot, not changesets pre mode: pre mode commits pre.json and prerelease CHANGELOG entries to main. A
+      # snapshot versions only this runner's working tree and commits nothing. {datetime} keeps successive
+      # snapshots in semver order. The release PR merge publishes `latest` instead, so a run whose changesets step
+      # just published skips this. The changesets step leaves the checkout on the release PR branch with the
+      # changesets consumed, so reset to the pushed commit first.
+      - name: Publish a snapshot under the next dist-tag
+        id: next
+        if: github.ref_name == 'main' && steps.changesets.outputs.published != 'true'
+        timeout-minutes: 20
+        env:
+          # one hung registry request must not eat the step: three tries fit in its 20 minutes
+          NPM_CONFIG_FETCH_TIMEOUT: "300000"
         run: |
-          bunx changeset version --snapshot beta
+          git checkout --force --detach "$GITHUB_SHA"
+          git clean -fd
+          bunx changeset version --snapshot next
           version=$(node -p 'require("./package.json").version')
           case "$version" in
-            *-beta.*) ;;
-            *) echo "::notice::no changesets on beta, nothing to publish"; exit 0 ;;
+            *-next.*) ;;
+            *) echo "::notice::no changesets on main, nothing to publish under next"; exit 0 ;;
           esac
           bun scripts/stamp-plugin-version.mjs
           bun test/pack-smoke.ts
-          # npm itself, not changeset publish: changesets 3 waits at a prompt on the runner after listing the package
-          npm publish --tag beta --provenance --access public
+          # npm itself, not changeset publish: changesets 3 waits at a prompt on the runner after listing the package.
+          # Retry only a registry or network failure; a version that exists or a refusal (E403, E409) fails at once.
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if npm publish --tag next --provenance --access public 2>&1 | tee "$RUNNER_TEMP/publish.log"; then
+              break
+            fi
+            # the version is unique to this run: on a retry, "already published" means the last try landed
+            if [ "$attempt" != 1 ] && grep -qE 'previously published|code E409' "$RUNNER_TEMP/publish.log"; then
+              break
+            fi
+            if [ "$attempt" = 3 ] || grep -qE 'code (E403|E409)|previously published' "$RUNNER_TEMP/publish.log" ||
+              ! grep -qE 'code (E5[0-9]{2}|ETIMEDOUT|ECONNRESET)|[^0-9]5[0-9]{2} (Internal|Bad|Service|Gateway)' "$RUNNER_TEMP/publish.log"; then
+              exit 1
+            fi
+            echo "::warning::npm publish failed with a registry error, retrying in 60 s ($attempt of 3)"
+            sleep 60
+          done
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      # The beta plugin: a commit of the stamped plugin, force-pushed to the plugin-beta branch, whose own
-      # marketplace (catherd-beta) serves the plugin from that same branch. See CONTRIBUTING.md, "Beta channel".
-      - name: Point the plugin-beta branch at this beta
-        if: steps.beta.outputs.version
+      # The next plugin: a commit of the stamped plugin, force-pushed to the plugin-next branch, whose own
+      # marketplace (catherd-next) serves the plugin from that same branch. See CONTRIBUTING.md, "Next channel".
+      - name: Point the plugin-next branch at this snapshot
+        if: steps.next.outputs.version
         env:
-          VERSION: ${{ steps.beta.outputs.version }}
+          VERSION: ${{ steps.next.outputs.version }}
         run: |
-          sed -i -e 's/^  "name": "catherd",/  "name": "catherd-beta",/' -e 's/"ref": "v[^"]*"/"ref": "plugin-beta"/' \
+          sed -i -e 's/^  "name": "catherd",/  "name": "catherd-next",/' -e 's/"ref": "v[^"]*"/"ref": "plugin-next"/' \
             .claude-plugin/marketplace.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C plugin-beta
+          git switch -C plugin-next
           git add .claude-plugin/marketplace.json plugin
           git commit -m "chore: plugin for catherd-cli@$VERSION"
-          git push --force origin plugin-beta
+          git push --force origin plugin-next

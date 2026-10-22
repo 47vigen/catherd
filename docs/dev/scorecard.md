@@ -83,9 +83,10 @@ rounds and the first try are reported, never gated.
 
 - The baseline: `catherd --version` and the Claude Code plugin both say 1.5.0. Each row stores its run's
   `meta.catherdVersion`, so a row from the wrong version shows it.
-- After plan N: the merged `main` through the beta channel, `catherd-cli@beta` and the `plugin-beta` marketplace,
-  with the label `plan-N`. 2.0.0 ships on `beta` and runs the scorecard there; it becomes `latest` once
-  `catherd scorecard compare 2.0.0-beta.<n>` exits 0.
+- After plan N: the merged `main` through the next channel, `catherd-cli@next` and the `plugin-next` marketplace,
+  with the label `plan-N`. A 2.x pre-release is measured from `@next` under its exact version label
+  (`2.1.0-next.<datetime>`); it becomes `latest` once `catherd scorecard compare <label>` exits 0. The 2.0.0 beta
+  already published as `2.0.0-beta.20261022113309` keeps its `beta` tag and its label.
 
 Labels match `^[a-z0-9][a-z0-9.-]{0,40}$` (`1.5.0`, `plan-29`, `2.0.0-beta.3`). Results are
 `scorecard/results/<label>.json`, one row per task; a re-record replaces that task's row. `--results <dir>` moves
@@ -93,10 +94,10 @@ them.
 
 ## Release gate
 
-A major's beta is measured under its exact version label (`2.0.0-beta.<datetime>`), so one label measures one
-version. `latest` follows only when `catherd scorecard compare <label>` exits 0 and the owner says so. Nothing under
-`src`, `plugin`, `catalog`, `package.json` or `bun.lock` may differ between the beta's commit and `main` at that
-moment; if it does, cut a new beta and measure again.
+A major's pre-release is measured under its exact version label (`x.y.z-next.<datetime>`, or the 2.0.0 beta's
+`2.0.0-beta.20261022113309`), so one label measures one version. `latest` follows only when `catherd scorecard compare <label>` exits 0 and the owner says so. Nothing under
+`src`, `plugin`, `catalog`, `package.json` or `bun.lock` may differ between the measured build's commit and `main` at that
+moment; if it does, measure the newest `@next` again.
 
 ## The 1.5.0 baseline: commands
 

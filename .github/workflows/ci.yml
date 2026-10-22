@@ -4,7 +4,7 @@ name: CI
 # re-runs the matrix. Branch protection requires the `ci` job alone, which reports on every PR, docs-only included.
 on:
   pull_request:
-    branches: [main, beta]
+    branches: [main]
   # nightly on main: the full matrix, with macOS on the Bun floor, and a new Bun caught with no PR open
   schedule:
     - cron: "41 3 * * *"

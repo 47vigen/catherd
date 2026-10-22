@@ -19,7 +19,7 @@ bun add -g catherd-cli@latest && catherd doctor
 claude plugin marketplace update catherd && claude plugin update catherd@catherd
 ```
 
-Before 2.0 is stable, `catherd-cli@beta` and the `plugin-beta` marketplace (CONTRIBUTING.md, "Beta channel") carry it.
+Before 2.0 is stable, `catherd-cli@next` and the `plugin-next` marketplace (CONTRIBUTING.md, "Next channel") carry it.
 
 **Runs in flight.** A run started on 1.5 finishes on 1.5, and 2.0 does not adopt its folder (`ensureDaemon` answers
 `"1.5"` for a run without an `events.jsonl`, and `status` reports its `engine` as `"1.5"`). Finish or cancel each
