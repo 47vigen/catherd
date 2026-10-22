@@ -67,4 +67,23 @@ describe("lintLanes (plan 34)", () => {
       stuck: [],
     });
   });
+
+  it("stops an After: on a lane of a milestone that is not finished, allows one on a finished milestone", () => {
+    const lanes = [lane("M1.L1", ["a.ts"], ["M2.L1"]), lane("M2.L1", ["b.ts"], ["M1.L1"])];
+    const known = ["M1.L1", "M2.L1", "M0.L1"];
+    expect(lintLanes(lanes, known, []).stuck).toEqual([
+      {
+        lane: "M1.L1",
+        note: "M1.L1: After: M2.L1 is in milestone M2, which has not finished: this lane never starts",
+      },
+      {
+        lane: "M2.L1",
+        note: "M2.L1: After: M1.L1 is in milestone M1, which has not finished: this lane never starts",
+      },
+      { lane: "M1.L1", note: "After: cycle M1.L1 → M2.L1 → M1.L1: these lanes never start" },
+    ]);
+    const landed = [lane("M1.L1", ["a.ts"], ["M0.L1"])];
+    expect(lintLanes(landed, known, ["M0"]).stuck).toEqual([]);
+    expect(lintLanes(landed, known, []).stuck).toHaveLength(1);
+  });
 });

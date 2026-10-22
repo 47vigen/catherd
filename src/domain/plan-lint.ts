@@ -12,9 +12,14 @@ const isFolder = (p: string): boolean => p.endsWith("/");
 
 /**
  * Lint of the lanes in scope. `known` is every lane id of the run, the landed milestones' too, so an `After:` on a
- * lane that already landed is no error. Never throws: a lane whose header cannot be read is left out.
+ * lane that already landed is no error. `finished` is the milestones that landed (merged, in a base run): an `After:`
+ * on a lane of any other milestone can never finish, as that milestone does not start before this one is done. Never throws: a lane whose header cannot be read is left out.
  */
-export function lintLanes(lanes: { id: string; text: string }[], known: string[]): PlanLint {
+export function lintLanes(
+  lanes: { id: string; text: string }[],
+  known: string[],
+  finished: string[] = [],
+): PlanLint {
   const warnings: string[] = [];
   const stuck: PlanLint["stuck"] = [];
   const headers = new Map<string, LaneHeader>();
@@ -37,6 +42,11 @@ export function lintLanes(lanes: { id: string; text: string }[], known: string[]
     for (const a of h.after) {
       if (a === id) stuck.push({ lane: id, note: `${id}: After: names the lane itself` });
       else if (!known.includes(a)) stuck.push({ lane: id, note: `${id}: After: ${a} has no lane file` });
+      else if (milestoneOf(a) !== milestoneOf(id) && !finished.includes(milestoneOf(a)))
+        stuck.push({
+          lane: id,
+          note: `${id}: After: ${a} is in milestone ${milestoneOf(a)}, which has not finished: this lane never starts`,
+        });
       else {
         const other = headers.get(a);
         if (

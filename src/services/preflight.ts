@@ -309,6 +309,7 @@ export async function preflight(
   const { warnings: lint, stuck } = lintLanes(
     lanes.flatMap((l) => (l.text === null ? [] : [{ id: l.lane, text: l.text }])),
     laneChecks(run).map((l) => l.lane),
+    [...landed],
   );
   // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
   if (isDaemonRun(run)) {
