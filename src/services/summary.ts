@@ -17,6 +17,7 @@ import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
+import { readEvents } from "./run-events-store.ts";
 import type { Deps } from "./ports.ts";
 import { orchestratorWait, type OrchestratorWait } from "./orchestrator-wait.ts";
 import {
@@ -49,6 +50,8 @@ export interface RunSummary {
   /** the session that continued it, when another did */
   continuedIn: string | null;
   stateTail: string[];
+  /** the run's `run.ended`: its outcome and when; state.md still says what came next, so the tail drops that */
+  ended?: { at: string; outcome: string } | null;
   live: { name: string; rung: string; state: DispatchState; secs: number; dispatchId: string }[];
   totals: { runs: number; ok: number; notOk: string[]; tokens: Tokens; costUsd: number; wallMinutes: number };
   /** native subagent runs, as the orchestrator reported them: reported, not measured (spec §14) */
@@ -74,7 +77,16 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     warnings.push(`daemon: ${errorMessage(e)}`);
   }
   const { records, corrupt } = readRecords(run);
+  let ended: RunSummary["ended"] = null;
+  try {
+    const e = readEvents(run).find((x) => x.type === "run.ended");
+    if (e?.type === "run.ended") ended = { at: e.at, outcome: e.outcome };
+  } catch (e) {
+    warnings.push(`events: ${errorMessage(e)}`);
+  }
   const live = liveDispatches(run, now);
+  // an ended run's clock stops at run.ended: its wall minutes and its minute budget
+  const until = ended ? Date.parse(ended.at) : now;
   const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
@@ -86,7 +98,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   for (const c of pinned) warnings.push(`pinned: ${c}; dispatch keeps the pinned value (run_pin re-pins)`);
   try {
     budget = budgetStatus(
-      spendOf(run, records, live, now),
+      spendOf(run, records, live, until),
       deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
     );
   } catch (e) {
@@ -119,7 +131,10 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,
     ...sessionFacts(run),
-    stateTail: nonBlankLines(runPaths(run.dir).state).slice(-3),
+    ended,
+    stateTail: nonBlankLines(runPaths(run.dir).state)
+      .filter((l) => !ended || !/^(Next|Protocol next): /.test(l))
+      .slice(-3),
     live: live.map((d) => ({
       name: d.admit.name,
       rung: d.admit.rung,
@@ -133,7 +148,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       notOk: records.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
       tokens: { input: sum((t) => t.input), cached: sum((t) => t.cached), output: sum((t) => t.output) },
       costUsd: records.reduce((n, r) => n + (r.costUsd ?? 0), 0),
-      wallMinutes: Math.round((now - Date.parse(run.meta.createdAt)) / 60_000),
+      wallMinutes: Math.round((until - Date.parse(run.meta.createdAt)) / 60_000),
     },
     agents: {
       runs: agents.length,

@@ -290,7 +290,7 @@ export function writeDigest(
     "",
     `Commit ${i.commit} · ${i.minutes} min${i.pausedMinutes ? ` (${i.pausedMinutes} min parked or paused left out)` : ""} · landed ${i.at}`,
     ...(i.commits?.length ? [`Commits: ${i.commits.join("; ")}`] : []),
-    `A-lines: ${aLines.length ? aLines.join("; ") : "none named in what or evidence"}`,
+    `A-lines: ${aLines.length ? aLines.join("; ") : run.meta.aLines.length ? `not mapped to this milestone (none cited as A<n>): ${run.meta.aLines.join("; ")}` : "none"}`,
     "",
     "Lanes:",
     ...(lanes.length ? lanes : ["- none routed"]),

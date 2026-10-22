@@ -38,9 +38,12 @@ const movedNote = (g: SessionGroup["runs"][number]): string =>
 /** One run at a glance: what is live, what finished, spend against the budget, landed milestones. */
 export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
   const t = s.totals;
+  const end = s.ended ? Date.parse(s.ended.at) : now;
+  const mins = Math.round((end - Date.parse(s.createdAt)) / 60_000);
   const lines = [
     `run ${s.id}  ${s.title}`,
-    `  repo ${s.repo} · started ${s.createdAt} · ${Math.round((now - Date.parse(s.createdAt)) / 60_000)} min`,
+    `  repo ${s.repo} · started ${s.createdAt} · ${mins} min`,
+    ...(s.ended ? [`  Ended: ${s.ended.outcome} at ${s.ended.at}, took ${mins} min`] : []),
   ];
   for (const q of s.questions) lines.push(`  ${mark("warn")} parked ${q.milestone}: ${q.question}`);
   for (const l of s.live) lines.push(`  live ${l.name}  ${l.rung}  ${l.state} ${l.secs}s`);

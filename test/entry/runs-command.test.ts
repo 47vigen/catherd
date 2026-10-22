@@ -73,6 +73,22 @@ describe("formatRun", () => {
   });
 });
 
+describe("formatRun of an ended run", () => {
+  it("says it ended, counts the age from start to end, and shows no next step", () => {
+    const out = formatRun(
+      summary({
+        live: [],
+        stateTail: ["Last check: ok"],
+        ended: { at: "2026-09-25T12:05:00.000Z", outcome: "done" },
+      }),
+      Date.parse("2026-09-25T18:00:00Z"),
+    );
+    expect(out[1]).toBe("  repo /r/app · started 2026-09-25T12:00:00.000Z · 5 min");
+    expect(out[2]).toBe("  Ended: done at 2026-09-25T12:05:00.000Z, took 5 min");
+    expect(out.join("\n")).not.toContain("Next");
+  });
+});
+
 describe("redrawMs", () => {
   it("defaults to 2 s and clamps to the 1 s floor, 0 included", () => {
     expect([undefined, "0", "0.5", "5"].map(redrawMs)).toEqual([2000, 1000, 1000, 5000]);

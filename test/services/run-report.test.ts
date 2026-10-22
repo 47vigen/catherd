@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Finding } from "../../src/domain/run-events.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { gateLines, roundsLine, writeRunReport } from "../../src/services/run-report.ts";
@@ -90,6 +91,23 @@ describe("the run report (plan 34)", () => {
     const section = text.slice(text.indexOf("## M1"), text.indexOf("## Known issues"));
     expect(section).toContain("Rounds:");
     expect(section).toContain("Gate:");
+  });
+
+  it("embeds a milestone digest without repeating its own H1 under the milestone heading", () => {
+    const { run } = freshRun();
+    writeFileSync(join(run.dir, "d.md"), "# M1 — truncate\n\nCommit abc · 4 min\nA-lines: none\n");
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "a".repeat(40),
+      knownIssues: [],
+      digestPath: "d.md",
+    });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(text).not.toContain("# M1 — truncate");
+    expect(text).toContain("Commit abc · 4 min\nA-lines: none");
+    expect(text.match(/^# /gm)).toHaveLength(1);
   });
 
   it("lists plan lint per milestone, and no section without any", () => {

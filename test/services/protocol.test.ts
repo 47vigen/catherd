@@ -412,4 +412,26 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       .find((l) => l.startsWith("Verifier: "));
     expect(verifier).toMatch(/^Verifier: PASS \(verifier-M1, headless\) · carried: lint from [0-9a-f]+$/);
   });
+  it("shows the run's A-lines as not mapped when it has some and the milestone names none", async () => {
+    withHome();
+    const repo = tempRepo();
+    const deps = fakeDeps();
+    const r = findRun(
+      (await startRun(deps, { repo, title: "t", aLines: ["truncate cuts at 8", "bun test passes"] })).run,
+    );
+    writeLane(r, "M1.L1", ["src/a.ts"]);
+    await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+    await passGate(r, "M1");
+    const landed = await land(deps, {
+      run: r.id,
+      milestone: "M1",
+      what: "truncate",
+      commit: head(repo),
+      evidence: "verifier PASS",
+      next: "done",
+    });
+    expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain(
+      "A-lines: not mapped to this milestone (none cited as A<n>): truncate cuts at 8; bun test passes",
+    );
+  });
 });
