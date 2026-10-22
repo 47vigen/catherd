@@ -75,7 +75,7 @@ function hostSetRoles(deps: Deps, repo: string | null): Set<Role> {
   return new Set(
     ROLES.filter(
       (role) =>
-        (role === "architect" || role === "verifier") &&
+        (role === "architect" || role === "verifier" || role === "judge") &&
         stored !== undefined &&
         stored.roles?.[role]?.rungs === undefined &&
         (g.profile.roles[role]?.enabled ?? false),
