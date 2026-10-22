@@ -43,10 +43,10 @@ bun run test`.
   on 127.0.0.1 behind a one-time token; English copy; its conventions test is the rule.
 - Releases are versioned with Changesets; the Release workflow opens "chore: release catherd", and merging it
   publishes to npm through OIDC and stamps the plugin version. Tests run once, on the PR (the required `ci` check);
-  Release re-tests only a direct push, and runs the pack smoke before a publish. Every push to `beta` publishes a `x.y.z-beta.<datetime>` snapshot under the
-  `beta` dist-tag. CONTRIBUTING.md, "Releases" and "Beta channel", has the flow and the promotion steps.
-  `1.x` gets bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)"); a major reaches `latest` only after its beta
-  passes the scorecard and the owner says so.
+  Release re-tests only a direct push, and runs the pack smoke before a publish. Every merge to `main` publishes a `x.y.z-next.<datetime>` snapshot under the
+  `next` dist-tag (the `beta` branch is retired). CONTRIBUTING.md, "Releases" and "Next channel", has the flow.
+  `1.x` gets bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)"); `latest` moves only through the "chore:
+  release catherd" PR, after the scorecard passes on the `@next` build and the owner says so.
 - Cursor stays; Grok Build and Antigravity were removed in 2.0 (git keeps them).
 
 ## Autopilot: executing plans end to end

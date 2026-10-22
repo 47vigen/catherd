@@ -66,8 +66,8 @@ usage, so a Cursor rung ranks as `metered`.
 
 catherd runs from Claude Code or, since 1.4, from native Codex; one global `catherd` and one plugin version serve both. To check a packaged build before you rely on it, follow the [local packaged acceptance procedure](docs/dev/live-verification.md#14-native-codex-packaging-and-completion-acceptance); a matching version alone does not prove that the feature core ran.
 
-Channels: `catherd-cli@latest` is the stable release. `catherd-cli@beta` and the `plugin-beta` marketplace carry
-the next one before it is stable (CONTRIBUTING.md, "Beta channel"). `catherd-cli@1` is the 1.x line, which receives
+Channels: `catherd-cli@latest` is the stable release. `catherd-cli@next` and the `plugin-next` marketplace carry
+every merge to `main` before it is stable (CONTRIBUTING.md, "Next channel"). `catherd-cli@1` is the 1.x line, which receives
 bug fixes only (CONTRIBUTING.md, "Maintenance line (1.x)").
 
 ### Claude Code
