@@ -98,6 +98,9 @@ jobs:
         id: next
         if: github.ref_name == 'main' && steps.changesets.outputs.published != 'true'
         timeout-minutes: 20
+        env:
+          # one hung registry request must not eat the step: three tries fit in its 20 minutes
+          NPM_CONFIG_FETCH_TIMEOUT: "300000"
         run: |
           git checkout --force --detach "$GITHUB_SHA"
           git clean -fd
@@ -114,6 +117,10 @@ jobs:
           set -o pipefail
           for attempt in 1 2 3; do
             if npm publish --tag next --provenance --access public 2>&1 | tee "$RUNNER_TEMP/publish.log"; then
+              break
+            fi
+            # the version is unique to this run: on a retry, "already published" means the last try landed
+            if [ "$attempt" != 1 ] && grep -qE 'previously published|code E409' "$RUNNER_TEMP/publish.log"; then
               break
             fi
             if [ "$attempt" = 3 ] || grep -qE 'code (E403|E409)|previously published' "$RUNNER_TEMP/publish.log" ||
