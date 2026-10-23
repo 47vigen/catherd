@@ -107,6 +107,22 @@ describe("catherd panel", () => {
     }
   });
 
+  it("does not return an origin after the panel is killed without cleanup", async () => {
+    const home = withHome();
+    const p = panel(["--no-open", "--port", "0"], distDir(), home);
+    try {
+      const line = await firstLine(p as never);
+      const origin = new URL(line.slice("catherd panel: ".length)).origin;
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      p.kill("SIGKILL");
+      await p.exited;
+      expect(panelOrigin(fakeDeps())).toBeNull();
+    } finally {
+      p.kill();
+      await p.exited;
+    }
+  });
+
   it("prints the link with a fresh token and opens nothing with --no-open", async () => {
     const p = panel(["--no-open", "--port", "0"], distDir());
     const line = await firstLine(p as never);

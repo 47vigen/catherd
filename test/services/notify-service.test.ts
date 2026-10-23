@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { join } from "node:path";
+import { dataDir } from "../../src/infra/paths.ts";
+import { writeTextAtomic } from "../../src/infra/store.ts";
+import { selfIdentity } from "../../src/infra/proc.ts";
 import { readFileSync } from "node:fs";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { panelOrigin, recordPanelOrigin, sendRunNotice } from "../../src/services/notify-service.ts";
@@ -76,6 +80,22 @@ describe("sendRunNotice", () => {
     expect(panelOrigin(newer)).toBe(origin);
     recordPanelOrigin(newer, null);
     expect(panelOrigin(newer)).toBeNull();
+  });
+
+  it("rejects a reused process id and records without a process identity", () => {
+    withHome();
+    const deps = fakeDeps();
+    const origin = "http://127.0.0.1:4317";
+    recordPanelOrigin(deps, origin);
+    const file = join(dataDir(), "panel-origin");
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    expect(record).toMatchObject(selfIdentity());
+    writeTextAtomic(file, JSON.stringify({ ...record, startTime: "different-process" }));
+    expect(panelOrigin(deps)).toBeNull();
+    writeTextAtomic(file, `${origin}\nold-registration`);
+    expect(panelOrigin(deps)).toBeNull();
+    writeTextAtomic(file, JSON.stringify({ ...record, startTime: null }));
+    expect(panelOrigin(deps)).toBeNull();
   });
 
   it("is false and quiet when the send fails", async () => {
