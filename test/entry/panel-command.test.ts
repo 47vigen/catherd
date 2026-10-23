@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { panelHost } from "../../src/entry/panel-command.ts";
+import { panelHost, panelServer, runPanel } from "../../src/entry/panel-command.ts";
+import { panelOrigin } from "../../src/services/notify-service.ts";
+import { fakeDeps } from "../services/helpers.ts";
 import { configFile } from "../../src/services/profile-store.ts";
 import { recordHost } from "../../src/services/profile-service.ts";
 import { SRC } from "../import-graph.ts";
@@ -48,6 +50,39 @@ async function firstLine(p: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<s
 }
 
 describe("catherd panel", () => {
+  it("records its served origin and clears it when stopped, even on a wait failure", async () => {
+    withHome();
+    delete process.env.CATHERD_ROLE;
+    process.env.CATHERD_PANEL_DIST = distDir();
+    process.env.TMPDIR = ".";
+    const original = { ...panelServer };
+    const log = console.log;
+    console.log = () => {};
+    try {
+      for (const fails of [false, true]) {
+        let stopped = false;
+        panelServer.serve = () => ({
+          url: "http://127.0.0.1:4321",
+          port: 4321,
+          stop: async () => {
+            stopped = true;
+          },
+        });
+        panelServer.untilStopped = async () => {
+          expect(panelOrigin(fakeDeps())).toBe("http://127.0.0.1:4321");
+          if (fails) throw new Error("wait failed");
+        };
+        if (fails) await expect(runPanel({ port: 0, open: false })).rejects.toThrow("wait failed");
+        else await runPanel({ port: 0, open: false });
+        expect(stopped).toBe(true);
+        expect(panelOrigin(fakeDeps())).toBeNull();
+      }
+    } finally {
+      Object.assign(panelServer, original);
+      console.log = log;
+    }
+  });
+
   it("prints the link with a fresh token and opens nothing with --no-open", async () => {
     const p = panel(["--no-open", "--port", "0"], distDir());
     const line = await firstLine(p as never);

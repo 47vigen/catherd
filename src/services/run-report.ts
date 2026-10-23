@@ -141,7 +141,19 @@ export function writeRunReport(
 ): string {
   const landed = events.filter((e) => e.type === "milestone.landed");
   const decided = events.filter((e) => e.type === "judge.decided");
-  const lines = [`# ${s.title || run.meta.title}`, ""];
+  // The finish effect writes this report before appending run.ended.
+  const outcome = s.outcome ?? (s.cancelling ? "cancelled" : "done");
+  const lines = [`# ${s.title || run.meta.title}`, "", `Outcome: ${outcome}`];
+  if (outcome !== "done") {
+    const cancel = events.findLast((e) => e.type === "cancel.requested");
+    if (cancel) lines.push(`Reason: cancel requested by the ${cancel.by}.`);
+    const landedIds = new Set(landed.map((e) => e.milestone));
+    const left = s.milestones
+      .filter((m) => !landedIds.has(m.id))
+      .map((m) => (m.title && m.title !== m.id ? `${m.id}: ${m.title}` : m.id));
+    lines.push(`Not landed: ${left.join(", ") || "none"}`);
+  }
+  lines.push("");
   for (const e of landed) {
     const title = s.milestones.find((m) => m.id === e.milestone)?.title;
     const digest = read(e.digestPath.startsWith("/") ? e.digestPath : join(run.dir, e.digestPath));
