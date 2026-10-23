@@ -361,7 +361,13 @@ const isoPlus = (at: string, ms: number): string => new Date(Date.parse(at) + ms
 function recomputeWake(s: RunState): void {
   const merges = s.milestones.flatMap((m) => (m.status === "landed" && m.mergeDue ? [m.mergeDue] : []));
   const claims = s.milestones.flatMap((m) => (m.claimAfter ? [m.claimAfter] : []));
-  const reminders = s.phase === "ended" ? [] : Object.values(s.questions).map(remindDue);
+  // Due reminders are owed actions; their pending effects must not keep the timer expired.
+  const reminders =
+    s.phase === "ended"
+      ? []
+      : Object.values(s.questions)
+          .map(remindDue)
+          .filter((at) => at > s.at);
   const all = [
     ...Object.values(s.holds),
     ...Object.values(s.waiting),
@@ -1194,7 +1200,8 @@ function apply(s: RunState, e: RunEvent): void {
       const l = s.lanes[e.unit];
       const m = milestoneOf(s, e.unit);
       // an architect change that edits an approved decision asks the owner again: no new lane until they answer
-      if (e.unit === RUN_UNIT && e.reason === "approval" && s.phase === "running") s.phase = "approval";
+      if (e.unit === RUN_UNIT && e.reason === "approval" && (s.phase === "planning" || s.phase === "running"))
+        s.phase = "approval";
       if (l) l.status = "parked";
       else if (m && e.reason !== "push" && m.status !== "parked") {
         m.parkedFrom = m.status;

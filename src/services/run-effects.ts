@@ -36,7 +36,7 @@ import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
 import { briefFor, judgeBrief } from "./run-briefs.ts";
-import { appendEvent, appendEvents, readEvents, replayRun } from "./run-events-store.ts";
+import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
@@ -220,10 +220,13 @@ function widenedAfter(run: Run, plan: MilestonePlan[]): { milestone: string; add
     return sections;
   });
   return plan.flatMap((m) => {
-    const baselines = prior.flatMap((sections) => {
-      const after = sections.get(m.id);
-      return after ? [after] : [];
-    });
+    const approvedAfter = approved ? prior.at(-1)?.get(m.id) : undefined;
+    const baselines = approvedAfter
+      ? [approvedAfter]
+      : prior.flatMap((sections) => {
+          const after = sections.get(m.id);
+          return after ? [after] : [];
+        });
     const added = m.after.filter((id) => baselines.some((after) => !after.has(id)));
     return added.length ? [{ milestone: m.id, added }] : [];
   });
@@ -835,11 +838,27 @@ export function realEffects(deps: Deps, run: Run): Effects {
         await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
         return;
       case "remind": {
-        const current = replayRun(run);
-        const question = current.questions[a.unit];
-        if (current.phase === "ended" || !question || question.reminded >= a.n) return;
+        // The action's snapshot binds it to the parked event, even if a replacement has identical text/time.
+        const pending = (): boolean => {
+          const current = replayRun(run);
+          const question = current.questions[a.unit];
+          return (
+            current.phase !== "ended" &&
+            !!s.questions[a.unit] &&
+            !!question &&
+            question.reminded < a.n &&
+            !readEvents(run, s.seq + 1).some(
+              (e) => (e.type === "question.parked" || e.type === "question.answered") && e.unit === a.unit,
+            )
+          );
+        };
+        if (!pending()) return;
         await sendRunNotice(deps, run, { unit: a.unit, moment: "blocked" });
-        return void (await append({ type: "question.reminded", unit: a.unit, n: a.n }));
+        // Answer/replacement and the reminder append cannot interleave after this identity check.
+        await withEventsLock(run, (add) => {
+          if (pending()) add({ type: "question.reminded", unit: a.unit, n: a.n }, at());
+        });
+        return;
       }
       case "finish": {
         // what each landed milestone's check passed on only through the base or a rerun

@@ -1826,3 +1826,41 @@ describe("plan 39 verifier answers and end reports", () => {
     }
   });
 });
+
+describe("unchanged verifier failure recovery", () => {
+  it("parks after a fix round and clean review leave the failed commit unchanged", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "fail",
+      head: "c0",
+      findings: [bug("FAIL: check failed", "src/a/x.ts", "BLOCKER")],
+    });
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    fixPending(log);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c0" });
+    review(log, []);
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "verifying",
+      commit: "c0",
+      verifierFailedOn: "c0",
+    });
+    expect(names(last(log))).toEqual([]);
+    const park = of(last(log), "park")[0];
+    expect(park).toMatchObject({ unit: "M1", reason: "verifier", question: expect.stringContaining("c0") });
+    if (!park) throw new Error("missing verifier park");
+    log.add("question.parked", { unit: park.unit, question: park.question, reason: park.reason });
+    expect(of(last(log), "park")).toEqual([]);
+    log.add("question.answered", {
+      unit: "M1",
+      answer: "retry after repairing the environment",
+      by: "owner",
+    });
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+  });
+});
