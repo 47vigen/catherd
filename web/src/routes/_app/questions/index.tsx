@@ -5,6 +5,7 @@ import { listQuestionsOptions } from "../../../client/@tanstack/react-query.gen"
 import { DataList } from "../../../components/data-list/DataList";
 import { PageHeader } from "../../../components/page-header/PageHeader";
 import { type ListSearch, parseListSearch } from "../../../lib/list-search";
+import { AnsweredList } from "./-components/AnsweredList";
 import { QuestionCard } from "./-components/QuestionCard";
 
 type QuestionsSearch = ListSearch & { run?: string };
@@ -47,6 +48,11 @@ function QuestionsPage() {
         error={list.error ?? undefined}
         isEmpty={items.length === 0}
         emptyText="Nothing is waiting for you."
+        emptyAction={
+          <p className="text-muted max-w-sm text-xs">
+            When a run needs a decision it appears here, and the rest of that run goes on without it.
+          </p>
+        }
       >
         <div className="flex flex-col gap-3">
           {items.map((p) => (
@@ -61,6 +67,7 @@ function QuestionsPage() {
         onPageChange={(n) => void navigate({ search: (prev) => ({ ...prev, page: n }) })}
         onPageSizeChange={(n) => update({ pageSize: n as ListSearch["pageSize"] })}
       />
+      <AnsweredList run={run} />
     </DataList.Root>
   );
 }
