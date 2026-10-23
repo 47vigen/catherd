@@ -16,7 +16,7 @@ runAdapterContract(
       expect: {
         status: "ok",
         thread: "2b7c9e41-5d3a-4f86-9c1e-7a0b3d5e8f21",
-        tokens: { input: 15989, cached: 9728, output: 25 },
+        tokens: { input: 15989, cached: 9728, cacheWrite: 512, output: 25 },
         reply: "Done.\nSTATUS: complete — wrote src/a.ts",
       },
     },
@@ -32,7 +32,7 @@ runAdapterContract(
       expect: {
         status: "ok",
         thread: "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
-        tokens: { input: 15500, cached: 14000, output: 12 },
+        tokens: { input: 15500, cached: 14000, cacheWrite: 300, output: 12 },
       },
     },
     {

@@ -14,6 +14,7 @@ export interface Tokens {
   input: number;
   cached: number;
   output: number;
+  cacheWrite?: number;
 }
 export const ZERO_TOKENS: Readonly<Tokens> = Object.freeze({ input: 0, cached: 0, output: 0 });
 
@@ -39,7 +40,12 @@ export interface ExitInfo {
   endedAt: string;
 }
 
-const TokensSchema = z.object({ input: z.number(), cached: z.number(), output: z.number() });
+const TokensSchema = z.object({
+  input: z.number(),
+  cached: z.number(),
+  output: z.number(),
+  cacheWrite: z.number().optional(),
+});
 
 export const RunRecordSchema = z.looseObject({
   schema: z.literal(1),

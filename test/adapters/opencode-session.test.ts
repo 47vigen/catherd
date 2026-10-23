@@ -156,6 +156,31 @@ describe("opencode settle", () => {
     expect(s?.costUsd).toBeCloseTo(0.5);
   });
 
+  it("keeps cache writes in settlement, less what earlier records counted", async () => {
+    onSim({
+      session: {
+        cost: 0,
+        outcome: "succeeded",
+        tokens: { input: 10, output: 2, cache: { read: 5, write: 30 } },
+      },
+    });
+    expect((await opencodeAdapter.settle?.(o, run, none))?.tokens).toEqual({
+      input: 45,
+      cached: 5,
+      cacheWrite: 30,
+      output: 2,
+    });
+    const prior = { tokens: { input: 15, cached: 2, cacheWrite: 10, output: 1 }, costUsd: 0 };
+    expect((await opencodeAdapter.settle?.(o, run, prior))?.tokens).toEqual({
+      input: 30,
+      cached: 3,
+      cacheWrite: 20,
+      output: 1,
+    });
+    prior.tokens.cacheWrite = 40;
+    expect((await opencodeAdapter.settle?.(o, run, prior))?.tokens.cacheWrite).toBe(0);
+  });
+
   it("turns a run stopped while retrying on a usage limit into a limit", async () => {
     onSim({
       messages: [

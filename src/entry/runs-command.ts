@@ -53,7 +53,8 @@ export function formatRun(s: RunSummary, now: number = Date.now()): string[] {
     );
   lines.push(
     `  done ${t.runs} role run(s), ${t.ok} ok${t.notOk.length ? `; not ok: ${t.notOk.join(", ")}` : ""}`,
-    `  tokens ${n(t.tokens.input)} in (${n(t.tokens.cached)} cached) · ${n(t.tokens.output)} out · $${t.costUsd.toFixed(2)}` +
+    `  tokens ${n(t.tokens.input - t.tokens.cached - (t.tokens.cacheWrite ?? 0))} uncached · ${n(t.tokens.cached)} cache read · ${n(t.tokens.cacheWrite ?? 0)} cache write · ${n(t.tokens.output)} out · ${t.costUsd === null ? "unknown" : `$${t.costUsd.toFixed(2)}`}` +
+      (t.unpriced ? ` (+${t.unpriced} unpriced)` : "") +
       (s.agents.runs
         ? ` · native agents ${s.agents.runs} run(s), ${n(s.agents.totalTokens)} tokens (reported)`
         : ""),
