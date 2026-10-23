@@ -1,7 +1,6 @@
 # Plan 38 ledger: the ideas sweep (docs/plans/2026-10-23-38-ideas-sweep.md)
 
 Run 20261023-025529-ideas-sweep-plan-38 (catherd 2.0-next): M1 and M3 landed through the run; it was cancelled on the owner's word, M2/M4/M5/M6 merged by hand, M4's fix, M7 and two catherd fixes done by subagents.
-
 # Rulings: run 20261023-025529-ideas-sweep-plan-38
 
 Ruling: M2.L3's parked check_broken is not a blocker; drop the lane's `bunx oxfmt --check docs/dev/scorecard.md` step and keep .oxfmtrc.json as is — .oxfmtrc.json ignores docs/** on purpose and the repo gate never formats docs — cost if wrong: docs/dev/scorecard.md lands unformatted, which no gate checks anyway.
@@ -19,3 +18,6 @@ Ruling: an answer to a blocker park opens one more fix round; the literal answer
 Ruling: M3's known issue (tests keep ANTHROPIC_API_KEY) dismissed — the 8 cited tests read disk or use an in-memory fake fetch and start no process, so the network rule does not apply — cost if wrong: a test could reach the API with a real key.
 Ruling: a fix answer to a blocker park does not climb the lane's rung — the owner's answer names the fix — cost if wrong: one more round on a weak rung.
 Ruling: with the heavy lock already held the check gets no TMPDIR (system default) rather than a fresh dir — no role reads the default, smallest change — cost if wrong: checks share /tmp.
+Ruling: Codex P2 "preserve owner guidance for unowned blockers" is fixed with a red-first test — it is a hole in the agreed blocker-answer fix — cost if wrong: none.
+Ruling: Codex P2 "revalidate the merge commit under the workspace lock" goes to ideas.md, not code — the owner limited code scope to the two agreed catherd fixes, and it is the M5 NIT already filed — cost if wrong: a dependent created on a re-landed commit not yet in base, until fixed.
+Ruling: the five final checks run separately on ca45d60, each green, and are listed in the PR body — run audit 1 and 2 showed the chained milestone check never ran past ROOT — cost if wrong: none.
