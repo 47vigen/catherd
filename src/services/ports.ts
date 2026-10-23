@@ -72,7 +72,6 @@ export interface ProfileSaved {
 
 export interface ProfilePort {
   withHost?(host: () => HostContext): ProfilePort;
-  budgetFor?(repo: string | null): Budget;
   raw?(name?: string, repo?: string | null): ProfileDoc;
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;

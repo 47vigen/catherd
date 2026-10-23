@@ -361,7 +361,6 @@ export function profileService(host: () => HostContext): ProfilePort {
   return {
     withHost: profileService,
     raw: (name, repo = null) => readProfileDoc(name ?? activeName(repo)),
-    budgetFor: (repo) => readProfileDoc(activeName(repo)).budget ?? {},
     forRepo: (repo) => viewOf(profileFor(repo, host().host)),
     get(name, repo = null) {
       const here = activeName(repo);
