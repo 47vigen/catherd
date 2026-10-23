@@ -1,11 +1,14 @@
 import type { Overview, RunCard } from "../../../client";
 import {
+  backendTone,
   dailyRows,
+  dailyTotals,
   formatCost,
   formatCount,
   formatElapsed,
   formatMinutes,
   formatSecs,
+  modelName,
   rangeOf,
   repoName,
   runStatus,
@@ -74,9 +77,25 @@ test("daily rows merge backends by name and pick cost or tokens", () => {
   const cost = dailyRows(daily, "cost", 7);
   expect(cost.keys).toEqual(["opencode"]);
   expect(cost.rows).toEqual([
-    { label: "Thu", parts: [{ key: "opencode", value: 3 }] },
-    { label: "Fri", parts: [] },
+    { day: "Thu, Oct 22", label: "Thu", total: 3, values: { opencode: 3 } },
+    { day: "Fri, Oct 23", label: "Fri", total: 0, values: {} },
   ]);
-  expect(dailyRows(daily, "tokens", 7).rows[0]!.parts).toEqual([{ key: "opencode", value: 15 }]);
+  expect(dailyRows(daily, "tokens", 7).rows[0]!.values).toEqual({ opencode: 15 });
   expect(dailyRows(daily, "tokens", 30).rows[0]!.label).toBe("Oct 22");
+  expect(dailyTotals(daily, "tokens")).toEqual([15, 0]);
+});
+
+test("a model reads the way people say it", () => {
+  expect(modelName("codex:gpt-6-luna#high")).toBe("GPT-6 Luna");
+  expect(modelName("claude-code:claude-opus-5-5")).toBe("Claude Opus 5.5");
+  expect(modelName("claude:claude-sonnet-4-5-20250929")).toBe("Claude Sonnet 4.5");
+  expect(modelName("codex:gpt-6.1-mini")).toBe("GPT-6.1 Mini");
+  expect(modelName("opencode-go:moonshot/kimi-k2")).toBe("Kimi K2");
+  expect(modelName("other")).toBe("Other");
+});
+
+test("a backend keeps one colour everywhere", () => {
+  expect(backendTone("codex:gpt-6-sol").fill).toBe(backendTone("Codex").fill);
+  expect(backendTone("claude-code").bg).toBe(backendTone("claude").bg);
+  expect(backendTone("codex").bg).not.toBe(backendTone("claude-code").bg);
 });

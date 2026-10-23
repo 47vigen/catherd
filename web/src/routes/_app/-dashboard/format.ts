@@ -60,22 +60,68 @@ export type Metric = "cost" | "tokens";
 
 const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 const monthDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const fullDay = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 
-/** One stacked column per day; backends that share a display name ("opencode", "opencode-go") are one series. */
-export function dailyRows(daily: Overview["daily"], metric: Metric, days: number) {
+export type DailyRow = { day: string; label: string; total: number; values: Record<string, number> };
+
+/** One column per day; backends that share a display name ("opencode", "opencode-go") are one series. */
+export function dailyRows(
+  daily: Overview["daily"],
+  metric: Metric,
+  days: number,
+): { keys: string[]; rows: DailyRow[] } {
   const label = days <= 7 ? weekday : monthDay;
   const keys: string[] = [];
   const rows = daily.map((d) => {
-    const sums = new Map<string, number>();
+    const values: Record<string, number> = {};
     for (const b of d.backends) {
       const key = backendName(b.backend);
       if (!keys.includes(key)) keys.push(key);
-      sums.set(key, (sums.get(key) ?? 0) + (metric === "cost" ? b.costUsd : b.tokens));
+      values[key] = (values[key] ?? 0) + (metric === "cost" ? b.costUsd : b.tokens);
     }
+    const at = new Date(`${d.day}T00:00:00Z`);
     return {
-      label: label.format(new Date(`${d.day}T00:00:00Z`)),
-      parts: [...sums].map(([key, value]) => ({ key, value })),
+      day: fullDay.format(at),
+      label: label.format(at),
+      total: Object.values(values).reduce((a, b) => a + b, 0),
+      values,
     };
   });
   return { keys, rows };
+}
+
+/** Per-day totals of one metric, for a sparkline. */
+export const dailyTotals = (daily: Overview["daily"], metric: Metric): number[] =>
+  daily.map((d) => d.backends.reduce((n, b) => n + (metric === "cost" ? b.costUsd : b.tokens), 0));
+
+const TONE: Record<string, number> = { Codex: 0, Cursor: 1, opencode: 2, "Claude Code": 4, Claude: 4 };
+const FILL = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"] as const;
+const BG = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"] as const;
+
+/** One colour per backend on every chart of the page, so Codex reads the same in the plot and the lists. */
+export function backendTone(backendOrName: string): { fill: string; bg: string } {
+  const i = TONE[backendName(backendOrName)] ?? 3;
+  return { fill: FILL[i]!, bg: BG[i]! };
+}
+
+const UPPER = new Set(["gpt", "glm"]);
+
+/** A model as people say it: "codex:gpt-6-luna#high" is "GPT-6 Luna", "claude-opus-5-5" is "Claude Opus 5.5". */
+export function modelName(rung: string): string {
+  const id =
+    rung
+      .replace(/^[^:]*:/, "")
+      .replace(/#.*$/, "")
+      .split("/")
+      .pop() ?? rung;
+  const out: string[] = [];
+  // A dated snapshot suffix ("-20250929") is noise in a label.
+  for (const part of id.split("-").filter((p) => p && !/^\d{6,}$/.test(p))) {
+    const prev = out.at(-1);
+    if (/^\d{1,2}$/.test(part) && prev && /\d$/.test(prev)) out[out.length - 1] = `${prev}.${part}`;
+    else if (/^[\d.]+$/.test(part) && prev === "GPT") out[out.length - 1] = `GPT-${part}`;
+    else if (UPPER.has(part.toLowerCase())) out.push(part.toUpperCase());
+    else out.push(part.charAt(0).toUpperCase() + part.slice(1));
+  }
+  return out.join(" ") || rung;
 }

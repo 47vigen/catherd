@@ -1,63 +1,40 @@
 import { render, screen } from "@testing-library/react";
 
-import { Bars } from "./Bars";
+import { Blocks } from "./Blocks";
+import { ChartTooltip } from "./ChartTooltip";
 import { Meter } from "./Meter";
-import { StackedBars } from "./StackedBars";
+import { Sparkline } from "./Sparkline";
 
-const rows = [
-  {
-    label: "Mon",
-    parts: [
-      { key: "a", value: 2 },
-      { key: "b", value: 1 },
-    ],
-  },
-  {
-    label: "Tue",
-    parts: [
-      { key: "a", value: 0 },
-      { key: "b", value: 0 },
-    ],
-  },
-  {
-    label: "Wed",
-    parts: [
-      { key: "a", value: 4 },
-      { key: "b", value: 0 },
-    ],
-  },
-];
-
-test("stacked bars draw a slot per row, an empty one for a zero day", () => {
-  const { container } = render(
-    <StackedBars
-      title="Spend per day"
-      meaning="What each day cost."
-      rows={rows}
-      keys={["a", "b"]}
-      format={(n) => `$${n}`}
-    />,
-  );
-  expect(screen.getByRole("img", { name: "Spend per day" }).tagName.toLowerCase()).toBe("svg");
-  expect(container.querySelectorAll("[data-slot='row']")).toHaveLength(3);
-  expect(container.querySelectorAll("[data-slot='row'][data-empty='true']")).toHaveLength(1);
-  expect(screen.getByText("What each day cost.")).toBeInTheDocument();
+test("a sparkline needs two points and stays decorative", () => {
+  const { container, rerender } = render(<Sparkline values={[3]} />);
+  expect(container.querySelector("svg")).toBeNull();
+  rerender(<Sparkline values={[0, 0, 0]} />);
+  const svg = container.querySelector("svg")!;
+  expect(svg).toHaveAttribute("aria-hidden", "true");
+  // A flat zero series lies on the floor rather than dividing by zero.
+  expect(svg.querySelectorAll("polyline")[1]!.getAttribute("points")).toBe("0.00,28.00 50.00,28.00 100.00,28.00");
 });
 
-test("each bar names its value", () => {
-  const { container } = render(
-    <StackedBars title="Spend per day" meaning="m" rows={rows} keys={["a", "b"]} format={(n) => `$${n}`} />,
-  );
-  const titles = [...container.querySelectorAll("rect > title")].map((t) => t.textContent);
-  expect(titles).toContain("Mon, a: $2");
-  expect(titles).toContain("Mon, b: $1");
-  expect(titles.some((t) => t?.startsWith("Tue"))).toBe(false);
+test("blocks light up in proportion, at least one for any share", () => {
+  const { container, rerender } = render(<Blocks value={12} max={24} />);
+  const lit = () => container.querySelector("[data-lit]")!.getAttribute("data-lit");
+  expect(lit()).toBe("12");
+  rerender(<Blocks value={0.01} max={1000} />);
+  expect(lit()).toBe("1");
+  rerender(<Blocks value={0} max={0} />);
+  expect(lit()).toBe("0");
+});
 
-  const bars = render(
-    <Bars title="Runs by state" meaning="How runs ended." rows={[{ label: "done", value: 3 }]} format={String} />,
+test("a tooltip lists its rows and sets the total apart", () => {
+  render(
+    <ChartTooltip title="Thu, Oct 23">
+      <ChartTooltip.Row swatch="bg-chart-1" label="Codex" value="$2.00" />
+      <ChartTooltip.Row label="Total" value="$2.00" />
+    </ChartTooltip>,
   );
-  expect([...bars.container.querySelectorAll("rect > title")].map((t) => t.textContent)).toContain("done: 3");
-  expect(screen.getByRole("img", { name: "Runs by state" })).toBeInTheDocument();
+  expect(screen.getByText("Thu, Oct 23")).toBeInTheDocument();
+  expect(screen.getByText("Codex")).toBeInTheDocument();
+  expect(screen.getByText("Total")).toHaveClass("font-medium");
 });
 
 test("a meter reads as a percentage", () => {
