@@ -40,9 +40,11 @@ export function claudeTokens(u: Event | undefined): Tokens {
   if (!u) return { ...ZERO_TOKENS };
   const n = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
   const cached = n("cache_read_input_tokens");
+  const cacheWrite = n("cache_creation_input_tokens");
   return {
-    input: n("input_tokens") + n("cache_creation_input_tokens") + cached,
+    input: n("input_tokens") + cacheWrite + cached,
     cached,
+    ...(cacheWrite ? { cacheWrite } : {}),
     output: n("output_tokens"),
   };
 }

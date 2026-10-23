@@ -47,6 +47,12 @@ export const sampleRecord = (over: Partial<RunRecord> = {}): RunRecord => ({
 });
 
 describe("RunRecordSchema", () => {
+  it("a record without cacheWrite parses", () => {
+    expect(RunRecordSchema.parse(sampleRecord()).tokens).toEqual(ZERO_TOKENS);
+    const tokens = { input: 10, cached: 2, cacheWrite: 3, output: 1 };
+    expect(RunRecordSchema.parse(sampleRecord({ tokens })).tokens).toEqual(tokens);
+  });
+
   it("accepts a full record and keeps unknown fields", () => {
     const r = RunRecordSchema.parse({ ...sampleRecord(), futureField: 7 });
     expect((r as Record<string, unknown>).futureField).toBe(7);

@@ -55,7 +55,13 @@ export function cursorTokens(u: Event | undefined): Tokens {
   if (!u) return { ...ZERO_TOKENS };
   const n = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
   const cached = n("cacheReadTokens");
-  return { input: n("inputTokens") + cached + n("cacheWriteTokens"), cached, output: n("outputTokens") };
+  const cacheWrite = n("cacheWriteTokens");
+  return {
+    input: n("inputTokens") + cached + cacheWrite,
+    cached,
+    ...(cacheWrite ? { cacheWrite } : {}),
+    output: n("outputTokens"),
+  };
 }
 
 const textOf = (e: Event): string =>

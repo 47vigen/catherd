@@ -6,6 +6,7 @@ import {
   DEFAULT_BILLING,
   effortFactor,
   taskUsd,
+  tokensUsd,
 } from "../../src/domain/cost.ts";
 import type { Pair } from "../../src/domain/catalog.ts";
 import { shippedModels } from "./shipped.ts";
@@ -105,4 +106,12 @@ describe("cost rank (spec §5.3)", () => {
       opencode: "metered",
     });
   });
+});
+
+it("tokensUsd prices uncached, cache read, cache write and output", () => {
+  const price = { input: 2, output: 10 };
+  expect(
+    tokensUsd(price, { input: 1_000_000, cached: 400_000, cacheWrite: 200_000, output: 100_000 }),
+  ).toBeCloseTo(2.38, 9);
+  expect(tokensUsd(price, { input: 1_000_000, cached: 400_000, output: 100_000 })).toBeCloseTo(2.28, 9);
 });

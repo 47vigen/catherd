@@ -234,6 +234,24 @@ describe("claude-code prepare", () => {
 });
 
 describe("claude-code finalize", () => {
+  it("the fold keeps cache writes apart", () => {
+    const o = claudeCodeAdapter.finalize(
+      finished([
+        JSON.stringify({
+          type: "result",
+          result: "ok",
+          usage: {
+            input_tokens: 10,
+            cache_read_input_tokens: 20,
+            cache_creation_input_tokens: 30,
+            output_tokens: 4,
+          },
+        }),
+      ]),
+    );
+    expect(o.tokens).toEqual({ input: 60, cached: 20, cacheWrite: 30, output: 4 });
+  });
+
   it("takes the reply, tokens and cost from the result event", () => {
     const o = claudeCodeAdapter.finalize(finished(lines("ok.jsonl")));
     expect(o).toMatchObject({ status: "ok", reply: "hello", error: null });

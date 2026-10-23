@@ -3,11 +3,11 @@ import { daemonLauncher } from "../../src/services/daemon.ts";
 import { reconcileAll } from "../../src/services/reconcile.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { writeFileSync } from "node:fs";
-import { createRun, runPaths } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, runPaths } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
-import { fakeDeps, fakeDispatch, freshRun, testView } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, makeRecord, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -107,4 +107,32 @@ describe("reviving a daemon", () => {
     };
     expect(summarizeRun(fakeDeps(), run).warnings).toContain("daemon: no bun on PATH");
   });
+});
+
+it("a null cost is counted as unpriced, not zero", async () => {
+  const { run, repo } = freshRun();
+  await appendRecord(
+    run,
+    makeRecord({
+      runId: run.id,
+      costUsd: 0.5,
+      tokens: { input: 100, cached: 40, cacheWrite: 20, output: 10 },
+    }),
+  );
+  await appendRecord(
+    run,
+    makeRecord({ runId: run.id, dispatchId: "01J0000000000000000000000B", costUsd: null }),
+  );
+  expect(summarizeRun(fakeDeps(), run).totals).toMatchObject({
+    costUsd: 0.5,
+    unpriced: 1,
+    tokens: { input: 200, cached: 80, cacheWrite: 20, output: 20 },
+  });
+  const allNull = createRun({ repo, title: "unpriced", aLines: [], version: "0.0.0-test" });
+  await appendRecord(allNull, makeRecord({ runId: allNull.id, costUsd: null }));
+  expect(summarizeRun(fakeDeps(), allNull).totals).toMatchObject({ costUsd: null, unpriced: 1 });
+  const empty = createRun({ repo, title: "empty", aLines: [], version: "0.0.0-test" });
+  expect(summarizeRun(fakeDeps(), empty).totals).toMatchObject({ costUsd: null, unpriced: 0 });
+  await appendRecord(empty, makeRecord({ runId: empty.id, costUsd: 0 }));
+  expect(summarizeRun(fakeDeps(), empty).totals).toMatchObject({ costUsd: 0, unpriced: 0 });
 });
