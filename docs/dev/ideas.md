@@ -115,6 +115,52 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
     a minor issue a NIT`. Evidence: the verifier gate output recorded in the run events (seq 66); the passing test is
     `test/domain/verifier-prompt.test.ts:47`.
 
+- **Coordinator findings from the plan 39 run** (run `20261023-105527-run-audit-fixes-plan-39`; seq numbers are its
+  `events.jsonl`):
+  - **Admission and the reducer disagree on whether a blocked lane finished (it deadlocked M1).** worker-M1.L1
+    replied `blocked` (check_broken) at seq 30, 43 and 60. The replayed state marks the lane `done` and parks
+    nothing, but `unfinishedAfter` (`src/services/protocol.ts:123`, from the dispatch records) still counts it
+    unfinished, so M1.L4 (`After: M1.L1`) was refused `E_ADMIT_ORDER` on every try (seq 61, 172) and parked as
+    `effect`. Answering M1.L4 repeated the refusal; answering M1.L1 failed "has no open question". The owner unblocked
+    it by deleting the `After:` line with `catherd run-file write` (the plan lint had flagged it at seq 24). Fix:
+    admission reads the reducer's lane state; a `blocked` reply parks the lane with its reason; the lint's "shares no
+    file: drop it" drops the line instead of only warning. The first refusal also raced the predecessor's finish (seq
+    60 and 61 in the same second).
+  - **A host session's MCP server older than the run's daemon goes silent.** The coordinator's `catherd mcp` started
+    from an npm build; `bun link` then pointed the global command at a newer checkout, and the daemon started from
+    it. From seq 22 (`report.posted` kind `memory`) the old server could not replay the log: no channel message for
+    any later park (seq 37 and 44 waited about 15 min until the owner noticed), and `status()` returned
+    `E_RUN_CORRUPT … restore events.jsonl from a backup`, while every line validates against the daemon's schema.
+    Fix: an unknown newer event is a version error ("restart your host session"), never "corrupt"; the server compares
+    its version with the daemon's on each read.
+  - **Spawned-CLI tests inherit the worker's role.** A worker's fast check runs in its own shell, so tests that
+    spread `process.env` into a spawned `catherd` (or derive temp paths under `runs/<run>/scratch/`) run as the
+    worker and fail `E_ROLE_SCOPE`: M3.L2 (seq 185, `test/entry/runs-command.test.ts:15`), M1.L4 (seq 298,
+    `test/services/milestone-check.test.ts:115`), M1.L3 (seq 316 and 321, `test/entry/role-cli-command.test.ts:70`).
+    Each passed with no role; each lane called it an environment block. Plan 39 fixed those three helpers. Fix: one
+    shared test helper that strips `CATHERD_ROLE`, `CATHERD_DISPATCH_ID` and the scratch `TMPDIR`, plus a test that
+    every spawn under `test/` uses it.
+  - **A fresh milestone tree has no dependencies.** M5.L2's preflight ran the web typecheck before anything installed
+    `web/node_modules` and parked `preflight` (seq 240, `tsc: No such file or directory`, exit 127). Fix: the tree
+    setup runs the repo's install for each package a lane's check touches, before preflight.
+  - **A pre-commit hook failure parks the milestone with no way forward.** The lefthook format check rejected a web/
+    test (`commit.failed` seq 260); the park's answer only retries the same commit (`commit.failed` → `stuck`, then
+    back to `committing`), so the owner had to run the formatter in the tree. Fix: a commit failure goes back to the
+    lane that owns the file with the hook output, and a lane's fast check runs the format check on its files (the
+    run's rules review proposed the latter).
+  - **Lanes still break callers no lane owns (run audit 11).** M1.L2 (seq 37, four `gatePass` callers), M1.L1 (seq
+    44), M3.L1 (seq 91, `Tokens.cacheWrite` fixtures in three adapter tests and `src/adapters/opencode/index.ts`) and
+    M5.L2 (seq 253, nullable `costUsd` in `web/`) each parked until the owner widened the lane. The run's rules review
+    proposed the architect rule; the plan lint could also grep the callers of every changed signature.
+  - **A land-path regression surfaced only at review round 5.** M1's change made `land` need a per-item machine
+    record, and `passGate` in `test/services/helpers.ts` wrote none, so `test/services/protocol.test.ts:519` failed
+    from round 1; lane fast checks run only their own test files, so the verifier caught it at round 5 (seq 348).
+  - **A re-approval question shows no diff.** After the owner's plan changes, the second approval question gave the
+    whole plan again; seeing what changed took a hand diff of two `run-file read` outputs.
+  - **Codex dispatches stay unpriced in a run whose daemon predates the catalog pricing.** 68 Codex dispatches carry
+    `costUsd: null` (24 Claude Code dispatches are priced), so the run's $24.03 covers Claude Code only. Plan 39 M3
+    prices Codex from the catalog; the next run on this build should show it.
+
 - **A public panel URL for phone links.** The panel binds to `127.0.0.1`, so phone notices cannot open it from
   another device. Evidence: `CLAUDE.md:17` and plan 39 decision D16; choosing a public URL is a product decision.
 
