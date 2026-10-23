@@ -323,6 +323,31 @@ const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
     (item) => steps.findLast((s) => s.item === item) as VerifierStep,
   );
 
+/** Immutable item/input identities for an owner waiver, using the same paths and content rules as gate_pass. */
+export async function gateItemInputs(
+  run: Run,
+  milestone: string,
+  head: string,
+): Promise<{ item: string; command: string | null; identity: string | null }[]> {
+  return Promise.all(
+    lastSteps(milestoneSteps(run, milestone)).map(async (step) => {
+      const command = step.command ?? null;
+      let identity: string | null = null;
+      if (command !== null && step.paths !== undefined) {
+        try {
+          const paths = cleanPaths(step.paths);
+          const { hash } = await contentHash(treeOf(run, milestone), paths);
+          identity = sha(JSON.stringify([run.id, milestone, head, step.item, command, paths, hash]));
+        } catch (e) {
+          // Missing or invalid inputs cannot carry a waiver.
+          if (!isCatherdError(e)) throw e;
+        }
+      }
+      return { item: step.item, command, identity };
+    }),
+  );
+}
+
 /** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
 async function carryingPass(
   repo: string,
