@@ -111,6 +111,11 @@ const FULL = [
 ].join("\n");
 
 describe("depthProblems", () => {
+  it("accepts a rejected alternative on a decision's wrapped line", () => {
+    const wrapped = FULL.replace("D1 — use a map — rejected: an array — slower", "D1 — x\n  rejected: y — z");
+    expect(depthProblems(parsePlanDoc("plan.md", wrapped))).toEqual([]);
+  });
+
   it("asks a written plan for the three sections, a test per task and a rejected alternative per decision", () => {
     expect(depthProblems(parsePlanDoc("plan.md", FULL))).toEqual([]);
     expect(depthProblems(parsePlanDoc("plan.md", "# P\n"))).toEqual([
@@ -131,6 +136,14 @@ describe("depthProblems", () => {
 });
 
 describe("approval", () => {
+  it("reads a decision's wrapped lines and a numbered marker", () => {
+    const a = "## Decisions\n1. D1 — x — rejected: y\n   because z\n\nD2 — p\n";
+    expect(decisionLines(a).get("D1")).toBe("1. D1 — x — rejected: y because z");
+    expect(changedDecisions(a, a.replace("because z", "because w"))).toEqual(["D1"]);
+    expect(changedDecisions(a, a.replace("D2 — p", "D2 — p\n\nprose after a blank line"))).toEqual([]);
+    expect(decisionLines("## Decisions\n- **D10** — a   b\n").get("D10")).toBe("- **D10** — a b");
+  });
+
   it("approves only on a bare approving word", () => {
     expect(["approve", " Approved. ", "LGTM!", "ok", "yes"].every(isApproval)).toBe(true);
     expect(["ok but rename X", "approve after Task 2 changes", "", "no"].some(isApproval)).toBe(false);

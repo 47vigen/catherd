@@ -72,10 +72,12 @@ describe("parseReplyStatus", () => {
     });
   });
 
-  it("reads an ENV: line anywhere in the reply (plan 23)", () => {
+  it("reads an ENV: line outside code fences (plan 23)", () => {
     expect(parseReplyEnvironment("could not run the suite\nENV: vpn  \nSTATUS: blocked — vpn")).toBe("vpn");
     expect(parseReplyEnvironment("no env here\nSTATUS: complete — ok")).toBeNull();
     expect(parseReplyEnvironment("ENV:   \nSTATUS: blocked — x")).toBeNull();
+    expect(parseReplyEnvironment("Added:\n```yaml\nENV: production\n```\nSTATUS: complete — ok")).toBeNull();
+    expect(parseReplyEnvironment("```\nENV: x\n```\nENV: vpn\nSTATUS: blocked — vpn")).toBe("vpn");
   });
 });
 
@@ -103,6 +105,15 @@ describe("parseReplyHead", () => {
 });
 
 describe("parseReplyExtras, parseReplyRejections and parseReplyDesign", () => {
+  it("keeps a spaced hyphen in the first field when the line has an em dash", () => {
+    expect(parseReplyRejections("REJECTED: BUG src/a.ts:3 - off by one — the loop is guarded\n")).toEqual([
+      { finding: "BUG src/a.ts:3 - off by one", why: "the loop is guarded" },
+    ]);
+    expect(parseReplyExtras("EXTRA: go.sum - a new module")).toEqual([
+      { path: "go.sum", why: "a new module" },
+    ]);
+  });
+
   it("reads EXTRA:, REJECTED: and DESIGN: lines as loosely as STATUS", () => {
     const reply = [
       "did it",

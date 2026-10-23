@@ -102,8 +102,11 @@ const STATUS_LINE = /^STATUS:\s*(complete|partial|blocked|refused|flaky)\s*(?:�
  * Docker, a dead registry); null without one.
  */
 export function parseReplyEnvironment(reply: string): string | null {
-  const m = /^[ \t]*ENV:[ \t]*(\S.*?)[ \t]*$/m.exec(reply);
-  return m ? (m[1] as string) : null;
+  for (const line of unfencedLines(reply)) {
+    const m = /^[ \t]*ENV:[ \t]*(\S.*?)[ \t]*$/.exec(line);
+    if (m) return m[1] as string;
+  }
+  return null;
 }
 
 /** The role's claim about its own work: the reply's last line, `STATUS: <s> — <why>`. */
@@ -113,27 +116,36 @@ export function parseReplyStatus(reply: string): { status: ReplyStatus | null; w
   return m ? { status: m[1] as ReplyStatus, why: (m[2] ?? "").trim() } : { status: null, why: null };
 }
 
-/** The last `HEAD: <hex>` line of a reply outside code fences, lower-cased: the commit a verifier says it checked. */
-export function parseReplyHead(reply: string): string | null {
+/** The reply's lines outside ``` and ~~~ code fences. */
+function unfencedLines(reply: string): string[] {
   let fenced = false;
-  let head: string | null = null;
+  const lines: string[] = [];
   for (const line of reply.split("\n")) {
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    else if (!fenced) {
-      const m = /^[ \t]*HEAD:[ \t]*([0-9a-fA-F]{7,64})[ \t]*$/.exec(line);
-      if (m) head = (m[1] as string).toLowerCase();
-    }
+    else if (!fenced) lines.push(line);
+  }
+  return lines;
+}
+
+/** The last `HEAD: <hex>` line of a reply outside code fences, lower-cased: the commit a verifier says it checked. */
+export function parseReplyHead(reply: string): string | null {
+  let head: string | null = null;
+  for (const line of unfencedLines(reply)) {
+    const m = /^[ \t]*HEAD:[ \t]*([0-9a-fA-F]{7,64})[ \t]*$/.exec(line);
+    if (m) head = (m[1] as string).toLowerCase();
   }
   return head;
 }
 
-/** `<LABEL>: <a> — <b>` lines (optional bullet; the separator is `—`, `–` or `-` with whitespace around it). */
+/** `<LABEL>: <a> — <b>` lines (optional bullet; separator: first `—`, else first `–` or `-`, with whitespace around it). */
 function labelled(reply: string, label: string): [string, string][] {
-  const re = new RegExp(
-    `^[ \\t]*(?:[-*][ \\t]*)?${label}:[ \\t]*(\\S.*?)(?:[ \\t]+(?:—|–|-)[ \\t]+(.*?))?[ \\t]*$`,
-    "gm",
-  );
-  return [...reply.matchAll(re)].map((m) => [m[1] as string, m[2] ?? ""]);
+  const re = new RegExp(`^[ \\t]*(?:[-*][ \\t]*)?${label}:[ \\t]*(\\S.*?)[ \\t]*$`, "gm");
+  return [...reply.matchAll(re)].map((m) => {
+    const body = m[1] as string;
+    // The contracts ask for an em dash: a hyphen in the first field survives when the line has one.
+    const sep = /[ \t]+—[ \t]+/.exec(body) ?? /[ \t]+[–-][ \t]+/.exec(body);
+    return sep ? [body.slice(0, sep.index), body.slice(sep.index + sep[0].length)] : [body, ""];
+  });
 }
 
 /** Every `EXTRA: <path> — <why>` line: a file outside the lane the worker had to change. */

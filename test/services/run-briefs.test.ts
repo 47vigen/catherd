@@ -211,10 +211,11 @@ describe("briefs", () => {
 
   it("gives a verifier the verdict contract and what the last one said failed", () => {
     const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
     const log = runningLog();
     const id = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, id, { name: "verifier-M1", unit: "M1", verdict: "fail" });
-    writeFileSync(join(run.dir, "plan.md"), "## M1 — core\n- A1 it works\n");
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — core\n");
     mkdirSync(join(run.dir, "roles", "verifier-M1", id), { recursive: true });
     writeFileSync(
       join(run.dir, "roles", "verifier-M1", id, "reply.md"),
@@ -565,4 +566,12 @@ describe("briefs in a base run's worktrees (plan 35)", () => {
     expect(text).toContain("Edit the conflicted files only");
     expect(text).toContain("no git add, no git commit");
   });
+});
+
+it("shows positional A-line ids in briefs", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["login works", "plan: p.md", "logout works"];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  const text = briefFor(run, runningLog().state(), act({ brief: "lane" }));
+  expect(text).toContain("- A1 login works\n- plan: p.md\n- A2 logout works");
 });

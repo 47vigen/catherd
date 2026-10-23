@@ -323,6 +323,7 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     const started = await startRun(deps, { repo, title: "t", aLines: ["A1 login works", "A2 logout works"] });
     const r = findRun(started.run);
     writeLane(r, "M1.L1", ["src/a.ts"]);
+    writeLane(r, "M2.L1", ["src/b.ts"]);
     await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await climb(deps, { run: r.id, lane: "M1.L1", reason: "check-failed-twice" });
     // the gate's own records first: the digest reads the latest reviewer's reply
@@ -420,6 +421,7 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       (await startRun(deps, { repo, title: "t", aLines: ["truncate cuts at 8", "bun test passes"] })).run,
     );
     writeLane(r, "M1.L1", ["src/a.ts"]);
+    writeLane(r, "M2.L1", ["src/b.ts"]);
     await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await passGate(r, "M1");
     const landed = await land(deps, {
@@ -431,7 +433,7 @@ describe("the milestone digest (spec 1.1 §10)", () => {
       next: "done",
     });
     expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain(
-      "A-lines: not mapped to this milestone (none cited as A<n>): truncate cuts at 8; bun test passes",
+      "A-lines: not mapped to this milestone (none cited as A<n>): A1 truncate cuts at 8; A2 bun test passes",
     );
   });
 
@@ -450,6 +452,7 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     );
     writeFileSync(join(r.dir, "plan.md"), "# P\n## M1 — login\n- A1 login works\n## M2 — logout\n- A2 x\n");
     writeLane(r, "M1.L1", ["src/a.ts"]);
+    writeLane(r, "M2.L1", ["src/b.ts"]);
     await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await passGate(r, "M1");
     const landed = await land(deps, {
@@ -462,4 +465,53 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     });
     expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain("A-lines: A1 login works\n");
   });
+});
+
+it("maps an A-line written without an id once plan.md cites its number", async () => {
+  withHome();
+  delete process.env.ANTHROPIC_API_KEY;
+  const repo = tempRepo();
+  const deps = fakeDeps();
+  const r = findRun(
+    (await startRun(deps, { repo, title: "t", aLines: ["login works", "logout works"] })).run,
+  );
+  writeFileSync(join(r.dir, "plan.md"), "## M1 — login\n- A1 login works\n## M2 — logout\n- A2 x\n");
+  writeLane(r, "M1.L1", ["src/a.ts"]);
+  writeLane(r, "M2.L1", ["src/b.ts"]);
+  await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+  await passGate(r, "M1");
+  const landed = await land(deps, {
+    run: r.id,
+    milestone: "M1",
+    what: "login",
+    commit: head(repo),
+    evidence: "verifier PASS",
+    next: "M2",
+  });
+  expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain("A-lines: A1 login works\n");
+});
+
+it("maps every A-line to the milestone of a one-milestone run", async () => {
+  withHome();
+  delete process.env.ANTHROPIC_API_KEY;
+  const repo = tempRepo();
+  const deps = fakeDeps();
+  const r = findRun(
+    (await startRun(deps, { repo, title: "t", aLines: ["truncate cuts at 8", "bun test passes"] })).run,
+  );
+  writeFileSync(join(r.dir, "plan.md"), "# P\n## M1 — truncate\nCheck: bun test\n");
+  writeLane(r, "M1.L1", ["src/a.ts"]);
+  await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
+  await passGate(r, "M1");
+  const landed = await land(deps, {
+    run: r.id,
+    milestone: "M1",
+    what: "truncate",
+    commit: head(repo),
+    evidence: "verifier PASS",
+    next: "done",
+  });
+  expect(readFileSync(join(r.dir, landed.digest), "utf8")).toContain(
+    "A-lines: A1 truncate cuts at 8; A2 bun test passes\n",
+  );
 });

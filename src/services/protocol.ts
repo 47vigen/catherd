@@ -19,7 +19,7 @@ import {
   partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
-import { aLineId, milestoneALines } from "./plan-input.ts";
+import { deliveredALines, numberedALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
@@ -247,9 +247,10 @@ export function writeDigest(
   const planText = existsSync(runPaths(run.dir).plan) ? readFileSync(runPaths(run.dir).plan, "utf8") : "";
   const named = new Set([
     ...[...`${i.what} ${i.evidence}`.matchAll(/\bA\d+\b/g)].map((x) => x[0]),
-    ...milestoneALines(planText, m),
+    ...deliveredALines(run, planText, m),
   ]);
-  const aLines = run.meta.aLines.filter((a) => named.has(aLineId(a) ?? ""));
+  const numbered = numberedALines(run.meta.aLines);
+  const aLines = numbered.filter((a) => a.id && named.has(a.id)).map((a) => a.line);
   const routes = readRoutes(run).filter((r) => inM(r.lane));
   const lanes = [...new Set(routes.map((r) => r.lane))].sort(byNumber).map((lane) => {
     const rows = routes.filter((r) => r.lane === lane);
@@ -296,7 +297,7 @@ export function writeDigest(
     "",
     `Commit ${i.commit} · ${i.minutes} min${i.pausedMinutes ? ` (${i.pausedMinutes} min parked or paused left out)` : ""} · landed ${i.at}`,
     ...(i.commits?.length ? [`Commits: ${i.commits.join("; ")}`] : []),
-    `A-lines: ${aLines.length ? aLines.join("; ") : run.meta.aLines.length ? `not mapped to this milestone (none cited as A<n>): ${run.meta.aLines.join("; ")}` : "none"}`,
+    `A-lines: ${aLines.length ? aLines.join("; ") : run.meta.aLines.length ? `not mapped to this milestone (none cited as A<n>): ${numbered.map((a) => a.line).join("; ")}` : "none"}`,
     "",
     "Lanes:",
     ...(lanes.length ? lanes : ["- none routed"]),

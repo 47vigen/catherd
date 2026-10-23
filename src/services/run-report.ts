@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JudgeDecision, RuleChange } from "../domain/judge.ts";
 import { type Finding, issueLine, type RunEvent } from "../domain/run-events.ts";
@@ -119,6 +119,14 @@ export function gateLines(run: Run, m: string): string[] {
 
 const oneLine = (s: string): string => s.replace(/\s*\n\s*/g, " ").trim();
 
+/** A report list shows at most this many lines, then one line that says how many more and where they are. */
+export const REPORT_LIST_CAP = 40;
+
+const capped = (items: string[], where: string): string[] =>
+  items.length > REPORT_LIST_CAP
+    ? [...items.slice(0, REPORT_LIST_CAP), `- +${items.length - REPORT_LIST_CAP} more in ${where}`]
+    : items;
+
 /**
  * `<run>/report.md`, the body of the merge request: the run's title, each landed milestone's digest, the known
  * issues verbatim by milestone, and the audit: every judge decision, and what each milestone's check passed on
@@ -151,7 +159,10 @@ export function writeRunReport(
   if (landed.length === 0) lines.push("No milestone landed.", "");
   lines.push("## Known issues", "");
   const issues = landed.flatMap((e) => e.knownIssues.map((k) => `- ${e.milestone}: ${k}`));
-  lines.push(...(issues.length ? issues : ["None."]), "");
+  lines.push(
+    ...(issues.length ? capped(issues, "events.jsonl (milestone.landed) and digests/") : ["None."]),
+    "",
+  );
   // plan 34: the latest lint of each milestone's preflight
   const lint = [
     ...new Set(events.flatMap((e) => (e.type === "preflight.done" ? [e.milestone] : []))),
@@ -159,7 +170,21 @@ export function writeRunReport(
     const latest = events.findLast((e) => e.type === "preflight.done" && e.milestone === m);
     return latest?.type === "preflight.done" ? latest.lint.map((l) => `- ${m}: ${l}`) : [];
   });
-  if (lint.length) lines.push("## Plan lint", "", ...lint, "");
+  if (lint.length) lines.push("## Plan lint", "", ...capped(lint, "events.jsonl (preflight.done)"), "");
+  const treesDir = join(run.dir, "trees");
+  const trees = existsSync(treesDir)
+    ? readdirSync(treesDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }))
+    : [];
+  if (trees.length)
+    lines.push(
+      "## Kept worktrees",
+      "",
+      "These milestone worktrees are still on disk (uncommitted or untracked files, or a milestone not merged); remove each with `git worktree remove <path>` once its files are settled.",
+      ...trees.map((d) => `- ${d.name}: ${join(treesDir, d.name)}`),
+      "",
+    );
   lines.push("## Audit", "");
   const audit = [
     ...decided.map((e) => `- ${e.unit} (${e.kind}): ${e.decision.verb}: ${oneLine(said(e.decision))}`),
@@ -169,7 +194,7 @@ export function writeRunReport(
       (r.design ?? []).map((d) => `- ${r.name} DESIGN: ${oneLine(d)}`),
     ),
   ];
-  lines.push(...(audit.length ? audit : ["No judge decision."]), "");
+  lines.push(...(audit.length ? capped(audit, "events.jsonl and runs.jsonl") : ["No judge decision."]), "");
   lines.push(...(rulesSection(s.rulesReview?.failed === true, proposals) ?? []));
   const file = join(run.dir, "report.md");
   writeTextAtomic(file, lines.join("\n"));
