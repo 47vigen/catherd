@@ -1,21 +1,22 @@
 import { Spinner } from "@heroui/react";
-import { Background, Controls, type Edge, MiniMap, ReactFlow } from "@xyflow/react";
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { type Edge, ReactFlow } from "@xyflow/react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { layoutKey, layoutRunModel, type StepNode } from "../../-lib/layout";
-import { STATUS_TONE, type Tone } from "../../-lib/node-view";
-import type { RunModel, RunNode } from "../../../../../client";
-import { NodeCard } from "./NodeCard";
+import { useColorMode } from "../../-hooks/useColorMode";
+import { absolutePosition, CARD, type GraphNode, layoutKey, layoutRunModel } from "../../-lib/layout";
+import type { RunModel, RunNode, RunView } from "../../../../../client";
+import { MilestoneGroup } from "./MilestoneGroup";
+import { EndPill, NodeCard } from "./NodeCard";
 
-const nodeTypes = { step: NodeCard };
+const nodeTypes = { step: NodeCard, pill: EndPill, milestone: MilestoneGroup };
 
 // React Flow draws an edge from CSS variables, so a class on the edge picks its colour; these are literals so
-// Tailwind sees them. An edge into a running step is animated and green: the run is flowing there.
+// Tailwind sees them. The flow into a running step moves; the path already walked is quiet; the rest is dashed.
 const EDGE = {
   running: "[--xy-edge-stroke:var(--success)] [--xy-edge-stroke-width:2]",
-  done: "[--xy-edge-stroke:color-mix(in_oklab,var(--success)_55%,transparent)]",
-  failed: "[--xy-edge-stroke:var(--danger)]",
-  parked: "[--xy-edge-stroke:var(--warning)]",
+  done: "[--xy-edge-stroke:color-mix(in_oklab,var(--muted)_70%,transparent)] [--xy-edge-stroke-width:1.5]",
+  failed: "[--xy-edge-stroke:var(--danger)] [--xy-edge-stroke-width:1.5]",
+  parked: "[--xy-edge-stroke:var(--warning)] [--xy-edge-stroke-width:1.5]",
   idle: "[--xy-edge-stroke:color-mix(in_oklab,var(--muted)_40%,transparent)] [&_path]:[stroke-dasharray:4_4]",
 } as const;
 
@@ -23,49 +24,49 @@ function edgeClass(from: RunNode["status"] | undefined, to: RunNode["status"] | 
   if (to === "running") return EDGE.running;
   if (to === "failed") return EDGE.failed;
   if (to === "parked") return EDGE.parked;
-  if (to === "done" && from === "done") return EDGE.done;
+  if (from === "done" && to && to !== "pending") return EDGE.done;
   return EDGE.idle;
 }
 
-const MINIMAP: Record<Tone, string> = {
-  running: "var(--success)",
-  success: "color-mix(in oklab, var(--success) 60%, transparent)",
-  danger: "var(--danger)",
-  warning: "var(--warning)",
-  muted: "var(--border)",
-};
+/** Room around the graph, in pixels. */
+const PAD = 24;
 
-// The canvas colours come from the theme through React Flow's own variables, so light and dark both follow.
+// The canvas is the size of the graph at full scale inside a frame that scrolls natively: a wide run is swiped or
+// scrolled sideways like a CI pipeline, the page keeps its own vertical scroll, and nothing is ever shrunk to fit.
 const FRAME = [
-  "border-border h-[clamp(420px,62vh,720px)] w-full overflow-hidden rounded-sm border",
-  "[--xy-background-color:var(--surface-secondary)]",
-  "[--xy-background-pattern-color:var(--border)]",
-  "[--xy-controls-button-background-color:var(--surface)]",
-  "[--xy-controls-button-background-color-hover:var(--surface-secondary)]",
-  "[--xy-controls-button-color:var(--foreground)]",
-  "[--xy-controls-button-border-color:var(--border)]",
-  "[--xy-controls-box-shadow:0_0_0_1px_var(--border)]",
-  "[--xy-minimap-background-color:var(--surface)]",
-  "[--xy-minimap-mask-background-color:color-mix(in_oklab,var(--background)_65%,transparent)]",
+  "bg-background w-full max-h-[72vh] overflow-auto overscroll-x-contain",
+  "bg-[radial-gradient(color-mix(in_oklab,var(--muted)_22%,transparent)_1px,transparent_1px)] bg-size-[20px_20px]",
+].join(" ");
+const CANVAS = [
+  // React Flow's own sheet sets `position: relative` outside any layer, so these must win with `!`.
+  "absolute! inset-0",
+  "[--xy-background-color:transparent]",
   "[--xy-attribution-background-color:transparent]",
+  "[&_.react-flow\\_\\_attribution]:opacity-40",
   "motion-reduce:[&_.animated_path]:animate-none",
 ].join(" ");
 
-/** The run as a graph, left to right. Only a change in the shape of the run lays it out again. */
+type Laid = { key: string; nodes: GraphNode[]; edges: Edge[]; width: number; height: number };
+
+/** The run as a pipeline: milestones as stages, left to right. Only a change in its shape lays it out again. */
 export function RunGraph({
   model,
+  milestones,
   selected,
   now,
   onOpen,
 }: {
   model: RunModel;
+  milestones: RunView["milestones"];
   selected: string | undefined;
   /** The time the running steps count to, in ms. */
   now: number;
   onOpen: (id: string) => void;
 }) {
+  const colorMode = useColorMode();
   const key = layoutKey(model);
-  const [laid, setLaid] = useState<{ key: string; nodes: StepNode[]; edges: Edge[] }>();
+  const [laid, setLaid] = useState<Laid>();
+  const frame = useRef<HTMLDivElement>(null);
   const latest = useEffectEvent(() => model);
 
   useEffect(() => {
@@ -78,62 +79,79 @@ export function RunGraph({
     };
   }, [key]);
 
+  // A run that is running (or waiting) opens scrolled to that step; the user's own scroll is never taken back.
+  const scrollToActive = useEffectEvent(() => {
+    const el = frame.current;
+    const active = model.nodes.find((n) => n.status === "running" || n.status === "parked");
+    const at = laid && active ? absolutePosition(laid.nodes, active.id) : null;
+    if (!el || !at) return;
+    el.scrollLeft = Math.max(0, PAD + at.x + CARD.width / 2 - el.clientWidth / 2);
+    el.scrollTop = Math.max(0, PAD + at.y + CARD.height / 2 - el.clientHeight / 2);
+  });
+  useLayoutEffect(() => scrollToActive(), [laid?.key]);
+
   // Positions come from the layout; everything a status change touches is read from the model on each render.
   const { nodes, edges } = useMemo(() => {
     if (!laid) return { nodes: [], edges: [] };
     const byId = new Map(model.nodes.map((n) => [n.id, n]));
+    const titles = new Map(milestones.map((m) => [m.id, m]));
     return {
-      nodes: laid.nodes.map((n) => ({
-        ...n,
-        selected: n.id === selected,
-        data: { node: byId.get(n.id) ?? n.data.node, now, onOpen },
-      })),
-      edges: laid.edges.map((e) => ({
+      nodes: laid.nodes.map((n): GraphNode => {
+        if (n.type === "milestone") {
+          const m = titles.get(n.data.milestone);
+          const steps = n.data.nodes.map((s) => byId.get(s.id) ?? s);
+          return { ...n, data: { ...n.data, nodes: steps, title: m?.title ?? null, status: m?.status ?? null } };
+        }
+        return { ...n, selected: n.id === selected, data: { node: byId.get(n.id) ?? n.data.node, now, onOpen } };
+      }),
+      edges: laid.edges.map((e): Edge => ({
         ...e,
         animated: byId.get(e.target)?.status === "running",
         className: edgeClass(byId.get(e.source)?.status, byId.get(e.target)?.status),
       })),
     };
-  }, [laid, model, selected, now, onOpen]);
+  }, [laid, model, milestones, selected, now, onOpen]);
 
   if (!laid)
     return (
-      <div className={`${FRAME} flex items-center justify-center`}>
+      <div className={`${FRAME} flex h-56 items-center justify-center`}>
         <Spinner size="sm" />
       </div>
     );
 
+  const w = laid.width + 2 * PAD;
+  const h = laid.height + 2 * PAD;
   return (
-    <div className={FRAME}>
-      <ReactFlow
-        key={laid.key}
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
-        minZoom={0.15}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        nodesFocusable={false}
-        edgesFocusable={false}
-        // Selectable only so React Flow lets pointer events reach the card, which is a button.
-        elementsSelectable
-        zoomOnScroll={false}
-        preventScrolling={false}
-        aria-label="Graph of the run"
-        attributionPosition="bottom-left"
-      >
-        <Background gap={22} size={1.5} />
-        <Controls position="top-right" showInteractive={false} />
-        <MiniMap
-          pannable
-          zoomable
-          position="bottom-right"
-          ariaLabel="Overview of the run"
-          nodeColor={(n) => MINIMAP[STATUS_TONE[(n.data as StepNode["data"]).node.status]]}
+    <div ref={frame} className={FRAME}>
+      <div className="relative mx-auto w-fit">
+        {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
+        <svg aria-hidden="true" width={w} height={h} className="block" />
+        <ReactFlow
+          key={laid.key}
+          className={CANVAS}
+          colorMode={colorMode}
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          defaultViewport={{ x: PAD, y: PAD, zoom: 1 }}
+          minZoom={1}
+          maxZoom={1}
+          panOnDrag={false}
+          panOnScroll={false}
+          zoomOnScroll={false}
+          zoomOnPinch={false}
+          zoomOnDoubleClick={false}
+          preventScrolling={false}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          // Selectable only so React Flow lets pointer events reach the card, which is a button.
+          elementsSelectable
+          aria-label="Graph of the run"
+          attributionPosition="bottom-left"
         />
-      </ReactFlow>
+      </div>
     </div>
   );
 }

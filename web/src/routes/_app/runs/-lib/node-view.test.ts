@@ -1,6 +1,18 @@
 import type { RunNode } from "../../../../client";
 import { CASE_HELPERS } from "./case-helpers.fixture";
-import { formatDuration, KIND_ICON, nodeSecs, nodeView, parseRung, roundsOf, STATUS_TONE } from "./node-view";
+import {
+  formatDuration,
+  KIND_ICON,
+  modelName,
+  nodeSecs,
+  nodeView,
+  nowLine,
+  parseRung,
+  roundsOf,
+  shortTitle,
+  STATUS_TONE,
+  toneOf,
+} from "./node-view";
 
 const KINDS = Object.keys(KIND_ICON) as RunNode["kind"][];
 const STATUSES = Object.keys(STATUS_TONE) as RunNode["status"][];
@@ -42,4 +54,26 @@ test("durations read short, and a running step counts to now", () => {
   const running = node({ status: "running", startedAt: "2026-10-22T10:00:00Z", endedAt: null });
   expect(nodeSecs(running, Date.parse("2026-10-22T10:01:30Z"))).toBe(90);
   expect(nodeSecs(node({ startedAt: null }), 0)).toBeNull();
+});
+
+test("a model id reads the way people say it", () => {
+  expect(modelName("claude-opus-5-5")).toBe("Claude Opus 5.5");
+  expect(modelName("gpt-6-luna")).toBe("GPT-6 Luna");
+  expect(modelName("gpt-6.1-sol")).toBe("GPT-6.1 Sol");
+  expect(modelName("kimi-k2")).toBe("Kimi K2");
+});
+
+test("a step in a milestone drops the milestone from its title; a bare status says nothing more", () => {
+  const review = CASE_HELPERS.nodes.find((n) => n.id === "M1/review")!;
+  expect(shortTitle(review)).toBe("Review");
+  expect(shortTitle(CASE_HELPERS.nodes.find((n) => n.kind === "lane")!)).toBe("M1.L1 worker");
+  expect(nowLine(node({ status: "done", now: "Done" }))).toBeNull();
+  expect(nowLine(node({ status: "running", now: "Codex is writing" }))).toBe("Codex is writing");
+});
+
+test("a set of steps takes its most urgent tone", () => {
+  expect(toneOf([node({ status: "done" }), node({ status: "running" })])).toBe("running");
+  expect(toneOf([node({ status: "parked" }), node({ status: "running" })])).toBe("warning");
+  expect(toneOf([node({ status: "done" }), node({ status: "skipped" })])).toBe("success");
+  expect(toneOf([node({ status: "done" }), node({ status: "pending" })])).toBe("muted");
 });

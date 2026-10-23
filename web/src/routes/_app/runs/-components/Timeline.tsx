@@ -21,15 +21,20 @@ export function TimelineFilter({ types, onChange }: { types: string | undefined;
 /** A run's events, one line each, in the order given (newest first). */
 export function Timeline({ entries, now }: { entries: TimelineEntry[]; now: Date }) {
   return (
-    <ol aria-label="Timeline" className="border-border bg-surface divide-border divide-y rounded-sm border">
+    <ol aria-label="Timeline" className="divide-separator divide-y">
       {entries.map((e) => (
-        <li key={e.seq} className="grid grid-cols-[3rem_5rem_9rem_1fr] items-baseline gap-3 px-3 py-2 text-[13px]">
-          <span className="text-muted font-mono text-xs tabular-nums">{e.seq}</span>
-          <span className="text-muted whitespace-nowrap">{formatRelative(e.at, now)}</span>
-          <Chip size="sm" variant="soft" className="w-fit">
-            <Chip.Label className="font-mono text-[11px]">{e.type}</Chip.Label>
+        <li
+          key={e.seq}
+          className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-[13px] md:grid-cols-[2.5rem_10rem_1fr_5rem]"
+        >
+          <span className="text-muted font-mono text-xs tabular-nums max-md:hidden">{e.seq}</span>
+          <Chip size="sm" variant="soft" className="w-fit max-w-full">
+            <Chip.Label className="truncate font-mono text-[11px]">{e.type}</Chip.Label>
           </Chip>
-          <span className="min-w-0 break-words">{e.text}</span>
+          <span className="min-w-0 break-words max-md:order-last max-md:col-span-3">{e.text}</span>
+          <span className="text-muted text-end text-xs whitespace-nowrap tabular-nums max-md:col-start-3 max-md:row-start-1">
+            {formatRelative(e.at, now)}
+          </span>
         </li>
       ))}
     </ol>

@@ -113,3 +113,45 @@ export function nodeSecs(n: RunNode, nowMs: number): number | null {
   const end = n.endedAt ? Date.parse(n.endedAt) : n.status === "running" ? nowMs : Number.NaN;
   return Number.isNaN(start) || Number.isNaN(end) ? null : Math.max(0, (end - start) / 1000);
 }
+
+const ACRONYM = new Set(["gpt", "glm"]);
+
+/** A model id as people say it: `claude-opus-5-5` is "Claude Opus 5.5", `gpt-6.1-sol` is "GPT-6.1 Sol". */
+export function modelName(id: string): string {
+  const out: string[] = [];
+  for (const part of id.split(/[-_]/).filter(Boolean)) {
+    const prev = out.at(-1);
+    if (prev !== undefined && /^\d+(\.\d+)*$/.test(part)) {
+      // A version after a version is its minor ("5-5" is 5.5); after an acronym it joins with a dash (GPT-6).
+      if (/\d$/.test(prev)) out[out.length - 1] = `${prev}.${part}`;
+      else if (ACRONYM.has(prev.toLowerCase())) out[out.length - 1] = `${prev}-${part}`;
+      else out.push(part);
+    } else out.push(ACRONYM.has(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1));
+  }
+  return out.join(" ");
+}
+
+/** A step's title inside its milestone's box, which already names the milestone: "M1 review" reads "Review". */
+export function shortTitle(n: RunNode): string {
+  // A check sits right after its lane's card, which names the lane.
+  if (n.kind === "check") return "Fast check";
+  if (n.kind === "start") return "Start";
+  const t = n.milestone && n.title.startsWith(`${n.milestone} `) ? n.title.slice(n.milestone.length + 1) : n.title;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** The step's own line when it says more than its status word ("Done" under a done step says nothing). */
+export function nowLine(n: RunNode): string | null {
+  const t = n.now.trim();
+  return t === "" || t.toLowerCase() === STATUS_LABEL[n.status].toLowerCase() ? null : t;
+}
+
+/** One tone for a set of steps: the most urgent wins, and a set is done only when every step is. */
+export function toneOf(nodes: RunNode[]): Tone {
+  const has = (s: Status) => nodes.some((n) => n.status === s);
+  if (has("failed")) return "danger";
+  if (has("parked")) return "warning";
+  if (has("running")) return "running";
+  if (nodes.length > 0 && nodes.every((n) => n.status === "done" || n.status === "skipped")) return "success";
+  return "muted";
+}

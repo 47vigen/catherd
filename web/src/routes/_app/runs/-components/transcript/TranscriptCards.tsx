@@ -133,7 +133,7 @@ function CardView({ card }: { card: Card }) {
           <Alert.Indicator />
           <Alert.Content>
             <Alert.Title>Error</Alert.Title>
-            <Alert.Description className="break-words whitespace-pre-wrap">{card.text}</Alert.Description>
+            <Alert.Description className="wrap-anywhere whitespace-pre-wrap">{card.text}</Alert.Description>
           </Alert.Content>
         </Alert>
       );

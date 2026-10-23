@@ -2,7 +2,7 @@ import { cn } from "@heroui/react";
 import type { ReactNode } from "react";
 
 import { formatCost, formatTokens, tokenTotal } from "../../-lib/format";
-import { formatDuration, nodeSecs, parseRung } from "../../-lib/node-view";
+import { formatDuration, modelName, nodeSecs, nowLine, parseRung } from "../../-lib/node-view";
 import type { Attempt, DispatchDetail, RunNode } from "../../../../../client";
 import { backendName, ProviderIcon } from "../../../../../components/provider-icon/ProviderIcon";
 import { StatusChip } from "../../../../../components/status-chip/StatusChip";
@@ -53,11 +53,12 @@ const HELP: Record<RunNode["kind"], ReactNode> = {
 const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const clock = (iso: string | null) => (iso && !Number.isNaN(Date.parse(iso)) ? time.format(new Date(iso)) : "–");
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+// A hairline sheet of figures: label over value, cells split by 1px rules, the way the run's stat sheet reads.
+function Cell({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className={cn("bg-surface flex min-w-0 flex-col gap-1 px-3 py-2.5", wide && "col-span-full")}>
       <dt className="label-caps text-muted">{label}</dt>
-      <dd className="min-w-0 text-[13px] break-words">{children}</dd>
+      <dd className="min-w-0 text-[13px] leading-5 break-words">{children}</dd>
     </div>
   );
 }
@@ -65,16 +66,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 function RungLine({ rung }: { rung: string }) {
   const r = parseRung(rung);
   return (
-    <span className="flex items-center gap-2">
-      <ProviderIcon backend={r.backend} size="sm" />
-      <span>{backendName(rung)}</span>
-      <span className="font-mono text-xs">
-        {r.model}
-        {r.effort ? ` · ${r.effort}` : ""}
-      </span>
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <ProviderIcon backend={r.backend} size="xs" />
+      <span className="font-medium">{r.model ? modelName(r.model) : backendName(rung)}</span>
+      {r.effort ? <span className="text-muted">{r.effort}</span> : null}
+      <span className="text-muted text-xs">on {backendName(rung)}</span>
     </span>
   );
 }
+
+const mono = "font-mono tabular-nums";
 
 /** What the step is, where it stands, who runs it and why, what it cost, and the attempts it made. */
 export function OverviewTab({
@@ -93,62 +94,66 @@ export function OverviewTab({
   const secs = attempt?.secs ?? nodeSecs(node, now);
   const rung = attempt?.rung ?? node.rung;
   const tokens = attempt?.tokens ?? null;
+  const line = nowLine(node);
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-sm leading-6">{HELP[node.kind]}</p>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
-        <Row label="Now">{node.now}</Row>
-        <Row label="Started">{clock(attempt?.at ?? node.startedAt)}</Row>
-        <Row label="Ended">{clock(attempt?.endedAt ?? node.endedAt)}</Row>
-        <Row label="Took">{secs === null ? "–" : formatDuration(secs)}</Row>
+      <p className="text-muted text-sm leading-6">{HELP[node.kind]}</p>
+      <dl className="bg-border border-border grid grid-cols-2 gap-px overflow-hidden rounded-sm border sm:grid-cols-4">
+        <Cell label="Started">
+          <span className={mono}>{clock(attempt?.at ?? node.startedAt)}</span>
+        </Cell>
+        <Cell label="Ended">
+          <span className={mono}>{clock(attempt?.endedAt ?? node.endedAt)}</span>
+        </Cell>
+        <Cell label="Took">
+          <span className={mono}>{secs === null ? "–" : formatDuration(secs)}</span>
+        </Cell>
+        <Cell label="Tokens">
+          {tokens ? (
+            <span className={mono} title={`${tokens.input} in, ${tokens.output} out, ${tokens.cached} cached`}>
+              {formatTokens(tokenTotal(tokens))}
+              {attempt && attempt.costUsd !== null ? (
+                <span className="text-muted"> · {formatCost(attempt.costUsd)}</span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-muted">–</span>
+          )}
+        </Cell>
+        {line ? (
+          <Cell label="Now" wide>
+            {line}
+          </Cell>
+        ) : null}
         {rung ? (
-          <div className="col-span-2">
-            <Row label="Rung">
-              <RungLine rung={rung} />
-            </Row>
-          </div>
+          <Cell label="Model" wide>
+            <RungLine rung={rung} />
+          </Cell>
         ) : null}
         {dispatch?.route ? (
-          <div className="col-span-2">
-            <Row label="Why this rung">
-              {dispatch.route.why}
-              <span className="text-muted block text-xs">
-                Chosen by {dispatch.route.decidedBy} from {dispatch.route.source}.
-              </span>
-            </Row>
-          </div>
+          <Cell label="Why this model" wide>
+            {dispatch.route.why}
+            <span className="text-muted block text-xs">
+              Chosen by {dispatch.route.decidedBy} from {dispatch.route.source}.
+            </span>
+          </Cell>
         ) : null}
         {attempt?.failoverFrom ? (
-          <div className="col-span-2">
-            <Row label="Stand-in for">
-              <span className="font-mono text-xs">{attempt.failoverFrom}</span>
-            </Row>
-          </div>
-        ) : null}
-        {tokens ? (
-          <Row label="Tokens">
-            <span className="font-mono tabular-nums">{formatTokens(tokenTotal(tokens))}</span>
-            <span className="text-muted block text-xs">
-              {formatTokens(tokens.input)} in, {formatTokens(tokens.output)} out, {formatTokens(tokens.cached)} cached
-            </span>
-          </Row>
-        ) : null}
-        {attempt && attempt.costUsd !== null ? (
-          <Row label="Cost">
-            <span className="font-mono tabular-nums">{formatCost(attempt.costUsd)}</span>
-          </Row>
+          <Cell label="Stand-in for" wide>
+            <span className="font-mono text-xs">{attempt.failoverFrom}</span>
+          </Cell>
         ) : null}
         {attempt?.text ? (
-          <div className="col-span-2">
-            <Row label={attempt.status === "failed" ? "What went wrong" : "Note"}>{attempt.text}</Row>
-          </div>
+          <Cell label={attempt.status === "failed" ? "What went wrong" : "Note"} wide>
+            {attempt.text}
+          </Cell>
         ) : null}
       </dl>
       {node.attempts.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h3 className="label-caps text-muted">Attempts</h3>
-          <ul aria-label="Attempts" className="border-border bg-surface divide-border divide-y rounded-sm border">
+          <ul aria-label="Attempts" className="border-border bg-surface divide-separator divide-y rounded-sm border">
             {node.attempts.map((a) => (
               <li key={a.id}>
                 <button

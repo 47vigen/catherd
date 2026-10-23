@@ -1,12 +1,13 @@
-import { Button, Drawer, Tabs, toast } from "@heroui/react";
+import { Button, cn, Drawer, Tabs, toast } from "@heroui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { nodeView } from "../../-lib/node-view";
+import { formatDuration, modelName, nodeSecs, nodeView, parseRung, roundsOf, type Tone } from "../../-lib/node-view";
 import { TAB_LABEL, type Tab, tabsFor } from "../../-lib/tabs";
-import type { ParkedView, RunModel, RunNode, RunView } from "../../../../../client";
+import type { Attempt, ParkedView, RunModel, RunNode, RunView } from "../../../../../client";
 import { cancelRoleMutation, getDispatchOptions } from "../../../../../client/@tanstack/react-query.gen";
 import { ConfirmDelete } from "../../../../../components/confirm-delete/ConfirmDelete";
+import { ProviderIcon } from "../../../../../components/provider-icon/ProviderIcon";
 import { QuestionAnswer } from "../../../../../components/question-answer/QuestionAnswer";
 import { StatusChip } from "../../../../../components/status-chip/StatusChip";
 import { errorMessage } from "../../../../../lib/api";
@@ -45,6 +46,54 @@ function Question({ run, node }: { run: RunView; node: RunNode }) {
       <p className="text-muted text-xs">{REASON_TEXT[q.reason]}</p>
       <QuestionAnswer q={q} />
     </section>
+  );
+}
+
+const ICON_TILE: Record<Tone, string> = {
+  running: "bg-success/15 text-success",
+  success: "bg-success/12 text-success",
+  danger: "bg-danger/12 text-danger",
+  warning: "bg-warning/20 text-warning",
+  muted: "bg-surface-tertiary text-muted",
+};
+
+/** One short line under the title: who runs the step, on which model, for how long, in which round. */
+function Meta({ node, attempt, now }: { node: RunNode; attempt: Attempt | undefined; now: number }) {
+  const rung = attempt?.rung ?? (node.kind === "check" ? null : node.rung);
+  const r = rung ? parseRung(rung) : null;
+  const secs = attempt?.secs ?? nodeSecs(node, now);
+  const rounds = roundsOf(node);
+  const role = attempt?.role ?? node.role;
+  const parts = [
+    role ? <span key="role">{role}</span> : null,
+    r ? (
+      <span key="model" className="inline-flex items-center gap-1.5">
+        <ProviderIcon backend={r.backend} size="xs" />
+        {r.model ? modelName(r.model) : r.backend}
+        {r.effort ? <span className="text-muted">{r.effort}</span> : null}
+      </span>
+    ) : null,
+    secs !== null ? (
+      <span key="secs" className="font-mono tabular-nums">
+        {formatDuration(secs)}
+      </span>
+    ) : null,
+    rounds > 1 ? <span key="rounds">{rounds} rounds</span> : null,
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return (
+    <p className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {parts.flatMap((p, i) =>
+        i === 0
+          ? [p]
+          : [
+              <span key={`dot${i}`} aria-hidden="true">
+                ·
+              </span>,
+              p,
+            ],
+      )}
+    </p>
   );
 }
 
@@ -114,42 +163,46 @@ export function NodeDrawer({
       >
         <Drawer.Content placement="right">
           <Drawer.Dialog className="w-[min(680px,100vw)] max-w-full">
-            <Drawer.CloseTrigger />
+            {/* On the title row's centre line, not the panel's corner. */}
+            <Drawer.CloseTrigger className="top-[22px]" />
             {node && Icon ? (
               <>
-                <Drawer.Header className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 pe-8">
-                    <Icon aria-hidden="true" className="text-muted size-4 shrink-0" />
-                    <Drawer.Heading className="min-w-0 truncate">{node.title}</Drawer.Heading>
+                <Drawer.Header className="flex flex-col gap-1.5 pe-8">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className={cn(
+                        "flex size-7 shrink-0 items-center justify-center rounded-sm",
+                        ICON_TILE[view?.tone ?? "muted"],
+                      )}
+                    >
+                      <Icon aria-hidden="true" className="size-4" />
+                    </span>
+                    <Drawer.Heading className="min-w-0 truncate text-base leading-7">{node.title}</Drawer.Heading>
                     <StatusChip status={node.status} />
                   </div>
-                  <p className="text-muted text-sm">{node.now}</p>
+                  <Meta node={node} attempt={attempt} now={now} />
                   {live_role && live ? (
-                    <div>
+                    <div className="pt-1">
                       <Button size="sm" variant="secondary" onPress={() => setConfirming(true)}>
                         Cancel this role
                       </Button>
                     </div>
                   ) : null}
                 </Drawer.Header>
-                <Drawer.Body className="flex flex-col gap-5">
+                <Drawer.Body className="text-foreground flex flex-col gap-5 pt-4">
                   <Question run={run} node={node} />
-                  <Tabs
-                    variant="secondary"
-                    selectedKey={shown}
-                    onSelectionChange={(k) => onChange({ tab: String(k) as Tab })}
-                  >
-                    <Tabs.ListContainer>
-                      <Tabs.List aria-label="Details of this step">
+                  <Tabs selectedKey={shown} onSelectionChange={(k) => onChange({ tab: String(k) as Tab })}>
+                    <Tabs.ListContainer className="w-fit max-w-full">
+                      <Tabs.List aria-label="Details of this step" className="p-0.5">
                         {tabs.map((t) => (
-                          <Tabs.Tab key={t} id={t}>
+                          <Tabs.Tab key={t} id={t} className="h-7 px-3 text-[13px] whitespace-nowrap">
                             {TAB_LABEL[t]}
                             <Tabs.Indicator />
                           </Tabs.Tab>
                         ))}
                       </Tabs.List>
                     </Tabs.ListContainer>
-                    <Tabs.Panel id="overview" className="pt-4">
+                    <Tabs.Panel id="overview" className="px-0 pt-4 pb-0">
                       <OverviewTab
                         node={node}
                         attempt={attempt}
@@ -158,19 +211,19 @@ export function NodeDrawer({
                         onAttempt={(id) => onChange({ attempt: id })}
                       />
                     </Tabs.Panel>
-                    <Tabs.Panel id="prompt" className="pt-4">
+                    <Tabs.Panel id="prompt" className="px-0 pt-4 pb-0">
                       <PromptTab dispatch={dq} />
                     </Tabs.Panel>
-                    <Tabs.Panel id="log" className="pt-4">
+                    <Tabs.Panel id="log" className="px-0 pt-4 pb-0">
                       <LogTab runId={runId} dispatchId={dispatchId} live={running && live} />
                     </Tabs.Panel>
-                    <Tabs.Panel id="output" className="pt-4">
+                    <Tabs.Panel id="output" className="px-0 pt-4 pb-0">
                       <OutputTab dispatch={dq} />
                     </Tabs.Panel>
-                    <Tabs.Panel id="changes" className="pt-4">
+                    <Tabs.Panel id="changes" className="px-0 pt-4 pb-0">
                       <ChangesTab runId={runId} model={model} node={node} attempt={attempt} />
                     </Tabs.Panel>
-                    <Tabs.Panel id="checks" className="pt-4">
+                    <Tabs.Panel id="checks" className="px-0 pt-4 pb-0">
                       <ChecksTab runId={runId} lane={node.lane} />
                     </Tabs.Panel>
                   </Tabs>

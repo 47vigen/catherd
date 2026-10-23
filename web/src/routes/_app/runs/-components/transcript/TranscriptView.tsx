@@ -111,11 +111,11 @@ export function TranscriptView({ runId, dispatchId, live }: { runId: string; dis
             if (on) setRawWanted(true);
           }}
         >
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-          <Switch.Content>
-            <Label>Raw</Label>
+          <Switch.Content className="flex-row items-center gap-2">
+            <Label className="text-muted text-[13px]">Raw</Label>
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
           </Switch.Content>
         </Switch>
       </div>

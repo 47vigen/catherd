@@ -4,26 +4,40 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { formatCost, formatTokens, totalsOf } from "../-lib/format";
-import { formatDuration } from "../-lib/node-view";
+import { formatDuration, roundsOf } from "../-lib/node-view";
 import { runStatus } from "../-lib/run-status";
 import type { RunModel, RunView } from "../../../../client";
 import { cancelRunMutation, pauseRunMutation, resumeRunMutation } from "../../../../client/@tanstack/react-query.gen";
 import { ConfirmDelete } from "../../../../components/confirm-delete/ConfirmDelete";
 import { PageHeader } from "../../../../components/page-header/PageHeader";
-import { StatusChip } from "../../../../components/status-chip/StatusChip";
+import { type Status, StatusChip } from "../../../../components/status-chip/StatusChip";
+import { Tile } from "../../../../components/tile/Tile";
 import { errorMessage } from "../../../../lib/api";
 import { invalidateOps } from "../../../../lib/query";
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="label-caps text-muted">{label}</dt>
-      <dd className="font-mono text-sm tabular-nums">{value}</dd>
-    </div>
-  );
+const STATUS_WORD: Partial<Record<Status, string>> = { info: "Finished", parked: "Waiting" };
+const STATUS_TEXT: Partial<Record<Status, string>> = {
+  running: "text-success",
+  done: "text-success",
+  failed: "text-danger",
+  parked: "text-warning",
+  paused: "text-warning",
+  planning: "text-warning",
+  approval: "text-warning",
+};
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+const day = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+const valid = (d: Date) => !Number.isNaN(d.getTime());
+
+/** Review rounds per milestone (the most any of its steps took), summed over the run. */
+function roundsIn(model: RunModel | undefined): number {
+  const most = new Map<string, number>();
+  for (const n of model?.nodes ?? [])
+    if (n.milestone) most.set(n.milestone, Math.max(most.get(n.milestone) ?? 0, roundsOf(n)));
+  return [...most.values()].reduce((a, b) => a + b, 0);
 }
 
-/** Title, repo, status, time, tokens and cost of the run, and its controls. */
+/** Title, repo and controls of the run, then its figures as one stat sheet. */
 export function RunHeader({
   run,
   model,
@@ -65,9 +79,17 @@ export function RunHeader({
   });
 
   const paused = live && run.paused !== null;
-  const totals = totalsOf(model?.dispatches ?? []);
-  const end = live ? now.getTime() : Date.parse(run.updatedAt);
-  const elapsed = (end - Date.parse(run.startedAt)) / 1000;
+  const status: Status = paused ? "paused" : runStatus(run);
+  const word = STATUS_WORD[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
+  const dispatches = model?.dispatches ?? [];
+  const totals = totalsOf(dispatches);
+  const started = new Date(run.startedAt);
+  const ended = new Date(live ? now.getTime() : Date.parse(run.updatedAt));
+  const elapsed = (ended.getTime() - started.getTime()) / 1000;
+  const tokensIn = dispatches.reduce((a, d) => a + (d.tokens?.input ?? 0), 0);
+  const tokensOut = dispatches.reduce((a, d) => a + (d.tokens?.output ?? 0), 0);
+  const milestones = run.milestones.length;
+  const rounds = roundsIn(model);
 
   return (
     <>
@@ -79,52 +101,84 @@ export function RunHeader({
           </Link>
         }
         title={run.title}
-        description={`${run.id} · ${run.repo}`}
+        description={
+          <span className="font-mono text-xs">
+            {run.id} · {run.repo}
+          </span>
+        }
         actions={
-          <>
-            <StatusChip status={paused ? "paused" : runStatus(run)} />
-            {live && run.engine === "2.0" ? (
-              paused ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  isPending={resume.isPending}
-                  onPress={() => resume.mutate({ path: { id: run.id } })}
-                >
-                  Resume
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  isPending={pause.isPending}
-                  onPress={() => pause.mutate({ path: { id: run.id } })}
-                >
-                  Pause
-                </Button>
-              )
-            ) : null}
-            {live ? (
+          live ? (
+            <>
+              {run.engine === "2.0" ? (
+                paused ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isPending={resume.isPending}
+                    onPress={() => resume.mutate({ path: { id: run.id } })}
+                  >
+                    Resume
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isPending={pause.isPending}
+                    onPress={() => pause.mutate({ path: { id: run.id } })}
+                  >
+                    Pause
+                  </Button>
+                )
+              ) : null}
               <Button size="sm" variant="secondary" onPress={() => setConfirming(true)}>
                 Cancel run
               </Button>
-            ) : null}
-          </>
+            </>
+          ) : null
         }
       />
-      <dl className="flex flex-wrap items-end gap-x-8 gap-y-3">
-        <Stat label={live ? "Running for" : "Took"} value={Number.isNaN(elapsed) ? "–" : formatDuration(elapsed)} />
-        <Stat label="Tokens" value={formatTokens(totals.tokens)} />
-        <Stat label="Cost" value={formatCost(totals.costUsd)} />
-        {run.holds.map((h) => (
-          <div key={h.quota} className="flex flex-col gap-0.5">
-            <dt className="label-caps text-muted">{h.quota}</dt>
-            <dd>
-              <StatusChip status="held" until={h.until} />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <Tile.Stats>
+        <Tile.Stat
+          label="Status"
+          value={<span className={STATUS_TEXT[status]}>{word}</span>}
+          hint={
+            run.holds.length > 0 ? (
+              <span className="flex flex-wrap gap-1">
+                {run.holds.map((h) => (
+                  <StatusChip key={h.quota} status="held" label={h.quota} until={h.until} />
+                ))}
+              </span>
+            ) : live ? (
+              (run.last ?? undefined)
+            ) : undefined
+          }
+        />
+        <Tile.Stat
+          label="Started"
+          value={valid(started) ? clock.format(started) : "–"}
+          hint={valid(started) ? day.format(started) : undefined}
+        />
+        <Tile.Stat
+          label={live ? "Running for" : "Took"}
+          value={Number.isNaN(elapsed) ? "–" : formatDuration(elapsed)}
+          hint={live ? "So far" : valid(ended) ? `Ended ${clock.format(ended)}` : undefined}
+        />
+        <Tile.Stat
+          label="Tokens"
+          value={formatTokens(totals.tokens)}
+          hint={totals.tokens > 0 ? `${formatTokens(tokensIn)} in · ${formatTokens(tokensOut)} out` : undefined}
+        />
+        <Tile.Stat
+          label="Cost"
+          value={formatCost(totals.costUsd)}
+          hint={`${dispatches.length} ${dispatches.length === 1 ? "role run" : "role runs"}`}
+        />
+        <Tile.Stat
+          label="Rounds"
+          value={rounds}
+          hint={`${milestones} ${milestones === 1 ? "milestone" : "milestones"}`}
+        />
+      </Tile.Stats>
       <ConfirmDelete
         title={`Cancel ${run.title}?`}
         body="Every live role is stopped and the run ends. It cannot be resumed."

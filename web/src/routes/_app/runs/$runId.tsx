@@ -1,13 +1,13 @@
-import { Alert, Spinner } from "@heroui/react";
+import { Alert, cn, Spinner } from "@heroui/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { TimelineEntry } from "../../../client";
 import { getRunModelOptions, getRunOptions, getRunTimelineOptions } from "../../../client/@tanstack/react-query.gen";
 import { CodeBlock } from "../../../components/code-block/CodeBlock";
 import { DataList } from "../../../components/data-list/DataList";
-import { SectionLabel } from "../../../components/page-header/PageHeader";
+import { Tile } from "../../../components/tile/Tile";
 import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch } from "../../../lib/list-search";
 import { invalidateOps } from "../../../lib/query";
@@ -17,9 +17,11 @@ import { RunGraph } from "./-components/graph/RunGraph";
 import { NodeList } from "./-components/NodeList";
 import { RunDocs } from "./-components/RunDocs";
 import { RunHeader } from "./-components/RunHeader";
+import { Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
 import { useLiveRun } from "./-hooks/useLiveRun";
+import { useTicker } from "./-hooks/useTicker";
 import { parseTab, type Tab } from "./-lib/tabs";
 import { matchesTypes } from "./-lib/timeline-filters";
 
@@ -49,15 +51,6 @@ export const Route = createFileRoute("/_app/runs/$runId")({
 function RunPage() {
   const { runId } = Route.useParams();
   return <RunDetail key={runId} runId={runId} />;
-}
-
-function Block({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <SectionLabel aside={aside}>{title}</SectionLabel>
-      {children}
-    </section>
-  );
 }
 
 function LoadError({ title, error }: { title: string; error: unknown }) {
@@ -111,7 +104,8 @@ function RunDetail({ runId }: { runId: string }) {
   const seen = new Set(fetched.map((e) => e.seq));
   const entries =
     page === 1 ? [...liveEntries.filter((e) => !seen.has(e.seq) && matchesTypes(types, e.type)), ...fetched] : fetched;
-  const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt));
+  const tick = useTicker(live === true);
+  const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt, tick));
 
   const open = useCallback(
     (id: string) => void navigate({ search: (prev) => ({ ...prev, node: id, tab: "overview", attempt: undefined }) }),
@@ -127,95 +121,127 @@ function RunDetail({ runId }: { runId: string }) {
   if (run.isError) return <LoadError title="Could not load this run" error={run.error} />;
   const r = run.data;
 
+  const steps = model.data?.nodes ?? [];
+  const stepsAside = (
+    <span className="flex items-center gap-4">
+      {steps.length > 0 ? (
+        <span className="text-muted font-mono text-xs tabular-nums">
+          {steps.filter((n) => n.status === "done").length}/{steps.length} done
+        </span>
+      ) : null}
+      {live ? (
+        <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", isConnected ? "bg-success motion-safe:animate-pulse" : "bg-muted")}
+          />
+          Live
+        </output>
+      ) : null}
+    </span>
+  );
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <RunHeader run={r} model={model.data} live={live === true} now={now} />
-      {is2 ? (
-        <Block
-          title="Steps"
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {is2 ? (
+          <Tile title="Steps" aside={stepsAside} className="lg:col-span-12">
+            {model.isPending ? (
+              <div className="flex h-60 items-center justify-center">
+                <Spinner size="sm" />
+              </div>
+            ) : model.isError ? (
+              <div className="p-4">
+                <LoadError title="Could not load the graph of this run" error={model.error} />
+              </div>
+            ) : isDesktop ? (
+              <RunGraph
+                model={model.data}
+                milestones={r.milestones}
+                selected={node}
+                now={now.getTime()}
+                onOpen={open}
+              />
+            ) : (
+              <NodeList nodes={model.data.nodes} selected={node} now={now.getTime()} onOpen={open} />
+            )}
+          </Tile>
+        ) : (
+          <>
+            <Alert status="warning" className="lg:col-span-12">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Description>
+                  This run started on catherd 1.5. It has no graph; its dispatches, report and timeline are below.
+                </Alert.Description>
+              </Alert.Content>
+            </Alert>
+            <Tile title="Dispatches" className="lg:col-span-12">
+              <DataList.State
+                isLoading={model.isPending}
+                error={model.error ?? undefined}
+                isEmpty={(model.data?.dispatches.length ?? 0) === 0}
+                emptyText="No dispatch was recorded."
+              >
+                <DispatchTable dispatches={model.data?.dispatches ?? []} />
+              </DataList.State>
+            </Tile>
+          </>
+        )}
+        <RunDocs
+          runId={runId}
+          ended={r.phase === "ended" || !is2}
+          only={is2 ? undefined : "report.md"}
+          className={is2 ? "lg:col-span-8" : "lg:col-span-12"}
+        />
+        {is2 ? (
+          <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
+            <Milestones milestones={r.milestones} />
+            <Models dispatches={model.data?.dispatches ?? []} />
+          </div>
+        ) : null}
+        <Tile
+          title="Timeline"
+          className="lg:col-span-12"
           aside={
-            live ? (
-              <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
-                <span
-                  aria-hidden="true"
-                  className={
-                    isConnected
-                      ? "bg-success size-1.5 rounded-full motion-safe:animate-pulse"
-                      : "bg-muted size-1.5 rounded-full"
-                  }
-                />
-                Live
-              </output>
-            ) : null
+            <TimelineFilter
+              types={types}
+              onChange={(t) => void navigate({ search: (prev) => ({ ...prev, page: 1, types: t }) })}
+            />
           }
         >
-          {model.isPending ? (
-            <div className="flex justify-center py-12">
+          {timeline.isPending ? (
+            <div className="flex justify-center py-10">
               <Spinner size="sm" />
             </div>
-          ) : model.isError ? (
-            <LoadError title="Could not load the graph of this run" error={model.error} />
-          ) : isDesktop ? (
-            <RunGraph model={model.data} selected={node} now={now.getTime()} onOpen={open} />
+          ) : timeline.isError ? (
+            <div className="p-4">
+              <LoadError title="Could not load the timeline" error={timeline.error} />
+            </div>
+          ) : entries.length === 0 ? (
+            <p className="text-muted px-4 py-4 text-sm">{types ? "No events of this type." : "No events yet."}</p>
           ) : (
-            <NodeList nodes={model.data.nodes} selected={node} onOpen={open} />
+            <Timeline entries={entries} now={now} />
           )}
-        </Block>
-      ) : (
-        <>
-          <Alert status="warning">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>
-                This run started on catherd 1.5. It has no graph; its dispatches, report and timeline are below.
-              </Alert.Description>
-            </Alert.Content>
-          </Alert>
-          <Block title="Dispatches">
-            <DataList.State
-              isLoading={model.isPending}
-              error={model.error ?? undefined}
-              isEmpty={(model.data?.dispatches.length ?? 0) === 0}
-              emptyText="No dispatch was recorded."
-            >
-              <DispatchTable dispatches={model.data?.dispatches ?? []} />
-            </DataList.State>
-          </Block>
-        </>
-      )}
-      <Block title={is2 ? "Plan and report" : "Report"}>
-        <RunDocs runId={runId} ended={r.phase === "ended" || !is2} only={is2 ? undefined : "report.md"} />
-      </Block>
-      <Block
-        title="Timeline"
-        aside={
-          <TimelineFilter
-            types={types}
-            onChange={(t) => void navigate({ search: (prev) => ({ ...prev, page: 1, types: t }) })}
-          />
-        }
-      >
-        <DataList.State
-          isLoading={timeline.isPending}
-          error={timeline.error ?? undefined}
-          isEmpty={entries.length === 0}
-          emptyText={types ? "No events of this type." : "No events yet."}
-        >
-          <Timeline entries={entries} now={now} />
-        </DataList.State>
-        <DataList.Pagination
-          page={page}
-          pageSize={pageSize}
-          total={timeline.data?.total ?? 0}
-          onPageChange={(n) => void navigate({ search: (prev) => ({ ...prev, page: n }) })}
-          onPageSizeChange={(n) =>
-            void navigate({
-              search: (prev) => ({ ...prev, page: 1, pageSize: n as ListSearch["pageSize"] }),
-              replace: true,
-            })
-          }
-        />
-      </Block>
+          {(timeline.data?.total ?? 0) > 0 ? (
+            <div className="border-border border-t px-4 py-2.5">
+              <DataList.Pagination
+                page={page}
+                pageSize={pageSize}
+                total={timeline.data?.total ?? 0}
+                onPageChange={(n) => void navigate({ search: (prev) => ({ ...prev, page: n }) })}
+                onPageSizeChange={(n) =>
+                  void navigate({
+                    search: (prev) => ({ ...prev, page: 1, pageSize: n as ListSearch["pageSize"] }),
+                    replace: true,
+                  })
+                }
+              />
+            </div>
+          ) : null}
+        </Tile>
+      </div>
       {is2 && model.data ? (
         <NodeDrawer
           runId={runId}

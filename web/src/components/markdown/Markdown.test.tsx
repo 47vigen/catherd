@@ -24,6 +24,13 @@ test("headings, lists and inline code render as elements", () => {
   expect(screen.getAllByRole("listitem")).toHaveLength(2);
 });
 
+test("one fact per line stays one per line: a single line break is kept", () => {
+  const { container } = render(<Markdown source={"Reviewer: PASS\nVerifier: PASS\n"} />);
+  const p = container.querySelector("p")!;
+  expect(p.textContent).toBe("Reviewer: PASS\nVerifier: PASS");
+  expect(p).toHaveClass("whitespace-pre-line");
+});
+
 test("a fenced block renders through CodeBlock", () => {
   const { container } = render(<Markdown source={"```ts\nconst a = 1;\n```\n"} />);
   const pre = container.querySelector("pre");

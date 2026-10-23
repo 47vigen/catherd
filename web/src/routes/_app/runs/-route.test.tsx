@@ -7,7 +7,7 @@ import { configureClient } from "../../../lib/api";
 import { getSocket, stopWebSocket } from "../../../lib/live-socket";
 import { describeRequest, renderRoute } from "../../../test/render-route";
 import { CASE_HELPERS } from "./-lib/case-helpers.fixture";
-import { STATUS_LABEL } from "./-lib/node-view";
+import { nowLine, STATUS_LABEL } from "./-lib/node-view";
 
 class FakeSocket {
   static last: FakeSocket | undefined;
@@ -201,9 +201,11 @@ function api(_req: Request, url: URL) {
     return Response.json({ lane: "M1.L1", name: "fast check", fast: "lint ok\ntypes ok", full: null, exit: 0 });
 }
 
+// A node names its status once: the now line joins only when it says more than the status word.
 const nodeButton = (id: string) => {
   const n = model.nodes.find((x) => x.id === id)!;
-  return screen.findByRole("button", { name: `${n.title}. ${STATUS_LABEL[n.status]}. ${n.now}` });
+  const name = [n.title, STATUS_LABEL[n.status], nowLine(n)].filter(Boolean).join(". ");
+  return screen.findByRole("button", { name });
 };
 
 test("the list query carries the search, the phase and the page", async () => {
@@ -259,6 +261,25 @@ test("the header sums tokens and cost and names the run's time", async () => {
   await waitFor(() => expect(screen.getByText("Tokens").nextElementSibling?.textContent).toMatch(/M$/));
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$1.73");
   expect(screen.getByText("Running for")).toBeInTheDocument();
+  // one status word, the rounds of the busiest step in each milestone, and how far the steps have got
+  expect(screen.getByText("Status").nextElementSibling).toHaveTextContent("Running");
+  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("2");
+  expect(
+    screen.getByText(`${model.nodes.filter((n) => n.status === "done").length}/${model.nodes.length} done`),
+  ).toBeInTheDocument();
+});
+
+test("the graph is drawn in the app's theme, not React Flow's light default", async () => {
+  document.documentElement.classList.add("dark");
+  try {
+    renderRoute("/runs/r1", api);
+    await nodeButton(LANE);
+    expect(screen.getByLabelText("Graph of the run")).toHaveClass("dark");
+    act(() => document.documentElement.classList.remove("dark"));
+    await waitFor(() => expect(screen.getByLabelText("Graph of the run")).toHaveClass("light"));
+  } finally {
+    document.documentElement.classList.remove("dark");
+  }
 });
 
 test("clicking a node opens its drawer and deep-links it", async () => {
