@@ -69,7 +69,10 @@ export function ChangePreview({
   onCancel(): void;
 }) {
   const p = review?.preview;
-  const errors = [...(p?.errors ?? []), ...(review?.refused ?? [])];
+  // "Not saved" names only what this change breaks; errors the profile already had are listed apart
+  const added = p?.added ?? [];
+  const errors = [...added, ...(review?.refused ?? [])];
+  const before = (p?.errors ?? []).filter((e) => !added.some((a) => a.path === e.path && a.message === e.message));
   // A warning about another part of the profile is not about this change; it is counted, not listed.
   const touched = (p?.diff ?? []).map((d) => d.path.split(".").slice(0, 2).join("."));
   const near = (i: Issue) =>
@@ -105,6 +108,7 @@ export function ChangePreview({
               ))}
             </ul>
             <Issues status="danger" title="Not saved" issues={errors} />
+            <Issues status="warning" title="Already wrong before this change" issues={before} />
             <Issues status="warning" title="Worth a look" issues={warnings} />
             {elsewhere > 0 ? (
               <p className="text-muted text-xs">
@@ -125,7 +129,7 @@ export function ChangePreview({
               size="sm"
               variant="primary"
               isPending={isSaving}
-              isDisabled={!p || p.diff.length === 0 || p.errors.length > 0}
+              isDisabled={!p || p.diff.length === 0 || !p.wouldSave}
               onPress={onSave}
             >
               Save

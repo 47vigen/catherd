@@ -90,12 +90,15 @@ export interface ProfilePort {
     enforcement: Partial<Record<Role, "enforced" | "advisory">>;
   };
   validate(name?: string, repo?: string | null): { valid: boolean; errors: Issue[]; warnings: Issue[] };
-  /** What `set` would do, writing nothing; `expect` is the stored document the patch was applied to. */
+  /**
+   * What `set` would do, writing nothing; `expect` is the stored document the patch was applied to, `wouldSave`
+   * whether `set` would write it, `added` the errors the patch adds.
+   */
   preview?(
     name: string | undefined,
     patch: ProfilePatch,
     repo?: string | null,
-  ): ProfileSaved & { expect: ProfileDoc };
+  ): ProfileSaved & { expect: ProfileDoc; wouldSave: boolean; added: Issue[] };
   /** With `expect` (from `preview`), it writes nothing when the stored profile is no longer that one. */
   set(name: string | undefined, patch: ProfilePatch, repo?: string | null, expect?: ProfileDoc): ProfileSaved;
   /** The native agent that runs `rung` for `role` under `repo`'s profile; null unless it is a `claude:` rung. */

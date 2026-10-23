@@ -141,6 +141,28 @@ describe("patchProfile", () => {
     expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.worker.enabled).toBe(true);
   });
 
+  it("previews a save the way the save decides: a repair would save, and only the errors it adds are its own", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    const broken = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, enabled: false } } };
+    writeFileSync(
+      file("default"),
+      JSON.stringify({ ...broken, failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" } }),
+    );
+    const repair = previewProfile("default", { roles: { worker: { enabled: true } } }, "claude-code");
+    expect([repair.wouldSave, repair.errors.length, repair.added]).toEqual([true, 1, []]);
+    const worse = previewProfile(
+      "default",
+      { roles: { worker: { enabled: true }, writer: { rungs: [] } } },
+      "claude-code",
+    );
+    expect([worse.wouldSave, worse.added.map((e) => e.message)]).toEqual([
+      false,
+      ["the writer role has no usable rung"],
+    ]);
+  });
+
   it("refuses a patch that adds an error, even one that removes another", () => {
     withHome();
     mkdirSync(profilesDir(), { recursive: true });

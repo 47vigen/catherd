@@ -64,7 +64,13 @@ export const PauseResultSchema = z.object({ paused: z.literal(true), since: z.st
 export const ResumeResultSchema = z.object({ paused: z.literal(false) });
 export const CancelRoleResultSchema = z.object({ name: z.string(), status: z.string() });
 /** What a save would do, and the stored profile it was worked out from (sent back with the save as `expect`). */
-export const ProfilePreviewSchema = ProfileSavedSchema.extend({ expect: z.record(z.string(), z.unknown()) });
+export const ProfilePreviewSchema = ProfileSavedSchema.extend({
+  expect: z.record(z.string(), z.unknown()),
+  /** whether the save would write: no errors, or a repair (it removes one and adds none) */
+  wouldSave: z.boolean(),
+  /** the errors this change adds; the rest of `errors` were there before it */
+  added: z.array(IssueSchema),
+});
 export const PreviewBodySchema = z.object({ patch: ProfilePatchSchema });
 export const SaveProfileBodySchema = z.object({
   patch: ProfilePatchSchema,

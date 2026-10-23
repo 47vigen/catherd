@@ -3924,6 +3924,15 @@
               "type": "string"
             },
             "additionalProperties": {}
+          },
+          "wouldSave": {
+            "type": "boolean"
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
           }
         },
         "required": [
@@ -3934,7 +3943,9 @@
           "linked",
           "pruned",
           "newSessionNeededFor",
-          "expect"
+          "expect",
+          "wouldSave",
+          "added"
         ],
         "additionalProperties": false
       },

@@ -109,6 +109,8 @@ const preview = (over: object = {}) => ({
   pruned: [],
   newSessionNeededFor: [],
   expect: { name: "default", budget: { usd: 5 } },
+  wouldSave: true,
+  added: [],
   ...over,
 });
 const saved = (over: object = {}) => ({
@@ -326,15 +328,30 @@ test("a refused save shows its errors inline", async () => {
 });
 
 test("a preview with errors cannot be saved", async () => {
+  const low = { path: "budget.usd", message: "too low" };
   renderRoute(
     "/setup",
     api({
-      "POST /api/setup/preview": () => Response.json(preview({ errors: [{ path: "budget.usd", message: "too low" }] })),
+      "POST /api/setup/preview": () => Response.json(preview({ errors: [low], added: [low], wouldSave: false })),
     }),
   );
   await editBudgetUsd("8");
   expect(await screen.findByText(/budget\.usd: too low/)).toBeInTheDocument();
+  expect(screen.getByText("Not saved")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
+test("a repair the server would save can be saved, its leftover errors shown as already there", async () => {
+  const old = { path: "failover", message: "same quota" };
+  renderRoute(
+    "/setup",
+    api({ "POST /api/setup/preview": () => Response.json(preview({ errors: [old], added: [], wouldSave: true })) }),
+  );
+  await editBudgetUsd("8");
+  expect(await screen.findByText(/failover: same quota/)).toBeInTheDocument();
+  expect(screen.queryByText("Not saved")).toBeNull();
+  expect(screen.getByText("Already wrong before this change")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
 test("a changed profile on disk asks to review again", async () => {

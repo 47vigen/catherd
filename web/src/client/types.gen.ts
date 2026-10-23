@@ -452,6 +452,8 @@ export type ProfilePreview = {
     expect: {
         [key: string]: unknown;
     };
+    wouldSave: boolean;
+    added: Array<Issue>;
 };
 
 export type Settings = {

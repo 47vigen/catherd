@@ -19,7 +19,13 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { nativeClaudeIssue, repairs, type Validation } from "../domain/profile-rules.ts";
+import {
+  addedErrors,
+  type Issue,
+  nativeClaudeIssue,
+  repairs,
+  type Validation,
+} from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
@@ -159,20 +165,23 @@ export function patchProfile(
 }
 
 /**
- * What `patchProfile` would do, without writing: the diff, the validation, and the stored document the patch
- * was applied to (`expect`, which the save sends back).
+ * What `patchProfile` would do, without writing: the diff, the validation, whether the save would write
+ * (`wouldSave`, decided as `patchProfile` decides), the errors the patch adds (`added`), and the stored document
+ * the patch was applied to (`expect`, which the save sends back).
  */
 export function previewProfile(
   name: string | undefined,
   patch: ProfilePatch,
   host: OrchestrationHost,
-): Saved & { expect: ProfileDoc } {
+): Saved & { expect: ProfileDoc; wouldSave: boolean; added: Issue[] } {
   return locked(() => {
     const n = assertProfileName(name ?? activeName());
     const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
     const after = applyPatch(before, patch);
+    const v = validate(after, n, host);
+    const was = profileExists(n) ? validate(before, n, host) : null;
     const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
-    return { ...unsaved(validate(after, n, host)), diff, expect: before };
+    return { ...unsaved(v), diff, expect: before, wouldSave: repairs(was, v), added: addedErrors(was, v) };
   });
 }
 
