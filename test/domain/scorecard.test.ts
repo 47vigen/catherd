@@ -114,7 +114,21 @@ describe("scorecard", () => {
     expect(passBar(file("plan-29", all(66)), file("1.5.0", all(60)))).toEqual({
       pass: true,
       failures: [],
+      notes: [],
       wall: { now: 264, baseline: 240 },
+    });
+  });
+
+  it("notes an unfinished baseline row without failing the bar", () => {
+    const baseline = file("1.5.0", {
+      ...all(60),
+      "raqam-myanmar": score("raqam-myanmar", { finished: false }),
+    });
+    expect(passBar(file("current", all(60)), baseline)).toMatchObject({
+      pass: true,
+      notes: [
+        "baseline 1.5.0: raqam-myanmar did not finish, so its wall-clock stops where it was stopped and the wall-clock bar is lenient",
+      ],
     });
   });
 

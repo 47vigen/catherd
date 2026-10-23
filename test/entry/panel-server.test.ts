@@ -152,6 +152,9 @@ describe("the panel server", () => {
       new RegExp(`^${PANEL_COOKIE}=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=/`),
     );
     expect(ok.headers.get("x-frame-options")).toBe("DENY");
+    expect(ok.headers.get("content-security-policy")).toContain(
+      "connect-src 'self' ws://127.0.0.1:* ws://localhost:*",
+    );
   });
 
   it("forgets a session on logout", async () => {

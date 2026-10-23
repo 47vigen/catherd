@@ -68,6 +68,7 @@ export function formatComparison(
   return [
     `scorecard ${current.label} against ${baseline ? baseline.label : "no baseline"}`,
     ...SCORECARD_TASKS.map((id) => row(id, current, baseline)),
+    ...v.notes.map((n) => `NOTE: ${n}`),
     ...(v.pass ? ["PASS"] : v.failures.map((f) => `FAIL: ${f}`)),
   ];
 }
@@ -142,7 +143,7 @@ const record = defineCommand({
     const root = checkoutRoot();
     const out = resultsFile(resultsDir(root, args.results), args.label);
     const s = await scoreTask({ dir: resolve(args.dir), root, run: args.run, chat, now: Date.now() });
-    const saved = saveTaskScore(out, args.label, s);
+    const saved = await saveTaskScore(out, args.label, s);
     if (args.json) return printJson({ file: out, score: s });
     const baseline = readScorecard(resultsFile(resultsDir(root, args.results), BASELINE));
     console.log(

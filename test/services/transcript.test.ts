@@ -64,6 +64,62 @@ describe("readTranscript", () => {
 });
 
 describe("tailTranscript", () => {
+  it("reads only the bytes after the last full line it sent", async () => {
+    const dir = mk("AAAA\n");
+    const file = join(dir, "events.jsonl");
+    type Page = Parameters<Parameters<typeof tailTranscript>[3]>[0];
+    let wake: (p: Page) => void;
+    const wait = () =>
+      new Promise<Page>((resolve) => {
+        wake = resolve;
+      });
+    const first = wait();
+    const stop = tailTranscript(dir, "opencode", 0, (p) => wake(p), { pollMs: 5 });
+    try {
+      expect((await first).raw).toEqual(["AAAA"]);
+      const second = wait();
+      writeFileSync(file, "A\nAA\nB\nC");
+      expect(await second).toEqual({
+        items: [{ kind: "raw", line: 1, text: "B" }],
+        raw: ["B"],
+        next: 2,
+      });
+      const third = wait();
+      appendFileSync(file, "\n");
+      expect(await third).toEqual({
+        items: [{ kind: "raw", line: 2, text: "C" }],
+        raw: ["C"],
+        next: 3,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it("rereads a truncated file while skipping lines already sent", async () => {
+    const dir = mk("AAAA\nBBBB\nCCCC\n");
+    type Page = Parameters<Parameters<typeof tailTranscript>[3]>[0];
+    let wake: (p: Page) => void;
+    const wait = () =>
+      new Promise<Page>((resolve) => {
+        wake = resolve;
+      });
+    const first = wait();
+    const stop = tailTranscript(dir, "opencode", 0, (p) => wake(p), { pollMs: 5 });
+    try {
+      expect((await first).next).toBe(3);
+      const second = wait();
+      writeFileSync(join(dir, "events.jsonl"), "a\nb\nc\nd\n");
+      expect(await second).toEqual({
+        items: [{ kind: "raw", line: 3, text: "d" }],
+        raw: ["d"],
+        next: 4,
+      });
+    } finally {
+      stop();
+    }
+  });
+
   it("tails lines as they are appended", async () => {
     const dir = mk(`${msg("a")}\n`);
     const got = Promise.withResolvers<{ items: { line: number }[]; raw: string[]; next: number }>();

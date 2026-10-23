@@ -49,8 +49,9 @@ the pinned commit, on branch `scorecard/<task>`, with no remote, so nothing can 
 - **Rounds:** a milestone's full reviewer passes (`reviewer-<M>`, ended ok, not `STATUS: partial`) since its lanes
   started, summed over milestones.
 - **Wall-clock:** from the run's start to its last landing (the last landed milestone's digest line
-  `· landed <iso>`), else to the last record or native agent row. Parked and paused minutes are shown beside it
-  (`pausedMinutes`), not subtracted.
+  `· landed <iso>`), else to the last record or native agent row. Pause spans (the machine's, the run's
+  workspace's and the run's own) are subtracted, as the panel does; parked and paused minutes together are
+  shown beside it (`pausedMinutes`).
 - **First try:** every milestone landed exactly once and the task's acceptance passes on the run's final tree, with
   the fixture's hidden `accept/` tests copied in (and removed after). A throwaway clone opens no MR, so this stands
   in for "the MR passed on the first try"; a CI-only failure goes unseen.

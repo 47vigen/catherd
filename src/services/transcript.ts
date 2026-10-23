@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { adapterFor } from "../adapters/registry.ts";
 import type { TranscriptItem, TranscriptPage } from "../domain/transcript.ts";
@@ -15,6 +15,28 @@ function completeLines(dir: string): string[] {
   const lines = text.split("\n");
   lines.pop();
   return lines;
+}
+
+function linesFrom(dir: string, at: number): { lines: string[]; at: number } {
+  let fd: number;
+  try {
+    fd = openSync(join(dir, "events.jsonl"), "r");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { lines: [], at };
+    throw err;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    if (size < at) return { lines: [], at: 0 };
+    if (size === at) return { lines: [], at };
+    const buf = Buffer.alloc(size - at);
+    const read = readSync(fd, buf, 0, buf.length, at);
+    const end = buf.subarray(0, read).lastIndexOf(10);
+    if (end < 0) return { lines: [], at };
+    return { lines: buf.subarray(0, end).toString("utf8").split("\n"), at: at + end + 1 };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** `claude` is the native pseudo-backend; it reads with claude-code's parser. */
@@ -53,17 +75,28 @@ export function tailTranscript(
   o: { pollMs?: number } = {},
 ): () => void {
   let next = from;
+  let offset = 0;
+  let line = 0;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const poll = (): void => {
     if (stopped) return;
     try {
-      const lines = completeLines(dir);
-      while (!stopped && next < lines.length) {
-        const page = lines.slice(next, next + TAIL_PAGE);
-        const at = next;
-        next += page.length;
+      let r = linesFrom(dir, offset);
+      if (r.at < offset) {
+        offset = 0;
+        line = 0;
+        r = linesFrom(dir, offset);
+      }
+      offset = r.at;
+      const lines = r.lines.slice(Math.max(0, next - line));
+      let at = Math.max(next, line);
+      line += r.lines.length;
+      for (let i = 0; !stopped && i < lines.length; i += TAIL_PAGE) {
+        const page = lines.slice(i, i + TAIL_PAGE);
+        next = at + page.length;
         onPage({ items: itemsOf(backend, page, at), raw: page.filter((l) => l.trim()), next });
+        at = next;
       }
     } catch (err) {
       log("warn", "transcript", { dir, tail: err instanceof Error ? err.message : String(err) });

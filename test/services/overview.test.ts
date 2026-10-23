@@ -43,6 +43,14 @@ const spend = (run: Run, over: Parameters<typeof makeRecord>[0]) =>
   appendRecord(run, makeRecord({ runId: run.id, dispatchId: newDispatchId(), ...over }));
 
 describe("the overview", () => {
+  it("clamps a range longer than 366 days", () => {
+    withHome();
+    runIndexCache.clear();
+    const o = overview(deps(), { from: NOW - 3650 * DAY, to: NOW });
+    expect(o.daily.length).toBeLessThanOrEqual(367);
+    expect(o.from).toBe(new Date(NOW - 366 * DAY).toISOString());
+  });
+
   it("counts only runs started in the range and the repo", async () => {
     withHome();
     runIndexCache.clear();
