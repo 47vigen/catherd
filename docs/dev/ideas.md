@@ -16,6 +16,20 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 ## 2.0 follow-ups
 
+### From the kebab-case smoke run (2026-10-23, 2.0.0-next.20261023021801)
+
+- **The report's reviewer line and its known issues disagree.** The run `kebab case` reported "Reviewer: reviewer-M1
+  · 0 finding(s): 0 BLOCKER, 0 BUG, 0 NIT" and, under Known issues, one NIT (`kebabCase` splits only on whitespace).
+  The NIT came from the verifier's PASS: `run-state.ts` merges `nitLines(e.findings)` of a passing verifier into
+  `m.knownIssues`, while the report's count line counts only the reviewer. A reader sees 0 NIT and then a NIT.
+  Name the source on each known issue ("verifier-M1: …") or count the verifier's findings on its own line
+  (`src/domain/run-state.ts`, the verifier pass branch; the report in `src/services/protocol.ts`).
+- **A-lines are never mapped to a milestone.** Every smoke run so far (slugify, truncate, case helpers, kebab case)
+  reports "A-lines: not mapped to this milestone (none cited as A<n>)" (`src/services/protocol.ts:299`): the plan
+  and the architect never cite `A1`, `A2`, so the report cannot say which milestone proves which acceptance line.
+  Have the architect cite the A-lines a milestone proves in `plan.md` (its brief asks for it), or, for a
+  single-milestone run, map every A-line to that milestone.
+
 ### Panel v2 follow-ups (plan 37 final review, 2026-10-23)
 
 - **A run document over 512 KiB is cut with no notice.** `runDoc` (`src/services/run-files.ts`) reads through
