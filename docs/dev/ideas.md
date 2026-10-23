@@ -67,11 +67,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   ran in: a verifier's second and third `gate run` on M6's head returned the same cached failed record, `land` reads
   it, and that head can never land without a new commit. Fix: let a verifier re-run a gate (a `fresh` flag), or key
   the record by its env too. (Run audit 7.)
-- **A gate that fails on the base too counts as green.** M1 and M3 landed with `Gate: … exit 1` and the audit "every
-  failing line is pre-existing (60)", while 60 env failures on the base hid what the gate checked. The audit also
-  differed across milestones: M4's counted the same failing lines as pre-existing, M5's called one of them new. Fix: a
-  gate whose base also fails says so in the verdict, not as a pass, and the line matching is made deterministic.
-  (Run audit 4, 5.)
 - **The report's known issues can be a verifier reply cut into lines.** The cancelled run's `result` listed, as M4's
   known issues, the verifier's whole reply split per line ("HEAD: 13f8a45…", "**Acceptance lines**", "**Gate
   items**", "**Not checked**"), not findings. The report also shows tokens but no cost. Fix: take only finding lines
@@ -81,32 +76,47 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   the phone notices carry only catherd's own parks. Fix: the catherd skill tells a coordinator that runs unattended
   never to ask interactively: rule, record the ruling, and send what needs the owner to the run's notify url.
   (Run audit 25.)
-- **The run audit's other findings.** The five-lens audit of this run,
-  `docs/dev/reports/2026-10-23-plan-38-run-audit.md`, lists 29 findings. This branch fixes 7 (the role env in checks)
-  and 10 (an answered BLOCKER past the cap re-dispatches); the entries above hold 4, 5, 15,
-  19, 20, 22 and 25. The rest, each with its evidence and fix in the report:
-  - **Gate integrity.** 1: a check written `ROOT && web && openapi && privacy` stops at the first red part, so the web
-    gate, e2e, openapi sync and privacy grep never ran for any milestone; run one `gate_run` per item. 2: `gate_pass`
-    without a matching step records against the base checkout (M3's web rows name `d6b23a4`); require a milestone and
-    a step. 3: `gates.jsonl` never gates land. 6: `checkFailLines` keeps only 60 lines, so a 61st new failure is
-    invisible. 8: verifiers carry A-line results over from an earlier verifier with no record.
-  - **Orchestration.** 9: the architect widened M7's dependency to M1–M6 without surfacing it, so the run could never
-    reach M7. 10 (the part left): a verifier FAIL counts as a review round, so one failing test spends the cap with no
-    fix round. 11: lanes go `check_broken` on a repo-wide typecheck that imports a sibling lane's unwritten exports
-    (~16 dispatches). 12: a verifier re-runs on an unchanged HEAD and env. 13: a verifier's result is dropped when the
-    base moves. 14: milestone starts serialise on the memory check; verifier gates queue on the heavy lock in no
-    useful order; cancel leaves orphan parks and the trees.
-  - **Role output.** 16: reviewers do not run tests, so they PASS heads the verifier fails. 17: the same finding
-    repeats unchanged for three rounds on an unchanged HEAD. 18: replies missing `VERDICT:`/`HEAD:` lines are
-    accepted. 19 (first part): an architect requirement that contradicted its task cost a judge round.
-  - **Cost.** 20: Codex cost is never computed (`costUsd: null`; the run reported $11.09, about $49 with Codex at
-    catalog prices). 21: "in" tokens count cache reads, and cache writes are not recorded. 22 (the part left): a rung
-    climbs on an environment failure. 23: the ui-reviewer resumes a growing thread; judges run as full sessions; open
-    whether Codex usage is cumulative across a resumed thread.
-  - **Observability.** 24: nothing re-notifies a run parked with nobody answering (5h49m of `tick`). 26: `status
-    --json` `questions` reads the 1.x `questions.jsonl` and showed `[]` while parks were open. 27: a cancelled run's
-    report and finish message read like a success. 28: ntfy messages carry no reason, question text or link. 29: the
-    panel's Took, done count, Rounds and Cost mislead, and an ended run keeps its parks.
+- **The run audit's open findings.** The five-lens audit
+  (`docs/dev/reports/2026-10-23-plan-38-run-audit.md`) leaves these items outside plan 39. Finding 7: a verifier gate
+  inherits role and scratch variables, and cached failures cannot be re-recorded; 8: verifiers can carry A-line
+  results without a record; 11: repo-wide typechecks make parallel lanes fail on unwritten sibling exports; 13: a
+  base move discards a verifier result; 14: milestone starts serialize on memory checks, verifier gates queue without
+  useful order, and cancel leaves orphan parks and trees. Evidence: report findings 7–8 and 11–14, including the
+  ~16 failed dispatches in finding 11.
+  Findings 15–19 also remain open: lane ownership can omit tests of changed exports (15); reviewers do not run tests
+  (16); unchanged findings repeat across rounds (17); malformed role replies can pass parsing (18); architect
+  requirements can contradict tasks, and known issues can contain a verifier reply split into lines (19). Evidence:
+  report findings 15–19, including M2.L1's contradictory requirement and the cancelled run's split reply.
+  Finding 23 remains open: ui-reviewers resume growing threads, judges use full sessions, and Codex usage across a
+  resumed thread may be cumulative. Evidence: report finding 23; the cumulative-usage question remains unresolved.
+  Finding 25 remains open: an unattended coordinator can ask an interactive question that no one sees. Evidence:
+  report finding 25, where five questions waited from 04:16 to 10:05 UTC.
+
+- **New catherd findings from plan 39.** Evidence below comes from plan 39 milestone verifier findings and reviewer
+  records; these items were not fixed by plan 39:
+  - **Loopback addresses are partly normalized as ports.** `normalizeFailLine` turns `127.0.0.1:43211` into
+    `<port>.0.0.1:<port>`, so the displayed address is wrong. Evidence: M1 verifier finding in
+    `src/domain/fail-lines.ts`; M1 landed known issue.
+  - **The Codex catalog fallback can lose a run record.** `finalize` lets an unreadable pinned catalog throw when a
+    backend provides no cost, rather than leaving the cost null. Evidence: M3 verifier finding at
+    `src/services/finalize.ts:217`.
+  - **A full-suite test is order-dependent.** `test/services/run-effects.test.ts:826` fails in full-suite runs but
+    passes alone, including on the base. Evidence: M4 verifier's full-gate report.
+  - **The report can mislabel a failed finish.** `run-report.ts` derives the headline from state and can print
+    `Outcome: done` when the finish action outcome is `failed`. Evidence: M4 verifier finding at
+    `src/services/run-report.ts:145`.
+  - **Notification excerpts retain fenced code.** Removing the fence markers leaves the code text in the excerpt.
+    Evidence: M4 verifier finding at `src/domain/notify.ts:30`.
+  - **The step summary truncates on a narrow screen.** At 390px, “Steps” appears as “ST…”. Evidence: M5 UI review
+    screenshot `shots/M5-r2-waiting-mobile-dark.png`, with the summary at
+    `web/src/routes/_app/runs/$runId.tsx:171`.
+  - **Passing tests can be reported as failures when their names contain `FAIL`.** The verifier's failure list
+    includes `(pass) the verifier's prompt (spec 1.1 §7) > records HEAD first, puts file:line in FAIL lines and calls
+    a minor issue a NIT`. Evidence: the verifier gate output recorded in the run events (seq 66); the passing test is
+    `test/domain/verifier-prompt.test.ts:47`.
+
+- **A public panel URL for phone links.** The panel binds to `127.0.0.1`, so phone notices cannot open it from
+  another device. Evidence: `CLAUDE.md:17` and plan 39 decision D16; choosing a public URL is a product decision.
 
 ### From the plan 28–35 reviews (2026-10-21)
 
@@ -118,9 +128,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
   Jev, or the judge at `readPlan`, whether each task names what its worker must build.
-- **Base-failure line matching hides untested `a && b` tails.** The audit line now names the unreached tail
-  (`andTail`, `src/domain/fail-lines.ts`); still open: when the baseline's exit is non-zero, run the check's parts
-  separately so a new break in the tail is caught.
 - **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
   gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
   says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
