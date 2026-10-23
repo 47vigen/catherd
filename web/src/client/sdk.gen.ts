@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ActivateProfileData, ActivateProfileErrors, ActivateProfileResponses, AnswerUnitData, AnswerUnitErrors, AnswerUnitResponses, CancelRoleData, CancelRoleErrors, CancelRoleResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CreateProfileData, CreateProfileErrors, CreateProfileResponses, DeleteProfileData, DeleteProfileErrors, DeleteProfileResponses, GetCheckLogsData, GetCheckLogsErrors, GetCheckLogsResponses, GetCommitDiffData, GetCommitDiffErrors, GetCommitDiffResponses, GetDispatchData, GetDispatchErrors, GetDispatchResponses, GetDispatchStreamData, GetDispatchStreamErrors, GetDispatchStreamResponses, GetOverviewData, GetOverviewErrors, GetOverviewResponses, GetRunData, GetRunDocData, GetRunDocErrors, GetRunDocResponses, GetRunErrors, GetRunModelData, GetRunModelErrors, GetRunModelResponses, GetRunResponses, GetRunTimelineData, GetRunTimelineErrors, GetRunTimelineResponses, GetSessionData, GetSessionErrors, GetSessionResponses, GetSetupData, GetSetupErrors, GetSetupResponses, GetVersionData, GetVersionErrors, GetVersionResponses, ListAnsweredData, ListAnsweredErrors, ListAnsweredResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListRunsData, ListRunsErrors, ListRunsResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, PauseRunData, PauseRunErrors, PauseRunResponses, PreviewProfileData, PreviewProfileErrors, PreviewProfileResponses, RecheckSetupData, RecheckSetupErrors, RecheckSetupResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SaveProfileData, SaveProfileErrors, SaveProfileResponses, SetHostData, SetHostErrors, SetHostResponses, SetNotifyUrlData, SetNotifyUrlErrors, SetNotifyUrlResponses, SetRoleRungsData, SetRoleRungsErrors, SetRoleRungsResponses } from './types.gen';
+import type { ActivateProfileData, ActivateProfileErrors, ActivateProfileResponses, AnswerUnitData, AnswerUnitErrors, AnswerUnitResponses, CancelRoleData, CancelRoleErrors, CancelRoleResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CreateProfileData, CreateProfileErrors, CreateProfileResponses, DeleteProfileData, DeleteProfileErrors, DeleteProfileResponses, GetCheckLogsData, GetCheckLogsErrors, GetCheckLogsResponses, GetCommitDiffData, GetCommitDiffErrors, GetCommitDiffResponses, GetDispatchData, GetDispatchErrors, GetDispatchResponses, GetDispatchStreamData, GetDispatchStreamErrors, GetDispatchStreamResponses, GetOverviewData, GetOverviewErrors, GetOverviewResponses, GetRunData, GetRunDocData, GetRunDocErrors, GetRunDocResponses, GetRunErrors, GetRunModelData, GetRunModelErrors, GetRunModelResponses, GetRunResponses, GetRunTimelineData, GetRunTimelineErrors, GetRunTimelineResponses, GetSessionData, GetSessionErrors, GetSessionResponses, GetSetupData, GetSetupErrors, GetSetupResponses, GetVersionData, GetVersionErrors, GetVersionResponses, ListAnsweredData, ListAnsweredErrors, ListAnsweredResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListRunsData, ListRunsErrors, ListRunsResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, PauseRunData, PauseRunErrors, PauseRunResponses, PreviewProfileData, PreviewProfileErrors, PreviewProfileResponses, RecheckSetupData, RecheckSetupErrors, RecheckSetupResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SaveProfileData, SaveProfileErrors, SaveProfileResponses, SetHostData, SetHostErrors, SetHostResponses, SetNotifyUrlData, SetNotifyUrlErrors, SetNotifyUrlResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -68,15 +68,6 @@ export const setNotifyUrl = <ThrowOnError extends boolean = false>(options: Opti
 
 export const setHost = <ThrowOnError extends boolean = false>(options: Options<SetHostData, ThrowOnError>): RequestResult<SetHostResponses, SetHostErrors, ThrowOnError> => (options.client ?? client).post<SetHostResponses, SetHostErrors, ThrowOnError>({
     url: '/api/setup/host',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-export const setRoleRungs = <ThrowOnError extends boolean = false>(options: Options<SetRoleRungsData, ThrowOnError>): RequestResult<SetRoleRungsResponses, SetRoleRungsErrors, ThrowOnError> => (options.client ?? client).put<SetRoleRungsResponses, SetRoleRungsErrors, ThrowOnError>({
-    url: '/api/setup/roles/{role}',
     ...options,
     headers: {
         'Content-Type': 'application/json',

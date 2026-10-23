@@ -679,10 +679,6 @@ export type LoginBody = {
     token: string;
 };
 
-export type RungsBody = {
-    rungs: Array<string>;
-};
-
 export type AnswerBody = {
     unit: string;
     answer: string;
@@ -984,35 +980,6 @@ export type SetHostResponses = {
 };
 
 export type SetHostResponse = SetHostResponses[keyof SetHostResponses];
-
-export type SetRoleRungsData = {
-    body: RungsBody;
-    path: {
-        role: string;
-    };
-    query?: {
-        repo?: string;
-    };
-    url: '/api/setup/roles/{role}';
-};
-
-export type SetRoleRungsErrors = {
-    /**
-     * error
-     */
-    default: ErrorBody;
-};
-
-export type SetRoleRungsError = SetRoleRungsErrors[keyof SetRoleRungsErrors];
-
-export type SetRoleRungsResponses = {
-    /**
-     * ok
-     */
-    200: ProfileSaved;
-};
-
-export type SetRoleRungsResponse = SetRoleRungsResponses[keyof SetRoleRungsResponses];
 
 export type CreateProfileData = {
     body: CreateProfileBody;

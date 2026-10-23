@@ -405,63 +405,6 @@
         }
       }
     },
-    "/api/setup/roles/{role}": {
-      "put": {
-        "operationId": "setRoleRungs",
-        "parameters": [
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "repo",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RungsBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "ok",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProfileSaved"
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/profiles": {
       "post": {
         "operationId": "createProfile",
@@ -4997,23 +4940,6 @@
         },
         "required": [
           "token"
-        ],
-        "additionalProperties": false
-      },
-      "RungsBody": {
-        "type": "object",
-        "properties": {
-          "rungs": {
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        },
-        "required": [
-          "rungs"
         ],
         "additionalProperties": false
       },

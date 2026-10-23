@@ -10,13 +10,12 @@ import type { ProfileDoc } from "../../domain/profile.ts";
 import { deriveRunModel, diffRunModel, type RunModel } from "../../domain/run-graph.ts";
 import { describeEvent } from "../../domain/run-events.ts";
 import { replay } from "../../domain/run-state.ts";
-import { ROLES, type Role } from "../../domain/roles.ts";
 import { openUrl, writeRedirectPage } from "../../infra/open-url.ts";
 import { log } from "../../infra/log.ts";
 import { VERSION } from "../../infra/version.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type NowLine, overview } from "../../services/overview.ts";
-import { setRoleRungs, setupView } from "../../services/panel-setup.ts";
+import { setupView } from "../../services/panel-setup.ts";
 import type { Deps } from "../../services/ports.ts";
 import { activate, createProfile, deleteProfile, recordHost } from "../../services/profile-service.ts";
 import { answerUnit, cancelRun, pauseRun, resumeRun } from "../../services/run-client.ts";
@@ -41,7 +40,6 @@ import {
   type OperationId,
   PreviewBodySchema,
   QuestionsQuerySchema,
-  RungsBodySchema,
   SaveProfileBodySchema,
 } from "./openapi.ts";
 
@@ -231,15 +229,6 @@ const HANDLERS: Record<OperationId, (c: Call) => unknown> = {
     const { host } = c.body as z.infer<typeof HostBodySchema>;
     recordHost(host);
     c.setHost(host);
-  },
-  setRoleRungs: (c) => {
-    const role = c.params.role as Role;
-    if (!ROLES.includes(role))
-      throw new CatherdError("E_INPUT_INVALID", `no role named "${role}"`, {
-        fix: `one of ${ROLES.join(", ")}`,
-      });
-    writableHost(c.deps);
-    return setRoleRungs(c.deps, repoOf(c), role, (c.body as z.infer<typeof RungsBodySchema>).rungs);
   },
   createProfile: (c) => {
     const { name, from } = c.body as z.infer<typeof CreateProfileBodySchema>;

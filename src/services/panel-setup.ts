@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { BackendAdapter } from "../adapters/backend.ts";
-import { CatherdError } from "../domain/errors.ts";
 import type { HostContext } from "../domain/host.ts";
 import { BILLING_MODES } from "../domain/cost.ts";
 import { pairOf } from "../domain/catalog.ts";
@@ -13,7 +12,7 @@ import { adapterFor } from "../adapters/registry.ts";
 import { ADAPTER_IDS } from "../domain/ids.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { indexCheck } from "./doctor-checks.ts";
-import type { Deps, ProfileSaved } from "./ports.ts";
+import type { Deps } from "./ports.ts";
 import { cachedProbe } from "./probe-cache.ts";
 import { activeName, profileFor, readConfig, readProjects } from "./profile-store.ts";
 
@@ -244,38 +243,4 @@ export async function setupView(
       };
     }),
   };
-}
-
-/** Unique, rising intelligence with unindexed last; ties keep the previous order, then the pick order. */
-export function orderRungs(
-  rungs: string[],
-  previous: string[],
-  intelligence: (r: string) => number | null,
-): string[] {
-  const at = (list: string[], r: string) => {
-    const i = list.indexOf(r);
-    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
-  };
-  return [...new Set(rungs)].sort(
-    (a, b) =>
-      (intelligence(a) ?? Infinity) - (intelligence(b) ?? Infinity) ||
-      at(previous, a) - at(previous, b) ||
-      at(rungs, a) - at(rungs, b),
-  );
-}
-
-/** Saves a role's rungs, in ladder order, through the profile service (its validation is the gate). */
-export function setRoleRungs(deps: Deps, repo: string | null, role: Role, rungs: string[]): ProfileSaved {
-  if (hostSetRoles(deps, repo).size > 0)
-    throw new CatherdError(
-      "E_INPUT_INVALID",
-      "no orchestration host is known, so the rungs cannot be saved",
-      {
-        fix: "start the panel with --host codex|claude-code, or run catherd init",
-      },
-    );
-  const current = deps.profiles.get(undefined, repo).profile.roles[role]?.rungs ?? [];
-  const catalog = loadCatalog({ repo: repo ?? undefined });
-  const ordered = orderRungs(rungs, current, (r) => pairOf(catalog, r)?.intelligence ?? null);
-  return deps.profiles.set(undefined, { roles: { [role]: { rungs: ordered } } }, repo);
 }

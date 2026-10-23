@@ -300,18 +300,13 @@ describe("the panel server", () => {
     expect([r.status, ((await r.json()) as { cancelling: boolean }).cancelling]).toEqual([200, true]);
   });
 
-  it("saves a role's rungs through the profile service and refuses a role that does not exist", async () => {
-    process.env.PATH = "/nonexistent"; // GET /api/setup probes each backend's CLI: none is found, none is spawned
+  it("has no rung writer of its own: a ladder is saved as a profile patch", async () => {
     const cookie = await signIn();
-    const put = (role: string, rungs: string[]) =>
-      call(cookie, `/api/setup/roles/${role}`, {
-        method: "PUT",
-        body: JSON.stringify({ rungs }),
-      });
-    const ok = await put("reviewer", ["codex:gpt-6-sol#high"]);
-    expect([ok.status, ProfileSavedSchema.parse(await ok.json()).saved]).toEqual([200, true]);
-    expect((await put("boss", ["codex:gpt-6-sol#high"])).status).toBe(400);
-    expect((await call(cookie, "/api/setup")).status).toBe(200);
+    const r = await call(cookie, "/api/setup/roles/reviewer", {
+      method: "PUT",
+      body: JSON.stringify({ rungs: ["codex:gpt-6-sol#high"] }),
+    });
+    expect(r.status).toBe(404);
   });
 
   it("answers 400, with the security headers, to a malformed escape in a run id", async () => {

@@ -32,7 +32,6 @@ export const ErrorBodySchema = z.object({
 const Page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), total: z.number().int() });
 
 export const LoginBodySchema = z.object({ token: z.string().min(1).max(200) });
-export const RungsBodySchema = z.object({ rungs: z.array(z.string().min(1)).max(50) });
 export const AnswerBodySchema = z.object({
   unit: z.string().min(1).max(100),
   answer: z.string().trim().min(1).max(10000),
@@ -127,7 +126,6 @@ export type OperationId =
   | "saveProfile"
   | "setNotifyUrl"
   | "setHost"
-  | "setRoleRungs"
   | "createProfile"
   | "deleteProfile"
   | "activateProfile"
@@ -210,14 +208,6 @@ export const OPERATIONS: readonly Operation[] = [
     response: null,
   },
   { id: "setHost", method: "POST", path: "/api/setup/host", body: HostBodySchema, response: null },
-  {
-    id: "setRoleRungs",
-    method: "PUT",
-    path: "/api/setup/roles/{role}",
-    query: SetupQuerySchema,
-    body: RungsBodySchema,
-    response: ProfileSavedSchema,
-  },
   {
     id: "createProfile",
     method: "POST",
@@ -348,7 +338,6 @@ const SCHEMAS: Record<string, z.ZodType> = {
   Session: SessionSchema,
   Version: VersionSchema,
   LoginBody: LoginBodySchema,
-  RungsBody: RungsBodySchema,
   AnswerBody: AnswerBodySchema,
   AnswerResult: AnswerResultSchema,
   CancelResult: CancelResultSchema,
