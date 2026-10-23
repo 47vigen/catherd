@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
 import { checkFailLines, checkItems, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import type { RunEvent } from "../domain/run-events.ts";
 import { milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
@@ -18,6 +19,7 @@ import {
 } from "../infra/store.ts";
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
+import { readEvents } from "./run-events-store.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
 
@@ -197,9 +199,30 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
   return rec;
 }
 
+/** Pair an owner's explicit accept with the land question they actually answered. */
+function acceptedLandQuestions(
+  run: Run,
+  milestone: string,
+): Extract<RunEvent, { type: "question.parked" }>[] {
+  const accepted: Extract<RunEvent, { type: "question.parked" }>[] = [];
+  let parked: Extract<RunEvent, { type: "question.parked" }> | null = null;
+  for (const event of readEvents(run)) {
+    if (event.type === "question.parked" && event.unit === milestone) parked = event;
+    else if (event.type === "question.answered" && event.unit === milestone) {
+      if (parked?.reason === "land" && event.by === "owner" && event.answer.trim().toLowerCase() === "accept")
+        accepted.push(parked);
+      parked = null;
+    }
+  }
+  return accepted;
+}
+
+const baselineFailure = (rec: CheckRecord, base: CheckRecord): string =>
+  `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`;
+
 /**
  * The machine half of the land gate: every required check item has a successful record on `head`.
- * Red baselines block too; `audit` lists skipped secret scans and reruns.
+ * Red baselines block unless the owner accepted those failures; `audit` lists waivers, skipped scans and reruns.
  */
 export async function machineGate(
   run: Run,
@@ -228,7 +251,12 @@ export async function machineGate(
     if (!latest.has(item))
       missing.push(`no machine check of \`${item}\` for ${m} on ${head.slice(0, 12)}: run it with gate_run`);
   const start = await checkBase(run, m);
-  for (const item of required) {
+  const accepted = acceptedLandQuestions(run, m);
+  const checkedItems = new Set([
+    ...required,
+    ...[...latest.keys()].filter((item) => checkItems(item).length === 1),
+  ]);
+  for (const item of checkedItems) {
     const rec = latest.get(item);
     if (!rec) continue;
     if (rec.secrets === "found")
@@ -255,9 +283,23 @@ export async function machineGate(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
     else {
-      missing.push(
-        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`,
-      );
+      const waived = accepted.some((q) => {
+        // Snapshot the full record at park time: the displayed excerpt is not the accepted failure set.
+        const previous = records
+          .filter((r) => r.command === rec.command && r.head === head && Date.parse(r.at) <= Date.parse(q.at))
+          .at(-1);
+        return (
+          previous !== undefined &&
+          previous.exit === rec.exit &&
+          previous.fails.length > 0 &&
+          newFails(rec.fails, previous.fails).length === 0 &&
+          q.question.includes(head.slice(0, 12)) &&
+          q.question.includes(baselineFailure(previous, base))
+        );
+      });
+      if (waived)
+        audit.push(`owner accepted the pre-existing failures of \`${rec.command}\` on ${head.slice(0, 12)}`);
+      else missing.push(baselineFailure(rec, base));
     }
   }
   return { missing, audit };

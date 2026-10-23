@@ -591,7 +591,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(e.fix).toContain('gate_run(run, "M1"');
   });
 
-  it("lands on a check whose failures the base has, with the audit as hints", async () => {
+  it("refuses a check whose failures are pre-existing on a red baseline", async () => {
     const { repo, run } = freshRun();
     const c = commitFiles(repo, ["src/a.ts"]);
     await passGate(run, "M1");
@@ -604,9 +604,11 @@ describe("the land gate (spec 1.1 §6)", () => {
     });
     appendCheckRecord(repo, row({ baseline: true, head: "b".repeat(40), exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, row({ exit: 1, fails: ["FAIL x"] }));
-    const landed = await land(fakeDeps(), landing(run.id, c));
-    expect(landed.ledger).toStartWith("M1 |");
-    expect(landed.hints?.join("\n")).toContain("pre-existing");
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toContain("pre-existing");
+    expect(e.message).toContain("FAIL x");
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
   });
 
   it("land refuses a milestone whose gate_check item has no pass", async () => {
@@ -696,6 +698,31 @@ describe("the land gate (spec 1.1 §6)", () => {
       expect(e.code).toBe("E_LAND_GATE");
       expect(e.message).toContain("unit tests");
     });
+
+  it("refuses malformed gate commits without throwing a type error", async () => {
+    for (const commit of [null, { length: 1 }, ["bad"]]) {
+      const { repo, run } = freshRun();
+      commitFiles(repo, ["src/a.ts"]);
+      const item = {
+        run: run.id,
+        milestone: "M1",
+        item: "unit tests",
+        command: "bun test",
+        paths: ["src/a.ts"],
+      };
+      await gateCheck(fakeDeps(), item);
+      await gatePass(fakeDeps(), { ...item, evidence: "passed on older head" });
+      const c = commitFiles(repo, ["docs/later.md"]);
+      await passGate(run, "M1");
+      const file = gatesFile(repo);
+      const text = readFileSync(file, "utf8");
+      const row = JSON.parse(text.trim().split("\n").at(-1)!);
+      writeFileSync(file, text + JSON.stringify({ ...row, commit }) + "\n");
+      const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+      expect(e.code).toBe("E_LAND_GATE");
+      expect(e.message).toContain("unit tests");
+    }
+  });
 
   it("refuses a secret hit on the landed commit", async () => {
     const { repo, run } = freshRun();

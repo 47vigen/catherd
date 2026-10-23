@@ -42,6 +42,13 @@ describe("runMilestoneCheck", () => {
     expect(r.running === false && r.missing).toEqual([]);
   });
 
+  it("reports an additional failed gate_run when the planned check passed", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: true\n");
+    expect(await runMilestoneCheck({ ...i, command: "true" })).toMatchObject({ running: false, missing: [] });
+    const failed = await runMilestoneCheck({ ...i, command: "false" });
+    expect(failed.running === false && failed.missing.join("\n")).toContain("`false` exits 1");
+  });
+
   it("reuses the record on the same HEAD, and runs again when forced", async () => {
     await runMilestoneCheck(i);
     expect(await runMilestoneCheck(i)).toMatchObject({ cached: true });

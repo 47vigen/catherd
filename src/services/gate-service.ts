@@ -285,7 +285,7 @@ async function contentHash(repo: string, paths: string[]): Promise<{ hash: strin
   return { hash: h.digest("hex"), dirty: dirty.length > 0 };
 }
 
-const readPasses = (file: string): GatePass[] =>
+export const readPasses = (file: string): GatePass[] =>
   readJsonl<unknown>(file).rows.flatMap((row) => {
     const r = GatePassSchema.safeParse(row);
     return r.success ? [r.data] : [];

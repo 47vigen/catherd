@@ -17,8 +17,7 @@ import {
 } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
-import { readJsonl } from "../infra/store.ts";
-import { gatesFile, recordedItems } from "./gate-service.ts";
+import { gatesFile, readPasses, recordedItems } from "./gate-service.ts";
 import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
@@ -462,9 +461,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
       },
     );
   const items = await recordedItems(run, m);
-  const passes = readJsonl<{ run: string; item: string; command: string; commit: string }>(
-    gatesFile(run.meta.repo),
-  ).rows;
+  const passes = readPasses(gatesFile(run.meta.repo));
   const unpassed = items.filter(
     (item) =>
       !item.passed ||
