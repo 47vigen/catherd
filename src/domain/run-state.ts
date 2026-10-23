@@ -1290,9 +1290,11 @@ function apply(s: RunState, e: RunEvent): void {
       s.phase = "ended";
       s.outcome = e.outcome;
       return;
-    case "report.posted":
-      delete s.owed[`${e.kind}:${e.unit}`];
+    case "report.posted": {
+      const key = `${e.kind}:${e.unit}`;
+      if (s.owed[key]?.text === e.text) delete s.owed[key];
       return;
+    }
     case "stop.classified": {
       const l = Object.values(s.lanes).find((x) => x.classify?.dispatchId === e.dispatchId);
       if (!l?.classify) return;

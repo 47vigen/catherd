@@ -49,6 +49,24 @@ afterEach(() => {
 });
 
 describe("ensureDaemon", () => {
+  it("excludes competing revives until the launch completes", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, started);
+    daemonLauncher.launch = () => {
+      const competing = tryLock(launchStamp(run));
+      competing?.();
+      expect(competing).toBeNull();
+      return 1;
+    };
+    expect(ensureDaemon(run)).toBe("revived");
+    const release = tryLock(launchStamp(run));
+    try {
+      expect(release).not.toBeNull();
+    } finally {
+      release?.();
+    }
+  });
+
   it("launches a dead daemon at most once per reviveMs", async () => {
     const launched = fakeLauncher();
     const { run } = freshRun();

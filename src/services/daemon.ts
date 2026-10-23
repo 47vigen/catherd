@@ -4,7 +4,7 @@ import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import { launchDaemon } from "../infra/launch.ts";
 import type { SuperviseClock } from "../infra/supervisor.ts";
-import { lockHeld, tryLock } from "../infra/filelock.ts";
+import { lockHeld, tryLock, withFileLockSync } from "../infra/filelock.ts";
 import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
@@ -74,12 +74,16 @@ export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" {
   if (!isDaemonRun(run)) return "1.5";
   if (hasEnded(run)) return "ended";
   if (daemonAlive(run)) return "alive";
-  // A daemon that died within reviveMs most likely fails at start: one launch per window, not per read.
-  const last = existsSync(launchStamp(run)) ? statSync(launchStamp(run)).mtimeMs : 0;
-  if (Date.now() - last < daemonLimits.reviveMs) return "revived";
-  writeFileSync(launchStamp(run), "");
-  daemonLauncher.launch(run.id, run.dir);
-  return "revived";
+  return withFileLockSync(launchStamp(run), () => {
+    if (hasEnded(run)) return "ended";
+    if (daemonAlive(run)) return "alive";
+    // A daemon that died within reviveMs most likely fails at start: one launch per window, not per read.
+    const last = existsSync(launchStamp(run)) ? statSync(launchStamp(run)).mtimeMs : 0;
+    if (Date.now() - last < daemonLimits.reviveMs) return "revived";
+    writeFileSync(launchStamp(run), "");
+    daemonLauncher.launch(run.id, run.dir);
+    return "revived";
+  });
 }
 
 /** Writes the heartbeat: who holds the lock, since when, and how far it has read. */

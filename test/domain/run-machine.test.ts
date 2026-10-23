@@ -654,7 +654,7 @@ describe("the machine: review rounds", () => {
     expect(of(last(log), "commit")).toEqual([]);
     log.add("question.parked", { unit: "M1", question: "q", reason: "commit" });
     log.add("question.answered", { unit: "M1", answer: "fixed the hook", by: "owner" });
-    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    log.add("report.posted", { kind: "parked", unit: "M1", text: log.state().owed["parked:M1"]!.text });
     expect(last(log)).toEqual([{ type: "commit", milestone: "M1", round: 0 }]);
     const l = base1();
     l.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "no reviewer", fix: "run it" });
@@ -1063,7 +1063,7 @@ describe("the machine: the run", () => {
       ["parked", "M2"],
       ["landed", "M2"],
     ] as const)
-      log.add("report.posted", { kind, unit, text: "x" });
+      log.add("report.posted", { kind, unit, text: log.state().owed[`${kind}:${unit}`]!.text });
     log.add("run.ended", { outcome: "done", reportPath: "report.md" });
     const out = last(log);
     expect(of(out, "report")).toMatchObject([{ kind: "finished" }]);
@@ -1213,7 +1213,7 @@ describe("the machine: the run", () => {
     log.add("daemon.started", { pid: 1, version: "x" });
     expect(of(last(log), "report")).toMatchObject([{ kind: "parked", unit: "M1" }]);
     expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "blocked" }]);
-    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    log.add("report.posted", { kind: "parked", unit: "M1", text: log.state().owed["parked:M1"]!.text });
     expect(of(last(log), "report")).toEqual([]);
     expect(of(last(log), "notify")).toEqual([]);
   });
@@ -1232,7 +1232,7 @@ describe("the machine: the run", () => {
     };
     log.add("question.parked", { unit: "M1", question: "q1", reason: "needs_user" });
     expect(of(feed(), "report")).toHaveLength(1);
-    log.add("report.posted", { kind: "parked", unit: "M1", text: "x" });
+    log.add("report.posted", { kind: "parked", unit: "M1", text: log.state().owed["parked:M1"]!.text });
     feed();
     log.add("question.answered", { unit: "M1", answer: "a", by: "owner" });
     feed();
@@ -1246,7 +1246,7 @@ describe("the machine: the run", () => {
     log.add("daemon.started", { pid: 1, version: "x" });
     expect(of(last(log), "report")).toMatchObject([{ kind: "landed", unit: "M1" }]);
     expect(of(last(log), "notify")).toEqual([{ type: "notify", unit: "M1", moment: "milestone" }]);
-    log.add("report.posted", { kind: "landed", unit: "M1", text: "x" });
+    log.add("report.posted", { kind: "landed", unit: "M1", text: log.state().owed["landed:M1"]!.text });
     expect(of(last(log), "report")).toEqual([]);
   });
 
@@ -1396,7 +1396,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
     ask(log);
     expect(last(log).map((a) => a.type)).toEqual(["report", "notify"]);
     log.add("question.answered", { unit: "run", answer: "rename Ledger to Book", by: "owner" });
-    log.add("report.posted", { kind: "parked", unit: "run", text: "posted" });
+    log.add("report.posted", { kind: "parked", unit: "run", text: log.state().owed["parked:run"]!.text });
     expect(last(log).map((a) => a.type)).toEqual(["dispatch"]);
     expect(of(last(log), "dispatch")).toEqual([
       expect.objectContaining({
@@ -1603,7 +1603,7 @@ describe("the machine: milestones side by side (plan 35)", () => {
     expect(of(last(log), "report")).toMatchObject([{ kind: "memory", unit: "M2" }]);
     expect(of(last(log), "report")[0]?.text).toContain("3100 MB available");
     expect(of(last(log), "notify")).toEqual([]);
-    log.add("report.posted", { kind: "memory", unit: "M2", text: "waiting" });
+    log.add("report.posted", { kind: "memory", unit: "M2", text: log.state().owed["memory:M2"]!.text });
     log.add("tick", {}, log.state().milestones[1]?.claimAfter as string);
     log.add("tree.deferred", { milestone: "M2", availableMb: 3200, needMb: 5120 });
     expect(of(last(log), "report").filter((r) => r.kind === "memory")).toEqual([]);
@@ -1621,6 +1621,20 @@ describe("the machine: milestones side by side (plan 35)", () => {
     expect(of(last(log), "report")).toMatchObject([{ kind: "memory", unit: "M1" }]);
     expect(of(last(log), "report")[0]?.text).toContain("has its worktree");
     expect(of(last(log), "notify")).toEqual([]);
+  });
+
+  it("keeps the worktree-ready report when the memory-wait acknowledgement arrives late", () => {
+    const log = sideBySide({ M1: {} });
+    log.add("tree.deferred", { milestone: "M1", availableMb: 3100, needMb: 5120 });
+    const waiting = of(last(log), "report")[0]!;
+    treeReady(log, "M1");
+    const ready = of(last(log), "report")[0]!;
+    expect(ready.text).toContain("has its worktree");
+    log.add("report.posted", { kind: waiting.kind, unit: waiting.unit, text: waiting.text });
+    expect(of(last(log), "report")).toEqual([ready]);
+    expect(of(last(log), "notify")).toEqual([]);
+    log.add("report.posted", { kind: ready.kind, unit: ready.unit, text: ready.text });
+    expect(of(last(log), "report")).toEqual([]);
   });
 
   it("waits out a memory deferral and claims again at the recheck", () => {
