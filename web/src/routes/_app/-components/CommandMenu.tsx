@@ -9,6 +9,7 @@ import { listRunsOptions } from "../../../client/@tanstack/react-query.gen";
 type Entry = { id: string; label: string; hint?: string; href: string };
 
 const PAGES: Entry[] = [
+  { id: "page:/", label: "Dashboard", href: "/" },
   { id: "page:/runs", label: "Runs", href: "/runs" },
   { id: "page:/questions", label: "Questions", href: "/questions" },
   { id: "page:/setup", label: "Setup", href: "/setup" },

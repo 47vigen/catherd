@@ -1,4 +1,4 @@
-import { CircleQuestion, Gear, ListUl } from "@gravity-ui/icons";
+import { CircleQuestion, Gear, House, ListUl } from "@gravity-ui/icons";
 import { cn, Link } from "@heroui/react";
 import type { ComponentType, ReactNode, SVGProps } from "react";
 
@@ -17,6 +17,7 @@ const GROUPS: readonly { label: string; items: readonly NavItem[] }[] = [
   {
     label: "Watch",
     items: [
+      { href: "/", label: "Dashboard", icon: House },
       { href: "/runs", label: "Runs", icon: ListUl },
       { href: "/questions", label: "Questions", icon: CircleQuestion },
     ],

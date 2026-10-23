@@ -2,11 +2,21 @@ import { render, screen } from "@testing-library/react";
 
 import { Shell } from "./Shell";
 
-test("Shell.Nav marks the current page and lists every section", () => {
+test("the nav lists Dashboard, Runs, Questions and Setup, and marks the current page", () => {
   render(<Shell.Nav current="/questions" />);
-  for (const name of ["Runs", "Questions", "Setup"]) expect(screen.getByRole("link", { name })).toBeInTheDocument();
+  for (const name of ["Dashboard", "Runs", "Questions", "Setup"]) {
+    expect(screen.getByRole("link", { name })).toBeInTheDocument();
+  }
   expect(screen.getByRole("link", { name: "Questions" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("link", { name: "Runs" })).not.toHaveAttribute("aria-current");
+  expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
+});
+
+test("Dashboard is current on the home page only", () => {
+  const { rerender } = render(<Shell.Nav current="/" />);
+  expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+  rerender(<Shell.Nav current="/runs" />);
+  expect(screen.getByRole("link", { name: "Dashboard" })).not.toHaveAttribute("aria-current");
 });
 
 test("Shell.Nav marks a parent section on a nested page", () => {
@@ -25,5 +35,5 @@ test("Shell.Nav renders links through the given link component", () => {
       )}
     />,
   );
-  expect(screen.getAllByTestId("custom")).toHaveLength(3);
+  expect(screen.getAllByTestId("custom")).toHaveLength(4);
 });
