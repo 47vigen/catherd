@@ -44,6 +44,7 @@ const setup = (over: object = {}) => ({
     bindings: { "/work/wallet": "default" },
   },
   probedAt: new Date(Date.now() - 180_000).toISOString(),
+  pending: false,
   settings: {
     objective: "cost",
     budget: { usd: 5 },

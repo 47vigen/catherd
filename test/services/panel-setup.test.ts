@@ -4,7 +4,13 @@ import { CatherdError } from "../../src/domain/errors.ts";
 import { BUILTIN_ROLES } from "../../src/domain/profile.ts";
 import { defaultDeps } from "../../src/entry/deps.ts";
 import { indexPath } from "../../src/infra/paths.ts";
-import { orderRungs, setRoleRungs, setupView, SetupViewSchema } from "../../src/services/panel-setup.ts";
+import {
+  orderRungs,
+  setRoleRungs,
+  setupProbes,
+  setupView,
+  SetupViewSchema,
+} from "../../src/services/panel-setup.ts";
 import { probeCache } from "../../src/services/probe-cache.ts";
 import { activate } from "../../src/services/profile-service.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
@@ -52,6 +58,21 @@ describe("the panel's Setup view", () => {
     const w = v.roles.find((r) => r.role === "worker")!;
     expect([w.access, w.network, w.timeouts]).toEqual(["workspace-write", true, null]);
     expect(v.probedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it("answers without waiting for a probe that outlives the wait, and says a backend is still being checked", async () => {
+    const real = setupProbes.probe;
+    setupProbes.probe = (a, o) => (a.id === "codex" ? new Promise(() => {}) : real(a, o));
+    setupProbes.waitMs = 0;
+    try {
+      const v = SetupViewSchema.parse(await setupView(deps, repo));
+      expect(v.pending).toBe(true);
+      expect(v.backends.find((b) => b.label === "codex")).toMatchObject({ state: "info", word: "checking" });
+    } finally {
+      setupProbes.probe = real;
+      setupProbes.waitMs = 1500;
+    }
+    expect(SetupViewSchema.parse(await setupView(deps, repo)).pending).toBe(false);
   });
 
   it("a second setup read probes no CLI", async () => {

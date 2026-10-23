@@ -4464,6 +4464,9 @@
               "null"
             ]
           },
+          "pending": {
+            "type": "boolean"
+          },
           "settings": {
             "$ref": "#/components/schemas/Settings"
           },
@@ -4619,6 +4622,7 @@
           "repos",
           "profile",
           "probedAt",
+          "pending",
           "settings",
           "notifyUrl",
           "doc",

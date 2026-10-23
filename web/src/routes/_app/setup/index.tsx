@@ -111,7 +111,11 @@ function SetupPage() {
   const navigate = Route.useNavigate();
   const qc = useQueryClient();
   const query = repo === undefined ? undefined : { repo };
-  const setup = useQuery(getSetupOptions({ query }));
+  // A backend still being checked comes back as "checking"; ask again until every probe has answered.
+  const setup = useQuery({
+    ...getSetupOptions({ query }),
+    refetchInterval: (q) => (q.state.data?.pending ? 2000 : false),
+  });
   const version = useQuery(getVersionOptions());
   const v = setup.data;
   const readOnly = v?.host === "unknown" || version.data?.host === "unknown";

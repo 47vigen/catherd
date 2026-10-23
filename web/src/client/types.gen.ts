@@ -566,6 +566,7 @@ export type SetupView = {
         };
     };
     probedAt: string | null;
+    pending: boolean;
     settings: Settings;
     notifyUrl: string | null;
     doc: {

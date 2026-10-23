@@ -9,6 +9,8 @@ import { NOTIFY, roleTimeouts } from "../domain/profile.ts";
 import { ACCESS } from "../domain/record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "../domain/roles.ts";
 import { catalogQuery, loadCatalog, type IndexedPair } from "./catalog-service.ts";
+import { adapterFor } from "../adapters/registry.ts";
+import { ADAPTER_IDS } from "../domain/ids.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
 import { indexCheck } from "./doctor-checks.ts";
 import type { Deps, ProfileSaved } from "./ports.ts";
@@ -82,6 +84,8 @@ export const SetupViewSchema = z.object({
   }),
   /** when the oldest backend probe shown was taken */
   probedAt: z.string().nullable(),
+  /** a backend probe outlived the wait and still runs; ask again to see it */
+  pending: z.boolean(),
   settings: SettingsSchema,
   notifyUrl: z.string().nullable(),
   /** the stored document, sent back with a save as `expect` */
@@ -105,6 +109,10 @@ export const SetupViewSchema = z.object({
   ),
 });
 export type SetupView = z.infer<typeof SetupViewSchema>;
+
+/** How long Setup waits for a cold backend probe before it answers with "checking" and lets the probe finish;
+ * `probe` is a seam for tests. */
+export const setupProbes = { waitMs: 1500, probe: cachedProbe };
 
 /** Read only: a panel with no host lists the host-set roles as such, instead of failing the whole list. */
 const READ_AS: HostContext = { host: "claude-code", session: null, conflict: null };
@@ -142,12 +150,41 @@ export async function setupView(
   const catalog = loadCatalog({ repo: repo ?? undefined });
   const intelligence = (rung: string) => pairOf(catalog, rung)?.intelligence ?? null;
   const probedAt: string[] = [];
+  // Every probe starts at once and shares one deadline; one that outlives it is shown as "checking" and finishes
+  // behind the answer, into the cache the next read serves.
+  const started = new Map<string, ReturnType<typeof cachedProbe>>();
+  for (const id of ADAPTER_IDS) {
+    const a = adapterFor(id);
+    if (a) started.set(id, setupProbes.probe(a, { force: o?.fresh }));
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), setupProbes.waitMs);
+  });
+  const late = new Set<string>();
   const probe = async (a: BackendAdapter) => {
-    const r = await cachedProbe(a, { force: o?.fresh });
+    const r = await Promise.race([started.get(a.id) ?? setupProbes.probe(a, { force: o?.fresh }), deadline]);
+    if (r === null) {
+      late.add(a.id);
+      return { installed: true, version: null, versionOk: true, loggedIn: null, problems: [] };
+    }
     probedAt.push(r.probedAt);
     return r;
   };
-  const backends = await backendChecks(usedBackends([p]), [p], undefined, deps.host.host, probe);
+  const checked = await backendChecks(usedBackends([p]), [p], undefined, deps.host.host, probe).finally(() =>
+    clearTimeout(timer),
+  );
+  const backends = checked.map((c) =>
+    late.has(c.id.replace(/^backend:/, ""))
+      ? {
+          id: c.id,
+          label: c.label,
+          state: "info" as const,
+          word: "checking",
+          detail: "still checking this backend",
+        }
+      : c,
+  );
   const bindings = readProjects().bindings;
   const v = g.profile;
   return {
@@ -159,6 +196,7 @@ export async function setupView(
     ],
     profile: { name: g.here, active: g.active, profiles: g.profiles, bindings },
     probedAt: probedAt.toSorted()[0] ?? null,
+    pending: late.size > 0,
     settings: {
       objective: v.objective,
       budget: v.budget,
