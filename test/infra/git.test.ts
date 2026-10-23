@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changedPaths } from "../../src/domain/changes.ts";
@@ -94,6 +102,76 @@ describe("git", () => {
     expect(await worktreeIdentity(repo)).toBe(committed);
     writeFileSync(join(repo, "ignored.txt"), "ignored content");
     expect(await worktreeIdentity(repo)).toBe(committed);
+  });
+
+  it("worktreeIdentity includes untracked symlink targets and file types", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "a"), "same");
+    writeFileSync(join(repo, "b"), "same");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "targets");
+    const link = join(repo, "link");
+    symlinkSync("a", link);
+    const first = await worktreeIdentity(repo);
+    expect(first).not.toBeNull();
+    unlinkSync(link);
+    symlinkSync("b", link);
+    const second = await worktreeIdentity(repo);
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    unlinkSync(link);
+    writeFileSync(link, "same");
+    expect(await worktreeIdentity(repo)).not.toBe(second);
+  });
+
+  it("worktreeIdentity includes executable modes even when Git ignores file modes", async () => {
+    const repo = tempRepo();
+    sh(repo, "config", "core.filemode", "false");
+    const file = join(repo, "script");
+    writeFileSync(file, "echo test");
+    chmodSync(file, 0o644);
+    const untracked = await worktreeIdentity(repo);
+    expect(untracked).not.toBeNull();
+    chmodSync(file, 0o755);
+    expect(await worktreeIdentity(repo)).not.toBe(untracked);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "script");
+    const tracked = await worktreeIdentity(repo);
+    expect(tracked).not.toBeNull();
+    chmodSync(file, 0o644);
+    expect(await worktreeIdentity(repo)).not.toBe(tracked);
+  });
+
+  it("worktreeIdentity includes tracked bytes hidden by Git normalization", async () => {
+    const repo = tempRepo();
+    sh(repo, "config", "core.autocrlf", "false");
+    writeFileSync(join(repo, ".gitattributes"), "*.txt text\n");
+    writeFileSync(join(repo, "normalized.txt"), "line\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "normalized text");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).not.toBeNull();
+    writeFileSync(join(repo, "normalized.txt"), "line\r\n");
+    expect(sh(repo, "diff", "HEAD")).toBe("");
+    const changed = await worktreeIdentity(repo);
+    expect(changed).not.toBeNull();
+    expect(changed).not.toBe(clean);
+  });
+
+  it("worktreeIdentity is unknown for successive edits in an already dirty submodule", async () => {
+    const source = tempRepo();
+    writeFileSync(join(source, "tracked"), "initial");
+    sh(source, "add", ".");
+    sh(source, "commit", "-qm", "submodule content");
+    const repo = tempRepo();
+    sh(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub");
+    sh(repo, "commit", "-qm", "submodule");
+    writeFileSync(join(repo, "sub", "tracked"), "first edit");
+    const firstDiff = sh(repo, "diff", "HEAD");
+    expect(await worktreeIdentity(repo)).toBeNull();
+    writeFileSync(join(repo, "sub", "tracked"), "second edit");
+    expect(sh(repo, "diff", "HEAD")).toBe(firstDiff);
+    expect(await worktreeIdentity(repo)).toBeNull();
   });
 
   it("worktreeIdentity is null when git cannot say", async () => {

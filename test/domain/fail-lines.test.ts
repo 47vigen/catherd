@@ -114,6 +114,43 @@ describe("check items", () => {
     );
     expect(failLines.checkItems("a && b <<< c")).toEqual(["a", "b <<< c"]);
   });
+  it("keeps unsupported time prefixes whole", () => {
+    for (const command of [
+      "time [[ -f a && -f b ]] && c",
+      "a && time -p [[ -f a && -f b ]] && c",
+      "time { a && b; } && c",
+    ])
+      expect(failLines.checkItems(command)).toEqual([command]);
+    expect(failLines.checkItems("echo time && c")).toEqual(["echo time", "c"]);
+  });
+  it("keeps unquoted parameter expansions whole", () => {
+    for (const command of [
+      "echo ${x:-a && b} && c",
+      "a && echo ${x:-${y:-b && c}} && d",
+      'echo "$(echo ${x:-a && b})" && c',
+      "echo ${x:-a && b && c",
+    ])
+      expect(failLines.checkItems(command)).toEqual([command]);
+    expect(failLines.checkItems("echo '${x:-a && b}' && c")).toEqual(["echo '${x:-a && b}'", "c"]);
+    expect(failLines.checkItems(String.raw`echo \${x} && c`)).toEqual([String.raw`echo \${x}`, "c"]);
+  });
+  it("rejects detected empty items before every conservative fallback", () => {
+    for (const suffix of [
+      "b # comment",
+      "fi",
+      "b << EOF",
+      "'b",
+      "(b",
+      "b)",
+      "if b",
+      "b \\",
+      "time [[ -f a && -f b ]]",
+      "echo ${x:-a && b}",
+    ])
+      expect(() => failLines.checkItems(`a && && ${suffix}`)).toThrow(
+        expect.objectContaining({ code: "E_INPUT_INVALID" }),
+      );
+  });
   it("rejects empty check items before returning any commands", () => {
     for (const command of ["", "  ", "true &&", "true &&  ", "&& true", "true && && false"]) {
       expect(() => failLines.checkItems(command)).toThrow("empty check item");

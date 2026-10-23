@@ -51,6 +51,14 @@ export function checkItems(command: string): string[] {
   let word = "";
   let commandPosition = true;
   const whole = () => [command.trim()];
+  const addItem = (end: number) => {
+    const item = command.slice(start, end).trim();
+    if (!item)
+      throw new CatherdError("E_INPUT_INVALID", "empty check item", {
+        fix: "provide a command on both sides of every top-level &&",
+      });
+    items.push(item);
+  };
   const endWord = (): boolean => {
     if (!word) return true;
     const token = word;
@@ -73,6 +81,8 @@ export function checkItems(command: string): string[] {
     }
     if (!commandPosition) return true;
     commandPosition = false;
+    // Unsupported time options may precede a compound command.
+    if (token === "time") return false;
     if (["fi", "done", "esac", "}", "]]"].includes(token)) {
       if (block?.close !== token) return false;
       blocks.pop();
@@ -103,6 +113,8 @@ export function checkItems(command: string): string[] {
       i++;
       continue;
     }
+    // Parameter expansion syntax can contain operators and nested shell syntax.
+    if (char === "$" && command[i + 1] === "{" && !quote) return whole();
     if (char === "$" && command[i + 1] === "(" && quote !== "'" && quote !== "`") {
       if (!contexts.length) word += "$(...)";
       contexts.push(quote);
@@ -154,7 +166,7 @@ export function checkItems(command: string): string[] {
       } else if (char === ")") return whole();
       else if (char === "&" && command[i + 1] === "&") {
         if (!blocks.length) {
-          items.push(command.slice(start, i).trim());
+          addItem(i);
           start = i + 2;
         }
         commandPosition = true;
@@ -171,11 +183,7 @@ export function checkItems(command: string): string[] {
     word += char;
   }
   if (!endWord() || quote || contexts.length || blocks.length) return whole();
-  items.push(command.slice(start).trim());
-  if (items.some((item) => !item))
-    throw new CatherdError("E_INPUT_INVALID", "empty check item", {
-      fix: "provide a command on both sides of every top-level &&",
-    });
+  addItem(command.length);
   return items;
 }
 

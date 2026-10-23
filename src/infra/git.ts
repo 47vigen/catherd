@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -69,7 +69,7 @@ export async function gitHead(repo: string, timeoutMs?: number): Promise<string 
 
 /**
  * A content identity of HEAD, tracked changes and non-ignored untracked files, staged or not.
- * Null when git cannot say (including an unborn HEAD) or a listed file cannot be read.
+ * Null when git cannot say, a listed file cannot be read, or a submodule makes contents uncertain.
  */
 export async function worktreeIdentity(repo: string, timeoutMs?: number): Promise<string | null> {
   const head = await git(repo, ["rev-parse", "HEAD"], timeoutMs);
@@ -82,12 +82,26 @@ export async function worktreeIdentity(repo: string, timeoutMs?: number): Promis
   if (diff.kind !== "ok") return null;
   const untracked = await git(repo, ["ls-files", "-z", "--others", "--exclude-standard"], timeoutMs);
   if (untracked.kind !== "ok") return null;
+  const tracked = await git(repo, ["ls-files", "-z", "--cached"], timeoutMs);
+  if (tracked.kind !== "ok") return null;
   const hash = createHash("sha256").update(head.out).update("\0").update(diff.out).update("\0");
   try {
-    for (const path of untracked.out.split("\0").filter(Boolean).sort()) {
-      const content = readFileSync(join(repo, path));
+    const paths = new Set([...tracked.out.split("\0"), ...untracked.out.split("\0")].filter(Boolean));
+    for (const path of [...paths].sort()) {
+      const fullPath = join(repo, path);
+      const stat = lstatSync(fullPath);
+      // Direct bytes catch normalization and mode changes Git's diff can hide. Directories include submodules.
+      if (!stat.isFile() && !stat.isSymbolicLink()) return null;
+      const type = stat.isSymbolicLink() ? "link" : "file";
+      const content = stat.isSymbolicLink()
+        ? readlinkSync(fullPath, { encoding: "buffer" })
+        : readFileSync(fullPath);
       // Length framing prevents file contents from being mistaken for another path or file.
-      hash.update(path).update("\0").update(`${content.length}\0`).update(content);
+      hash
+        .update(path)
+        .update("\0")
+        .update(`${type}\0${stat.mode & 0o111}\0${content.length}\0`)
+        .update(content);
     }
   } catch {
     return null;
