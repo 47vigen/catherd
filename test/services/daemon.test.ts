@@ -130,6 +130,48 @@ describe("runDaemon", () => {
     expect(readEvents(run).map((e) => e.type)).toEqual(["run.started", "run.ended"]);
   });
 
+  it("releases a no-op reminder key for a replacement question", async () => {
+    const { run } = freshRun();
+    const start = Date.parse("2026-10-21T10:00:00.000Z");
+    let now = start + 30 * 60_000;
+    let reminders = 0;
+    let sleeps = 0;
+    await appendEvent(run, started, new Date(start));
+    await appendEvent(
+      run,
+      { type: "question.parked", unit: "run", question: "old", reason: "needs_user" },
+      new Date(start),
+    );
+    await runDaemon(fakeDeps({ now: () => now }), run.id, {
+      effects: {
+        async run(a) {
+          if (a.type === "remind") reminders++;
+        },
+      },
+      clock: {
+        now: () => now,
+        async sleep() {
+          sleeps++;
+          if (sleeps === 1) {
+            await appendEvent(
+              run,
+              { type: "question.answered", unit: "run", answer: "done", by: "owner" },
+              new Date(now),
+            );
+            await appendEvent(
+              run,
+              { type: "question.parked", unit: "run", question: "new", reason: "needs_user" },
+              new Date(now),
+            );
+            now += 30 * 60_000;
+          }
+        },
+      },
+      until: () => reminders >= 2 || sleeps >= 5,
+    });
+    expect(reminders).toBe(2);
+  });
+
   it("writes a heartbeat with its pid, start time and last seq", async () => {
     const { run } = freshRun();
     const deps = fakeDeps({ now: () => Date.parse("2026-10-21T10:00:00.000Z") });
