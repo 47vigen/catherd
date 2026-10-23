@@ -1,7 +1,22 @@
 import { Chip } from "@heroui/react";
 
+import { filterIdOf, TIMELINE_FILTERS } from "../-lib/timeline-filters";
 import type { TimelineEntry } from "../../../../client";
+import { DataList } from "../../../../components/data-list/DataList";
 import { formatRelative } from "../../../../lib/time";
+
+/** Narrows the timeline to a group of events; `types` is the comma list the API takes, undefined for all. */
+export function TimelineFilter({ types, onChange }: { types: string | undefined; onChange(types?: string): void }) {
+  return (
+    <DataList.Filter
+      label="Type"
+      value={filterIdOf(types)}
+      options={TIMELINE_FILTERS}
+      allLabel="All events"
+      onChange={(id) => onChange(TIMELINE_FILTERS.find((f) => f.id === id)?.types)}
+    />
+  );
+}
 
 /** A run's events, one line each, in the order given (newest first). */
 export function Timeline({ entries, now }: { entries: TimelineEntry[]; now: Date }) {

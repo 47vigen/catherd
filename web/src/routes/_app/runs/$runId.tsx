@@ -1,26 +1,47 @@
-import { ArrowLeft } from "@gravity-ui/icons";
-import { Alert, Button, Link, Spinner, toast } from "@heroui/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { Alert, Spinner } from "@heroui/react";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 
-import type { RunView, TimelineEntry } from "../../../client";
-import { cancelRunMutation, getRunOptions, getRunTimelineOptions } from "../../../client/@tanstack/react-query.gen";
+import type { TimelineEntry } from "../../../client";
+import { getRunModelOptions, getRunOptions, getRunTimelineOptions } from "../../../client/@tanstack/react-query.gen";
 import { CodeBlock } from "../../../components/code-block/CodeBlock";
-import { ConfirmDelete } from "../../../components/confirm-delete/ConfirmDelete";
 import { DataList } from "../../../components/data-list/DataList";
-import { PageHeader, SectionLabel } from "../../../components/page-header/PageHeader";
-import { StatusChip } from "../../../components/status-chip/StatusChip";
+import { SectionLabel } from "../../../components/page-header/PageHeader";
 import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch } from "../../../lib/list-search";
 import { invalidateOps } from "../../../lib/query";
-import { formatRelative } from "../../../lib/time";
-import { Timeline } from "./-components/Timeline";
+import { DispatchTable } from "./-components/DispatchTable";
+import { NodeDrawer } from "./-components/drawer/NodeDrawer";
+import { RunGraph } from "./-components/graph/RunGraph";
+import { NodeList } from "./-components/NodeList";
+import { RunDocs } from "./-components/RunDocs";
+import { RunHeader } from "./-components/RunHeader";
+import { Timeline, TimelineFilter } from "./-components/Timeline";
+import { useIsDesktop } from "./-hooks/useIsDesktop";
 import { useLiveRun } from "./-hooks/useLiveRun";
-import { runStatus } from "./-lib/run-status";
+import { parseTab, type Tab } from "./-lib/tabs";
+import { matchesTypes } from "./-lib/timeline-filters";
+
+type RunSearch = ListSearch & { node?: string; attempt?: string; tab?: Tab; types?: string };
+
+const text = (v: unknown): string | undefined =>
+  typeof v === "string" && v !== "" ? v : typeof v === "number" ? String(v) : undefined;
 
 export const Route = createFileRoute("/_app/runs/$runId")({
-  validateSearch: parseListSearch,
+  validateSearch: (raw: Record<string, unknown>): RunSearch => {
+    const node = text(raw.node);
+    const attempt = text(raw.attempt);
+    const tab = parseTab(raw.tab);
+    const types = text(raw.types);
+    return {
+      ...parseListSearch(raw),
+      ...(node ? { node } : {}),
+      ...(node && attempt ? { attempt } : {}),
+      ...(node && tab ? { tab } : {}),
+      ...(types ? { types } : {}),
+    };
+  },
   component: RunPage,
 });
 
@@ -29,9 +50,6 @@ function RunPage() {
   const { runId } = Route.useParams();
   return <RunDetail key={runId} runId={runId} />;
 }
-
-const milestoneStatus = (s: string) =>
-  s === "landed" || s === "merged" ? "done" : s === "parked" ? "parked" : "running";
 
 function Block({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
@@ -42,92 +60,38 @@ function Block({ title, aside, children }: { title: string; aside?: ReactNode; c
   );
 }
 
-const Rows = ({ children, label }: { children: ReactNode; label: string }) => (
-  <ul aria-label={label} className="border-border bg-surface divide-border divide-y rounded-sm border">
-    {children}
-  </ul>
-);
-const rowClass = "flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-[13px]";
-
-function Facts({ run, now }: { run: RunView; now: Date }) {
+function LoadError({ title, error }: { title: string; error: unknown }) {
   return (
-    <>
-      <Block title="Milestones">
-        {run.milestones.length === 0 ? (
-          <p className="text-muted text-sm">No plan yet.</p>
-        ) : (
-          <Rows label="Milestones">
-            {run.milestones.map((m) => (
-              <li key={m.id} className={rowClass}>
-                <span className="w-10 font-mono text-xs">{m.id}</span>
-                <span className="min-w-0 flex-1">{m.title}</span>
-                <StatusChip status={milestoneStatus(m.status)} />
-                <span className="text-muted font-mono text-xs">round {m.round}</span>
-                <span className="text-muted w-16 font-mono text-xs">{m.commit?.slice(0, 7) ?? ""}</span>
-              </li>
-            ))}
-          </Rows>
-        )}
-      </Block>
-      <Block title="Live roles">
-        {run.live.length === 0 ? (
-          <p className="text-muted text-sm">No role is running.</p>
-        ) : (
-          <Rows label="Live roles">
-            {run.live.map((d) => (
-              <li key={d.name} className={rowClass}>
-                <span className="font-mono text-xs">{d.name}</span>
-                <span className="text-muted">{d.role}</span>
-                <span className="font-mono text-xs">{d.rung}</span>
-                <span className="text-muted ml-auto">since {formatRelative(d.since, now)}</span>
-              </li>
-            ))}
-          </Rows>
-        )}
-      </Block>
-      <Block title="Questions">
-        {run.parked.length === 0 ? (
-          <p className="text-muted text-sm">Nothing is waiting for you.</p>
-        ) : (
-          <Rows label="Questions">
-            {run.parked.map((p) => (
-              <li key={p.unit} className={rowClass}>
-                <span className="font-mono text-xs">{p.unit}</span>
-                <span className="min-w-0 flex-1 break-words">{p.question}</span>
-                <Link href={`/questions?run=${encodeURIComponent(run.id)}`} className="text-sm">
-                  Answer
-                </Link>
-              </li>
-            ))}
-          </Rows>
-        )}
-      </Block>
-      {run.holds.length > 0 ? (
-        <Block title="Quota holds">
-          <Rows label="Quota holds">
-            {run.holds.map((h) => (
-              <li key={h.quota} className={rowClass}>
-                <span className="font-mono text-xs">{h.quota}</span>
-                <StatusChip status="held" until={h.until} />
-              </li>
-            ))}
-          </Rows>
-        </Block>
-      ) : null}
-    </>
+    <Alert status="danger" role="alert">
+      <Alert.Indicator />
+      <Alert.Content>
+        <Alert.Title>{title}</Alert.Title>
+        <Alert.Description>{errorMessage(error)}</Alert.Description>
+        {errorFix(error) ? <CodeBlock lang="text" code={errorFix(error) as string} className="mt-2" /> : null}
+      </Alert.Content>
+    </Alert>
   );
 }
 
 function RunDetail({ runId }: { runId: string }) {
-  const { page, pageSize } = Route.useSearch();
+  const { page, pageSize, node, attempt, tab, types } = Route.useSearch();
   const navigate = Route.useNavigate();
   const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
+  const isDesktop = useIsDesktop();
   const run = useQuery({ ...getRunOptions({ path: { id: runId } }), refetchInterval: 10_000 });
   const is2 = run.data?.engine === "2.0";
   const live = is2 && run.data?.phase !== "ended";
+  const model = useQuery({
+    ...getRunModelOptions({ path: { id: runId } }),
+    enabled: run.isSuccess,
+    refetchInterval: live ? 10_000 : false,
+  });
   const timeline = useQuery({
-    ...getRunTimelineOptions({ path: { id: runId }, query: { limit: pageSize, offset: (page - 1) * pageSize } }),
-    enabled: is2,
+    ...getRunTimelineOptions({
+      path: { id: runId },
+      query: { limit: pageSize, offset: (page - 1) * pageSize, ...(types ? { types } : {}) },
+    }),
+    enabled: run.isSuccess,
   });
 
   // Live entries sit before the fetched ones on page 1; a frame the page already holds is dropped by its seq.
@@ -135,28 +99,24 @@ function RunDetail({ runId }: { runId: string }) {
   // The socket opens once page 1 is in hand and replays everything after its newest seq (the list is newest first).
   const { isConnected } = useLiveRun(
     runId,
-    live && page === 1 && timeline.isSuccess,
+    live === true && page === 1 && timeline.isSuccess,
     (e) => {
       setLiveEntries((all) => (all.some((x) => x.seq === e.seq) ? all : [e, ...all].sort((a, b) => b.seq - a.seq)));
-      void invalidateOps(queryClient, "getRun");
+      // The run model is read again on every event until the socket carries the patches itself.
+      void invalidateOps(queryClient, "getRun", "getRunModel");
     },
     timeline.data?.items[0]?.seq ?? 0,
   );
   const fetched = timeline.data?.items ?? [];
   const seen = new Set(fetched.map((e) => e.seq));
-  const entries = page === 1 ? [...liveEntries.filter((e) => !seen.has(e.seq)), ...fetched] : fetched;
-  const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt));
+  const entries =
+    page === 1 ? [...liveEntries.filter((e) => !seen.has(e.seq) && matchesTypes(types, e.type)), ...fetched] : fetched;
+  const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt));
 
-  const [confirming, setConfirming] = useState(false);
-  const cancel = useMutation({
-    ...cancelRunMutation(),
-    onSuccess: async () => {
-      setConfirming(false);
-      toast.success("Cancelling. Live roles are being stopped.");
-      await invalidateOps(queryClient, "getRun", "listRuns");
-    },
-    onError: (e) => toast.danger(errorMessage(e)),
-  });
+  const open = useCallback(
+    (id: string) => void navigate({ search: (prev) => ({ ...prev, node: id, tab: "overview", attempt: undefined }) }),
+    [navigate],
+  );
 
   if (run.isPending)
     return (
@@ -164,104 +124,117 @@ function RunDetail({ runId }: { runId: string }) {
         <Spinner />
       </div>
     );
-  if (run.isError)
-    return (
-      <Alert status="danger" role="alert">
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>Could not load this run</Alert.Title>
-          <Alert.Description>{errorMessage(run.error)}</Alert.Description>
-          {errorFix(run.error) ? <CodeBlock lang="text" code={errorFix(run.error) as string} className="mt-2" /> : null}
-        </Alert.Content>
-      </Alert>
-    );
+  if (run.isError) return <LoadError title="Could not load this run" error={run.error} />;
   const r = run.data;
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        before={
-          <Link href="/runs" className="text-muted hover:text-foreground w-fit gap-1.5 text-sm no-underline">
-            <ArrowLeft aria-hidden="true" className="size-4" />
-            Runs
-          </Link>
-        }
-        title={r.title}
-        description={`${r.id} · ${r.repo}`}
-        actions={
-          <>
-            <StatusChip status={runStatus(r)} />
-            {live ? (
-              <Button size="sm" variant="secondary" onPress={() => setConfirming(true)}>
-                Cancel run
-              </Button>
-            ) : null}
-          </>
-        }
-      />
+      <RunHeader run={r} model={model.data} live={live === true} now={now} />
       {is2 ? (
+        <Block
+          title="Steps"
+          aside={
+            live ? (
+              <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
+                <span
+                  aria-hidden="true"
+                  className={
+                    isConnected
+                      ? "bg-success size-1.5 rounded-full motion-safe:animate-pulse"
+                      : "bg-muted size-1.5 rounded-full"
+                  }
+                />
+                Live
+              </output>
+            ) : null
+          }
+        >
+          {model.isPending ? (
+            <div className="flex justify-center py-12">
+              <Spinner size="sm" />
+            </div>
+          ) : model.isError ? (
+            <LoadError title="Could not load the graph of this run" error={model.error} />
+          ) : isDesktop ? (
+            <RunGraph model={model.data} selected={node} now={now.getTime()} onOpen={open} />
+          ) : (
+            <NodeList nodes={model.data.nodes} selected={node} onOpen={open} />
+          )}
+        </Block>
+      ) : (
         <>
-          <Facts run={r} now={now} />
-          <Block
-            title="Timeline"
-            aside={
-              live ? (
-                <output data-connected={isConnected} className="text-muted flex items-center gap-1.5 font-mono text-xs">
-                  <span
-                    aria-hidden="true"
-                    className={
-                      isConnected
-                        ? "bg-accent size-1.5 rounded-full motion-safe:animate-pulse"
-                        : "bg-muted size-1.5 rounded-full"
-                    }
-                  />
-                  Live
-                </output>
-              ) : null
-            }
-          >
+          <Alert status="warning">
+            <Alert.Indicator />
+            <Alert.Content>
+              <Alert.Description>
+                This run started on catherd 1.5. It has no graph; its dispatches, report and timeline are below.
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+          <Block title="Dispatches">
             <DataList.State
-              isLoading={timeline.isPending}
-              error={timeline.error ?? undefined}
-              isEmpty={entries.length === 0}
-              emptyText="No events yet."
+              isLoading={model.isPending}
+              error={model.error ?? undefined}
+              isEmpty={(model.data?.dispatches.length ?? 0) === 0}
+              emptyText="No dispatch was recorded."
             >
-              <Timeline entries={entries} now={now} />
+              <DispatchTable dispatches={model.data?.dispatches ?? []} />
             </DataList.State>
-            <DataList.Pagination
-              page={page}
-              pageSize={pageSize}
-              total={timeline.data?.total ?? 0}
-              onPageChange={(n) => void navigate({ search: (prev) => ({ ...prev, page: n }) })}
-              onPageSizeChange={(n) =>
-                void navigate({
-                  search: (prev) => ({ ...prev, page: 1, pageSize: n as ListSearch["pageSize"] }),
-                  replace: true,
-                })
-              }
-            />
           </Block>
         </>
-      ) : (
-        <Alert status="warning">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>
-              {`This run started on catherd 1.5. Its timeline is not recorded; catherd status ${r.id} shows it.`}
-            </Alert.Description>
-          </Alert.Content>
-        </Alert>
       )}
-      <ConfirmDelete
-        title={`Cancel ${r.title}?`}
-        body="Every live role is stopped and the run ends. It cannot be resumed."
-        confirmLabel="Cancel run"
-        cancelLabel="Keep running"
-        isOpen={confirming}
-        isPending={cancel.isPending}
-        onConfirm={() => cancel.mutate({ path: { id: runId } })}
-        onCancel={() => setConfirming(false)}
-      />
+      <Block title={is2 ? "Plan and report" : "Report"}>
+        <RunDocs runId={runId} ended={r.phase === "ended" || !is2} only={is2 ? undefined : "report.md"} />
+      </Block>
+      <Block
+        title="Timeline"
+        aside={
+          <TimelineFilter
+            types={types}
+            onChange={(t) => void navigate({ search: (prev) => ({ ...prev, page: 1, types: t }) })}
+          />
+        }
+      >
+        <DataList.State
+          isLoading={timeline.isPending}
+          error={timeline.error ?? undefined}
+          isEmpty={entries.length === 0}
+          emptyText={types ? "No events of this type." : "No events yet."}
+        >
+          <Timeline entries={entries} now={now} />
+        </DataList.State>
+        <DataList.Pagination
+          page={page}
+          pageSize={pageSize}
+          total={timeline.data?.total ?? 0}
+          onPageChange={(n) => void navigate({ search: (prev) => ({ ...prev, page: n }) })}
+          onPageSizeChange={(n) =>
+            void navigate({
+              search: (prev) => ({ ...prev, page: 1, pageSize: n as ListSearch["pageSize"] }),
+              replace: true,
+            })
+          }
+        />
+      </Block>
+      {is2 && model.data ? (
+        <NodeDrawer
+          runId={runId}
+          run={r}
+          model={model.data}
+          nodeId={node}
+          attemptId={attempt}
+          tab={tab ?? "overview"}
+          live={live === true}
+          now={now.getTime()}
+          onChange={(patch) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
+          onClose={() =>
+            void navigate({
+              search: (prev) => ({ ...prev, node: undefined, attempt: undefined, tab: undefined }),
+              replace: true,
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }
