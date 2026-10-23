@@ -90,9 +90,11 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
       carried: false,
       recorded: [{ item: "unit", command: "bun test", passed: false }],
     });
-    expect(catherd(["gate", "pass", run.id, ...gate, "--evidence", "12 pass"], { role: verifier }).code).toBe(
-      0,
-    );
+    expect(
+      catherd(["gate", "pass", run.id, "--milestone", "M1", ...gate, "--evidence", "12 pass"], {
+        role: verifier,
+      }).code,
+    ).toBe(0);
     // the list alone, as gate_check gives it
     expect(
       JSON.parse(catherd(["gate", "check", run.id, "--milestone", "M1"], { role: verifier }).out),
@@ -101,7 +103,9 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
       carried: true,
     });
     expect(
-      catherd(["gate", "pass", run.id, ...gate, "--evidence", "x"], { role: `${run.id}/worker-M1.L1` }).err,
+      catherd(["gate", "pass", run.id, "--milestone", "M1", ...gate, "--evidence", "x"], {
+        role: `${run.id}/worker-M1.L1`,
+      }).err,
     ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_pass");
     // plan 30b: gate run is the verifier's too
     expect(
@@ -109,6 +113,26 @@ describe("the CLI forms any role can run (spec 1.5 plan 21)", () => {
         role: `${run.id}/worker-M1.L1`,
       }).err,
     ).toContain("error E_ROLE_SCOPE: worker-M1.L1 is a worker, which has no gate_run");
+  });
+
+  it("gate pass without --milestone fails", () => {
+    const { run } = freshRun();
+    const result = catherd([
+      "gate",
+      "pass",
+      run.id,
+      "--item",
+      "unit",
+      "--command",
+      "true",
+      "--paths",
+      ".",
+      "--evidence",
+      "ok",
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(result.err).toContain("E_INPUT_INVALID");
+    expect(result.err).toContain("milestone");
   });
 
   it("runs the milestone check as the verifier, and exits 1 while the gate misses something", async () => {

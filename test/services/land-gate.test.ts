@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CatherdError, isCatherdError } from "../../src/domain/errors.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
+import { gateCheck, gatePass, gatesFile } from "../../src/services/gate-service.ts";
 import { land, route } from "../../src/services/lane-service.ts";
 import {
   isDocPath,
@@ -607,6 +608,94 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(landed.ledger).toStartWith("M1 |");
     expect(landed.hints?.join("\n")).toContain("pre-existing");
   });
+
+  it("land refuses a milestone whose gate_check item has no pass", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    await gateCheck(fakeDeps(), {
+      run: run.id,
+      milestone: "M1",
+      item: "unit tests",
+      command: "bun test",
+      paths: ["src/a.ts"],
+    });
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toContain("unit tests");
+    expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
+  });
+
+  it("a pass on an older commit does not carry", async () => {
+    const { repo, run } = freshRun();
+    commitFiles(repo, ["src/a.ts"]);
+    const item = {
+      run: run.id,
+      milestone: "M1",
+      item: "unit tests",
+      command: "bun test",
+      paths: ["src/a.ts"],
+    };
+    await gateCheck(fakeDeps(), item);
+    await gatePass(fakeDeps(), { ...item, evidence: "passed" });
+    const c = commitFiles(repo, ["docs/later.md"]);
+    await passGate(run, "M1");
+    const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+    expect(e.code).toBe("E_LAND_GATE");
+    expect(e.message).toContain("unit tests");
+  });
+
+  it("every item passed on the head lands", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await passGate(run, "M1");
+    for (const name of ["unit tests", "lint"]) {
+      const item = { run: run.id, milestone: "M1", item: name, command: name, paths: ["src/a.ts"] };
+      await gateCheck(fakeDeps(), item);
+      await gatePass(fakeDeps(), { ...item, evidence: "passed" });
+    }
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+  });
+
+  for (const changed of ["run", "command", "item", "dirty", "empty", "content"] as const)
+    it(`refuses a gate pass with mismatched ${changed}`, async () => {
+      const { repo, run } = freshRun();
+      const c = commitFiles(repo, ["src/a.ts"]);
+      await passGate(run, "M1");
+      const item = {
+        run: run.id,
+        milestone: "M1",
+        item: "unit tests",
+        command: "bun test",
+        paths: ["src/a.ts"],
+      };
+      await gateCheck(fakeDeps(), item);
+      await gatePass(fakeDeps(), { ...item, evidence: "passed" });
+      if (changed === "content") writeFileSync(join(repo, "src/a.ts"), "changed after the pass");
+      else {
+        const file = gatesFile(repo);
+        const text = readFileSync(file, "utf8");
+        const replacement =
+          changed === "dirty"
+            ? { commit: `${c}+uncommitted` }
+            : changed === "empty"
+              ? { commit: "" }
+              : { [changed]: "other" };
+        writeFileSync(
+          file,
+          text
+            .split("\n")
+            .map((line) => {
+              if (!line.includes('"item":"unit tests"')) return line;
+              return JSON.stringify({ ...JSON.parse(line), ...replacement });
+            })
+            .join("\n"),
+        );
+      }
+      const e = await refusal(land(fakeDeps(), landing(run.id, c)));
+      expect(e.code).toBe("E_LAND_GATE");
+      expect(e.message).toContain("unit tests");
+    });
 
   it("refuses a secret hit on the landed commit", async () => {
     const { repo, run } = freshRun();

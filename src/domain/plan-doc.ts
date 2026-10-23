@@ -199,3 +199,16 @@ export function planInputNames(paths: string[]): string[] {
     return name;
   });
 }
+
+/** The Check command of one milestone section, or null when absent. */
+export function milestoneCheck(planText: string, id: string): string | null {
+  const lines = planText.split("\n");
+  const at = lines.findIndex((line) => /^##[ \t]+(\S+)[ \t]+[—–-]/.exec(line)?.[1] === id);
+  if (at < 0) return null;
+  for (const line of lines.slice(at + 1)) {
+    if (/^##[ \t]+/.test(line)) break;
+    const check = /^[ \t]*Check:[ \t]*(.+)/.exec(line)?.[1]?.trim();
+    if (check) return check;
+  }
+  return null;
+}

@@ -45,6 +45,31 @@ const item = (run: string, over: Record<string, unknown> = {}) => ({
 });
 
 describe("the gate ledger (spec 1.1 §7)", () => {
+  it("gate_pass with no step of its milestone is refused", async () => {
+    const { repo, run } = freshRun();
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    const deps = fakeDeps();
+    await gateCheck(deps, item(run.id, { milestone: "M1" }));
+    for (const mismatch of [
+      { milestone: "M2" },
+      { milestone: "M1", item: "other" },
+      { milestone: "M1", command: "other" },
+      {},
+    ]) {
+      const before = await Bun.file(gatesFile(repo)).exists();
+      expect(before).toBe(false);
+      try {
+        await gatePass(deps, { ...item(run.id), milestone: "", ...mismatch, evidence: "ok" });
+        expect.unreachable();
+      } catch (e) {
+        expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+        expect(isCatherdError(e) && e.fix).toContain("gate_check");
+      }
+      expect(await Bun.file(gatesFile(repo)).exists()).toBe(false);
+    }
+  });
+
   it("carries a pass recorded in another worktree of the same origin", async () => {
     withHome();
     delete process.env.ANTHROPIC_API_KEY;
@@ -58,7 +83,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     git("worktree", "add", "-q", "-b", "other", other);
     const mainRun = createRun({ repo: main, title: "main", aLines: [], version: "0.0.0-test" });
     const otherRun = createRun({ repo: other, title: "other", aLines: [], version: "0.0.0-test" });
-    await gatePass(fakeDeps(), { ...item(mainRun.id), evidence: "ok" });
+    await gateCheck(fakeDeps(), { milestone: "M1", ...item(mainRun.id) });
+    await gatePass(fakeDeps(), { milestone: "M1", ...item(mainRun.id), evidence: "ok" });
     expect(await gateCheck(fakeDeps(), item(otherRun.id))).toMatchObject({ carried: true });
   });
 
@@ -67,7 +93,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     delete process.env.ANTHROPIC_API_KEY;
     write(repo, "src/a.ts", "a");
     commit(repo);
-    await gatePass(fakeDeps(), { ...item(run.id), evidence: "legacy" });
+    await gateCheck(fakeDeps(), { milestone: "M1", ...item(run.id) });
+    await gatePass(fakeDeps(), { milestone: "M1", ...item(run.id), evidence: "legacy" });
     execFileSync("git", ["remote", "add", "origin", "git@github.com:Acme/platform.git"], {
       cwd: repo,
       env: process.env,
@@ -85,7 +112,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     const both = (id: string, over: Record<string, unknown> = {}) =>
       item(id, { paths: ["src/", "package.json"], ...over });
     expect(await gateCheck(deps, both(run.id))).toEqual({ carried: false });
-    const passed = await gatePass(deps, { ...both(run.id), evidence: "12 pass" });
+    await gateCheck(deps, { milestone: "M1", ...both(run.id) });
+    const passed = await gatePass(deps, { milestone: "M1", ...both(run.id), evidence: "12 pass" });
     expect(passed.commit).toBe(c1);
     // an unrelated file changes: still carried, from the commit it passed on
     write(repo, "docs/x.md", "x");
@@ -109,7 +137,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/run.sh", "echo hi");
     write(repo, "src/b.txt", "shared");
     write(repo, "src/target.txt", "shared");
-    await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" });
     expect(await gateCheck(deps, item(run.id))).toMatchObject({ carried: true });
     // the same bytes without the exec bit
     chmodSync(join(repo, "src/run.sh"), 0o644);
@@ -129,7 +158,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     commit(repo);
     const deps = fakeDeps();
     const script = item(run.id, { paths: ["run.sh"] });
-    await gatePass(deps, { ...script, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...script });
+    await gatePass(deps, { milestone: "M1", ...script, evidence: "ok" });
     expect(await gateCheck(deps, script)).toMatchObject({ carried: true });
     // the same blob, committed without the exec bit: the tree is clean again
     chmodSync(join(repo, "run.sh"), 0o644);
@@ -143,12 +173,14 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     commit(repo);
     const deps = fakeDeps();
     write(repo, "src/a.ts", "dirty");
-    await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" });
     expect((await gateCheck(deps, item(run.id))).carried).toBe(true);
     write(repo, "src/a.ts", "dirtier");
     expect((await gateCheck(deps, item(run.id))).carried).toBe(false);
     // a pass on "." carries until a new, untracked file appears under it
-    await gatePass(deps, { ...item(run.id, { paths: ["."] }), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...item(run.id, { paths: ["."] }) });
+    await gatePass(deps, { milestone: "M1", ...item(run.id, { paths: ["."] }), evidence: "ok" });
     expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(true);
     write(repo, "src/new.ts", "n");
     expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(false);
@@ -159,15 +191,25 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/a.ts", "a");
     const c1 = commit(repo);
     const deps = fakeDeps();
-    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    expect((await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" })).commit).toBe(c1);
     write(repo, "src/a.ts", "dirty");
-    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(`${c1}+uncommitted`);
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    expect((await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" })).commit).toBe(
+      `${c1}+uncommitted`,
+    );
     // a dirty file outside the paths leaves the pass on HEAD
     write(repo, "src/a.ts", "a");
     write(repo, "docs/x.md", "x");
-    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    expect((await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" })).commit).toBe(c1);
     // ./ is the whole repo, as . is
-    const whole = await gatePass(deps, { ...item(run.id, { paths: ["./"] }), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...item(run.id, { paths: ["./"] }) });
+    const whole = await gatePass(deps, {
+      milestone: "M1",
+      ...item(run.id, { paths: ["./"] }),
+      evidence: "ok",
+    });
     expect((await gateCheck(deps, item(run.id, { paths: ["."] }))).carried).toBe(true);
     expect(whole.commit).toBe(`${c1}+uncommitted`);
     // a staged rename out of the paths changes their content (git status reports the rename's source too)
@@ -181,7 +223,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");
     commit(repo);
-    await gatePass(fakeDeps(), { ...item(run.id), evidence: "ok" });
+    await gateCheck(fakeDeps(), { milestone: "M1", ...item(run.id) });
+    await gatePass(fakeDeps(), { milestone: "M1", ...item(run.id), evidence: "ok" });
     expect(await Bun.file(gatesFile(repo)).text()).toContain('"evidence":"ok"');
     const other = createRun({ repo, title: "second", aLines: ["A1 it works"], version: "0.0.0-test" });
     expect(other.id).not.toBe(run.id);
@@ -203,10 +246,13 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "src/a.ts", "a");
     commit(repo);
     write(repo, "lib/new.ts", "n");
+    expect(latestVerifierStep(run)).toBeNull();
+    await gateCheck(fakeDeps(), { ...item(run.id), milestone: "M1" });
+    const step = latestVerifierStep(run);
     // thunks: each call is awaited as it is made, so none rejects unhandled while another is awaited
     for (const call of [
       () => gateCheck(fakeDeps(), item(run.id, { paths: ["src/", "scr/"] })),
-      () => gatePass(fakeDeps(), { ...item(run.id, { paths: ["scr/"] }), evidence: "e" }),
+      () => gatePass(fakeDeps(), { milestone: "M1", ...item(run.id, { paths: ["scr/"] }), evidence: "e" }),
     ]) {
       const e = await (call() as Promise<unknown>).then(
         () => null,
@@ -218,7 +264,7 @@ describe("the gate ledger (spec 1.1 §7)", () => {
       ]);
       expect(isCatherdError(e) && e.fix).toContain("check the spelling");
     }
-    expect(latestVerifierStep(run)).toBeNull();
+    expect(latestVerifierStep(run)).toEqual(step);
     // a path only in the working tree (not committed yet) is fine
     expect(await gateCheck(fakeDeps(), item(run.id, { paths: ["lib/"] }))).toEqual({ carried: false });
   });
@@ -233,7 +279,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "gen/y.js", "y");
     const deps = fakeDeps();
     const env = item(run.id, { paths: [".env", "gen/"] });
-    await gatePass(deps, { ...env, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...env });
+    await gatePass(deps, { milestone: "M1", ...env, evidence: "ok" });
     expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
     write(repo, ".env", "A=2");
     expect(await gateCheck(deps, env)).toEqual({ carried: false });
@@ -252,7 +299,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     rmSync(join(repo, "gen/new.js"));
     // "." still hashes HEAD and the not-ignored status: an ignored file is covered only when named
     const whole = item(run.id, { paths: ["."] });
-    await gatePass(deps, { ...whole, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...whole });
+    await gatePass(deps, { milestone: "M1", ...whole, evidence: "ok" });
     write(repo, ".env", "A=3");
     expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
   });
@@ -269,7 +317,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     commit(repo);
     const deps = fakeDeps();
     const env = item(run.id, { paths: [".env", "conf", "dangling"] });
-    await gatePass(deps, { ...env, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...env });
+    await gatePass(deps, { milestone: "M1", ...env, evidence: "ok" });
     expect(await gateCheck(deps, env)).toMatchObject({ carried: true });
     write(repo, "shared/secrets.env", "A=2");
     expect(await gateCheck(deps, env)).toEqual({ carried: false });
@@ -291,7 +340,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     symlinkSync("../secrets.env", join(repo, "shared/conf/link.env"));
     symlinkSync("..", join(repo, "shared/conf/up"));
     const walked = item(run.id, { paths: ["shared/conf"] });
-    await gatePass(deps, { ...walked, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...walked });
+    await gatePass(deps, { milestone: "M1", ...walked, evidence: "ok" });
     expect(await gateCheck(deps, walked)).toMatchObject({ carried: true });
     write(repo, "shared/secrets.env", "A=3");
     expect(await gateCheck(deps, walked)).toEqual({ carried: false });
@@ -320,7 +370,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     const deps = fakeDeps();
     const built = item(run.id, { paths: ["apps/checkout/", "apps/checkout/dist"] });
     expect(await gateCheck(deps, built)).toEqual({ carried: false });
-    await gatePass(deps, { ...built, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...built });
+    await gatePass(deps, { milestone: "M1", ...built, evidence: "ok" });
     expect(await gateCheck(deps, built)).toMatchObject({ carried: true });
     write(repo, "apps/checkout/dist/index.js", "x");
     expect(await gateCheck(deps, built)).toEqual({ carried: false });
@@ -332,10 +383,14 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     write(repo, "bun.lock", "v1");
     const c1 = commit(repo);
     const deps = fakeDeps();
-    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(c1);
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    expect((await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" })).commit).toBe(c1);
     // a worker's uncommitted `bun add`: the pass ran on a lockfile HEAD does not hold
     write(repo, "bun.lock", "v2");
-    expect((await gatePass(deps, { ...item(run.id), evidence: "ok" })).commit).toBe(`${c1}+uncommitted`);
+    await gateCheck(deps, { milestone: "M1", ...item(run.id) });
+    expect((await gatePass(deps, { milestone: "M1", ...item(run.id), evidence: "ok" })).commit).toBe(
+      `${c1}+uncommitted`,
+    );
   });
 
   it("covers dependencies through the tracked lockfiles, never walking node_modules under a named path", async () => {
@@ -350,8 +405,10 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     const deps = fakeDeps();
     const whole = item(run.id, { paths: ["."] });
     const web = item(run.id, { paths: ["apps/web/"] });
-    await gatePass(deps, { ...whole, evidence: "ok" });
-    await gatePass(deps, { ...web, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...whole });
+    await gatePass(deps, { milestone: "M1", ...whole, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...web });
+    await gatePass(deps, { milestone: "M1", ...web, evidence: "ok" });
     expect(await gateCheck(deps, whole)).toMatchObject({ carried: true });
     // a lockfile change outside apps/web/ still reaches the apps/web/ item
     write(repo, "bun.lock", "v2");
@@ -359,7 +416,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     expect(await gateCheck(deps, web)).toEqual({ carried: false });
     expect(await gateCheck(deps, whole)).toEqual({ carried: false });
     // and an uncommitted one does too (a worker's `bun add` it has not committed; plan 23 review I3)
-    await gatePass(deps, { ...web, evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...web });
+    await gatePass(deps, { milestone: "M1", ...web, evidence: "ok" });
     expect(await gateCheck(deps, web)).toMatchObject({ carried: true });
     write(repo, "bun.lock", "v3");
     expect(await gateCheck(deps, web)).toEqual({ carried: false });
@@ -391,8 +449,12 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     await buildRoleServer({ run: run.id, role: "verifier" }, fakeDeps()).connect(serverSide);
     const c = new Client({ name: "role-test", version: "0.0.0" });
     await c.connect(clientSide);
-    expect((await call(c, "gate_check", item(run.id))).data).toEqual({ carried: false });
-    expect((await call(c, "gate_pass", { ...item(run.id), evidence: "ok" })).data.recorded).toBe(true);
+    expect((await call(c, "gate_check", item(run.id, { milestone: "M1" }))).data).toMatchObject({
+      carried: false,
+    });
+    expect(
+      (await call(c, "gate_pass", { ...item(run.id), milestone: "M1", evidence: "ok" })).data.recorded,
+    ).toBe(true);
     expect((await call(c, "gate_check", item(run.id))).data.carried).toBe(true);
     // the optional milestone lands on the verifier's step
     expect((await call(c, "gate_check", item(run.id, { milestone: "M1" }))).data.carried).toBe(true);
@@ -419,7 +481,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
       carried: false,
       recorded: [{ item: "lint", command: "run lint", passed: false }],
     });
-    await gatePass(deps, { ...m1("lint"), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...m1("lint") });
+    await gatePass(deps, { milestone: "M1", ...m1("lint"), evidence: "ok" });
     await gateCheck(deps, m1("acceptance"));
     // another milestone's items stay out
     await gateCheck(deps, item(run.id, { item: "boot", milestone: "M2" }));
@@ -443,7 +506,8 @@ describe("the gate ledger (spec 1.1 §7)", () => {
     const m1 = (name: string, paths: string[]) =>
       item(run.id, { item: name, command: `run ${name}`, paths, milestone: "M1" });
     await gateCheck(deps, m1("lint", ["src/"]));
-    await gatePass(deps, { ...m1("lint", ["src/"]), evidence: "ok" });
+    await gateCheck(deps, { milestone: "M1", ...m1("lint", ["src/"]) });
+    await gatePass(deps, { milestone: "M1", ...m1("lint", ["src/"]), evidence: "ok" });
     await gateCheck(deps, m1("acceptance", ["web/"]));
     // a fix round changes what lint reads: the listing must not tell a fresh verifier lint carries
     write(repo, "src/a.ts", "fixed");
@@ -479,17 +543,18 @@ describe("the gate ledger in a base run's worktrees (plan 35)", () => {
   };
   const inTree = { milestone: "M1" };
 
-  it("hashes a milestone's gate items in its tree, and carries a pass between a run's trees on equal content", async () => {
+  it("gate_pass records on the milestone's tree", async () => {
     const { run, deps, m1, m2 } = await withTrees();
     write(m1, "src/a.ts", "same");
     const c1 = commit(m1);
     expect(await gateCheck(deps, item(run.id, inTree))).toMatchObject({ carried: false });
-    const passed = await gatePass(deps, { ...item(run.id), evidence: "ok" });
+    write(m2, "src/a.ts", "other");
+    commit(m2);
+    await gateCheck(deps, item(run.id, { milestone: "M2" }));
+    const passed = await gatePass(deps, { ...item(run.id), milestone: "M1", evidence: "ok" });
     expect(passed.commit).toBe(c1); // HEAD of M1's tree, not of the repo
     expect(await gateCheck(deps, item(run.id, inTree))).toMatchObject({ carried: true, commit: c1 });
     // M2 has other content: not carried; the same content in M2's tree: carried
-    write(m2, "src/a.ts", "other");
-    commit(m2);
     expect(await gateCheck(deps, item(run.id, { milestone: "M2" }))).toMatchObject({ carried: false });
     write(m2, "src/a.ts", "same");
     commit(m2);

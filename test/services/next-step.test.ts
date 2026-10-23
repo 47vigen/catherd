@@ -68,7 +68,7 @@ describe("state.md's Next never outlives the step it names (plan 22)", () => {
 describe("the verifier's step closes (plan 22)", () => {
   const T0 = Date.parse("2026-10-02T10:00:00.000Z");
   const at = (min: number) => () => T0 + min * 60_000;
-  const check = { item: "boot check", command: "bun run boot", paths: ["."] };
+  const check = { item: "boot check", command: "bun run boot", paths: ["."], milestone: "M1" };
 
   async function stepped() {
     const { repo, run } = freshRun();

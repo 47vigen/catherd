@@ -2,7 +2,8 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { andTail, checkFailLines, newFails } from "../domain/fail-lines.ts";
+import { checkFailLines, checkItems, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import { milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
 import { launchCheckWorker } from "../infra/launch.ts";
@@ -197,8 +198,8 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
 }
 
 /**
- * The machine half of the land gate for milestone `m` on `head`: every command the run checked on it exits 0, or
- * fails only in lines the base fails in too. `audit` lists what passed only because of the base or a rerun.
+ * The machine half of the land gate: every required check item has a successful record on `head`.
+ * Red baselines block too; `audit` lists skipped secret scans and reruns.
  */
 export async function machineGate(
   run: Run,
@@ -207,17 +208,29 @@ export async function machineGate(
 ): Promise<{ missing: string[]; audit: string[] }> {
   const missing: string[] = [];
   const audit: string[] = [];
+  const records = readChecks(run.meta.repo).filter(
+    (r) => r.run === run.id && r.milestone === m && !r.baseline,
+  );
   const latest = new Map<string, CheckRecord>();
-  for (const r of readChecks(run.meta.repo))
-    if (r.run === run.id && r.milestone === m && r.head === head && !r.baseline) latest.set(r.command, r);
-  if (latest.size === 0) {
+  for (const r of records) if (r.head === head) latest.set(r.command, r);
+  const planFile = join(run.dir, "plan.md");
+  const command = existsSync(planFile) ? milestoneCheck(readFileSync(planFile, "utf8"), m) : null;
+  const required = new Set(
+    command === null ? records.flatMap((r) => checkItems(r.command)) : checkItems(command),
+  );
+  if (required.size === 0) {
     missing.push(
       `no machine check of ${m} on ${head.slice(0, 12)}: the verifier runs its full check with gate_run(run, "${m}", <command>) on the committed HEAD`,
     );
     return { missing, audit };
   }
+  for (const item of required)
+    if (!latest.has(item))
+      missing.push(`no machine check of \`${item}\` for ${m} on ${head.slice(0, 12)}: run it with gate_run`);
   const start = await checkBase(run, m);
-  for (const rec of latest.values()) {
+  for (const item of required) {
+    const rec = latest.get(item);
+    if (!rec) continue;
     if (rec.secrets === "found")
       missing.push(
         `gitleaks found secrets in ${(start ?? "").slice(0, 12)}..${head.slice(0, 12)}; see ${rec.log}`,
@@ -230,19 +243,20 @@ export async function machineGate(
     const fresh = newFails(rec.fails, base?.fails ?? null);
     if (!base || base.exit === 0)
       missing.push(
-        `\`${rec.command}\` exits ${rec.exit} on ${head.slice(0, 12)}${fresh.length ? `: ${fresh.slice(0, 5).join(" | ")}` : ""}`,
+        `\`${rec.command}\` exits ${rec.exit} on ${head.slice(0, 12)}${fresh.length ? `: ${fresh.slice(0, FAIL_DISPLAY_CAP).join(" | ")}` : ""}`,
       );
     else if (fresh.length)
-      missing.push(`failing lines the base does not have: ${fresh.slice(0, 8).join(" | ")}`);
+      missing.push(
+        `\`${rec.command}\` has failing lines the base does not have: ${fresh.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`,
+      );
     // a failure catherd cannot read is never matched against the base: it could be anything
     else if (rec.fails.length === 0)
       missing.push(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
     else {
-      const tail = andTail(rec.command);
-      audit.push(
-        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; every failing line is pre-existing (${rec.fails.length})${tail ? `; if an earlier part failed, \`${tail}\` ran on neither side` : ""}`,
+      missing.push(
+        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`,
       );
     }
   }
@@ -300,6 +314,24 @@ const flightLive = (f: Flight): boolean =>
 export async function runMilestoneCheck(
   i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
   o: { onWait?: () => void } = {},
+): Promise<GateRunResult> {
+  let last: Extract<GateRunResult, { running: false }> | undefined;
+  let cached = true;
+  const hints = new Set<string>();
+  for (const command of checkItems(i.command)) {
+    const r = await runCheckItem({ ...i, command }, o);
+    if (r.running) return r;
+    last = r;
+    cached &&= r.cached;
+    for (const hint of r.hints ?? []) hints.add(hint);
+  }
+  // checkItems always returns at least one item, including for an empty command.
+  return { ...last!, cached, ...(hints.size ? { hints: [...hints] } : {}) };
+}
+
+async function runCheckItem(
+  i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
+  o: { onWait?: () => void },
 ): Promise<GateRunResult> {
   const run = findRun(i.run);
   const repo = run.meta.repo;

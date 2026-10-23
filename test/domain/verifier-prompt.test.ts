@@ -22,7 +22,14 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
     expect(text).toContain(
       "When neither tool is listed, run the same from your shell: catherd gate check <run>",
     );
-    expect(text).toContain("then catherd gate pass <run> --item <item>");
+    expect(text).toContain("then catherd gate pass <run> --milestone <M> --item <item>");
+  });
+
+  it("the prompt names the milestone argument of gate_pass", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    expect(text).toContain("same milestone, item, command and paths");
+    expect(text).toContain("gate pass <run> --milestone <M>");
+    expect(text).toContain("every top-level `&&` part as its own item");
   });
 
   it("tells each role only the run-file tools it gets (#42 finding 5)", () => {

@@ -6,6 +6,7 @@ import {
   decisionLines,
   depthProblems,
   isApproval,
+  milestoneCheck,
   parsePlanDoc,
   planInputNames,
   reapprovalQuestion,
@@ -170,3 +171,12 @@ describe("approval", () => {
 
 it("names plan copies by basename, numbering a repeat", () =>
   expect(planInputNames(["/a/plan.md", "/b/plan.md", "/c/x.md"])).toEqual(["plan.md", "plan-2.md", "x.md"]));
+
+it("milestoneCheck reads the Check line of its section only", () => {
+  const plan =
+    "## M1 — first\nCheck: a && b\n## M2 — second\nCheck: c && d\n## M3 — none\n## M10 — tenth\nCheck: e\n";
+  expect(milestoneCheck(plan, "M1")).toBe("a && b");
+  expect(milestoneCheck(plan, "M2")).toBe("c && d");
+  expect(milestoneCheck(plan, "M3")).toBeNull();
+  expect(milestoneCheck(plan, "M4")).toBeNull();
+});
