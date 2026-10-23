@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
@@ -190,11 +190,9 @@ export const RUN_DOC_NAME = /^(plan|report|ledger)\.md$|^(lanes|digests)\/[A-Za-
 
 export function runDoc(run: Run, name: string): { name: string; text: string } {
   if (!RUN_DOC_NAME.test(name) || name.includes("..")) throw invalid(`"${name}" is not a document of a run`);
-  try {
-    return { name, text: readFileSync(join(run.dir, name), "utf8") };
-  } catch {
-    throw notFound(name);
-  }
+  const r = readCapped(join(run.dir, name), TEXT_CAP);
+  if (r === null) throw notFound(name);
+  return { name, text: r.text };
 }
 
 export const CheckLogsSchema = z.object({

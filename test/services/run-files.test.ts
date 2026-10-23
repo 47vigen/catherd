@@ -186,6 +186,14 @@ describe("run docs", () => {
       expect.objectContaining({ code: "E_RUN_NOT_FOUND", message: expect.stringContaining("report.md") }),
     );
   });
+
+  it("reads a document up to the text cap, and a name that is not a file is not found", () => {
+    const { run } = freshRun();
+    writeFileSync(runPaths(run.dir).plan, "x".repeat(512 * 1024 + 10));
+    expect(runDoc(run, "plan.md").text).toHaveLength(512 * 1024);
+    mkdirSync(join(run.dir, "digests", "M1.md"), { recursive: true });
+    expect(() => runDoc(run, "digests/M1.md")).toThrow(expect.objectContaining({ code: "E_RUN_NOT_FOUND" }));
+  });
 });
 
 describe("check logs", () => {
