@@ -375,6 +375,8 @@ describe("the panel server", () => {
     gap.onmessage = (m) => void replayed.push(JSON.parse(String(m.data)));
     await waitFor(() => replayed.length >= 2);
     expect(replayed.map((t) => t.seq)).toEqual([e.seq, e2.seq]);
+    // one model per poll batch: only the batch's last frame carries the patch, which covers the whole batch
+    expect(replayed.map((t) => (t as { patch?: unknown }).patch === undefined)).toEqual([true, false]);
     gap.close();
     ws.close();
     const anon = await fetch(`${base}/api/runs/${id}/live`, {

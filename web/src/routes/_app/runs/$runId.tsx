@@ -97,8 +97,9 @@ function RunDetail({ runId }: { runId: string }) {
   const transcriptListeners = useRef(new Set<(f: TranscriptFrame) => void>());
   const modelKey = getRunModelQueryKey({ path: { id: runId } });
   // The socket opens once the model (and page 1, when shown) is in hand, and replays everything after the older of
-  // the two: a replayed patch the model already holds changes nothing (the timeline list is newest first).
-  const newest = page === 1 ? timeline.data?.items[0]?.seq : undefined;
+  // the two: a replayed patch the model already holds changes nothing (the timeline list is newest first). A filtered
+  // page's newest seq is not the newest event, so it only counts unfiltered.
+  const newest = page === 1 && !types ? timeline.data?.items[0]?.seq : undefined;
   const { isConnected, watch } = useLiveRun(
     runId,
     live === true && model.isSuccess && (page !== 1 || timeline.isSuccess),

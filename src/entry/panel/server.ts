@@ -554,7 +554,7 @@ export function servePanel(o: PanelOptions): Panel {
         open(ws: ServerWebSocket<SocketData>) {
           sockets.add(ws);
           const { run: id, from } = ws.data;
-          // shortcut: re-derives the model per event, upgrade past ~5k events
+          // one model per poll batch: the batch's last frame carries the patch for all of it
           let prev: RunModel | null = null;
           try {
             prev = modelBefore(id, from);
@@ -564,17 +564,19 @@ export function servePanel(o: PanelOptions): Panel {
           ws.data.stop = tailEvents(
             findRun(id),
             from,
-            (e) => {
-              let patch = null;
-              try {
-                const next = runModel(id);
-                patch = prev ? diffRunModel(prev, next) : null;
-                prev = next;
-              } catch (err) {
-                // a null patch tells the page to refetch the model
-                log("warn", "panel", { run: id, seq: e.seq, patch: errorMessage(err) });
-                prev = null;
-              }
+            (e, last) => {
+              let patch: ReturnType<typeof diffRunModel> | null | undefined;
+              if (last)
+                try {
+                  const next = runModel(id);
+                  patch = prev ? diffRunModel(prev, next) : null;
+                  prev = next;
+                } catch (err) {
+                  // a null patch tells the page to refetch the model
+                  log("warn", "panel", { run: id, seq: e.seq, patch: errorMessage(err) });
+                  patch = null;
+                  prev = null;
+                }
               ws.send(
                 JSON.stringify({
                   kind: "event",

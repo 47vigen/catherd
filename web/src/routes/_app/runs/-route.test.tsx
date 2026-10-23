@@ -563,6 +563,13 @@ test("a frame for another dispatch is ignored", async () => {
   expect(within(dialog).queryByText("rm stale files")).toBeNull();
 });
 
+test("a filtered timeline opens the socket from the model's seq, not the filtered page's newest", async () => {
+  renderRoute("/runs/r1?types=plan.approved", api);
+  await screen.findByRole("list", { name: "Timeline" });
+  await waitFor(() => expect(FakeSocket.last).toBeDefined());
+  expect(FakeSocket.last!.url).toMatch(new RegExp(`/api/runs/r1/live\\?from=${model.seq + 1}$`));
+});
+
 test("the timeline filters by type", async () => {
   const { requests } = renderRoute("/runs/r1", api);
   await screen.findByRole("list", { name: "Timeline" });
