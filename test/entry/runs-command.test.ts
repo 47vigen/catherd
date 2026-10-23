@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatRun, redrawMs } from "../../src/entry/runs-command.ts";
+import { tryLock } from "../../src/infra/filelock.ts";
+import { daemonLockTarget } from "../../src/services/daemon.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
+import { startedFields } from "../domain/run-fixtures.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { appendRecord, createRun, runPaths } from "../../src/services/run-store.ts";
 import type { RunSummary } from "../../src/services/summary.ts";
@@ -13,8 +17,12 @@ import { saveJevKey } from "../../src/services/jev-service.ts";
 afterEach(snapshotEnv());
 
 function catherd(args: string[], env: Record<string, string> = {}) {
+  const childEnv = { ...process.env };
+  delete childEnv.CATHERD_ROLE;
+  delete childEnv.CATHERD_DISPATCH_ID;
+  delete childEnv.TMPDIR;
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
-    env: { ...process.env, NO_COLOR: "1", ANTHROPIC_API_KEY: "", ...env },
+    env: { ...childEnv, NO_COLOR: "1", ANTHROPIC_API_KEY: "", ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -39,6 +47,7 @@ const summary = (over: Partial<RunSummary> = {}): RunSummary => ({
     notOk: ["reviewer-M1 (failed)"],
     tokens: { input: 120_000, cached: 90_000, output: 8_000 },
     costUsd: 0.5,
+    unpriced: 0,
     wallMinutes: 30,
   },
   agents: { runs: 1, totalTokens: 50_000, costUsd: 0 },
@@ -62,7 +71,7 @@ describe("formatRun", () => {
       "  repo /r/app · started 2026-09-25T12:00:00.000Z · 30 min",
       "  live worker-M1.L1  codex:gpt-6-sol#medium  running 42s",
       "  done 3 role run(s), 2 ok; not ok: reviewer-M1 (failed)",
-      "  tokens 120,000 in (90,000 cached) · 8,000 out · $0.50 · native agents 1 run(s), 50,000 tokens (reported)",
+      "  tokens 30,000 uncached · 90,000 cache read · 0 cache write · 8,000 out · $0.50 · native agents 1 run(s), 50,000 tokens (reported)",
       "  harness claude-code 0 native, 1 isolated · codex 2 native, 0 isolated",
       "  budget 30/60 min (50%)",
       "  jev 3 decision(s), 1 fallback(s)",
@@ -408,4 +417,46 @@ it("a one-shot status on codex never runs the Codex CLI for the queue capability
     reason: expect.stringContaining("catherd doctor"),
   });
   expect(existsSync(envTo)).toBe(false);
+});
+
+it("status --json lists the replayed parked question", async () => {
+  const { run } = freshRun();
+  await appendEvent(run, { type: "run.started", ...startedFields });
+  const question = await appendEvent(run, {
+    type: "question.parked",
+    unit: "M1",
+    question: "Which currency?",
+    reason: "needs_user",
+  });
+  const release = tryLock(daemonLockTarget(run));
+  expect(release).not.toBeNull();
+  try {
+    const parked = catherd(["status", run.id, "--json"]);
+    expect(parked.code).toBe(0);
+    expect(JSON.parse(parked.out).runs[0].questions).toEqual([
+      { milestone: "M1", question: "Which currency?", at: question.at },
+    ]);
+    await appendEvent(run, { type: "run.ended", outcome: "cancelled", reportPath: null });
+    const ended = catherd(["status", run.id, "--json"]);
+    expect(ended.code).toBe(0);
+    expect(JSON.parse(ended.out).runs[0].questions).toEqual([]);
+  } finally {
+    release?.();
+  }
+});
+
+it("the token line splits cache reads and writes", () => {
+  const s = summary();
+  s.totals.tokens.cacheWrite = 10_000;
+  s.totals.unpriced = 1;
+  expect(formatRun(s).join("\n")).toContain(
+    "tokens 20,000 uncached · 90,000 cache read · 10,000 cache write · 8,000 out · $0.50 (+1 unpriced)",
+  );
+});
+
+it("an entirely unpriced run shows an unknown cost", () => {
+  const s = summary();
+  s.totals.costUsd = null;
+  s.totals.unpriced = 3;
+  expect(formatRun(s).join("\n")).toContain("out · unknown (+3 unpriced)");
 });

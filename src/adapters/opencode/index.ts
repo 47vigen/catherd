@@ -264,6 +264,9 @@ function limitRetry(messages: unknown, sinceMs?: number): string | null {
 const minus = (a: Tokens, b: Tokens): Tokens => ({
   input: Math.max(0, a.input - b.input),
   cached: Math.max(0, a.cached - b.cached),
+  ...(a.cacheWrite !== undefined || b.cacheWrite !== undefined
+    ? { cacheWrite: Math.max(0, (a.cacheWrite ?? 0) - (b.cacheWrite ?? 0)) }
+    : {}),
   output: Math.max(0, a.output - b.output),
 });
 

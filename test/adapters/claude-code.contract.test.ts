@@ -14,14 +14,14 @@ runAdapterContract(
       expect: {
         status: "ok",
         thread: "6b1f7c1e-2f7d-4a55-9d7e-1c2b3a4d5e6f",
-        tokens: { input: 28359, cached: 23469, output: 41 },
+        tokens: { input: 28359, cached: 23469, cacheWrite: 4881, output: 41 },
         reply: "hello",
       },
     },
     {
       name: "a real read-only run whose write was denied",
       fixture: fx("read-only-write.jsonl"),
-      expect: { status: "ok", tokens: { input: 92356, cached: 61157, output: 811 } },
+      expect: { status: "ok", tokens: { input: 92356, cached: 61157, cacheWrite: 31174, output: 811 } },
     },
     {
       name: "a real resumed run",
@@ -42,7 +42,7 @@ runAdapterContract(
     {
       name: "an API retry, then success",
       fixture: fx("retry.jsonl"),
-      expect: { status: "ok", tokens: { input: 20912, cached: 20000, output: 14 } },
+      expect: { status: "ok", tokens: { input: 20912, cached: 20000, cacheWrite: 900, output: 14 } },
     },
     {
       name: "a CLI too old for a flag",

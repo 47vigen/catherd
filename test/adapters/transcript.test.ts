@@ -79,11 +79,13 @@ describe("claude transcript", () => {
     expect(out?.error).toBe(false);
     expect(kinds(items, "text").length).toBeGreaterThan(0);
     expect(kinds(items, "turn")[0]?.costUsd).toBe(0.6874738000000001);
-    expect(kinds(items, "turn")[0]?.tokens).toEqual({
+    const tokens = {
       input: 8 + 75348 + 219089,
       cached: 219089,
+      cacheWrite: 75348,
       output: 2042,
-    });
+    };
+    expect(kinds(items, "turn")[0]?.tokens).toEqual(tokens);
     expect(items.some((i) => i.kind === "raw")).toBe(false);
   });
 

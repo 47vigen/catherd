@@ -37,9 +37,11 @@ export function opencodeTokens(t: Event | undefined): Tokens {
   if (!t) return { ...ZERO_TOKENS };
   const n = (v: unknown) => (typeof v === "number" ? v : 0);
   const cached = n(t.cache?.read);
+  const cacheWrite = n(t.cache?.write);
   return {
-    input: n(t.input) + cached + n(t.cache?.write),
+    input: n(t.input) + cached + cacheWrite,
     cached,
+    ...(cacheWrite ? { cacheWrite } : {}),
     output: n(t.output) + n(t.reasoning),
   };
 }
@@ -88,6 +90,7 @@ export function foldOpencodeEvents(lines: string[]): OpencodeFold {
       const t = opencodeTokens(e.part?.tokens);
       f.tokens.input += t.input;
       f.tokens.cached += t.cached;
+      if (t.cacheWrite) f.tokens.cacheWrite = (f.tokens.cacheWrite ?? 0) + t.cacheWrite;
       f.tokens.output += t.output;
       if (typeof e.part?.cost === "number") f.costUsd += e.part.cost;
     } else if (e.type === "tool_use" && e.part?.state?.status === "error") {
