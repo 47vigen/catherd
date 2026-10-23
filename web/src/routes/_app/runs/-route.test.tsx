@@ -794,3 +794,22 @@ test("the step count shows skipped and failed", async () => {
   renderRoute("/runs/r1", api);
   expect(await screen.findByText("3 done · 1 skipped · 1 failed of 5")).toBeInTheDocument();
 });
+
+test("the header does not count an active dispatch as unpriced", async () => {
+  model = {
+    ...model,
+    dispatches: [
+      {
+        ...model.dispatches[0]!,
+        status: "running",
+        endedAt: null,
+        tokens: null,
+        costUsd: null,
+      },
+    ],
+  };
+  renderRoute("/runs/r1", api);
+  await screen.findByText("1 role run");
+  expect(screen.queryByText(/\d+ unpriced/)).not.toBeInTheDocument();
+  expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("—");
+});

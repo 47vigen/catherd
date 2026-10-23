@@ -22,3 +22,13 @@ test("tokens and cost read short", () => {
 test("formatCost(null) is a dash", () => {
   expect(formatCost(null)).toBe("—");
 });
+
+test("unpriced counts finalized records and excludes active dispatches", () => {
+  const record = { ...CASE_HELPERS.dispatches[0]!, costUsd: null };
+  const active = { ...record, status: "running" as const, endedAt: null, tokens: null };
+  expect(totalsOf([active])).toEqual({ tokens: 0, costUsd: null, unpriced: 0 });
+  expect(totalsOf([record, active]).unpriced).toBe(1);
+  // An ended event can arrive before its finalized record supplies token usage.
+  expect(totalsOf([{ ...active, status: "done", endedAt: record.endedAt }]).unpriced).toBe(0);
+  expect(totalsOf([{ ...record, tokens: { input: 0, cached: 0, output: 0 } }]).unpriced).toBe(1);
+});
