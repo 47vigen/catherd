@@ -85,6 +85,8 @@ export function tempRepo(): string {
     // a CI runner has no global identity, and the daemon commits with whatever the repo gives it
     git("config", "user.name", "t");
     git("config", "user.email", "t@t");
+    // a commit starts git's detached auto-maintenance, whose objects/maintenance.lock can vanish mid-copy below
+    git("config", "maintenance.auto", "false");
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
   }
   const dir = tempDir("catherd-repo-");
