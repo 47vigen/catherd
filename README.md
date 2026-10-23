@@ -290,9 +290,10 @@ socket from another origin.
   cost and why that model ran. Prompt shows the brief's sections. Log shows the role's stream as a readable
   transcript, or the raw lines. Output shows the reply. Changes shows the diff, and Checks shows the check logs.
   A node that waits for you takes the answer in the drawer.
-- **Pause, resume and cancel**: **Pause** stops a run from starting new steps. Live roles finish their work.
-  **Resume** starts the held steps again. **Cancel role** stops one live role, and **Cancel run** stops the whole
-  run. Each cancel asks first. A run starts from your session, never from the panel.
+- **Pause, resume and cancel**: **Pause** stops a run from starting new steps: no new role or judge, and no
+  landing, push or merge. Live roles finish their work, and their checks and commits still run. **Resume** starts
+  the held steps again. **Cancel role** stops one live role, and **Cancel run** stops the whole run. Each cancel
+  asks first. A run starts from your session, never from the panel.
 - **Questions**: each question that waits, with its run, unit and role, the reason, and the latest reply of the
   role that asked. A one-click answer sends a common reply at once. For your own words, Cmd/Ctrl+Enter sends the
   answer. The unit then runs again. Answered questions move to "Recently answered".

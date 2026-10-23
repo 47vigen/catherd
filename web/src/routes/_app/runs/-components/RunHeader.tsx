@@ -64,7 +64,7 @@ export function RunHeader({
   const pause = useMutation({
     ...pauseRunMutation(),
     onSuccess: async () => {
-      toast.success("Paused. Live roles finish; nothing new starts.");
+      toast.success("Paused. Live roles finish; nothing new starts or lands.");
       await refresh();
     },
     onError: (e) => toast.danger(errorMessage(e)),

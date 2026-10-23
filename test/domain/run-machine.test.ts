@@ -1007,6 +1007,15 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
 });
 
 describe("the machine: the run", () => {
+  it("a paused run with a verified milestone does not land it, and lands it after the resume", () => {
+    const log = base1();
+    expect(of(last(log), "land")).toHaveLength(1);
+    log.add("run.paused", { by: "owner" });
+    expect(last(log).filter((a) => ["land", "pushBranch", "integrate"].includes(a.type))).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(of(last(log), "land")).toHaveLength(1);
+  });
+
   it("reports and notifies a landing, then goes on to the next milestone", () => {
     const log = base1();
     log.add("milestone.landed", {

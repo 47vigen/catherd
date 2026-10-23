@@ -651,6 +651,9 @@ function owedActions(s: RunState): Action[] {
     ]);
 }
 
+/** What a pause holds back: every new step; a live role's check and commit still run. */
+const PAUSED_STEPS = new Set<Action["type"]>(["dispatch", "judge", "land", "pushBranch", "integrate"]);
+
 const sameLine = (s: RunState, a: Action): boolean => a.type === "dispatch" && hasLive(s, a.name);
 
 /**
@@ -662,7 +665,7 @@ export function next(state: RunState, e: RunEvent): Action[] {
   return [...react(state, e), ...owedActions(state), ...advance(state)].filter((a) => {
     const key = actionKey(a);
     if (seen.has(key) || sameLine(state, a)) return false;
-    if (state.paused !== null && (a.type === "dispatch" || a.type === "judge")) return false;
+    if (state.paused !== null && PAUSED_STEPS.has(a.type)) return false;
     seen.add(key);
     return true;
   });
