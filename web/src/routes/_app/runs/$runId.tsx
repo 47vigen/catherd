@@ -1,16 +1,21 @@
 import { Alert, cn, Spinner } from "@heroui/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { TimelineEntry } from "../../../client";
-import { getRunModelOptions, getRunOptions, getRunTimelineOptions } from "../../../client/@tanstack/react-query.gen";
+import type { RunModel, TimelineEntry } from "../../../client";
+import {
+  getRunModelOptions,
+  getRunModelQueryKey,
+  getRunOptions,
+  getRunQueryKey,
+  getRunTimelineOptions,
+} from "../../../client/@tanstack/react-query.gen";
 import { CodeBlock } from "../../../components/code-block/CodeBlock";
 import { DataList } from "../../../components/data-list/DataList";
 import { Tile } from "../../../components/tile/Tile";
 import { errorFix, errorMessage } from "../../../lib/api";
 import { type ListSearch, parseListSearch, stripListDefaults } from "../../../lib/list-search";
-import { invalidateOps } from "../../../lib/query";
 import { DispatchTable } from "./-components/DispatchTable";
 import { NodeDrawer } from "./-components/drawer/NodeDrawer";
 import { RunGraph } from "./-components/graph/RunGraph";
@@ -20,8 +25,10 @@ import { RunHeader } from "./-components/RunHeader";
 import { Milestones, Models } from "./-components/RunSide";
 import { Timeline, TimelineFilter } from "./-components/Timeline";
 import { useIsDesktop } from "./-hooks/useIsDesktop";
-import { useLiveRun } from "./-hooks/useLiveRun";
+import { type TranscriptFrame, useLiveRun } from "./-hooks/useLiveRun";
 import { useTicker } from "./-hooks/useTicker";
+import { applyPatch } from "./-lib/apply-patch";
+import { type LiveLog, LiveLogContext } from "./-lib/live-log";
 import { parseTab, type Tab } from "./-lib/tabs";
 import { matchesTypes } from "./-lib/timeline-filters";
 
@@ -75,11 +82,8 @@ function RunDetail({ runId }: { runId: string }) {
   const run = useQuery({ ...getRunOptions({ path: { id: runId } }), refetchInterval: 10_000 });
   const is2 = run.data?.engine === "2.0";
   const live = is2 && run.data?.phase !== "ended";
-  const model = useQuery({
-    ...getRunModelOptions({ path: { id: runId } }),
-    enabled: run.isSuccess,
-    refetchInterval: live ? 10_000 : false,
-  });
+  // A live run's model is read once; the socket's patches keep it current.
+  const model = useQuery({ ...getRunModelOptions({ path: { id: runId } }), enabled: run.isSuccess });
   const timeline = useQuery({
     ...getRunTimelineOptions({
       path: { id: runId },
@@ -90,21 +94,55 @@ function RunDetail({ runId }: { runId: string }) {
 
   // Live entries sit before the fetched ones on page 1; a frame the page already holds is dropped by its seq.
   const [liveEntries, setLiveEntries] = useState<TimelineEntry[]>([]);
-  // The socket opens once page 1 is in hand and replays everything after its newest seq (the list is newest first).
-  const { isConnected } = useLiveRun(
+  const transcriptListeners = useRef(new Set<(f: TranscriptFrame) => void>());
+  const modelKey = getRunModelQueryKey({ path: { id: runId } });
+  // The socket opens once the model (and page 1, when shown) is in hand, and replays everything after the older of
+  // the two: a replayed patch the model already holds changes nothing (the timeline list is newest first).
+  const newest = page === 1 ? timeline.data?.items[0]?.seq : undefined;
+  const { isConnected, watch } = useLiveRun(
     runId,
-    live === true && page === 1 && timeline.isSuccess,
+    live === true && model.isSuccess && (page !== 1 || timeline.isSuccess),
     (e) => {
       setLiveEntries((all) => (all.some((x) => x.seq === e.seq) ? all : [e, ...all].sort((a, b) => b.seq - a.seq)));
-      // The run model is read again on every event until the socket carries the patches itself.
-      void invalidateOps(queryClient, "getRun", "getRunModel");
+      // The header's facts (live roles, milestones, holds) are not in a patch: one read at a time keeps them fresh.
+      void queryClient.invalidateQueries(
+        { queryKey: getRunQueryKey({ path: { id: runId } }) },
+        { cancelRefetch: false },
+      );
     },
-    timeline.data?.items[0]?.seq ?? 0,
+    Math.min(model.data?.seq ?? 0, newest ?? Number.MAX_SAFE_INTEGER),
+    {
+      onPatch: (p) => {
+        // null: the server could not diff this event, so the model is read again
+        if (p === null) void queryClient.invalidateQueries({ queryKey: modelKey });
+        else queryClient.setQueryData<RunModel>(modelKey, (m) => (m ? applyPatch(m, p) : m));
+      },
+      onTranscript: (f) => transcriptListeners.current.forEach((fn) => fn(f)),
+    },
+  );
+  // A reconnect may have missed patches the server can no longer diff against: read the model again, once.
+  const everConnected = useRef(false);
+  useEffect(() => {
+    if (!isConnected) return;
+    if (everConnected.current)
+      void queryClient.invalidateQueries({ queryKey: getRunModelQueryKey({ path: { id: runId } }) });
+    everConnected.current = true;
+  }, [isConnected, queryClient, runId]);
+  const liveLog = useMemo<LiveLog>(
+    () => ({
+      watch,
+      subscribe: (fn) => {
+        transcriptListeners.current.add(fn);
+        return () => void transcriptListeners.current.delete(fn);
+      },
+    }),
+    [watch],
   );
   const fetched = timeline.data?.items ?? [];
   const seen = new Set(fetched.map((e) => e.seq));
-  const entries =
-    page === 1 ? [...liveEntries.filter((e) => !seen.has(e.seq) && matchesTypes(types, e.type)), ...fetched] : fetched;
+  const arrivedEntries = liveEntries.filter((e) => !seen.has(e.seq) && matchesTypes(types, e.type));
+  const entries = page === 1 ? [...arrivedEntries, ...fetched] : fetched;
+  const arrived = new Set(arrivedEntries.map((e) => e.seq));
   const tick = useTicker(live === true);
   const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt, tick));
 
@@ -223,7 +261,7 @@ function RunDetail({ runId }: { runId: string }) {
           ) : entries.length === 0 ? (
             <p className="text-muted px-4 py-4 text-sm">{types ? "No events of this type." : "No events yet."}</p>
           ) : (
-            <Timeline entries={entries} now={now} />
+            <Timeline entries={entries} now={now} arrived={arrived} />
           )}
           {(timeline.data?.total ?? 0) > 0 ? (
             <div className="border-border border-t px-4 py-2.5">
@@ -244,23 +282,25 @@ function RunDetail({ runId }: { runId: string }) {
         </Tile>
       </div>
       {is2 && model.data ? (
-        <NodeDrawer
-          runId={runId}
-          run={r}
-          model={model.data}
-          nodeId={node}
-          attemptId={attempt}
-          tab={tab ?? "overview"}
-          live={live === true}
-          now={now.getTime()}
-          onChange={(patch) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
-          onClose={() =>
-            void navigate({
-              search: (prev) => ({ ...prev, node: undefined, attempt: undefined, tab: undefined }),
-              replace: true,
-            })
-          }
-        />
+        <LiveLogContext value={live ? liveLog : null}>
+          <NodeDrawer
+            runId={runId}
+            run={r}
+            model={model.data}
+            nodeId={node}
+            attemptId={attempt}
+            tab={tab ?? "overview"}
+            live={live === true}
+            now={now.getTime()}
+            onChange={(patch) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
+            onClose={() =>
+              void navigate({
+                search: (prev) => ({ ...prev, node: undefined, attempt: undefined, tab: undefined }),
+                replace: true,
+              })
+            }
+          />
+        </LiveLogContext>
       ) : null}
     </div>
   );

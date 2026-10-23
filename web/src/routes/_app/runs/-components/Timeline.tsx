@@ -1,4 +1,4 @@
-import { Chip } from "@heroui/react";
+import { Chip, cn } from "@heroui/react";
 
 import { filterIdOf, TIMELINE_FILTERS } from "../-lib/timeline-filters";
 import type { TimelineEntry } from "../../../../client";
@@ -18,14 +18,25 @@ export function TimelineFilter({ types, onChange }: { types: string | undefined;
   );
 }
 
-/** A run's events, one line each, in the order given (newest first). */
-export function Timeline({ entries, now }: { entries: TimelineEntry[]; now: Date }) {
+/** A run's events, one line each, in the order given (newest first); the seqs in `arrived` came over the socket. */
+export function Timeline({
+  entries,
+  now,
+  arrived,
+}: {
+  entries: TimelineEntry[];
+  now: Date;
+  arrived?: ReadonlySet<number>;
+}) {
   return (
     <ol aria-label="Timeline" className="divide-separator divide-y">
       {entries.map((e) => (
         <li
           key={e.seq}
-          className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-[13px] md:grid-cols-[2.5rem_10rem_1fr_5rem]"
+          className={cn(
+            "grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-[13px] md:grid-cols-[2.5rem_10rem_1fr_5rem]",
+            arrived?.has(e.seq) && "row-arrive",
+          )}
         >
           <span className="text-muted font-mono text-xs tabular-nums max-md:hidden">{e.seq}</span>
           <Chip size="sm" variant="soft" className="w-fit max-w-full">

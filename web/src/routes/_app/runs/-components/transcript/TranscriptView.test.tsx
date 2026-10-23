@@ -2,6 +2,8 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import "../../../../../test/dom-shims";
+import type { TranscriptFrame } from "../../-hooks/useLiveRun";
+import { LiveLogContext } from "../../-lib/live-log";
 import type { TranscriptItem, TranscriptPage } from "../../../../../client";
 import { client } from "../../../../../client/client.gen";
 import { TranscriptView } from "./TranscriptView";
@@ -78,24 +80,39 @@ test("a failed request says why, and a missing dispatch is not an error page", a
   expect(await screen.findByText("No such dispatch.")).toBeInTheDocument();
 });
 
-test("a live log keeps asking for lines after the last one until the dispatch ends", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  try {
-    const seen = fakeStream((from) =>
-      from === 0
-        ? { items: [text(0, "one")], next: 1, ended: false }
-        : { items: [text(1, "two")], next: 2, ended: true },
-    );
-    render(<TranscriptView runId="r" dispatchId="d" live />);
-    await screen.findByText("one");
-    expect(screen.getByText("Live")).toBeInTheDocument();
-    await act(() => vi.advanceTimersByTimeAsync(2000));
-    await waitFor(() => expect(screen.getByText("two")).toBeInTheDocument());
-    expect(seen[1]).toContain("from=1");
-    const count = seen.length;
-    await act(() => vi.advanceTimersByTimeAsync(10_000));
-    expect(seen).toHaveLength(count);
-  } finally {
-    vi.useRealTimers();
-  }
+test("a live log tails the stream over the run socket from the last line read, and stops when left", async () => {
+  const seen = fakeStream((from) => ({ items: [text(0, "one")], next: 1, ended: from > 0 }));
+  const subs = new Set<(f: TranscriptFrame) => void>();
+  const watch = vi.fn<(dispatchId: string | null, from: number) => void>();
+  const subscribe = (fn: (f: TranscriptFrame) => void) => {
+    subs.add(fn);
+    return () => void subs.delete(fn);
+  };
+  const view = (live: boolean) => (
+    <LiveLogContext value={{ watch, subscribe }}>
+      <TranscriptView runId="r" dispatchId="d" live={live} />
+    </LiveLogContext>
+  );
+  const send = (f: TranscriptFrame) => act(() => subs.forEach((fn) => fn(f)));
+  const frame = (dispatchId: string, line: number, t: string): TranscriptFrame => ({
+    kind: "transcript",
+    dispatchId,
+    items: [text(line, t)],
+    raw: [],
+    next: line + 1,
+  });
+  const { rerender } = render(view(true));
+  await screen.findByText("one");
+  await waitFor(() => expect(watch).toHaveBeenCalledWith("d", 1));
+  send(frame("d", 1, "two"));
+  send(frame("other", 2, "not this one"));
+  send(frame("d", 1, "two"));
+  expect(screen.getAllByText("two")).toHaveLength(1);
+  expect(screen.queryByText("not this one")).toBeNull();
+  // no polling: one request while live, then one last read once the dispatch ends
+  expect(seen).toHaveLength(1);
+  rerender(view(false));
+  await waitFor(() => expect(seen).toHaveLength(2));
+  expect(seen[1]).toContain("from=2");
+  expect(watch).toHaveBeenLastCalledWith(null, 0);
 });

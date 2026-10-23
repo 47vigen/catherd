@@ -21,11 +21,29 @@ class FakeSocket {
   }
   addEventListener() {}
   removeEventListener() {}
-  send() {}
+  sent: string[] = [];
+  send(data: string) {
+    this.sent.push(data);
+  }
   close() {
     this.readyState = 3;
     this.onclose?.();
   }
+  open() {
+    this.readyState = 1;
+    this.onopen?.();
+  }
+  frame(f: object) {
+    this.onmessage?.({ data: JSON.stringify(f) });
+  }
+}
+
+/** The page's socket once it is open. */
+async function openSocket(): Promise<FakeSocket> {
+  await waitFor(() => expect(FakeSocket.last).toBeDefined());
+  const ws = FakeSocket.last!;
+  act(() => ws.open());
+  return ws;
 }
 
 // jsdom has no layout: say whether the window is a desktop one (the graph) or a phone (the list of steps).
@@ -444,18 +462,105 @@ test("a live entry joins page 1 only, once, and refreshes the run", async () => 
     ws.readyState = 1;
     ws.onopen?.();
   });
-  const before = requests.filter((r) => describeRequest(r) === "GET /api/runs/r1/model").length;
+  const before = requests.filter((r) => describeRequest(r) === "GET /api/runs/r1").length;
   const frame = JSON.stringify({ seq: 9, type: "report.posted", text: "M1 landed" });
   act(() => ws.onmessage?.({ data: frame }));
   act(() => ws.onmessage?.({ data: frame }));
   await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(4));
-  expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("M1 landed");
-  // the model is read again for the event
+  const first = within(list).getAllByRole("listitem")[0]!;
+  expect(first).toHaveTextContent("M1 landed");
+  // it arrived live, so it is marked to fade in; the fetched rows are not
+  expect(first).toHaveClass("row-arrive");
+  expect(within(list).getAllByRole("listitem")[1]).not.toHaveClass("row-arrive");
+  // the run (header, live roles) is read again for the event
   await waitFor(() =>
-    expect(requests.filter((r) => describeRequest(r) === "GET /api/runs/r1/model").length).toBeGreaterThan(before),
+    expect(requests.filter((r) => describeRequest(r) === "GET /api/runs/r1").length).toBeGreaterThan(before),
   );
   act(() => router.history.push("/runs/r1?page=2"));
   await waitFor(() => expect(screen.queryByText("M1 landed")).toBeNull());
+});
+
+const modelReads = (requests: Request[]) =>
+  requests.filter((r) => describeRequest(r) === "GET /api/runs/r1/model").length;
+
+test("an event frame patches the graph without a refetch", async () => {
+  const { requests } = renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  const ws = await openSocket();
+  const lane = model.nodes.find((n) => n.id === LANE)!;
+  const done = { ...lane, status: "done" as const, now: "Done in 4 min", endedAt: now() };
+  act(() =>
+    ws.frame({
+      kind: "event",
+      seq: model.seq + 1,
+      at: now(),
+      type: "dispatch.ended",
+      text: "worker-M1.L1 ended",
+      event: {},
+      patch: { seq: model.seq + 1, phase: "running", outcome: null, nodes: [done], removed: [], edges: null },
+    }),
+  );
+  model = { ...model, nodes: model.nodes.map((n) => (n.id === LANE ? done : n)) };
+  expect(await nodeButton(LANE)).toBeInTheDocument();
+  expect(modelReads(requests)).toBe(1);
+  // a patch the model already holds (a replay) changes nothing
+  act(() =>
+    ws.frame({
+      kind: "event",
+      seq: model.seq,
+      at: now(),
+      type: "dispatch.started",
+      text: "replayed",
+      event: {},
+      patch: { seq: model.seq, phase: "running", outcome: null, nodes: [lane], removed: [], edges: null },
+    }),
+  );
+  expect(await nodeButton(LANE)).toBeInTheDocument();
+  expect(modelReads(requests)).toBe(1);
+});
+
+test("a reconnect refetches the model once", async () => {
+  const { requests } = renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  const first = await openSocket();
+  expect(modelReads(requests)).toBe(1);
+  act(() => first.close());
+  // the reconnect waits a second
+  await waitFor(() => expect(FakeSocket.last).not.toBe(first));
+  act(() => FakeSocket.last!.open());
+  await waitFor(() => expect(modelReads(requests)).toBe(2));
+  act(() => FakeSocket.last!.frame({ seq: 40, at: now(), type: "report.posted", text: "M1 landed" }));
+  expect(await screen.findByText("M1 landed")).toBeInTheDocument();
+  expect(modelReads(requests)).toBe(2);
+});
+
+const shellFrame = (dispatchId: string, command: string) => ({
+  kind: "transcript",
+  dispatchId,
+  items: [{ kind: "shell", line: 2, id: `s-${command}`, command, output: null, exit: null }],
+  raw: ['{"type":"item.started"}'],
+  next: 3,
+});
+
+test("the log of a running role streams new lines", async () => {
+  renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=log`, api);
+  const dialog = await screen.findByRole("dialog");
+  const ws = await openSocket();
+  // once the first page is read, the socket tails the stream from the line after it
+  await waitFor(() => expect(ws.sent).toContain(JSON.stringify({ watch: LANE_DISPATCH, from: 2 })));
+  act(() => ws.frame(shellFrame(LANE_DISPATCH, "bun test wallet")));
+  expect(await within(dialog).findByText("bun test wallet")).toBeInTheDocument();
+});
+
+test("a frame for another dispatch is ignored", async () => {
+  renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=log`, api);
+  const dialog = await screen.findByRole("dialog");
+  const ws = await openSocket();
+  await waitFor(() => expect(ws.sent).toContain(JSON.stringify({ watch: LANE_DISPATCH, from: 2 })));
+  act(() => ws.frame(shellFrame("someone-else", "rm stale files")));
+  act(() => ws.frame(shellFrame(LANE_DISPATCH, "bun test wallet")));
+  expect(await within(dialog).findByText("bun test wallet")).toBeInTheDocument();
+  expect(within(dialog).queryByText("rm stale files")).toBeNull();
 });
 
 test("the timeline filters by type", async () => {
