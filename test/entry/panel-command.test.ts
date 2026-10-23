@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { panelHost } from "../../src/entry/panel-command.ts";
+import { panelHost, panelServer, runPanel } from "../../src/entry/panel-command.ts";
+import { panelOrigin } from "../../src/services/notify-service.ts";
+import { fakeDeps } from "../services/helpers.ts";
 import { configFile } from "../../src/services/profile-store.ts";
 import { recordHost } from "../../src/services/profile-service.ts";
 import { SRC } from "../import-graph.ts";
@@ -21,8 +23,7 @@ function distDir(): string {
   writeFileSync(join(dir, "index.html"), '<!doctype html><div id="root"></div>');
   return dir;
 }
-function panel(args: string[], dist: string | undefined) {
-  const home = withHome();
+function panel(args: string[], dist: string | undefined, home = withHome()) {
   const p = Bun.spawn([process.execPath, CLI, "panel", ...args], {
     env: spawnEnv({
       PATH: process.env.PATH,
@@ -48,6 +49,80 @@ async function firstLine(p: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<s
 }
 
 describe("catherd panel", () => {
+  it("records its served origin and clears it when stopped, even on a wait failure", async () => {
+    withHome();
+    delete process.env.CATHERD_ROLE;
+    process.env.CATHERD_PANEL_DIST = distDir();
+    process.env.TMPDIR = ".";
+    const original = { ...panelServer };
+    const log = console.log;
+    console.log = () => {};
+    try {
+      for (const fails of [false, true]) {
+        let stopped = false;
+        panelServer.serve = () => ({
+          url: "http://127.0.0.1:4321",
+          port: 4321,
+          stop: async () => {
+            stopped = true;
+          },
+        });
+        panelServer.untilStopped = async () => {
+          expect(panelOrigin(fakeDeps())).toBe("http://127.0.0.1:4321");
+          if (fails) throw new Error("wait failed");
+        };
+        if (fails) await expect(runPanel({ port: 0, open: false })).rejects.toThrow("wait failed");
+        else await runPanel({ port: 0, open: false });
+        expect(stopped).toBe(true);
+        expect(panelOrigin(fakeDeps())).toBeNull();
+      }
+    } finally {
+      Object.assign(panelServer, original);
+      console.log = log;
+    }
+  });
+
+  it("stopping an older panel preserves the newer panel's origin", async () => {
+    const home = withHome();
+    const dist = distDir();
+    const older = panel(["--no-open", "--port", "0"], dist, home);
+    let newer: ReturnType<typeof panel> | undefined;
+    try {
+      await firstLine(older as never);
+      newer = panel(["--no-open", "--port", "0"], dist, home);
+      const line = await firstLine(newer as never);
+      const origin = new URL(line.slice("catherd panel: ".length)).origin;
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      older.kill("SIGTERM");
+      expect(await older.exited).toBe(0);
+      expect((await fetch(`${origin}/login`)).status).toBe(200);
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      newer.kill("SIGTERM");
+      expect(await newer.exited).toBe(0);
+      expect(panelOrigin(fakeDeps())).toBeNull();
+    } finally {
+      older.kill();
+      newer?.kill();
+      await Promise.all([older.exited, newer?.exited]);
+    }
+  });
+
+  it("does not return an origin after the panel is killed without cleanup", async () => {
+    const home = withHome();
+    const p = panel(["--no-open", "--port", "0"], distDir(), home);
+    try {
+      const line = await firstLine(p as never);
+      const origin = new URL(line.slice("catherd panel: ".length)).origin;
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      p.kill("SIGKILL");
+      await p.exited;
+      expect(panelOrigin(fakeDeps())).toBeNull();
+    } finally {
+      p.kill();
+      await p.exited;
+    }
+  });
+
   it("prints the link with a fresh token and opens nothing with --no-open", async () => {
     const p = panel(["--no-open", "--port", "0"], distDir());
     const line = await firstLine(p as never);

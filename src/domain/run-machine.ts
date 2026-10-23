@@ -20,12 +20,16 @@ import {
   hasPlanInput,
   type MilestoneState,
   milestoneOf,
+  remindDue,
   type RunState,
 } from "./run-state.ts";
 
 export type BriefKind = "dossier" | "architect" | "lane" | "fix" | "review" | "recheck" | "verify" | "judge";
 
+export type RemindAction = { type: "remind"; unit: string; n: number };
+
 export type Action =
+  | RemindAction
   | {
       type: "dispatch";
       unit: string;
@@ -87,6 +91,8 @@ export function actionKey(a: Action): string {
       return `judge:${a.input.unit}:${a.input.kind}`;
     case "park":
       return `park:${a.unit}`;
+    case "remind":
+      return `remind:${a.unit}:${a.n}`;
     case "cancel":
       return "cancel:run";
     case "report":
@@ -105,6 +111,7 @@ export function unitOf(a: Action, s?: RunState): string {
     case "park":
     case "report":
     case "notify":
+    case "remind":
       return a.unit;
     case "watch":
     case "classify":
@@ -162,6 +169,8 @@ export function confirms(e: RunEvent): string[] {
       return (["triage", "question", "unexpected", "rules"] as const).map((k) => `judge:${e.unit}:${k}`);
     case "question.parked":
       return [`park:${e.unit}`];
+    case "question.reminded":
+      return [`remind:${e.unit}:${e.n}`];
     case "milestone.landed":
     case "land.refused":
     case "base.behind":
@@ -457,6 +466,15 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
     case "review":
       return reviewActions(s, m);
     case "verifying":
+      if (m.commit !== null && m.commit === m.verifierFailedOn)
+        return [
+          {
+            type: "park",
+            unit: m.id,
+            reason: "verifier",
+            question: `${m.id}'s verifier already failed commit ${m.commit}; the fix round left it unchanged. Make a new commit or answer when the check is ready to retry.`,
+          },
+        ];
       return (m.tries[`verifier-${m.id}`] ?? 0) >= MAX_TRIES
         ? []
         : roleDispatch(s, {
@@ -628,7 +646,7 @@ function react(s: RunState, e: RunEvent): Action[] {
           type: "report",
           kind: e.outcome === "done" ? "finished" : e.outcome,
           unit: RUN_UNIT,
-          text: `The run ${e.outcome === "done" ? "finished" : e.outcome}${e.reportPath ? `: ${e.reportPath}` : ""}${
+          text: `The run ${e.outcome === "done" ? "finished" : e.outcome === "cancelled" ? "was cancelled" : "stopped"}${e.reportPath ? `: ${e.reportPath}` : ""}${
             s.rulesReview?.changes.length
               ? `; ${s.rulesReview.changes.length} proposed change(s) to the standing rules wait in the report`
               : ""
@@ -643,12 +661,21 @@ function react(s: RunState, e: RunEvent): Action[] {
 
 /** The reports and notices still owed: a park's and a landing's, until their `report.posted`. */
 function owedActions(s: RunState): Action[] {
-  return Object.values(s.owed)
-    .filter((o) => (s.failedEffects[`report@${o.unit}`] ?? 0) < MAX_TRIES)
-    .flatMap((o): Action[] => [
-      { type: "report", kind: o.kind, unit: o.unit, text: o.text },
-      ...(o.moment !== null ? [{ type: "notify" as const, unit: o.unit, moment: o.moment }] : []),
-    ]);
+  const reminders: RemindAction[] =
+    s.phase === "ended"
+      ? []
+      : Object.values(s.questions)
+          .filter((q) => remindDue(q) <= s.at)
+          .map((q) => ({ type: "remind", unit: q.unit, n: (q.reminded ?? 0) + 1 }));
+  return [
+    ...reminders,
+    ...Object.values(s.owed)
+      .filter((o) => (s.failedEffects[`report@${o.unit}`] ?? 0) < MAX_TRIES)
+      .flatMap((o): Action[] => [
+        { type: "report", kind: o.kind, unit: o.unit, text: o.text },
+        ...(o.moment !== null ? [{ type: "notify" as const, unit: o.unit, moment: o.moment }] : []),
+      ]),
+  ];
 }
 
 /** What a pause holds back: every new step, a worktree claim and a routing included; a live role's check and commit still run. */

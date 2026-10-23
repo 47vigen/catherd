@@ -4,7 +4,14 @@ import { join } from "node:path";
 import type { Finding } from "../../src/domain/run-events.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { gateLines, REPORT_LIST_CAP, roundsLine, writeRunReport } from "../../src/services/run-report.ts";
-import { endDispatch, type Log, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
+import {
+  endDispatch,
+  type Log,
+  makeLog,
+  PLAN,
+  startDispatch,
+  startedFields,
+} from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
 
@@ -31,6 +38,49 @@ const commit = (log: Log, round: number): void => {
 };
 
 describe("the run report (plan 34)", () => {
+  it("a cancelled run's report opens with its outcome and what was left", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "a".repeat(40),
+      knownIssues: [],
+      digestPath: "d.md",
+    });
+    log.add("cancel.requested", { by: "owner" });
+    const headline =
+      "# wallet\n\nOutcome: cancelled\nReason: cancel requested by the owner.\nNot landed: M2: the docs\n\n";
+    const report = () => readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    // The finish effect writes the report before it appends run.ended.
+    expect(report().startsWith(headline)).toBe(true);
+    log.add("run.ended", { outcome: "cancelled", reportPath: "report.md" });
+    expect(report().startsWith(headline)).toBe(true);
+  });
+
+  it("lists every milestone when cancellation happens before any landed", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("cancel.requested", { by: "owner" });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(text).toContain("Not landed: M1: the wallet core, M2: the docs\n");
+  });
+
+  it.each(["done", "failed"] as const)("opens an ended %s run with its outcome", (outcome) => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("run.ended", { outcome, reportPath: "report.md" });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(text.startsWith(`# wallet\n\nOutcome: ${outcome}\n`)).toBe(true);
+    if (outcome === "failed") expect(text).toContain("Not landed: M1: the wallet core, M2: the docs\n");
+    else expect(text).not.toContain("Not landed:");
+  });
+
   it("says how many review rounds a milestone took and which findings they fixed (plan 34)", () => {
     const log = makeLog();
     commit(log, 0);
