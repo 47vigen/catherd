@@ -114,6 +114,21 @@ describe("the overview", () => {
     expect(o.kpis).toMatchObject({ tokens: 150, costUsd: 1 });
   });
 
+  it("sums priced cards and leaves cost null when none are priced", async () => {
+    withHome();
+    runIndexCache.clear();
+    expect(overview(deps(), range).kpis.costUsd).toBeNull();
+    const repo = tempRepo();
+    const unpriced = await make(repo, "unpriced", NOW - DAY);
+    await spend(unpriced, { costUsd: null });
+    expect(overview(deps(), range).kpis.costUsd).toBeNull();
+    const priced = await make(repo, "priced", NOW - 2 * DAY);
+    await spend(priced, { costUsd: 0 });
+    expect(overview(deps(), range).kpis.costUsd).toBe(0);
+    await spend(priced, { costUsd: 1.5 });
+    expect(overview(deps(), range).kpis.costUsd).toBe(1.5);
+  });
+
   it("tokens by model keep the first eight and fold the rest into other", async () => {
     withHome();
     runIndexCache.clear();

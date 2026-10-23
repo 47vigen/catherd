@@ -25,7 +25,7 @@ export const OverviewSchema = z.object({
     cleanPct: z.number().nullable(),
     medianWallMinutes: z.number().nullable(),
     interventions: z.number().int(),
-    costUsd: z.number(),
+    costUsd: z.number().nullable(),
     tokens: z.number(),
   }),
   daily: z.array(
@@ -105,7 +105,10 @@ export function overview(
       cleanPct: ended.length ? (clean.length / ended.length) * 100 : null,
       medianWallMinutes: median(ended.flatMap((r) => (r.wallMinutes === null ? [] : [r.wallMinutes]))),
       interventions: sum((r) => r.totals.interventions),
-      costUsd: sum((r) => r.totals.costUsd),
+      costUsd: inRange.reduce<number | null>(
+        (n, r) => (r.totals.costUsd === null ? n : (n ?? 0) + r.totals.costUsd),
+        null,
+      ),
       tokens: sum((r) => r.totals.tokens.input + r.totals.tokens.output),
     },
     daily: [...daily].map(([day, m]) => ({

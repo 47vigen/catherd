@@ -12,7 +12,7 @@ const axisMoney = (v: number) => (v >= 100 ? `$${Math.round(v)}` : `$${Number(v.
 /** Spend or tokens per day, one stacked column per day and one colour per backend. */
 function DailyChartImpl({ data, days, className }: { data: Overview; days: number; className?: string }) {
   const [picked, setPicked] = useState<Metric | null>(null);
-  const metric = picked ?? (data.kpis.costUsd > 0 ? "cost" : "tokens");
+  const metric = picked ?? (data.kpis.costUsd !== null && data.kpis.costUsd > 0 ? "cost" : "tokens");
   const { keys, rows } = dailyRows(data.daily, metric, days);
   const format = metric === "cost" ? formatCost : formatCount;
   const total = rows.reduce((n, r) => n + r.total, 0);

@@ -172,7 +172,8 @@ function RunDetail({ runId }: { runId: string }) {
     <span className="flex items-center gap-4">
       {steps.length > 0 ? (
         <span className="text-muted font-mono text-xs tabular-nums">
-          {steps.filter((n) => n.status === "done").length}/{steps.length} done
+          {steps.filter((n) => n.status === "done").length} done · {steps.filter((n) => n.status === "skipped").length}{" "}
+          skipped · {steps.filter((n) => n.status === "failed").length} failed of {steps.length}
         </span>
       ) : null}
       {live ? (

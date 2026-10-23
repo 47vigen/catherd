@@ -1,4 +1,5 @@
 import type { BillingKey, Family, Pair } from "./catalog.ts";
+import type { Tokens } from "./record.ts";
 
 /** Spec §5.3: how the user pays for each billing key. */
 export const BILLING_MODES = ["chatgpt-plan", "claude-plan", "subscription", "metered"] as const;
@@ -77,4 +78,17 @@ export function compareCost(a: Cost, b: Cost): number {
   if (a.tier !== b.tier) return a.tier - b.tier;
   if (a.value === null || b.value === null) return (a.value === null ? 1 : 0) - (b.value === null ? 1 : 0);
   return a.value - b.value;
+}
+
+/** List-price dollars: uncached input, cache reads at a tenth, cache writes at 1.25×, and output. */
+export function tokensUsd(price: { input: number; output: number }, t: Tokens): number {
+  const cacheWrite = t.cacheWrite ?? 0;
+  const uncached = t.input - t.cached - cacheWrite;
+  return (
+    (uncached * price.input +
+      (t.cached * price.input) / 10 +
+      cacheWrite * price.input * 1.25 +
+      t.output * price.output) /
+    1_000_000
+  );
 }

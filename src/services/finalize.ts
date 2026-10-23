@@ -3,6 +3,8 @@ import { relative } from "node:path";
 import type { BackendAdapter, FinishedRun, Outcome, Spent } from "../adapters/backend.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
+import { pairOf } from "../domain/catalog.ts";
+import { tokensUsd } from "../domain/cost.ts";
 import { changedPaths, type Snapshot, splitChanges } from "../domain/changes.ts";
 import { isCatherdError } from "../domain/errors.ts";
 import { parseRung } from "../domain/ids.ts";
@@ -30,6 +32,7 @@ import {
   writeTextAtomic,
 } from "../infra/store.ts";
 import { type Dispatch, dispatchState, listDispatches, readProc } from "./dispatches.ts";
+import { loadCatalog } from "./catalog-service.ts";
 import { currentOwns } from "./lane-edit.ts";
 import { tail } from "./run-debug.ts";
 import { appendRecord, readRecords, recordsOnThread, type Run, runPaths } from "./run-store.ts";
@@ -111,6 +114,7 @@ function priorOn(run: Run, backend: string, thread: string, self: string): Spent
     tokens: {
       input: earlier.reduce((n, r) => n + r.tokens.input, 0),
       cached: earlier.reduce((n, r) => n + r.tokens.cached, 0),
+      cacheWrite: earlier.reduce((n, r) => n + (r.tokens.cacheWrite ?? 0), 0),
       output: earlier.reduce((n, r) => n + r.tokens.output, 0),
     },
     costUsd: earlier.reduce((n, r) => n + (r.costUsd ?? 0), 0),
@@ -210,6 +214,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
   const extras = parseReplyExtras(replyText);
   const rejected = parseReplyRejections(replyText);
   const design = parseReplyDesign(replyText);
+  const price = o.costUsd === null ? pairOf(loadCatalog({ runDir: run.dir }), a.rung)?.price : null;
   return {
     schema: 1,
     runId: run.id,
@@ -230,7 +235,7 @@ async function compute(run: Run, d: Dispatch): Promise<RunRecord> {
     signal: exit.signal,
     cliVersion: a.cliVersion,
     tokens: o.tokens,
-    costUsd: o.costUsd,
+    costUsd: o.costUsd ?? (price ? tokensUsd(price, o.tokens) : null),
     changedOwned,
     violations,
     ...(after ? {} : { gitUnavailable: true }),

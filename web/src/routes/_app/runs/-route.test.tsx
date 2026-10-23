@@ -82,7 +82,7 @@ const run = (over: object = {}) => ({
   phase: "running",
   outcome: null,
   daemon: { alive: true, pid: 99, beatAgeSec: 3 },
-  milestones: [{ id: "M1", title: "Split the wallet", status: "lanes", round: 1, commit: null }],
+  milestones: [{ id: "M1", title: "Split the wallet", status: "lanes", round: 1, reviews: 2, commit: null }],
   live: [{ name: "worker-M1.L1", role: "worker", rung: "codex:gpt-6-luna#high", unit: "M1.L1", since: now() }],
   parked: [],
   holds: [],
@@ -91,6 +91,7 @@ const run = (over: object = {}) => ({
   startedAt: now(),
   updatedAt: now(),
   elapsedSec: 0,
+  waitingSec: 0,
   countingSince: now(),
   ...over,
 });
@@ -110,8 +111,9 @@ const card = (over: object = {}) => ({
   paused: null,
   totals: {
     dispatches: 3,
-    tokens: { input: 0, cached: 0, output: 0 },
+    tokens: { input: 0, cached: 0, cacheWrite: 0, output: 0 },
     costUsd: 0,
+    unpriced: 0,
     interventions: 0,
     failovers: 0,
     climbs: 0,
@@ -317,11 +319,13 @@ test("the header sums tokens and cost and names the run's time", async () => {
   await waitFor(() => expect(screen.getByText("Tokens").nextElementSibling?.textContent).toMatch(/M$/));
   expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$1.73");
   expect(screen.getByText("Running for")).toBeInTheDocument();
-  // one status word, the rounds of the busiest step in each milestone, and how far the steps have got
+  // The server supplies rounds; the graph supplies step outcomes.
   expect(screen.getByText("Status").nextElementSibling).toHaveTextContent("Running");
   expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("2");
   expect(
-    screen.getByText(`${model.nodes.filter((n) => n.status === "done").length}/${model.nodes.length} done`),
+    screen.getByText(
+      `${model.nodes.filter((n) => n.status === "done").length} done · 0 skipped · 0 failed of ${model.nodes.length}`,
+    ),
   ).toBeInTheDocument();
 });
 
@@ -749,4 +753,63 @@ test("a run still planning does not ask for a plan the architect has not written
   const { requests } = renderRoute("/runs/r1", planning);
   expect(await screen.findByText("No plan yet. The architect writes it first.")).toBeInTheDocument();
   expect(requests.map((r) => decodeURIComponent(describeRequest(r))).filter((r) => r.includes("/docs"))).toEqual([]);
+});
+
+test("the header shows server rounds, waiting time and unpriced runs", async () => {
+  runBody = run({
+    waitingSec: 3600,
+    milestones: [
+      { id: "M1", title: "First", status: "lanes", round: 7, reviews: 2, commit: null },
+      { id: "M2", title: "Second", status: "lanes", round: 7, reviews: 1, commit: null },
+    ],
+  });
+  model = {
+    ...model,
+    dispatches: [
+      { ...model.dispatches[0]!, costUsd: null, tokens: { input: 100, cached: 20, cacheWrite: 30, output: 40 } },
+      { ...model.dispatches[1]!, costUsd: 0.5, tokens: null },
+    ],
+  };
+  renderRoute("/runs/r1", api);
+  expect(await screen.findByText("waiting on you 1h 00m")).toBeInTheDocument();
+  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("3");
+  expect(await screen.findByText("1 unpriced")).toBeInTheDocument();
+  expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("$0.50");
+  expect(screen.getByText("50 uncached · 20 cache read · 30 cache write · 40 out")).toBeInTheDocument();
+});
+
+test("the header shows zero rounds before any review", async () => {
+  runBody = run({ milestones: [] });
+  renderRoute("/runs/r1", api);
+  await screen.findByRole("heading", { name: "wallet split" });
+  expect(screen.getByText("Rounds").nextElementSibling).toHaveTextContent("0");
+});
+
+test("the step count shows skipped and failed", async () => {
+  const nodes = model.nodes.slice(0, 5).map((n, i) => ({
+    ...n,
+    status: i < 3 ? ("done" as const) : i === 3 ? ("skipped" as const) : ("failed" as const),
+  }));
+  model = { ...model, nodes, edges: [] };
+  renderRoute("/runs/r1", api);
+  expect(await screen.findByText("3 done · 1 skipped · 1 failed of 5")).toBeInTheDocument();
+});
+
+test("the header does not count an active dispatch as unpriced", async () => {
+  model = {
+    ...model,
+    dispatches: [
+      {
+        ...model.dispatches[0]!,
+        status: "running",
+        endedAt: null,
+        tokens: null,
+        costUsd: null,
+      },
+    ],
+  };
+  renderRoute("/runs/r1", api);
+  await screen.findByText("1 role run");
+  expect(screen.queryByText(/\d+ unpriced/)).not.toBeInTheDocument();
+  expect(screen.getByText("Cost").nextElementSibling).toHaveTextContent("—");
 });

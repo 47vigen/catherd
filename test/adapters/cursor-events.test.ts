@@ -20,6 +20,22 @@ const lines = (n: string) =>
     .filter((l) => l.trim());
 
 describe("cursor events (spec 1.3 §4.5)", () => {
+  it("the fold keeps cache writes apart", () => {
+    expect(
+      foldCursorEvents([
+        JSON.stringify({
+          type: "result",
+          usage: {
+            inputTokens: 10,
+            cacheReadTokens: 20,
+            cacheWriteTokens: 30,
+            outputTokens: 4,
+          },
+        }),
+      ]).result?.tokens,
+    ).toEqual({ input: 60, cached: 20, cacheWrite: 30, output: 4 });
+  });
+
   it("takes the thread from system/init, the reply after the last tool call, tokens from result", () => {
     const f = foldCursorEvents(lines("ok.jsonl"));
     expect(f.thread).toBe("2b7c9e41-5d3a-4f86-9c1e-7a0b3d5e8f21");
@@ -28,7 +44,7 @@ describe("cursor events (spec 1.3 §4.5)", () => {
     expect(f.result).toEqual({
       isError: false,
       text: "I'll read the lane file.Done.\nSTATUS: complete — wrote src/a.ts",
-      tokens: { input: 15989, cached: 9728, output: 25 },
+      tokens: { input: 15989, cached: 9728, cacheWrite: 512, output: 25 },
     });
     expect(f.lastEvent).toBe("result/success");
   });
@@ -36,7 +52,7 @@ describe("cursor events (spec 1.3 §4.5)", () => {
   it("adds cache reads and writes back into input (inputTokens is uncached only), and reads no usage as zero", () => {
     expect(
       cursorTokens({ inputTokens: 1200, outputTokens: 12, cacheReadTokens: 14000, cacheWriteTokens: 300 }),
-    ).toEqual({ input: 15500, cached: 14000, output: 12 });
+    ).toEqual({ input: 15500, cached: 14000, cacheWrite: 300, output: 12 });
     expect(cursorTokens(undefined)).toEqual({ input: 0, cached: 0, output: 0 });
   });
 

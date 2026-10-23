@@ -82,7 +82,12 @@ export const DispatchDetailSchema = z.object({
       attempt: z.number().int(),
       failoverFrom: z.string().nullable(),
       secs: z.number(),
-      tokens: z.object({ input: z.number(), cached: z.number(), output: z.number() }),
+      tokens: z.object({
+        input: z.number(),
+        cached: z.number(),
+        cacheWrite: z.number().optional(),
+        output: z.number(),
+      }),
       costUsd: z.number().nullable(),
       exitCode: z.number().int().nullable(),
       access: z.string(),
