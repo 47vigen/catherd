@@ -378,7 +378,6 @@ export async function preflight(
       heavySlots(profile.heavy),
       preflightLimits.lockWaitMs,
       (_slot, tmp) => runCheck(cwd, check, timeoutMs, { ...checkEnvironment, TMPDIR: tmp, GOTMPDIR: tmp }),
-      { tmpBase: process.env.TMPDIR },
     );
     if (slot.busy) {
       const note = `every heavy slot stayed busy for ${preflightLimits.lockWaitMs / 1000} s (other lanes' checks); run preflight again when they finish`;

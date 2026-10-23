@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { ROLE_ENV, roleScopeFromEnv, roleScopeOfScratch } from "../../src/domain/role-scope.ts";
 import { checkEnv, restoreTmpdir, scrubSecrets, workerEnv } from "../../src/infra/env.ts";
+import { DISPATCH_ID_ENV } from "../../src/infra/lock-activity.ts";
 
 describe("workerEnv", () => {
   it("drops catherd's own secrets, keeps the user's backend credentials, and sets PWD", () => {
@@ -90,6 +92,25 @@ describe("checkEnv", () => {
       CATHERD_HOME: "/h",
       PWD: "/repo",
     });
+  });
+
+  it("is never a role's: no role identity, and no TMPDIR in a role's scratch", () => {
+    const scratch = "/d/runs/20261023-101010-x/scratch/verifier-M1/tmp";
+    const env = checkEnv(
+      {
+        PATH: "/bin",
+        [ROLE_ENV]: "20261023-101010-x/verifier-M1",
+        [DISPATCH_ID_ENV]: "d-1",
+        TMPDIR: scratch,
+        GOTMPDIR: scratch,
+      },
+      "/repo",
+    );
+    expect(env[ROLE_ENV]).toBeUndefined();
+    expect(env[DISPATCH_ID_ENV]).toBeUndefined();
+    expect(roleScopeOfScratch(env.TMPDIR)).toBeNull();
+    expect(roleScopeFromEnv(env)).toBeNull();
+    expect(checkEnv({ TMPDIR: "/tmp/mine" }, "/repo").TMPDIR).toBe("/tmp/mine");
   });
 });
 

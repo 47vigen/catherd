@@ -164,10 +164,9 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
       } catch {
         // a profile that cannot be read leaves the default
       }
+      // no tmpBase: a slot dir under the verifier's scratch would make the check a role (checkEnv)
       exit = await withRoleLock("verifier", `run:${job.run}`, () =>
-        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp), {
-          tmpBase: process.env.TMPDIR,
-        }),
+        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp)),
       );
     }
     const out = readFileSync(log, "utf8");

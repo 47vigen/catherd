@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendCheckRecord,
@@ -13,7 +13,9 @@ import {
   readChecks,
   secretScan,
 } from "../../src/services/milestone-check.ts";
-import { withRoleLock } from "../../src/infra/heavy-lock.ts";
+import { ROLE_ENV } from "../../src/domain/role-scope.ts";
+import { LOCK_HELD_ENV, withRoleLock } from "../../src/infra/heavy-lock.ts";
+import { DISPATCH_ID_ENV } from "../../src/infra/lock-activity.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
@@ -95,6 +97,24 @@ describe("execMilestoneCheck", () => {
     );
     expect(r.exit).toBe(0);
     expect(readFileSync(r.log, "utf8").trim()).toBe("0");
+  });
+});
+
+describe("execMilestoneCheck run by a verifier role", () => {
+  const probe = `bun -e 'import { roleScopeFromEnv } from "${join(import.meta.dir, "../../src/domain/role-scope.ts")}"; console.log(JSON.stringify(roleScopeFromEnv(process.env)))'`;
+
+  it("runs the check as no role, in a slot or under a held lock", async () => {
+    // the verifier's env: its identity, and a TMPDIR in its scratch
+    const scratch = join(run.dir, "scratch", "verifier-M1", "tmp");
+    mkdirSync(scratch, { recursive: true });
+    process.env[ROLE_ENV] = `${run.id}/verifier-M1`;
+    process.env[DISPATCH_ID_ENV] = "d-1";
+    process.env.TMPDIR = scratch;
+    const slotted = await execMilestoneCheck(job({ command: probe }));
+    expect(readFileSync(slotted.log, "utf8").trim()).toBe("null");
+    process.env[LOCK_HELD_ENV] = "1";
+    const held = await execMilestoneCheck(job({ command: probe }));
+    expect(readFileSync(held.log, "utf8").trim()).toBe("null");
   });
 });
 
