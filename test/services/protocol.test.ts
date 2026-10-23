@@ -357,14 +357,28 @@ describe("the milestone digest (spec 1.1 §10)", () => {
         tokens: { input: 2000, cached: 0, output: 100 },
       }),
     );
+    await gateCheck(deps, {
+      run: r.id,
+      item: "unit tests",
+      command: "bun test",
+      paths: ["."],
+      milestone: "M1",
+    });
     await gatePass(deps, {
       run: r.id,
+      milestone: "M1",
       item: "unit tests",
       command: "bun test",
       paths: ["."],
       evidence: "ok",
     });
-    await gateCheck(deps, { run: r.id, item: "unit tests", command: "bun test", paths: ["."] });
+    await gateCheck(deps, {
+      run: r.id,
+      item: "unit tests",
+      command: "bun test",
+      paths: ["."],
+      milestone: "M1",
+    });
     const landed = await land(deps, {
       run: r.id,
       milestone: "M1",
@@ -404,8 +418,10 @@ describe("the milestone digest (spec 1.1 §10)", () => {
     await route(deps, { run: r.id, laneFile: "lanes/M1.L1.md", role: "worker" });
     await passGate(r, "M1");
     const gate = (item: string, command: string) => ({ run: r.id, item, command, paths: ["."] });
-    await gatePass(deps, { ...gate("lint", "bun run lint"), evidence: "ok" });
-    await gatePass(deps, { ...gate("unit tests", "bun test"), evidence: "ok" });
+    await gateCheck(deps, { ...gate("lint", "bun run lint"), milestone: "M1" });
+    await gatePass(deps, { ...gate("lint", "bun run lint"), milestone: "M1", evidence: "ok" });
+    await gateCheck(deps, { ...gate("unit tests", "bun test"), milestone: "M2" });
+    await gatePass(deps, { ...gate("unit tests", "bun test"), milestone: "M2", evidence: "ok" });
     // M1 is parked; M2's verifier carries its item; then M1 lands
     await gateCheck(deps, { ...gate("lint", "bun run lint"), milestone: "M1" });
     await gateCheck(deps, { ...gate("unit tests", "bun test"), milestone: "M2" });

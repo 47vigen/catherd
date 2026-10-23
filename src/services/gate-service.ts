@@ -285,7 +285,7 @@ async function contentHash(repo: string, paths: string[]): Promise<{ hash: strin
   return { hash: h.digest("hex"), dirty: dirty.length > 0 };
 }
 
-const readPasses = (file: string): GatePass[] =>
+export const readPasses = (file: string): GatePass[] =>
   readJsonl<unknown>(file).rows.flatMap((row) => {
     const r = GatePassSchema.safeParse(row);
     return r.success ? [r.data] : [];
@@ -322,6 +322,31 @@ const lastSteps = (steps: VerifierStep[]): VerifierStep[] =>
   [...new Set(steps.map((s) => s.item))].map(
     (item) => steps.findLast((s) => s.item === item) as VerifierStep,
   );
+
+/** Immutable item/input identities for an owner waiver, using the same paths and content rules as gate_pass. */
+export async function gateItemInputs(
+  run: Run,
+  milestone: string,
+  head: string,
+): Promise<{ item: string; command: string | null; identity: string | null }[]> {
+  return Promise.all(
+    lastSteps(milestoneSteps(run, milestone)).map(async (step) => {
+      const command = step.command ?? null;
+      let identity: string | null = null;
+      if (command !== null && step.paths !== undefined) {
+        try {
+          const paths = cleanPaths(step.paths);
+          const { hash } = await contentHash(treeOf(run, milestone), paths);
+          identity = sha(JSON.stringify([run.id, milestone, head, step.item, command, paths, hash]));
+        } catch (e) {
+          // Missing or invalid inputs cannot carry a waiver.
+          if (!isCatherdError(e)) throw e;
+        }
+      }
+      return { item: step.item, command, identity };
+    }),
+  );
+}
 
 /** The pass gate_check carries for `command` on `paths` as the tree is now, if any. */
 async function carryingPass(
@@ -455,15 +480,18 @@ export async function gateCheckOrList(
  */
 export async function gatePass(
   deps: Deps,
-  i: { run: string; item: string; command: string; paths: string[]; evidence: string },
+  i: { run: string; item: string; command: string; paths: string[]; evidence: string; milestone: string },
 ): Promise<{ recorded: true; hash: string; commit: string }> {
   const run = findRun(i.run);
   const paths = cleanPaths(i.paths);
-  // a base run's milestone has its own tree: the one of the latest step that checked this item with this command
   const step = readJsonl<VerifierStep>(stepsFile(run)).rows.findLast(
-    (s) => s?.item === i.item && s.command === i.command,
+    (s) => s?.item === i.item && s.command === i.command && s.milestone === i.milestone,
   );
-  const cwd = treeOf(run, step?.milestone ?? null);
+  if (!i.milestone || !step)
+    throw new CatherdError("E_INPUT_INVALID", "gate_pass needs a matching step of its milestone", {
+      fix: "call gate_check with the same milestone, item and command before gate_pass",
+    });
+  const cwd = treeOf(run, i.milestone);
   const { hash, dirty } = await contentHash(cwd, paths);
   const head = (await gitHead(cwd)) ?? "none";
   const commit = dirty ? `${head}+uncommitted` : head;
