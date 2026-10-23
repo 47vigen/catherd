@@ -13,7 +13,12 @@ import {
   reviewerPassed,
   reviewsMilestone,
 } from "../../src/services/milestones.ts";
-import { appendCheckRecord, type CheckRecord, checksFile } from "../../src/services/milestone-check.ts";
+import {
+  appendCheckRecord,
+  type CheckRecord,
+  checksFile,
+  readChecks,
+} from "../../src/services/milestone-check.ts";
 import { protocolNext } from "../../src/services/protocol.ts";
 import {
   appendAgentRun,
@@ -609,6 +614,21 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(e.message).toContain("pre-existing");
     expect(e.message).toContain("FAIL x");
     expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
+  });
+
+  it("passGate records every declared machine-check item for the milestone", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    writeFileSync(
+      join(run.dir, "plan.md"),
+      "# Plan\n## M1 — core\nCheck: bun test && (bun run lint && bun run typecheck)\n## M2 — other\nCheck: other-command\n",
+    );
+    await passGate(run, "M1");
+    const rows = readChecks(repo).filter((row) => row.run === run.id && row.milestone === "M1");
+    for (const command of ["bun test", "(bun run lint && bun run typecheck)"])
+      expect(rows).toContainEqual(expect.objectContaining({ command, head: fullOf(repo, c), exit: 0 }));
+    expect(rows.some((row) => row.command === "other-command")).toBe(false);
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
   });
 
   it("land refuses a milestone whose gate_check item has no pass", async () => {
