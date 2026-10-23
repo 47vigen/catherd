@@ -108,7 +108,6 @@ export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boo
   const hints: string[] = [];
   if (!(await fetchBase(repo, base)))
     hints.push(`fetch of origin/${base} failed: using the copy from the last fetch`);
-  await git(repo, ["worktree", "prune"]);
   if (existsSync(tree)) {
     const have = await currentBranch(tree);
     if (have !== branch)
@@ -126,6 +125,8 @@ export async function claimTree(deps: Deps, run: Run, m: string, o: { known: boo
         );
     }
   } else {
+    // a registered entry whose folder is gone blocks `worktree add`; clear only this tree's, never the owner's others
+    await gitRun(repo, ["worktree", "remove", tree]);
     ensurePrivateDir(join(run.dir, "trees"));
     const exists = await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
     if (exists.kind === "ok" && !o.known)

@@ -24,3 +24,11 @@ export function checkFailLines(out: string): string[] {
 /** The lines of `fails` the base does not have; all of them when there is no base record. */
 export const newFails = (fails: string[], base: string[] | null): string[] =>
   fails.filter((f) => !base?.includes(f));
+
+/** The part of a shell `command` after its first `&&`, which may never run when an earlier part fails; null without one. */
+// shortcut: a plain split, blind to quoting and `||`; split per shell grammar if a quoted `&&` ever misleads
+export function andTail(command: string): string | null {
+  const i = command.indexOf("&&");
+  const tail = i < 0 ? "" : command.slice(i + 2).trim();
+  return tail || null;
+}
