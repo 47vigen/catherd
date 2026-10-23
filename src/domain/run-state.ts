@@ -533,7 +533,8 @@ function fixRound(
     const owner = ownerOfFile(f.file, lanes);
     const lane = owner ? s.lanes[owner] : undefined;
     if (!lane) {
-      unowned.push(f);
+      // the triage judge reads only the finding text, so the note rides in it
+      unowned.push(note ? { ...f, text: `${f.text}\n${note}` } : f);
       continue;
     }
     lane.notes.push(f.text);

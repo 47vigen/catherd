@@ -611,16 +611,13 @@ describe("the machine: review rounds", () => {
   });
 
   /** M1 to a BLOCKER park at the soft cap: three rounds with fewer BLOCKERs each, the last one parked */
-  function parkedAtCap() {
+  function parkedAtCap(extra: Finding[] = []) {
     const log = runningLog(plan(1));
     finishLane(log, "M1.L1");
     log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
     const b = (k: number) => bug(`BLOCKER src/a/x.ts:${k} — data loss ${k}`, "src/a/x.ts", "BLOCKER");
     for (const [round, n] of [3, 2, 1].entries()) {
-      review(
-        log,
-        Array.from({ length: n }, (_, k) => b(k)),
-      );
+      review(log, [...Array.from({ length: n }, (_, k) => b(k)), ...(round === 2 ? extra : [])]);
       if (round === 2) break;
       fixPending(log);
       log.add("commit.made", { milestone: "M1", round: round + 1, commit: `c${round + 1}` });
@@ -639,6 +636,13 @@ describe("the machine: review rounds", () => {
       "The owner answered: guard the write in x.ts",
     ]);
     expect(log.state().milestones[0]).toMatchObject({ status: "fixing", knownIssues: [] });
+  });
+
+  it("carries the owner's answer to a BLOCKER park into the triage of a finding no lane owns", () => {
+    const log = parkedAtCap([bug("BLOCKER docs/z.md:1 — wrong", "docs/z.md", "BLOCKER")]);
+    log.add("question.answered", { unit: "M1", answer: "rewrite z.md", by: "owner" });
+    const triage = of(last(log), "judge").find((j) => j.input.kind === "triage");
+    expect(triage?.input.findings).toEqual(["BLOCKER docs/z.md:1 — wrong\nThe owner answered: rewrite z.md"]);
   });
 
   it("lands a BLOCKER park the owner answers `accept` with the findings as known issues", () => {
