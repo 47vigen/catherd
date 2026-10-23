@@ -1,7 +1,11 @@
+import { stripSearchParams } from "@tanstack/react-router";
+
 export const PAGE_SIZES = [25, 50, 100] as const;
 
 export type PageSize = (typeof PAGE_SIZES)[number];
 export type ListSearch = { page: number; pageSize: PageSize; q: string };
+
+const LIST_DEFAULTS: ListSearch = { page: 1, pageSize: 25, q: "" };
 
 function toInt(v: unknown): number | undefined {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
@@ -13,11 +17,18 @@ export function parseListSearch(raw: Record<string, unknown>): ListSearch {
   const page = toInt(raw.page);
   const size = toInt(raw.pageSize);
   return {
-    page: page !== undefined && page >= 1 ? page : 1,
-    pageSize: PAGE_SIZES.find((s) => s === size) ?? 25,
-    q: typeof raw.q === "string" ? raw.q.trim() : "",
+    page: page !== undefined && page >= 1 ? page : LIST_DEFAULTS.page,
+    pageSize: PAGE_SIZES.find((s) => s === size) ?? LIST_DEFAULTS.pageSize,
+    q: typeof raw.q === "string" ? raw.q.trim() : LIST_DEFAULTS.q,
   };
 }
+
+/**
+ * Keeps the list defaults out of the URL. The router writes what `validateSearch` returns into every link that
+ * reaches a route, so without this a plain `/questions` becomes `/questions?page=1&pageSize=25&q=`. Every route
+ * that parses with `parseListSearch` lists it in `search.middlewares`.
+ */
+export const stripListDefaults = stripSearchParams<ListSearch>(LIST_DEFAULTS);
 
 /** Returns `v` when it is one of `allowed`, otherwise undefined. */
 export function parseEnum<T extends string>(v: unknown, allowed: readonly T[]): T | undefined {

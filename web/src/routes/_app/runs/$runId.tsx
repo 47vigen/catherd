@@ -9,7 +9,7 @@ import { CodeBlock } from "../../../components/code-block/CodeBlock";
 import { DataList } from "../../../components/data-list/DataList";
 import { Tile } from "../../../components/tile/Tile";
 import { errorFix, errorMessage } from "../../../lib/api";
-import { type ListSearch, parseListSearch } from "../../../lib/list-search";
+import { type ListSearch, parseListSearch, stripListDefaults } from "../../../lib/list-search";
 import { invalidateOps } from "../../../lib/query";
 import { DispatchTable } from "./-components/DispatchTable";
 import { NodeDrawer } from "./-components/drawer/NodeDrawer";
@@ -44,6 +44,7 @@ export const Route = createFileRoute("/_app/runs/$runId")({
       ...(types ? { types } : {}),
     };
   },
+  search: { middlewares: [stripListDefaults] },
   component: RunPage,
 });
 

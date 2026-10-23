@@ -3,10 +3,10 @@ import { Link } from "@heroui/react";
 import { useState } from "react";
 
 import type { QuestionView } from "../../../../client";
-import { CodeBlock } from "../../../../components/code-block/CodeBlock";
 import { Markdown } from "../../../../components/markdown/Markdown";
 import { QuestionAnswer } from "../../../../components/question-answer/QuestionAnswer";
 import { StatusChip } from "../../../../components/status-chip/StatusChip";
+import { Tile } from "../../../../components/tile/Tile";
 import { REASON_TEXT } from "../../../../lib/park-reasons";
 import { formatRelative } from "../../../../lib/time";
 
@@ -19,25 +19,45 @@ export function QuestionCard({ q, now }: { q: QuestionView; now: Date }) {
   const { reply, replyName, lane } = q.context;
 
   return (
-    <article className="border-border bg-surface flex flex-col gap-4 rounded-sm border p-4">
-      <header className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
-          <Link href={`/runs/${encodeURIComponent(q.run)}`} className="text-[15px] font-medium">
+    <Tile
+      title={
+        <>
+          <Link
+            href={`/runs/${encodeURIComponent(q.run)}`}
+            className="text-foreground text-[11px] no-underline hover:underline"
+          >
             {q.runTitle}
           </Link>
-          <span className="bg-surface-tertiary rounded-sm px-1.5 py-0.5 font-mono text-xs">
-            {q.unit === "run" ? "Run" : q.unit}
-          </span>
-          <StatusChip status="parked" label={q.reason.replaceAll("_", " ")} />
-          <span className="text-muted ml-auto">{formatRelative(q.at, now)}</span>
-        </div>
+          {[q.unit !== "run" ? q.unit : null, replyName].filter(Boolean).map((part) => (
+            <span key={part}>
+              <span aria-hidden="true"> · </span>
+              <span>{part}</span>
+            </span>
+          ))}
+        </>
+      }
+      aside={
+        <span className="flex shrink-0 items-center gap-3">
+          <StatusChip status="parked" label={q.reason === "needs_user" ? "needs you" : q.reason.replaceAll("_", " ")} />
+          <time dateTime={q.at} className="text-muted text-xs whitespace-nowrap tabular-nums">
+            {formatRelative(q.at, now)}
+          </time>
+        </span>
+      }
+      bodyClassName="gap-4 p-4"
+    >
+      <div className="flex flex-col gap-1.5">
+        <p className="max-h-64 overflow-auto text-[15px] leading-6 font-medium break-words whitespace-pre-wrap">
+          {q.question}
+        </p>
         <p className="text-muted text-[13px] leading-5">{REASON_TEXT[q.reason]}</p>
-      </header>
-
-      <CodeBlock code={q.question} lang="text" />
+      </div>
 
       {reply ? (
-        <details className="group border-border rounded-sm border" onToggle={(e) => setReplyOpen(e.currentTarget.open)}>
+        <details
+          className="group border-border bg-surface-secondary/40 rounded-sm border"
+          onToggle={(e) => setReplyOpen(e.currentTarget.open)}
+        >
           <summary className="text-muted hover:text-foreground flex cursor-pointer items-center gap-1.5 px-3 py-2 text-[13px] select-none">
             <ChevronRight aria-hidden="true" className="size-3.5 transition-transform group-open:rotate-90" />
             {replyName ?? "The role"}&apos;s latest reply
@@ -48,15 +68,24 @@ export function QuestionCard({ q, now }: { q: QuestionView; now: Date }) {
         </details>
       ) : null}
 
-      <nav aria-label="Where to look" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-        <Link href={graph(q, "overview")}>Open in the graph</Link>
-        {lane ? <Link href={graph(q, "prompt")}>Lane</Link> : null}
-        <Link href={`/runs/${encodeURIComponent(q.run)}#plan`}>Plan</Link>
-      </nav>
-
-      <div className="border-border border-t pt-4">
-        <QuestionAnswer q={q} />
-      </div>
-    </article>
+      <QuestionAnswer
+        q={q}
+        aside={
+          <nav aria-label="Where to look" className="contents">
+            <Link href={graph(q, "overview")} className="text-[13px]">
+              Open in the graph
+            </Link>
+            {lane ? (
+              <Link href={graph(q, "prompt")} className="text-[13px]">
+                Lane
+              </Link>
+            ) : null}
+            <Link href={`/runs/${encodeURIComponent(q.run)}#plan`} className="text-[13px]">
+              Plan
+            </Link>
+          </nav>
+        }
+      />
+    </Tile>
   );
 }

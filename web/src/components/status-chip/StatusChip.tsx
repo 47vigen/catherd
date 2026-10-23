@@ -60,7 +60,7 @@ export function StatusChip({ status, until, label: word }: { status: Status; unt
   return (
     <Chip color={color} variant="soft" size="sm" data-color={color} className="gap-1.5 pl-1.5">
       <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", DOT[color])} />
-      <Chip.Label className="text-[11px]">
+      <Chip.Label className="text-[11px] whitespace-nowrap">
         {label}
         {end && !Number.isNaN(end.getTime()) ? (
           <>

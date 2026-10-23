@@ -75,6 +75,16 @@ test("the box keeps Send answer, disabled while blank", async () => {
   expect(await requests[0]!.json()).toEqual({ unit: "M1.L2", answer: "keep it" });
 });
 
+test("Cmd or Ctrl+Enter sends the box, plain Enter does not", async () => {
+  const { requests } = setup(parked({ reason: "needs_user", unit: "M1.L2" }));
+  const box = screen.getByRole("textbox", { name: "Your answer" });
+  await userEvent.type(box, "keep it{Enter}");
+  expect(requests).toHaveLength(0);
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() => expect(requests).toHaveLength(1));
+  expect(await requests[0]!.json()).toEqual({ unit: "M1.L2", answer: "keep it" });
+});
+
 test("a budget question links to the budget setup", () => {
   setup(parked({ reason: "budget" }));
   expect(screen.getByRole("link", { name: "Raise the budget" })).toHaveAttribute("href", "/setup?section=budget");

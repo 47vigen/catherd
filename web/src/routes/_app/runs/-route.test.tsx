@@ -216,15 +216,39 @@ test("the list query carries the search, the phase and the page", async () => {
   );
 });
 
-test("a row shows the run's status, milestones, live roles and questions, and opens the run", async () => {
-  const { router } = renderRoute("/runs", api);
+test("a row shows the run's repo, questions, milestones, wall time, tokens and cost, and opens the run", async () => {
+  const { router } = renderRoute("/runs", (req, url) =>
+    url.pathname === "/api/runs"
+      ? Response.json({
+          items: [
+            card({
+              wallMinutes: 6.75,
+              totals: {
+                ...card().totals,
+                tokens: { input: 3_740_535, cached: 3_296_610, output: 26_970 },
+                costUsd: 1.7259,
+              },
+              byBackend: [{ backend: "claude-code", tokens: 793_401, costUsd: 1.7259 }],
+              byModel: [{ model: "claude-code:claude-opus-5-5", tokens: 793_401 }],
+            }),
+          ],
+          total: 1,
+        })
+      : api(req, url),
+  );
   const title = await screen.findByText("wallet split");
   const row = title.closest<HTMLElement>('[role="row"]')!;
-  expect(within(row).getByText("r1")).toBeInTheDocument();
-  expect(within(row).getByText("Parked")).toBeInTheDocument();
+  expect(within(row).getByText("wallet")).toBeInTheDocument();
+  expect(within(row).getByText("1 question")).toBeInTheDocument();
   expect(within(row).getByText("1/2")).toBeInTheDocument();
+  expect(within(row).getByText("6m 45s")).toBeInTheDocument();
+  expect(within(row).getByText("3.8M")).toBeInTheDocument();
+  expect(within(row).getByText("$1.73")).toBeInTheDocument();
+  expect(within(row).getByLabelText("Models: claude-opus-5-5")).toBeInTheDocument();
+  expect(router.state.location.href).toBe("/runs");
   await userEvent.click(row);
   await waitFor(() => expect(router.state.location.pathname).toBe("/runs/r1"));
+  expect(router.state.location.href).toBe("/runs/r1");
 });
 
 test("an empty list says how a run starts", async () => {

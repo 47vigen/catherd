@@ -158,12 +158,19 @@ test("an answered question moves to Recently answered", async () => {
   expect(screen.getByText("M1.L2")).toBeInTheDocument();
 });
 
-test("Recently answered names who answered and stays out of the way when empty", async () => {
+test("Recently answered names who answered and is one line when empty", async () => {
   const view = renderRoute("/questions", list([], [answered({ by: "judge" })]));
   expect(await screen.findByText("use the new id")).toBeInTheDocument();
   expect(screen.getByText("Judge")).toBeInTheDocument();
   view.unmount();
   renderRoute("/questions", list([]));
   expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
-  expect(screen.queryByText("Recently answered")).not.toBeInTheDocument();
+  expect(await screen.findByText("Nothing answered in the last day.")).toBeInTheDocument();
+});
+
+test("nothing waiting hides the search, and the URL stays free of list defaults", async () => {
+  const { router } = renderRoute("/questions", list([]));
+  expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
+  expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  expect(router.state.location.href).toBe("/questions");
 });
