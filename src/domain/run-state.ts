@@ -505,7 +505,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
       m.status = "review";
       s.stuck[m.id] = {
         reason: "blocker",
-        question: `${m.id} still has a BLOCKER after ${r} review round(s):\n${found.map((f) => f.text).join("\n")}`,
+        question: `${m.id} still has a BLOCKER after ${r} review round(s):\n${found.map((f) => f.text).join("\n")}\nAnswer with the fix to make (one more fix round), or \`accept\` to land with these as known issues.`,
       };
       return;
     }
@@ -514,8 +514,20 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.status = "verifying";
     return;
   }
-  const previous = new Set(m.keys[r - 2] ?? []);
+  fixRound(s, m, found, new Set(m.keys[r - 2] ?? []));
+}
+
+/** A fix round: each finding to the lane that owns its file, the rest left open for the judge; `note` to each lane. */
+function fixRound(
+  s: RunState,
+  m: MilestoneState,
+  found: Finding[],
+  previous: Set<string>,
+  note?: string,
+): void {
+  const lanes = lanesOf(s, m.id);
   const unowned: Finding[] = [];
+  const routed = new Set<LaneState>();
   const survived = new Set<string>();
   for (const f of found) {
     const owner = ownerOfFile(f.file, lanes);
@@ -528,9 +540,11 @@ function completeRound(s: RunState, m: MilestoneState): void {
     lane.status = "pending";
     lane.attempts = 0;
     lane.checkFails = 0;
-    lane.fixedRound = r;
+    lane.fixedRound = m.counts.length;
+    routed.add(lane);
     if (previous.has(findingKey(f.text))) survived.add(lane.id);
   }
+  if (note) for (const lane of routed) lane.notes.push(note);
   for (const id of survived) (s.lanes[id] as LaneState).climbReason = "same-defect";
   m.open = unowned;
   m.status = "fixing";
@@ -920,11 +934,14 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   if (from === "routing") {
     m.status = "waiting";
     m.confirmed = true;
-  } else if (q?.reason === "blocker") {
+  } else if (q?.reason === "blocker" && e.answer.trim().toLowerCase() === "accept") {
     m.knownIssues = m.open.map((f) => f.text);
     m.open = [];
     m.status = "verifying";
-  } else m.status = from;
+  } else if (q?.reason === "blocker")
+    // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
+    fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
+  else m.status = from;
 }
 
 /** One event applied to `s` in place. */

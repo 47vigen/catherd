@@ -610,6 +610,47 @@ describe("the machine: review rounds", () => {
     expect(of(last(log), "route")).toEqual([{ type: "route", milestone: "M2", confirmed: false }]);
   });
 
+  /** M1 to a BLOCKER park at the soft cap: three rounds with fewer BLOCKERs each, the last one parked */
+  function parkedAtCap() {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    const b = (k: number) => bug(`BLOCKER src/a/x.ts:${k} — data loss ${k}`, "src/a/x.ts", "BLOCKER");
+    for (const [round, n] of [3, 2, 1].entries()) {
+      review(
+        log,
+        Array.from({ length: n }, (_, k) => b(k)),
+      );
+      if (round === 2) break;
+      fixPending(log);
+      log.add("commit.made", { milestone: "M1", round: round + 1, commit: `c${round + 1}` });
+    }
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1", reason: "blocker" }]);
+    log.add("question.parked", { unit: "M1", question: "q", reason: "blocker" });
+    return log;
+  }
+
+  it("answers a BLOCKER park past the cap with one more fix round, the answer in the owning lane's notes", () => {
+    const log = parkedAtCap();
+    log.add("question.answered", { unit: "M1", answer: "guard the write in x.ts", by: "owner" });
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(log.state().lanes["M1.L1"]?.notes).toEqual([
+      "BLOCKER src/a/x.ts:0 — data loss 0",
+      "The owner answered: guard the write in x.ts",
+    ]);
+    expect(log.state().milestones[0]).toMatchObject({ status: "fixing", knownIssues: [] });
+  });
+
+  it("lands a BLOCKER park the owner answers `accept` with the findings as known issues", () => {
+    const log = parkedAtCap();
+    log.add("question.answered", { unit: "M1", answer: " Accept ", by: "owner" });
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "verifying",
+      knownIssues: ["BLOCKER src/a/x.ts:0 — data loss 0"],
+    });
+  });
+
   it("lands on a PASS, fixes and re-verifies on a FAIL, parks on BLOCKED: environment", () => {
     const base = () => {
       const log = runningLog(plan(1));
