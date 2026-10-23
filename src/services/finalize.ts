@@ -114,6 +114,7 @@ function priorOn(run: Run, backend: string, thread: string, self: string): Spent
     tokens: {
       input: earlier.reduce((n, r) => n + r.tokens.input, 0),
       cached: earlier.reduce((n, r) => n + r.tokens.cached, 0),
+      cacheWrite: earlier.reduce((n, r) => n + (r.tokens.cacheWrite ?? 0), 0),
       output: earlier.reduce((n, r) => n + r.tokens.output, 0),
     },
     costUsd: earlier.reduce((n, r) => n + (r.costUsd ?? 0), 0),
