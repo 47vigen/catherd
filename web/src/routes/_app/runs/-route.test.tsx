@@ -89,6 +89,8 @@ const run = (over: object = {}) => ({
   paused: null,
   startedAt: now(),
   updatedAt: now(),
+  elapsedSec: 0,
+  countingSince: now(),
   ...over,
 });
 const card = (over: object = {}) => ({
@@ -309,6 +311,14 @@ test("the header sums tokens and cost and names the run's time", async () => {
   expect(
     screen.getByText(`${model.nodes.filter((n) => n.status === "done").length}/${model.nodes.length} done`),
   ).toBeInTheDocument();
+});
+
+test("the header's time leaves pauses out and stands still while paused", async () => {
+  const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000).toISOString();
+  runBody = run({ startedAt: twoHoursAgo, paused: now(), elapsedSec: 600, countingSince: null });
+  renderRoute("/runs/r1", api);
+  await screen.findByRole("heading", { name: "wallet split" });
+  expect(screen.getByText("Running for").nextElementSibling).toHaveTextContent("10m 00s");
 });
 
 test("the graph is drawn in the app's theme, not React Flow's light default", async () => {

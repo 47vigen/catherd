@@ -1514,6 +1514,15 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "elapsedSec": {
+            "type": "number"
+          },
+          "countingSince": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1531,7 +1540,9 @@
           "last",
           "paused",
           "startedAt",
-          "updatedAt"
+          "updatedAt",
+          "elapsedSec",
+          "countingSince"
         ],
         "additionalProperties": false
       },

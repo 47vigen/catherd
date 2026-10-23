@@ -2,11 +2,13 @@ import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import { PARK_REASONS, describeEvent } from "../domain/run-events.ts";
 import { type RunState, liveDispatches } from "../domain/run-state.ts";
+import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { daemonAlive, ensureDaemon, readHeartbeat } from "./daemon.ts";
 import { liveDispatches as liveDispatchesOf } from "./dispatches.ts";
 import { landedMilestones } from "./milestones.ts";
 import type { Deps } from "./ports.ts";
+import { pauseSpans } from "./pause.ts";
 import { openQuestions } from "./questions.ts";
 import { isDaemonRun, readEvents, replayRun, tailEvents } from "./run-events-store.ts";
 import { findRun, listRuns, type Run } from "./run-store.ts";
@@ -67,6 +69,10 @@ export const RunViewSchema = z.object({
   paused: z.string().nullable(),
   startedAt: z.string(),
   updatedAt: z.string(),
+  /** seconds from the start to this read (to the last event once ended), less every pause */
+  elapsedSec: z.number(),
+  /** when `elapsedSec` was read, while the run is live and no pause is open: the page counts on from it */
+  countingSince: z.string().nullable(),
 });
 export type RunView = z.infer<typeof RunViewSchema>;
 
@@ -133,10 +139,27 @@ function view15(deps: Deps, run: Run): RunView {
     paused: null,
     startedAt: run.meta.createdAt,
     updatedAt: run.meta.createdAt,
+    elapsedSec: 0,
+    countingSince: null,
   };
 }
 
 /** One run at a glance. Reading an unfinished 2.0 run starts its daemon again if it died. */
+/** The run's time from its start to `end`, less every pause; it goes on counting while `live` and no pause is open. */
+function elapsedOf(
+  run: Run,
+  end: number,
+  live: boolean,
+): { elapsedSec: number; countingSince: string | null } {
+  const start = Date.parse(run.meta.createdAt);
+  const spans = pauseSpans(run);
+  const open = spans.some((p) => p.to === null && p.from <= end);
+  return {
+    elapsedSec: Math.max(0, (end - start - coveredMs(start, end, spans)) / 1000),
+    countingSince: live && !open ? new Date(end).toISOString() : null,
+  };
+}
+
 export function runView(deps: Deps, runId: string): RunView {
   const run = findRun(runId);
   if (!isDaemonRun(run)) return view15(deps, run);
@@ -177,6 +200,11 @@ export function runView(deps: Deps, runId: string): RunView {
     paused: s.paused,
     startedAt: run.meta.createdAt,
     updatedAt: last?.at ?? run.meta.createdAt,
+    ...elapsedOf(
+      run,
+      s.phase === "ended" ? Date.parse(last?.at ?? run.meta.createdAt) : deps.now(),
+      s.phase !== "ended",
+    ),
   };
 }
 

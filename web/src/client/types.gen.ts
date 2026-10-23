@@ -39,6 +39,8 @@ export type RunView = {
     paused: string | null;
     startedAt: string;
     updatedAt: string;
+    elapsedSec: number;
+    countingSince: string | null;
 };
 
 export type RunCard = {

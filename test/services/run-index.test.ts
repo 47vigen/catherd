@@ -60,6 +60,15 @@ describe("the run index", () => {
     expect(runIndex(deps(), { repo: a }).map((c) => c.id)).toEqual([old.id]);
   });
 
+  it("leaves the run's own pauses out of its wall time", async () => {
+    withHome();
+    const run = await make(tempRepo(), "paused", HOUR);
+    await appendEvent(run, { type: "run.paused", by: "owner" }, at(HOUR - 10 * 60_000));
+    await appendEvent(run, { type: "run.resumed", by: "owner" }, at(HOUR - 30 * 60_000));
+    await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null }, at(0));
+    expect(runIndex(deps())[0]?.wallMinutes).toBe(40);
+  });
+
   it("sums tokens, cost and time per backend, model and role from runs.jsonl", async () => {
     withHome();
     const run = await make(tempRepo(), "spend", HOUR);

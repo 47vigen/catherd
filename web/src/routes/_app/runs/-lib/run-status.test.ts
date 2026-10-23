@@ -17,6 +17,8 @@ const run = (over: Partial<RunView>): RunView => ({
   last: null,
   startedAt: "2026-10-21T10:00:00Z",
   updatedAt: "2026-10-21T10:00:00Z",
+  elapsedSec: 0,
+  countingSince: null,
   ...over,
 });
 const parked = {

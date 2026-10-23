@@ -85,7 +85,10 @@ export function RunHeader({
   const totals = totalsOf(dispatches);
   const started = new Date(run.startedAt);
   const ended = new Date(live ? now.getTime() : Date.parse(run.updatedAt));
-  const elapsed = (ended.getTime() - started.getTime()) / 1000;
+  // the server leaves pauses out; a live run with no pause open counts on from that read
+  const elapsed =
+    run.elapsedSec +
+    (live && run.countingSince ? Math.max(0, now.getTime() - Date.parse(run.countingSince)) / 1000 : 0);
   const tokensIn = dispatches.reduce((a, d) => a + (d.tokens?.input ?? 0), 0);
   const tokensOut = dispatches.reduce((a, d) => a + (d.tokens?.output ?? 0), 0);
   const milestones = run.milestones.length;

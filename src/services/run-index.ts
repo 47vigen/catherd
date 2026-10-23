@@ -3,8 +3,10 @@ import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
 import { tryParseRung } from "../domain/ids.ts";
 import { isDone, liveDispatches, replay } from "../domain/run-state.ts";
+import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
 import { landedMilestones } from "./milestones.ts";
+import { pauseSpans } from "./pause.ts";
 import type { Deps } from "./ports.ts";
 import { openQuestions } from "./questions.ts";
 import { eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
@@ -104,7 +106,14 @@ function compute(deps: Deps, run: Run): RunCard {
     outcome: state?.outcome ?? null,
     startedAt,
     endedAt: endMs === null ? null : new Date(endMs).toISOString(),
-    wallMinutes: endMs === null ? null : Math.max(0, (endMs - Date.parse(startedAt)) / 60_000),
+    wallMinutes:
+      endMs === null
+        ? null
+        : Math.max(
+            0,
+            (endMs - Date.parse(startedAt) - coveredMs(Date.parse(startedAt), endMs, pauseSpans(run))) /
+              60_000,
+          ),
     milestones: state
       ? { total: state.milestones.length, landed: state.milestones.filter(isDone).length }
       : { total: landedMilestones(run).length, landed: landedMilestones(run).length },
