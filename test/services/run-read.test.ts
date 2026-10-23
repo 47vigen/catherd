@@ -129,6 +129,39 @@ describe("the read api", () => {
     expect(runView(fakeDeps({ now: () => NOW + 600_000 }), run.id).waitingSec).toBe(600);
   });
 
+  it("stops approval waiting time when the plan is approved without an answer event", async () => {
+    const { run } = freshRun();
+    await seed(run);
+    await appendEvent(
+      run,
+      { type: "question.parked", unit: "run", question: "approve?", reason: "approval" },
+      new Date(NOW),
+    );
+    await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW + 600_000));
+    const view = runView(fakeDeps({ now: () => NOW + 1_200_000 }), run.id);
+    expect(view.parked).toEqual([]);
+    expect(view.waitingSec).toBe(600);
+  });
+
+  it("plan approval leaves other open questions counting", async () => {
+    const { run } = freshRun();
+    await seed(run);
+    await appendEvent(
+      run,
+      { type: "question.parked", unit: "run", question: "which?", reason: "needs_user" },
+      new Date(NOW),
+    );
+    await appendEvent(
+      run,
+      { type: "question.parked", unit: "M1", question: "approve?", reason: "approval" },
+      new Date(NOW),
+    );
+    await appendEvent(run, { type: "plan.approved", by: "owner" }, new Date(NOW + 600_000));
+    const view = runView(fakeDeps({ now: () => NOW + 1_200_000 }), run.id);
+    expect(view.parked).toHaveLength(2);
+    expect(view.waitingSec).toBe(2400);
+  });
+
   it("counts each open question to now and stops at the run end", async () => {
     const { run } = freshRun();
     await seed(run);

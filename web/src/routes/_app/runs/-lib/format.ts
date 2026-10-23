@@ -20,7 +20,8 @@ export function totalsOf(dispatches: Attempt[]): { tokens: number; costUsd: numb
   for (const d of dispatches) {
     tokens += tokenTotal(d.tokens);
     if (d.costUsd != null) costUsd = (costUsd ?? 0) + d.costUsd;
-    else unpriced++;
+    // Token usage is supplied by the finalized record, even when all counts are zero.
+    else if (d.tokens !== null) unpriced++;
   }
   return { tokens, costUsd, unpriced };
 }

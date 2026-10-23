@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
-import { PARK_REASONS, describeEvent, type RunEvent } from "../domain/run-events.ts";
+import {
+  PARK_REASONS,
+  RUN_UNIT,
+  describeEvent,
+  type ParkReason,
+  type RunEvent,
+} from "../domain/run-events.ts";
 import { type RunState, liveDispatches } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
@@ -165,9 +171,9 @@ function elapsedOf(
   };
 }
 
-/** Every question's open interval, stopped by its answer, replacement or the run ending. */
+/** Every question's open interval, stopped by its answer, approval, replacement or the run ending. */
 function waitingSec(events: RunEvent[], now: number): number {
-  const open = new Map<string, number>();
+  const open = new Map<string, { at: number; reason: ParkReason }>();
   let ms = 0;
   let end = now;
   for (const e of events) {
@@ -176,13 +182,21 @@ function waitingSec(events: RunEvent[], now: number): number {
       end = at;
       break;
     }
+    if (e.type === "plan.approved") {
+      const question = open.get(RUN_UNIT);
+      if (question?.reason === "approval") {
+        ms += Math.max(0, at - question.at);
+        open.delete(RUN_UNIT);
+      }
+      continue;
+    }
     if (e.type !== "question.parked" && e.type !== "question.answered") continue;
-    const since = open.get(e.unit);
-    if (since !== undefined) ms += Math.max(0, at - since);
-    if (e.type === "question.parked") open.set(e.unit, at);
+    const question = open.get(e.unit);
+    if (question !== undefined) ms += Math.max(0, at - question.at);
+    if (e.type === "question.parked") open.set(e.unit, { at, reason: e.reason });
     else open.delete(e.unit);
   }
-  for (const since of open.values()) ms += Math.max(0, end - since);
+  for (const question of open.values()) ms += Math.max(0, end - question.at);
   return ms / 1000;
 }
 
