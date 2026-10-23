@@ -405,7 +405,7 @@ describe("a milestone's NITs (plan 34)", () => {
     });
     expect(log.state().milestones[0]?.knownIssues).toEqual([
       "**NIT** src/b.ts:4 — later — z",
-      "NIT src/v.ts:1 — v — w",
+      "verifier-M1: NIT src/v.ts:1 — v — w",
     ]);
   });
 

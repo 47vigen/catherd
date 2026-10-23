@@ -744,9 +744,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
-        m.knownIssues = [
-          ...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings).map((l) => `${e.name}: ${l}`)]),
-        ];
+        // dedup before the prefix: a verifier NIT a reviewer already named is listed once, unprefixed
+        const known = new Set([...m.knownIssues, ...m.nits]);
+        const own = nitLines(e.findings).filter((l) => !known.has(l));
+        m.knownIssues = [...new Set([...known, ...own.map((l) => `${e.name}: ${l}`)])];
         m.tries = {};
         m.verifierNotes = [];
         m.status = "landing";
