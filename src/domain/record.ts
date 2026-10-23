@@ -118,11 +118,17 @@ export function parseReplyStatus(reply: string): { status: ReplyStatus | null; w
 
 /** The reply's lines outside ``` and ~~~ code fences. */
 function unfencedLines(reply: string): string[] {
-  let fenced = false;
+  let fence: string | null = null;
   const lines: string[] = [];
   for (const line of reply.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    else if (!fenced) lines.push(line);
+    const match = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    const marker = match?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && match?.[2]?.trim() === "") {
+        fence = null;
+      }
+    } else if (marker) fence = marker;
+    else lines.push(line);
   }
   return lines;
 }

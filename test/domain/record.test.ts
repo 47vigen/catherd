@@ -93,6 +93,22 @@ describe("ZERO_TOKENS", () => {
 });
 
 describe("parseReplyHead", () => {
+  it("ignores ENV and HEAD inside fences until a matching closing fence", () => {
+    for (const [opening, inner, closing] of [
+      ["```yaml", "~~~", "```"],
+      ["~~~yaml", "```", "~~~"],
+      ["````yaml", "```", "````"],
+      ["~~~~yaml", "~~~", "~~~~~"],
+      ["```yaml", "```still inside", "```"],
+    ]) {
+      const reply = `${opening}\n${inner}\nENV: production\nHEAD: deadbeef\n${closing}`;
+      expect(parseReplyEnvironment(reply)).toBeNull();
+      expect(parseReplyHead(reply)).toBeNull();
+      expect(parseReplyEnvironment(`${reply}\nENV: vpn\nENV: other`)).toBe("vpn");
+      expect(parseReplyHead(`${reply}\nHEAD: ABCDEFF\nHEAD: 1234567`)).toBe("1234567");
+    }
+  });
+
   it("reads the last HEAD: line outside code fences, lower-cased", () => {
     expect(
       parseReplyHead("VERDICT: PASS\nHEAD: 0123456789ABCDEF0123456789abcdef01234567\nSTATUS: complete — ok"),
