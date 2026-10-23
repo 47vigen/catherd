@@ -41,7 +41,7 @@ import {
   milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
-import { machineGate } from "./milestone-check.ts";
+import { acceptedBaselineItem, machineGate } from "./milestone-check.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendKnowledge,
@@ -462,23 +462,25 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
     );
   const items = await recordedItems(run, m);
   const passes = readPasses(gatesFile(run.meta.repo));
-  const unpassed = items.filter(
-    (item) =>
-      !item.passed ||
-      !passes.some(
+  const unpassed: string[] = [];
+  for (const item of items) {
+    const passed =
+      item.passed &&
+      passes.some(
         (pass) =>
-          pass?.run === run.id &&
+          pass.run === run.id &&
           pass.item === item.item &&
           pass.command === item.command &&
           pass.commit.length > 0 &&
           !pass.commit.includes("+") &&
           landed.startsWith(pass.commit),
-      ),
-  );
+      );
+    if (!passed && !(await acceptedBaselineItem(run, m, landed, item.command))) unpassed.push(item.item);
+  }
   if (unpassed.length)
     throw new CatherdError(
       "E_LAND_GATE",
-      `land ${m}: gate items without a pass on ${landed.slice(0, 12)}: ${unpassed.map((item) => item.item).join(", ")}`,
+      `land ${m}: gate items without a pass on ${landed.slice(0, 12)}: ${unpassed.join(", ")}`,
       {
         fix: `run each item and record gate_pass with milestone "${m}" on ${landed.slice(0, 7)}, then land again`,
       },

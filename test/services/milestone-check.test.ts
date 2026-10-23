@@ -22,7 +22,9 @@ import { answerUnit } from "../../src/services/run-client.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { openQuestions, park } from "../../src/services/questions.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { fakeDeps } from "./helpers.ts";
+import { fakeDeps, passGate } from "./helpers.ts";
+import { gateCheck, gatePass, recordedItems } from "../../src/services/gate-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
@@ -283,6 +285,96 @@ describe("machineGate", () => {
     );
     appendCheckRecord(repo, rec({ command: "another check", exit: 1, fails: ["FAIL x"] }));
     expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`another check`");
+  });
+
+  it("lands an accepted red baseline through gate_check, park, answer, and land", async () => {
+    const deps = fakeDeps();
+    daemonLauncher.launch = () => 1;
+    const base = HEAD_REAL;
+    run = createRun({ repo, title: "waiver flow", aLines: ["A1"], version: "0.0.0-test", startHead: base });
+    writeFileSync(join(repo, "tracked.txt"), "work");
+    git(repo, "add", "tracked.txt");
+    git(repo, "commit", "-q", "-m", "work");
+    const head = git(repo, "rev-parse", "HEAD");
+    await passGate(run, "M1", undefined, head);
+    const command = "(echo 'FAIL x'; exit 1)";
+    appendCheckRecord(repo, rec({ command, head: base, baseline: true, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ command, head, exit: 1, fails: ["FAIL x"] }));
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt"],
+    });
+    const input = {
+      run: run.id,
+      milestone: "M1",
+      what: "work",
+      commit: head,
+      evidence: "verified",
+      next: "M2",
+    };
+    let refused;
+    try {
+      await land(deps, input);
+    } catch (e) {
+      refused = e as { code: string; message: string };
+    }
+    expect(refused?.code).toBe("E_LAND_GATE");
+    expect(refused?.message).toContain("pre-existing");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    const question = refused!.message;
+    await park(deps, { run: run.id, milestone: "M1", question });
+    await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question });
+    await answerUnit(deps, { run: run.id, unit: "M1", answer: "accept" });
+    expect((await machineGate(run, "M1", head)).missing).toEqual([]);
+    expect((await recordedItems(run, "M1"))[0]?.passed).toBe(false);
+    writeFileSync(join(repo, "tracked.txt"), "uncommitted change");
+    await expect(land(deps, input)).rejects.toThrow("root check");
+    git(repo, "checkout", "--", "tracked.txt");
+    // A waiver for this failed check cannot stand in for another item's required pass.
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "other check",
+      command: "true",
+      paths: ["tracked.txt"],
+    });
+    await expect(land(deps, input)).rejects.toThrow("other check");
+    await gatePass(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "other check",
+      command: "true",
+      paths: ["tracked.txt"],
+      evidence: "passed",
+    });
+    await expect(land(deps, input)).resolves.toHaveProperty("ledger");
+  });
+
+  it("binds accept to the full record that caused refusal before an intervening rerun", async () => {
+    const fails = Array.from({ length: FAIL_DISPLAY_CAP + 2 }, (_, n) => `FAIL case ${n}`);
+    const rerunFails = [...fails.slice(0, -1), "FAIL unaccepted"];
+    appendCheckRecord(
+      repo,
+      rec({ baseline: true, head: BASE, exit: 1, fails: [...fails, "FAIL unaccepted"] }),
+    );
+    appendCheckRecord(repo, rec({ exit: 1, fails }));
+    const refused = await machineGate(run, "M1", HEAD);
+    const question = `on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:00:30.000Z", exit: 1, fails: rerunFails }));
+    const parkedAt = new Date("2026-10-21T10:01:00.000Z");
+    await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question }, parkedAt);
+    await appendEvent(
+      run,
+      { type: "question.answered", unit: "M1", by: "owner", answer: "accept" },
+      parkedAt,
+    );
+    expect((await machineGate(run, "M1", HEAD)).missing).not.toEqual([]);
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:02:00.000Z", exit: 1, fails }));
+    expect((await machineGate(run, "M1", HEAD)).missing).toEqual([]);
   });
 
   it("does not waive a baseline for an unrelated question, unit, reason, or non-owner accept", async () => {
