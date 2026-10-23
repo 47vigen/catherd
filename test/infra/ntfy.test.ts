@@ -21,6 +21,24 @@ describe("postNotify", () => {
     expect(h.Tags).toBe("white_check_mark,x");
   });
 
+  it("Click and Priority headers are sent when set", async () => {
+    let headers: Headers | undefined;
+    const fake = (async (_url: string, init: RequestInit) => {
+      headers = new Headers(init.headers);
+      return new Response("ok");
+    }) as unknown as typeof fetch;
+    await postNotify(
+      "https://ntfy.sh/t",
+      { ...m, click: "http://127.0.0.1:4317/questions", priority: 4 },
+      { fetch: fake },
+    );
+    expect(headers?.get("Click")).toBe("http://127.0.0.1:4317/questions");
+    expect(headers?.get("Priority")).toBe("4");
+    await postNotify("https://ntfy.sh/t", m, { fetch: fake });
+    expect(headers?.has("Click")).toBe(false);
+    expect(headers?.has("Priority")).toBe(false);
+  });
+
   it("sends a plain ASCII title as it is", async () => {
     let title = "";
     const fake = (async (_u: string, init: RequestInit) => {
