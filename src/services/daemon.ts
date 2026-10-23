@@ -165,8 +165,8 @@ export async function runDaemon(
         )
         .finally(() => {
           inFlight.delete(p);
-          // a notice, and a merge check that found nothing, leave no event behind: nothing else would free their key
-          if (a.type === "notify" || a.type === "checkMerged") issued.delete(key);
+          // Notices, stale reminders and empty merge checks leave no event to free their key.
+          if (a.type === "notify" || a.type === "remind" || a.type === "checkMerged") issued.delete(key);
         });
       inFlight.add(p);
     };
