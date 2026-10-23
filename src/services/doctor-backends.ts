@@ -102,6 +102,8 @@ export async function backendChecks(
   installed?: Set<string>,
   host: OrchestrationHost = "unknown",
   probe: (a: BackendAdapter) => Promise<Probe> = probeBackend,
+  /** false: refresh discovery behind the answer (the panel), without the per-backend model counts */
+  awaitDiscovery = true,
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const ready: string[] = [];
@@ -168,6 +170,10 @@ export async function backendChecks(
   }
   // spec §5.2: doctor refreshes discovery; a listing that fails keeps the last one
   let refreshed: Awaited<ReturnType<typeof refreshDiscovery>> = [];
+  if (!awaitDiscovery) {
+    void refreshDiscovery({ backends: ready }).catch(() => undefined);
+    return checks;
+  }
   try {
     refreshed = await refreshDiscovery({ backends: ready });
   } catch (e) {

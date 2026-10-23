@@ -171,9 +171,14 @@ export async function setupView(
     probedAt.push(r.probedAt);
     return r;
   };
-  const checked = await backendChecks(usedBackends([p]), [p], undefined, deps.host.host, probe).finally(() =>
-    clearTimeout(timer),
-  );
+  const checked = await backendChecks(
+    usedBackends([p]),
+    [p],
+    undefined,
+    deps.host.host,
+    probe,
+    false,
+  ).finally(() => clearTimeout(timer));
   const backends = checked.map((c) =>
     late.has(c.id.replace(/^backend:/, ""))
       ? {
