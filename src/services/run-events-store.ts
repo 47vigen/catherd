@@ -142,12 +142,13 @@ export function appendEvents(run: Run, es: RunEventInput[], now: Date = new Date
 
 /**
  * Calls `onEvent` with each event after `fromSeq - 1`, in order, as they are appended, until the returned stop
- * is called. A poll that finds the file unreadable waits for the next one.
+ * is called; `last` marks the final event of one poll's batch. A poll that finds the file unreadable waits for the
+ * next one.
  */
 export function tailEvents(
   run: Run,
   fromSeq: number,
-  onEvent: (e: RunEvent) => void,
+  onEvent: (e: RunEvent, last: boolean) => void,
   o: { pollMs?: number } = {},
 ): () => void {
   let next = fromSeq;
@@ -156,10 +157,11 @@ export function tailEvents(
   const poll = (): void => {
     if (stopped) return;
     try {
-      for (const e of readEvents(run, next)) {
+      const batch = readEvents(run, next);
+      for (const [i, e] of batch.entries()) {
         if (stopped) return;
         next = e.seq + 1;
-        onEvent(e);
+        onEvent(e, i === batch.length - 1);
       }
     } catch (err) {
       log("warn", "events", { run: run.id, tail: err instanceof Error ? err.message : String(err) });

@@ -16,6 +16,38 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 ## 2.0 follow-ups
 
+### Panel v2 follow-ups (plan 37 final review, 2026-10-23)
+
+- **A run document over 512 KiB is cut with no notice.** `runDoc` (`src/services/run-files.ts`) reads through
+  `readCapped` and drops its `cut` flag, so the panel shows a truncated plan or report as if whole, and a UTF-8
+  character at the cut can break. Send `cut` and say so under the document.
+- **`summary` and `scorecard` still count paused time.** `wallMinutes` in `src/services/summary.ts` and
+  `src/services/scorecard.ts` measure from creation to end; the panel's run index now subtracts pause spans
+  (`coveredMs(start, end, pauseSpans(run))`). Use the same there so the CLI and the panel agree.
+- **A pause does not hold `claimTree` or `route`.** A paused run with a base branch still claims worktrees and routes
+  waiting milestones (`src/domain/run-machine.ts`, the paused filter). The README says so; hold them too if a pause
+  should freeze the run entirely.
+
+- **A watched transcript is re-read whole every 500 ms.** `tailTranscript` (`src/services/transcript.ts`, behind the
+  socket's `watch` message) reads the role's stream file from the start on each poll (`completeLines`) and skips the
+  lines it already sent, so a long role's stream costs more with every poll. _Where:_ keep the byte
+  offset of the last full line and read from it.
+- **A Setup section's save pins the defaults it shows.** The section patches (`patchFor`,
+  `web/src/routes/_app/setup/-lib/patch.ts`) send every field of the section as the page resolved it, so a default
+  the user never touched is written into the profile and no longer follows a new default. _Where:_ send only the keys
+  the user changed.
+- **The run index drops a run with a corrupt `meta.json` without a word.** `runIndex`
+  (`src/services/run-index.ts`) reads `listRuns(...).runs` and never looks at its `corrupt` list, so such a run is
+  just missing from the panel and the log. _Where:_ log each corrupt run once.
+- **A reconnect's refetch can overwrite a newer patch.** After a reconnect `RunDetail`
+  (`web/src/routes/_app/runs/$runId.tsx`) invalidates the model; a patch that lands while that read is in flight is
+  replaced by the older model it returns. _Where:_ keep the cached model when the refetched `seq` is lower.
+- **The overview accepts any date range.** `/api/overview` (`src/services/overview.ts`) takes any `from`/`to`, so a
+  request for years of days builds that many daily rows. _Where:_ clamp the range to 366 days.
+- **The run-index cache is never pruned.** Its map (`cache` in `src/services/run-index.ts`) keeps an entry for every
+  run dir it has seen, deleted runs included, for the life of the panel. _Where:_ drop the entries `listRuns` no longer
+  returns on each `runIndex` call.
+
 ### From plan 33
 
 - **A lane on a held quota waits instead of failing over.** Plan 30's advance dispatches a pending lane only while

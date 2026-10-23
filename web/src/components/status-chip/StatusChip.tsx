@@ -15,7 +15,10 @@ export type Status =
   | "warn"
   | "fail"
   | "skip"
-  | "info";
+  | "info"
+  | "pending"
+  | "skipped"
+  | "paused";
 
 type ChipColor = "success" | "warning" | "danger" | "default";
 
@@ -35,6 +38,9 @@ const COLORS: Record<Status, ChipColor> = {
   cancelled: "default",
   skip: "default",
   info: "default",
+  pending: "default",
+  skipped: "default",
+  paused: "warning",
 };
 
 const DOT: Record<ChipColor, string> = {
@@ -54,7 +60,7 @@ export function StatusChip({ status, until, label: word }: { status: Status; unt
   return (
     <Chip color={color} variant="soft" size="sm" data-color={color} className="gap-1.5 pl-1.5">
       <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", DOT[color])} />
-      <Chip.Label className="text-[11px]">
+      <Chip.Label className="text-[11px] whitespace-nowrap">
         {label}
         {end && !Number.isNaN(end.getTime()) ? (
           <>

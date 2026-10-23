@@ -147,6 +147,33 @@ export async function cancelRun(
   return { cancelling: true, live };
 }
 
+/** The check and the append are one step under the events lock: asking for the state the run has appends nothing. */
+async function setPaused(deps: Deps, run: Run, want: boolean): Promise<void> {
+  await withEventsLock(run, (add) => {
+    const s = replayRun(run);
+    if (s.phase === "ended")
+      throw new CatherdError("E_RUN_NOT_LIVE", `run ${run.id} has ended`, {
+        fix: "status(run) shows how it ended",
+      });
+    if ((s.paused !== null) !== want)
+      add({ type: want ? "run.paused" : "run.resumed", by: "owner" }, new Date(deps.now()));
+  });
+  ensureDaemon(run);
+}
+
+/** Pauses the run: live roles finish, nothing new starts. Asking twice appends nothing. */
+export async function pauseRun(deps: Deps, i: { run: string }): Promise<{ paused: true; since: string }> {
+  const run = daemonRun(i.run);
+  await setPaused(deps, run, true);
+  return { paused: true, since: replayRun(run).paused as string };
+}
+
+/** Lifts the pause: the held dispatches start at once. Asking twice appends nothing. */
+export async function resumeRun(deps: Deps, i: { run: string }): Promise<{ paused: false }> {
+  await setPaused(deps, daemonRun(i.run), false);
+  return { paused: false };
+}
+
 export interface RunResult {
   phase: ReturnType<typeof replayRun>["phase"];
   outcome: ReturnType<typeof replayRun>["outcome"];

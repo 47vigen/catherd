@@ -1,0 +1,4 @@
+DECISION: rules
+ADD In src/text.ts, string helpers work on Unicode code points, not UTF-16 code units: take the first character with `[...s][0]` or `codePointAt`, never `charAt(0)`, `s[0]` or `slice(1)`, and add a test with an astral character such as "𐐨a". [worker, architect] — seq 14: the reviewer-M1 BUG at src/text.ts:6,10 was that `charAt(0)` split a surrogate pair in `capitalize`/`titleCase`, which cost review round 1. The lane brief listed "éa" as the non-ASCII edge case but had no astral case.
+
+STATUS: complete — the run's only extra round came from one surrogate-pair bug, and one scoped rule covers it. There was no standing knowledge to remove.

@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { listRunsOptions } from "../../../client/@tanstack/react-query.gen";
 import { DataList } from "../../../components/data-list/DataList";
 import { PageHeader } from "../../../components/page-header/PageHeader";
-import { type ListSearch, parseEnum, parseListSearch } from "../../../lib/list-search";
+import { type ListSearch, parseEnum, parseListSearch, stripListDefaults } from "../../../lib/list-search";
 import { RunsTable } from "./-components/RunsTable";
 
 const PHASES = [
@@ -23,6 +23,7 @@ export const Route = createFileRoute("/_app/runs/")({
       PHASES.map((p) => p.id),
     ),
   }),
+  search: { middlewares: [stripListDefaults] },
   component: RunsPage,
 });
 
@@ -38,10 +39,7 @@ function RunsPage() {
 
   return (
     <DataList.Root>
-      <PageHeader
-        title="Runs"
-        description="Every run catherd drove, newest first. A run starts from your Claude Code or Codex session."
-      />
+      <PageHeader title="Runs" description="Newest first. A run starts from your Claude Code or Codex session." />
       <DataList.Toolbar>
         <DataList.Search value={q} onChange={(next) => update({ q: next })} placeholder="Search runs" />
         <DataList.Filters>
@@ -52,7 +50,9 @@ function RunsPage() {
         isLoading={list.isPending}
         error={list.error ?? undefined}
         isEmpty={(list.data?.items.length ?? 0) === 0}
-        emptyText="No runs yet. Start one from your session with run_start."
+        emptyText={
+          q || phase ? "No run matches this search." : "No runs yet. Start one from your session with run_start."
+        }
       >
         <RunsTable
           items={list.data?.items ?? []}

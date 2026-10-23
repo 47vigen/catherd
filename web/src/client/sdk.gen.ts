@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnswerUnitData, AnswerUnitErrors, AnswerUnitResponses, CancelRunData, CancelRunErrors, CancelRunResponses, GetRunData, GetRunErrors, GetRunResponses, GetRunTimelineData, GetRunTimelineErrors, GetRunTimelineResponses, GetSessionData, GetSessionErrors, GetSessionResponses, GetSetupData, GetSetupErrors, GetSetupResponses, GetVersionData, GetVersionErrors, GetVersionResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListRunsData, ListRunsErrors, ListRunsResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, SetRoleRungsData, SetRoleRungsErrors, SetRoleRungsResponses } from './types.gen';
+import type { ActivateProfileData, ActivateProfileErrors, ActivateProfileResponses, AnswerUnitData, AnswerUnitErrors, AnswerUnitResponses, CancelRoleData, CancelRoleErrors, CancelRoleResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CreateProfileData, CreateProfileErrors, CreateProfileResponses, DeleteProfileData, DeleteProfileErrors, DeleteProfileResponses, GetCheckLogsData, GetCheckLogsErrors, GetCheckLogsResponses, GetCommitDiffData, GetCommitDiffErrors, GetCommitDiffResponses, GetDispatchData, GetDispatchErrors, GetDispatchResponses, GetDispatchStreamData, GetDispatchStreamErrors, GetDispatchStreamResponses, GetOverviewData, GetOverviewErrors, GetOverviewResponses, GetRunData, GetRunDocData, GetRunDocErrors, GetRunDocResponses, GetRunErrors, GetRunModelData, GetRunModelErrors, GetRunModelResponses, GetRunResponses, GetRunTimelineData, GetRunTimelineErrors, GetRunTimelineResponses, GetSessionData, GetSessionErrors, GetSessionResponses, GetSetupData, GetSetupErrors, GetSetupResponses, GetVersionData, GetVersionErrors, GetVersionResponses, ListAnsweredData, ListAnsweredErrors, ListAnsweredResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListRunsData, ListRunsErrors, ListRunsResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutErrors, LogoutResponses, PauseRunData, PauseRunErrors, PauseRunResponses, PreviewProfileData, PreviewProfileErrors, PreviewProfileResponses, RecheckSetupData, RecheckSetupErrors, RecheckSetupResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SaveProfileData, SaveProfileErrors, SaveProfileResponses, SetHostData, SetHostErrors, SetHostResponses, SetNotifyUrlData, SetNotifyUrlErrors, SetNotifyUrlResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -33,10 +33,61 @@ export const getSession = <ThrowOnError extends boolean = false>(options?: Optio
 
 export const getVersion = <ThrowOnError extends boolean = false>(options?: Options<GetVersionData, ThrowOnError>): RequestResult<GetVersionResponses, GetVersionErrors, ThrowOnError> => (options?.client ?? client).get<GetVersionResponses, GetVersionErrors, ThrowOnError>({ url: '/api/system/version', ...options });
 
+export const getOverview = <ThrowOnError extends boolean = false>(options?: Options<GetOverviewData, ThrowOnError>): RequestResult<GetOverviewResponses, GetOverviewErrors, ThrowOnError> => (options?.client ?? client).get<GetOverviewResponses, GetOverviewErrors, ThrowOnError>({ url: '/api/overview', ...options });
+
 export const getSetup = <ThrowOnError extends boolean = false>(options?: Options<GetSetupData, ThrowOnError>): RequestResult<GetSetupResponses, GetSetupErrors, ThrowOnError> => (options?.client ?? client).get<GetSetupResponses, GetSetupErrors, ThrowOnError>({ url: '/api/setup', ...options });
 
-export const setRoleRungs = <ThrowOnError extends boolean = false>(options: Options<SetRoleRungsData, ThrowOnError>): RequestResult<SetRoleRungsResponses, SetRoleRungsErrors, ThrowOnError> => (options.client ?? client).put<SetRoleRungsResponses, SetRoleRungsErrors, ThrowOnError>({
-    url: '/api/setup/roles/{role}',
+export const recheckSetup = <ThrowOnError extends boolean = false>(options?: Options<RecheckSetupData, ThrowOnError>): RequestResult<RecheckSetupResponses, RecheckSetupErrors, ThrowOnError> => (options?.client ?? client).post<RecheckSetupResponses, RecheckSetupErrors, ThrowOnError>({ url: '/api/setup/recheck', ...options });
+
+export const previewProfile = <ThrowOnError extends boolean = false>(options: Options<PreviewProfileData, ThrowOnError>): RequestResult<PreviewProfileResponses, PreviewProfileErrors, ThrowOnError> => (options.client ?? client).post<PreviewProfileResponses, PreviewProfileErrors, ThrowOnError>({
+    url: '/api/setup/preview',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const saveProfile = <ThrowOnError extends boolean = false>(options: Options<SaveProfileData, ThrowOnError>): RequestResult<SaveProfileResponses, SaveProfileErrors, ThrowOnError> => (options.client ?? client).put<SaveProfileResponses, SaveProfileErrors, ThrowOnError>({
+    url: '/api/setup/profile',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const setNotifyUrl = <ThrowOnError extends boolean = false>(options: Options<SetNotifyUrlData, ThrowOnError>): RequestResult<SetNotifyUrlResponses, SetNotifyUrlErrors, ThrowOnError> => (options.client ?? client).put<SetNotifyUrlResponses, SetNotifyUrlErrors, ThrowOnError>({
+    url: '/api/setup/notify-url',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const setHost = <ThrowOnError extends boolean = false>(options: Options<SetHostData, ThrowOnError>): RequestResult<SetHostResponses, SetHostErrors, ThrowOnError> => (options.client ?? client).post<SetHostResponses, SetHostErrors, ThrowOnError>({
+    url: '/api/setup/host',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const createProfile = <ThrowOnError extends boolean = false>(options: Options<CreateProfileData, ThrowOnError>): RequestResult<CreateProfileResponses, CreateProfileErrors, ThrowOnError> => (options.client ?? client).post<CreateProfileResponses, CreateProfileErrors, ThrowOnError>({
+    url: '/api/profiles',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const deleteProfile = <ThrowOnError extends boolean = false>(options: Options<DeleteProfileData, ThrowOnError>): RequestResult<DeleteProfileResponses, DeleteProfileErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProfileResponses, DeleteProfileErrors, ThrowOnError>({ url: '/api/profiles/{name}', ...options });
+
+export const activateProfile = <ThrowOnError extends boolean = false>(options: Options<ActivateProfileData, ThrowOnError>): RequestResult<ActivateProfileResponses, ActivateProfileErrors, ThrowOnError> => (options.client ?? client).post<ActivateProfileResponses, ActivateProfileErrors, ThrowOnError>({
+    url: '/api/profiles/{name}/activate',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -48,9 +99,27 @@ export const listRuns = <ThrowOnError extends boolean = false>(options?: Options
 
 export const getRun = <ThrowOnError extends boolean = false>(options: Options<GetRunData, ThrowOnError>): RequestResult<GetRunResponses, GetRunErrors, ThrowOnError> => (options.client ?? client).get<GetRunResponses, GetRunErrors, ThrowOnError>({ url: '/api/runs/{id}', ...options });
 
+export const getRunModel = <ThrowOnError extends boolean = false>(options: Options<GetRunModelData, ThrowOnError>): RequestResult<GetRunModelResponses, GetRunModelErrors, ThrowOnError> => (options.client ?? client).get<GetRunModelResponses, GetRunModelErrors, ThrowOnError>({ url: '/api/runs/{id}/model', ...options });
+
+export const getDispatch = <ThrowOnError extends boolean = false>(options: Options<GetDispatchData, ThrowOnError>): RequestResult<GetDispatchResponses, GetDispatchErrors, ThrowOnError> => (options.client ?? client).get<GetDispatchResponses, GetDispatchErrors, ThrowOnError>({ url: '/api/runs/{id}/dispatches/{dispatchId}', ...options });
+
+export const getDispatchStream = <ThrowOnError extends boolean = false>(options: Options<GetDispatchStreamData, ThrowOnError>): RequestResult<GetDispatchStreamResponses, GetDispatchStreamErrors, ThrowOnError> => (options.client ?? client).get<GetDispatchStreamResponses, GetDispatchStreamErrors, ThrowOnError>({ url: '/api/runs/{id}/dispatches/{dispatchId}/stream', ...options });
+
+export const getRunDoc = <ThrowOnError extends boolean = false>(options: Options<GetRunDocData, ThrowOnError>): RequestResult<GetRunDocResponses, GetRunDocErrors, ThrowOnError> => (options.client ?? client).get<GetRunDocResponses, GetRunDocErrors, ThrowOnError>({ url: '/api/runs/{id}/docs', ...options });
+
+export const getCommitDiff = <ThrowOnError extends boolean = false>(options: Options<GetCommitDiffData, ThrowOnError>): RequestResult<GetCommitDiffResponses, GetCommitDiffErrors, ThrowOnError> => (options.client ?? client).get<GetCommitDiffResponses, GetCommitDiffErrors, ThrowOnError>({ url: '/api/runs/{id}/commits/{sha}/diff', ...options });
+
+export const getCheckLogs = <ThrowOnError extends boolean = false>(options: Options<GetCheckLogsData, ThrowOnError>): RequestResult<GetCheckLogsResponses, GetCheckLogsErrors, ThrowOnError> => (options.client ?? client).get<GetCheckLogsResponses, GetCheckLogsErrors, ThrowOnError>({ url: '/api/runs/{id}/checks/{lane}', ...options });
+
 export const getRunTimeline = <ThrowOnError extends boolean = false>(options: Options<GetRunTimelineData, ThrowOnError>): RequestResult<GetRunTimelineResponses, GetRunTimelineErrors, ThrowOnError> => (options.client ?? client).get<GetRunTimelineResponses, GetRunTimelineErrors, ThrowOnError>({ url: '/api/runs/{id}/timeline', ...options });
 
 export const cancelRun = <ThrowOnError extends boolean = false>(options: Options<CancelRunData, ThrowOnError>): RequestResult<CancelRunResponses, CancelRunErrors, ThrowOnError> => (options.client ?? client).post<CancelRunResponses, CancelRunErrors, ThrowOnError>({ url: '/api/runs/{id}/cancel', ...options });
+
+export const pauseRun = <ThrowOnError extends boolean = false>(options: Options<PauseRunData, ThrowOnError>): RequestResult<PauseRunResponses, PauseRunErrors, ThrowOnError> => (options.client ?? client).post<PauseRunResponses, PauseRunErrors, ThrowOnError>({ url: '/api/runs/{id}/pause', ...options });
+
+export const resumeRun = <ThrowOnError extends boolean = false>(options: Options<ResumeRunData, ThrowOnError>): RequestResult<ResumeRunResponses, ResumeRunErrors, ThrowOnError> => (options.client ?? client).post<ResumeRunResponses, ResumeRunErrors, ThrowOnError>({ url: '/api/runs/{id}/resume', ...options });
+
+export const cancelRole = <ThrowOnError extends boolean = false>(options: Options<CancelRoleData, ThrowOnError>): RequestResult<CancelRoleResponses, CancelRoleErrors, ThrowOnError> => (options.client ?? client).post<CancelRoleResponses, CancelRoleErrors, ThrowOnError>({ url: '/api/runs/{id}/roles/{name}/cancel', ...options });
 
 export const answerUnit = <ThrowOnError extends boolean = false>(options: Options<AnswerUnitData, ThrowOnError>): RequestResult<AnswerUnitResponses, AnswerUnitErrors, ThrowOnError> => (options.client ?? client).post<AnswerUnitResponses, AnswerUnitErrors, ThrowOnError>({
     url: '/api/runs/{id}/answers',
@@ -62,3 +131,5 @@ export const answerUnit = <ThrowOnError extends boolean = false>(options: Option
 });
 
 export const listQuestions = <ThrowOnError extends boolean = false>(options?: Options<ListQuestionsData, ThrowOnError>): RequestResult<ListQuestionsResponses, ListQuestionsErrors, ThrowOnError> => (options?.client ?? client).get<ListQuestionsResponses, ListQuestionsErrors, ThrowOnError>({ url: '/api/questions', ...options });
+
+export const listAnswered = <ThrowOnError extends boolean = false>(options?: Options<ListAnsweredData, ThrowOnError>): RequestResult<ListAnsweredResponses, ListAnsweredErrors, ThrowOnError> => (options?.client ?? client).get<ListAnsweredResponses, ListAnsweredErrors, ThrowOnError>({ url: '/api/questions/answered', ...options });

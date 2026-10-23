@@ -28,6 +28,7 @@ import {
   foldClaudeEvents,
   parseClaudeLine,
 } from "./events.ts";
+import { claudeTranscript } from "./transcript.ts";
 import { CLAUDE_ALIASES, CLAUDE_EFFORTS, CLAUDE_MODELS } from "./models.ts";
 import { listClaudeModels } from "./models-api.ts";
 
@@ -420,6 +421,7 @@ export const claudeCodeAdapter: BackendAdapter = {
   prepare,
   plan,
   parse,
+  transcript: claudeTranscript,
   finalize,
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: CLAUDE_LIMIT, tooOld: CLAUDE_TOO_OLD },

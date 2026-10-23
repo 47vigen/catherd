@@ -275,13 +275,36 @@ fragment, so no request or log carries it; the login page reads it, clears it fr
 in. A restart signs every tab out. The panel answers only to `127.0.0.1` and `localhost`, and refuses a write or a
 socket from another origin.
 
-- **Setup**: the catalog and each backend with doctor's status and fix, the profile this repo runs on with its
-  errors and warnings, and each role's rungs, picked from the indexed Slopalytics pairs and saved through the
-  profile service (other settings stay with `catherd profile set`).
-- **Runs**: every run, and for each one its milestones, live roles, parked questions, quota holds and its timeline,
-  newest first, live over the run's `events.jsonl`. **Cancel run** stops a live run; a run starts from your
-  session, never from the panel.
-- **Questions**: each parked unit with its question and an answer box; the unit runs again once you send it.
+- **Dashboard** (the first page): every run on the machine, from every repo. A stat sheet gives the runs, the
+  ones that finished alone, the median time, the interventions, the cost and the tokens, for the last 7 or 30 days.
+  Below it are the runs that are live now, the questions that wait for you, the cost and tokens per day by backend,
+  the tokens by model, the time by role, the recoveries (failovers and climbs) and the recent runs. Each tile has a
+  one-line note that tells you what it shows.
+- **Runs**: every run, with its status, models, time, tokens and cost. Open a run to see it as a graph. The graph
+  starts at the plan and goes through every step of every milestone: route, preflight, each lane, its checks, the
+  commit, the review, the verify, integrate and land, then the judge and the report. Each milestone is a box, the
+  edges show the path the run took, and the running step pulses. A stat sheet above the graph gives the status,
+  the time, the tokens, the cost and the rounds. The plan, the report, the milestones, the models and the timeline
+  are below it. The page updates live over the run socket.
+- **The node drawer**: click a node to open it. Overview gives the model, the effort, the times, the tokens, the
+  cost and why that model ran. Prompt shows the brief's sections. Log shows the role's stream as a readable
+  transcript, or the raw lines. Output shows the reply. Changes shows the diff, and Checks shows the check logs.
+  A node that waits for you takes the answer in the drawer.
+- **Pause, resume and cancel**: **Pause** stops a run from starting new steps: no new role or judge, and no
+  landing, push or merge. Live roles finish their work, and their checks, commits and the routing of waiting milestones still run. **Resume** starts
+  the held steps again. **Cancel role** stops one live role, and **Cancel run** stops the whole run. Each cancel
+  asks first. A run starts from your session, never from the panel.
+- **Questions**: each question that waits, with its run, unit and role, the reason, and the latest reply of the
+  role that asked. A one-click answer sends a common reply at once. For your own words, Cmd/Ctrl+Enter sends the
+  answer. The unit then runs again. Answered questions move to "Recently answered".
+- **Setup**: the repo selector picks the repo to edit, or the global default. The roles overview lists each role
+  with the models it tries, its access and an on switch. Click a role to open its drawer. There you order its
+  models (the first one runs, and the next one runs if it fails), set its access (read only, workspace or full)
+  and set its limits. The settings tile edits every other profile setting. Each change shows a before/after
+  preview, and nothing is saved until you click **Save**. The backends tile shows each backend's status and fix.
+  A slow probe shows as "checking" until it answers, and **Re-check** probes again.
+- **The host question**: if catherd cannot tell which app runs it (Claude Code or Codex), Setup asks once and
+  stays read-only until you choose. catherd never guesses.
 
 `catherd watch` prints the live runs as text.
 

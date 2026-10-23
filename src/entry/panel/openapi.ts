@@ -1,11 +1,25 @@
 import { z } from "zod";
+import { ProfilePatchSchema } from "../../domain/profile.ts";
+import {
+  AttemptSchema,
+  EdgeSchema,
+  RunModelPatchSchema,
+  RunModelSchema,
+  RunNodeSchema,
+} from "../../domain/run-graph.ts";
+import { TranscriptItemSchema, TranscriptPageSchema } from "../../domain/transcript.ts";
+import { NowLineSchema, OverviewSchema } from "../../services/overview.ts";
 import {
   CheckSchema,
   IndexedPairSchema,
   IssueSchema,
   ProfileSavedSchema,
+  SettingsSchema,
   SetupViewSchema,
 } from "../../services/panel-setup.ts";
+import { CheckLogsSchema, CommitDiffSchema, DispatchDetailSchema } from "../../services/run-files.ts";
+import { RunCardSchema } from "../../services/run-index.ts";
+import { QuestionContextSchema } from "../../services/run-model.ts";
 import { ParkedViewSchema, RunViewSchema, TimelineEntrySchema } from "../../services/run-read.ts";
 
 // The panel's HTTP API, in one table: it writes web/openapi.json (the web client is generated from it) and the
@@ -18,7 +32,6 @@ export const ErrorBodySchema = z.object({
 const Page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), total: z.number().int() });
 
 export const LoginBodySchema = z.object({ token: z.string().min(1).max(200) });
-export const RungsBodySchema = z.object({ rungs: z.array(z.string().min(1)).max(50) });
 export const AnswerBodySchema = z.object({
   unit: z.string().min(1).max(100),
   answer: z.string().trim().min(1).max(10000),
@@ -26,10 +39,54 @@ export const AnswerBodySchema = z.object({
 export const AnswerResultSchema = z.object({ unit: z.string(), parked: z.array(z.string()) });
 export const CancelResultSchema = z.object({ cancelling: z.literal(true), live: z.array(z.string()) });
 export const SessionSchema = z.object({ authenticated: z.literal(true) });
-export const VersionSchema = z.object({ catherd: z.string() });
-export const RunListSchema = Page(RunViewSchema);
+export const VersionSchema = z.object({
+  catherd: z.string(),
+  host: z.enum(["claude-code", "codex", "unknown"]),
+});
+export const RunListSchema = Page(RunCardSchema);
 export const TimelinePageSchema = Page(TimelineEntrySchema);
-export const QuestionListSchema = Page(ParkedViewSchema);
+export const QuestionViewSchema = ParkedViewSchema.extend({ context: QuestionContextSchema });
+export const QuestionListSchema = Page(QuestionViewSchema);
+export const AnsweredListSchema = z.object({
+  items: z.array(
+    z.object({
+      run: z.string(),
+      runTitle: z.string(),
+      unit: z.string(),
+      answer: z.string(),
+      by: z.enum(["owner", "judge"]),
+      at: z.string(),
+    }),
+  ),
+});
+export const RunDocSchema = z.object({ name: z.string(), text: z.string() });
+export const PauseResultSchema = z.object({ paused: z.literal(true), since: z.string() });
+export const ResumeResultSchema = z.object({ paused: z.literal(false) });
+export const CancelRoleResultSchema = z.object({ name: z.string(), status: z.string() });
+/** What a save would do, and the stored profile it was worked out from (sent back with the save as `expect`). */
+export const ProfilePreviewSchema = ProfileSavedSchema.extend({
+  expect: z.record(z.string(), z.unknown()),
+  /** whether the save would write: no errors, or a repair (it removes one and adds none) */
+  wouldSave: z.boolean(),
+  /** the errors this change adds; the rest of `errors` were there before it */
+  added: z.array(IssueSchema),
+});
+export const PreviewBodySchema = z.object({ patch: ProfilePatchSchema });
+export const SaveProfileBodySchema = z.object({
+  patch: ProfilePatchSchema,
+  expect: z.record(z.string(), z.unknown()),
+});
+export const NotifyUrlBodySchema = z.object({ url: z.string().min(1).max(2000) });
+export const CreateProfileBodySchema = z.object({
+  name: z.string().min(1).max(100),
+  from: z.string().min(1).max(100).optional(),
+});
+export const ActivateBodySchema = z.object({ repo: z.string().min(1).max(4000).nullable() });
+export const HostBodySchema = z.object({ host: z.enum(["claude-code", "codex"]) });
+
+const isoDate = z.string().refine((v) => !Number.isNaN(Date.parse(v)), "not a date");
+/** Absent: the repo the panel was started in. `global`: the active profile, no repo (Ruling 16). */
+const setupRepo = z.string().min(1).max(4000).optional();
 
 const paging = {
   limit: z.coerce.number().int().min(1).max(200).default(25),
@@ -38,32 +95,66 @@ const paging = {
 export const ListRunsQuerySchema = z.object({
   q: z.string().max(200).optional(),
   phase: z.enum(["planning", "approval", "running", "ended"]).optional(),
+  repo: z.string().max(4000).optional(),
   ...paging,
 });
-export const TimelineQuerySchema = z.object(paging);
+/** `types`: a comma list of event types to keep. */
+export const TimelineQuerySchema = z.object({ ...paging, types: z.string().max(2000).optional() });
+export const OverviewQuerySchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+  repo: z.string().max(4000).optional(),
+});
+export const StreamQuerySchema = z.object({
+  from: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(2000).default(500),
+  raw: z.enum(["0", "1"]).default("0"),
+});
+export const DocQuerySchema = z.object({ name: z.string().min(1).max(200) });
+export const DiffQuerySchema = z.object({ lane: z.string().min(1).max(200).optional() });
+export const SetupQuerySchema = z.object({ repo: setupRepo });
 export const QuestionsQuerySchema = z.object({
   run: z.string().max(200).optional(),
   q: z.string().max(200).optional(),
   ...paging,
 });
+export const AnsweredQuerySchema = z.object({ run: z.string().max(200).optional() });
 
 export type OperationId =
   | "login"
   | "logout"
   | "getSession"
   | "getVersion"
+  | "getOverview"
   | "getSetup"
-  | "setRoleRungs"
+  | "recheckSetup"
+  | "previewProfile"
+  | "saveProfile"
+  | "setNotifyUrl"
+  | "setHost"
+  | "createProfile"
+  | "deleteProfile"
+  | "activateProfile"
   | "listRuns"
   | "getRun"
+  | "getRunModel"
+  | "getDispatch"
+  | "getDispatchStream"
+  | "getRunDoc"
+  | "getCommitDiff"
+  | "getCheckLogs"
   | "getRunTimeline"
   | "cancelRun"
+  | "pauseRun"
+  | "resumeRun"
+  | "cancelRole"
   | "answerUnit"
-  | "listQuestions";
+  | "listQuestions"
+  | "listAnswered";
 
 export interface Operation {
   id: OperationId;
-  method: "GET" | "POST" | "PUT";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
   public?: true;
   query?: z.ZodObject;
@@ -84,16 +175,91 @@ export const OPERATIONS: readonly Operation[] = [
   { id: "logout", method: "POST", path: "/api/auth/logout", response: null },
   { id: "getSession", method: "GET", path: "/api/auth/session", response: SessionSchema },
   { id: "getVersion", method: "GET", path: "/api/system/version", response: VersionSchema },
-  { id: "getSetup", method: "GET", path: "/api/setup", response: SetupViewSchema },
   {
-    id: "setRoleRungs",
+    id: "getOverview",
+    method: "GET",
+    path: "/api/overview",
+    query: OverviewQuerySchema,
+    response: OverviewSchema,
+  },
+  { id: "getSetup", method: "GET", path: "/api/setup", query: SetupQuerySchema, response: SetupViewSchema },
+  {
+    id: "recheckSetup",
+    method: "POST",
+    path: "/api/setup/recheck",
+    query: SetupQuerySchema,
+    response: SetupViewSchema,
+  },
+  {
+    id: "previewProfile",
+    method: "POST",
+    path: "/api/setup/preview",
+    query: SetupQuerySchema,
+    body: PreviewBodySchema,
+    response: ProfilePreviewSchema,
+  },
+  {
+    id: "saveProfile",
     method: "PUT",
-    path: "/api/setup/roles/{role}",
-    body: RungsBodySchema,
+    path: "/api/setup/profile",
+    query: SetupQuerySchema,
+    body: SaveProfileBodySchema,
     response: ProfileSavedSchema,
+  },
+  {
+    id: "setNotifyUrl",
+    method: "PUT",
+    path: "/api/setup/notify-url",
+    body: NotifyUrlBodySchema,
+    response: null,
+  },
+  { id: "setHost", method: "POST", path: "/api/setup/host", body: HostBodySchema, response: null },
+  {
+    id: "createProfile",
+    method: "POST",
+    path: "/api/profiles",
+    body: CreateProfileBodySchema,
+    response: ProfileSavedSchema,
+  },
+  { id: "deleteProfile", method: "DELETE", path: "/api/profiles/{name}", response: null },
+  {
+    id: "activateProfile",
+    method: "POST",
+    path: "/api/profiles/{name}/activate",
+    body: ActivateBodySchema,
+    response: null,
   },
   { id: "listRuns", method: "GET", path: "/api/runs", query: ListRunsQuerySchema, response: RunListSchema },
   { id: "getRun", method: "GET", path: "/api/runs/{id}", response: RunViewSchema },
+  { id: "getRunModel", method: "GET", path: "/api/runs/{id}/model", response: RunModelSchema },
+  {
+    id: "getDispatch",
+    method: "GET",
+    path: "/api/runs/{id}/dispatches/{dispatchId}",
+    response: DispatchDetailSchema,
+  },
+  {
+    id: "getDispatchStream",
+    method: "GET",
+    path: "/api/runs/{id}/dispatches/{dispatchId}/stream",
+    query: StreamQuerySchema,
+    response: TranscriptPageSchema,
+  },
+  {
+    id: "getRunDoc",
+    method: "GET",
+    path: "/api/runs/{id}/docs",
+    query: DocQuerySchema,
+    response: RunDocSchema,
+  },
+  {
+    id: "getCommitDiff",
+    method: "GET",
+    path: "/api/runs/{id}/commits/{sha}/diff",
+    query: DiffQuerySchema,
+    response: CommitDiffSchema,
+  },
+  { id: "getCheckLogs", method: "GET", path: "/api/runs/{id}/checks/{lane}", response: CheckLogsSchema },
   {
     id: "getRunTimeline",
     method: "GET",
@@ -102,6 +268,14 @@ export const OPERATIONS: readonly Operation[] = [
     response: TimelinePageSchema,
   },
   { id: "cancelRun", method: "POST", path: "/api/runs/{id}/cancel", response: CancelResultSchema },
+  { id: "pauseRun", method: "POST", path: "/api/runs/{id}/pause", response: PauseResultSchema },
+  { id: "resumeRun", method: "POST", path: "/api/runs/{id}/resume", response: ResumeResultSchema },
+  {
+    id: "cancelRole",
+    method: "POST",
+    path: "/api/runs/{id}/roles/{name}/cancel",
+    response: CancelRoleResultSchema,
+  },
   {
     id: "answerUnit",
     method: "POST",
@@ -116,10 +290,46 @@ export const OPERATIONS: readonly Operation[] = [
     query: QuestionsQuerySchema,
     response: QuestionListSchema,
   },
+  {
+    id: "listAnswered",
+    method: "GET",
+    path: "/api/questions/answered",
+    query: AnsweredQuerySchema,
+    response: AnsweredListSchema,
+  },
 ];
 
 const SCHEMAS: Record<string, z.ZodType> = {
   RunView: RunViewSchema,
+  RunCard: RunCardSchema,
+  RunModel: RunModelSchema,
+  RunModelPatch: RunModelPatchSchema,
+  RunNode: RunNodeSchema,
+  Attempt: AttemptSchema,
+  Edge: EdgeSchema,
+  Overview: OverviewSchema,
+  NowLine: NowLineSchema,
+  DispatchDetail: DispatchDetailSchema,
+  TranscriptPage: TranscriptPageSchema,
+  TranscriptItem: TranscriptItemSchema,
+  RunDoc: RunDocSchema,
+  CommitDiff: CommitDiffSchema,
+  CheckLogs: CheckLogsSchema,
+  QuestionContext: QuestionContextSchema,
+  QuestionView: QuestionViewSchema,
+  AnsweredList: AnsweredListSchema,
+  ProfilePatch: ProfilePatchSchema,
+  ProfilePreview: ProfilePreviewSchema,
+  Settings: SettingsSchema,
+  PreviewBody: PreviewBodySchema,
+  SaveProfileBody: SaveProfileBodySchema,
+  NotifyUrlBody: NotifyUrlBodySchema,
+  CreateProfileBody: CreateProfileBodySchema,
+  ActivateBody: ActivateBodySchema,
+  HostBody: HostBodySchema,
+  PauseResult: PauseResultSchema,
+  ResumeResult: ResumeResultSchema,
+  CancelRoleResult: CancelRoleResultSchema,
   ParkedView: ParkedViewSchema,
   TimelineEntry: TimelineEntrySchema,
   SetupView: SetupViewSchema,
@@ -134,7 +344,6 @@ const SCHEMAS: Record<string, z.ZodType> = {
   Session: SessionSchema,
   Version: VersionSchema,
   LoginBody: LoginBodySchema,
-  RungsBody: RungsBodySchema,
   AnswerBody: AnswerBodySchema,
   AnswerResult: AnswerResultSchema,
   CancelResult: CancelResultSchema,

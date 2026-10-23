@@ -142,7 +142,7 @@ function State({
     );
   if (isEmpty)
     return (
-      <div className="border-border flex flex-col items-center gap-3 rounded-sm border border-dashed px-6 py-14 text-center">
+      <div className="border-border flex flex-col items-center gap-3 rounded-sm border border-dashed px-6 py-8 text-center">
         <p className="text-muted text-sm">{emptyText}</p>
         {emptyAction}
       </div>

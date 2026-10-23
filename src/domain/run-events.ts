@@ -200,6 +200,9 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     mr: z.string(),
   }),
   ev("cancel.requested", { by: z.literal("owner") }),
+  /** plan 37: the owner holds one run; live roles finish, nothing new starts until `run.resumed` */
+  ev("run.paused", { by: z.literal("owner") }),
+  ev("run.resumed", { by: z.literal("owner") }),
   ev("effect.failed", { action: z.enum(ACTION_TYPES), unit: z.string(), message: z.string() }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
   ev("tick", {}),
@@ -286,6 +289,10 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `${e.milestone}'s branch ${e.branch} is pushed to ${e.remote}`;
     case "cancel.requested":
       return `cancel requested by the ${e.by}`;
+    case "run.paused":
+      return `run paused by the ${e.by}`;
+    case "run.resumed":
+      return `run resumed by the ${e.by}`;
     case "effect.failed":
       return `${e.action} on ${e.unit} failed: ${one(e.message)}`;
     case "report.posted":

@@ -113,10 +113,75 @@
         }
       }
     },
+    "/api/overview": {
+      "get": {
+        "operationId": "getOverview",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 4000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/setup": {
       "get": {
         "operationId": "getSetup",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "ok",
@@ -141,16 +206,57 @@
         }
       }
     },
-    "/api/setup/roles/{role}": {
-      "put": {
-        "operationId": "setRoleRungs",
+    "/api/setup/recheck": {
+      "post": {
+        "operationId": "recheckSetup",
         "parameters": [
           {
-            "name": "role",
-            "in": "path",
-            "required": true,
+            "name": "repo",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/preview": {
+      "post": {
+        "operationId": "previewProfile",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
             }
           }
         ],
@@ -159,7 +265,56 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RungsBody"
+                "$ref": "#/components/schemas/PreviewBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilePreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/profile": {
+      "put": {
+        "operationId": "saveProfile",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveProfileBody"
               }
             }
           }
@@ -174,6 +329,176 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/notify-url": {
+      "put": {
+        "operationId": "setNotifyUrl",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyUrlBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup/host": {
+      "post": {
+        "operationId": "setHost",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "post": {
+        "operationId": "createProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileSaved"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{name}": {
+      "delete": {
+        "operationId": "deleteProfile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "no content"
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{name}/activate": {
+      "post": {
+        "operationId": "activateProfile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "no content"
           },
           "default": {
             "description": "error",
@@ -213,6 +538,15 @@
                 "running",
                 "ended"
               ]
+            }
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 4000
             }
           },
           {
@@ -299,6 +633,315 @@
         }
       }
     },
+    "/api/runs/{id}/model": {
+      "get": {
+        "operationId": "getRunModel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunModel"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/dispatches/{dispatchId}": {
+      "get": {
+        "operationId": "getDispatch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dispatchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/dispatches/{dispatchId}/stream": {
+      "get": {
+        "operationId": "getDispatchStream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dispatchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "0",
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/docs": {
+      "get": {
+        "operationId": "getRunDoc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDoc"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/commits/{sha}/diff": {
+      "get": {
+        "operationId": "getCommitDiff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sha",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lane",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitDiff"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/checks/{lane}": {
+      "get": {
+        "operationId": "getCheckLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lane",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckLogs"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{id}/timeline": {
       "get": {
         "operationId": "getRunTimeline",
@@ -331,6 +974,15 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 2000
             }
           }
         ],
@@ -378,6 +1030,125 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CancelResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/pause": {
+      "post": {
+        "operationId": "pauseRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/resume": {
+      "post": {
+        "operationId": "resumeRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumeResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/roles/{name}/cancel": {
+      "post": {
+        "operationId": "cancelRole",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelRoleResult"
                 }
               }
             }
@@ -494,6 +1265,44 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QuestionList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/questions/answered": {
+      "get": {
+        "operationId": "listAnswered",
+        "parameters": [
+          {
+            "name": "run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnsweredList"
                 }
               }
             }
@@ -694,11 +1503,26 @@
               "null"
             ]
           },
+          "paused": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "startedAt": {
             "type": "string"
           },
           "updatedAt": {
             "type": "string"
+          },
+          "elapsedSec": {
+            "type": "number"
+          },
+          "countingSince": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -714,8 +1538,2744 @@
           "parked",
           "holds",
           "last",
+          "paused",
           "startedAt",
-          "updatedAt"
+          "updatedAt",
+          "elapsedSec",
+          "countingSince"
+        ],
+        "additionalProperties": false
+      },
+      "RunCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "2.0",
+              "1.5"
+            ]
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "planning",
+                  "approval",
+                  "running",
+                  "ended"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "cancelled",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wallMinutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "milestones": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "landed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "total",
+              "landed"
+            ],
+            "additionalProperties": false
+          },
+          "live": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "rung": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "role",
+                "rung",
+                "unit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "openQuestions": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "paused": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "dispatches": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "tokens": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "number"
+                  },
+                  "cached": {
+                    "type": "number"
+                  },
+                  "output": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "input",
+                  "cached",
+                  "output"
+                ],
+                "additionalProperties": false
+              },
+              "costUsd": {
+                "type": "number"
+              },
+              "interventions": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "failovers": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "climbs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "rounds": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "dispatches",
+              "tokens",
+              "costUsd",
+              "interventions",
+              "failovers",
+              "climbs",
+              "rounds"
+            ],
+            "additionalProperties": false
+          },
+          "byBackend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "type": "number"
+                },
+                "costUsd": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "backend",
+                "tokens",
+                "costUsd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "byModel": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "model",
+                "tokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "byRole": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "secs": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "role",
+                "secs"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "repo",
+          "engine",
+          "phase",
+          "outcome",
+          "startedAt",
+          "endedAt",
+          "wallMinutes",
+          "milestones",
+          "live",
+          "openQuestions",
+          "paused",
+          "totals",
+          "byBackend",
+          "byModel",
+          "byRole"
+        ],
+        "additionalProperties": false
+      },
+      "RunModel": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "2.0",
+              "1.5"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "planning",
+                  "approval",
+                  "running",
+                  "ended"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "cancelled",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            }
+          },
+          "dispatches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attempt"
+            }
+          }
+        },
+        "required": [
+          "run",
+          "engine",
+          "seq",
+          "phase",
+          "outcome",
+          "nodes",
+          "edges",
+          "dispatches"
+        ],
+        "additionalProperties": false
+      },
+      "RunModelPatch": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "planning",
+                  "approval",
+                  "running",
+                  "ended"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "cancelled",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunNode"
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "edges": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Edge"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "phase",
+          "outcome",
+          "nodes",
+          "removed",
+          "edges"
+        ],
+        "additionalProperties": false
+      },
+      "RunNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "start",
+              "architect",
+              "later",
+              "route",
+              "preflight",
+              "lane",
+              "check",
+              "commit",
+              "review",
+              "verify",
+              "integrate",
+              "land",
+              "judge",
+              "report",
+              "end"
+            ]
+          },
+          "milestone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lane": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "architect",
+                  "verifier",
+                  "worker",
+                  "reviewer",
+                  "ui-reviewer",
+                  "artist",
+                  "writer",
+                  "researcher",
+                  "judge"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "parked",
+              "skipped",
+              "cancelled"
+            ]
+          },
+          "now": {
+            "type": "string"
+          },
+          "rung": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "unit": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "needs_user",
+                      "too_hard",
+                      "provider_error",
+                      "no_access",
+                      "check_broken",
+                      "out_of_scope",
+                      "environment",
+                      "preflight",
+                      "confirm",
+                      "approval",
+                      "blocker",
+                      "verifier",
+                      "commit",
+                      "land",
+                      "budget",
+                      "judge",
+                      "effect",
+                      "push"
+                    ]
+                  },
+                  "question": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "unit",
+                  "reason",
+                  "question"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attempt"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "milestone",
+          "lane",
+          "role",
+          "title",
+          "status",
+          "now",
+          "rung",
+          "startedAt",
+          "endedAt",
+          "question",
+          "attempts"
+        ],
+        "additionalProperties": false
+      },
+      "Attempt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "dispatch",
+              "check",
+              "commit",
+              "event"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "round": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "parked",
+              "skipped",
+              "cancelled"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dispatchId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rung": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failoverFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "triage",
+                  "question",
+                  "unexpected",
+                  "rules"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "secs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "number"
+                  },
+                  "cached": {
+                    "type": "number"
+                  },
+                  "output": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "input",
+                  "cached",
+                  "output"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "round",
+          "status",
+          "at",
+          "endedAt",
+          "dispatchId",
+          "name",
+          "role",
+          "rung",
+          "failoverFrom",
+          "judge",
+          "secs",
+          "tokens",
+          "costUsd",
+          "commit",
+          "exit",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "Edge": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "Overview": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "repo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kpis": {
+            "type": "object",
+            "properties": {
+              "runs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ended": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "clean": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "cleanPct": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "medianWallMinutes": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "interventions": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "costUsd": {
+                "type": "number"
+              },
+              "tokens": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "runs",
+              "ended",
+              "clean",
+              "cleanPct",
+              "medianWallMinutes",
+              "interventions",
+              "costUsd",
+              "tokens"
+            ],
+            "additionalProperties": false
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "string"
+                },
+                "backends": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
+                        "type": "string"
+                      },
+                      "tokens": {
+                        "type": "number"
+                      },
+                      "costUsd": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "backend",
+                      "tokens",
+                      "costUsd"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "day",
+                "backends"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tokensByModel": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "model",
+                "tokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "secsByRole": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "secs": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "role",
+                "secs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "failovers": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "climbs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "live": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "run": {
+                  "$ref": "#/components/schemas/RunCard"
+                },
+                "now": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NowLine"
+                  }
+                }
+              },
+              "required": [
+                "run",
+                "now"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "questions": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "first": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ParkedView"
+                }
+              }
+            },
+            "required": [
+              "total",
+              "first"
+            ],
+            "additionalProperties": false
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunCard"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "repo",
+          "repos",
+          "kpis",
+          "daily",
+          "tokensByModel",
+          "secsByRole",
+          "failovers",
+          "climbs",
+          "live",
+          "questions",
+          "recent"
+        ],
+        "additionalProperties": false
+      },
+      "NowLine": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "rung": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "node",
+          "title",
+          "text",
+          "rung"
+        ],
+        "additionalProperties": false
+      },
+      "DispatchDetail": {
+        "type": "object",
+        "properties": {
+          "dispatchId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "lane": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rung": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replyStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "attempt": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "failoverFrom": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "secs": {
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "number"
+                      },
+                      "cached": {
+                        "type": "number"
+                      },
+                      "output": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "input",
+                      "cached",
+                      "output"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "costUsd": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "exitCode": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "access": {
+                    "type": "string"
+                  },
+                  "isolated": {
+                    "type": "boolean"
+                  },
+                  "cliVersion": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "attempt",
+                  "failoverFrom",
+                  "secs",
+                  "tokens",
+                  "costUsd",
+                  "exitCode",
+                  "access",
+                  "isolated",
+                  "cliVersion"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "decidedBy": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  },
+                  "ladder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "source",
+                  "decidedBy",
+                  "why",
+                  "ladder"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brief": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stderr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "enum": [
+                    "BLOCKER",
+                    "BUG",
+                    "NIT"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "label",
+                "text",
+                "file"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "aLines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "pass": {
+                  "type": "boolean"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "pass",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "brief",
+                "reply",
+                "stderr"
+              ]
+            }
+          }
+        },
+        "required": [
+          "dispatchId",
+          "name",
+          "role",
+          "unit",
+          "lane",
+          "rung",
+          "startedAt",
+          "endedAt",
+          "status",
+          "replyStatus",
+          "why",
+          "record",
+          "route",
+          "brief",
+          "reply",
+          "stderr",
+          "findings",
+          "aLines",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "TranscriptPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptItem"
+            }
+          },
+          "raw": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "ended": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "raw",
+          "next",
+          "ended"
+        ],
+        "additionalProperties": false
+      },
+      "TranscriptItem": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "text"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "thinking"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "tool"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              },
+              "output": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "error": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "id",
+              "name",
+              "input",
+              "output",
+              "error"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "shell"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "output": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exit": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "id",
+              "command",
+              "output",
+              "exit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "file"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "diff": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "id",
+              "changes",
+              "diff"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "output"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "error": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "id",
+              "text",
+              "error"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "error"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "turn"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "tokens": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "number"
+                      },
+                      "cached": {
+                        "type": "number"
+                      },
+                      "output": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "input",
+                      "cached",
+                      "output"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "costUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "tokens",
+              "costUsd"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "raw"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "RunDoc": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "CommitDiff": {
+        "type": "object",
+        "properties": {
+          "sha": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "paths": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "sha",
+          "text",
+          "truncated",
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "CheckLogs": {
+        "type": "object",
+        "properties": {
+          "lane": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fast": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "full": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "lane",
+          "name",
+          "fast",
+          "full",
+          "exit"
+        ],
+        "additionalProperties": false
+      },
+      "QuestionContext": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replyName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lane": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "node",
+          "reply",
+          "replyName",
+          "lane"
+        ],
+        "additionalProperties": false
+      },
+      "QuestionView": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "runTitle": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "needs_user",
+              "too_hard",
+              "provider_error",
+              "no_access",
+              "check_broken",
+              "out_of_scope",
+              "environment",
+              "preflight",
+              "confirm",
+              "approval",
+              "blocker",
+              "verifier",
+              "commit",
+              "land",
+              "budget",
+              "judge",
+              "effect",
+              "push"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/QuestionContext"
+          }
+        },
+        "required": [
+          "run",
+          "runTitle",
+          "unit",
+          "question",
+          "reason",
+          "at",
+          "command",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "AnsweredList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "run": {
+                  "type": "string"
+                },
+                "runTitle": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "owner",
+                    "judge"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "run",
+                "runTitle",
+                "unit",
+                "answer",
+                "by",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "ProfilePatch": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "enum": [
+              "cost",
+              "speed"
+            ]
+          },
+          "jev": {
+            "type": "object",
+            "properties": {
+              "use": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "use"
+            ],
+            "additionalProperties": false
+          },
+          "billing": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude",
+                "claude-code",
+                "opencode-go",
+                "opencode",
+                "cursor"
+              ]
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "chatgpt-plan",
+                    "claude-plan",
+                    "subscription",
+                    "metered"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "roles": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "architect",
+                "verifier",
+                "worker",
+                "reviewer",
+                "ui-reviewer",
+                "artist",
+                "writer",
+                "researcher",
+                "judge"
+              ]
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "workspace-write",
+                    "full"
+                  ]
+                },
+                "rungs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "defaultRung": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "network": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "timeouts": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "idleMin": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "wallMin": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "bars": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string",
+                        "enum": [
+                          "copy",
+                          "build",
+                          "logic",
+                          "hard"
+                        ]
+                      },
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "harness": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude-code",
+                "opencode",
+                "cursor"
+              ]
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "isolated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "isolated"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "failover": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "maxEffort": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "minimal",
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max",
+                    "ultra"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "bars": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "enum": [
+                    "copy",
+                    "build",
+                    "logic",
+                    "hard"
+                  ]
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "minutes": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tokens": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "usd": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "timeouts": {
+            "type": "object",
+            "properties": {
+              "idleMin": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "wallMin": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "preflight": {
+            "type": "object",
+            "properties": {
+              "confirm": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "confirm"
+            ],
+            "additionalProperties": false
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "heavy": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "string",
+                    "const": "cpus/2"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "heavy"
+            ],
+            "additionalProperties": false
+          },
+          "notify": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "milestone",
+                "finish",
+                "blocked"
+              ]
+            }
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "memory": {
+                "type": "object",
+                "properties": {
+                  "reserveMb": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "perMilestoneMb": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "floorMb": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfilePreview": {
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          },
+          "diff": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "before": {},
+                "after": {}
+              },
+              "required": [
+                "path",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "linked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pruned": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "newSessionNeededFor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expect": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "wouldSave": {
+            "type": "boolean"
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          }
+        },
+        "required": [
+          "saved",
+          "errors",
+          "warnings",
+          "diff",
+          "linked",
+          "pruned",
+          "newSessionNeededFor",
+          "expect",
+          "wouldSave",
+          "added"
+        ],
+        "additionalProperties": false
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "enum": [
+              "cost",
+              "speed"
+            ]
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "minutes": {
+                "type": "number"
+              },
+              "tokens": {
+                "type": "number"
+              },
+              "usd": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          },
+          "timeouts": {
+            "type": "object",
+            "properties": {
+              "idleMin": {
+                "type": "number"
+              },
+              "wallMin": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "idleMin",
+              "wallMin"
+            ],
+            "additionalProperties": false
+          },
+          "failover": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "maxEffort": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "bars": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "heavy": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "const": "cpus/2"
+              }
+            ]
+          },
+          "memory": {
+            "type": "object",
+            "properties": {
+              "reserveMb": {
+                "type": "number"
+              },
+              "perMilestoneMb": {
+                "type": "number"
+              },
+              "floorMb": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "reserveMb",
+              "perMilestoneMb",
+              "floorMb"
+            ],
+            "additionalProperties": false
+          },
+          "preflightConfirm": {
+            "type": "boolean"
+          },
+          "notify": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "milestone",
+                "finish",
+                "blocked"
+              ]
+            }
+          },
+          "jev": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off"
+            ]
+          },
+          "billing": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "chatgpt-plan",
+                "claude-plan",
+                "subscription",
+                "metered"
+              ]
+            }
+          },
+          "isolated": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          }
+        },
+        "required": [
+          "objective",
+          "budget",
+          "timeouts",
+          "failover",
+          "maxEffort",
+          "bars",
+          "heavy",
+          "memory",
+          "preflightConfirm",
+          "notify",
+          "jev",
+          "billing",
+          "isolated"
+        ],
+        "additionalProperties": false
+      },
+      "PreviewBody": {
+        "type": "object",
+        "properties": {
+          "patch": {
+            "$ref": "#/components/schemas/ProfilePatch"
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "SaveProfileBody": {
+        "type": "object",
+        "properties": {
+          "patch": {
+            "$ref": "#/components/schemas/ProfilePatch"
+          },
+          "expect": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "patch",
+          "expect"
+        ],
+        "additionalProperties": false
+      },
+      "NotifyUrlBody": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "CreateProfileBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "ActivateBody": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "additionalProperties": false
+      },
+      "HostBody": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex"
+            ]
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": false
+      },
+      "PauseResult": {
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean",
+            "const": true
+          },
+          "since": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "paused",
+          "since"
+        ],
+        "additionalProperties": false
+      },
+      "ResumeResult": {
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "paused"
+        ],
+        "additionalProperties": false
+      },
+      "CancelRoleResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
         ],
         "additionalProperties": false
       },
@@ -810,6 +4370,33 @@
               "null"
             ]
           },
+          "host": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex",
+              "unknown"
+            ]
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "profile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "profile"
+              ],
+              "additionalProperties": false
+            }
+          },
           "profile": {
             "type": "object",
             "properties": {
@@ -824,14 +4411,49 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "bindings": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             },
             "required": [
               "name",
               "active",
-              "profiles"
+              "profiles",
+              "bindings"
             ],
             "additionalProperties": false
+          },
+          "probedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pending": {
+            "type": "boolean"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "notifyUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doc": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
           },
           "catalog": {
             "$ref": "#/components/schemas/Check"
@@ -886,6 +4508,40 @@
                 "enabled": {
                   "type": "boolean"
                 },
+                "access": {
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "workspace-write",
+                    "full"
+                  ]
+                },
+                "network": {
+                  "type": "boolean"
+                },
+                "timeouts": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "idleMin": {
+                          "type": "number"
+                        },
+                        "wallMin": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "idleMin",
+                        "wallMin"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "hostSet": {
                   "type": "boolean"
                 },
@@ -921,6 +4577,9 @@
               "required": [
                 "role",
                 "enabled",
+                "access",
+                "network",
+                "timeouts",
                 "hostSet",
                 "rungs",
                 "offered"
@@ -931,7 +4590,14 @@
         },
         "required": [
           "repo",
+          "host",
+          "repos",
           "profile",
+          "probedAt",
+          "pending",
+          "settings",
+          "notifyUrl",
+          "doc",
           "catalog",
           "backends",
           "issues",
@@ -1201,7 +4867,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/RunView"
+              "$ref": "#/components/schemas/RunCard"
             }
           },
           "total": {
@@ -1243,7 +4909,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ParkedView"
+              "$ref": "#/components/schemas/QuestionView"
             }
           },
           "total": {
@@ -1276,10 +4942,19 @@
         "properties": {
           "catherd": {
             "type": "string"
+          },
+          "host": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex",
+              "unknown"
+            ]
           }
         },
         "required": [
-          "catherd"
+          "catherd",
+          "host"
         ],
         "additionalProperties": false
       },
@@ -1294,23 +4969,6 @@
         },
         "required": [
           "token"
-        ],
-        "additionalProperties": false
-      },
-      "RungsBody": {
-        "type": "object",
-        "properties": {
-          "rungs": {
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        },
-        "required": [
-          "rungs"
         ],
         "additionalProperties": false
       },

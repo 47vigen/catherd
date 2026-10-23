@@ -14,7 +14,7 @@ import {
   runView,
 } from "../../src/services/run-read.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
-import { snapshotEnv, tempRepo } from "../helpers.ts";
+import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps, freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -103,6 +103,26 @@ describe("the read api", () => {
     } finally {
       lock?.();
     }
+  });
+
+  it("counts the run's time without its pauses, and stops counting while one is open", async () => {
+    withHome();
+    const run = createRun({
+      repo: tempRepo(),
+      title: "t",
+      aLines: [],
+      version: "0.0.0-test",
+      now: new Date(NOW - 60_000),
+    });
+    await seed(run);
+    await appendEvent(run, { type: "run.paused", by: "owner" }, new Date(NOW - 40_000));
+    await appendEvent(run, { type: "run.resumed", by: "owner" }, new Date(NOW - 30_000));
+    expect(runView(deps(), run.id)).toMatchObject({
+      elapsedSec: 50,
+      countingSince: new Date(NOW).toISOString(),
+    });
+    await appendEvent(run, { type: "run.paused", by: "owner" }, new Date(NOW - 20_000));
+    expect(runView(deps(), run.id)).toMatchObject({ elapsedSec: 30, countingSince: null });
   });
 
   it("shows a quota's hold", async () => {

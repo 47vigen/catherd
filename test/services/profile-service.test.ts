@@ -18,7 +18,9 @@ import {
   createProfile,
   deleteProfile,
   diffNamed,
+  CHANGED_ON_DISK,
   patchProfile,
+  previewProfile,
   resetProfile,
   resetHostDefaults,
   profileService,
@@ -139,6 +141,28 @@ describe("patchProfile", () => {
     expect(JSON.parse(readFileSync(file("default"), "utf8")).roles.worker.enabled).toBe(true);
   });
 
+  it("previews a save the way the save decides: a repair would save, and only the errors it adds are its own", () => {
+    withHome();
+    mkdirSync(profilesDir(), { recursive: true });
+    const doc = defaultProfileDoc();
+    const broken = { ...doc, roles: { ...doc.roles, worker: { ...doc.roles?.worker, enabled: false } } };
+    writeFileSync(
+      file("default"),
+      JSON.stringify({ ...broken, failover: { "codex:gpt-6-sol#high": "codex:gpt-6-luna#high" } }),
+    );
+    const repair = previewProfile("default", { roles: { worker: { enabled: true } } }, "claude-code");
+    expect([repair.wouldSave, repair.errors.length, repair.added]).toEqual([true, 1, []]);
+    const worse = previewProfile(
+      "default",
+      { roles: { worker: { enabled: true }, writer: { rungs: [] } } },
+      "claude-code",
+    );
+    expect([worse.wouldSave, worse.added.map((e) => e.message)]).toEqual([
+      false,
+      ["the writer role has no usable rung"],
+    ]);
+  });
+
   it("refuses a patch that adds an error, even one that removes another", () => {
     withHome();
     mkdirSync(profilesDir(), { recursive: true });
@@ -211,6 +235,33 @@ describe("patchProfile", () => {
     ]);
     expect(r.diff).toEqual([]);
     expect(readFileSync(file("default"), "utf8")).toBe(onDisk);
+  });
+
+  it("previewProfile shows the diff and writes nothing", () => {
+    withHome();
+    patchProfile("default", {}, { host: "claude-code" });
+    const bytes = readFileSync(file("default"), "utf8");
+    const p = previewProfile("default", { budget: { minutes: 90 } }, "claude-code");
+    expect([p.saved, p.errors, p.diff[0]]).toEqual([
+      false,
+      [],
+      expect.objectContaining({ path: "budget.minutes", after: 90 }),
+    ]);
+    expect(p.expect).toEqual(readProfileDoc("default"));
+    expect(readFileSync(file("default"), "utf8")).toBe(bytes);
+  });
+
+  it("a save with an expect the profile no longer matches writes nothing and says it changed on disk", () => {
+    withHome();
+    const svc = profileService(() => ({ host: "claude-code", session: null, conflict: null }));
+    const shown = svc.preview?.("default", { budget: { minutes: 90 } });
+    expect(shown?.diff.length).toBeGreaterThan(0);
+    // another process writes the profile between the preview and the save
+    patchProfile("default", { objective: "speed" }, { host: "claude-code" });
+    const bytes = readFileSync(file("default"), "utf8");
+    const r = svc.set("default", { budget: { minutes: 90 } }, null, shown?.expect);
+    expect([r.saved, r.errors[0]?.path]).toEqual([false, CHANGED_ON_DISK]);
+    expect(readFileSync(file("default"), "utf8")).toBe(bytes);
   });
 
   it("stores rungs and failover keys as written, and every field profile_set can set", () => {

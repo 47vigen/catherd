@@ -1,0 +1,197 @@
+import { ArrowLeft } from "@gravity-ui/icons";
+import { Button, Link, toast } from "@heroui/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+
+import { formatCost, formatTokens, totalsOf } from "../-lib/format";
+import { formatDuration, roundsOf } from "../-lib/node-view";
+import { runStatus } from "../-lib/run-status";
+import type { RunModel, RunView } from "../../../../client";
+import { cancelRunMutation, pauseRunMutation, resumeRunMutation } from "../../../../client/@tanstack/react-query.gen";
+import { ConfirmDelete } from "../../../../components/confirm-delete/ConfirmDelete";
+import { PageHeader } from "../../../../components/page-header/PageHeader";
+import { type Status, StatusChip } from "../../../../components/status-chip/StatusChip";
+import { Tile } from "../../../../components/tile/Tile";
+import { errorMessage } from "../../../../lib/api";
+import { invalidateOps } from "../../../../lib/query";
+
+const STATUS_WORD: Partial<Record<Status, string>> = { info: "Finished", parked: "Waiting" };
+const STATUS_TEXT: Partial<Record<Status, string>> = {
+  running: "text-success",
+  done: "text-success",
+  failed: "text-danger",
+  parked: "text-warning",
+  paused: "text-warning",
+  planning: "text-warning",
+  approval: "text-warning",
+};
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+const day = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+const valid = (d: Date) => !Number.isNaN(d.getTime());
+
+/** Review rounds per milestone (the most any of its steps took), summed over the run. */
+function roundsIn(model: RunModel | undefined): number {
+  const most = new Map<string, number>();
+  for (const n of model?.nodes ?? [])
+    if (n.milestone) most.set(n.milestone, Math.max(most.get(n.milestone) ?? 0, roundsOf(n)));
+  return [...most.values()].reduce((a, b) => a + b, 0);
+}
+
+/** Title, repo and controls of the run, then its figures as one stat sheet. */
+export function RunHeader({
+  run,
+  model,
+  live,
+  now,
+}: {
+  run: RunView;
+  model: RunModel | undefined;
+  live: boolean;
+  now: Date;
+}) {
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const refresh = () => invalidateOps(qc, "getRun", "getRunModel", "listRuns");
+  const cancel = useMutation({
+    ...cancelRunMutation(),
+    onSuccess: async () => {
+      setConfirming(false);
+      toast.success("Cancelling. Live roles are being stopped.");
+      await refresh();
+    },
+    onError: (e) => toast.danger(errorMessage(e)),
+  });
+  const pause = useMutation({
+    ...pauseRunMutation(),
+    onSuccess: async () => {
+      toast.success("Paused. Live roles finish; nothing new starts or lands.");
+      await refresh();
+    },
+    onError: (e) => toast.danger(errorMessage(e)),
+  });
+  const resume = useMutation({
+    ...resumeRunMutation(),
+    onSuccess: async () => {
+      toast.success("Resumed. The held steps start again.");
+      await refresh();
+    },
+    onError: (e) => toast.danger(errorMessage(e)),
+  });
+
+  const paused = live && run.paused !== null;
+  const status: Status = paused ? "paused" : runStatus(run);
+  const word = STATUS_WORD[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
+  const dispatches = model?.dispatches ?? [];
+  const totals = totalsOf(dispatches);
+  const started = new Date(run.startedAt);
+  const ended = new Date(live ? now.getTime() : Date.parse(run.updatedAt));
+  // the server leaves pauses out; a live run with no pause open counts on from that read
+  const elapsed =
+    run.elapsedSec +
+    (live && run.countingSince ? Math.max(0, now.getTime() - Date.parse(run.countingSince)) / 1000 : 0);
+  const tokensIn = dispatches.reduce((a, d) => a + (d.tokens?.input ?? 0), 0);
+  const tokensOut = dispatches.reduce((a, d) => a + (d.tokens?.output ?? 0), 0);
+  const milestones = run.milestones.length;
+  const rounds = roundsIn(model);
+
+  return (
+    <>
+      <PageHeader
+        before={
+          <Link href="/runs" className="text-muted hover:text-foreground w-fit gap-1.5 text-sm no-underline">
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            Runs
+          </Link>
+        }
+        title={run.title}
+        description={
+          <span className="font-mono text-xs">
+            {run.id} · {run.repo}
+          </span>
+        }
+        actions={
+          live ? (
+            <>
+              {run.engine === "2.0" ? (
+                paused ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isPending={resume.isPending}
+                    onPress={() => resume.mutate({ path: { id: run.id } })}
+                  >
+                    Resume
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isPending={pause.isPending}
+                    onPress={() => pause.mutate({ path: { id: run.id } })}
+                  >
+                    Pause
+                  </Button>
+                )
+              ) : null}
+              <Button size="sm" variant="secondary" onPress={() => setConfirming(true)}>
+                Cancel run
+              </Button>
+            </>
+          ) : null
+        }
+      />
+      <Tile.Stats>
+        <Tile.Stat
+          label="Status"
+          value={<span className={STATUS_TEXT[status]}>{word}</span>}
+          hint={
+            run.holds.length > 0 ? (
+              <span className="flex flex-wrap gap-1">
+                {run.holds.map((h) => (
+                  <StatusChip key={h.quota} status="held" label={h.quota} until={h.until} />
+                ))}
+              </span>
+            ) : live ? (
+              (run.last ?? undefined)
+            ) : undefined
+          }
+        />
+        <Tile.Stat
+          label="Started"
+          value={valid(started) ? clock.format(started) : "–"}
+          hint={valid(started) ? day.format(started) : undefined}
+        />
+        <Tile.Stat
+          label={live ? "Running for" : "Took"}
+          value={Number.isNaN(elapsed) ? "–" : formatDuration(elapsed)}
+          hint={live ? "So far" : valid(ended) ? `Ended ${clock.format(ended)}` : undefined}
+        />
+        <Tile.Stat
+          label="Tokens"
+          value={formatTokens(totals.tokens)}
+          hint={totals.tokens > 0 ? `${formatTokens(tokensIn)} in · ${formatTokens(tokensOut)} out` : undefined}
+        />
+        <Tile.Stat
+          label="Cost"
+          value={formatCost(totals.costUsd)}
+          hint={`${dispatches.length} ${dispatches.length === 1 ? "role run" : "role runs"}`}
+        />
+        <Tile.Stat
+          label="Rounds"
+          value={rounds}
+          hint={`${milestones} ${milestones === 1 ? "milestone" : "milestones"}`}
+        />
+      </Tile.Stats>
+      <ConfirmDelete
+        title={`Cancel ${run.title}?`}
+        body="Every live role is stopped and the run ends. It cannot be resumed."
+        confirmLabel="Cancel run"
+        cancelLabel="Keep running"
+        isOpen={confirming}
+        isPending={cancel.isPending}
+        onConfirm={() => cancel.mutate({ path: { id: run.id } })}
+        onCancel={() => setConfirming(false)}
+      />
+    </>
+  );
+}

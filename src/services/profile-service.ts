@@ -19,7 +19,13 @@ import {
   type ProfilePatch,
   resolveProfile,
 } from "../domain/profile.ts";
-import { nativeClaudeIssue, repairs, type Validation } from "../domain/profile-rules.ts";
+import {
+  addedErrors,
+  type Issue,
+  nativeClaudeIssue,
+  repairs,
+  type Validation,
+} from "../domain/profile-rules.ts";
 import { ROLES } from "../domain/roles.ts";
 import { withFileLockSync } from "../infra/filelock.ts";
 import { configDir } from "../infra/paths.ts";
@@ -155,6 +161,27 @@ export function patchProfile(
       return unsaved(v);
     const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
     return { saved: true, ...v, diff, ...saveAndLink(n, after, host, v.errors.length > 0) };
+  });
+}
+
+/**
+ * What `patchProfile` would do, without writing: the diff, the validation, whether the save would write
+ * (`wouldSave`, decided as `patchProfile` decides), the errors the patch adds (`added`), and the stored document
+ * the patch was applied to (`expect`, which the save sends back).
+ */
+export function previewProfile(
+  name: string | undefined,
+  patch: ProfilePatch,
+  host: OrchestrationHost,
+): Saved & { expect: ProfileDoc; wouldSave: boolean; added: Issue[] } {
+  return locked(() => {
+    const n = assertProfileName(name ?? activeName());
+    const before = profileExists(n) ? readProfileDoc(n) : defaultProfileDoc(n);
+    const after = applyPatch(before, patch);
+    const v = validate(after, n, host);
+    const was = profileExists(n) ? validate(before, n, host) : null;
+    const diff = diffProfiles(resolveProfile(before, n, host), resolveProfile(after, n, host));
+    return { ...unsaved(v), diff, expect: before, wouldSave: repairs(was, v), added: addedErrors(was, v) };
   });
 }
 
@@ -357,7 +384,9 @@ export function profileService(host: () => HostContext): ProfilePort {
       return { valid: v.errors.length === 0, ...v };
     },
     // a name that does not exist yet starts from the default profile
-    set: (name, patch, repo = null) => patchProfile(name ?? activeName(repo), patch, { host: host().host }),
+    set: (name, patch, repo = null, expect) =>
+      patchProfile(name ?? activeName(repo), patch, { host: host().host, expect }),
+    preview: (name, patch, repo = null) => previewProfile(name ?? activeName(repo), patch, host().host),
     agentFor: (repo, role, rung) =>
       parseRung(rung).backend === "claude" ? agentName(activeName(repo), role, rung) : null,
     notifyUrl: () =>

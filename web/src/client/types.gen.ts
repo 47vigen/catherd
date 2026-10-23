@@ -36,8 +36,506 @@ export type RunView = {
         until: string;
     }>;
     last: string | null;
+    paused: string | null;
     startedAt: string;
     updatedAt: string;
+    elapsedSec: number;
+    countingSince: string | null;
+};
+
+export type RunCard = {
+    id: string;
+    title: string;
+    repo: string;
+    engine: '2.0' | '1.5';
+    phase: 'planning' | 'approval' | 'running' | 'ended' | null;
+    outcome: 'done' | 'cancelled' | 'failed' | null;
+    startedAt: string;
+    endedAt: string | null;
+    wallMinutes: number | null;
+    milestones: {
+        total: number;
+        landed: number;
+    };
+    live: Array<{
+        name: string;
+        role: string;
+        rung: string;
+        unit: string;
+    }>;
+    openQuestions: number;
+    paused: string | null;
+    totals: {
+        dispatches: number;
+        tokens: {
+            input: number;
+            cached: number;
+            output: number;
+        };
+        costUsd: number;
+        interventions: number;
+        failovers: number;
+        climbs: number;
+        rounds: number;
+    };
+    byBackend: Array<{
+        backend: string;
+        tokens: number;
+        costUsd: number;
+    }>;
+    byModel: Array<{
+        model: string;
+        tokens: number;
+    }>;
+    byRole: Array<{
+        role: string;
+        secs: number;
+    }>;
+};
+
+export type RunModel = {
+    run: string;
+    engine: '2.0' | '1.5';
+    seq: number;
+    phase: 'planning' | 'approval' | 'running' | 'ended' | null;
+    outcome: 'done' | 'cancelled' | 'failed' | null;
+    nodes: Array<RunNode>;
+    edges: Array<Edge>;
+    dispatches: Array<Attempt>;
+};
+
+export type RunModelPatch = {
+    seq: number;
+    phase: 'planning' | 'approval' | 'running' | 'ended' | null;
+    outcome: 'done' | 'cancelled' | 'failed' | null;
+    nodes: Array<RunNode>;
+    removed: Array<string>;
+    edges: Array<Edge> | null;
+};
+
+export type RunNode = {
+    id: string;
+    kind: 'start' | 'architect' | 'later' | 'route' | 'preflight' | 'lane' | 'check' | 'commit' | 'review' | 'verify' | 'integrate' | 'land' | 'judge' | 'report' | 'end';
+    milestone: string | null;
+    lane: string | null;
+    role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | 'judge' | null;
+    title: string;
+    status: 'pending' | 'running' | 'done' | 'failed' | 'parked' | 'skipped' | 'cancelled';
+    now: string;
+    rung: string | null;
+    startedAt: string | null;
+    endedAt: string | null;
+    question: {
+        unit: string;
+        reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+        question: string;
+    } | null;
+    attempts: Array<Attempt>;
+};
+
+export type Attempt = {
+    id: string;
+    kind: 'dispatch' | 'check' | 'commit' | 'event';
+    label: string;
+    round: number | null;
+    status: 'pending' | 'running' | 'done' | 'failed' | 'parked' | 'skipped' | 'cancelled';
+    at: string;
+    endedAt: string | null;
+    dispatchId: string | null;
+    name: string | null;
+    role: string | null;
+    rung: string | null;
+    failoverFrom: string | null;
+    judge: 'triage' | 'question' | 'unexpected' | 'rules' | null;
+    secs: number | null;
+    tokens: {
+        input: number;
+        cached: number;
+        output: number;
+    } | null;
+    costUsd: number | null;
+    commit: string | null;
+    exit: number | null;
+    text: string | null;
+};
+
+export type Edge = {
+    from: string;
+    to: string;
+};
+
+export type Overview = {
+    from: string;
+    to: string;
+    repo: string | null;
+    repos: Array<string>;
+    kpis: {
+        runs: number;
+        ended: number;
+        clean: number;
+        cleanPct: number | null;
+        medianWallMinutes: number | null;
+        interventions: number;
+        costUsd: number;
+        tokens: number;
+    };
+    daily: Array<{
+        day: string;
+        backends: Array<{
+            backend: string;
+            tokens: number;
+            costUsd: number;
+        }>;
+    }>;
+    tokensByModel: Array<{
+        model: string;
+        tokens: number;
+    }>;
+    secsByRole: Array<{
+        role: string;
+        secs: number;
+    }>;
+    failovers: number;
+    climbs: number;
+    live: Array<{
+        run: RunCard;
+        now: Array<NowLine>;
+    }>;
+    questions: {
+        total: number;
+        first: Array<ParkedView>;
+    };
+    recent: Array<RunCard>;
+};
+
+export type NowLine = {
+    node: string;
+    title: string;
+    text: string;
+    rung: string | null;
+};
+
+export type DispatchDetail = {
+    dispatchId: string;
+    name: string;
+    role: string;
+    unit: string;
+    lane: string | null;
+    rung: string;
+    startedAt: string;
+    endedAt: string | null;
+    status: string | null;
+    replyStatus: string | null;
+    why: string | null;
+    record: {
+        attempt: number;
+        failoverFrom: string | null;
+        secs: number;
+        tokens: {
+            input: number;
+            cached: number;
+            output: number;
+        };
+        costUsd: number | null;
+        exitCode: number | null;
+        access: string;
+        isolated: boolean;
+        cliVersion: string | null;
+    } | null;
+    route: {
+        source: string;
+        decidedBy: string;
+        why: string;
+        ladder: Array<string>;
+    } | null;
+    brief: string | null;
+    reply: string | null;
+    stderr: string | null;
+    findings: Array<{
+        label: 'BLOCKER' | 'BUG' | 'NIT';
+        text: string;
+        file: string | null;
+    }>;
+    aLines: Array<{
+        id: string;
+        pass: boolean;
+        text: string;
+    }>;
+    truncated: Array<'brief' | 'reply' | 'stderr'>;
+};
+
+export type TranscriptPage = {
+    items: Array<TranscriptItem>;
+    raw: Array<string> | null;
+    next: number;
+    ended: boolean;
+};
+
+export type TranscriptItem = {
+    kind: 'text';
+    line: number;
+    text: string;
+} | {
+    kind: 'thinking';
+    line: number;
+    text: string;
+} | {
+    kind: 'tool';
+    line: number;
+    id: string;
+    name: string;
+    input: string;
+    output: string | null;
+    error: boolean;
+} | {
+    kind: 'shell';
+    line: number;
+    id: string;
+    command: string;
+    output: string | null;
+    exit: number | null;
+} | {
+    kind: 'file';
+    line: number;
+    id: string;
+    changes: Array<{
+        path: string;
+        kind: string;
+    }>;
+    diff: string | null;
+} | {
+    kind: 'output';
+    line: number;
+    id: string;
+    text: string;
+    error: boolean;
+} | {
+    kind: 'error';
+    line: number;
+    text: string;
+} | {
+    kind: 'turn';
+    line: number;
+    tokens: {
+        input: number;
+        cached: number;
+        output: number;
+    } | null;
+    costUsd: number | null;
+} | {
+    kind: 'raw';
+    line: number;
+    text: string;
+};
+
+export type RunDoc = {
+    name: string;
+    text: string;
+};
+
+export type CommitDiff = {
+    sha: string;
+    text: string;
+    truncated: boolean;
+    paths: Array<string> | null;
+};
+
+export type CheckLogs = {
+    lane: string;
+    name: string;
+    fast: string | null;
+    full: string | null;
+    exit: number | null;
+};
+
+export type QuestionContext = {
+    node: string;
+    reply: string | null;
+    replyName: string | null;
+    lane: string | null;
+};
+
+export type QuestionView = {
+    run: string;
+    runTitle: string;
+    unit: string;
+    question: string;
+    reason: 'needs_user' | 'too_hard' | 'provider_error' | 'no_access' | 'check_broken' | 'out_of_scope' | 'environment' | 'preflight' | 'confirm' | 'approval' | 'blocker' | 'verifier' | 'commit' | 'land' | 'budget' | 'judge' | 'effect' | 'push';
+    at: string;
+    command: string;
+    context: QuestionContext;
+};
+
+export type AnsweredList = {
+    items: Array<{
+        run: string;
+        runTitle: string;
+        unit: string;
+        answer: string;
+        by: 'owner' | 'judge';
+        at: string;
+    }>;
+};
+
+export type ProfilePatch = {
+    objective?: 'cost' | 'speed';
+    jev?: {
+        use: 'auto' | 'off';
+    };
+    billing?: {
+        [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered' | null;
+    };
+    roles?: {
+        [key: string]: {
+            enabled?: boolean;
+            access?: 'read-only' | 'workspace-write' | 'full';
+            rungs?: Array<string>;
+            defaultRung?: string | null;
+            network?: boolean | null;
+            timeouts?: {
+                idleMin?: number | null;
+                wallMin?: number | null;
+            } | null;
+            bars?: {
+                [key: string]: number | null;
+            } | null;
+        };
+    };
+    harness?: {
+        [key: string]: {
+            isolated: boolean;
+        };
+    };
+    failover?: {
+        [key: string]: string | null;
+    };
+    maxEffort?: {
+        [key: string]: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | null;
+    };
+    bars?: {
+        [key: string]: number | null;
+    } | null;
+    budget?: {
+        minutes?: number | null;
+        tokens?: number | null;
+        usd?: number | null;
+    };
+    timeouts?: {
+        idleMin?: number;
+        wallMin?: number;
+    };
+    preflight?: {
+        confirm: boolean;
+    };
+    lock?: {
+        heavy: number | 'cpus/2';
+    };
+    notify?: Array<'milestone' | 'finish' | 'blocked'>;
+    limits?: {
+        memory?: {
+            reserveMb?: number | null;
+            perMilestoneMb?: number | null;
+            floorMb?: number | null;
+        };
+    };
+};
+
+export type ProfilePreview = {
+    saved: boolean;
+    errors: Array<Issue>;
+    warnings: Array<Issue>;
+    diff: Array<{
+        path: string;
+        before: unknown;
+        after: unknown;
+    }>;
+    linked: Array<string>;
+    pruned: Array<string>;
+    newSessionNeededFor: Array<string>;
+    expect: {
+        [key: string]: unknown;
+    };
+    wouldSave: boolean;
+    added: Array<Issue>;
+};
+
+export type Settings = {
+    objective: 'cost' | 'speed';
+    budget: {
+        minutes?: number;
+        tokens?: number;
+        usd?: number;
+    };
+    timeouts: {
+        idleMin: number;
+        wallMin: number;
+    };
+    failover: {
+        [key: string]: string;
+    };
+    maxEffort: {
+        [key: string]: string;
+    };
+    bars: {
+        [key: string]: number;
+    };
+    heavy: number | 'cpus/2';
+    memory: {
+        reserveMb: number;
+        perMilestoneMb: number;
+        floorMb: number;
+    };
+    preflightConfirm: boolean;
+    notify: Array<'milestone' | 'finish' | 'blocked'>;
+    jev: 'auto' | 'off';
+    billing: {
+        [key: string]: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered';
+    };
+    isolated: {
+        [key: string]: boolean;
+    };
+};
+
+export type PreviewBody = {
+    patch: ProfilePatch;
+};
+
+export type SaveProfileBody = {
+    patch: ProfilePatch;
+    expect: {
+        [key: string]: unknown;
+    };
+};
+
+export type NotifyUrlBody = {
+    url: string;
+};
+
+export type CreateProfileBody = {
+    name: string;
+    from?: string;
+};
+
+export type ActivateBody = {
+    repo: string | null;
+};
+
+export type HostBody = {
+    host: 'claude-code' | 'codex';
+};
+
+export type PauseResult = {
+    paused: true;
+    since: string;
+};
+
+export type ResumeResult = {
+    paused: false;
+};
+
+export type CancelRoleResult = {
+    name: string;
+    status: string;
 };
 
 export type ParkedView = {
@@ -59,10 +557,25 @@ export type TimelineEntry = {
 
 export type SetupView = {
     repo: string | null;
+    host: 'claude-code' | 'codex' | 'unknown';
+    repos: Array<{
+        path: string;
+        profile: string;
+    }>;
     profile: {
         name: string;
         active: string;
         profiles: Array<string>;
+        bindings: {
+            [key: string]: string;
+        };
+    };
+    probedAt: string | null;
+    pending: boolean;
+    settings: Settings;
+    notifyUrl: string | null;
+    doc: {
+        [key: string]: unknown;
     };
     catalog: Check;
     backends: Array<Check>;
@@ -73,6 +586,12 @@ export type SetupView = {
     roles: Array<{
         role: 'architect' | 'verifier' | 'worker' | 'reviewer' | 'ui-reviewer' | 'artist' | 'writer' | 'researcher' | 'judge';
         enabled: boolean;
+        access: 'read-only' | 'workspace-write' | 'full';
+        network: boolean;
+        timeouts: {
+            idleMin: number;
+            wallMin: number;
+        } | null;
         hostSet: boolean;
         rungs: Array<{
             rung: string;
@@ -138,7 +657,7 @@ export type ErrorBody = {
 };
 
 export type RunList = {
-    items: Array<RunView>;
+    items: Array<RunCard>;
     total: number;
 };
 
@@ -148,7 +667,7 @@ export type TimelinePage = {
 };
 
 export type QuestionList = {
-    items: Array<ParkedView>;
+    items: Array<QuestionView>;
     total: number;
 };
 
@@ -158,14 +677,11 @@ export type Session = {
 
 export type Version = {
     catherd: string;
+    host: 'claude-code' | 'codex' | 'unknown';
 };
 
 export type LoginBody = {
     token: string;
-};
-
-export type RungsBody = {
-    rungs: Array<string>;
 };
 
 export type AnswerBody = {
@@ -283,10 +799,41 @@ export type GetVersionResponses = {
 
 export type GetVersionResponse = GetVersionResponses[keyof GetVersionResponses];
 
+export type GetOverviewData = {
+    body?: never;
+    path?: never;
+    query?: {
+        from?: string;
+        to?: string;
+        repo?: string;
+    };
+    url: '/api/overview';
+};
+
+export type GetOverviewErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetOverviewError = GetOverviewErrors[keyof GetOverviewErrors];
+
+export type GetOverviewResponses = {
+    /**
+     * ok
+     */
+    200: Overview;
+};
+
+export type GetOverviewResponse = GetOverviewResponses[keyof GetOverviewResponses];
+
 export type GetSetupData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        repo?: string;
+    };
     url: '/api/setup';
 };
 
@@ -308,32 +855,215 @@ export type GetSetupResponses = {
 
 export type GetSetupResponse = GetSetupResponses[keyof GetSetupResponses];
 
-export type SetRoleRungsData = {
-    body: RungsBody;
-    path: {
-        role: string;
+export type RecheckSetupData = {
+    body?: never;
+    path?: never;
+    query?: {
+        repo?: string;
     };
-    query?: never;
-    url: '/api/setup/roles/{role}';
+    url: '/api/setup/recheck';
 };
 
-export type SetRoleRungsErrors = {
+export type RecheckSetupErrors = {
     /**
      * error
      */
     default: ErrorBody;
 };
 
-export type SetRoleRungsError = SetRoleRungsErrors[keyof SetRoleRungsErrors];
+export type RecheckSetupError = RecheckSetupErrors[keyof RecheckSetupErrors];
 
-export type SetRoleRungsResponses = {
+export type RecheckSetupResponses = {
+    /**
+     * ok
+     */
+    200: SetupView;
+};
+
+export type RecheckSetupResponse = RecheckSetupResponses[keyof RecheckSetupResponses];
+
+export type PreviewProfileData = {
+    body: PreviewBody;
+    path?: never;
+    query?: {
+        repo?: string;
+    };
+    url: '/api/setup/preview';
+};
+
+export type PreviewProfileErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type PreviewProfileError = PreviewProfileErrors[keyof PreviewProfileErrors];
+
+export type PreviewProfileResponses = {
+    /**
+     * ok
+     */
+    200: ProfilePreview;
+};
+
+export type PreviewProfileResponse = PreviewProfileResponses[keyof PreviewProfileResponses];
+
+export type SaveProfileData = {
+    body: SaveProfileBody;
+    path?: never;
+    query?: {
+        repo?: string;
+    };
+    url: '/api/setup/profile';
+};
+
+export type SaveProfileErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type SaveProfileError = SaveProfileErrors[keyof SaveProfileErrors];
+
+export type SaveProfileResponses = {
     /**
      * ok
      */
     200: ProfileSaved;
 };
 
-export type SetRoleRungsResponse = SetRoleRungsResponses[keyof SetRoleRungsResponses];
+export type SaveProfileResponse = SaveProfileResponses[keyof SaveProfileResponses];
+
+export type SetNotifyUrlData = {
+    body: NotifyUrlBody;
+    path?: never;
+    query?: never;
+    url: '/api/setup/notify-url';
+};
+
+export type SetNotifyUrlErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type SetNotifyUrlError = SetNotifyUrlErrors[keyof SetNotifyUrlErrors];
+
+export type SetNotifyUrlResponses = {
+    /**
+     * no content
+     */
+    204: void;
+};
+
+export type SetNotifyUrlResponse = SetNotifyUrlResponses[keyof SetNotifyUrlResponses];
+
+export type SetHostData = {
+    body: HostBody;
+    path?: never;
+    query?: never;
+    url: '/api/setup/host';
+};
+
+export type SetHostErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type SetHostError = SetHostErrors[keyof SetHostErrors];
+
+export type SetHostResponses = {
+    /**
+     * no content
+     */
+    204: void;
+};
+
+export type SetHostResponse = SetHostResponses[keyof SetHostResponses];
+
+export type CreateProfileData = {
+    body: CreateProfileBody;
+    path?: never;
+    query?: never;
+    url: '/api/profiles';
+};
+
+export type CreateProfileErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type CreateProfileError = CreateProfileErrors[keyof CreateProfileErrors];
+
+export type CreateProfileResponses = {
+    /**
+     * ok
+     */
+    200: ProfileSaved;
+};
+
+export type CreateProfileResponse = CreateProfileResponses[keyof CreateProfileResponses];
+
+export type DeleteProfileData = {
+    body?: never;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/api/profiles/{name}';
+};
+
+export type DeleteProfileErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type DeleteProfileError = DeleteProfileErrors[keyof DeleteProfileErrors];
+
+export type DeleteProfileResponses = {
+    /**
+     * no content
+     */
+    204: void;
+};
+
+export type DeleteProfileResponse = DeleteProfileResponses[keyof DeleteProfileResponses];
+
+export type ActivateProfileData = {
+    body: ActivateBody;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/api/profiles/{name}/activate';
+};
+
+export type ActivateProfileErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type ActivateProfileError = ActivateProfileErrors[keyof ActivateProfileErrors];
+
+export type ActivateProfileResponses = {
+    /**
+     * no content
+     */
+    204: void;
+};
+
+export type ActivateProfileResponse = ActivateProfileResponses[keyof ActivateProfileResponses];
 
 export type ListRunsData = {
     body?: never;
@@ -341,6 +1071,7 @@ export type ListRunsData = {
     query?: {
         q?: string;
         phase?: 'planning' | 'approval' | 'running' | 'ended';
+        repo?: string;
         limit?: number;
         offset?: number;
     };
@@ -392,6 +1123,180 @@ export type GetRunResponses = {
 
 export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
 
+export type GetRunModelData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/model';
+};
+
+export type GetRunModelErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetRunModelError = GetRunModelErrors[keyof GetRunModelErrors];
+
+export type GetRunModelResponses = {
+    /**
+     * ok
+     */
+    200: RunModel;
+};
+
+export type GetRunModelResponse = GetRunModelResponses[keyof GetRunModelResponses];
+
+export type GetDispatchData = {
+    body?: never;
+    path: {
+        id: string;
+        dispatchId: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/dispatches/{dispatchId}';
+};
+
+export type GetDispatchErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetDispatchError = GetDispatchErrors[keyof GetDispatchErrors];
+
+export type GetDispatchResponses = {
+    /**
+     * ok
+     */
+    200: DispatchDetail;
+};
+
+export type GetDispatchResponse = GetDispatchResponses[keyof GetDispatchResponses];
+
+export type GetDispatchStreamData = {
+    body?: never;
+    path: {
+        id: string;
+        dispatchId: string;
+    };
+    query?: {
+        from?: number;
+        limit?: number;
+        raw?: '0' | '1';
+    };
+    url: '/api/runs/{id}/dispatches/{dispatchId}/stream';
+};
+
+export type GetDispatchStreamErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetDispatchStreamError = GetDispatchStreamErrors[keyof GetDispatchStreamErrors];
+
+export type GetDispatchStreamResponses = {
+    /**
+     * ok
+     */
+    200: TranscriptPage;
+};
+
+export type GetDispatchStreamResponse = GetDispatchStreamResponses[keyof GetDispatchStreamResponses];
+
+export type GetRunDocData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query: {
+        name: string;
+    };
+    url: '/api/runs/{id}/docs';
+};
+
+export type GetRunDocErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetRunDocError = GetRunDocErrors[keyof GetRunDocErrors];
+
+export type GetRunDocResponses = {
+    /**
+     * ok
+     */
+    200: RunDoc;
+};
+
+export type GetRunDocResponse = GetRunDocResponses[keyof GetRunDocResponses];
+
+export type GetCommitDiffData = {
+    body?: never;
+    path: {
+        id: string;
+        sha: string;
+    };
+    query?: {
+        lane?: string;
+    };
+    url: '/api/runs/{id}/commits/{sha}/diff';
+};
+
+export type GetCommitDiffErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetCommitDiffError = GetCommitDiffErrors[keyof GetCommitDiffErrors];
+
+export type GetCommitDiffResponses = {
+    /**
+     * ok
+     */
+    200: CommitDiff;
+};
+
+export type GetCommitDiffResponse = GetCommitDiffResponses[keyof GetCommitDiffResponses];
+
+export type GetCheckLogsData = {
+    body?: never;
+    path: {
+        id: string;
+        lane: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/checks/{lane}';
+};
+
+export type GetCheckLogsErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetCheckLogsError = GetCheckLogsErrors[keyof GetCheckLogsErrors];
+
+export type GetCheckLogsResponses = {
+    /**
+     * ok
+     */
+    200: CheckLogs;
+};
+
+export type GetCheckLogsResponse = GetCheckLogsResponses[keyof GetCheckLogsResponses];
+
 export type GetRunTimelineData = {
     body?: never;
     path: {
@@ -400,6 +1305,7 @@ export type GetRunTimelineData = {
     query?: {
         limit?: number;
         offset?: number;
+        types?: string;
     };
     url: '/api/runs/{id}/timeline';
 };
@@ -448,6 +1354,88 @@ export type CancelRunResponses = {
 };
 
 export type CancelRunResponse = CancelRunResponses[keyof CancelRunResponses];
+
+export type PauseRunData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/pause';
+};
+
+export type PauseRunErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type PauseRunError = PauseRunErrors[keyof PauseRunErrors];
+
+export type PauseRunResponses = {
+    /**
+     * ok
+     */
+    200: PauseResult;
+};
+
+export type PauseRunResponse = PauseRunResponses[keyof PauseRunResponses];
+
+export type ResumeRunData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/resume';
+};
+
+export type ResumeRunErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type ResumeRunError = ResumeRunErrors[keyof ResumeRunErrors];
+
+export type ResumeRunResponses = {
+    /**
+     * ok
+     */
+    200: ResumeResult;
+};
+
+export type ResumeRunResponse = ResumeRunResponses[keyof ResumeRunResponses];
+
+export type CancelRoleData = {
+    body?: never;
+    path: {
+        id: string;
+        name: string;
+    };
+    query?: never;
+    url: '/api/runs/{id}/roles/{name}/cancel';
+};
+
+export type CancelRoleErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type CancelRoleError = CancelRoleErrors[keyof CancelRoleErrors];
+
+export type CancelRoleResponses = {
+    /**
+     * ok
+     */
+    200: CancelRoleResult;
+};
+
+export type CancelRoleResponse = CancelRoleResponses[keyof CancelRoleResponses];
 
 export type AnswerUnitData = {
     body: AnswerBody;
@@ -505,3 +1493,30 @@ export type ListQuestionsResponses = {
 };
 
 export type ListQuestionsResponse = ListQuestionsResponses[keyof ListQuestionsResponses];
+
+export type ListAnsweredData = {
+    body?: never;
+    path?: never;
+    query?: {
+        run?: string;
+    };
+    url: '/api/questions/answered';
+};
+
+export type ListAnsweredErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type ListAnsweredError = ListAnsweredErrors[keyof ListAnsweredErrors];
+
+export type ListAnsweredResponses = {
+    /**
+     * ok
+     */
+    200: AnsweredList;
+};
+
+export type ListAnsweredResponse = ListAnsweredResponses[keyof ListAnsweredResponses];

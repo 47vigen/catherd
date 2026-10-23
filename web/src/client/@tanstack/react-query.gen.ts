@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { answerUnit, cancelRun, getRun, getRunTimeline, getSession, getSetup, getVersion, listQuestions, listRuns, login, logout, type Options, setRoleRungs } from '../sdk.gen';
-import type { AnswerUnitData, AnswerUnitError, AnswerUnitResponse, CancelRunData, CancelRunError, CancelRunResponse, GetRunData, GetRunError, GetRunResponse, GetRunTimelineData, GetRunTimelineError, GetRunTimelineResponse, GetSessionData, GetSessionError, GetSessionResponse, GetSetupData, GetSetupError, GetSetupResponse, GetVersionData, GetVersionError, GetVersionResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListRunsData, ListRunsError, ListRunsResponse, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, SetRoleRungsData, SetRoleRungsError, SetRoleRungsResponse } from '../types.gen';
+import { activateProfile, answerUnit, cancelRole, cancelRun, createProfile, deleteProfile, getCheckLogs, getCommitDiff, getDispatch, getDispatchStream, getOverview, getRun, getRunDoc, getRunModel, getRunTimeline, getSession, getSetup, getVersion, listAnswered, listQuestions, listRuns, login, logout, type Options, pauseRun, previewProfile, recheckSetup, resumeRun, saveProfile, setHost, setNotifyUrl } from '../sdk.gen';
+import type { ActivateProfileData, ActivateProfileError, ActivateProfileResponse, AnswerUnitData, AnswerUnitError, AnswerUnitResponse, CancelRoleData, CancelRoleError, CancelRoleResponse, CancelRunData, CancelRunError, CancelRunResponse, CreateProfileData, CreateProfileError, CreateProfileResponse, DeleteProfileData, DeleteProfileError, DeleteProfileResponse, GetCheckLogsData, GetCheckLogsError, GetCheckLogsResponse, GetCommitDiffData, GetCommitDiffError, GetCommitDiffResponse, GetDispatchData, GetDispatchError, GetDispatchResponse, GetDispatchStreamData, GetDispatchStreamError, GetDispatchStreamResponse, GetOverviewData, GetOverviewError, GetOverviewResponse, GetRunData, GetRunDocData, GetRunDocError, GetRunDocResponse, GetRunError, GetRunModelData, GetRunModelError, GetRunModelResponse, GetRunResponse, GetRunTimelineData, GetRunTimelineError, GetRunTimelineResponse, GetSessionData, GetSessionError, GetSessionResponse, GetSetupData, GetSetupError, GetSetupResponse, GetVersionData, GetVersionError, GetVersionResponse, ListAnsweredData, ListAnsweredError, ListAnsweredResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListRunsData, ListRunsError, ListRunsResponse, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, PauseRunData, PauseRunError, PauseRunResponse, PreviewProfileData, PreviewProfileError, PreviewProfileResponse, RecheckSetupData, RecheckSetupError, RecheckSetupResponse, ResumeRunData, ResumeRunError, ResumeRunResponse, SaveProfileData, SaveProfileError, SaveProfileResponse, SetHostData, SetHostError, SetHostResponse, SetNotifyUrlData, SetNotifyUrlError, SetNotifyUrlResponse } from '../types.gen';
 
 export const loginMutation = (options?: Partial<Options<LoginData>>): UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> => {
     const mutationOptions: UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> = {
@@ -97,6 +97,21 @@ export const getVersionOptions = (options?: Options<GetVersionData>) => queryOpt
     queryKey: getVersionQueryKey(options)
 });
 
+export const getOverviewQueryKey = (options?: Options<GetOverviewData>) => createQueryKey('getOverview', options);
+
+export const getOverviewOptions = (options?: Options<GetOverviewData>) => queryOptions<GetOverviewResponse, GetOverviewError, GetOverviewResponse, ReturnType<typeof getOverviewQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getOverview({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getOverviewQueryKey(options)
+});
+
 export const getSetupQueryKey = (options?: Options<GetSetupData>) => createQueryKey('getSetup', options);
 
 export const getSetupOptions = (options?: Options<GetSetupData>) => queryOptions<GetSetupResponse, GetSetupError, GetSetupResponse, ReturnType<typeof getSetupQueryKey>>({
@@ -112,10 +127,108 @@ export const getSetupOptions = (options?: Options<GetSetupData>) => queryOptions
     queryKey: getSetupQueryKey(options)
 });
 
-export const setRoleRungsMutation = (options?: Partial<Options<SetRoleRungsData>>): UseMutationOptions<SetRoleRungsResponse, SetRoleRungsError, Options<SetRoleRungsData>> => {
-    const mutationOptions: UseMutationOptions<SetRoleRungsResponse, SetRoleRungsError, Options<SetRoleRungsData>> = {
+export const recheckSetupMutation = (options?: Partial<Options<RecheckSetupData>>): UseMutationOptions<RecheckSetupResponse, RecheckSetupError, Options<RecheckSetupData>> => {
+    const mutationOptions: UseMutationOptions<RecheckSetupResponse, RecheckSetupError, Options<RecheckSetupData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await setRoleRungs({
+            const { data } = await recheckSetup({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const previewProfileMutation = (options?: Partial<Options<PreviewProfileData>>): UseMutationOptions<PreviewProfileResponse, PreviewProfileError, Options<PreviewProfileData>> => {
+    const mutationOptions: UseMutationOptions<PreviewProfileResponse, PreviewProfileError, Options<PreviewProfileData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await previewProfile({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const saveProfileMutation = (options?: Partial<Options<SaveProfileData>>): UseMutationOptions<SaveProfileResponse, SaveProfileError, Options<SaveProfileData>> => {
+    const mutationOptions: UseMutationOptions<SaveProfileResponse, SaveProfileError, Options<SaveProfileData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await saveProfile({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const setNotifyUrlMutation = (options?: Partial<Options<SetNotifyUrlData>>): UseMutationOptions<SetNotifyUrlResponse, SetNotifyUrlError, Options<SetNotifyUrlData>> => {
+    const mutationOptions: UseMutationOptions<SetNotifyUrlResponse, SetNotifyUrlError, Options<SetNotifyUrlData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await setNotifyUrl({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const setHostMutation = (options?: Partial<Options<SetHostData>>): UseMutationOptions<SetHostResponse, SetHostError, Options<SetHostData>> => {
+    const mutationOptions: UseMutationOptions<SetHostResponse, SetHostError, Options<SetHostData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await setHost({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const createProfileMutation = (options?: Partial<Options<CreateProfileData>>): UseMutationOptions<CreateProfileResponse, CreateProfileError, Options<CreateProfileData>> => {
+    const mutationOptions: UseMutationOptions<CreateProfileResponse, CreateProfileError, Options<CreateProfileData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createProfile({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const deleteProfileMutation = (options?: Partial<Options<DeleteProfileData>>): UseMutationOptions<DeleteProfileResponse, DeleteProfileError, Options<DeleteProfileData>> => {
+    const mutationOptions: UseMutationOptions<DeleteProfileResponse, DeleteProfileError, Options<DeleteProfileData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteProfile({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const activateProfileMutation = (options?: Partial<Options<ActivateProfileData>>): UseMutationOptions<ActivateProfileResponse, ActivateProfileError, Options<ActivateProfileData>> => {
+    const mutationOptions: UseMutationOptions<ActivateProfileResponse, ActivateProfileError, Options<ActivateProfileData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await activateProfile({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -212,6 +325,96 @@ export const getRunOptions = (options: Options<GetRunData>) => queryOptions<GetR
     queryKey: getRunQueryKey(options)
 });
 
+export const getRunModelQueryKey = (options: Options<GetRunModelData>) => createQueryKey('getRunModel', options);
+
+export const getRunModelOptions = (options: Options<GetRunModelData>) => queryOptions<GetRunModelResponse, GetRunModelError, GetRunModelResponse, ReturnType<typeof getRunModelQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getRunModel({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getRunModelQueryKey(options)
+});
+
+export const getDispatchQueryKey = (options: Options<GetDispatchData>) => createQueryKey('getDispatch', options);
+
+export const getDispatchOptions = (options: Options<GetDispatchData>) => queryOptions<GetDispatchResponse, GetDispatchError, GetDispatchResponse, ReturnType<typeof getDispatchQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getDispatch({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getDispatchQueryKey(options)
+});
+
+export const getDispatchStreamQueryKey = (options: Options<GetDispatchStreamData>) => createQueryKey('getDispatchStream', options);
+
+export const getDispatchStreamOptions = (options: Options<GetDispatchStreamData>) => queryOptions<GetDispatchStreamResponse, GetDispatchStreamError, GetDispatchStreamResponse, ReturnType<typeof getDispatchStreamQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getDispatchStream({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getDispatchStreamQueryKey(options)
+});
+
+export const getRunDocQueryKey = (options: Options<GetRunDocData>) => createQueryKey('getRunDoc', options);
+
+export const getRunDocOptions = (options: Options<GetRunDocData>) => queryOptions<GetRunDocResponse, GetRunDocError, GetRunDocResponse, ReturnType<typeof getRunDocQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getRunDoc({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getRunDocQueryKey(options)
+});
+
+export const getCommitDiffQueryKey = (options: Options<GetCommitDiffData>) => createQueryKey('getCommitDiff', options);
+
+export const getCommitDiffOptions = (options: Options<GetCommitDiffData>) => queryOptions<GetCommitDiffResponse, GetCommitDiffError, GetCommitDiffResponse, ReturnType<typeof getCommitDiffQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getCommitDiff({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getCommitDiffQueryKey(options)
+});
+
+export const getCheckLogsQueryKey = (options: Options<GetCheckLogsData>) => createQueryKey('getCheckLogs', options);
+
+export const getCheckLogsOptions = (options: Options<GetCheckLogsData>) => queryOptions<GetCheckLogsResponse, GetCheckLogsError, GetCheckLogsResponse, ReturnType<typeof getCheckLogsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getCheckLogs({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getCheckLogsQueryKey(options)
+});
+
 export const getRunTimelineQueryKey = (options: Options<GetRunTimelineData>) => createQueryKey('getRunTimeline', options);
 
 export const getRunTimelineOptions = (options: Options<GetRunTimelineData>) => queryOptions<GetRunTimelineResponse, GetRunTimelineError, GetRunTimelineResponse, ReturnType<typeof getRunTimelineQueryKey>>({
@@ -258,6 +461,48 @@ export const cancelRunMutation = (options?: Partial<Options<CancelRunData>>): Us
     const mutationOptions: UseMutationOptions<CancelRunResponse, CancelRunError, Options<CancelRunData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await cancelRun({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const pauseRunMutation = (options?: Partial<Options<PauseRunData>>): UseMutationOptions<PauseRunResponse, PauseRunError, Options<PauseRunData>> => {
+    const mutationOptions: UseMutationOptions<PauseRunResponse, PauseRunError, Options<PauseRunData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await pauseRun({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const resumeRunMutation = (options?: Partial<Options<ResumeRunData>>): UseMutationOptions<ResumeRunResponse, ResumeRunError, Options<ResumeRunData>> => {
+    const mutationOptions: UseMutationOptions<ResumeRunResponse, ResumeRunError, Options<ResumeRunData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await resumeRun({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const cancelRoleMutation = (options?: Partial<Options<CancelRoleData>>): UseMutationOptions<CancelRoleResponse, CancelRoleError, Options<CancelRoleData>> => {
+    const mutationOptions: UseMutationOptions<CancelRoleResponse, CancelRoleError, Options<CancelRoleData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await cancelRole({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -323,3 +568,18 @@ export const listQuestionsInfiniteOptions = (options?: Options<ListQuestionsData
     });
     return opts as Omit<typeof opts, 'initialData'>;
 };
+
+export const listAnsweredQueryKey = (options?: Options<ListAnsweredData>) => createQueryKey('listAnswered', options);
+
+export const listAnsweredOptions = (options?: Options<ListAnsweredData>) => queryOptions<ListAnsweredResponse, ListAnsweredError, ListAnsweredResponse, ReturnType<typeof listAnsweredQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listAnswered({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listAnsweredQueryKey(options)
+});

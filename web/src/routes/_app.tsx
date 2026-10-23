@@ -7,6 +7,7 @@ import { useState } from "react";
 import { getSessionOptions, getVersionOptions, logoutMutation } from "../client/@tanstack/react-query.gen";
 import { Brand } from "../components/brand/Brand";
 import { CommandMenu } from "./_app/-components/CommandMenu";
+import { HostPrompt } from "./_app/-components/HostPrompt";
 import { Shell } from "./_app/-components/Shell";
 
 export const Route = createFileRoute("/_app")({
@@ -107,6 +108,7 @@ function AppLayout() {
             </Button>
           </Shell.MobileBar>
           <Shell.Content>
+            <HostPrompt />
             <div key={pathname} className="page-enter flex flex-col gap-6">
               <Outlet />
             </div>

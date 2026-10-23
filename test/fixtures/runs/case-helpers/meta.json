@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "20261022-192138-case-helpers",
+  "repo": "/home/user/smoke",
+  "title": "case helpers",
+  "aLines": [
+    "A1 `capitalize(\"hello\")` is \"Hello\" and `capitalize(\"\")` is \"\"",
+    "A2 `titleCase(\"  a  b \")` is \"A B\"",
+    "A3 `bun test` passes"
+  ],
+  "createdAt": "2026-10-22T19:21:38.787Z",
+  "catherdVersion": "2.0.0-next.20261022184738",
+  "startedBy": {
+    "host": "claude-code",
+    "sessionId": "655d268b-4419-4af3-badf-215d3fcaf048",
+    "hostSessionId": "local_46c229d7-4050-4cb5-b369-3c814db0a510",
+    "name": "catherd-smoke-28"
+  },
+  "startHead": "ae41f880395cd3f267ae54fb3d27133b32d15b10"
+}

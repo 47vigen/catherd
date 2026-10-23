@@ -1,9 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { brotliCompressSync } from "node:zlib";
 import { dirname, join } from "node:path";
+import { RunModelSchema } from "../../src/domain/run-graph.ts";
+import type { RunEventInput } from "../../src/domain/run-events.ts";
+import { TranscriptPageSchema } from "../../src/domain/transcript.ts";
 import { defaultDeps } from "../../src/entry/deps.ts";
+import { OPERATIONS, ProfilePreviewSchema } from "../../src/entry/panel/openapi.ts";
 import {
   type Panel,
   PANEL_COOKIE,
@@ -12,12 +26,16 @@ import {
   servePanel,
 } from "../../src/entry/panel/server.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
+import { probeCache } from "../../src/services/probe-cache.ts";
+import { CHANGED_ON_DISK } from "../../src/services/profile-service.ts";
+import { dispatchDir } from "../../src/services/run-files.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { runStart } from "../../src/services/run-client.ts";
 import { RunViewSchema, runTimeline } from "../../src/services/run-read.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
-import { createRun, findRun } from "../../src/services/run-store.ts";
+import { createRun, findRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { seedFixtureRun } from "../services/fixture-run.ts";
 import { waitFor } from "../services/helpers.ts";
 
 afterEach(snapshotEnv());
@@ -282,18 +300,13 @@ describe("the panel server", () => {
     expect([r.status, ((await r.json()) as { cancelling: boolean }).cancelling]).toEqual([200, true]);
   });
 
-  it("saves a role's rungs through the profile service and refuses a role that does not exist", async () => {
-    process.env.PATH = "/nonexistent"; // GET /api/setup probes each backend's CLI: none is found, none is spawned
+  it("has no rung writer of its own: a ladder is saved as a profile patch", async () => {
     const cookie = await signIn();
-    const put = (role: string, rungs: string[]) =>
-      call(cookie, `/api/setup/roles/${role}`, {
-        method: "PUT",
-        body: JSON.stringify({ rungs }),
-      });
-    const ok = await put("reviewer", ["codex:gpt-6-sol#high"]);
-    expect([ok.status, ProfileSavedSchema.parse(await ok.json()).saved]).toEqual([200, true]);
-    expect((await put("boss", ["codex:gpt-6-sol#high"])).status).toBe(400);
-    expect((await call(cookie, "/api/setup")).status).toBe(200);
+    const r = await call(cookie, "/api/setup/roles/reviewer", {
+      method: "PUT",
+      body: JSON.stringify({ rungs: ["codex:gpt-6-sol#high"] }),
+    });
+    expect(r.status).toBe(404);
   });
 
   it("answers 400, with the security headers, to a malformed escape in a run id", async () => {
@@ -337,7 +350,7 @@ describe("the panel server", () => {
       reason: "needs_user",
     });
     await got;
-    expect(frames[0]).toEqual(runTimeline(id, e.seq, 1)[0]);
+    expect(frames[0]).toMatchObject({ ...runTimeline(id, e.seq, 1)[0], kind: "event" });
     // without `from` a socket starts at the end: the history comes over HTTP
     const tail = new WebSocket(`${base.replace("http", "ws")}/api/runs/${id}/live`, {
       headers: { cookie },
@@ -362,6 +375,8 @@ describe("the panel server", () => {
     gap.onmessage = (m) => void replayed.push(JSON.parse(String(m.data)));
     await waitFor(() => replayed.length >= 2);
     expect(replayed.map((t) => t.seq)).toEqual([e.seq, e2.seq]);
+    // one model per poll batch: only the batch's last frame carries the patch, which covers the whole batch
+    expect(replayed.map((t) => (t as { patch?: unknown }).patch === undefined)).toEqual([true, false]);
     gap.close();
     ws.close();
     const anon = await fetch(`${base}/api/runs/${id}/live`, {
@@ -456,5 +471,330 @@ describe("the sign-in page", () => {
     });
     await p.stop();
     expect(existsSync(opened[0] as string)).toBe(false);
+  });
+});
+
+// ---- panel v2: the operations and the socket frames ----
+
+const D1 = "d-20261023-100000-aaaaaa";
+const planReady: RunEventInput = {
+  type: "plan.ready",
+  milestones: [
+    {
+      id: "M1",
+      title: "m",
+      after: [],
+      lanes: [{ id: "M1.L1", role: "worker", kind: null, after: [], owns: ["src/a/**"] }],
+    },
+  ],
+};
+const dStarted: RunEventInput = {
+  type: "dispatch.started",
+  dispatchId: D1,
+  name: "worker-M1.L1",
+  role: "worker",
+  unit: "M1.L1",
+  lane: "M1.L1",
+  rung: "codex:gpt-6-sol#high",
+  thread: null,
+};
+const dEnded: RunEventInput = {
+  type: "dispatch.ended",
+  dispatchId: D1,
+  name: "worker-M1.L1",
+  unit: "M1.L1",
+  status: "ok",
+  replyStatus: "complete",
+  reason: null,
+  why: "all done",
+  thread: null,
+  head: null,
+  environment: null,
+  verdict: null,
+  findings: [],
+  foreign: [],
+  replyPath: "reply.md",
+};
+const getJson = async <T = Record<string, any>>(cookie: string, path: string): Promise<T> =>
+  (await (await call(cookie, path)).json()) as T;
+const errorCode = async (r: Response): Promise<string> =>
+  ((await r.json()) as { error: { code: string } }).error.code;
+
+/** A live run: planned, with one worker dispatch started (D1). */
+async function liveRun(title: string): Promise<Run> {
+  const run = findRun(await start(title));
+  await appendEvent(run, planReady);
+  await appendEvent(run, dStarted);
+  return run;
+}
+
+describe("the panel's v2 operations", () => {
+  it("the overview counts the runs and lists the live one with its now line", async () => {
+    const cookie = await signIn();
+    await liveRun("wallet split");
+    const o = await getJson(cookie, "/api/overview");
+    expect(o.kpis.runs).toBe(1);
+    expect(o.live).toHaveLength(1);
+    expect(o.live[0].now[0].text).toMatch(/is writing the code for M1.L1$/);
+    expect((await call(cookie, "/api/overview?from=nonsense")).status).toBe(400);
+    const none = await getJson(cookie, "/api/overview?from=2020-01-01&to=2020-01-02");
+    expect([none.kpis.runs, none.live.length]).toEqual([0, 1]);
+  });
+
+  it("lists runs from the index, filtered by repo", async () => {
+    const cookie = await signIn();
+    const a = await start("wallet split");
+    const fixture = seedFixtureRun();
+    const all = await getJson(cookie, "/api/runs");
+    expect(all.items.map((r: { id: string }) => r.id).toSorted()).toEqual([a, fixture.id].toSorted());
+    expect(all.items[0]).toHaveProperty("milestones.landed");
+    const here = await getJson(cookie, `/api/runs?repo=${encodeURIComponent(repo)}`);
+    expect(here.items.map((r: { id: string }) => r.id)).toEqual([a]);
+    const there = await getJson(cookie, `/api/runs?repo=${encodeURIComponent(fixture.meta.repo)}`);
+    expect(there.items.map((r: { id: string }) => r.id)).toEqual([fixture.id]);
+    expect((await getJson(cookie, "/api/runs?phase=ended")).items.map((r: { id: string }) => r.id)).toEqual([
+      fixture.id,
+    ]);
+  });
+
+  it("returns the model, a dispatch, its stream paged and raw, a doc, a lane's checks and a run commit's diff", async () => {
+    const cookie = await signIn();
+    const run = seedFixtureRun();
+    const base = `/api/runs/${run.id}`;
+    const model = RunModelSchema.parse(await getJson(cookie, `${base}/model`));
+    expect(model.nodes.map((n) => n.id)).toContain("M1/lane/M1.L1");
+    const worker = model.nodes.find((n) => n.id === "M1/lane/M1.L1")?.attempts.at(-1)?.dispatchId as string;
+    const d = await getJson(cookie, `${base}/dispatches/${worker}`);
+    expect([d.name, d.role, d.brief.length > 0]).toEqual(["worker-M1.L1", "worker", true]);
+    // the fixture keeps no role stream: write the real codex one beside the dispatch
+    const dir = dispatchDir(run, worker);
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(
+      join(import.meta.dir, "../fixtures/transcript/codex-worker.jsonl"),
+      join(dir, "events.jsonl"),
+    );
+    const first = TranscriptPageSchema.parse(
+      await getJson(cookie, `${base}/dispatches/${worker}/stream?limit=3`),
+    );
+    expect([first.next, first.raw, first.ended, first.items.length > 0]).toEqual([3, null, true, true]);
+    const rest = TranscriptPageSchema.parse(
+      await getJson(cookie, `${base}/dispatches/${worker}/stream?from=3&limit=2000&raw=1`),
+    );
+    expect([rest.next, rest.items, rest.raw?.length]).toEqual([31, [], 28]);
+    expect((await call(cookie, `${base}/dispatches/${worker}/stream?limit=0`)).status).toBe(400);
+    expect(await getJson(cookie, `${base}/docs?name=plan.md`)).toMatchObject({ name: "plan.md" });
+    const checks = await getJson(cookie, `${base}/checks/M1.L1`);
+    expect([checks.lane, checks.name]).toEqual(["M1.L1", "worker-M1.L1"]);
+
+    // a commit the run made, in the run's own repo
+    const live = findRun(await start("diff run"));
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: repo }).toString();
+    writeFileSync(join(repo, "x.ts"), "one\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "x");
+    const sha = git("rev-parse", "HEAD").trim();
+    await appendEvent(live, { type: "commit.made", milestone: "M1", round: 0, commit: sha });
+    const diff = await getJson(cookie, `/api/runs/${live.id}/commits/${sha}/diff`);
+    expect([diff.sha, diff.truncated, diff.text.includes("x.ts")]).toEqual([sha, false, true]);
+  });
+
+  it("refuses a doc outside the run's docs and a sha the run did not make", async () => {
+    const cookie = await signIn();
+    const run = await liveRun("wallet split");
+    const base = `/api/runs/${run.id}`;
+    for (const name of ["../meta.json", "runs.jsonl", "lanes/../x.md", "/etc/passwd"])
+      expect((await call(cookie, `${base}/docs?name=${encodeURIComponent(name)}`)).status).toBe(400);
+    expect((await call(cookie, `${base}/docs`)).status).toBe(400);
+    expect((await call(cookie, `${base}/docs?name=report.md`)).status).toBe(404);
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+    for (const sha of [head, head.slice(0, 8), "--output=x", "abc"])
+      expect((await call(cookie, `${base}/commits/${sha}/diff`)).status).toBe(400);
+    expect((await call(cookie, `${base}/dispatches/d-nope`)).status).toBe(400);
+    expect((await call(cookie, `${base}/dispatches/d-nope/stream`)).status).toBe(400);
+    expect((await call(cookie, `${base}/dispatches/..%2fx`)).status).toBe(400);
+    expect((await call(cookie, `${base}/checks/..%2fx`)).status).toBe(400);
+    expect((await call(cookie, "/api/runs/nope/model")).status).toBe(404);
+  });
+
+  it("pauses and resumes a run; cancelling a role with nothing live is 409", async () => {
+    const cookie = await signIn();
+    const id = await start("wallet split");
+    const paused = await post(cookie, `/api/runs/${id}/pause`, {});
+    const since = ((await paused.json()) as { paused: true; since: string }).since;
+    expect([paused.status, since]).toEqual([200, expect.stringMatching(/^\d{4}-/)]);
+    expect((await getJson(cookie, `/api/runs/${id}`)).paused).toBe(since);
+    expect(await (await post(cookie, `/api/runs/${id}/resume`, {})).json()).toEqual({ paused: false });
+    expect((await getJson(cookie, `/api/runs/${id}`)).paused).toBeNull();
+    const none = await post(cookie, `/api/runs/${id}/roles/worker-M1.L1/cancel`, {});
+    expect([none.status, await errorCode(none)]).toEqual([409, "E_RUN_NOT_LIVE"]);
+  });
+
+  it("lists a question with its context, and the answers of the last day", async () => {
+    const cookie = await signIn();
+    const id = await start("wallet split");
+    await appendEvent(findRun(id), {
+      type: "question.parked",
+      unit: "M1.L2",
+      question: "Keep the id?",
+      reason: "needs_user",
+    });
+    const q = await getJson(cookie, "/api/questions");
+    expect(q.items[0].context).toMatchObject({ node: expect.any(String), reply: null });
+    expect((await post(cookie, `/api/runs/${id}/answers`, { unit: "M1.L2", answer: "keep it" })).status).toBe(
+      200,
+    );
+    const done = await getJson(cookie, "/api/questions/answered");
+    expect(done.items).toHaveLength(1);
+    expect(done.items[0]).toMatchObject({ run: id, runTitle: "wallet split", unit: "M1.L2", by: "owner" });
+    expect((await getJson(cookie, "/api/questions/answered?run=other")).items).toEqual([]);
+  });
+
+  it("filters a run's timeline by event types", async () => {
+    const cookie = await signIn();
+    const run = await liveRun("wallet split");
+    const t = await getJson(cookie, `/api/runs/${run.id}/timeline?types=plan.ready,dispatch.started`);
+    expect(t.items.map((i: { type: string }) => i.type)).toEqual(["dispatch.started", "plan.ready"]);
+    expect(t.total).toBe(2);
+  });
+
+  it("the socket sends each event with its model patch, and a watched dispatch's transcript", async () => {
+    const cookie = await signIn();
+    const run = await liveRun("wallet split");
+    const frames: Record<string, any>[] = [];
+    const ws = new WebSocket(`${base.replace("http", "ws")}/api/runs/${run.id}/live`, {
+      headers: { cookie },
+    } as never);
+    ws.onmessage = (m) => void frames.push(JSON.parse(String(m.data)));
+    await new Promise<void>((r) => (ws.onopen = () => r()));
+    const e = await appendEvent(run, dEnded);
+    const ev = await waitFor(() => frames.find((f) => f.kind === "event"));
+    expect(ev).toMatchObject({
+      kind: "event",
+      seq: e.seq,
+      type: "dispatch.ended",
+      event: { dispatchId: D1 },
+    });
+    expect(ev.patch.nodes.map((n: { id: string }) => n.id)).toContain("M1/lane/M1.L1");
+    expect(ev.patch.seq).toBe(e.seq);
+
+    const dir = dispatchDir(run, D1);
+    mkdirSync(dir, { recursive: true });
+    const stream = join(dir, "events.jsonl");
+    copyFileSync(join(import.meta.dir, "../fixtures/transcript/codex-worker.jsonl"), stream);
+    ws.send(JSON.stringify({ watch: D1, from: 0 }));
+    const first = await waitFor(() => frames.find((f) => f.kind === "transcript"));
+    expect(first).toMatchObject({ kind: "transcript", dispatchId: D1, next: 31 });
+    expect(first.items.length).toBeGreaterThan(0);
+    appendFileSync(stream, '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}\n');
+    const more = await waitFor(() => frames.find((f) => f.kind === "transcript" && f.next === 32));
+    expect(more.items).toHaveLength(1);
+    // watching nothing stops it, and an id the run does not know is answered, not tailed
+    ws.send(JSON.stringify({ watch: null }));
+    ws.send(JSON.stringify({ watch: "d-nope" }));
+    const refused = await waitFor(() => frames.find((f) => f.kind === "error"));
+    expect(refused).toMatchObject({ code: "E_INPUT_INVALID", dispatchId: "d-nope" });
+    ws.send("ping");
+    ws.close();
+  });
+
+  it("previews a profile change, then saves it only with the document the preview showed", async () => {
+    process.env.PATH = "/nonexistent";
+    const cookie = await signIn();
+    const put = (body: unknown) =>
+      call(cookie, "/api/setup/profile", { method: "PUT", body: JSON.stringify(body) });
+    const p = await post(cookie, "/api/setup/preview", { patch: { objective: "speed" } });
+    const preview = ProfilePreviewSchema.parse(await p.json());
+    expect([p.status, preview.saved, preview.diff.map((d) => d.path)]).toEqual([200, false, ["objective"]]);
+    const saved = ProfileSavedSchema.parse(
+      await (await put({ patch: { objective: "speed" }, expect: preview.expect })).json(),
+    );
+    expect([saved.saved, saved.diff.map((d) => d.path)]).toEqual([true, ["objective"]]);
+    const stale = ProfileSavedSchema.parse(
+      await (await put({ patch: { objective: "cost" }, expect: preview.expect })).json(),
+    );
+    expect([stale.saved, stale.errors[0]?.path]).toEqual([false, CHANGED_ON_DISK]);
+    expect((await getJson(cookie, "/api/setup")).settings.objective).toBe("speed");
+    expect((await post(cookie, "/api/setup/preview", { patch: { objective: "fast" } })).status).toBe(400);
+  });
+
+  it("creates a profile, uses it for the repo, and deletes it", async () => {
+    process.env.PATH = "/nonexistent";
+    const cookie = await signIn();
+    const made = await post(cookie, "/api/profiles", { name: "frugal" });
+    expect([made.status, ProfileSavedSchema.parse(await made.json()).saved]).toEqual([200, true]);
+    expect(await errorCode(await post(cookie, "/api/profiles", { name: "frugal" }))).toBe("E_INPUT_INVALID");
+    expect((await post(cookie, "/api/profiles/frugal/activate", { repo })).status).toBe(204);
+    const setup = await getJson(cookie, "/api/setup");
+    expect([setup.profile.name, setup.profile.bindings[repo]]).toEqual(["frugal", "frugal"]);
+    expect((await call(cookie, "/api/profiles/frugal", { method: "DELETE" })).status).toBe(400);
+    expect((await post(cookie, "/api/profiles/default/activate", { repo })).status).toBe(204);
+    expect((await call(cookie, "/api/profiles/frugal", { method: "DELETE" })).status).toBe(204);
+    expect((await getJson(cookie, "/api/setup")).profile.profiles).not.toContain("frugal");
+    expect((await post(cookie, "/api/profiles/default/activate", { repo: "relative" })).status).toBe(400);
+    expect((await call(cookie, "/api/setup?repo=relative")).status).toBe(400);
+    expect((await getJson(cookie, "/api/setup?repo=global")).repo).toBeNull();
+  });
+
+  it("an unknown host makes Setup read-only until the host is set", async () => {
+    process.env.PATH = "/nonexistent";
+    const dist = mkdtempSync(join(tmpdir(), "catherd-dist-"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    const p = servePanel({ deps: defaultDeps(), repo, token: TOKEN, port: 0, distDir: dist, open: false });
+    try {
+      const login = await fetch(`${p.url}/api/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ token: TOKEN }),
+      });
+      const cookie = (login.headers.get("set-cookie") as string).split(";")[0] as string;
+      const at = (path: string, init: RequestInit = {}) =>
+        fetch(`${p.url}${path}`, { ...init, headers: { cookie, "content-type": "application/json" } });
+      const put = () =>
+        at("/api/setup/profile", { method: "PUT", body: JSON.stringify({ patch: {}, expect: {} }) });
+      expect(((await (await at("/api/system/version")).json()) as { host: string }).host).toBe("unknown");
+      const refused = await put();
+      expect(refused.status).toBe(400);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toBe(
+        "Setup is read-only until the host is known",
+      );
+      expect((await at("/api/setup")).status).toBe(200);
+      const set = await at("/api/setup/host", { method: "POST", body: JSON.stringify({ host: "codex" }) });
+      expect(set.status).toBe(204);
+      expect(((await (await at("/api/system/version")).json()) as { host: string }).host).toBe("codex");
+      expect((await put()).status).toBe(200);
+      expect(
+        (await at("/api/setup/host", { method: "POST", body: JSON.stringify({ host: "x" }) })).status,
+      ).toBe(400);
+    } finally {
+      await p.stop();
+    }
+  });
+
+  it("setup reads come from the probe cache; recheck probes again", async () => {
+    process.env.PATH = "/nonexistent";
+    probeCache.clear();
+    const cookie = await signIn();
+    await getJson(cookie, "/api/setup");
+    const probes = probeCache.probes;
+    await getJson(cookie, "/api/setup");
+    expect(probeCache.probes).toBe(probes);
+    const r = await post(cookie, "/api/setup/recheck", {});
+    expect(r.status).toBe(200);
+    expect(probeCache.probes).toBeGreaterThan(probes);
+  });
+
+  it("sets the notify url, and refuses one that is not http(s)", async () => {
+    const cookie = await signIn();
+    const put = (url: string) =>
+      call(cookie, "/api/setup/notify-url", { method: "PUT", body: JSON.stringify({ url }) });
+    expect((await put("https://ntfy.sh/mine")).status).toBe(204);
+    expect((await put("ftp://x")).status).toBe(400);
+  });
+
+  it("every operation but the sign-in refuses a request without a session", async () => {
+    for (const op of OPERATIONS.filter((o) => !o.public)) {
+      const r = await fetch(`${base}${op.path.replace(/\{\w+\}/g, "x")}`, { method: op.method });
+      expect([op.id, r.status]).toEqual([op.id, 401]);
+    }
   });
 });

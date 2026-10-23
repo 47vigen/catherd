@@ -72,6 +72,33 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
   (`cd web && bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run format:check && bun run test`)
   and e2e (`bun run build && bun run e2e`). After an API change: `bun run panel:openapi`, then `cd web && bun run gen`.
   One build at a time, no dev server per agent.
+  - Dependencies: React Flow (`@xyflow/react`) draws the run graph and `elkjs` lays it out. `recharts` draws the
+    dashboard charts. `react-markdown` with `remark-gfm` renders the briefs, replies, plans and reports, with raw
+    HTML off. `shiki` highlights code.
+  - The probe cache: Setup reads the backend probes from a cache that is kept 60 seconds for each adapter and
+    `PATH`. A stale entry answers at once and refreshes behind the answer. **Re-check** probes again with no cache.
+    If you install a CLI while the panel runs, it shows up within 60 seconds or on **Re-check**.
+  - The fixture run: `test/fixtures/runs/case-helpers/` is a real smoke run (one milestone, a fix round and a
+    rules judge). The run-model and panel server tests read it. To refresh it, copy the same files of the new
+    run from `~/.local/share/catherd/repos/<repo>/runs/<run>/`. Then replace the repo path, your home path and the
+    repo slug:
+
+    ```sh
+    find test/fixtures/runs/case-helpers -type f -exec sed -i '' \
+      -e 's#<repo path>#/home/user/smoke#g' -e "s#$HOME#/home/user#g" -e 's#<repo slug>#home-user-smoke#g' {} +
+    ```
+
+    Then read every `stderr` and transcript line: an MCP server, plugin or hook of your own setup prints its name
+    and address there; replace each with `example`.
+
+    The two `scratch/**/*.log` files must be added with `--force`, because `*.log` is ignored. A test fails if
+    a `/Users/` path is left.
+
+  - The e2e flows, in `web/e2e/`: the dashboard shows a live run, a waiting question and the KPIs, and opens the
+    run. The run page advances live as events are added, and the fixture run's drawer shows the prompt, the output
+    and the checks. A Setup edit shows before/after and saves to the profile file. A question answered from the
+    graph or from Questions clears. Each page also loads with no console error.
+    The e2e server listens on port 4318; when a panel already holds it, set `CATHERD_E2E_PORT`.
 
 ## Architecture
 

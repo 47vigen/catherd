@@ -223,6 +223,8 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
+  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, land, push or integrate starts meanwhile */
+  paused: string | null;
   wakeAt: string | null;
   /** an architect ended and the plan was not read since */
   planDirty: boolean;
@@ -259,6 +261,7 @@ export function emptyState(run: string): RunState {
     rulesReview: null,
     failedEffects: {},
     cancelling: false,
+    paused: null,
     wakeAt: null,
     planDirty: false,
     revise: [],
@@ -1205,6 +1208,12 @@ function apply(s: RunState, e: RunEvent): void {
     }
     case "cancel.requested":
       s.cancelling = true;
+      return;
+    case "run.paused":
+      s.paused ??= e.at;
+      return;
+    case "run.resumed":
+      s.paused = null;
       return;
     case "effect.failed": {
       if (e.action === "readPlan") s.planDirty = false;
