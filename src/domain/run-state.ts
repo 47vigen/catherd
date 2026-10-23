@@ -148,8 +148,6 @@ export interface MilestoneState {
   notes: string[];
   /** what the next verifier is told: a refused landing's message and fix, or the commit to verify */
   verifierNotes: string[];
-  /** verifier ends in a row that said check_broken */
-  checkBroken: number;
   /** a base run: the files the merge of the base left in conflict (none until it did); non-empty means committing resolves it */
   integrateFiles: string[];
   /** a base run: when to look again whether origin's base holds the landed commit */
@@ -404,7 +402,6 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       confirmed: false,
       notes: [],
       verifierNotes: [],
-      checkBroken: 0,
       integrateFiles: [],
       mergeDue: null,
       branch: null,
@@ -525,7 +522,6 @@ function completeRound(s: RunState, m: MilestoneState): void {
   m.awaiting = [];
   m.tries = {};
   m.verifierNotes = [];
-  m.checkBroken = 0;
   if (n === 0) {
     m.open = [];
     m.status = "verifying";
@@ -784,7 +780,6 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
   if (dv.role === "verifier" && m.status === "verifying") {
     // A broken check needs the owner before another verifier can learn anything.
     if (e.status === "ok" && e.reason === "check_broken" && e.verdict !== "blocked") {
-      m.checkBroken += 1;
       m.verifierFailedOn = m.commit;
       s.stuck[m.id] = {
         reason: "check_broken",
@@ -792,7 +787,6 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       };
     } else if (e.status === "ok" && e.verdict === "pass") {
       m.verifierRuns += 1;
-      m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
         // dedup before the prefix: a verifier NIT a reviewer already named is listed once, unprefixed
@@ -971,7 +965,6 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   const from = m.parkedFrom ?? "waiting";
   m.parkedFrom = null;
   m.tries = {};
-  m.checkBroken = 0;
   if (from === "routing") {
     m.status = "waiting";
     m.confirmed = true;
