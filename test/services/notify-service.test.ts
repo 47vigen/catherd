@@ -63,6 +63,21 @@ describe("sendRunNotice", () => {
     expect(posts[2]?.body).toContain("The run was cancelled:");
   });
 
+  it("only clears the registration owned by those dependencies, even on a reused origin", () => {
+    withHome();
+    const older = fakeDeps();
+    const newer = fakeDeps();
+    const origin = "http://127.0.0.1:4317";
+    recordPanelOrigin(older, origin);
+    recordPanelOrigin(newer, origin);
+    recordPanelOrigin(older, null);
+    expect(panelOrigin(newer)).toBe(origin);
+    recordPanelOrigin(fakeDeps(), null);
+    expect(panelOrigin(newer)).toBe(origin);
+    recordPanelOrigin(newer, null);
+    expect(panelOrigin(newer)).toBeNull();
+  });
+
   it("is false and quiet when the send fails", async () => {
     const { run } = freshRun("wallet");
     const deps = fakeDeps({ view: testView({ notify: ["finish"] }) });

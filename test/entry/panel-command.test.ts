@@ -23,8 +23,7 @@ function distDir(): string {
   writeFileSync(join(dir, "index.html"), '<!doctype html><div id="root"></div>');
   return dir;
 }
-function panel(args: string[], dist: string | undefined) {
-  const home = withHome();
+function panel(args: string[], dist: string | undefined, home = withHome()) {
   const p = Bun.spawn([process.execPath, CLI, "panel", ...args], {
     env: spawnEnv({
       PATH: process.env.PATH,
@@ -80,6 +79,31 @@ describe("catherd panel", () => {
     } finally {
       Object.assign(panelServer, original);
       console.log = log;
+    }
+  });
+
+  it("stopping an older panel preserves the newer panel's origin", async () => {
+    const home = withHome();
+    const dist = distDir();
+    const older = panel(["--no-open", "--port", "0"], dist, home);
+    let newer: ReturnType<typeof panel> | undefined;
+    try {
+      await firstLine(older as never);
+      newer = panel(["--no-open", "--port", "0"], dist, home);
+      const line = await firstLine(newer as never);
+      const origin = new URL(line.slice("catherd panel: ".length)).origin;
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      older.kill("SIGTERM");
+      expect(await older.exited).toBe(0);
+      expect((await fetch(`${origin}/login`)).status).toBe(200);
+      expect(panelOrigin(fakeDeps())).toBe(origin);
+      newer.kill("SIGTERM");
+      expect(await newer.exited).toBe(0);
+      expect(panelOrigin(fakeDeps())).toBeNull();
+    } finally {
+      older.kill();
+      newer?.kill();
+      await Promise.all([older.exited, newer?.exited]);
     }
   });
 

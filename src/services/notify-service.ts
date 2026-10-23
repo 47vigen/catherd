@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { withFileLockSync } from "../infra/filelock.ts";
 import { dataDir } from "../infra/paths.ts";
-import { writeTextAtomic } from "../infra/store.ts";
+import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
 import { replayRun } from "./run-events-store.ts";
 import { notifyMessage } from "../domain/notify.ts";
 import type { NotifyMoment } from "../domain/profile.ts";
@@ -12,15 +14,36 @@ import type { Run } from "./run-store.ts";
 
 const panelOriginFile = (): string => join(dataDir(), "panel-origin");
 
+const panelOwners = new WeakMap<Deps, string>();
+
+function readPanelOrigin(): string | null {
+  try {
+    return readFileSync(panelOriginFile(), "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Shared with the daemon and role processes that send notices. */
-export function recordPanelOrigin(_deps: Deps, origin: string | null): void {
-  if (origin === null) rmSync(panelOriginFile(), { force: true });
-  else writeTextAtomic(panelOriginFile(), new URL(origin).origin);
+export function recordPanelOrigin(deps: Deps, origin: string | null): void {
+  ensurePrivateDir(dataDir());
+  withFileLockSync(panelOriginFile(), () => {
+    if (origin === null) {
+      const owned = panelOwners.get(deps);
+      if (owned !== undefined && readPanelOrigin() === owned) rmSync(panelOriginFile(), { force: true });
+      panelOwners.delete(deps);
+    } else {
+      // A unique registration distinguishes panels even when a stopped panel's port is reused.
+      const owned = `${new URL(origin).origin}\n${randomUUID()}`;
+      writeTextAtomic(panelOriginFile(), owned);
+      panelOwners.set(deps, owned);
+    }
+  });
 }
 
 export function panelOrigin(_deps: Deps): string | null {
   try {
-    return new URL(readFileSync(panelOriginFile(), "utf8")).origin;
+    return new URL(readPanelOrigin()?.split("\n")[0] ?? "").origin;
   } catch {
     return null;
   }
