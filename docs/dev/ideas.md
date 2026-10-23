@@ -107,12 +107,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
     `src/services/run-report.ts:145`.
   - **Notification excerpts retain fenced code.** Removing the fence markers leaves the code text in the excerpt.
     Evidence: M4 verifier finding at `src/domain/notify.ts:30`.
-  - **Waiting time can include time after plan approval.** `plan.approved` closes approval questions without a
-    `question.answered` event, so the panel's wait total is too high. Evidence: M5 reviewer reproduction at
-    `src/services/run-read.ts:179` (1,200 seconds instead of 600).
-  - **Active dispatches count as unpriced.** The run page counts active dispatches even though server totals use
-    finalized records. Evidence: M5 reviewer finding at `web/src/routes/_app/runs/-lib/format.ts:23` and
-    `RunHeader.tsx:184`.
   - **The step summary truncates on a narrow screen.** At 390px, “Steps” appears as “ST…”. Evidence: M5 UI review
     screenshot `shots/M5-r2-waiting-mobile-dark.png`, with the summary at
     `web/src/routes/_app/runs/$runId.tsx:171`.
@@ -134,9 +128,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
   Jev, or the judge at `readPlan`, whether each task names what its worker must build.
-- **Base-failure line matching hides untested `a && b` tails.** The audit line now names the unreached tail
-  (`andTail`, `src/domain/fail-lines.ts`); still open: when the baseline's exit is non-zero, run the check's parts
-  separately so a new break in the tail is caught.
 - **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
   gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
   says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
