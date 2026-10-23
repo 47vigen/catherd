@@ -1,6 +1,16 @@
 import type { HostContext } from "../../src/domain/host.ts";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import { checkItems } from "../../src/domain/fail-lines.ts";
+import { milestoneCheck } from "../../src/domain/plan-doc.ts";
 import { composeBrief } from "../../src/domain/brief.ts";
 import type { Role } from "../../src/domain/roles.ts";
 import { grantsScratch, ROLE_SERVER_BACKENDS } from "../../src/domain/role-tools.ts";
@@ -418,6 +428,21 @@ export async function passGate(
     }),
   );
   await passVerifier(run, m, at, head);
+  const plan = join(run.dir, "plan.md");
+  const command = existsSync(plan) ? milestoneCheck(readFileSync(plan, "utf8"), m) : null;
+  for (const item of command === null ? [] : checkItems(command))
+    appendCheckRecord(run.meta.repo, {
+      at,
+      run: run.id,
+      milestone: m,
+      command: item,
+      head,
+      exit: 0,
+      durationMs: 0,
+      fails: [],
+      log: "",
+      secrets: "clean",
+    });
 }
 
 /** A reviewed plan file: three tasks, each with a signature or a test. */
