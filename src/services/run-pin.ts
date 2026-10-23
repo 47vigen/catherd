@@ -45,8 +45,12 @@ const pinOf = (view: ProfileView, at: string): Pin => ({
 });
 
 /** Records what the run runs on now: the profile its repo runs on, each role's access, each backend's isolation. */
-export function writePin(deps: Deps, run: Run): Pin {
-  const pin = pinOf(deps.profiles.forRepo(run.meta.repo), new Date(deps.now()).toISOString());
+export function writePin(
+  deps: Deps,
+  run: Run,
+  view: ProfileView = deps.profiles.forRepo(run.meta.repo),
+): Pin {
+  const pin = pinOf(view, new Date(deps.now()).toISOString());
   writeJsonAtomic(pinFile(run), pin);
   return pin;
 }

@@ -48,3 +48,17 @@ it("pins nothing when the check read no index", async () => {
   expect(readIndexFile(join(findRun(started.run).dir, "slopalytics.json"))).toBeNull();
   expect(readIndexFile(indexPath())).not.toBeNull();
 });
+
+it("names the cap or the floor, not the index, when they removed the rungs", async () => {
+  const { repo } = freshRun();
+  const deps = fakeDeps();
+  deps.routing.checkStart = async () => ({ unusable: ["worker"], causes: { worker: "cap" }, index: null });
+  await expect(startRun(deps, { repo, title: "t", aLines: ["A1 x"] })).rejects.toMatchObject({
+    message: "the worker role has no rung within its maxEffort",
+    fix: expect.stringContaining("catherd profile validate names each rung above its maxEffort"),
+  });
+  deps.routing.checkStart = async () => ({ unusable: ["worker"], causes: { worker: "floor" }, index: null });
+  await expect(startRun(deps, { repo, title: "t", aLines: ["A1 x"] })).rejects.toMatchObject({
+    message: "the worker role has no rung at or above the coding floor (medium)",
+  });
+});

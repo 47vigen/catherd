@@ -37,6 +37,7 @@ import {
   supersededFile,
 } from "./run-store.ts";
 import { protocolNext, protocolView } from "./protocol.ts";
+import { CODING_FLOOR, type NoRungCause } from "../domain/select.ts";
 import { writePin } from "./run-pin.ts";
 import { claimRun, currentSession } from "./sessions.ts";
 import { readNotes, refreshState } from "./state.ts";
@@ -125,15 +126,36 @@ export async function startRun(
       fix: "pass the path of the repository to work in",
     });
   // a run starts only when every enabled role has an indexed rung; the index it checked is the one it pins
-  const start = await deps.routing.checkStart(deps.profiles.forRepo(top), top);
+  const view = deps.profiles.forRepo(top);
+  const start = await deps.routing.checkStart(view, top);
   if (start.unusable.length > 0) {
-    const roles = start.unusable.join(", ");
+    const causeText = {
+      index: "no usable rung on the Slopalytics index",
+      cap: "no rung within its maxEffort",
+      floor: `no rung at or above the coding floor (${CODING_FLOOR})`,
+    };
+    const groups = new Map<NoRungCause, string[]>();
+    for (const role of start.unusable) {
+      const cause = start.causes?.[role] ?? "index";
+      const roles = groups.get(cause) ?? [];
+      roles.push(role);
+      groups.set(cause, roles);
+    }
+    const role = start.unusable[0]!;
+    const fixes = {
+      index: `catherd profile validate, then pick indexed pairs: catherd catalog list --role ${role}`,
+      cap: "catherd profile validate names each rung above its maxEffort: raise it (catherd profile set maxEffort.<backend>:<model> <effort>) or add a rung within it",
+      floor: `pick #${CODING_FLOOR} or above: catherd catalog list --role ${role}`,
+    };
     throw new CatherdError(
       "E_CONFIG_INVALID",
-      `the ${roles} role${start.unusable.length === 1 ? " has" : "s have"} no usable rung on the Slopalytics index`,
-      {
-        fix: `catherd profile validate, then pick indexed pairs: catherd catalog list --role ${start.unusable[0]}`,
-      },
+      [...groups]
+        .map(
+          ([cause, roles]) =>
+            `the ${roles.join(", ")} role${roles.length === 1 ? " has" : "s have"} ${causeText[cause]}`,
+        )
+        .join("; "),
+      { fix: fixes[start.causes?.[role] ?? "index"] },
     );
   }
   // where the first milestone's commit range starts; a repo with no commit yet has none
@@ -150,7 +172,7 @@ export async function startRun(
       startedBy: currentSession(deps),
     });
     // spec 1.5 "Pinned per run": what the run starts on stays what it dispatches on
-    writePin(deps, run);
+    writePin(deps, run, view);
     writeRunIndex(run.dir, start.index);
     await claimRun(deps, run);
     return run;
@@ -279,15 +301,18 @@ export async function result(
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
   const record = records.get(d.admit.dispatchId) ?? null;
   const hints: string[] = [];
+  let collectedNow = false;
   for (const x of listDispatches(run).filter((x) => x.admit.name === i.name)) {
     const r = records.get(x.admit.dispatchId);
     if (!r || !awaitsCollect(x.dir) || !(await tryCollect(x.dir))) continue;
     // read at once: the lease ends as the record goes out
     endCollect(x.dir);
+    if (x.admit.dispatchId === d.admit.dispatchId) collectedNow = true;
     if (x.admit.dispatchId !== d.admit.dispatchId) hints.push(...recordHints(run, x, r));
   }
   if (record) for (const h of recordHints(run, d, record)) if (!hints.includes(h)) hints.push(h);
-  if (record) for (const h of await advanceNext(run, record)) if (!hints.includes(h)) hints.push(h);
+  if (record && collectedNow)
+    for (const h of await advanceNext(run, record)) if (!hints.includes(h)) hints.push(h);
   const reply = dispatchPaths(d.dir).reply;
   const text = existsSync(reply) ? readFileSync(reply, "utf8") : "";
   return {

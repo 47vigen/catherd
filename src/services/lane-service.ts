@@ -137,6 +137,7 @@ export async function routeLanes(
     });
   // spec 1.5: the run's pinned profile, whatever the repo runs on now
   const profile = runProfile(deps, run);
+  const usage = runUsage(run);
   const spentFraction = Math.max(
     budgetOf(run, profile.budget, deps.now())?.fraction ?? 0,
     (await workspaceBudget(run, deps.now()))?.fraction ?? 0,
@@ -149,7 +150,7 @@ export async function routeLanes(
     role: i.role,
     lane: lane?.lane ?? null,
     laneText: lane?.text ?? null,
-    usage: runUsage(run),
+    usage,
     spentFraction,
   }));
   const answers =
@@ -243,7 +244,7 @@ async function refuseDesign(
       `climb ${i.lane}: the evidence is about lane ownership, which a higher rung cannot fix`,
       { fix: CLIMB_DESIGN_FIX },
     );
-  const use = deps.profiles.forRepo(run.meta.repo).jev.use;
+  const use = runProfile(deps, run).jev.use;
   if (use === "off") return;
   const file = laneFile(run, i.lane);
   if (!existsSync(file)) return;
@@ -419,7 +420,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
   ];
   // a headless verifier that wrapped its verdict in markdown (**VERDICT: PASS**) gave no verdict: fail safe, and say why
   const marked =
-    verdict?.headless === true && !verdict.passed && /VERDICT:\s*PASS\b/.test(verdict.verdict)
+    verdict?.headless === true && verdict.ok && !verdict.passed && /VERDICT:\s*PASS\b/.test(verdict.verdict)
       ? `the reply's first line must be the bare VERDICT: PASS, and ${verdict.name}'s is "${verdict.verdict}", which counts as no verdict (markdown around it, or text before it): dispatch the verifier again; otherwise `
       : "";
   if (missing.length)
@@ -611,7 +612,7 @@ export async function ask(
     return v;
   };
   // spec §5.5: a profile with Jev off never asks it, for routing or for these verdicts
-  const use = deps.profiles.forRepo(run.meta.repo).jev.use;
+  const use = runProfile(deps, run).jev.use;
   if (i.question === "finding") {
     const { text } = readLaneFile(run, need("lane_file"));
     return deps.routing.finding(run.dir, text, need("finding"), use);

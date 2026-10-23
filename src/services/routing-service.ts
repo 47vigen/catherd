@@ -23,6 +23,7 @@ import {
   quotaUsage,
   type RoutingProfile,
   rolesWithoutRung,
+  noRungCause,
   select,
 } from "../domain/select.ts";
 import { log } from "../infra/log.ts";
@@ -31,6 +32,9 @@ import { type Asked, askJev, type JevOpts, jevQuestions, logJev } from "./jev-se
 import type { ProfileView, RouteAnswer, RouteRequest, RoutingPort, Verdict } from "./ports.ts";
 import { provenanceOf } from "./provenance.ts";
 import { type EvidenceTable, runEvidence } from "./run-evidence.ts";
+
+/** The most Jev route requests one batch has in flight at once. */
+export const JEV_PARALLEL = 4;
 
 function routingProfile(
   v: ProfileView,
@@ -200,10 +204,13 @@ function decide(req: RouteRequest, { p, c }: Prepared, j: Judged | null): RouteA
   } else if (judged?.track && judged.difficulty) {
     const kind = lane.kind ?? judged.kind ?? "repo_code";
     out = answer(select(c, p, req.role, judged.difficulty), "jev", kind, judged.difficulty, asked, jev);
-  } else if (judged?.kind || (judged && lane.kind)) {
+  } else if (judged?.kind) {
     const kind = (lane.kind ?? judged.kind) as Kind;
     const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role);
     out = answer(select(c, p, req.role, difficulty), "jev-kind", kind, difficulty, asked, jev);
+  } else if (lane.kind) {
+    const difficulty = lane.difficulty ?? defaultDifficulty(c, p, req.role);
+    out = answer(select(c, p, req.role, difficulty), "lane", lane.kind, difficulty, asked, jev);
   } else {
     out = answer(fallback(), "default", null, null, asked, jev);
   }
@@ -233,15 +240,23 @@ async function route(req: RouteRequest, o: RoutingOpts): Promise<RouteAnswer> {
 
 /**
  * Spec 1.5 plan 24, batch `route`: the lanes of one role (one run, one profile) share one discovery refresh and
- * one catalog, and Jev is asked about all of them at once (Ruling 6: one request per lane, all in flight
- * together, so each keeps its own cache key and jev.jsonl row). Then each lane is decided in order, every
+ * one catalog, and Jev is asked with at most `JEV_PARALLEL` in flight (Ruling 6: one request per lane,
+ * so each keeps its own cache key and jev.jsonl row). Then each lane is decided in order, every
  * routed start counting as a use of its quota, so lanes that tie spread over the quotas.
  */
 async function routeMany(reqs: RouteRequest[], o: RoutingOpts): Promise<RouteAnswer[]> {
   const first = reqs[0];
   if (!first) return [];
   const prep = await prepare(first, o);
-  const judged = await Promise.all(reqs.map((r) => judge(r, prep, o)));
+  const judged: (Judged | null)[] = Array.from({ length: reqs.length }, () => null);
+  let next = 0;
+  const lane = async () => {
+    while (next < reqs.length) {
+      const n = next++;
+      judged[n] = await judge(reqs[n] as RouteRequest, prep, o);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(JEV_PARALLEL, reqs.length) }, lane));
   const usage: Record<string, number> = { ...first.usage };
   return reqs.map((req, i) => {
     const out = decide(req, { ...prep, p: { ...prep.p, usage: { ...usage } } }, judged[i] ?? null);
@@ -312,7 +327,12 @@ export function routingService(o: RoutingOpts = {}): RoutingPort {
       verdict(runDir, "stop", { status, reply: scrubFree(reply.slice(-4000)) }, VERDICT_OPTIONS.stop, use, o),
     checkStart: async (view, repo) => {
       const { catalog, index } = await startIndex(repo);
-      return { unusable: rolesWithoutRung(catalog, view), index };
+      const unusable = rolesWithoutRung(catalog, view);
+      return {
+        unusable,
+        causes: Object.fromEntries(unusable.map((role) => [role, noRungCause(catalog, view, role)])),
+        index,
+      };
     },
     catalog: (filter, billing) => catalogQuery(filter, billing),
   };
