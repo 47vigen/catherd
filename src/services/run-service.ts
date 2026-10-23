@@ -194,7 +194,12 @@ export async function startRun(
   const { hints } = await refreshState(run);
   hints.push(...(superseded.hints ?? []));
   // spec 1.1 §10: the milestone loop, so the orchestrator starts on the protocol
-  return { run: run.id, dir: run.dir, protocol: protocolView(run, []), ...(hints.length ? { hints } : {}) };
+  return {
+    run: run.id,
+    dir: run.dir,
+    protocol: await protocolView(run, []),
+    ...(hints.length ? { hints } : {}),
+  };
 }
 
 export function writeRunFile(i: { run: string; path: string; content: string }): {
@@ -265,11 +270,13 @@ export function names(text: string, token: string): boolean {
 async function advanceNext(run: Run, record: RunRecord): Promise<string[]> {
   const stale = (next: string) =>
     names(next, record.name) || (record.lane !== null && names(next, record.lane));
-  if (!stale(readNotes(run).next)) return [];
+  const notes = readNotes(run);
+  if (!stale(notes.next)) return [];
+  // the change callback is sync, so the step is computed first; parked is read just before the lock and the
+  // next refresh corrects a race
+  const step = await protocolNext(run, notes.parked ?? []);
   const { hints } = await refreshState(run, (n) =>
-    stale(n.next)
-      ? { next: `after ${record.name} (${record.status}): ${protocolNext(run, n.parked ?? [])}` }
-      : {},
+    stale(n.next) ? { next: `after ${record.name} (${record.status}): ${step}` } : {},
   );
   return hints;
 }

@@ -430,7 +430,7 @@ describe("the land gate (spec 1.1 §6)", () => {
       "land M1: verifier-M1 is blocked by the environment: curl http://172.17.0.2:8080 from a Go binary: no route to host, twice",
     );
     expect(e.fix).toContain('park(run, "M1"');
-    expect(protocolNext(run, [])).toBe(
+    expect(await protocolNext(run, [])).toBe(
       "M1: verifier-M1 is blocked by the environment (curl http://172.17.0.2:8080 from a Go binary: no route to host, twice): surface it to the owner (park M1), not a fix round",
     );
     // a native verifier says it through record_agent_run's verdict
@@ -457,7 +457,7 @@ describe("the land gate (spec 1.1 §6)", () => {
       status: "failed",
       verdict: "VERDICT: FAIL",
     });
-    expect(protocolNext(run, [])).toStartWith("M1: verifier-M1 failed: the owning lanes fix it");
+    expect(await protocolNext(run, [])).toStartWith("M1: verifier-M1 failed: the owning lanes fix it");
   });
 
   it("refuses a native reviewer recorded with reply_status partial, until a full pass (plan 23)", async () => {

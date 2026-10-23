@@ -35,22 +35,22 @@ describe("Protocol next (spec 1.1 §10)", () => {
   it("walks the milestone loop from plan to finish", async () => {
     const { repo, run } = freshRun();
     const deps = fakeDeps();
-    expect(protocolNext(run, [])).toStartWith("plan: the architect writes plan.md");
+    expect(await protocolNext(run, [])).toStartWith("plan: the architect writes plan.md");
     writeLane(run, "M1.L1", ["src/a.ts"]);
     writeLane(run, "M1.L2", ["src/b.ts"]);
     writeLane(run, "M2.L1", ["src/c.ts"]);
-    expect(protocolNext(run, [])).toBe("route and preflight M1's lanes");
+    expect(await protocolNext(run, [])).toBe("route and preflight M1's lanes");
     for (const l of ["M1.L1", "M1.L2"])
       await route(deps, { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
-    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
     worked(run, "M1.L1");
     const live = await fakeDispatch(run, { name: "worker-M1.L2", lane: "M1.L2" }, { proc: "self" });
-    expect(protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L2)");
+    expect(await protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L2)");
     await appendRecord(
       run,
       makeRecord({ runId: run.id, dispatchId: live.admit.dispatchId, name: "worker-M1.L2" }),
     );
-    expect(protocolNext(run, [])).toBe("M1: reviewer");
+    expect(await protocolNext(run, [])).toBe("M1: reviewer");
     await appendRecord(
       run,
       makeRecord({
@@ -62,9 +62,9 @@ describe("Protocol next (spec 1.1 §10)", () => {
         endedAt: new Date().toISOString(),
       }),
     );
-    expect(protocolNext(run, [])).toBe("M1: verifier");
+    expect(await protocolNext(run, [])).toBe("M1: verifier");
     await passGate(run, "M1");
-    expect(protocolNext(run, [])).toBe("land M1");
+    expect(await protocolNext(run, [])).toBe("land M1");
     await land(deps, {
       run: run.id,
       milestone: "M1",
@@ -73,11 +73,11 @@ describe("Protocol next (spec 1.1 §10)", () => {
       evidence: "ok",
       next: "M2",
     });
-    expect(protocolNext(run, [])).toBe("route and preflight M2's lanes");
+    expect(await protocolNext(run, [])).toBe("route and preflight M2's lanes");
     expect(stateLast(run)).toBe("Protocol next: route and preflight M2's lanes");
     await park(deps, { run: run.id, milestone: "M2", question: "q" });
     expect(stateLast(run)).toBe("Protocol next: M2 parked: wait for the owner");
-    expect(protocolNext(run, [])).toBe("route and preflight M2's lanes");
+    expect(await protocolNext(run, [])).toBe("route and preflight M2's lanes");
   });
 
   it("sends a lane back to dispatch after a climb, or when its latest dispatch did not end ok", async () => {
@@ -93,14 +93,14 @@ describe("Protocol next (spec 1.1 §10)", () => {
       run,
       makeRecord({ runId: run.id, dispatchId: d.admit.dispatchId, name: "worker-M1.L2", status: "limit" }),
     );
-    expect(protocolNext(run, [])).toBe("dispatch M1.L2");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L2");
     // a climb after the lane's first dispatch: the lane runs again, at the next rung
     await climb(fakeDeps({ now: () => Date.now() + 1000 }), {
       run: run.id,
       lane: "M1.L1",
       reason: "check-failed-twice",
     });
-    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
     const blocked = await fakeDispatch(run, { name: "worker-M1.L2", lane: "M1.L2" });
     await appendRecord(
       run,
@@ -111,7 +111,7 @@ describe("Protocol next (spec 1.1 §10)", () => {
         replyStatus: "blocked",
       }),
     );
-    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L1, M1.L2");
   });
 
   it("says a lane climbed past its top rung is out of rungs, not dispatch (spec 1.1 §9, §10)", async () => {
@@ -125,7 +125,9 @@ describe("Protocol next (spec 1.1 §10)", () => {
     worked(run, "M1.L2");
     let top = false;
     while (!top) top = (await climb(at(), { run: run.id, lane: "M1.L1", reason: "check-failed-twice" })).top;
-    expect(protocolNext(run, [])).toBe("M1.L1: out of rungs — ask finding, then the architect or park M1");
+    expect(await protocolNext(run, [])).toBe(
+      "M1.L1: out of rungs — ask finding, then the architect or park M1",
+    );
     // a try at the top rung that ends ok after all: the lane is done
     appendAgentRun(run, {
       at: new Date((t += 1000)).toISOString(),
@@ -139,10 +141,10 @@ describe("Protocol next (spec 1.1 §10)", () => {
       status: "ok",
       lane: "M1.L1",
     });
-    expect(protocolNext(run, [])).toBe("M1: reviewer");
+    expect(await protocolNext(run, [])).toBe("M1: reviewer");
     // a plain re-route after an ok try (e.g. an architect delta re-read) keeps the lane done
     await route(at(), { run: run.id, laneFile: "lanes/M1.L2.md", role: "worker" });
-    expect(protocolNext(run, [])).toBe("M1: reviewer");
+    expect(await protocolNext(run, [])).toBe("M1: reviewer");
   });
 
   it("keeps a lane back until the lanes its After: line names have finished ok", async () => {
@@ -153,17 +155,17 @@ describe("Protocol next (spec 1.1 §10)", () => {
     writeLane(run, "M1.L3", ["api/"]);
     for (const l of ["M1.L1", "M1.L2", "M1.L3"])
       await route(deps, { run: run.id, laneFile: `lanes/${l}.md`, role: "worker" });
-    expect(protocolNext(run, [])).toBe("dispatch M1.L1, M1.L3; then M1.L2 after M1.L1");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L1, M1.L3; then M1.L2 after M1.L1");
     worked(run, "M1.L3");
     const kit = await fakeDispatch(run, { name: "worker-M1.L1", lane: "M1.L1" }, { proc: "self" });
-    expect(protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L1); then M1.L2 after M1.L1");
+    expect(await protocolNext(run, [])).toBe("M1: lanes running (worker-M1.L1); then M1.L2 after M1.L1");
     await appendRecord(
       run,
       makeRecord({ runId: run.id, dispatchId: kit.admit.dispatchId, name: "worker-M1.L1", status: "failed" }),
     );
-    expect(protocolNext(run, [])).toBe("dispatch M1.L1; then M1.L2 after M1.L1");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L1; then M1.L2 after M1.L1");
     worked(run, "M1.L1");
-    expect(protocolNext(run, [])).toBe("dispatch M1.L2");
+    expect(await protocolNext(run, [])).toBe("dispatch M1.L2");
   });
 
   it("says finish once every milestone landed", async () => {
@@ -178,11 +180,11 @@ describe("Protocol next (spec 1.1 §10)", () => {
       evidence: "ok",
       next: "x",
     });
-    expect(protocolNext(run, [])).toBe("finish: the final gate, then the report");
+    expect(await protocolNext(run, [])).toBe("finish: the final gate, then the report");
   });
 
   it("after a verifier FAIL names a fresh verifier and the failed items, not a resume (plan 23)", async () => {
-    const { run } = freshRun();
+    const { repo, run } = freshRun();
     const deps = fakeDeps();
     writeLane(run, "M1.L1", ["src/a.ts"]);
     await route(deps, { run: run.id, laneFile: "lanes/M1.L1.md", role: "worker" });
@@ -220,8 +222,15 @@ describe("Protocol next (spec 1.1 §10)", () => {
       secs: null,
       status: "failed",
     });
-    expect(protocolNext(run, [])).toBe(
+    expect(await protocolNext(run, [])).toBe(
       "M1: verifier-M1 failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks acceptance, each command capped at 10 min",
+    );
+    // a fix that changes what lint read opens its pass again, as the fresh verifier's brief does
+    writeFileSync(join(repo, "src-x.ts"), "changed");
+    execFileSync("git", ["add", "-A"], { cwd: repo });
+    execFileSync("git", ["commit", "-qm", "x"], { cwd: repo });
+    expect(await protocolNext(run, [])).toBe(
+      "M1: verifier-M1 failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks lint, acceptance, each command capped at 10 min",
     );
   });
 
@@ -252,7 +261,7 @@ describe("Protocol next (spec 1.1 §10)", () => {
       );
     };
     await reviewer("reviewer-M1", "read the core only\nSTATUS: partial — 4 files unread", "partial", t0);
-    expect(protocolNext(run, [])).toBe(
+    expect(await protocolNext(run, [])).toBe(
       "M1: reviewer-M1 stopped partial: a scoped second pass (reviewer-M1-2) over the files it did not read",
     );
     appendAgentRun(run, {
@@ -287,7 +296,7 @@ describe("Protocol next (spec 1.1 §10)", () => {
       "complete",
       t0 + 1000,
     );
-    expect(protocolNext(run, [])).toBe(
+    expect(await protocolNext(run, [])).toBe(
       "M1: fix round for reviewer-M1-2's findings (1 BLOCKER, 1 BUG), then the verifier",
     );
     // the fix round ends ok after the review: the next step moves on
@@ -303,7 +312,7 @@ describe("Protocol next (spec 1.1 §10)", () => {
       status: "ok",
       lane: "M1.L1",
     });
-    expect(protocolNext(run, [])).not.toStartWith("M1: fix round");
+    expect(await protocolNext(run, [])).not.toStartWith("M1: fix round");
   });
 
   it("run_start returns the step and the six-line checklist", async () => {

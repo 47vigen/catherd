@@ -6,7 +6,7 @@ import { parseLaneHeader } from "../domain/lane.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
-import { failedItems, type VerifierStep } from "./gate-service.ts";
+import { recordedItems, type VerifierStep } from "./gate-service.ts";
 import {
   countFindings,
   FINDING,
@@ -132,7 +132,7 @@ export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = rea
  * The step the milestone loop is at: the first milestone neither landed nor parked, and within it the
  * first of route, dispatch, collect, reviewer, verifier and land that is still to do.
  */
-export function protocolNext(run: Run, parked: string[], now = Date.now()): string {
+export async function protocolNext(run: Run, parked: string[], now = Date.now()): Promise<string> {
   const lanes = laneIds(run);
   if (lanes.length === 0)
     return "plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)";
@@ -188,15 +188,15 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
     return `${m}: ${verdict.name} is blocked by the environment${verdict.blocked ? ` (${verdict.blocked})` : ""}: surface it to the owner (park ${m}), not a fix round`;
   if (!verdict.passed) {
     // plan 23: a resumed verifier can hang; a re-check goes to a fresh one, told what failed
-    const failed = failedItems(run, m);
+    const failed = (await recordedItems(run, m)).filter((r) => !r.passed).map((r) => r.item);
     return `${m}: ${verdict.name} failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks ${failed.length ? failed.join(", ") : "the failed items"}, each command capped at ${RECHECK_COMMAND_MIN} min`;
   }
   return `land ${m}`;
 }
 
 /** What run_start and peek return beside the step: the six-line loop. */
-export const protocolView = (run: Run, parked: string[], now?: number) => ({
-  next: protocolNext(run, parked, now),
+export const protocolView = async (run: Run, parked: string[], now?: number) => ({
+  next: await protocolNext(run, parked, now),
   checklist: PROTOCOL_CHECKLIST,
 });
 
