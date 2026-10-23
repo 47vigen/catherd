@@ -4,7 +4,7 @@
  * runs on Node and cannot import src/ or test/helpers.ts, so this file starts the server and writes where its
  * runs live to $CATHERD_E2E_STATE.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { RunEventSchema, type RunEventInput } from "../src/domain/run-events.ts";
 import { defaultDeps } from "../src/entry/deps.ts";
@@ -23,8 +23,12 @@ if (!state) throw new Error("set CATHERD_E2E_STATE to the file the seeded paths 
 
 const home = withHome();
 const repo = tempRepo();
-// no backend CLI is found, so Setup shows each one as missing, and nothing a run starts can reach a model
-process.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
+// no backend CLI is found, so Setup shows each one as missing, and nothing a run starts can reach a model: bun's own
+// directory can hold claude or codex too, so PATH gets a directory with bun alone
+const bin = join(home, "bin");
+mkdirSync(bin, { recursive: true });
+symlinkSync(process.execPath, join(bin, "bun"));
+process.env.PATH = `${bin}:/usr/bin:/bin`;
 process.env.CATHERD_NO_SYNC = "1";
 process.env.ANTHROPIC_API_KEY = "";
 daemonLauncher.launch = () => 0;
@@ -155,6 +159,7 @@ writeFileSync(
     fixture: { id: fixture.id },
     live: { id: live.run, events: eventsFile(liveRun), stream: join(dir, "events.jsonl") },
     profile: profileFile(activeName(repo)),
+    path: process.env.PATH,
   }),
 );
 console.log(`panel e2e server on ${panel.url}`);

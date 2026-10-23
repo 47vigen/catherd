@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+
 import { expect, test } from "@playwright/test";
 
 import { appendEvent, consoleErrors, signIn, state } from "./helpers";
@@ -10,6 +12,12 @@ const pages = (): [string, string][] => [
   ["/questions", "Questions"],
   ["/setup", "Setup"],
 ];
+
+test("the server's PATH holds bun and the system dirs only, so no backend CLI is found", () => {
+  const dirs = state().path.split(":");
+  expect(dirs.slice(1)).toEqual(["/usr/bin", "/bin"]);
+  expect(readdirSync(dirs[0]!)).toEqual(["bun"]);
+});
 
 test("redirects to login and rejects a wrong token", async ({ page }) => {
   await page.goto("/runs");

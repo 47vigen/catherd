@@ -10,6 +10,8 @@ export interface E2eState {
   fixture: { id: string };
   live: { id: string; events: string; stream: string };
   profile: string;
+  /** the server's PATH */
+  path: string;
 }
 
 export const state = () => JSON.parse(readFileSync("test-results/e2e-state.json", "utf8")) as E2eState;
