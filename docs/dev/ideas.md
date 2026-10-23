@@ -45,14 +45,14 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   (seq 251) with the step still in its check and parked a third time (seq 290): about ten worker dispatches, two
   climbs, one judge and three owner round trips on a step that cannot pass. Fix: an answer that drops a check step
   edits the lane's `Fast check:` (or records a waiver the check honours), and a judge `skip` carries into later
-  rounds of that lane.
+  rounds of that lane. (Run audit 22.)
 - **A lane misses the tests that pin the behaviour it changes.** `lanes/M4.L3.md` owned only `src/services/daemon.ts`
   and its test; its task changed `ensureDaemon` for every caller, and `test/services/run-read.test.ts` and
   `test/services/run-pause.test.ts` (which stub `daemonLauncher.launch`) expected the old launch. The worker parked
   `out_of_scope`. In M4 a change to `src/domain/run-state.ts` broke `test/domain/run-state.test.ts`, which no lane
   owned and no fast check ran; it surfaced only at the verifier, after five review rounds. Fix: when a lane changes
   an exported function, the architect adds the tests that call or stub it to the lane's Owns:, and a lane's fast
-  check runs the test files of the source files it owns.
+  check runs the test files of the source files it owns. (Run audit 15.)
 - **A plan-backed run maps no A-line, and the digest shows only the last review round.** M1's digest said "A-lines:
   not mapped to this milestone (none cited as A<n>)" and listed all six: a plan written before the run does not cite
   the run's `A<n>`, and a one-milestone mapping does not apply to six milestones. The same digest said "Reviewer:
@@ -63,19 +63,47 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 - **A gate recorded in a broken env cannot be re-recorded.** The gate cache is keyed by HEAD only, not by the env it
   ran in: a verifier's second and third `gate run` on M6's head returned the same cached failed record, `land` reads
   it, and that head can never land without a new commit. Fix: let a verifier re-run a gate (a `fresh` flag), or key
-  the record by its env too.
+  the record by its env too. (Run audit 7.)
 - **A gate that fails on the base too counts as green.** M1 and M3 landed with `Gate: … exit 1` and the audit "every
   failing line is pre-existing (60)", while 60 env failures on the base hid what the gate checked. The audit also
   differed across milestones: M4's counted the same failing lines as pre-existing, M5's called one of them new. Fix: a
   gate whose base also fails says so in the verdict, not as a pass, and the line matching is made deterministic.
+  (Run audit 4, 5.)
 - **The report's known issues can be a verifier reply cut into lines.** The cancelled run's `result` listed, as M4's
   known issues, the verifier's whole reply split per line ("HEAD: 13f8a45…", "**Acceptance lines**", "**Gate
   items**", "**Not checked**"), not findings. The report also shows tokens but no cost. Fix: take only finding lines
-  into `knownIssues`, and add the run's cost.
+  into `knownIssues`, and add the run's cost. (Run audit 19, 20.)
 - **An unattended coordinator asked an interactive question, and the run sat for six hours.** Five parked questions
   (M2-M6) waited from 04:16 to 10:05 UTC while the coordinator showed a question menu in a terminal nobody watched;
   the phone notices carry only catherd's own parks. Fix: the catherd skill tells a coordinator that runs unattended
   never to ask interactively: rule, record the ruling, and send what needs the owner to the run's notify url.
+  (Run audit 25.)
+- **The run audit's other findings.** The five-lens audit of this run,
+  `docs/dev/reports/2026-10-23-plan-38-run-audit.md`, lists 29 findings. This branch fixes 7 (the role env in checks)
+  and 10 (an answered BLOCKER past the cap re-dispatches); the entries above hold 4, 5, 15,
+  19, 20, 22 and 25. The rest, each with its evidence and fix in the report:
+  - **Gate integrity.** 1: a check written `ROOT && web && openapi && privacy` stops at the first red part, so the web
+    gate, e2e, openapi sync and privacy grep never ran for any milestone; run one `gate_run` per item. 2: `gate_pass`
+    without a matching step records against the base checkout (M3's web rows name `d6b23a4`); require a milestone and
+    a step. 3: `gates.jsonl` never gates land. 6: `checkFailLines` keeps only 60 lines, so a 61st new failure is
+    invisible. 8: verifiers carry A-line results over from an earlier verifier with no record.
+  - **Orchestration.** 9: the architect widened M7's dependency to M1–M6 without surfacing it, so the run could never
+    reach M7. 10 (the part left): a verifier FAIL counts as a review round, so one failing test spends the cap with no
+    fix round. 11: lanes go `check_broken` on a repo-wide typecheck that imports a sibling lane's unwritten exports
+    (~16 dispatches). 12: a verifier re-runs on an unchanged HEAD and env. 13: a verifier's result is dropped when the
+    base moves. 14: milestone starts serialise on the memory check; verifier gates queue on the heavy lock in no
+    useful order; cancel leaves orphan parks and the trees.
+  - **Role output.** 16: reviewers do not run tests, so they PASS heads the verifier fails. 17: the same finding
+    repeats unchanged for three rounds on an unchanged HEAD. 18: replies missing `VERDICT:`/`HEAD:` lines are
+    accepted. 19 (first part): an architect requirement that contradicted its task cost a judge round.
+  - **Cost.** 20: Codex cost is never computed (`costUsd: null`; the run reported $11.09, about $49 with Codex at
+    catalog prices). 21: "in" tokens count cache reads, and cache writes are not recorded. 22 (the part left): a rung
+    climbs on an environment failure. 23: the ui-reviewer resumes a growing thread; judges run as full sessions; open
+    whether Codex usage is cumulative across a resumed thread.
+  - **Observability.** 24: nothing re-notifies a run parked with nobody answering (5h49m of `tick`). 26: `status
+    --json` `questions` reads the 1.x `questions.jsonl` and showed `[]` while parks were open. 27: a cancelled run's
+    report and finish message read like a success. 28: ntfy messages carry no reason, question text or link. 29: the
+    panel's Took, done count, Rounds and Cost mislead, and an ended run keeps its parks.
 
 ### From the plan 28–35 reviews (2026-10-21)
 
