@@ -55,8 +55,9 @@ and act. Any user, at any level of knowledge, can follow a run and use catherd f
   `127.0.0.1` only; the one-time token login; OpenAPI generated from zod.
 - Layers `domain → infra → adapters → services → entry` (`test/architecture.test.ts`).
 - Tests never touch the network or real CLIs.
-- New runtime dependencies for the UI only: `@xyflow/react` (React Flow), `elkjs` (layout) and `react-markdown` +
-  `remark-gfm` (rendered prompts, plans and reports; raw HTML stays escaped). Provider logos are
+- New runtime dependencies for the UI only: `@xyflow/react` (React Flow), `elkjs` (layout), `react-markdown` +
+  `remark-gfm` (rendered prompts, plans and reports; raw HTML stays escaped) and `recharts` (the dashboard's charts,
+  added in the owner-approved design pass). Provider logos are
   bundled SVGs (simple-icons, CC0 or the vendor's published mark), no icon runtime package.
 
 ## What exists to build on (verified 2026-10-23)
@@ -253,5 +254,6 @@ listed read-only.
 ## Left to the builder
 
 Component structure and file layout within the conventions; the exact run-model node ids and patch format; chart
-component choice inside HeroUI/Tailwind (no heavy chart library unless needed — small SVG charts are fine); cache
+component choice inside HeroUI/Tailwind (amended: the owner-approved design pass added `recharts`, as remora uses, for
+the dashboard's charts); cache
 TTLs; the exact glossary wording; fixtures for tests (derived from the real smoke runs, sanitized of absolute home paths).
