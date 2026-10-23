@@ -91,6 +91,7 @@ export interface LaneState {
   attempts: number;
   checkFails: number;
   lastFails: string[] | null;
+  /** the tree key the last check failure was seen on; old events use the milestone commit */
   lastFailHead: string | null;
   /** the rung whose quota hit a limit: the next dispatch takes a stand-in */
   failoverFrom: string | null;
@@ -1109,12 +1110,13 @@ function apply(s: RunState, e: RunEvent): void {
         laneDone(s, l);
       } else {
         const fails = checkFailLines(e.tail);
-        const head = milestoneOf(s, l.milestone)?.commit ?? null;
+        const key = e.tree !== undefined ? e.tree : (milestoneOf(s, l.milestone)?.commit ?? null);
         if (
           fails.length > 0 &&
           fails.length === l.lastFails?.length &&
           fails.every((line, i) => line === l.lastFails?.[i]) &&
-          head === l.lastFailHead
+          key === l.lastFailHead &&
+          e.tree !== null
         ) {
           s.stuck[e.lane] = {
             reason: "environment",
@@ -1124,7 +1126,7 @@ function apply(s: RunState, e: RunEvent): void {
           return;
         }
         l.lastFails = fails;
-        l.lastFailHead = head;
+        l.lastFailHead = key;
         l.checkFails += 1;
         l.notes = [
           ...l.notes.filter((n) => !n.startsWith("The fast check failed")),

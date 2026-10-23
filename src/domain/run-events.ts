@@ -163,6 +163,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     exit: z.number().int().nullable(),
     tail: z.string(),
     foreign: strings,
+    tree: z.string().nullable().optional(),
   }),
   ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
   ev("commit.failed", { milestone: z.string(), round: z.number().int().min(0), tail: z.string() }),

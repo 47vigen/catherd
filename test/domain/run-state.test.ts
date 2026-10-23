@@ -549,6 +549,42 @@ describe("plan 39 orchestration guards", () => {
 describe("repeated fast check failures", () => {
   const check = { lane: "M1.L1", exit: 1, tail: "error: database unavailable [12ms]", foreign: [] };
 
+  it("a worker's uncommitted change frees a repeated failure", () => {
+    const log = runningLog();
+    log.add("check.ran", { ...check, tree: "t1" });
+    log.add("check.ran", { ...check, tree: "t2" });
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+    expect(log.state().lanes[check.lane]).toMatchObject({
+      lastFailHead: "t2",
+      checkFails: 2,
+      climbReason: "check-failed-twice",
+    });
+  });
+
+  it("the same tree and the same failure parks environment", () => {
+    for (const commitBetween of [false, true]) {
+      const log = runningLog();
+      log.add("check.ran", { ...check, tree: "t1" });
+      expect(log.state().lanes[check.lane]?.lastFailHead).toBe("t1");
+      if (commitBetween) log.add("commit.made", { milestone: "M1", round: 0, commit: "c1" });
+      log.add("check.ran", { ...check, tree: "t1" });
+      expect(log.state().stuck[check.lane]?.reason).toBe("environment");
+      expect(log.state().lanes[check.lane]?.climbReason).toBeNull();
+    }
+  });
+
+  it("an unknown tree never parks", () => {
+    const log = runningLog();
+    log.add("check.ran", { ...check, tree: null });
+    log.add("check.ran", { ...check, tree: null });
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+    expect(log.state().lanes[check.lane]).toMatchObject({
+      lastFailHead: null,
+      checkFails: 2,
+      climbReason: "check-failed-twice",
+    });
+  });
+
   it("an identical check failure on an unchanged head parks without a climb", () => {
     for (const head of [null, "c0"]) {
       const log = runningLog();

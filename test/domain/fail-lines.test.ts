@@ -44,11 +44,75 @@ describe("check items", () => {
     expect(failLines.checkItems(command)).toEqual([command]);
     expect(failLines.checkItems(`${command} && bun test`)).toEqual([command, "bun test"]);
     const nested = 'echo "$(printf "%s" "$(printf "x && y")")"';
-    expect(failLines.checkItems(`${nested} && done`)).toEqual([nested, "done"]);
-    expect(failLines.checkItems('echo "$(printf ") && (")" && done')).toEqual([
+    expect(failLines.checkItems(`${nested} && echo done`)).toEqual([nested, "echo done"]);
+    expect(failLines.checkItems('echo "$(printf ") && (")" && echo done')).toEqual([
       'echo "$(printf ") && (")"',
-      "done",
+      "echo done",
     ]);
+  });
+  it("checkItems keeps an if/fi block whole", () => {
+    for (const block of [
+      "if c; then a && b; fi",
+      "if a && b; then c; elif d && e; then f; else g && h; fi",
+      "if [[ -f a && -f b ]]; then { a && b; }; fi",
+    ])
+      expect(failLines.checkItems(`${block} && z`)).toEqual([block, "z"]);
+    expect(failLines.checkItems("if c; then a && b; fi && d")).toEqual(["if c; then a && b; fi", "d"]);
+  });
+  it("checkItems keeps a [[ ]] test whole", () => {
+    expect(failLines.checkItems("[[ -f a && -f b ]] && c")).toEqual(["[[ -f a && -f b ]]", "c"]);
+  });
+  it("checkItems keeps a { } group whole", () => {
+    expect(failLines.checkItems("{ a && b; } && c")).toEqual(["{ a && b; }", "c"]);
+  });
+  it("checkItems keeps loops and case whole", () => {
+    for (const block of [
+      "while a && b; do c && d; done",
+      "until a; do b && c; done",
+      "for f in x y; do a && b; done",
+      "select f in x y; do a && b; done",
+      "case $x in a) b && c;; esac",
+      "case $x in esac",
+      "case $x in (a|b) if c; then d && f; fi;; *) g && h;; esac",
+      "while [[ -f a && -f b ]]; do case $x in a) b && c;; esac; done",
+    ])
+      expect(failLines.checkItems(`${block} && e`)).toEqual([block, "e"]);
+  });
+  it("recognizes control constructs after shell command separators", () => {
+    for (const separator of [";", "||", "|", "&", "\n"]) {
+      const block = `prep ${separator} if c; then a && b; fi`;
+      expect(failLines.checkItems(`${block} && d`)).toEqual([block, "d"]);
+    }
+    expect(failLines.checkItems("! { a && b; } && c")).toEqual(["! { a && b; }", "c"]);
+  });
+  it("checkItems treats reserved words as words outside command position", () => {
+    expect(failLines.checkItems("grep -q fi f && echo done && b")).toEqual([
+      "grep -q fi f",
+      "echo done",
+      "b",
+    ]);
+    expect(failLines.checkItems("echo {a,b} && c")).toEqual(["echo {a,b}", "c"]);
+    expect(failLines.checkItems('test "${x}" && c')).toEqual(['test "${x}"', "c"]);
+  });
+  it("checkItems keeps a command it cannot parse whole", () => {
+    for (const command of [
+      "if a && b",
+      "a && fi && b",
+      "a && b << EOF",
+      "a && b # c && d",
+      "a && done",
+      "a && { b; fi; }",
+      "a && 'b",
+      "a && (b",
+      "a && b)",
+      "a && [[ b && c",
+      "a && b \\",
+    ])
+      expect(failLines.checkItems(command)).toEqual([command]);
+    expect(() => failLines.checkItems("a && && b")).toThrow(
+      expect.objectContaining({ code: "E_INPUT_INVALID" }),
+    );
+    expect(failLines.checkItems("a && b <<< c")).toEqual(["a", "b <<< c"]);
   });
   it("rejects empty check items before returning any commands", () => {
     for (const command of ["", "  ", "true &&", "true &&  ", "&& true", "true && && false"]) {

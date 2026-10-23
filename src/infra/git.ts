@@ -1,4 +1,5 @@
-import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -64,6 +65,34 @@ export async function gitOrigin(repo: string): Promise<string | null> {
 export async function gitHead(repo: string, timeoutMs?: number): Promise<string | null> {
   const r = await git(repo, ["rev-parse", "--short", "HEAD"], timeoutMs);
   return (r.kind === "ok" && r.out.trim()) || null;
+}
+
+/**
+ * A content identity of HEAD, tracked changes and non-ignored untracked files, staged or not.
+ * Null when git cannot say (including an unborn HEAD) or a listed file cannot be read.
+ */
+export async function worktreeIdentity(repo: string, timeoutMs?: number): Promise<string | null> {
+  const head = await git(repo, ["rev-parse", "HEAD"], timeoutMs);
+  if (head.kind !== "ok") return null;
+  const diff = await git(
+    repo,
+    ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD"],
+    timeoutMs,
+  );
+  if (diff.kind !== "ok") return null;
+  const untracked = await git(repo, ["ls-files", "-z", "--others", "--exclude-standard"], timeoutMs);
+  if (untracked.kind !== "ok") return null;
+  const hash = createHash("sha256").update(head.out).update("\0").update(diff.out).update("\0");
+  try {
+    for (const path of untracked.out.split("\0").filter(Boolean).sort()) {
+      const content = readFileSync(join(repo, path));
+      // Length framing prevents file contents from being mistaken for another path or file.
+      hash.update(path).update("\0").update(`${content.length}\0`).update(content);
+    }
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
 }
 
 /** False for a missing commit; throws E_IO_UNEXPECTED when git times out, since that proves nothing. */

@@ -13,6 +13,7 @@ import {
   gitToplevel,
   isAncestor,
   statusSnapshot,
+  worktreeIdentity,
 } from "../../src/infra/git.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempRepo } from "../helpers.ts";
 
@@ -47,6 +48,78 @@ describe("git", () => {
     expect(await commitExists(repo, head)).toBe(true);
     expect(await commitExists(repo, "0123456789abcdef")).toBe(false);
     expect(await gitHead(mkdtempSync(join(tmpdir(), "catherd-nogit-")))).toBeNull();
+  });
+
+  it("worktreeIdentity changes with every uncommitted change and holds otherwise", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "tracked.txt"), "original");
+    writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "tracked file");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).toMatch(/^[a-f0-9]{64}$/);
+    expect(await worktreeIdentity(repo)).toBe(clean);
+
+    writeFileSync(join(repo, "tracked.txt"), "unstaged edit");
+    const edited = await worktreeIdentity(repo);
+    expect(edited).not.toBeNull();
+    expect(edited).not.toBe(clean);
+    sh(repo, "add", "tracked.txt");
+    expect(await worktreeIdentity(repo)).toBe(edited);
+
+    writeFileSync(join(repo, "tracked.txt"), "edit after staging");
+    const editedAgain = await worktreeIdentity(repo);
+    expect(editedAgain).not.toBeNull();
+    expect(editedAgain).not.toBe(edited);
+
+    mkdirSync(join(repo, "new", "folder"), { recursive: true });
+    const untracked = join(repo, "new", "folder", "untracked.txt");
+    writeFileSync(untracked, "first");
+    const added = await worktreeIdentity(repo);
+    expect(added).not.toBeNull();
+    expect(added).not.toBe(editedAgain);
+    writeFileSync(untracked, "other");
+    const changed = await worktreeIdentity(repo);
+    expect(changed).not.toBeNull();
+    expect(changed).not.toBe(added);
+
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "worker changes");
+    const committed = await worktreeIdentity(repo);
+    expect(committed).not.toBeNull();
+    expect(committed).not.toBe(changed);
+    writeFileSync(join(repo, "tracked.txt"), "temporary edit");
+    expect(await worktreeIdentity(repo)).not.toBe(committed);
+    writeFileSync(join(repo, "tracked.txt"), "edit after staging");
+    expect(await worktreeIdentity(repo)).toBe(committed);
+    writeFileSync(join(repo, "ignored.txt"), "ignored content");
+    expect(await worktreeIdentity(repo)).toBe(committed);
+  });
+
+  it("worktreeIdentity is null when git cannot say", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "catherd-nogit-"));
+    expect(await worktreeIdentity(outside)).toBeNull();
+    sh(outside, "init", "-q");
+    expect(await worktreeIdentity(outside)).toBeNull();
+    const repo = tempRepo();
+    fakeGit("exit 128");
+    expect(await worktreeIdentity(repo)).toBeNull();
+  });
+
+  it("worktreeIdentity returns null on a later git failure or timeout", async () => {
+    const repo = tempRepo();
+    for (const command of ["diff", "ls-files"]) {
+      fakeGit(`if [ "$3" = "${command}" ]; then exit 128; fi\nprintf 'head'`);
+      expect(await worktreeIdentity(repo)).toBeNull();
+    }
+    fakeGit("while :; do :; done");
+    expect(await worktreeIdentity(repo, 50)).toBeNull();
+  });
+
+  it("worktreeIdentity returns null when an untracked file disappears before reading", async () => {
+    const repo = tempRepo();
+    fakeGit('if [ "$3" = "ls-files" ]; then printf "missing.txt\\0"; else printf "head"; fi');
+    expect(await worktreeIdentity(repo)).toBeNull();
   });
 
   it("snapshots untracked files inside new folders and modified tracked ones", async () => {

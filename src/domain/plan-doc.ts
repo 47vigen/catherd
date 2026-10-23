@@ -203,7 +203,7 @@ export function planInputNames(paths: string[]): string[] {
 /** The Check command of one milestone section, or null when absent. */
 export function milestoneCheck(planText: string, id: string): string | null {
   const lines = planText.split("\n");
-  const at = lines.findIndex((line) => /^##[ \t]+(\S+)[ \t]+[—–-]/.exec(line)?.[1] === id);
+  const at = lines.findIndex((line) => /^##[ \t]+(M\d+)\b/.exec(line)?.[1] === id);
   if (at < 0) return null;
   for (const line of lines.slice(at + 1)) {
     if (/^##[ \t]+/.test(line)) break;

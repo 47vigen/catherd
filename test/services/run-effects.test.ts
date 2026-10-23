@@ -920,6 +920,33 @@ describe("routing, checking, committing, landing", () => {
     expect(green).toMatchObject({ lane: "M1.L2", exit: 0 });
   });
 
+  it("fastCheck records the worktree identity it checked", async () => {
+    const { run, fx } = await treesSetup();
+    writeLane(run, "M1.L1", ["src/a/"], "echo red-line >&2; exit 3");
+    writeLane(run, "M1.L2", ["src/b/"], "");
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    const first = lastOf(run, "check.ran");
+    expect(first).toMatchObject({ lane: "M1.L1", exit: 3 });
+    expect(typeof first?.tree).toBe("string");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")?.tree).toBe(first?.tree);
+
+    writeFile(tree, "src/a/new.ts", "changed\n");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    const changed = lastOf(run, "check.ran");
+    expect(changed).toMatchObject({ lane: "M1.L1", exit: 3 });
+    expect(typeof changed?.tree).toBe("string");
+    expect(changed?.tree).not.toBe(first?.tree);
+
+    await fx.run({ type: "fastCheck", lane: "M1.L2" }, replayRun(run));
+    const unchecked = lastOf(run, "check.ran");
+    expect(unchecked).toMatchObject({ lane: "M1.L2", exit: 0, tail: "the lane has no fast check" });
+    expect(unchecked).not.toHaveProperty("tree");
+  });
+
   it("counts an absence check whose only hits are the lane's Allow: exceptions as passed", async () => {
     const { run, fx } = setup();
     writeLane(
