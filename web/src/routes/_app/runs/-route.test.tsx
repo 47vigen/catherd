@@ -639,3 +639,13 @@ test("a 401 sends the run page to login and closes its socket", async () => {
   await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
   await waitFor(() => expect(getSocket()).toBeNull());
 });
+
+test("a run still planning does not ask for a plan the architect has not written", async () => {
+  const planning = (req: Request, url: URL) =>
+    url.pathname === "/api/runs/r1"
+      ? Response.json(run({ phase: "planning", milestones: [], live: [] }))
+      : api(req, url);
+  const { requests } = renderRoute("/runs/r1", planning);
+  expect(await screen.findByText("No plan yet. The architect writes it first.")).toBeInTheDocument();
+  expect(requests.map((r) => decodeURIComponent(describeRequest(r))).filter((r) => r.includes("/docs"))).toEqual([]);
+});

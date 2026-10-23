@@ -231,6 +231,7 @@ function RunDetail({ runId }: { runId: string }) {
         <RunDocs
           runId={runId}
           ended={r.phase === "ended" || !is2}
+          planning={r.phase === "planning"}
           only={is2 ? undefined : "report.md"}
           className={is2 ? "lg:col-span-8" : "lg:col-span-12"}
         />

@@ -94,6 +94,7 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
     run. The run page advances live as events are added, and the fixture run's drawer shows the prompt, the output
     and the checks. A Setup edit shows before/after and saves to the profile file. A question answered from the
     graph or from Questions clears. Each page also loads with no console error.
+    The e2e server listens on port 4318; when a panel already holds it, set `CATHERD_E2E_PORT`.
 
 ## Architecture
 

@@ -12,9 +12,10 @@ const DOCS = [
 ] as const;
 type Doc = (typeof DOCS)[number]["id"];
 
-// A missing document answers 404, which here just means "not written yet".
-function DocBody({ runId, name, empty }: { runId: string; name: string; empty: string }) {
-  const doc = useQuery(getRunDocOptions({ path: { id: runId }, query: { name } }));
+// A missing document answers 404, which here just means "not written yet"; one that cannot exist yet is not asked for.
+function DocBody({ runId, name, empty, written }: { runId: string; name: string; empty: string; written: boolean }) {
+  const doc = useQuery({ ...getRunDocOptions({ path: { id: runId }, query: { name } }), enabled: written });
+  if (!written) return <p className="text-muted py-6 text-sm">{empty}</p>;
   if (doc.isPending)
     return (
       <div className="flex justify-center py-10">
@@ -29,11 +30,14 @@ function DocBody({ runId, name, empty }: { runId: string; name: string; empty: s
 export function RunDocs({
   runId,
   ended,
+  planning = false,
   only,
   className,
 }: {
   runId: string;
   ended: boolean;
+  /** the architect has not written the plan yet */
+  planning?: boolean;
   only?: "report.md";
   className?: string;
 }) {
@@ -68,7 +72,13 @@ export function RunDocs({
         ) : null
       }
     >
-      <DocBody key={doc.id} runId={runId} name={doc.id} empty={doc.empty} />
+      <DocBody
+        key={doc.id}
+        runId={runId}
+        name={doc.id}
+        empty={doc.empty}
+        written={doc.id === "plan.md" ? !planning : ended}
+      />
     </Tile>
   );
 }
