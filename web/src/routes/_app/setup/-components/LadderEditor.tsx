@@ -1,36 +1,75 @@
-import { ArrowDown, ArrowUp, Bars } from "@gravity-ui/icons";
-import { Button, Chip } from "@heroui/react";
+import { ArrowDown, Ellipsis, Grip, Plus } from "@gravity-ui/icons";
+import { Button, Dropdown, Label, ListBox, Select } from "@heroui/react";
 import { useState } from "react";
 import { GridList, GridListItem, useDragAndDrop } from "react-aria-components";
 
-import { dropAt, moveBy, parseRung } from "../-lib/rung";
+import { dropAt, effortsOf, modelName, moveBy, parseRung, withEffort } from "../-lib/rung";
 import type { IndexedPair } from "../../../../client";
-import { Meter } from "../../../../components/charts/Meter";
-import { ProviderIcon } from "../../../../components/provider-icon/ProviderIcon";
+import { ProviderIcon, backendName } from "../../../../components/provider-icon/ProviderIcon";
 import { PairPicker } from "./PairPicker";
 
+function EffortPick({
+  rung,
+  rungs,
+  offered,
+  disabled,
+  onPick,
+}: {
+  rung: string;
+  rungs: string[];
+  offered: IndexedPair[];
+  disabled: boolean;
+  onPick(effort: string): void;
+}) {
+  const { effort } = parseRung(rung);
+  const efforts = effortsOf(rung, offered);
+  if (effort === null) return null;
+  if (efforts.length < 2) return <span className="text-muted w-28 shrink-0 text-xs">{effort} effort</span>;
+  return (
+    <Select
+      aria-label={`Effort for ${rung}`}
+      className="w-24 shrink-0 sm:w-28"
+      value={effort}
+      isDisabled={disabled}
+      disabledKeys={efforts.filter((e) => e !== effort && rungs.includes(withEffort(rung, e)))}
+      onChange={(k) => onPick(String(k))}
+    >
+      <Select.Trigger className="h-8 min-h-8 text-[13px]">
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox aria-label={`Effort for ${rung}`}>
+          {efforts.map((e) => (
+            <ListBox.Item key={e} id={e} textValue={e}>
+              {e}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
+}
+
 /**
- * A role's rungs as connected steps, lowest first: drag a step (or use Move up and Move down), add one from the
- * index, remove one. It edits a draft; the role row reviews it.
+ * A role's models in the order they are tried, as a numbered list: drag a model (or use its menu) to reorder, change
+ * its effort, remove it, add one from the index. It edits a draft; the drawer reviews it.
  */
 export function LadderEditor({
   role,
   rungs,
-  scores,
   offered,
   disabled,
   onChange,
 }: {
   role: string;
   rungs: string[];
-  /** the indexed intelligence of every rung known so far (null when the index has none) */
-  scores: Record<string, number | null>;
   offered: IndexedPair[];
   disabled: boolean;
   onChange(next: string[]): void;
 }) {
   const [adding, setAdding] = useState(false);
-  const top = Math.max(1, ...Object.values(scores).map((n) => n ?? 0));
   const { dragAndDropHooks } = useDragAndDrop({
     isDisabled: disabled,
     getItems: (keys) => [...keys].map((k) => ({ "text/plain": String(k) })),
@@ -49,56 +88,31 @@ export function LadderEditor({
   return (
     <div className="flex flex-col gap-2">
       {rungs.length === 0 ? (
-        <p className="text-muted text-sm">No rungs.</p>
+        <p className="border-border text-muted rounded-sm border border-dashed px-3 py-4 text-center text-sm">
+          No model yet. Add the one this role should try first.
+        </p>
       ) : (
         <GridList
-          aria-label={`${role} ladder`}
+          aria-label={`${role} models`}
           dragAndDropHooks={dragAndDropHooks}
           className="flex flex-col outline-none"
         >
           {rungs.map((rung, i) => {
             const r = parseRung(rung);
-            const score = scores[rung] ?? null;
             return (
               <GridListItem
                 key={rung}
                 id={rung}
                 textValue={rung}
-                className="group data-[drop-target]:bg-accent/10 data-[focus-visible]:outline-focus relative flex items-center gap-3 rounded-sm py-1.5 pr-1 pl-9 outline-none data-[dragging]:opacity-50 data-[focus-visible]:outline-2"
+                className="group flex flex-col outline-none data-[dragging]:opacity-50"
               >
-                <span
-                  aria-hidden="true"
-                  className="bg-border absolute top-0 bottom-0 left-3.5 w-px group-first:top-1/2 group-last:bottom-1/2"
-                />
-                <span
-                  aria-hidden="true"
-                  className="border-accent bg-surface absolute left-2.5 size-2.5 rounded-full border-2"
-                />
-                <ProviderIcon backend={r.backend} size="sm" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate font-mono text-[13px]" title={rung}>
-                    {r.model}
+                {i > 0 ? (
+                  <span className="text-muted flex h-7 items-center gap-1.5 pl-[3.25rem] text-xs">
+                    <ArrowDown aria-hidden="true" className="size-3" />
+                    then, if it fails
                   </span>
-                  <span className="text-muted text-[11px]">Step {i + 1}</span>
-                </span>
-                {r.effort ? (
-                  <Chip size="sm" variant="soft" className="font-mono text-[11px]">
-                    {r.effort}
-                  </Chip>
                 ) : null}
-                <span className="flex w-36 shrink-0 items-center gap-2 max-sm:hidden">
-                  {score === null ? (
-                    <span className="text-muted text-xs">not indexed</span>
-                  ) : (
-                    <>
-                      <span className="min-w-0 flex-1">
-                        <Meter value={Math.min(1, score / top)} label={`Intelligence of ${rung}`} />
-                      </span>
-                      <span className="text-muted font-mono text-xs tabular-nums">{score.toFixed(1)}</span>
-                    </>
-                  )}
-                </span>
-                <span className="flex shrink-0 items-center">
+                <div className="border-border bg-surface group-data-[drop-target]:border-accent group-data-[focus-visible]:outline-focus flex min-w-0 items-center gap-2 rounded-sm border py-2 pr-2 pl-1 group-data-[focus-visible]:outline-2">
                   <Button
                     slot="drag"
                     isIconOnly
@@ -106,49 +120,71 @@ export function LadderEditor({
                     variant="ghost"
                     aria-label={`Drag ${rung}`}
                     isDisabled={disabled}
+                    className="text-muted cursor-grab"
                   >
-                    <Bars aria-hidden="true" />
+                    <Grip aria-hidden="true" />
                   </Button>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Move up ${rung}`}
-                    isDisabled={disabled || i === 0}
-                    onPress={() => onChange(moveBy(rungs, rung, -1))}
-                  >
-                    <ArrowUp aria-hidden="true" />
-                  </Button>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Move down ${rung}`}
-                    isDisabled={disabled || i === rungs.length - 1}
-                    onPress={() => onChange(moveBy(rungs, rung, 1))}
-                  >
-                    <ArrowDown aria-hidden="true" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Remove ${rung}`}
-                    isDisabled={disabled}
-                    onPress={() => onChange(rungs.filter((x) => x !== rung))}
-                  >
-                    Remove
-                  </Button>
-                </span>
+                  <span className="bg-surface-secondary text-muted flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium tabular-nums max-sm:hidden">
+                    {i + 1}
+                  </span>
+                  <ProviderIcon backend={r.backend} size="md" className="sm:ml-1" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium" title={rung}>
+                      {modelName(r.model)}
+                    </span>
+                    <span className="text-muted truncate text-xs">
+                      {i === 0 ? "Tried first" : `Fallback ${i}`} · via {backendName(r.backend)}
+                    </span>
+                  </span>
+                  <EffortPick
+                    rung={rung}
+                    rungs={rungs}
+                    offered={offered}
+                    disabled={disabled}
+                    onPick={(e) => onChange(rungs.map((x) => (x === rung ? withEffort(rung, e) : x)))}
+                  />
+                  <Dropdown>
+                    <Button isIconOnly size="sm" variant="ghost" aria-label={`More for ${rung}`} isDisabled={disabled}>
+                      <Ellipsis aria-hidden="true" />
+                    </Button>
+                    <Dropdown.Popover placement="bottom end">
+                      <Dropdown.Menu
+                        aria-label={`More for ${rung}`}
+                        disabledKeys={[...(i === 0 ? ["up"] : []), ...(i === rungs.length - 1 ? ["down"] : [])]}
+                        onAction={(k) => {
+                          if (k === "up") onChange(moveBy(rungs, rung, -1));
+                          else if (k === "down") onChange(moveBy(rungs, rung, 1));
+                          else onChange(rungs.filter((x) => x !== rung));
+                        }}
+                      >
+                        <Dropdown.Item id="up" textValue="Move up">
+                          <Label>Move up</Label>
+                        </Dropdown.Item>
+                        <Dropdown.Item id="down" textValue="Move down">
+                          <Label>Move down</Label>
+                        </Dropdown.Item>
+                        <Dropdown.Item id="remove" textValue="Remove" variant="danger">
+                          <Label>Remove</Label>
+                        </Dropdown.Item>
+                      </Dropdown.Menu>
+                    </Dropdown.Popover>
+                  </Dropdown>
+                </div>
               </GridListItem>
             );
           })}
         </GridList>
       )}
-      <div>
-        <Button size="sm" variant="secondary" isDisabled={disabled} onPress={() => setAdding(true)}>
-          Add rung
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="border-border w-full border border-dashed"
+        isDisabled={disabled}
+        onPress={() => setAdding(true)}
+      >
+        <Plus aria-hidden="true" />
+        {rungs.length === 0 ? "Add a model" : "Add a fallback model"}
+      </Button>
       <PairPicker
         key={String(adding)}
         role={role}

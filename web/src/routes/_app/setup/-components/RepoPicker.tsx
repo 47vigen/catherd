@@ -16,7 +16,7 @@ export function RepoPicker({ view, onChange }: { view: SetupView; onChange(repo:
     >
       <Label className="sr-only">Repo</Label>
       <Select.Trigger className="h-8 min-h-8 text-[13px]">
-        <Select.Value />
+        <Select.Value className="truncate" />
         <Select.Indicator />
       </Select.Trigger>
       <Select.Popover className="min-w-72">

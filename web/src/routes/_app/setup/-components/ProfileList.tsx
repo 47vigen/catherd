@@ -1,3 +1,4 @@
+import { TrashBin } from "@gravity-ui/icons";
 import { Button, Chip, Input, Label, TextField, toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -60,15 +61,19 @@ export function ProfileList({ view, disabled }: { view: SetupView; disabled: boo
       .map(([repo]) => repo);
 
   return (
-    <div className="flex flex-col gap-3">
-      <ul className="flex flex-col gap-2">
+    <div className="flex flex-1 flex-col">
+      <p className="border-border text-muted border-b px-4 py-3 text-xs">
+        A profile holds everything on this page. Each repo runs on one; the active one serves every other repo.
+      </p>
+      <ul className="divide-border divide-y">
         {view.profile.profiles.map((p) => {
           const bound = reposOf(p);
           const isActive = p === view.profile.active;
-          const here = view.repo !== null && view.profile.name === p && bound.includes(view.repo);
+          const editing = p === view.profile.name;
+          const here = view.repo !== null && editing && bound.includes(view.repo);
           const why = isActive ? "It is the active profile." : bound.length > 0 ? "A repo runs on it." : undefined;
           return (
-            <li key={p} aria-label={p} className="border-border bg-surface flex flex-col gap-2 rounded-sm border p-3">
+            <li key={p} aria-label={p} className="flex flex-col gap-2 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm font-medium">{p}</span>
                 {isActive ? (
@@ -76,61 +81,59 @@ export function ProfileList({ view, disabled }: { view: SetupView; disabled: boo
                     Active
                   </Chip>
                 ) : null}
-                <span className="ml-auto flex flex-wrap items-center gap-2">
-                  {view.repo !== null ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={disabled || here}
-                      onPress={() =>
-                        activate.mutate({
-                          path: { name: p },
-                          body: { repo: view.repo },
-                        })
-                      }
-                    >
-                      {here ? "In use for this repo" : "Use for this repo"}
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={disabled || isActive}
-                    onPress={() =>
-                      activate.mutate({
-                        path: { name: p },
-                        body: { repo: null },
-                      })
-                    }
-                  >
-                    Make active everywhere
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger-soft"
-                    isDisabled={disabled || why !== undefined}
-                    onPress={() => setDeleting(p)}
-                  >
-                    Delete
-                  </Button>
-                </span>
+                {editing ? (
+                  <Chip size="sm" variant="soft">
+                    Editing
+                  </Chip>
+                ) : null}
               </div>
               <p className="text-muted text-xs">
                 {bound.length === 0 ? "No repo is bound to it." : `Bound repos: ${bound.join(", ")}`}
                 {why ? ` It cannot be deleted. ${why}` : ""}
               </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {view.repo !== null ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={disabled || here}
+                    onPress={() => activate.mutate({ path: { name: p }, body: { repo: view.repo } })}
+                  >
+                    {here ? "In use for this repo" : "Use for this repo"}
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  isDisabled={disabled || isActive}
+                  onPress={() => activate.mutate({ path: { name: p }, body: { repo: null } })}
+                >
+                  Use everywhere
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  isIconOnly
+                  aria-label="Delete"
+                  className="text-danger ml-auto"
+                  isDisabled={disabled || why !== undefined}
+                  onPress={() => setDeleting(p)}
+                >
+                  <TrashBin aria-hidden="true" />
+                </Button>
+              </div>
             </li>
           );
         })}
       </ul>
       <form
-        className="flex flex-wrap items-end gap-2"
+        className="border-border mt-auto flex items-end gap-2 border-t p-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim() !== "") create.mutate({ body: { name: name.trim() } });
         }}
       >
-        <TextField value={name} onChange={setName} isDisabled={disabled} className="w-56">
+        <TextField value={name} onChange={setName} isDisabled={disabled} className="min-w-0 flex-1">
           <Label>New profile</Label>
           <Input placeholder="name" />
         </TextField>
@@ -144,7 +147,11 @@ export function ProfileList({ view, disabled }: { view: SetupView; disabled: boo
           Create from defaults
         </Button>
       </form>
-      <IssueList issues={refused} />
+      {refused.length > 0 ? (
+        <div className="px-4 pb-4">
+          <IssueList issues={refused} />
+        </div>
+      ) : null}
       <ConfirmDelete
         title={`Delete profile ${deleting ?? ""}?`}
         body="The profile's file is removed. No repo runs on it."

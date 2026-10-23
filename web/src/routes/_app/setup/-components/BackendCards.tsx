@@ -2,24 +2,24 @@ import { ArrowRotateRight } from "@gravity-ui/icons";
 import { Button } from "@heroui/react";
 import { useState } from "react";
 
-import { parseRung } from "../-lib/rung";
-import type { Check, SetupView } from "../../../../client";
-import { CodeBlock } from "../../../../components/code-block/CodeBlock";
-import { ProviderIcon } from "../../../../components/provider-icon/ProviderIcon";
+import type { Check } from "../../../../client";
+import { ProviderIcon, backendName } from "../../../../components/provider-icon/ProviderIcon";
 import { StatusChip } from "../../../../components/status-chip/StatusChip";
+import { Tile } from "../../../../components/tile/Tile";
 import { formatRelative } from "../../../../lib/time";
 
-const idOf = (c: Check) => c.id.replace(/^backend:/, "");
+const idOf = (c: Check) => c.id.replace(/^(backend|name):/, "");
 
 function CopyFix({ fix }: { fix: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex flex-col gap-1.5">
-      <CodeBlock lang="text" code={fix} />
+    <div className="flex min-w-0 items-center gap-1">
+      <code className="bg-surface-secondary min-w-0 flex-1 truncate rounded-sm px-2 py-1 font-mono text-xs" title={fix}>
+        {fix}
+      </code>
       <Button
         size="sm"
         variant="ghost"
-        className="self-start"
         onPress={() => void navigator.clipboard?.writeText(fix).then(() => setCopied(true))}
       >
         {copied ? "Copied" : "Copy"}
@@ -28,65 +28,69 @@ function CopyFix({ fix }: { fix: string }) {
   );
 }
 
-function Card({ check, models }: { check: Check; models: number }) {
+function Row({ check }: { check: Check }) {
   const unready = check.state === "fail" || check.state === "warn";
+  const name = check.id.startsWith("backend:") ? backendName(idOf(check)) : check.label;
   return (
-    <li className="border-border bg-surface flex min-w-0 flex-col gap-3 rounded-sm border p-4">
-      <div className="flex items-center gap-2.5">
+    <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
         <ProviderIcon backend={idOf(check)} size="md" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{check.label}</span>
-        <StatusChip status={check.state} label={check.word} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">{name}</span>
+          <span className="text-muted truncate text-xs" title={check.detail}>
+            {check.detail}
+          </span>
+        </div>
+        <span className="flex w-20 shrink-0 justify-end">
+          <StatusChip status={check.state} label={check.word} />
+        </span>
       </div>
-      <p className="text-muted text-xs">{check.detail}</p>
-      <p className="text-muted text-xs tabular-nums">
-        {models === 0 ? "No models offered" : `${models} ${models === 1 ? "model" : "models"} offered`}
-      </p>
-      {unready && check.fix ? <CopyFix fix={check.fix} /> : null}
+      {unready && check.fix ? (
+        <div className="pl-9">
+          <CopyFix fix={check.fix} />
+        </div>
+      ) : null}
     </li>
   );
 }
 
-/** The backends catherd can run: logo, version and login (the probe's detail), models offered, readiness. */
+/** The backends catherd can run, one cell each: mark, readiness, version and login, models offered, and a fix. */
 export function BackendCards({
   backends,
-  roles,
   probedAt,
   isChecking,
   onRecheck,
+  className,
 }: {
   backends: Check[];
-  roles: SetupView["roles"];
   probedAt: string | null;
   isChecking: boolean;
   onRecheck(): void;
+  className?: string;
 }) {
   // The page keys this by `probedAt`, so a re-check starts a fresh "now".
   const [now] = useState(() => new Date());
-  const modelsOf = (id: string) =>
-    new Set(
-      roles.flatMap((r) =>
-        r.offered
-          .map((p) => parseRung(p.rung))
-          .filter((x) => x.backend === id)
-          .map((x) => x.model),
-      ),
-    ).size;
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-muted text-xs">
-          {probedAt ? `Checked ${formatRelative(probedAt, now)}` : "Not checked yet"}
-        </p>
-        <Button size="sm" variant="secondary" isPending={isChecking} onPress={onRecheck}>
-          <ArrowRotateRight aria-hidden="true" />
-          Re-check
-        </Button>
-      </div>
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <Tile
+      title="Backends"
+      className={className}
+      aside={
+        <span className="flex items-center gap-2">
+          <span className="text-muted text-xs">
+            {probedAt ? `Checked ${formatRelative(probedAt, now)}` : "Not checked yet"}
+          </span>
+          <Button size="sm" variant="ghost" isPending={isChecking} onPress={onRecheck}>
+            <ArrowRotateRight aria-hidden="true" />
+            Re-check
+          </Button>
+        </span>
+      }
+    >
+      <ul className="divide-border divide-y">
         {backends.map((c) => (
-          <Card key={c.id} check={c} models={modelsOf(idOf(c))} />
+          <Row key={c.id} check={c} />
         ))}
       </ul>
-    </div>
+    </Tile>
   );
 }

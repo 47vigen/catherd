@@ -1,4 +1,4 @@
-import { Button, Description, Input, Label, Radio, RadioGroup, TextField } from "@heroui/react";
+import { Button, Description, Input, Label, Switch, TextField, ToggleButton, ToggleButtonGroup } from "@heroui/react";
 import type { ReactNode } from "react";
 
 import type { Found } from "../-lib/issues";
@@ -45,21 +45,23 @@ export function SettingSection({
       id={`setup-${id}`}
       tabIndex={-1}
       aria-labelledby={`setup-${id}-title`}
-      className="border-border bg-surface flex scroll-mt-4 flex-col gap-3 rounded-sm border p-4 outline-none"
+      className="bg-surface flex scroll-mt-4 flex-col gap-3 p-4 outline-none"
     >
-      <div className="flex flex-col gap-0.5">
-        <h3 id={`setup-${id}-title`} className="text-sm font-medium">
-          {title}
-        </h3>
-        <p className="text-muted text-xs">{meaning}</p>
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 id={`setup-${id}-title`} className="text-sm font-medium">
+            {title}
+          </h3>
+          <p className="text-muted text-xs">{meaning}</p>
+        </div>
+        {dirty ? (
+          <Button size="sm" variant="primary" isDisabled={disabled || !valid} onPress={onReview}>
+            Review changes
+          </Button>
+        ) : null}
       </div>
       {children}
       <IssueList issues={issues} />
-      <div>
-        <Button size="sm" variant="secondary" isDisabled={disabled || !dirty || !valid} onPress={onReview}>
-          Review changes
-        </Button>
-      </div>
     </section>
   );
 }
@@ -73,7 +75,9 @@ export function NumberText({
   invalid,
   placeholder,
   disabled,
+  className = "w-40",
 }: {
+  className?: string;
   label: string;
   unit?: string;
   value: string;
@@ -89,7 +93,7 @@ export function NumberText({
       isInvalid={invalid !== undefined}
       isDisabled={disabled}
       inputMode="decimal"
-      className="w-40"
+      className={className}
     >
       <Label>{label}</Label>
       <Input placeholder={placeholder} />
@@ -98,7 +102,7 @@ export function NumberText({
   );
 }
 
-/** A small set of exclusive choices side by side, each with an optional plain line under it. */
+/** A small set of exclusive choices as one segmented control; the chosen one's plain line sits under it. */
 export function Choice<T extends string>({
   label,
   value,
@@ -112,26 +116,85 @@ export function Choice<T extends string>({
   options: readonly { id: T; label: string; description?: string }[];
   disabled: boolean;
 }) {
+  const line = options.find((o) => o.id === value)?.description;
   return (
-    <RadioGroup
-      aria-label={label}
-      orientation="horizontal"
-      value={value}
-      onChange={(v) => onChange(v as T)}
-      isDisabled={disabled}
-      className="flex-wrap gap-x-5 gap-y-2"
-    >
-      {options.map((o) => (
-        <Radio key={o.id} value={o.id}>
-          <Radio.Content>
-            <Radio.Control>
-              <Radio.Indicator />
-            </Radio.Control>
+    <div className="flex flex-col gap-1.5">
+      <ToggleButtonGroup
+        aria-label={label}
+        selectionMode="single"
+        disallowEmptySelection
+        size="sm"
+        isDisabled={disabled}
+        selectedKeys={[value]}
+        onSelectionChange={(keys) => {
+          const next = [...keys][0];
+          if (next !== undefined) onChange(next as T);
+        }}
+        className="self-start"
+      >
+        {options.map((o, i) => (
+          <ToggleButton
+            key={o.id}
+            id={o.id}
+            className="data-[selected]:bg-accent data-[selected]:text-accent-foreground"
+          >
+            {i > 0 ? <ToggleButtonGroup.Separator /> : null}
             {o.label}
-          </Radio.Content>
-          {o.description ? <Description>{o.description}</Description> : null}
-        </Radio>
-      ))}
-    </RadioGroup>
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+      {line ? <p className="text-muted text-xs">{line}</p> : null}
+    </div>
+  );
+}
+
+/** A switch whose label is for screen readers only; the words around it say what it does. */
+export function OnOff({
+  label,
+  isSelected,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  isSelected: boolean;
+  onChange(v: boolean): void;
+  disabled: boolean;
+}) {
+  return (
+    <Switch isSelected={isSelected} isDisabled={disabled} onChange={onChange}>
+      <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
+        <Label className="sr-only">{label}</Label>
+      </Switch.Content>
+    </Switch>
+  );
+}
+
+/** A setting that is on or off: its label and what it means on the left, the switch on the right. */
+export function SwitchRow({
+  label,
+  hint,
+  isSelected,
+  onChange,
+  disabled,
+  ariaLabel,
+}: {
+  label: string;
+  hint?: string;
+  isSelected: boolean;
+  onChange(v: boolean): void;
+  disabled: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-sm">{label}</span>
+        {hint ? <span className="text-muted text-xs">{hint}</span> : null}
+      </div>
+      <OnOff label={ariaLabel ?? label} isSelected={isSelected} disabled={disabled} onChange={onChange} />
+    </div>
   );
 }

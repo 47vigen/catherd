@@ -1,9 +1,9 @@
-import { Alert, toast } from "@heroui/react";
+import { Alert, Button, Disclosure, Skeleton, toast } from "@heroui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 
-import type { ProfilePatch } from "../../../client";
+import type { ProfilePatch, SetupView } from "../../../client";
 import {
   getSetupOptions,
   getSetupQueryKey,
@@ -13,7 +13,8 @@ import {
   saveProfileMutation,
 } from "../../../client/@tanstack/react-query.gen";
 import { DataList } from "../../../components/data-list/DataList";
-import { PageHeader, SectionLabel } from "../../../components/page-header/PageHeader";
+import { PageHeader } from "../../../components/page-header/PageHeader";
+import { Tile } from "../../../components/tile/Tile";
 import { errorMessage } from "../../../lib/api";
 import { parseEnum } from "../../../lib/list-search";
 import { invalidateOps } from "../../../lib/query";
@@ -22,17 +23,19 @@ import { BackendCards } from "./-components/BackendCards";
 import { ChangePreview, type Review } from "./-components/ChangePreview";
 import { ProfileList } from "./-components/ProfileList";
 import { RepoPicker } from "./-components/RepoPicker";
-import { RoleRow } from "./-components/RoleRow";
+import { RoleDrawer } from "./-components/RoleDrawer";
+import { RolesOverview } from "./-components/RolesOverview";
 import { IssueList } from "./-components/Section";
 import { SettingsSections } from "./-components/SettingsSections";
 import { type Found, issuesAt, SECTIONS, type SectionId } from "./-lib/issues";
 
-type SetupSearch = { repo?: string; section?: SectionId };
+type SetupSearch = { repo?: string; section?: SectionId; role?: string };
 
 export const Route = createFileRoute("/_app/setup/")({
   validateSearch: (raw: Record<string, unknown>): SetupSearch => ({
     repo: typeof raw.repo === "string" && raw.repo !== "" ? raw.repo : undefined,
     section: parseEnum(raw.section, SECTIONS),
+    role: typeof raw.role === "string" && raw.role !== "" ? raw.role : undefined,
   }),
   component: SetupPage,
 });
@@ -40,26 +43,71 @@ export const Route = createFileRoute("/_app/setup/")({
 /** The profile service answers a save with this path when the document is no longer the one that was previewed. */
 const CHANGED_ON_DISK = "profile";
 const CHANGED_NOTE = "The profile changed since you opened it. Review the changes again.";
+const SETTING: readonly SectionId[] = SECTIONS.filter((s) => s !== "roles" && s !== "profiles");
 
-function Block({ id, title, meaning, children }: { id: string; title: string; meaning: string; children: ReactNode }) {
+/** A bento cell that a `?section=` link scrolls to and focuses. */
+function Anchor({ id, className, children }: { id: string; className: string; children: ReactNode }) {
   return (
-    <section
-      id={`setup-${id}`}
-      tabIndex={-1}
-      aria-label={title}
-      className="flex scroll-mt-4 flex-col gap-3 outline-none"
-    >
-      <div className="flex flex-col gap-0.5">
-        <SectionLabel>{title}</SectionLabel>
-        <p className="text-muted text-xs">{meaning}</p>
-      </div>
+    <div id={`setup-${id}`} tabIndex={-1} className={`flex min-w-0 scroll-mt-4 outline-none ${className}`}>
       {children}
-    </section>
+    </div>
+  );
+}
+
+function Loading() {
+  return (
+    <output aria-label="Loading" className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+      <Tile
+        title="Roles"
+        className="lg:col-span-12"
+        aside={<span className="text-muted text-xs">Checking the backends…</span>}
+      >
+        <div className="divide-border divide-y">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="flex items-center gap-4 px-4 py-4">
+              <Skeleton className="size-6 rounded-sm" />
+              <Skeleton className="h-3.5 w-40" />
+              <Skeleton className="h-6 w-44" />
+              <Skeleton className="h-6 w-36 max-sm:hidden" />
+              <Skeleton className="ml-auto h-5 w-9 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </Tile>
+    </output>
+  );
+}
+
+const money = (n: number) => `$${n}`;
+function budgetWord(b: SetupView["settings"]["budget"]): string {
+  const parts = [
+    b.usd === undefined ? null : money(b.usd),
+    b.minutes === undefined ? null : `${b.minutes} min`,
+    b.tokens === undefined ? null : `${b.tokens.toLocaleString("en-US")} tokens`,
+  ].filter((x) => x !== null);
+  return parts.length === 0 ? "No limit" : parts.join(" · ");
+}
+
+/** The settings that shape every run, at a glance while the editors are folded away. */
+function SettingsGlance({ s }: { s: SetupView["settings"] }) {
+  return (
+    <Tile.Stats className="rounded-none border-0">
+      <Tile.Stat label="Prefer" value={s.objective === "cost" ? "Cost" : "Speed"} hint="when two models both fit" />
+      <Tile.Stat label="Budget" value={budgetWord(s.budget)} hint="per run, then it asks you" />
+      <Tile.Stat
+        label="Timeouts"
+        value={`${s.timeouts.idleMin} / ${s.timeouts.wallMin}`}
+        hint="minutes silent / in all"
+      />
+      <Tile.Stat label="Jev" value={s.jev === "auto" ? "Automatic" : "Off"} hint="picks the model per lane" />
+      <Tile.Stat label="Confirm first" value={s.preflightConfirm ? "Yes" : "No"} hint="before any worker starts" />
+      <Tile.Stat label="Notify" value={`${s.notify.length} of 3`} hint="moments of a run" />
+    </Tile.Stats>
   );
 }
 
 function SetupPage() {
-  const { repo, section } = Route.useSearch();
+  const { repo, section, role: openRole } = Route.useSearch();
   const navigate = Route.useNavigate();
   const qc = useQueryClient();
   const query = repo === undefined ? undefined : { repo };
@@ -67,10 +115,8 @@ function SetupPage() {
   const version = useQuery(getVersionOptions());
   const v = setup.data;
   const readOnly = v?.host === "unknown" || version.data?.host === "unknown";
-  const [pending, setPending] = useState<{
-    patch: ProfilePatch;
-    review: Review;
-  }>();
+  const [pending, setPending] = useState<{ patch: ProfilePatch; review: Review }>();
+  const [settingsOpen, setSettingsOpen] = useState(section !== undefined && SETTING.includes(section));
 
   const recheck = useMutation({
     ...recheckSetupMutation(),
@@ -84,9 +130,7 @@ function SetupPage() {
   const propose = (patch: ProfilePatch, note?: string) =>
     preview.mutate(
       { query, body: { patch } },
-      {
-        onSuccess: (p) => setPending({ patch, review: { preview: p, refused: [], note } }),
-      },
+      { onSuccess: (p) => setPending({ patch, review: { preview: p, refused: [], note } }) },
     );
   const save = useMutation({
     ...saveProfileMutation(),
@@ -118,114 +162,121 @@ function SetupPage() {
         ...v.issues.warnings.map((i) => ({ ...i, error: false })),
       ]
     : [];
+  const setRole = (role: string | undefined) => void navigate({ search: (prev) => ({ ...prev, role }), replace: true });
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Setup"
-        description="The backends catherd can run, the rungs each role climbs, and every setting of the profile. Each change is shown before and after, then saved."
+        description="Each role is a job in a run. It tries its first model; if that one fails or runs out, it moves to the next."
         actions={
           v ? (
             <RepoPicker
               view={v}
-              onChange={(next) =>
-                void navigate({
-                  search: (prev) => ({ ...prev, repo: next }),
-                  replace: true,
-                })
-              }
+              onChange={(next) => void navigate({ search: (prev) => ({ ...prev, repo: next }), replace: true })}
             />
           ) : null
         }
       />
-      <DataList.State
-        isLoading={setup.isPending}
-        error={setup.error ?? undefined}
-        isEmpty={v === undefined}
-        emptyText="Nothing to show."
-      >
-        {v ? (
-          <>
-            {readOnly ? (
-              <Alert status="warning">
-                <Alert.Indicator />
-                <Alert.Content>
-                  <Alert.Description>
-                    Setup is read-only until you choose the app that runs catherd (top of the page).
-                  </Alert.Description>
-                </Alert.Content>
-              </Alert>
-            ) : null}
-            <div className="flex flex-col gap-2">
-              <p className="text-[13px]">
-                <span className="font-mono">{v.profile.name}</span>{" "}
-                <span className="text-muted">{v.repo === null ? "active" : "the profile this repo runs on"}</span>
-              </p>
+      {setup.isPending ? (
+        <Loading />
+      ) : (
+        <DataList.State
+          isLoading={false}
+          error={setup.error ?? undefined}
+          isEmpty={v === undefined}
+          emptyText="Nothing to show."
+        >
+          {v ? (
+            <div className="flex flex-col gap-4">
+              {readOnly ? (
+                <Alert status="warning">
+                  <Alert.Indicator />
+                  <Alert.Content>
+                    <Alert.Description>
+                      Setup is read-only until you choose the app that runs catherd (top of the page).
+                    </Alert.Description>
+                  </Alert.Content>
+                </Alert>
+              ) : null}
               <IssueList issues={issuesAt(found, "other")} />
               <AccessLine warnings={issuesAt(found, "access")} />
-            </div>
-            <Block
-              id="backends"
-              title="Backends"
-              meaning="The apps catherd starts workers in, and whether each one is ready."
-            >
-              <BackendCards
-                key={v.probedAt ?? "none"}
-                backends={v.backends}
-                roles={v.roles}
-                probedAt={v.probedAt}
-                isChecking={recheck.isPending}
-                onRecheck={() => recheck.mutate({ query })}
-              />
-            </Block>
-            <Block
-              id="roles"
-              title="Roles"
-              meaning="Each role climbs its rungs from the first to the last when a rung fails."
-            >
-              <div className="grid gap-3 2xl:grid-cols-2">
-                {v.roles.map((r) => (
-                  <RoleRow
-                    key={`${r.role}:${r.rungs.map((x) => x.rung).join(",")}`}
-                    role={r}
-                    timeouts={v.settings.timeouts}
-                    issues={issuesAt(found, `role:${r.role}`)}
-                    propose={propose}
-                    disabled={readOnly}
-                  />
-                ))}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                <Anchor id="roles" className="lg:col-span-12">
+                  <Tile
+                    title="Roles"
+                    className="flex-1"
+                    aside={
+                      <span className="text-muted truncate text-xs">
+                        Profile <span className="text-foreground font-mono">{v.profile.name}</span>
+                        {v.repo === null ? " · global default" : " · this repo"}
+                      </span>
+                    }
+                  >
+                    <RolesOverview
+                      roles={v.roles}
+                      issuesOf={(r) => issuesAt(found, `role:${r}`)}
+                      propose={propose}
+                      disabled={readOnly}
+                      onOpen={setRole}
+                    />
+                  </Tile>
+                </Anchor>
+                <BackendCards
+                  key={v.probedAt ?? "none"}
+                  className="lg:col-span-8"
+                  backends={v.backends}
+                  probedAt={v.probedAt}
+                  isChecking={recheck.isPending}
+                  onRecheck={() => recheck.mutate({ query })}
+                />
+                <Anchor id="profiles" className="lg:col-span-4">
+                  <Tile title="Profiles" className="flex-1">
+                    <ProfileList view={v} disabled={readOnly} />
+                  </Tile>
+                </Anchor>
+                <Disclosure
+                  isExpanded={settingsOpen}
+                  onExpandedChange={setSettingsOpen}
+                  className="flex min-w-0 lg:col-span-12"
+                >
+                  <Tile
+                    title="Settings for every run"
+                    className="flex-1"
+                    aside={
+                      <Button slot="trigger" size="sm" variant="ghost">
+                        {settingsOpen ? "Hide" : "Change settings"}
+                        <Disclosure.Indicator />
+                      </Button>
+                    }
+                  >
+                    {settingsOpen ? null : <SettingsGlance s={v.settings} />}
+                    <Disclosure.Content>
+                      <Disclosure.Body className="p-0">
+                        <SettingsSections view={v} issues={found} propose={propose} disabled={readOnly} />
+                      </Disclosure.Body>
+                    </Disclosure.Content>
+                  </Tile>
+                </Disclosure>
               </div>
-            </Block>
-            <Block
-              id="settings"
-              title="Settings"
-              meaning="Everything else the profile holds, grouped by what it controls."
-            >
-              <SettingsSections view={v} issues={found} propose={propose} disabled={readOnly} />
-            </Block>
-            <Block
-              id="profiles"
-              title="Profiles"
-              meaning="The profiles you can run on, and which repos are bound to which."
-            >
-              <ProfileList view={v} disabled={readOnly} />
-            </Block>
-          </>
-        ) : null}
-      </DataList.State>
+              <RoleDrawer
+                role={v.roles.find((r) => r.role === openRole)}
+                timeouts={v.settings.timeouts}
+                issues={openRole ? issuesAt(found, `role:${openRole}`) : []}
+                propose={propose}
+                disabled={readOnly}
+                onClose={() => setRole(undefined)}
+              />
+            </div>
+          ) : null}
+        </DataList.State>
+      )}
       <ChangePreview
         review={pending?.review}
         isSaving={save.isPending}
         onCancel={() => setPending(undefined)}
         onSave={() => {
-          if (pending)
-            save.mutate({
-              query,
-              body: {
-                patch: pending.patch,
-                expect: pending.review.preview.expect,
-              },
-            });
+          if (pending) save.mutate({ query, body: { patch: pending.patch, expect: pending.review.preview.expect } });
         }}
       />
     </div>

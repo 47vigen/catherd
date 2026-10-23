@@ -19,7 +19,7 @@ export function parseRung(rung: string): {
 /** What the index knows of a pair, each part only when there is one. */
 export function pairLine(p: IndexedPair): string {
   return [
-    `intelligence ${p.intelligence.toFixed(1)}`,
+    `benchmark ${p.intelligence.toFixed(1)}`,
     p.price ? `$${p.price.input}/$${p.price.output} per M` : null,
     p.speed === null ? null : `${Math.round(p.speed)} tok/s`,
     p.cost.tier === 0 ? "plan" : null,
@@ -52,6 +52,38 @@ export function dropAt(list: string[], dragged: Iterable<string>, target: string
 export const offeredRungs = (roles: { offered: IndexedPair[] }[]): string[] => [
   ...new Set(roles.flatMap((r) => r.offered.map((p) => p.rung))),
 ];
+
+const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "default"];
+const NUM = /^\d+(\.\d+)?$/;
+
+/** A model id as people say it: `claude-opus-5-5` is Claude Opus 5.5, `gpt-6.1-sol` is GPT-6.1 Sol. */
+export function modelName(model: string): string {
+  const out: string[] = [];
+  for (const t of (model.split("/").pop() ?? model).split("-").filter(Boolean)) {
+    const last = out.at(-1);
+    if (NUM.test(t) && last === "GPT") out[out.length - 1] = `GPT-${t}`;
+    else if (/^\d{1,2}$/.test(t) && last !== undefined && /^\d/.test(last)) out[out.length - 1] = `${last}.${t}`;
+    else out.push(t === "gpt" ? "GPT" : t.charAt(0).toUpperCase() + t.slice(1));
+  }
+  return out.join(" ");
+}
+
+/** The efforts the index offers for the backend and model of `rung`, lowest first, its own effort included. */
+export function effortsOf(rung: string, offered: { rung: string }[]): string[] {
+  const { backend, model, effort } = parseRung(rung);
+  const all = new Set<string>();
+  for (const p of offered.map((x) => parseRung(x.rung)))
+    if (p.backend === backend && p.model === model && p.effort !== null) all.add(p.effort);
+  if (effort !== null) all.add(effort);
+  const rank = (e: string) => (EFFORT_ORDER.includes(e) ? EFFORT_ORDER.indexOf(e) : EFFORT_ORDER.length);
+  return [...all].sort((a, b) => rank(a) - rank(b));
+}
+
+/** `rung` with another effort. */
+export const withEffort = (rung: string, effort: string): string => {
+  const { backend, model } = parseRung(rung);
+  return `${backend}:${model}#${effort}`;
+};
 
 /** The pairs split by backend, backends in the order they first appear. */
 export function providerGroups(pairs: IndexedPair[]): { backend: string; pairs: IndexedPair[] }[] {

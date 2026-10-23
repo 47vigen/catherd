@@ -1,15 +1,5 @@
-import {
-  Button,
-  Checkbox,
-  CheckboxGroup,
-  Input,
-  Label,
-  ListBox,
-  Select,
-  Switch,
-  TextField,
-  toast,
-} from "@heroui/react";
+import { Xmark } from "@gravity-ui/icons";
+import { Button, Checkbox, CheckboxGroup, Input, Label, ListBox, Select, TextField, toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -22,7 +12,7 @@ import { ProviderIcon, backendName } from "../../../../components/provider-icon/
 import { Term } from "../../../../components/term/Term";
 import { errorMessage } from "../../../../lib/api";
 import { invalidateOps } from "../../../../lib/query";
-import { Choice, NumberText, SettingSection } from "./Section";
+import { Choice, NumberText, SettingSection, SwitchRow } from "./Section";
 
 type Settings = SetupView["settings"];
 type Props = {
@@ -54,7 +44,7 @@ export function SettingsSections({ view, issues, propose, disabled }: Props) {
   const s = view.settings;
   const p = { issues, propose, disabled };
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
+    <div className="bg-border grid gap-px lg:grid-cols-2">
       <ObjectiveSection key={`o${s.objective}`} value={s.objective} {...p} />
       <JevSection key={`j${s.jev}`} value={s.jev} {...p} />
       <BudgetSection key={`b${JSON.stringify(s.budget)}`} value={s.budget} {...p} />
@@ -296,10 +286,11 @@ function FailoverSection({
               variant="ghost"
               className="ml-auto"
               isDisabled={disabled}
+              isIconOnly
               aria-label={`Remove failover for ${a}`}
               onPress={() => setPairs(Object.fromEntries(Object.entries(pairs).filter(([k]) => k !== a)))}
             >
-              Remove
+              <Xmark aria-hidden="true" />
             </Button>
           </li>
         ))}
@@ -393,10 +384,11 @@ function EffortSection({ value, issues, propose, disabled }: SectionProps<Settin
               size="sm"
               variant="ghost"
               isDisabled={disabled}
+              isIconOnly
               aria-label={`Remove ceiling for ${k}`}
               onPress={() => setEfforts(Object.fromEntries(Object.entries(efforts).filter(([x]) => x !== k)))}
             >
-              Remove
+              <Xmark aria-hidden="true" />
             </Button>
           </li>
         ))}
@@ -478,7 +470,7 @@ function LimitsSection({ value, issues, propose, disabled }: SectionProps<Settin
   return (
     <SettingSection
       id="limits"
-      title="Heavy lock and memory"
+      title="Parallel work and memory"
       meaning="How many heavy checks run at once, and the memory kept free when milestones start side by side."
       issues={issuesAt(issues, "limits")}
       dirty={changed(d, initial)}
@@ -538,21 +530,20 @@ function PreflightSection({ value, issues, propose, disabled }: SectionProps<boo
   return (
     <SettingSection
       id="preflight"
-      title="Preflight confirm"
+      title="Confirm before starting"
       meaning="Park a run after its preflight check so you can confirm it before any worker starts."
       issues={issuesAt(issues, "preflight")}
       dirty={draft !== value}
       disabled={disabled}
       onReview={() => propose(patchFor("preflight", { confirm: draft }))}
     >
-      <Switch isSelected={draft} onChange={setDraft} isDisabled={disabled}>
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
-        <Switch.Content>
-          <Label>Ask me to confirm the preflight</Label>
-        </Switch.Content>
-      </Switch>
+      <SwitchRow
+        label="Ask me to confirm the preflight"
+        hint={draft ? "A run waits for your yes before any worker starts." : "A run starts its workers on its own."}
+        isSelected={draft}
+        onChange={setDraft}
+        disabled={disabled}
+      />
     </SettingSection>
   );
 }
@@ -654,28 +645,23 @@ function IsolationSection({ value, issues, propose, disabled }: SectionProps<Set
   return (
     <SettingSection
       id="isolation"
-      title="Isolation"
+      title="Clean worker setup"
       meaning="Run a backend's workers in a clean home instead of your own configuration, plugins and memory."
       issues={issuesAt(issues, "isolation")}
       dirty={changed(draft, value)}
       disabled={disabled}
       onReview={() => propose(patchFor("isolation", draft))}
     >
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {Object.entries(draft).map(([backend, on]) => (
-          <Switch
+          <SwitchRow
             key={backend}
+            label={`Isolate ${backendName(backend)}`}
+            hint={on ? "Clean home: none of your own settings." : "Runs with your own settings and plugins."}
             isSelected={on}
-            isDisabled={disabled}
+            disabled={disabled}
             onChange={(v) => setDraft({ ...draft, [backend]: v })}
-          >
-            <Switch.Control>
-              <Switch.Thumb />
-            </Switch.Control>
-            <Switch.Content>
-              <Label>Isolate {backendName(backend)}</Label>
-            </Switch.Content>
-          </Switch>
+          />
         ))}
         {Object.keys(draft).length === 0 ? <p className="text-muted text-sm">No backend is listed.</p> : null}
       </div>

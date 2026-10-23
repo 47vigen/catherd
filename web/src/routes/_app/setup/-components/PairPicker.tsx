@@ -1,7 +1,7 @@
 import { Description, Header, Label, ListBox, Modal, SearchField } from "@heroui/react";
 import { useState } from "react";
 
-import { pairLine, parseRung, providerGroups } from "../-lib/rung";
+import { modelName, pairLine, parseRung, providerGroups } from "../-lib/rung";
 import type { IndexedPair } from "../../../../client";
 import { ProviderIcon, backendName } from "../../../../components/provider-icon/ProviderIcon";
 
@@ -20,15 +20,18 @@ export function PairPicker({
   onPick(rung: string): void;
 }) {
   const [q, setQ] = useState("");
-  const shown = pairs.filter((p) => p.rung.toLowerCase().includes(q.trim().toLowerCase()));
+  const needle = q.trim().toLowerCase();
+  const shown = pairs.filter((p) => `${p.rung} ${modelName(parseRung(p.rung).model)}`.toLowerCase().includes(needle));
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Modal.Container size="lg" scroll="inside">
-        <Modal.Dialog aria-label={`Add a rung to ${role}`}>
+        <Modal.Dialog aria-label={`Add a model to ${role}`}>
           <Modal.CloseTrigger />
           <Modal.Header>
-            <Modal.Heading>Add a rung to {role}</Modal.Heading>
-            <p className="text-muted text-xs">Each pair is a backend, a model and an effort the catalog has scored.</p>
+            <Modal.Heading>Add a model to {role}</Modal.Heading>
+            <p className="text-muted text-xs">
+              Pick the model to try after the ones already listed. Higher benchmark is more capable.
+            </p>
           </Modal.Header>
           <Modal.Body className="flex flex-col gap-3">
             {pairs.length === 0 ? (
@@ -37,10 +40,10 @@ export function PairPicker({
               </p>
             ) : (
               <>
-                <SearchField aria-label="Filter pairs" value={q} onChange={setQ}>
+                <SearchField aria-label="Search models" value={q} onChange={setQ}>
                   <SearchField.Group>
                     <SearchField.SearchIcon />
-                    <SearchField.Input placeholder="Filter pairs" />
+                    <SearchField.Input placeholder="Search models" />
                     <SearchField.ClearButton />
                   </SearchField.Group>
                 </SearchField>
@@ -55,18 +58,20 @@ export function PairPicker({
                         const r = parseRung(p.rung);
                         return (
                           <ListBox.Item key={p.rung} id={p.rung} textValue={p.rung}>
-                            <Label className="font-mono text-xs">
-                              {r.model}
-                              {r.effort ? ` · ${r.effort}` : ""}
-                            </Label>
-                            <Description>{pairLine(p)}</Description>
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <Label className="text-sm">
+                                {modelName(r.model)}
+                                {r.effort ? <span className="text-muted"> · {r.effort}</span> : null}
+                              </Label>
+                              <Description className="text-xs">{pairLine(p)}</Description>
+                            </div>
                           </ListBox.Item>
                         );
                       })}
                     </ListBox.Section>
                   ))}
                 </ListBox>
-                {shown.length === 0 ? <p className="text-muted text-sm">No pair matches.</p> : null}
+                {shown.length === 0 ? <p className="text-muted text-sm">No model matches.</p> : null}
               </>
             )}
           </Modal.Body>

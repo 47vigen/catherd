@@ -132,11 +132,29 @@ const api =
   };
 
 const section = (name: string) => screen.getByRole("region", { name });
-const roleBlock = (name: string) => screen.getByRole("group", { name });
+const roleLine = (name: string) => screen.getByRole("listitem", { name });
+
+/** Opens the folded settings tile. */
+async function openSettings() {
+  await userEvent.click(await screen.findByRole("button", { name: /Change settings/ }));
+}
+
+/** Opens a role's drawer from its line in the overview and returns the drawer. */
+async function openRole(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: `Edit ${name}` }));
+  return screen.findByRole("dialog", { name: name.charAt(0).toUpperCase() + name.slice(1) });
+}
+
+/** Picks an action from a model's menu in the open drawer. */
+async function modelAction(drawer: HTMLElement, rung: string, action: string) {
+  await userEvent.click(within(drawer).getByRole("button", { name: `More for ${rung}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: action }));
+}
 const count = (requests: Request[], what: string) => requests.filter((r) => describeRequest(r).startsWith(what)).length;
 const searchOf = (r: Request) => new URL(r.url).searchParams.get("repo");
 
 async function editBudgetUsd(value: string) {
+  await openSettings();
   const budget = await screen.findByRole("region", { name: "Budget" });
   const usd = within(budget).getByLabelText("USD");
   await userEvent.clear(usd);
@@ -144,28 +162,58 @@ async function editBudgetUsd(value: string) {
   await userEvent.click(within(budget).getByRole("button", { name: "Review changes" }));
 }
 
-test("shows the backends as cards, the profile's checks inline and each role's ladder", async () => {
+test("shows every role on one line with its models in the order tried, and the backends", async () => {
   renderRoute("/setup", api());
   expect(await screen.findByText("not installed")).toBeInTheDocument();
   expect(screen.getByText("1.2.3")).toBeInTheDocument();
-  expect(screen.getByText("the profile this repo runs on")).toBeInTheDocument();
+  expect(screen.getByText(/· this repo/)).toBeInTheDocument();
   expect(screen.getByText(/budget\.usd: no budget is set/)).toBeInTheDocument();
-  const worker = roleBlock("worker");
-  expect(within(worker).getByText(/roles\.worker\.rungs: no usable rung/)).toBeInTheDocument();
-  const steps = within(within(worker).getByRole("grid", { name: "worker ladder" })).getAllByRole("row");
-  expect(steps.map((s) => s.textContent)).toEqual([
-    expect.stringContaining("gpt-6-luna"),
-    expect.stringContaining("gpt-6-sol"),
-  ]);
-  expect(within(worker).getByText("40.2")).toBeInTheDocument();
+  const worker = roleLine("worker");
+  const chain = within(worker).getByRole("list", { name: "worker models, in the order tried" });
+  expect(
+    within(chain)
+      .getAllByRole("listitem")
+      .slice(0, 2)
+      .map((s) => s.textContent),
+  ).toEqual([expect.stringContaining("GPT-6 Luna"), expect.stringContaining("GPT-6 Sol")]);
+  expect(within(worker).getByText(/1 problem/)).toBeInTheDocument();
+  expect(within(worker).queryByText("40.2")).not.toBeInTheDocument();
+  expect(within(roleLine("architect")).getByText("Picked by the app that runs catherd")).toBeInTheDocument();
   expect(screen.getByText("Checked 3m ago")).toBeInTheDocument();
+});
+
+test("a role's drawer lists its models in the order tried, with its problems", async () => {
+  renderRoute("/setup", api());
+  const drawer = await openRole("worker");
+  expect(within(drawer).getByText(/roles\.worker\.rungs: no usable rung/)).toBeInTheDocument();
+  const steps = within(within(drawer).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
+  expect(steps.map((s) => s.textContent)).toEqual([
+    expect.stringContaining("GPT-6 Luna"),
+    expect.stringContaining("GPT-6 Sol"),
+  ]);
+  expect(steps[0]).toHaveTextContent("Tried first");
+  expect(steps[1]).toHaveTextContent("then, if it fails");
+});
+
+test("a model's effort is changed in place and reviewed as a new rung", async () => {
+  const { requests } = renderRoute("/setup", api({ "POST /api/setup/preview": () => Response.json(preview()) }));
+  const drawer = await openRole("worker");
+  await userEvent.click(within(drawer).getByRole("button", { name: new RegExp(`Effort for ${SOL}`) }));
+  await userEvent.click(await screen.findByRole("option", { name: "xhigh" }));
+  await userEvent.click(within(drawer).getByRole("button", { name: "Review changes" }));
+  await waitFor(() => expect(count(requests, "POST /api/setup/preview")).toBe(1));
+  expect(
+    await requests
+      .find((r) => describeRequest(r) === "POST /api/setup/preview")!
+      .clone()
+      .json(),
+  ).toEqual({ patch: { roles: { worker: { rungs: [LUNA, XHIGH] } } } });
 });
 
 test("a backend that is not ready shows its fix command", async () => {
   renderRoute("/setup", api());
   expect(await screen.findByText("npm i -g @openai/codex")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
-  expect(screen.getByText("2 models offered", { exact: false })).toBeInTheDocument();
 });
 
 test("Re-check probes again", async () => {
@@ -213,11 +261,7 @@ test("editing the budget previews before → after and saves with the previewed 
   );
   await editBudgetUsd("8");
   const dialog = await screen.findByRole("dialog", { name: "Review changes" });
-  expect(
-    within(dialog)
-      .getByText(/budget\.usd:/)
-      .closest("li"),
-  ).toHaveTextContent("budget.usd: 5 → 8");
+  expect(within(dialog).getByText("budget.usd").closest("li")).toHaveTextContent("Before5After8");
   const sent = await requests
     .find((r) => describeRequest(r) === "POST /api/setup/preview")!
     .clone()
@@ -236,6 +280,7 @@ test("editing the budget previews before → after and saves with the previewed 
 
 test("clearing the budget field sends null for it", async () => {
   const { requests } = renderRoute("/setup", api({ "POST /api/setup/preview": () => Response.json(preview()) }));
+  await openSettings();
   const budget = await screen.findByRole("region", { name: "Budget" });
   await userEvent.clear(within(budget).getByLabelText("USD"));
   await userEvent.click(within(budget).getByRole("button", { name: "Review changes" }));
@@ -248,6 +293,7 @@ test("clearing the budget field sends null for it", async () => {
 
 test("an invalid number is flagged and cannot be reviewed", async () => {
   renderRoute("/setup", api());
+  await openSettings();
   const budget = await screen.findByRole("region", { name: "Budget" });
   await userEvent.type(within(budget).getByLabelText("Minutes"), "abc");
   expect(within(budget).getByText("Enter a number above zero, or leave empty.")).toBeInTheDocument();
@@ -312,7 +358,7 @@ test("a changed profile on disk asks to review again", async () => {
   await waitFor(() => expect(count(requests, "POST /api/setup/preview")).toBe(2));
 });
 
-test("the ladder reorders with Move up and saves the new order", async () => {
+test("the models reorder with Move up and save the new order", async () => {
   const { requests } = renderRoute(
     "/setup",
     api({
@@ -321,11 +367,13 @@ test("the ladder reorders with Move up and saves the new order", async () => {
       "PUT /api/setup/profile": () => Response.json(saved()),
     }),
   );
-  const worker = await screen.findByRole("group", { name: "worker" });
-  expect(within(worker).getByRole("button", { name: `Move up ${LUNA}` })).toBeDisabled();
-  await userEvent.click(within(worker).getByRole("button", { name: `Move up ${SOL}` }));
-  const steps = within(within(worker).getByRole("grid", { name: "worker ladder" })).getAllByRole("row");
-  expect(steps[0]).toHaveTextContent("gpt-6-sol");
+  const worker = await openRole("worker");
+  await userEvent.click(within(worker).getByRole("button", { name: `More for ${LUNA}` }));
+  expect(await screen.findByRole("menuitem", { name: "Move up" })).toHaveAttribute("aria-disabled", "true");
+  await userEvent.keyboard("{Escape}");
+  await modelAction(worker, SOL, "Move up");
+  const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
+  expect(steps[0]).toHaveTextContent("GPT-6 Sol");
   await userEvent.click(within(worker).getByRole("button", { name: "Review changes" }));
   const sent = await requests
     .find((r) => describeRequest(r) === "POST /api/setup/preview")!
@@ -333,14 +381,29 @@ test("the ladder reorders with Move up and saves the new order", async () => {
     .json();
   expect(sent).toEqual({ patch: { roles: { worker: { rungs: [SOL, LUNA] } } } });
   const dialog = await screen.findByRole("dialog", { name: "Review changes" });
+  expect(within(dialog).getByText("roles.worker.rungs").closest("li")).toHaveTextContent(
+    "Before1GPT-6 Lunahigh2GPT-6 SolhighAfter1GPT-6 Solhigh2GPT-6 Lunahigh",
+  );
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(count(requests, "PUT /api/setup/profile")).toBe(1));
 });
 
-test("Add rung picks a pair grouped by provider", async () => {
+test("Remove takes a model off the list", async () => {
   renderRoute("/setup", api());
-  const worker = await screen.findByRole("group", { name: "worker" });
-  await userEvent.click(within(worker).getByRole("button", { name: "Add rung" }));
+  const worker = await openRole("worker");
+  await modelAction(worker, LUNA, "Remove");
+  const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
+  expect(steps).toHaveLength(1);
+  expect(steps[0]).toHaveTextContent("GPT-6 Sol");
+  expect(within(worker).getByText("Not saved yet.")).toBeInTheDocument();
+  await userEvent.click(within(worker).getByRole("button", { name: "Undo" }));
+  expect(within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row")).toHaveLength(2);
+});
+
+test("Add a fallback model picks a pair grouped by provider", async () => {
+  renderRoute("/setup", api());
+  const worker = await openRole("worker");
+  await userEvent.click(within(worker).getByRole("button", { name: "Add a fallback model" }));
   const box = await screen.findByRole("listbox", { name: "Indexed pairs" });
   const groups = within(box).getAllByRole("group");
   expect(groups.map((g) => g.getAttribute("aria-label") ?? g.textContent)).toEqual([
@@ -348,17 +411,17 @@ test("Add rung picks a pair grouped by provider", async () => {
     expect.stringContaining("Claude Code"),
   ]);
   expect(within(box).getAllByRole("option")).toHaveLength(2);
-  expect(within(box).getByText(/intelligence 55\.0 · \$1\.25\/\$10 per M · 80 tok\/s · plan/)).toBeInTheDocument();
-  await userEvent.click(within(box).getByRole("option", { name: /claude-opus-5-5/ }));
-  const steps = within(within(worker).getByRole("grid", { name: "worker ladder" })).getAllByRole("row");
+  expect(within(box).getByText(/benchmark 55\.0 · \$1\.25\/\$10 per M · 80 tok\/s · plan/)).toBeInTheDocument();
+  await userEvent.click(within(box).getByRole("option", { name: /Claude Opus 5\.5/ }));
+  const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
   expect(steps).toHaveLength(3);
-  expect(steps[2]).toHaveTextContent("claude-opus-5-5");
+  expect(steps[2]).toHaveTextContent("Claude Opus 5.5");
 });
 
 test("a role with no indexed pair says to sync the catalog", async () => {
   renderRoute("/setup", api());
-  const artist = await screen.findByRole("group", { name: "artist" });
-  await userEvent.click(within(artist).getByRole("button", { name: "Add rung" }));
+  const artist = await openRole("artist");
+  await userEvent.click(within(artist).getByRole("button", { name: "Add a model" }));
   expect(
     await screen.findByText("No indexed pair fits this role. Run catherd catalog sync, then reload."),
   ).toBeInTheDocument();
@@ -366,14 +429,19 @@ test("a role with no indexed pair says to sync the catalog", async () => {
 
 test("a host-set role says why it cannot be edited", async () => {
   renderRoute("/setup", api());
-  const architect = await screen.findByRole("group", { name: "architect" });
-  expect(within(architect).getByText("Set by the app that runs catherd; choose it there.")).toBeInTheDocument();
-  expect(within(architect).queryByRole("button", { name: "Add rung" })).not.toBeInTheDocument();
+  const architect = await openRole("architect");
+  expect(
+    within(architect).getByText("The app that runs catherd picks this role's model. Change it there."),
+  ).toBeInTheDocument();
+  expect(within(architect).queryByRole("button", { name: /Add a/ })).not.toBeInTheDocument();
 });
 
 test("a role's switch and access level go through the same preview", async () => {
   const { requests } = renderRoute("/setup", api({ "POST /api/setup/preview": () => Response.json(preview()) }));
-  const reviewer = await screen.findByRole("group", { name: "reviewer" });
+  const reviewer = await openRole("reviewer");
+  expect(
+    within(reviewer).getByText("It can change files inside the repo, and nothing outside it."),
+  ).toBeInTheDocument();
   await userEvent.click(within(reviewer).getByRole("radio", { name: "Read only" }));
   await waitFor(() => expect(count(requests, "POST /api/setup/preview")).toBe(1));
   expect(
@@ -386,16 +454,33 @@ test("a role's switch and access level go through the same preview", async () =>
   });
 });
 
+test("a role's switch in the overview turns it off through the preview", async () => {
+  const { requests } = renderRoute("/setup", api({ "POST /api/setup/preview": () => Response.json(preview()) }));
+  await screen.findByRole("button", { name: "Edit worker" });
+  await userEvent.click(within(roleLine("worker")).getByRole("switch", { name: "worker enabled" }));
+  await waitFor(() => expect(count(requests, "POST /api/setup/preview")).toBe(1));
+  expect(
+    await requests
+      .find((r) => describeRequest(r) === "POST /api/setup/preview")!
+      .clone()
+      .json(),
+  ).toEqual({ patch: { roles: { worker: { enabled: false } } } });
+  expect(screen.queryByRole("dialog", { name: "Worker" })).not.toBeInTheDocument();
+});
+
 test("an unknown host makes Setup read-only", async () => {
   renderRoute("/setup", api({}, setup({ host: "unknown" })));
   expect(
     await screen.findByText("Setup is read-only until you choose the app that runs catherd (top of the page)."),
   ).toBeInTheDocument();
-  const budget = section("Budget");
-  expect(within(budget).getByLabelText("USD")).toBeDisabled();
-  expect(within(roleBlock("worker")).getByRole("button", { name: "Add rung" })).toBeDisabled();
-  expect(within(roleBlock("worker")).getByRole("radio", { name: "Full access" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Create from defaults" })).toBeDisabled();
+  expect(within(roleLine("worker")).getByRole("switch", { name: "worker enabled" })).toBeDisabled();
+  await openSettings();
+  expect(within(section("Budget")).getByLabelText("USD")).toBeDisabled();
+  const worker = await openRole("worker");
+  expect(within(worker).getByText("Read only until you choose the app that runs catherd.")).toBeInTheDocument();
+  expect(within(worker).getByRole("button", { name: "Add a fallback model" })).toBeDisabled();
+  expect(within(worker).getByRole("radio", { name: "Full access" })).toBeDisabled();
 });
 
 test("a profile is used for the repo, made active, created and deleted", async () => {
@@ -418,7 +503,7 @@ test("a profile is used for the repo, made active, created and deleted", async (
   ).toEqual({
     repo: "/work/wallet",
   });
-  await userEvent.click(within(fast).getByRole("button", { name: "Make active everywhere" }));
+  await userEvent.click(within(fast).getByRole("button", { name: "Use everywhere" }));
   await waitFor(() => expect(count(requests, "POST /api/profiles/fast/activate")).toBe(2));
   expect(
     await requests
@@ -449,7 +534,7 @@ test("the active profile and a bound one cannot be deleted, and the page says wh
   const def = await screen.findByLabelText("default");
   expect(within(def).getByRole("button", { name: "Delete" })).toBeDisabled();
   expect(within(def).getByText(/It cannot be deleted\. It is the active profile\./)).toBeInTheDocument();
-  expect(within(def).getByRole("button", { name: "Make active everywhere" })).toBeDisabled();
+  expect(within(def).getByRole("button", { name: "Use everywhere" })).toBeDisabled();
   expect(within(def).getByText(/Bound repos: \/work\/wallet/)).toBeInTheDocument();
 });
 
