@@ -269,12 +269,12 @@ test("editing the budget previews before → after and saves with the previewed 
     .find((r) => describeRequest(r) === "POST /api/setup/preview")!
     .clone()
     .json();
-  expect(sent).toEqual({ patch: { budget: { minutes: null, tokens: null, usd: 8 } } });
+  expect(sent).toEqual({ patch: { budget: { usd: 8 } } });
   const before = count(requests, "GET /api/setup");
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   const put = await waitFor(() => requests.find((r) => describeRequest(r) === "PUT /api/setup/profile")!);
   expect(await put.clone().json()).toEqual({
-    patch: { budget: { minutes: null, tokens: null, usd: 8 } },
+    patch: { budget: { usd: 8 } },
     expect: { name: "default", budget: { usd: 5 } },
   });
   expect(await screen.findByText("Saved.")).toBeInTheDocument();
@@ -291,7 +291,7 @@ test("clearing the budget field sends null for it", async () => {
     .find((r) => describeRequest(r) === "POST /api/setup/preview")!
     .clone()
     .json();
-  expect(sent).toEqual({ patch: { budget: { minutes: null, tokens: null, usd: null } } });
+  expect(sent).toEqual({ patch: { budget: { usd: null } } });
 });
 
 test("an invalid number is flagged and cannot be reviewed", async () => {

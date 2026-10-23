@@ -3239,11 +3239,15 @@
           },
           "text": {
             "type": "string"
+          },
+          "cut": {
+            "type": "boolean"
           }
         },
         "required": [
           "name",
-          "text"
+          "text",
+          "cut"
         ],
         "additionalProperties": false
       },
