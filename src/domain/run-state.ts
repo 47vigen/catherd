@@ -1,5 +1,6 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
+import { checkFailLines } from "./fail-lines.ts";
 import { MEMORY_LIMITS } from "./milestone-memory.ts";
 import { tryParseRung } from "./ids.ts";
 import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
@@ -28,6 +29,7 @@ export const TOP_RUNG_JUDGES = 3;
 export const DUPLICATE_LIMIT = 3;
 /** A role that fails this many times without a limit parks its unit. */
 export const MAX_TRIES = 2;
+export const REMIND_AFTER_MS: readonly number[] = [1_800_000, 7_200_000, 21_600_000, 86_400_000];
 /** A plan the check refused goes back to its architect this many times before the run parks (plan 32). */
 export const PLAN_REVISIONS = 2;
 
@@ -88,6 +90,8 @@ export interface LaneState {
   /** failed or partial tries since the last ok end or climb */
   attempts: number;
   checkFails: number;
+  lastFails: string[] | null;
+  lastFailHead: string | null;
   /** the rung whose quota hit a limit: the next dispatch takes a stand-in */
   failoverFrom: string | null;
   lastReason: BlockedReason | null;
@@ -130,6 +134,7 @@ export interface MilestoneState {
   nits: string[];
   commit: string | null;
   verifierRuns: number;
+  verifierFailedOn: string | null;
   landRefusals: number;
   /** the reviewers this review round still owes (reviewer-M, ui-reviewer-M, reviewer-M-2) */
   awaiting: string[];
@@ -189,6 +194,18 @@ export interface OpenQuestion {
   question: string;
   reason: ParkReason;
   at: string;
+  reminded: number;
+  remindedAt?: string;
+}
+
+/** The next scheduled slot, skipping slots missed before the last reminder was sent. */
+export function remindDue(q: OpenQuestion): string {
+  const day = 86_400_000;
+  const n = q.reminded ?? 0;
+  const nominal = REMIND_AFTER_MS[n] ?? day * (n - REMIND_AFTER_MS.length + 2);
+  const elapsed = q.remindedAt ? Date.parse(q.remindedAt) - Date.parse(q.at) : -1;
+  const nextSlot = REMIND_AFTER_MS.find((ms) => ms > elapsed) ?? (Math.floor(elapsed / day) + 1) * day;
+  return new Date(Date.parse(q.at) + Math.max(nominal, nextSlot)).toISOString();
 }
 
 /** A report and phone notice the owner is owed: set by the event, cleared by its `report.posted`. */
@@ -344,7 +361,14 @@ const isoPlus = (at: string, ms: number): string => new Date(Date.parse(at) + ms
 function recomputeWake(s: RunState): void {
   const merges = s.milestones.flatMap((m) => (m.status === "landed" && m.mergeDue ? [m.mergeDue] : []));
   const claims = s.milestones.flatMap((m) => (m.claimAfter ? [m.claimAfter] : []));
-  const all = [...Object.values(s.holds), ...Object.values(s.waiting), ...merges, ...claims].sort();
+  const reminders = s.phase === "ended" ? [] : Object.values(s.questions).map(remindDue);
+  const all = [
+    ...Object.values(s.holds),
+    ...Object.values(s.waiting),
+    ...merges,
+    ...claims,
+    ...reminders,
+  ].sort();
   s.wakeAt = all[0] ?? null;
 }
 
@@ -366,6 +390,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       nits: [],
       commit: null,
       verifierRuns: 0,
+      verifierFailedOn: null,
       landRefusals: 0,
       awaiting: [],
       tries: {},
@@ -385,12 +410,15 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       digestPath: null,
       mr: null,
     };
+    m.verifierFailedOn ??= null;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
     for (const lp of mp.lanes) {
       const l = s.lanes[lp.id];
       if (l) {
+        l.lastFails ??= null;
+        l.lastFailHead ??= null;
         l.role = lp.role;
         l.kind = lp.kind;
         l.after = lp.after;
@@ -409,6 +437,8 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           top: false,
           attempts: 0,
           checkFails: 0,
+          lastFails: null,
+          lastFailHead: null,
           failoverFrom: null,
           lastReason: null,
           sameReason: 0,
@@ -746,14 +776,14 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     return;
   }
   if (dv.role === "verifier" && m.status === "verifying") {
-    // a check that cannot run: one fresh verifier more, then the owner (a BLOCKED: environment verdict parks first)
+    // A broken check needs the owner before another verifier can learn anything.
     if (e.status === "ok" && e.reason === "check_broken" && e.verdict !== "blocked") {
       m.checkBroken += 1;
-      if (m.checkBroken >= 2)
-        s.stuck[m.id] = {
-          reason: "check_broken",
-          question: `${e.name} could not run the check twice: ${e.why || "no reason given"}`,
-        };
+      m.verifierFailedOn = m.commit;
+      s.stuck[m.id] = {
+        reason: "check_broken",
+        question: `${e.name} could not run the check: ${e.why || "no reason given"}`,
+      };
     } else if (e.status === "ok" && e.verdict === "pass") {
       m.verifierRuns += 1;
       m.checkBroken = 0;
@@ -779,12 +809,14 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
           };
       }
     } else if (e.status === "ok" && e.verdict === "fail") {
+      m.verifierFailedOn = m.commit;
       m.verifierRuns += 1;
       m.open = e.findings.length
         ? e.findings.map((f) => ({ ...f, label: "BLOCKER" as const }))
         : [{ label: "BLOCKER", text: `FAIL: ${e.why || "the verifier failed the milestone"}`, file: null }];
       completeRound(s, m);
     } else if (e.status === "ok" && e.verdict === "blocked") {
+      m.verifierFailedOn = m.commit;
       m.verifierRuns += 1;
       s.stuck[m.id] = {
         reason: "environment",
@@ -894,6 +926,7 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
 function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered" }>): void {
   const q = s.questions[e.unit];
   delete s.questions[e.unit];
+  recomputeWake(s);
   delete s.stuck[e.unit];
   for (const k of Object.keys(s.failedEffects))
     if (k.endsWith(`@${e.unit}`) || k === `ended:${e.unit}`) delete s.failedEffects[k];
@@ -927,6 +960,7 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     else m.status = "merged";
     return;
   }
+  m.verifierFailedOn = null;
   m.notes.push(`The owner answered: ${e.answer}`);
   const from = m.parkedFrom ?? "waiting";
   m.parkedFrom = null;
@@ -970,6 +1004,7 @@ function apply(s: RunState, e: RunEvent): void {
     case "plan.approved":
       if (s.phase === "approval") s.phase = "running";
       if (s.questions[RUN_UNIT]?.reason === "approval") delete s.questions[RUN_UNIT];
+      recomputeWake(s);
       s.revise = [];
       return;
     case "lanes.routed": {
@@ -1069,8 +1104,28 @@ function apply(s: RunState, e: RunEvent): void {
       const l = s.lanes[e.lane];
       if (!l) return;
       // a check that fails only in a sibling's files has nothing to say about this lane
-      if (e.exit === 0 || e.foreign.length > 0) laneDone(s, l);
-      else {
+      if (e.exit === 0 || e.foreign.length > 0) {
+        l.lastFails = null;
+        l.lastFailHead = null;
+        laneDone(s, l);
+      } else {
+        const fails = checkFailLines(e.tail);
+        const head = milestoneOf(s, l.milestone)?.commit ?? null;
+        if (
+          fails.length > 0 &&
+          fails.length === l.lastFails?.length &&
+          fails.every((line, i) => line === l.lastFails?.[i]) &&
+          head === l.lastFailHead
+        ) {
+          s.stuck[e.lane] = {
+            reason: "environment",
+            question: `${e.lane} repeated the same check failure on an unchanged head:\n${fails.join("\n")}`,
+          };
+          l.climbReason = null;
+          return;
+        }
+        l.lastFails = fails;
+        l.lastFailHead = head;
         l.checkFails += 1;
         l.notes = [
           ...l.notes.filter((n) => !n.startsWith("The fast check failed")),
@@ -1126,7 +1181,8 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     }
     case "question.parked": {
-      s.questions[e.unit] = { unit: e.unit, question: e.question, reason: e.reason, at: e.at };
+      s.questions[e.unit] = { unit: e.unit, question: e.question, reason: e.reason, at: e.at, reminded: 0 };
+      recomputeWake(s);
       delete s.stuck[e.unit];
       for (const [id, j] of Object.entries(s.judges)) if (j.unit === e.unit) delete s.judges[id];
       s.owed[`parked:${e.unit}`] = {
@@ -1144,6 +1200,16 @@ function apply(s: RunState, e: RunEvent): void {
         m.parkedFrom = m.status;
         m.status = "parked";
       }
+      return;
+    }
+    case "question.reminded": {
+      const q = s.questions[e.unit];
+      if (q && e.n > q.reminded) {
+        q.reminded = e.n;
+        q.remindedAt = e.at;
+      }
+      ok(`remind@${e.unit}`);
+      recomputeWake(s);
       return;
     }
     case "question.answered":
@@ -1308,6 +1374,7 @@ function apply(s: RunState, e: RunEvent): void {
     case "run.ended":
       s.phase = "ended";
       s.outcome = e.outcome;
+      recomputeWake(s);
       return;
     case "report.posted": {
       const key = `${e.kind}:${e.unit}`;
