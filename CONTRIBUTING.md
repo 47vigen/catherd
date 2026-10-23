@@ -80,12 +80,16 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
     If you install a CLI while the panel runs, it shows up within 60 seconds or on **Re-check**.
   - The fixture run: `test/fixtures/runs/case-helpers/` is a real smoke run (one milestone, a fix round and a
     rules judge). The run-model and panel server tests read it. To refresh it, copy the same files of the new
-    run from `~/.local/share/catherd/repos/<repo>/runs/<run>/`. Then replace your home path and the repo slug:
+    run from `~/.local/share/catherd/repos/<repo>/runs/<run>/`. Then replace the repo path, your home path and the
+    repo slug:
 
     ```sh
     find test/fixtures/runs/case-helpers -type f -exec sed -i '' \
-      -e "s#$HOME#/home/user#g" -e 's#<repo slug>#home-user-smoke#g' {} +
+      -e 's#<repo path>#/home/user/smoke#g' -e "s#$HOME#/home/user#g" -e 's#<repo slug>#home-user-smoke#g' {} +
     ```
+
+    Then read every `stderr` and transcript line: an MCP server, plugin or hook of your own setup prints its name
+    and address there; replace each with `example`.
 
     The two `scratch/**/*.log` files must be added with `--force`, because `*.log` is ignored. A test fails if
     a `/Users/` path is left.

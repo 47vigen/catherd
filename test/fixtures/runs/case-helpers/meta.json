@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "20261022-192138-case-helpers",
-  "repo": "/home/user/agora/lab/catherd-smoke",
+  "repo": "/home/user/smoke",
   "title": "case helpers",
   "aLines": [
     "A1 `capitalize(\"hello\")` is \"Hello\" and `capitalize(\"\")` is \"\"",

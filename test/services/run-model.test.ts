@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { RunModelSchema } from "../../src/domain/run-graph.ts";
 import { appendRecord } from "../../src/services/run-store.ts";
@@ -109,18 +109,19 @@ describe("the run model service", () => {
     });
   });
 
-  it("the fixture holds no home path", () => {
-    const dir = join(import.meta.dir, "..", "fixtures", "runs", "case-helpers");
-    const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.includes("."));
-    expect(files.length).toBeGreaterThan(20);
+  it("the fixtures hold no home path and no trace of the machine they were recorded on", () => {
+    const fixtures = join(import.meta.dir, "..", "fixtures");
+    const files = ["runs/case-helpers", "transcript"].flatMap((d) =>
+      (readdirSync(join(fixtures, d), { recursive: true }) as string[])
+        .map((f) => join(fixtures, d, f))
+        .filter((f) => statSync(f).isFile()),
+    );
+    expect(files.length).toBeGreaterThan(30);
+    expect(files.some((f) => f.endsWith("stderr"))).toBe(true);
     for (const f of files) {
-      let text: string;
-      try {
-        text = readFileSync(join(dir, f), "utf8");
-      } catch {
-        continue;
-      }
-      expect(text.includes("/Users/")).toBe(false);
+      const text = readFileSync(f, "utf8");
+      for (const trace of ["/Users/", "/agora/", "trypulse", "honcho"])
+        expect(text.includes(trace), `${f} holds "${trace}"`).toBe(false);
     }
   });
 });
