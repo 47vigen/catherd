@@ -3,9 +3,10 @@ import { appendFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import "../../src/adapters/all.ts";
 import { readTranscript, tailTranscript } from "../../src/services/transcript.ts";
-import { tempDir } from "../helpers.ts";
+import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 
 const dirs: string[] = [];
+afterEach(snapshotEnv());
 const mk = (content: string): string => {
   const d = tempDir("catherd-transcript-");
   dirs.push(d);
@@ -65,6 +66,7 @@ describe("readTranscript", () => {
 
 describe("tailTranscript", () => {
   it("retains later batches when parsing a batch throws", () => {
+    dirs.push(withHome());
     const broken = JSON.stringify({ type: "assistant", message: { content: [null] } });
     const valid = JSON.stringify({
       type: "assistant",
