@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendCheckRecord,
@@ -13,6 +13,7 @@ import {
   readChecks,
   secretScan,
 } from "../../src/services/milestone-check.ts";
+import { checkFailLines, FAIL_DISPLAY_CAP } from "../../src/domain/fail-lines.ts";
 import { ROLE_ENV } from "../../src/domain/role-scope.ts";
 import { LOCK_HELD_ENV, withRoleLock } from "../../src/infra/heavy-lock.ts";
 import { DISPATCH_ID_ENV } from "../../src/infra/lock-activity.ts";
@@ -101,6 +102,28 @@ describe("execMilestoneCheck", () => {
 });
 
 describe("execMilestoneCheck run by a verifier role", () => {
+  let fixtureDir: string;
+  let restoreEnv: () => void;
+
+  beforeEach(() => {
+    restoreEnv = snapshotEnv();
+    delete process.env[ROLE_ENV];
+    delete process.env[DISPATCH_ID_ENV];
+    delete process.env.TMPDIR;
+    // A worker's scratch would make the fixture's lock directory inherit that worker's role.
+    const testTmp = join(import.meta.dir, "../../.superpowers");
+    mkdirSync(testTmp, { recursive: true });
+    fixtureDir = mkdtempSync(join(testTmp, "milestone-check-"));
+    process.env.TMPDIR = fixtureDir;
+    withHome();
+    run = createRun({ repo, title: "t", aLines: ["A1"], version: "0.0.0-test", startHead: BASE });
+  });
+
+  afterEach(() => {
+    restoreEnv();
+    rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
   const probe = `bun -e 'import { roleScopeFromEnv } from "${join(import.meta.dir, "../../src/domain/role-scope.ts")}"; console.log(JSON.stringify(roleScopeFromEnv(process.env)))'`;
 
   it("runs the check as no role, in a slot or under a held lock", async () => {
@@ -199,21 +222,69 @@ describe("machineGate", () => {
     expect(await machineGate(run, "M1", HEAD)).toEqual({ missing: [], audit: [] });
   });
 
-  it("lets a failure through whose every line the base has, with an audit line", async () => {
+  it("a failing check on a red baseline blocks", async () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x", "FAIL y"] }));
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
     const g = await machineGate(run, "M1", HEAD);
-    expect(g.missing).toEqual([]);
-    expect(g.audit[0]).toContain("pre-existing");
+    expect(g.missing[0]).toContain("pre-existing");
+    expect(g.missing[0]).toContain("FAIL x");
+    expect(g.audit).toEqual([]);
   });
 
-  it("names the unreached tail of an && check in the audit", async () => {
-    const command = "bun run lint && bun test";
-    appendCheckRecord(repo, rec({ command, baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
-    appendCheckRecord(repo, rec({ command, exit: 1, fails: ["FAIL x"] }));
+  it("machineGate names an item with no record", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    appendCheckRecord(repo, rec({ command: "a" }));
     const g = await machineGate(run, "M1", HEAD);
-    expect(g.missing).toEqual([]);
-    expect(g.audit[0]).toContain("`bun test` ran on neither side");
+    expect(g.missing).toHaveLength(1);
+    expect(g.missing[0]).toContain("`b`");
+  });
+
+  it("names every planned item when no check is recorded on this head", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing).toHaveLength(2);
+    expect(g.missing[0]).toContain("`a`");
+    expect(g.missing[1]).toContain("`b`");
+  });
+
+  it("requires items recorded on another head when the plan has no Check line", async () => {
+    appendCheckRecord(repo, rec({ command: "a" }));
+    appendCheckRecord(repo, rec({ command: "b", head: "c".repeat(40) }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`b`");
+  });
+
+  it("does not treat an old whole-command record as records of its items", async () => {
+    appendCheckRecord(repo, rec({ command: "a && b" }));
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing.join("\n")).toContain("`a`");
+    expect(g.missing.join("\n")).toContain("`b`");
+  });
+
+  it("judges item records rather than an obsolete whole-command failure", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    appendCheckRecord(repo, rec({ command: "a && b", exit: 1, fails: ["FAIL old"] }));
+    appendCheckRecord(repo, rec({ command: "a" }));
+    appendCheckRecord(repo, rec({ command: "b" }));
+    expect(await machineGate(run, "M1", HEAD)).toEqual({ missing: [], audit: [] });
+  });
+
+  it("a fresh failure after line 60 is caught", async () => {
+    const lines = Array.from({ length: 61 }, (_, n) => `FAIL case ${n}`);
+    appendCheckRecord(
+      repo,
+      rec({ baseline: true, head: BASE, exit: 1, fails: checkFailLines(lines.join("\n")) }),
+    );
+    appendCheckRecord(repo, rec({ exit: 1, fails: checkFailLines([...lines, "FAIL fresh"].join("\n")) }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("FAIL fresh");
+  });
+
+  it("caps displayed pre-existing lines only", async () => {
+    const fails = Array.from({ length: FAIL_DISPLAY_CAP + 1 }, (_, n) => `FAIL case ${n}`);
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails }));
+    appendCheckRecord(repo, rec({ exit: 1, fails }));
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing.join("\n")).toContain(`FAIL case ${FAIL_DISPLAY_CAP - 1}`);
+    expect(g.missing.join("\n")).not.toContain(`FAIL case ${FAIL_DISPLAY_CAP}`);
   });
 
   it("refuses failing lines the base does not have, naming them", async () => {
@@ -246,7 +317,8 @@ describe("machineGate", () => {
     expect(g.audit.join("\n")).toContain("rerun");
   });
 
-  it("judges the latest record of each command, and only this milestone's on this commit", async () => {
+  it("judges the latest record of each planned command, and only this milestone's on this commit", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: bun test\n");
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 0 }));
     appendCheckRecord(repo, rec({ milestone: "M2", command: "lint", exit: 1 }));

@@ -17,6 +17,8 @@ import {
 } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
+import { readJsonl } from "../infra/store.ts";
+import { gatesFile, recordedItems } from "./gate-service.ts";
 import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
@@ -457,6 +459,31 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
       `land ${m}: the machine gate on ${landed.slice(0, 12)}: ${machine.missing.join("; ")}`,
       {
         fix: `run the full check with gate_run(run, "${m}", <command>) on ${landed.slice(0, 7)}; fix what fails, commit, and verify again`,
+      },
+    );
+  const items = await recordedItems(run, m);
+  const passes = readJsonl<{ run: string; item: string; command: string; commit: string }>(
+    gatesFile(run.meta.repo),
+  ).rows;
+  const unpassed = items.filter(
+    (item) =>
+      !item.passed ||
+      !passes.some(
+        (pass) =>
+          pass?.run === run.id &&
+          pass.item === item.item &&
+          pass.command === item.command &&
+          pass.commit.length > 0 &&
+          !pass.commit.includes("+") &&
+          landed.startsWith(pass.commit),
+      ),
+  );
+  if (unpassed.length)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: gate items without a pass on ${landed.slice(0, 12)}: ${unpassed.map((item) => item.item).join(", ")}`,
+      {
+        fix: `run each item and record gate_pass with milestone "${m}" on ${landed.slice(0, 7)}, then land again`,
       },
     );
   return machine.audit;

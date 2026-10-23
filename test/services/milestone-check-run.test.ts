@@ -49,6 +49,42 @@ describe("runMilestoneCheck", () => {
     expect(readChecks(repo)).toHaveLength(2);
   });
 
+  it("a two-item check writes two records and runs the second after the first fails", async () => {
+    const first = "(echo 'FAIL first'; exit 1)";
+    const second = "echo second";
+    const command = `${first} && ${second}`;
+    const r = await runMilestoneCheck({ ...i, command });
+    expect(r).toMatchObject({ running: false, cached: false });
+    expect(readChecks(repo).map((r) => [r.command, r.exit])).toEqual([
+      [first, 1],
+      [second, 0],
+    ]);
+    expect(r.running === false && r.missing.join("\n")).toContain("FAIL first");
+    expect(await runMilestoneCheck({ ...i, command })).toMatchObject({ cached: true });
+    expect(readChecks(repo)).toHaveLength(2);
+  });
+
+  it("caches finished items while a later item is still running", async () => {
+    const go = join(tempDir("go-"), "go");
+    const first = "echo first";
+    const second = `while [ ! -f ${go} ]; do sleep 0.05; done; echo done`;
+    const command = `${first} && ${second}`;
+    // Finish the first item before exercising the running response on the second.
+    await runMilestoneCheck({ ...i, command: first });
+    checkLimits.waitMs = 50;
+    let pending;
+    try {
+      pending = await runMilestoneCheck({ ...i, command });
+    } finally {
+      writeFileSync(go, "");
+    }
+    checkLimits.waitMs = 60_000;
+    const r = await runMilestoneCheck({ ...i, command });
+    expect(pending).toMatchObject({ running: true });
+    expect(r).toMatchObject({ running: false });
+    expect(readChecks(repo).map((r) => r.command)).toEqual([first, second]);
+  });
+
   it("refuses tracked uncommitted changes: a record names a commit", async () => {
     writeFileSync(join(repo, "tracked.txt"), "edit");
     const e = await runMilestoneCheck(i).catch((x) => x);
@@ -77,6 +113,22 @@ describe("runMilestoneCheck", () => {
     const e = await runMilestoneCheck({ ...i, at: other }).catch((x) => x);
     expect(e.code).toBe("E_INPUT_INVALID");
     expect(e.message).toContain(BASE.slice(0, 12));
+  });
+
+  it("records each baseline item and reruns each item when forced", async () => {
+    const at = join(tempDir("base-"), "wt");
+    git(repo, "worktree", "add", "--detach", at, BASE);
+    const first = "(echo 'FAIL base'; exit 1)";
+    const second = "echo second";
+    const input = { ...i, at, command: `${first} && ${second}` };
+    await runMilestoneCheck(input);
+    expect(readChecks(repo).map((r) => [r.command, r.exit, r.baseline, r.head])).toEqual([
+      [first, 1, true, BASE],
+      [second, 0, true, BASE],
+    ]);
+    expect(await runMilestoneCheck(input)).toMatchObject({ cached: true });
+    expect(await runMilestoneCheck({ ...input, force: true })).toMatchObject({ cached: false });
+    expect(readChecks(repo).map((r) => r.command)).toEqual([first, second, first, second]);
   });
 
   it("says how to record a baseline when a failing check has none", async () => {
