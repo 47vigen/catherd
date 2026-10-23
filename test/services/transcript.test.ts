@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import "../../src/adapters/all.ts";
 import { readTranscript, tailTranscript } from "../../src/services/transcript.ts";
-import { tempDir } from "../helpers.ts";
+import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 
 const dirs: string[] = [];
+afterEach(snapshotEnv());
 const mk = (content: string): string => {
   const d = tempDir("catherd-transcript-");
   dirs.push(d);
@@ -64,6 +65,98 @@ describe("readTranscript", () => {
 });
 
 describe("tailTranscript", () => {
+  it("retains later batches when parsing a batch throws", () => {
+    dirs.push(withHome());
+    const broken = JSON.stringify({ type: "assistant", message: { content: [null] } });
+    const valid = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "kept" }] },
+    });
+    const dir = mk([broken, ...Array<string>(499).fill("{}"), valid].join("\n") + "\n");
+    const pages: Parameters<Parameters<typeof tailTranscript>[3]>[0][] = [];
+    let poll: () => void = () => {
+      throw new Error("poll was not scheduled");
+    };
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+      poll = callback;
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+    let stop: (() => void) | undefined;
+    try {
+      stop = tailTranscript(dir, "claude", 0, (p) => pages.push(p));
+      expect(pages).toEqual([]);
+      poll();
+      expect(pages).toEqual([
+        {
+          items: [{ kind: "text", line: 500, text: "kept" }],
+          raw: [valid],
+          next: 501,
+        },
+      ]);
+      poll();
+      expect(pages).toHaveLength(1);
+    } finally {
+      stop?.();
+      timer.mockRestore();
+    }
+  });
+
+  it("reads only the bytes after the last full line it sent", async () => {
+    const dir = mk("AAAA\n");
+    const file = join(dir, "events.jsonl");
+    type Page = Parameters<Parameters<typeof tailTranscript>[3]>[0];
+    let wake: (p: Page) => void;
+    const wait = () =>
+      new Promise<Page>((resolve) => {
+        wake = resolve;
+      });
+    const first = wait();
+    const stop = tailTranscript(dir, "opencode", 0, (p) => wake(p), { pollMs: 5 });
+    try {
+      expect((await first).raw).toEqual(["AAAA"]);
+      const second = wait();
+      writeFileSync(file, "A\nAA\nB\nC");
+      expect(await second).toEqual({
+        items: [{ kind: "raw", line: 1, text: "B" }],
+        raw: ["B"],
+        next: 2,
+      });
+      const third = wait();
+      appendFileSync(file, "\n");
+      expect(await third).toEqual({
+        items: [{ kind: "raw", line: 2, text: "C" }],
+        raw: ["C"],
+        next: 3,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it("rereads a truncated file while skipping lines already sent", async () => {
+    const dir = mk("AAAA\nBBBB\nCCCC\n");
+    type Page = Parameters<Parameters<typeof tailTranscript>[3]>[0];
+    let wake: (p: Page) => void;
+    const wait = () =>
+      new Promise<Page>((resolve) => {
+        wake = resolve;
+      });
+    const first = wait();
+    const stop = tailTranscript(dir, "opencode", 0, (p) => wake(p), { pollMs: 5 });
+    try {
+      expect((await first).next).toBe(3);
+      const second = wait();
+      writeFileSync(join(dir, "events.jsonl"), "a\nb\nc\nd\n");
+      expect(await second).toEqual({
+        items: [{ kind: "raw", line: 3, text: "d" }],
+        raw: ["d"],
+        next: 4,
+      });
+    } finally {
+      stop();
+    }
+  });
+
   it("tails lines as they are appended", async () => {
     const dir = mk(`${msg("a")}\n`);
     const got = Promise.withResolvers<{ items: { line: number }[]; raw: string[]; next: number }>();

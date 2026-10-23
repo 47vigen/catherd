@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
+import { logFile } from "../../src/infra/log.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { appendEvent, eventsFile } from "../../src/services/run-events-store.ts";
 import { RunCardSchema, runIndex, runIndexCache } from "../../src/services/run-index.ts";
-import { appendRecord, appendRoute, createRun, type Run } from "../../src/services/run-store.ts";
+import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { interventionsOf } from "../../src/services/scorecard-metrics.ts";
 import { makeRecord } from "../domain/make-record.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
@@ -16,6 +17,7 @@ afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
 let launched: string[] = [];
 beforeEach(() => {
+  delete process.env.ANTHROPIC_API_KEY;
   launched = [];
   daemonLauncher.launch = (id: string) => {
     launched.push(id);
@@ -163,6 +165,51 @@ describe("the run index", () => {
       `${JSON.stringify({ v: 99, seq: 4, at: at(0).toISOString(), type: "tick" })}\n`,
     );
     expect(runIndex(deps()).map((c) => c.id)).toEqual([ok.id]);
+  });
+
+  it("logs a run with an unreadable meta.json once and lists the others", async () => {
+    withHome();
+    process.env.CATHERD_LOG = "warn";
+    const repo = tempRepo();
+    const bad = await make(repo, "bad", 2 * HOUR);
+    const good = await make(repo, "good", HOUR);
+    writeFileSync(runPaths(bad.dir).meta, "{not json");
+    expect(runIndex(deps()).map((c) => c.id)).toEqual([good.id]);
+    expect(runIndex(deps()).map((c) => c.id)).toEqual([good.id]);
+    const warnings = (existsSync(logFile()) ? readFileSync(logFile(), "utf8") : "")
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => JSON.parse(line))
+      .filter((row) => row.event === "index" && row.corrupt);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ level: "warn", run: bad.id, dir: bad.dir });
+  });
+
+  it("drops the cached card of a run that was deleted", async () => {
+    withHome();
+    const repo = tempRepo();
+    const a = await make(repo, "a", 2 * HOUR);
+    const b = await make(repo, "b", HOUR);
+    runIndex(deps());
+    expect(runIndexCache.size).toBe(2);
+    rmSync(a.dir, { recursive: true, force: true });
+    expect(runIndex(deps()).map((c) => c.id)).toEqual([b.id]);
+    expect(runIndexCache.size).toBe(1);
+  });
+
+  it("a repo-filtered read keeps other repos' cached cards", async () => {
+    withHome();
+    const repo = tempRepo();
+    const a = await make(repo, "a", 2 * HOUR);
+    const b = await make(tempRepo(), "b", HOUR);
+    runIndex(deps());
+    expect(runIndexCache.size).toBe(2);
+    expect(runIndex(deps(), { repo }).map((c) => c.id)).toEqual([a.id]);
+    expect(runIndexCache.size).toBe(2);
+    const computed = runIndexCache.computed;
+    expect(runIndex(deps()).map((c) => c.id)).toEqual([b.id, a.id]);
+    expect(runIndexCache.computed).toBe(computed);
   });
 
   it("reading the index starts no daemon", async () => {

@@ -23,11 +23,14 @@ import {
   type ScorecardTaskId,
   type TaskScore,
 } from "../domain/scorecard.ts";
+import { coveredMs } from "../domain/util.ts";
+import { withFileLock } from "../infra/filelock.ts";
 import { assetPath } from "../infra/assets.ts";
 import { git, gitHead } from "../infra/git.ts";
 import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "../infra/store.ts";
 import { landedMilestones, reviewRounds } from "./milestones.ts";
+import { pauseSpans } from "./pause.ts";
 import { checkEnvFor, runCheck } from "./preflight.ts";
 import { runMilestones } from "./protocol.ts";
 import { openQuestions } from "./questions.ts";
@@ -305,11 +308,13 @@ export async function scoreTask(i: {
         },
       );
   const done: string[] = [];
+  const made: string[] = [];
   let check: Awaited<ReturnType<typeof runCheck>>;
   const head = await gitHead(p.repo);
   try {
     for (const c of copies) {
-      mkdirSync(dirname(c.to), { recursive: true });
+      const dir = mkdirSync(dirname(c.to), { recursive: true });
+      if (dir) made.push(dir);
       copyFileSync(c.from, c.to);
       done.push(c.to);
     }
@@ -321,6 +326,7 @@ export async function scoreTask(i: {
     );
   } finally {
     for (const f of done) rmSync(f, { force: true });
+    for (const d of made.reverse()) rmSync(d, { recursive: true, force: true });
   }
   const acceptance = {
     passed: check.code === 0 && !check.timedOut,
@@ -347,7 +353,7 @@ export async function scoreTask(i: {
       landed: outcomes.filter((o) => o.landed).length,
       climbs: outcomes.reduce((n, o) => n + o.climbs.length, 0),
     },
-    wallMinutes: minutes(end - start),
+    wallMinutes: minutes(Math.max(0, end - start - coveredMs(start, end, pauseSpans(run)))),
     pausedMinutes: minutes(pausedMs(run, end)),
     quota: {
       backends: quotaByBackend(readRecords(run).records),
@@ -373,10 +379,12 @@ export function readScorecard(file: string): ScorecardFile | null {
 }
 
 /** Sets the task's row in the label's file (a re-record replaces it) and returns the file's contents. */
-export function saveTaskScore(file: string, label: string, s: TaskScore): ScorecardFile {
-  const f = readScorecard(file) ?? { schema: 1 as const, label, tasks: {} };
-  f.tasks[s.task] = s;
+export function saveTaskScore(file: string, label: string, s: TaskScore): Promise<ScorecardFile> {
   ensurePrivateDir(dirname(file));
-  writeJsonAtomic(file, f);
-  return f;
+  return withFileLock(file, () => {
+    const f = readScorecard(file) ?? { schema: 1 as const, label, tasks: {} };
+    f.tasks[s.task] = s;
+    writeJsonAtomic(file, f);
+    return f;
+  });
 }

@@ -167,6 +167,8 @@ export function recovered(s: TaskScore): boolean {
 export interface Verdict {
   pass: boolean;
   failures: string[];
+  /** Facts the reader needs that do not fail the bar. */
+  notes: string[];
   wall: { now: number; baseline: number | null };
 }
 
@@ -187,11 +189,17 @@ export function passBar(current: ScorecardFile, baseline: ScorecardFile | null):
   const now = sumWall(current);
   const full = baseline !== null && SCORECARD_TASKS.every((t) => baseline.tasks[t] !== undefined);
   const base = full ? sumWall(baseline) : null;
+  const notes = full
+    ? SCORECARD_TASKS.filter((t) => baseline.tasks[t]?.finished === false).map(
+        (t) =>
+          `baseline ${baseline.label}: ${t} did not finish, so its wall-clock stops where it was stopped and the wall-clock bar is lenient`,
+      )
+    : [];
   if (base === null) failures.push("no full baseline to compare wall-clock against");
   else if (now > base * (1 + WALL_TOLERANCE)) {
     failures.push(
       `wall-clock ${Math.round(now)} min against the baseline's ${Math.round(base)} min (more than 10 % slower)`,
     );
   }
-  return { pass: failures.length === 0, failures, wall: { now, baseline: base } };
+  return { pass: failures.length === 0, failures, notes, wall: { now, baseline: base } };
 }
