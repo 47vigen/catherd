@@ -86,10 +86,17 @@ export async function worktreeIdentity(repo: string, timeoutMs?: number): Promis
   if (tracked.kind !== "ok") return null;
   const hash = createHash("sha256").update(head.out).update("\0").update(diff.out).update("\0");
   try {
-    const paths = new Set([...tracked.out.split("\0"), ...untracked.out.split("\0")].filter(Boolean));
+    const trackedPaths = new Set(tracked.out.split("\0").filter(Boolean));
+    const untrackedPaths = new Set(untracked.out.split("\0").filter(Boolean));
+    const paths = new Set([...trackedPaths, ...untrackedPaths]);
     for (const path of [...paths].sort()) {
       const fullPath = join(repo, path);
-      const stat = lstatSync(fullPath);
+      const stat = lstatSync(fullPath, { throwIfNoEntry: false });
+      if (!stat) {
+        if (untrackedPaths.has(path)) return null;
+        hash.update(path).update("\0deleted\0");
+        continue;
+      }
       // Direct bytes catch normalization and mode changes Git's diff can hide. Directories include submodules.
       if (!stat.isFile() && !stat.isSymbolicLink()) return null;
       const type = stat.isSymbolicLink() ? "link" : "file";

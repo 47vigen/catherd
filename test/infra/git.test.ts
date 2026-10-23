@@ -104,6 +104,23 @@ describe("git", () => {
     expect(await worktreeIdentity(repo)).toBe(committed);
   });
 
+  it("worktreeIdentity gives an unchanged tracked deletion a stable identity", async () => {
+    const repo = tempRepo();
+    const file = join(repo, "tracked.txt");
+    writeFileSync(file, "original");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "tracked file");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).not.toBeNull();
+    unlinkSync(file);
+    const deleted = await worktreeIdentity(repo);
+    expect(deleted).toMatch(/^[a-f0-9]{64}$/);
+    expect(deleted).not.toBe(clean);
+    expect(await worktreeIdentity(repo)).toBe(deleted);
+    writeFileSync(file, "original");
+    expect(await worktreeIdentity(repo)).toBe(clean);
+  });
+
   it("worktreeIdentity includes untracked symlink targets and file types", async () => {
     const repo = tempRepo();
     writeFileSync(join(repo, "a"), "same");
