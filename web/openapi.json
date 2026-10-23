@@ -1424,6 +1424,9 @@
                   "minimum": -9007199254740991,
                   "maximum": 9007199254740991
                 },
+                "reviews": {
+                  "type": "number"
+                },
                 "commit": {
                   "type": [
                     "string",
@@ -1436,6 +1439,7 @@
                 "title",
                 "status",
                 "round",
+                "reviews",
                 "commit"
               ],
               "additionalProperties": false
@@ -1518,6 +1522,9 @@
           "elapsedSec": {
             "type": "number"
           },
+          "waitingSec": {
+            "type": "number"
+          },
           "countingSince": {
             "type": [
               "string",
@@ -1542,6 +1549,7 @@
           "startedAt",
           "updatedAt",
           "elapsedSec",
+          "waitingSec",
           "countingSince"
         ],
         "additionalProperties": false
@@ -1686,6 +1694,9 @@
                   "cached": {
                     "type": "number"
                   },
+                  "cacheWrite": {
+                    "type": "number"
+                  },
                   "output": {
                     "type": "number"
                   }
@@ -1693,11 +1704,18 @@
                 "required": [
                   "input",
                   "cached",
+                  "cacheWrite",
                   "output"
                 ],
                 "additionalProperties": false
               },
               "costUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unpriced": {
                 "type": "number"
               },
               "interventions": {
@@ -1725,6 +1743,7 @@
               "dispatches",
               "tokens",
               "costUsd",
+              "unpriced",
               "interventions",
               "failovers",
               "climbs",
@@ -2250,6 +2269,9 @@
                   "cached": {
                     "type": "number"
                   },
+                  "cacheWrite": {
+                    "type": "number"
+                  },
                   "output": {
                     "type": "number"
                   }
@@ -2393,7 +2415,10 @@
                 "maximum": 9007199254740991
               },
               "costUsd": {
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "tokens": {
                 "type": "number"
@@ -2669,6 +2694,9 @@
                         "type": "number"
                       },
                       "cached": {
+                        "type": "number"
+                      },
+                      "cacheWrite": {
                         "type": "number"
                       },
                       "output": {
