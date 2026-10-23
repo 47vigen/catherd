@@ -52,6 +52,7 @@ export const repoName = (path: string): string => path.replace(/\/+$/, "").split
 export function runStatus(r: RunCard): Status {
   if (r.engine === "1.5") return "info";
   if (r.outcome) return r.outcome;
+  if (r.paused) return "paused";
   if (r.openQuestions > 0) return "parked";
   return r.phase === "planning" || r.phase === "approval" ? r.phase : "running";
 }

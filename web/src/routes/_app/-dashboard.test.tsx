@@ -20,6 +20,7 @@ const card = (over: Partial<RunCard> = {}): RunCard => ({
   milestones: { total: 4, landed: 1 },
   live: [],
   openQuestions: 0,
+  paused: null,
   totals: {
     dispatches: 3,
     tokens: { input: 30_000, cached: 0, output: 4_000 },

@@ -67,6 +67,8 @@ describe("the run index", () => {
     await appendEvent(run, { type: "run.resumed", by: "owner" }, at(HOUR - 30 * 60_000));
     await appendEvent(run, { type: "run.ended", outcome: "done", reportPath: null }, at(0));
     expect(runIndex(deps())[0]?.wallMinutes).toBe(40);
+    const live = await make(tempRepo(), "on hold", HOUR / 2, { type: "run.paused", by: "owner" });
+    expect(runIndex(deps()).find((c) => c.id === live.id)?.paused).toBe(at(HOUR / 2 - 2000).toISOString());
   });
 
   it("sums tokens, cost and time per backend, model and role from runs.jsonl", async () => {

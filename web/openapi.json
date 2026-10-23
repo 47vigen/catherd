@@ -1663,6 +1663,12 @@
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
           },
+          "paused": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "totals": {
             "type": "object",
             "properties": {
@@ -1801,6 +1807,7 @@
           "milestones",
           "live",
           "openQuestions",
+          "paused",
           "totals",
           "byBackend",
           "byModel",

@@ -64,6 +64,7 @@ export type RunCard = {
         unit: string;
     }>;
     openQuestions: number;
+    paused: string | null;
     totals: {
         dispatches: number;
         tokens: {

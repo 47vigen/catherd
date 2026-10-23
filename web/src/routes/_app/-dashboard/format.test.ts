@@ -59,6 +59,7 @@ test("a run's status: a 1.5 run is informational, an outcome ends it, a question
   expect(runStatus(card({ engine: "1.5" }))).toBe("info");
   expect(runStatus(card({ outcome: "failed" }))).toBe("failed");
   expect(runStatus(card({ openQuestions: 1 }))).toBe("parked");
+  expect(runStatus(card({ openQuestions: 1, paused: "2026-10-23T10:00:00Z" }))).toBe("paused");
   expect(runStatus(card({ phase: "approval" }))).toBe("approval");
   expect(runStatus(card({}))).toBe("running");
 });

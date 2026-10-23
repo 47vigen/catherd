@@ -106,6 +106,7 @@ const card = (over: object = {}) => ({
   milestones: { total: 2, landed: 1 },
   live: [{ name: "worker-M2.L1", role: "worker", rung: "codex:gpt-6-sol#high", unit: "M2.L1" }],
   openQuestions: 1,
+  paused: null,
   totals: {
     dispatches: 3,
     tokens: { input: 0, cached: 0, output: 0 },
@@ -234,6 +235,16 @@ test("the list query carries the search, the phase and the page", async () => {
   await waitFor(() =>
     expect(requests.map(describeRequest)).toContain("GET /api/runs?q=wallet&phase=running&limit=25&offset=25"),
   );
+});
+
+test("a paused run's row says it is paused", async () => {
+  renderRoute("/runs", (req, url) =>
+    url.pathname === "/api/runs"
+      ? Response.json({ items: [card({ paused: now(), openQuestions: 1 })], total: 1 })
+      : api(req, url),
+  );
+  const row = (await screen.findByText("wallet split")).closest<HTMLElement>('[role="row"]')!;
+  expect(within(row).getByText("Paused")).toBeInTheDocument();
 });
 
 test("a row shows the run's repo, questions, milestones, wall time, tokens and cost, and opens the run", async () => {

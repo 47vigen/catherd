@@ -31,6 +31,8 @@ export const RunCardSchema = z.object({
   milestones: z.object({ total: z.number().int(), landed: z.number().int() }),
   live: z.array(z.object({ name: z.string(), role: z.string(), rung: z.string(), unit: z.string() })),
   openQuestions: z.number().int(),
+  /** the start of the run's own pause in force */
+  paused: z.string().nullable(),
   totals: z.object({
     dispatches: z.number().int(),
     tokens: z.object({ input: z.number(), cached: z.number(), output: z.number() }),
@@ -121,6 +123,7 @@ function compute(deps: Deps, run: Run): RunCard {
       ? liveDispatches(state).map((d) => ({ name: d.name, role: d.role, rung: d.rung, unit: d.unit }))
       : [],
     openQuestions: state ? Object.keys(state.questions).length : openQuestions(run).length,
+    paused: state?.paused ?? null,
     totals: {
       dispatches: records.length,
       tokens,

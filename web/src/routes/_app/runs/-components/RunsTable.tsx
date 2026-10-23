@@ -1,19 +1,11 @@
 import { cn, Link, Table, Tooltip } from "@heroui/react";
 
 import { formatCost, formatTokens } from "../-lib/format";
-import { formatElapsed, repoName } from "../../-dashboard/format";
+import { formatElapsed, repoName, runStatus } from "../../-dashboard/format";
 import type { RunCard } from "../../../../client";
 import { backendName, ProviderIcon } from "../../../../components/provider-icon/ProviderIcon";
-import { StatusChip, type Status } from "../../../../components/status-chip/StatusChip";
+import { StatusChip } from "../../../../components/status-chip/StatusChip";
 import { formatRelative } from "../../../../lib/time";
-
-/** What a run is doing: a 1.5 run is only informational, an outcome ends the story, a question comes next. */
-const cardStatus = (r: RunCard): Status => {
-  if (r.engine === "1.5") return "info";
-  if (r.outcome) return r.outcome;
-  if (r.openQuestions > 0) return "parked";
-  return r.phase === "planning" || r.phase === "approval" ? r.phase : "running";
-};
 
 const NUM = "text-right font-mono text-[13px] tabular-nums whitespace-nowrap";
 const DASH = <span className="text-muted">–</span>;
@@ -91,9 +83,9 @@ export function RunsTable({ items, now, onOpen }: { items: RunCard[]; now: Date;
                   </Table.Cell>
                   <Table.Cell>
                     <StatusChip
-                      status={cardStatus(r)}
+                      status={runStatus(r)}
                       label={
-                        r.openQuestions > 0 && !r.outcome
+                        r.openQuestions > 0 && !r.outcome && !r.paused
                           ? `${r.openQuestions} ${r.openQuestions === 1 ? "question" : "questions"}`
                           : undefined
                       }
