@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import "../../src/adapters/all.ts";
@@ -64,6 +64,41 @@ describe("readTranscript", () => {
 });
 
 describe("tailTranscript", () => {
+  it("retains later batches when parsing a batch throws", () => {
+    const broken = JSON.stringify({ type: "assistant", message: { content: [null] } });
+    const valid = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "kept" }] },
+    });
+    const dir = mk([broken, ...Array<string>(499).fill("{}"), valid].join("\n") + "\n");
+    const pages: Parameters<Parameters<typeof tailTranscript>[3]>[0][] = [];
+    let poll: () => void = () => {
+      throw new Error("poll was not scheduled");
+    };
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+      poll = callback;
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+    let stop: (() => void) | undefined;
+    try {
+      stop = tailTranscript(dir, "claude", 0, (p) => pages.push(p));
+      expect(pages).toEqual([]);
+      poll();
+      expect(pages).toEqual([
+        {
+          items: [{ kind: "text", line: 500, text: "kept" }],
+          raw: [valid],
+          next: 501,
+        },
+      ]);
+      poll();
+      expect(pages).toHaveLength(1);
+    } finally {
+      stop?.();
+      timer.mockRestore();
+    }
+  });
+
   it("reads only the bytes after the last full line it sent", async () => {
     const dir = mk("AAAA\n");
     const file = join(dir, "events.jsonl");

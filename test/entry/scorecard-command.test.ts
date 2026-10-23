@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   INJECTED_TASK,
@@ -21,11 +21,12 @@ afterEach(snapshotEnv());
 function catherd(args: string[], env: Record<string, string> = {}) {
   const inherited = { ...process.env };
   delete inherited.CATHERD_ROLE;
-  // The run's scratch TMPDIR also identifies the worker, even without CATHERD_ROLE.
-  const tmp = mkdtempSync(join("/var/tmp", "scorecard-cli-"));
+  const tmp = tempDir("scorecard-cli-");
   try {
     const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
-      env: { ...inherited, TMPDIR: tmp, ANTHROPIC_API_KEY: "", NO_COLOR: "1", ...env },
+      cwd: tmp,
+      // A relative TMPDIR keeps the CLI from identifying the worker through its scratch path.
+      env: { ...inherited, TMPDIR: ".", ANTHROPIC_API_KEY: "", NO_COLOR: "1", ...env },
       stdout: "pipe",
       stderr: "pipe",
     });

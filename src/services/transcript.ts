@@ -88,16 +88,16 @@ export function tailTranscript(
         line = 0;
         r = linesFrom(dir, offset);
       }
-      offset = r.at;
       const lines = r.lines.slice(Math.max(0, next - line));
       let at = Math.max(next, line);
-      line += r.lines.length;
       for (let i = 0; !stopped && i < lines.length; i += TAIL_PAGE) {
         const page = lines.slice(i, i + TAIL_PAGE);
         next = at + page.length;
         onPage({ items: itemsOf(backend, page, at), raw: page.filter((l) => l.trim()), next });
         at = next;
       }
+      offset = r.at;
+      line += r.lines.length;
     } catch (err) {
       log("warn", "transcript", { dir, tail: err instanceof Error ? err.message : String(err) });
     }
