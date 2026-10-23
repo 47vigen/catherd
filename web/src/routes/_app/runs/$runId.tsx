@@ -1,5 +1,5 @@
 import { Alert, cn, Spinner } from "@heroui/react";
-import { useQuery } from "@tanstack/react-query";
+import { replaceEqualDeep, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -83,7 +83,13 @@ function RunDetail({ runId }: { runId: string }) {
   const is2 = run.data?.engine === "2.0";
   const live = is2 && run.data?.phase !== "ended";
   // A live run's model is read once; the socket's patches keep it current.
-  const model = useQuery({ ...getRunModelOptions({ path: { id: runId } }), enabled: run.isSuccess });
+  const model = useQuery({
+    ...getRunModelOptions({ path: { id: runId } }),
+    enabled: run.isSuccess,
+    // A read started before a patch landed returns an older model, so keep the newer one held.
+    structuralSharing: (old: unknown, next: unknown) =>
+      old !== undefined && (next as RunModel).seq < (old as RunModel).seq ? old : replaceEqualDeep(old, next),
+  });
   const timeline = useQuery({
     ...getRunTimelineOptions({
       path: { id: runId },

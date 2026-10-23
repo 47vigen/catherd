@@ -59,7 +59,7 @@ export const AnsweredListSchema = z.object({
     }),
   ),
 });
-export const RunDocSchema = z.object({ name: z.string(), text: z.string() });
+export const RunDocSchema = z.object({ name: z.string(), text: z.string(), cut: z.boolean() });
 export const PauseResultSchema = z.object({ paused: z.literal(true), since: z.string() });
 export const ResumeResultSchema = z.object({ paused: z.literal(false) });
 export const CancelRoleResultSchema = z.object({ name: z.string(), status: z.string() });

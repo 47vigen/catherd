@@ -41,8 +41,38 @@ export interface SectionValues {
 const removed = (now: Record<string, unknown>, previous: Record<string, unknown>) =>
   Object.fromEntries(Object.keys(previous).flatMap((k) => (k in now ? [] : [[k, null]])));
 
-/** The patch for one section. A cleared optional number is `null`, which deletes it (RFC 7396). */
-export function patchFor<S extends keyof SectionValues>(section: S, values: SectionValues[S]): ProfilePatch {
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null &&
+  typeof value === "object" &&
+  (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+
+function unchanged(next: Record<string, unknown>, prev: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    const before = prev[key];
+    if (plainObject(value) && plainObject(before)) {
+      const nested = unchanged(value, before);
+      if (Object.keys(nested).length > 0) out[key] = nested;
+    } else if (JSON.stringify(value ?? null) !== JSON.stringify(before ?? null)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/** `before`: the values the section started from; a key whose value it did not change is left out. */
+export function patchFor<S extends keyof SectionValues>(
+  section: S,
+  values: SectionValues[S],
+  before?: SectionValues[S],
+): ProfilePatch {
+  return before === undefined
+    ? fullPatch(section, values)
+    : unchanged(fullPatch(section, values), fullPatch(section, before));
+}
+
+/** A cleared optional number is `null`, which deletes it (RFC 7396). */
+function fullPatch<S extends keyof SectionValues>(section: S, values: SectionValues[S]): ProfilePatch {
   const v = values as SectionValues[keyof SectionValues];
   switch (section) {
     case "objective":
