@@ -60,12 +60,18 @@ function stamp(file: string): string {
 }
 
 const cache = new Map<string, { key: string; card: RunCard }>();
+const warnedCorrupt = new Set<string>();
 
 /** `computed` counts recomputations, so a test can tell a cache hit from a read. */
 export const runIndexCache = {
   computed: 0,
+  /** Entries held, so a test can see a pruned run. */
+  get size(): number {
+    return cache.size;
+  },
   clear(): void {
     cache.clear();
+    warnedCorrupt.clear();
   },
 };
 
@@ -143,7 +149,14 @@ function compute(deps: Deps, run: Run): RunCard {
 /** Every repo's runs (one repo's with `repo`), newest first. A run whose files cannot be read is logged and left out. */
 export function runIndex(deps: Deps, o: { repo?: string } = {}): RunCard[] {
   const out: RunCard[] = [];
-  for (const run of listRuns(o.repo ? [o.repo] : undefined).runs) {
+  const listing = listRuns(o.repo ? [o.repo] : undefined);
+  for (const c of listing.corrupt) {
+    const key = `${c.dir}\n${c.reason}`;
+    if (warnedCorrupt.has(key)) continue;
+    warnedCorrupt.add(key);
+    log("warn", "index", { run: c.id, dir: c.dir, corrupt: c.reason });
+  }
+  for (const run of listing.runs) {
     try {
       const key = `${stamp(eventsFile(run))}|${stamp(runPaths(run.dir).runs)}`;
       const hit = cache.get(run.dir);
@@ -159,6 +172,10 @@ export function runIndex(deps: Deps, o: { repo?: string } = {}): RunCard[] {
       cache.delete(run.dir);
       log("warn", "index", { run: run.id, error: errorMessage(e) });
     }
+  }
+  if (o.repo === undefined) {
+    const seen = new Set(listing.runs.map((r) => r.dir));
+    for (const dir of cache.keys()) if (!seen.has(dir)) cache.delete(dir);
   }
   return out;
 }

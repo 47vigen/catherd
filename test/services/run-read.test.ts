@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { rmSync } from "node:fs";
 import { tryLock } from "../../src/infra/filelock.ts";
 import type { RunEventInput } from "../../src/domain/run-events.ts";
 import { PLAN, newId, startedFields } from "../domain/run-fixtures.ts";
-import { beat, daemonLauncher, daemonLockTarget } from "../../src/services/daemon.ts";
+import { beat, daemonLauncher, daemonLockTarget, launchStamp } from "../../src/services/daemon.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import {
   ParkedViewSchema,
@@ -214,6 +215,7 @@ describe("the read api", () => {
     await seed(done);
     await appendEvent(done, { type: "run.ended", outcome: "done", reportPath: null }, new Date(NOW));
     launched = [];
+    rmSync(launchStamp(run), { force: true });
     const views = listRunViews(deps());
     expect(views.map((v) => v.title).sort()).toEqual(["done", "live"]);
     expect(launched).toEqual([run.id]);

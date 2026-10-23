@@ -184,6 +184,8 @@ export interface MilestoneVerifier {
   name: string;
   at: string;
   headless: boolean;
+  /** The attempt exited ok, independent of its verdict. */
+  ok: boolean;
   passed: boolean;
   /** what the attempt said: a native row's status, or a headless reply's first non-blank line ("no reply") */
   verdict: string;
@@ -219,6 +221,7 @@ export function milestoneVerifier(
           name: a.name,
           at: a.at,
           headless: false,
+          ok: a.status === "ok",
           passed: a.status === "ok",
           verdict: blocked === null ? a.status : (a.verdict ?? a.status),
           blocked,
@@ -235,6 +238,7 @@ export function milestoneVerifier(
           name: r.name,
           at: r.endedAt,
           headless: true,
+          ok: r.status === "ok",
           passed,
           verdict: r.status === "ok" ? said : `${r.status}, ${said}`,
           blocked: r.status === "ok" ? blockedByEnvironment(first) : null,

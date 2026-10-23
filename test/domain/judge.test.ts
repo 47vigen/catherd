@@ -31,6 +31,22 @@ describe("the rules review's reply (plan 34)", () => {
     expect(parseJudgeReply("DECISION: rules\nADD x — y", "triage")).toBeNull();
   });
 
+  it("reads the tagged reason, so a rule may hold an em dash", () => {
+    expect(
+      parseJudgeReply(
+        "DECISION: rules\nADD keep `a — b` aligned — WHY: M1 round 2 — the lint\nREMOVE x — y — WHY: stale\nSTATUS: complete — ok",
+        "rules",
+      ),
+    ).toEqual({
+      verb: "rules",
+      changes: [
+        { op: "add", text: "keep `a — b` aligned", why: "M1 round 2 — the lint" },
+        { op: "remove", text: "x — y", why: "stale" },
+      ],
+    });
+    expect(JUDGE_CONTRACT).toContain("— WHY: <the event it comes from>");
+  });
+
   it("reads only the contract's upper-case ADD and REMOVE, not prose that starts with the word", () => {
     expect(
       parseJudgeReply(

@@ -98,3 +98,42 @@ test("an amount is empty, a positive number, or invalid", () => {
   expect(parseAmount("-3")).toBeUndefined();
   expect(parseAmount("abc")).toBeUndefined();
 });
+
+test("a section sends only the keys the user changed", () => {
+  expect(
+    patchFor("bars", { copy: 20, build: 50, logic: 60, hard: 65 }, { copy: 20, build: 45, logic: 60, hard: 65 }),
+  ).toEqual({ bars: { build: 50 } });
+  expect(
+    patchFor(
+      "limits",
+      { heavy: "cpus/2", reserveMb: 4096, perMilestoneMb: null, floorMb: 512 },
+      { heavy: "cpus/2", reserveMb: 2048, perMilestoneMb: null, floorMb: 512 },
+    ),
+  ).toEqual({ limits: { memory: { reserveMb: 4096 } } });
+  expect(
+    patchFor(
+      "failover",
+      { pairs: { a: "b" }, previous: { a: "b", c: "d" } },
+      { pairs: { a: "b", c: "d" }, previous: { a: "b", c: "d" } },
+    ),
+  ).toEqual({ failover: { c: null } });
+  expect(patchFor("budget", { minutes: null, tokens: null, usd: 8 }, { minutes: null, tokens: null, usd: 5 })).toEqual({
+    budget: { usd: 8 },
+  });
+  expect(patchFor("bars", { copy: 20 }, { copy: 20 })).toEqual({});
+});
+
+test("section changes compare arrays whole and preserve changed nested values", () => {
+  expect(patchFor("notifications", { notify: ["finish"] }, { notify: ["finish"] })).toEqual({});
+  expect(patchFor("notifications", { notify: [] }, { notify: ["finish"] })).toEqual({ notify: [] });
+  expect(patchFor("isolation", { codex: false, opencode: true }, { codex: true, opencode: true })).toEqual({
+    harness: { codex: { isolated: false } },
+  });
+  expect(
+    patchFor(
+      "effort",
+      { efforts: { a: "high" }, previous: { a: "low", b: "max" } },
+      { efforts: { a: "low", b: "max" }, previous: { a: "low", b: "max" } },
+    ),
+  ).toEqual({ maxEffort: { a: "high", b: null } });
+});

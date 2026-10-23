@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { join, relative } from "node:path";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { ScorecardTask, TaskScore } from "../../src/domain/scorecard.ts";
+import { tryLock } from "../../src/infra/filelock.ts";
+import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { writeJsonAtomic } from "../../src/infra/store.ts";
 import {
   loadTask,
@@ -34,6 +36,7 @@ const sh = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, ANTHROPIC_API_KEY: "" },
   }).trim();
 
 /** A source repo whose second commit adds a.txt and docs/plan.md. */
@@ -217,6 +220,31 @@ describe("scorecard score", () => {
     });
   });
 
+  it("leaves machine and run pauses out of the wall-clock", async () => {
+    const { root, into, p } = await prepared();
+    const run = runIn(p.repo, "10:00");
+    land(run, "10:50");
+    pauseMachine(Date.parse(t("10:10")), "lunch");
+    resumeMachine(Date.parse(t("10:30")));
+    expect(await scoreTask({ dir: into, root, now: NOW })).toMatchObject({
+      wallMinutes: 30,
+      pausedMinutes: 20,
+    });
+  });
+
+  it("removes the folders it made for the accept files", async () => {
+    const { root, into, p } = await prepared(
+      {
+        acceptFiles: [{ from: "accept/ok.txt", to: "hidden/deep/accept-ok.txt" }],
+        acceptance: "test -f hidden/deep/accept-ok.txt",
+      },
+      { "accept/ok.txt": "hidden\n" },
+    );
+    runIn(p.repo, "10:00");
+    expect((await scoreTask({ dir: into, root, now: NOW })).acceptance.passed).toBe(true);
+    expect(existsSync(join(p.repo, "hidden"))).toBe(false);
+  });
+
   it("scores a run that never landed as unfinished, its wall-clock to its last record", async () => {
     const { root, into, p } = await prepared();
     const run = runIn(p.repo, "10:00");
@@ -296,13 +324,28 @@ describe("scorecard results", () => {
       injected: null,
     }) as unknown as TaskScore;
 
-  it("writes one row per task under its label, replacing that task's earlier row; refuses a label that is not a plain name", () => {
+  it("waits for the results file's lock before it writes", async () => {
+    withHome();
+    const file = resultsFile(tempDir("scorecard-results-"), "1.5.0");
+    const release = tryLock(file);
+    expect(release).not.toBeNull();
+    const saving = saveTaskScore(file, "1.5.0", row("raqam-myanmar", 1));
+    try {
+      expect(readScorecard(file)).toBeNull();
+    } finally {
+      release?.();
+      await saving;
+    }
+    expect(readScorecard(file)?.tasks["raqam-myanmar"]?.wallMinutes).toBe(1);
+  });
+
+  it("writes one row per task under its label, replacing that task's earlier row; refuses a label that is not a plain name", async () => {
     withHome();
     const dir = tempDir("scorecard-results-");
     const file = resultsFile(dir, "1.5.0");
-    saveTaskScore(file, "1.5.0", row("raqam-myanmar", 1));
-    saveTaskScore(file, "1.5.0", row("injected-lao", 5));
-    saveTaskScore(file, "1.5.0", row("raqam-myanmar", 2));
+    await saveTaskScore(file, "1.5.0", row("raqam-myanmar", 1));
+    await saveTaskScore(file, "1.5.0", row("injected-lao", 5));
+    await saveTaskScore(file, "1.5.0", row("raqam-myanmar", 2));
     const f = readScorecard(file);
     expect(Object.keys(f?.tasks ?? {}).sort()).toEqual(["injected-lao", "raqam-myanmar"]);
     expect(f?.tasks["raqam-myanmar"]?.wallMinutes).toBe(2);
@@ -310,11 +353,11 @@ describe("scorecard results", () => {
     expect(() => resultsFile(dir, "../x")).toThrow();
   });
 
-  it("refuses a hand-edited row that passBar cannot read, naming the label, task and field", () => {
+  it("refuses a hand-edited row that passBar cannot read, naming the label, task and field", async () => {
     withHome();
     const dir = tempDir("scorecard-results-");
     const file = resultsFile(dir, "plan-9");
-    saveTaskScore(file, "plan-9", row("raqam-myanmar", 1));
+    await saveTaskScore(file, "plan-9", row("raqam-myanmar", 1));
     const f = JSON.parse(readFileSync(file, "utf8"));
     f.tasks["raqam-myanmar"].interventions.total = "0";
     writeJsonAtomic(file, f);

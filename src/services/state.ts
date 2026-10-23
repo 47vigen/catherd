@@ -72,7 +72,7 @@ export function updateState(run: Run, change: NotesPatch | ((n: Notes) => NotesP
       lastCheck: next.lastCheck,
       pinChanges: next.pinChanges ?? [],
       next: next.next,
-      protocol: protocolNext(run, next.parked ?? []),
+      protocol: await protocolNext(run, next.parked ?? []),
     });
     writeTextAtomic(p.state, text);
     return text;

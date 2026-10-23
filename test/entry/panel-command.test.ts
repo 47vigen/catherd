@@ -6,7 +6,7 @@ import { panelHost } from "../../src/entry/panel-command.ts";
 import { configFile } from "../../src/services/profile-store.ts";
 import { recordHost } from "../../src/services/profile-service.ts";
 import { SRC } from "../import-graph.ts";
-import { snapshotEnv, withHome } from "../helpers.ts";
+import { snapshotEnv, spawnEnv, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -24,13 +24,11 @@ function distDir(): string {
 function panel(args: string[], dist: string | undefined) {
   const home = withHome();
   const p = Bun.spawn([process.execPath, CLI, "panel", ...args], {
-    env: {
+    env: spawnEnv({
       PATH: process.env.PATH,
       CATHERD_HOME: home,
-      CATHERD_NO_SYNC: "1",
-      ANTHROPIC_API_KEY: "",
       ...(dist ? { CATHERD_PANEL_DIST: dist } : {}),
-    },
+    }),
     stdout: "pipe",
     stderr: "pipe",
   });

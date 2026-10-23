@@ -14,6 +14,7 @@ import {
   quotaUsage,
   type RoutingProfile,
   rolesWithoutRung,
+  noRungCause,
   select,
 } from "../../src/domain/select.ts";
 import { indexOf, shipped } from "./shipped.ts";
@@ -320,6 +321,27 @@ describe("rolesWithoutRung", () => {
     });
     // ROLES order, not the profile's key order
     expect(rolesWithoutRung(c, v)).toEqual(["reviewer", "writer"]);
+  });
+
+  it("names why a role has no rung", () => {
+    const c = cat();
+    expect(
+      noRungCause(c, roles({ worker: { enabled: true, rungs: ["codex:gpt-6-sol#low"] } }), "worker"),
+    ).toBe("floor");
+    expect(
+      noRungCause(
+        c,
+        {
+          ...roles({ worker: { enabled: true, rungs: [HIGH] } }),
+          maxEffort: { "codex:gpt-6-sol": "medium" },
+        },
+        "worker",
+      ),
+    ).toBe("cap");
+    const lost = shipped({ index: indexOf({ "gpt-6-luna#high": 30, "claude-opus-5-5#max": 60 }) });
+    expect(noRungCause(lost, roles({ reviewer: { enabled: true, rungs: [HIGH] } }), "reviewer")).toBe(
+      "index",
+    );
   });
 
   it("counts a rung the index lost as no rung", () => {

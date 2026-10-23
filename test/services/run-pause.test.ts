@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { rmSync } from "node:fs";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import { startedFields } from "../domain/run-fixtures.ts";
 import { spendOf } from "../../src/services/budget.ts";
-import { daemonLauncher } from "../../src/services/daemon.ts";
+import { daemonLauncher, launchStamp } from "../../src/services/daemon.ts";
 import { pauseRun, resumeRun } from "../../src/services/run-client.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { runView } from "../../src/services/run-read.ts";
@@ -37,6 +38,7 @@ describe("pauseRun and resumeRun", () => {
     expect(again.since).toBe(first.since);
     expect(readEvents(run).map((e) => e.type)).toEqual(["run.started", "run.paused"]);
     launched = [];
+    rmSync(launchStamp(run), { force: true });
     expect(await resumeRun(fakeDeps(), { run: run.id })).toEqual({ paused: false });
     expect(await resumeRun(fakeDeps(), { run: run.id })).toEqual({ paused: false });
     expect(readEvents(run).map((e) => e.type)).toEqual(["run.started", "run.paused", "run.resumed"]);

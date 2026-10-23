@@ -67,7 +67,7 @@ export const newToken = (): string => randomBytes(32).toString("base64url");
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+    "default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
 };

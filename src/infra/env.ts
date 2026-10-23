@@ -1,3 +1,5 @@
+import { roleScopeOfScratch } from "../domain/role-scope.ts";
+
 /**
  * catherd's own secrets; the user's backend credentials (OPENAI_API_KEY, …) stay, workers need them. The Claude Code
  * session's messaging socket and token are the MCP server's alone (spec §3.2: it is the only sender), and so is the
@@ -70,11 +72,16 @@ const CHECK_ENV_PATTERN = /^(LC_[A-Z_]+|XDG_[A-Z_]+_(HOME|DIR|DIRS))$/;
 const TOOL_ENV_PATTERN =
   /^(DOCKER_(HOST|CONTEXT|CONFIG|CERT_PATH|TLS_VERIFY)|TESTCONTAINERS_[A-Z_]+|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy|GO(PATH|CACHE|MODCACHE|FLAGS|PROXY|PRIVATE|NOSUMDB|TOOLCHAIN)|PNPM_HOME|npm_config_store_dir|BUN_INSTALL(_CACHE_DIR)?|NVM_DIR|JAVA_HOME|CARGO_HOME|RUSTUP_HOME)$/;
 
-/** A strict allowlist of `base` plus PWD, for lane-authored shell text such as preflight checks. */
+/**
+ * A strict allowlist of `base` plus PWD, for lane-authored shell text such as preflight checks. A check is never a
+ * role: the allowlist leaves out the role's identity, and a TMPDIR in a role's scratch is dropped, or every
+ * `catherd` the check spawns would refuse the orchestrator's commands with E_ROLE_SCOPE.
+ */
 export function checkEnv(base: Record<string, string | undefined>, cwd: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(base))
     if (v !== undefined && (CHECK_ENV.has(k) || CHECK_ENV_PATTERN.test(k) || TOOL_ENV_PATTERN.test(k)))
       env[k] = v;
+  if (roleScopeOfScratch(env.TMPDIR)) delete env.TMPDIR;
   return { ...env, PWD: cwd };
 }

@@ -43,7 +43,21 @@ function readCapped(file: string, max: number, tail = false): { text: string; cu
       if (n === 0) break;
       got += n;
     }
-    return { text: buf.subarray(0, got).toString("utf8"), cut: st.size > max };
+    const cut = st.size > max;
+    let start = 0;
+    let end = got;
+    if (cut && got > 0) {
+      if (tail) {
+        while (start < Math.min(3, got) && (buf[start]! & 0xc0) === 0x80) start++;
+      } else {
+        let i = got - 1;
+        while (i > 0 && (buf[i]! & 0xc0) === 0x80) i--;
+        const lead = buf[i]!;
+        const length = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+        if (length > got - i) end = i;
+      }
+    }
+    return { text: buf.subarray(start, end).toString("utf8"), cut };
   } catch {
     return null;
   } finally {
@@ -188,11 +202,11 @@ export function dispatchDetail(run: Run, dispatchId: string): DispatchDetail {
 
 export const RUN_DOC_NAME = /^(plan|report|ledger)\.md$|^(lanes|digests)\/[A-Za-z0-9][\w.-]{0,127}\.md$/;
 
-export function runDoc(run: Run, name: string): { name: string; text: string } {
+export function runDoc(run: Run, name: string): { name: string; text: string; cut: boolean } {
   if (!RUN_DOC_NAME.test(name) || name.includes("..")) throw invalid(`"${name}" is not a document of a run`);
   const r = readCapped(join(run.dir, name), TEXT_CAP);
   if (r === null) throw notFound(name);
-  return { name, text: r.text };
+  return { name, text: r.text, cut: r.cut };
 }
 
 export const CheckLogsSchema = z.object({

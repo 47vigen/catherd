@@ -6,7 +6,7 @@ import { parseLaneHeader } from "../domain/lane.ts";
 import { ensurePrivateDir, readJsonl, writeTextAtomic } from "../infra/store.ts";
 import { type Dispatch, listDispatches, liveDispatches } from "./dispatches.ts";
 import { RECHECK_COMMAND_MIN } from "../domain/gate-brief.ts";
-import { failedItems, type VerifierStep } from "./gate-service.ts";
+import { recordedItems, type VerifierStep } from "./gate-service.ts";
 import {
   countFindings,
   FINDING,
@@ -19,7 +19,7 @@ import {
   partialReviewer,
   reviewerPassed,
 } from "./milestones.ts";
-import { aLineId, milestoneALines } from "./plan-input.ts";
+import { deliveredALines, numberedALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
@@ -132,7 +132,7 @@ export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = rea
  * The step the milestone loop is at: the first milestone neither landed nor parked, and within it the
  * first of route, dispatch, collect, reviewer, verifier and land that is still to do.
  */
-export function protocolNext(run: Run, parked: string[], now = Date.now()): string {
+export async function protocolNext(run: Run, parked: string[], now = Date.now()): Promise<string> {
   const lanes = laneIds(run);
   if (lanes.length === 0)
     return "plan: the architect writes plan.md and lanes/Mx.Ly.md (or you, for a fix run)";
@@ -188,15 +188,15 @@ export function protocolNext(run: Run, parked: string[], now = Date.now()): stri
     return `${m}: ${verdict.name} is blocked by the environment${verdict.blocked ? ` (${verdict.blocked})` : ""}: surface it to the owner (park ${m}), not a fix round`;
   if (!verdict.passed) {
     // plan 23: a resumed verifier can hang; a re-check goes to a fresh one, told what failed
-    const failed = failedItems(run, m);
+    const failed = (await recordedItems(run, m)).filter((r) => !r.passed).map((r) => r.item);
     return `${m}: ${verdict.name} failed: the owning lanes fix it, then a fresh verifier (not a resume) re-checks ${failed.length ? failed.join(", ") : "the failed items"}, each command capped at ${RECHECK_COMMAND_MIN} min`;
   }
   return `land ${m}`;
 }
 
 /** What run_start and peek return beside the step: the six-line loop. */
-export const protocolView = (run: Run, parked: string[], now?: number) => ({
-  next: protocolNext(run, parked, now),
+export const protocolView = async (run: Run, parked: string[], now?: number) => ({
+  next: await protocolNext(run, parked, now),
   checklist: PROTOCOL_CHECKLIST,
 });
 
@@ -247,9 +247,10 @@ export function writeDigest(
   const planText = existsSync(runPaths(run.dir).plan) ? readFileSync(runPaths(run.dir).plan, "utf8") : "";
   const named = new Set([
     ...[...`${i.what} ${i.evidence}`.matchAll(/\bA\d+\b/g)].map((x) => x[0]),
-    ...milestoneALines(planText, m),
+    ...deliveredALines(run, planText, m),
   ]);
-  const aLines = run.meta.aLines.filter((a) => named.has(aLineId(a) ?? ""));
+  const numbered = numberedALines(run.meta.aLines);
+  const aLines = numbered.filter((a) => a.id && named.has(a.id)).map((a) => a.line);
   const routes = readRoutes(run).filter((r) => inM(r.lane));
   const lanes = [...new Set(routes.map((r) => r.lane))].sort(byNumber).map((lane) => {
     const rows = routes.filter((r) => r.lane === lane);
@@ -296,7 +297,7 @@ export function writeDigest(
     "",
     `Commit ${i.commit} · ${i.minutes} min${i.pausedMinutes ? ` (${i.pausedMinutes} min parked or paused left out)` : ""} · landed ${i.at}`,
     ...(i.commits?.length ? [`Commits: ${i.commits.join("; ")}`] : []),
-    `A-lines: ${aLines.length ? aLines.join("; ") : run.meta.aLines.length ? `not mapped to this milestone (none cited as A<n>): ${run.meta.aLines.join("; ")}` : "none"}`,
+    `A-lines: ${aLines.length ? aLines.join("; ") : run.meta.aLines.length ? `not mapped to this milestone (none cited as A<n>): ${numbered.map((a) => a.line).join("; ")}` : "none"}`,
     "",
     "Lanes:",
     ...(lanes.length ? lanes : ["- none routed"]),

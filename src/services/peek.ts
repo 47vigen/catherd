@@ -90,14 +90,14 @@ export function actionability(
   return { actionable: true, reason: protocolNext };
 }
 
-function peekRun(deps: Deps, run: Run, name: string | undefined): PeekRun {
+async function peekRun(deps: Deps, run: Run, name: string | undefined): Promise<PeekRun> {
   const now = deps.now();
   const mine = (d: Dispatch) => name === undefined || d.admit.name === name;
   const records = new Map(readRecords(run).records.map((r) => [r.dispatchId, r]));
   const agents = readAgentRuns(run).filter((a) => name === undefined || a.name === name);
   const native = agents.at(-1);
   const notes = readNotes(run);
-  const re = reentry(run, now, notes);
+  const re = await reentry(run, now, notes);
   const live = liveDispatches(run, now);
   // the whole run decides it, whatever `name` narrows the view to
   const act = actionability(
@@ -187,7 +187,7 @@ export async function peek(
     runs = owned.length ? owned : all.slice(0, 1);
   }
   const hints = runs.length === 0 ? ["no runs yet: run_start(repo, title, a_lines) starts one"] : [];
-  const views = runs.map((r) => peekRun(deps, r, i.name));
+  const views = await Promise.all(runs.map((r) => peekRun(deps, r, i.name)));
   const doing = views.filter((v) => v.actionable);
   const shown = (vs: PeekRun[]) =>
     vs.map((v) => (views.length > 1 ? `${v.title}: ${v.reason}` : v.reason)).join("; ");

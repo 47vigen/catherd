@@ -44,7 +44,7 @@ export function SettingsSections({ view, issues, propose, disabled }: Props) {
   const s = view.settings;
   const p = { issues, propose, disabled };
   return (
-    <div className="bg-border grid gap-px lg:grid-cols-2">
+    <div className="bg-border grid min-w-0 grid-cols-[minmax(0,1fr)] gap-px lg:grid-cols-2 [&>section]:min-w-0">
       <ObjectiveSection key={`o${s.objective}`} value={s.objective} {...p} />
       <JevSection key={`j${s.jev}`} value={s.jev} {...p} />
       <BudgetSection key={`b${JSON.stringify(s.budget)}`} value={s.budget} {...p} />
@@ -154,11 +154,15 @@ function BudgetSection({ value, issues, propose, disabled }: SectionProps<Settin
       disabled={disabled}
       onReview={() =>
         propose(
-          patchFor("budget", {
-            minutes: parsed.minutes ?? null,
-            tokens: parsed.tokens ?? null,
-            usd: parsed.usd ?? null,
-          }),
+          patchFor(
+            "budget",
+            {
+              minutes: parsed.minutes ?? null,
+              tokens: parsed.tokens ?? null,
+              usd: parsed.usd ?? null,
+            },
+            { minutes: value.minutes ?? null, tokens: value.tokens ?? null, usd: value.usd ?? null },
+          ),
         )
       }
     >
@@ -209,10 +213,14 @@ function TimeoutsSection({ value, issues, propose, disabled }: SectionProps<Sett
       disabled={disabled}
       onReview={() =>
         propose(
-          patchFor("timeouts", {
-            idleMin: idle as number,
-            wallMin: wall as number,
-          }),
+          patchFor(
+            "timeouts",
+            {
+              idleMin: idle as number,
+              wallMin: wall as number,
+            },
+            value,
+          ),
         )
       }
     >
@@ -261,7 +269,7 @@ function FailoverSection({
       issues={issuesAt(issues, "failover")}
       dirty={changed(pairs, value)}
       disabled={disabled}
-      onReview={() => propose(patchFor("failover", { pairs, previous: value }))}
+      onReview={() => propose(patchFor("failover", { pairs, previous: value }, { pairs: value, previous: value }))}
     >
       <datalist id="setup-rungs">
         {offeredRungs(roles).map((r) => (
@@ -273,7 +281,7 @@ function FailoverSection({
       {Object.keys(pairs).length === 0 ? <p className="text-muted text-sm">No stand-ins are set.</p> : null}
       <ul className="flex flex-col gap-1.5">
         {Object.entries(pairs).map(([a, b]) => (
-          <li key={a} className="flex items-center gap-2 text-xs">
+          <li key={a} className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
             <ProviderIcon backend={a} size="xs" />
             <span className="min-w-0 truncate font-mono">{a}</span>
             <span aria-hidden="true" className="text-muted">
@@ -296,11 +304,11 @@ function FailoverSection({
         ))}
       </ul>
       <div className="flex flex-wrap items-end gap-2">
-        <TextField value={from} onChange={setFrom} isDisabled={disabled} className="min-w-48 flex-1">
+        <TextField value={from} onChange={setFrom} isDisabled={disabled} className="min-w-0 flex-1 basis-48">
           <Label>When this rung fails</Label>
           <Input list="setup-rungs" placeholder="codex:gpt-6-sol#high" />
         </TextField>
-        <TextField value={to} onChange={setTo} isDisabled={disabled} className="min-w-48 flex-1">
+        <TextField value={to} onChange={setTo} isDisabled={disabled} className="min-w-0 flex-1 basis-48">
           <Label>Use this rung</Label>
           <Input list="setup-rungs" placeholder="codex:gpt-6-luna#high" />
         </TextField>
@@ -334,7 +342,7 @@ function EffortSelect({
       value={value}
       onChange={(k) => onChange(String(k) as Effort)}
       isDisabled={disabled}
-      className="w-32"
+      className="w-32 min-w-0"
     >
       <Select.Trigger className="h-8 min-h-8 text-[13px]">
         <Select.Value />
@@ -366,12 +374,20 @@ function EffortSection({ value, issues, propose, disabled }: SectionProps<Settin
       issues={issuesAt(issues, "effort")}
       dirty={changed(efforts, value)}
       disabled={disabled}
-      onReview={() => propose(patchFor("effort", { efforts, previous: value }))}
+      onReview={() =>
+        propose(
+          patchFor(
+            "effort",
+            { efforts, previous: value },
+            { efforts: value as Record<string, Effort>, previous: value },
+          ),
+        )
+      }
     >
       {Object.keys(efforts).length === 0 ? <p className="text-muted text-sm">No ceilings are set.</p> : null}
       <ul className="flex flex-col gap-1.5">
         {Object.entries(efforts).map(([k, e]) => (
-          <li key={k} className="flex items-center gap-2 text-xs">
+          <li key={k} className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
             <ProviderIcon backend={k} size="xs" />
             <span className="min-w-0 flex-1 truncate font-mono">{k}</span>
             <EffortSelect
@@ -394,7 +410,7 @@ function EffortSection({ value, issues, propose, disabled }: SectionProps<Settin
         ))}
       </ul>
       <div className="flex flex-wrap items-end gap-2">
-        <TextField value={model} onChange={setModel} isDisabled={disabled} className="min-w-48 flex-1">
+        <TextField value={model} onChange={setModel} isDisabled={disabled} className="min-w-0 flex-1 basis-48">
           <Label>Model</Label>
           <Input placeholder="codex:gpt-6-sol" />
         </TextField>
@@ -434,7 +450,7 @@ function BarsSection({ value, issues, propose, disabled }: SectionProps<Settings
       dirty={changed(d, initial)}
       valid={valid}
       disabled={disabled}
-      onReview={() => propose(patchFor("bars", parsed as Record<string, number>))}
+      onReview={() => propose(patchFor("bars", parsed as Record<string, number>, value))}
     >
       <div className="flex flex-wrap gap-4">
         {Object.keys(d).map((k) => (
@@ -478,12 +494,21 @@ function LimitsSection({ value, issues, propose, disabled }: SectionProps<Settin
       disabled={disabled}
       onReview={() =>
         propose(
-          patchFor("limits", {
-            heavy: heavy as number | "cpus/2",
-            reserveMb: reserve ?? null,
-            perMilestoneMb: per ?? null,
-            floorMb: floor ?? null,
-          }),
+          patchFor(
+            "limits",
+            {
+              heavy: heavy as number | "cpus/2",
+              reserveMb: reserve ?? null,
+              perMilestoneMb: per ?? null,
+              floorMb: floor ?? null,
+            },
+            {
+              heavy: value.heavy,
+              reserveMb: value.memory.reserveMb,
+              perMilestoneMb: value.memory.perMilestoneMb,
+              floorMb: value.memory.floorMb,
+            },
+          ),
         )
       }
     >
@@ -617,11 +642,14 @@ function BillingSection({ value, issues, propose, disabled }: SectionProps<Setti
       issues={issuesAt(issues, "billing")}
       dirty={changed(draft, value)}
       disabled={disabled}
-      onReview={() => propose(patchFor("billing", draft))}
+      onReview={() => propose(patchFor("billing", draft, value))}
     >
       <div className="flex flex-col gap-3">
         {Object.entries(draft).map(([backend, mode]) => (
-          <div key={backend} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <div
+            key={backend}
+            className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 [&_[role=radiogroup]]:max-w-full [&_[role=radiogroup]]:flex-wrap [&>div]:min-w-0"
+          >
             <span className="flex w-32 items-center gap-2 text-[13px]">
               <ProviderIcon backend={backend} size="xs" />
               {backendName(backend)}
@@ -650,7 +678,7 @@ function IsolationSection({ value, issues, propose, disabled }: SectionProps<Set
       issues={issuesAt(issues, "isolation")}
       dirty={changed(draft, value)}
       disabled={disabled}
-      onReview={() => propose(patchFor("isolation", draft))}
+      onReview={() => propose(patchFor("isolation", draft, value))}
     >
       <div className="flex flex-col gap-3">
         {Object.entries(draft).map(([backend, on]) => (

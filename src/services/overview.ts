@@ -45,6 +45,7 @@ export const OverviewSchema = z.object({
 export type Overview = z.infer<typeof OverviewSchema>;
 
 const DAY = 86_400_000;
+const MAX_DAYS = 366;
 const MODELS_SHOWN = 8;
 
 /** Sums `[key, n]` pairs per key, largest first. */
@@ -59,18 +60,19 @@ export function overview(
   q: { from: number; to: number; repo?: string },
   nowOf: (runId: string) => NowLine[] = () => [],
 ): Overview {
+  const from = Math.max(q.from, q.to - MAX_DAYS * DAY);
   const all = runIndex(deps);
   const scoped = q.repo ? all.filter((r) => r.repo === q.repo) : all;
   const inRange = scoped.filter((r) => {
     const t = Date.parse(r.startedAt);
-    return t >= q.from && t <= q.to;
+    return t >= from && t <= q.to;
   });
   const ended = inRange.filter((r) => r.endedAt !== null);
   const clean = ended.filter((r) => r.outcome === "done" && r.totals.interventions === 0);
   const sum = (f: (r: RunCard) => number): number => inRange.reduce((n, r) => n + f(r), 0);
 
   const daily = new Map<string, Map<string, { tokens: number; costUsd: number }>>();
-  for (let t = Math.floor(q.from / DAY) * DAY; t <= q.to; t += DAY)
+  for (let t = Math.floor(from / DAY) * DAY; t <= q.to; t += DAY)
     daily.set(new Date(t).toISOString().slice(0, 10), new Map());
   for (const r of inRange) {
     const day = daily.get(r.startedAt.slice(0, 10));
@@ -92,7 +94,7 @@ export function overview(
   const parked = parkedQuestions().filter((p) => ids.has(p.run));
 
   return {
-    from: new Date(q.from).toISOString(),
+    from: new Date(from).toISOString(),
     to: new Date(q.to).toISOString(),
     repo: q.repo ?? null,
     repos: [...new Set(all.map((r) => r.repo))],

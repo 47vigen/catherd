@@ -152,6 +152,11 @@ export function snapshotEnv(): () => void {
   };
 }
 
+/** The env of a catherd a test spawns: end push and boot sync off, with no Anthropic key. */
+export function spawnEnv(env: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+  return { ...env, CATHERD_NO_END_PUSH: "1", CATHERD_NO_SYNC: "1", ANTHROPIC_API_KEY: "" };
+}
+
 /** True once `pid` has exited: gone, or a zombie nobody has reaped yet (a container's pid 1 may never reap). */
 export function exited(pid: number): boolean {
   try {

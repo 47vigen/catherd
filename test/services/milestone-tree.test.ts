@@ -26,6 +26,7 @@ const sh = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, ANTHROPIC_API_KEY: "" },
   }).trim();
 
 async function refusal(p: Promise<unknown>) {
@@ -103,6 +104,15 @@ describe("claimTree", () => {
     sh(repo, "worktree", "add", "-b", "other", treeDir(run, "M1"), "main");
     const e = await refusal(claimTree(deps, run, "M1", { known: true }));
     expect([e.code, e.message]).toEqual(["E_TREE", `${treeDir(run, "M1")} has other checked out, not t-m1`]);
+  });
+
+  it("leaves the owner's other stale worktree entries alone", async () => {
+    const { repo, run } = branchRun();
+    const own = tempDir("owner-tree-");
+    sh(repo, "worktree", "add", "-b", "own", own, "main");
+    rmSync(own, { recursive: true, force: true });
+    await claimTree(deps, run, "M1", { known: false });
+    expect(sh(repo, "worktree", "list", "--porcelain")).toContain(own);
   });
 
   it("re-adds this run's branch when its tree folder is gone", async () => {

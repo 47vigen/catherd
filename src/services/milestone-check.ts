@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { checkFailLines, newFails } from "../domain/fail-lines.ts";
+import { andTail, checkFailLines, newFails } from "../domain/fail-lines.ts";
 import { git } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
 import { launchCheckWorker } from "../infra/launch.ts";
@@ -164,10 +164,9 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
       } catch {
         // a profile that cannot be read leaves the default
       }
+      // no tmpBase: a slot dir under the verifier's scratch would make the check a role (checkEnv)
       exit = await withRoleLock("verifier", `run:${job.run}`, () =>
-        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp), {
-          tmpBase: process.env.TMPDIR,
-        }),
+        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp)),
       );
     }
     const out = readFileSync(log, "utf8");
@@ -240,10 +239,12 @@ export async function machineGate(
       missing.push(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
-    else
+    else {
+      const tail = andTail(rec.command);
       audit.push(
-        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; every failing line is pre-existing (${rec.fails.length})`,
+        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; every failing line is pre-existing (${rec.fails.length})${tail ? `; if an earlier part failed, \`${tail}\` ran on neither side` : ""}`,
       );
+    }
   }
   return { missing, audit };
 }

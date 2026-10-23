@@ -157,6 +157,8 @@ export interface MilestoneState {
   treeAt: string | null;
   /** plan 35: a memory deferral: no new claim before this time */
   claimAfter: string | null;
+  /** plan 38: when the first memory deferral of this claim happened; null once the tree is ready */
+  memoryWaitSince: string | null;
   /** plan 35: the owner answered `push` and catherd has not pushed the branch yet */
   pushing: boolean;
   /** plan 35: the digest file the owner's MR takes as its body */
@@ -194,7 +196,8 @@ export interface OwedReport {
   kind: ReportKind;
   unit: string;
   text: string;
-  moment: NotifyMoment;
+  /** the phone notice it also sends; null for a session report only */
+  moment: NotifyMoment | null;
 }
 
 export interface RunState {
@@ -223,7 +226,7 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
-  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, land, push or integrate starts meanwhile */
+  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, claim, route, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
   /** an architect ended and the plan was not read since */
@@ -377,6 +380,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       tree: null,
       treeAt: null,
       claimAfter: null,
+      memoryWaitSince: null,
       pushing: false,
       digestPath: null,
       mr: null,
@@ -501,7 +505,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
       m.status = "review";
       s.stuck[m.id] = {
         reason: "blocker",
-        question: `${m.id} still has a BLOCKER after ${r} review round(s):\n${found.map((f) => f.text).join("\n")}`,
+        question: `${m.id} still has a BLOCKER after ${r} review round(s):\n${found.map((f) => f.text).join("\n")}\nAnswer with the fix to make (one more fix round), or \`accept\` to land with these as known issues.`,
       };
       return;
     }
@@ -510,23 +514,38 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.status = "verifying";
     return;
   }
-  const previous = new Set(m.keys[r - 2] ?? []);
+  fixRound(s, m, found, new Set(m.keys[r - 2] ?? []));
+}
+
+/** A fix round: each finding to the lane that owns its file, the rest left open for the judge; `note` to each lane. */
+function fixRound(
+  s: RunState,
+  m: MilestoneState,
+  found: Finding[],
+  previous: Set<string>,
+  note?: string,
+): void {
+  const lanes = lanesOf(s, m.id);
   const unowned: Finding[] = [];
+  const routed = new Set<LaneState>();
   const survived = new Set<string>();
   for (const f of found) {
     const owner = ownerOfFile(f.file, lanes);
     const lane = owner ? s.lanes[owner] : undefined;
     if (!lane) {
-      unowned.push(f);
+      // the triage judge reads only the finding text, so the note rides in it
+      unowned.push(note ? { ...f, text: `${f.text}\n${note}` } : f);
       continue;
     }
     lane.notes.push(f.text);
     lane.status = "pending";
     lane.attempts = 0;
     lane.checkFails = 0;
-    lane.fixedRound = r;
+    lane.fixedRound = m.counts.length;
+    routed.add(lane);
     if (previous.has(findingKey(f.text))) survived.add(lane.id);
   }
+  if (note) for (const lane of routed) lane.notes.push(note);
   for (const id of survived) (s.lanes[id] as LaneState).climbReason = "same-defect";
   m.open = unowned;
   m.status = "fixing";
@@ -740,7 +759,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
-        m.knownIssues = [...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings)])];
+        // dedup before the prefix: a verifier NIT a reviewer already named is listed once, unprefixed
+        const known = new Set([...m.knownIssues, ...m.nits]);
+        const own = nitLines(e.findings).filter((l) => !known.has(l));
+        m.knownIssues = [...new Set([...known, ...own.map((l) => `${e.name}: ${l}`)])];
         m.tries = {};
         m.verifierNotes = [];
         m.status = "landing";
@@ -913,11 +935,14 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   if (from === "routing") {
     m.status = "waiting";
     m.confirmed = true;
-  } else if (q?.reason === "blocker") {
+  } else if (q?.reason === "blocker" && e.answer.trim().toLowerCase() === "accept") {
     m.knownIssues = m.open.map((f) => f.text);
     m.open = [];
     m.status = "verifying";
-  } else m.status = from;
+  } else if (q?.reason === "blocker")
+    // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
+    fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
+  else m.status = from;
 }
 
 /** One event applied to `s` in place. */
@@ -1182,6 +1207,15 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`claimTree@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
       if (m) {
+        if (m.memoryWaitSince !== null) {
+          s.owed[`memory:${e.milestone}`] = {
+            kind: "memory",
+            unit: e.milestone,
+            text: `${e.milestone} has its worktree, after waiting for memory since ${m.memoryWaitSince}`,
+            moment: null,
+          };
+          m.memoryWaitSince = null;
+        }
         m.tree = e.tree;
         m.branch = e.branch;
         m.treeAt = e.at;
@@ -1193,7 +1227,18 @@ function apply(s: RunState, e: RunEvent): void {
     case "tree.deferred": {
       ok(`claimTree@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
-      if (m) m.claimAfter = isoPlus(e.at, MEMORY_LIMITS.recheckMs);
+      if (m) {
+        m.claimAfter = isoPlus(e.at, MEMORY_LIMITS.recheckMs);
+        if (m.memoryWaitSince === null) {
+          m.memoryWaitSince = e.at;
+          s.owed[`memory:${e.milestone}`] = {
+            kind: "memory",
+            unit: e.milestone,
+            text: `${e.milestone} waits for memory: ${e.availableMb} MB available, ${e.needMb} MB needed; catherd looks again every ${MEMORY_LIMITS.recheckMs / 60_000} minutes`,
+            moment: null,
+          };
+        }
+      }
       recomputeWake(s);
       return;
     }
@@ -1264,9 +1309,11 @@ function apply(s: RunState, e: RunEvent): void {
       s.phase = "ended";
       s.outcome = e.outcome;
       return;
-    case "report.posted":
-      delete s.owed[`${e.kind}:${e.unit}`];
+    case "report.posted": {
+      const key = `${e.kind}:${e.unit}`;
+      if (s.owed[key]?.text === e.text) delete s.owed[key];
       return;
+    }
     case "stop.classified": {
       const l = Object.values(s.lanes).find((x) => x.classify?.dispatchId === e.dispatchId);
       if (!l?.classify) return;

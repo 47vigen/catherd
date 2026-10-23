@@ -1,7 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { describeEvent, type RunEvent } from "../../src/domain/run-events.ts";
 import { type Action, next } from "../../src/domain/run-machine.ts";
-import { endDispatch, type Log, runningLog, startDispatch } from "./run-fixtures.ts";
+import {
+  endDispatch,
+  type Log,
+  makeLog,
+  PLAN,
+  runningLog,
+  startDispatch,
+  startedFields,
+} from "./run-fixtures.ts";
 
 const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { type: T }>[] =>
   as.filter((a): a is Extract<Action, { type: T }> => a.type === type);
@@ -17,6 +25,33 @@ describe("per-run pause", () => {
     log.add("run.resumed", { by: "owner" });
     expect(log.state().paused).toBeNull();
     expect(of(last(log), "dispatch").map((a) => a.name)).toContain("worker-M1.L1");
+  });
+
+  it("a paused run claims no worktree and routes no milestone, and the resume issues them", () => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, base: "main" });
+    log.add("plan.ready", { milestones: [PLAN[0]!] });
+    log.add("plan.approved", { by: "owner" });
+    log.add("run.paused", { by: "owner" });
+    expect(of(last(log), "claimTree")).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(of(last(log), "claimTree")).toEqual([{ type: "claimTree", milestone: "M1" }]);
+    log.add("run.paused", { by: "owner" });
+    log.add("tree.ready", { milestone: "M1", tree: "/t/M1", branch: "w-m1", base: "main", hints: [] });
+    expect(of(last(log), "route")).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(last(log)).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
+  });
+
+  it("a paused run without a base routes no milestone until resumed", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: [PLAN[0]!] });
+    log.add("plan.approved", { by: "owner" });
+    log.add("run.paused", { by: "owner" });
+    expect(of(last(log), "route")).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(last(log)).toEqual([{ type: "route", milestone: "M1", confirmed: false }]);
   });
 
   it("a pause lets a live role finish and its check and commit run", () => {

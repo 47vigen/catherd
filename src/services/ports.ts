@@ -1,3 +1,4 @@
+import type { NoRungCause } from "../domain/select.ts";
 import type { BlockedReason } from "../domain/blocked.ts";
 import type { HostContext } from "../domain/host.ts";
 import type { Provenance } from "./provenance.ts";
@@ -71,7 +72,6 @@ export interface ProfileSaved {
 
 export interface ProfilePort {
   withHost?(host: () => HostContext): ProfilePort;
-  budgetFor?(repo: string | null): Budget;
   raw?(name?: string, repo?: string | null): ProfileDoc;
   /** The profile bound to `repo` (a git toplevel), else the active one; null asks for the active one. */
   forRepo(repo: string | null): ProfileView;
@@ -183,7 +183,10 @@ export interface RoutingPort {
    * A run's start check: refreshes the index if it is due, reads it once, and names the enabled roles of `view`
    * that no indexed pair can fill; `index` is what the run pins (null when there is none).
    */
-  checkStart(view: ProfileView, repo: string): Promise<{ unusable: Role[]; index: IndexFile | null }>;
+  checkStart(
+    view: ProfileView,
+    repo: string,
+  ): Promise<{ unusable: Role[]; causes?: Partial<Record<Role, NoRungCause>>; index: IndexFile | null }>;
   /** `billing` prices the rungs (spec §5.3); absent keys bill as DEFAULT_BILLING */
   catalog(
     filter: CatalogFilter,

@@ -331,6 +331,7 @@ export type TranscriptItem = {
 export type RunDoc = {
     name: string;
     text: string;
+    cut: boolean;
 };
 
 export type CommitDiff = {

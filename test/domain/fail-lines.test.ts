@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { checkFailLines, newFails } from "../../src/domain/fail-lines.ts";
+import { andTail, checkFailLines, newFails } from "../../src/domain/fail-lines.ts";
 
 describe("check failing lines", () => {
+  it("andTail names what follows the first &&", () => {
+    expect(andTail("a && b && c")).toBe("b && c");
+    expect(andTail("bun test")).toBeNull();
+    expect(andTail("a &&")).toBeNull();
+  });
   it("strips colour, timings and counters, so two runs compare equal", () => {
     const a = checkFailLines("\x1b[31mFAIL\x1b[0m src/a.test.ts > adds [12.3ms]\nok 1 fine\n");
     expect(a).toEqual(checkFailLines("FAIL src/a.test.ts > adds (40 ms)\n"));

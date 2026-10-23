@@ -59,6 +59,9 @@ describe("state.md's Next never outlives the step it names (plan 22)", () => {
     const record = await finalizeDispatch(run, d);
     await result(deps, { run: run.id, name: "worker-M1.L1" });
     expect(readNotes(run).next).toBe(`after worker-M1.L1 (${record.status}): route and preflight M1's lanes`);
+    await setNext({ run: run.id, next: "dispatch worker-M1.L1 again with the reviewer's findings" });
+    await result(deps, { run: run.id, name: "worker-M1.L1" });
+    expect(readNotes(run).next).toBe("dispatch worker-M1.L1 again with the reviewer's findings");
   });
 });
 

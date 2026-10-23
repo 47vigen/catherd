@@ -16,59 +16,97 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 ## 2.0 follow-ups
 
-### From the kebab-case smoke run (2026-10-23, 2.0.0-next.20261023021801)
+### From plan 38 (the ideas sweep, run 20261023-025529-ideas-sweep-plan-38)
 
-- **The report's reviewer line and its known issues disagree.** The run `kebab case` reported "Reviewer: reviewer-M1
-  · 0 finding(s): 0 BLOCKER, 0 BUG, 0 NIT" and, under Known issues, one NIT (`kebabCase` splits only on whitespace).
-  The NIT came from the verifier's PASS: `run-state.ts` merges `nitLines(e.findings)` of a passing verifier into
-  `m.knownIssues`, while the report's count line counts only the reviewer. A reader sees 0 NIT and then a NIT.
-  Name the source on each known issue ("verifier-M1: …") or count the verifier's findings on its own line
-  (`src/domain/run-state.ts`, the verifier pass branch; the report in `src/services/protocol.ts`).
-- **A-lines are never mapped to a milestone.** Every smoke run so far (slugify, truncate, case helpers, kebab case)
-  reports "A-lines: not mapped to this milestone (none cited as A<n>)" (`src/services/protocol.ts:299`): the plan
-  and the architect never cite `A1`, `A2`, so the report cannot say which milestone proves which acceptance line.
-  Have the architect cite the A-lines a milestone proves in `plan.md` (its brief asks for it), or, for a
-  single-milestone run, map every A-line to that milestone.
-
-### Panel v2 follow-ups (plan 37 final review, 2026-10-23)
-
-- **A run document over 512 KiB is cut with no notice.** `runDoc` (`src/services/run-files.ts`) reads through
-  `readCapped` and drops its `cut` flag, so the panel shows a truncated plan or report as if whole, and a UTF-8
-  character at the cut can break. Send `cut` and say so under the document.
-- **`summary` and `scorecard` still count paused time.** `wallMinutes` in `src/services/summary.ts` and
-  `src/services/scorecard.ts` measure from creation to end; the panel's run index now subtracts pause spans
-  (`coveredMs(start, end, pauseSpans(run))`). Use the same there so the CLI and the panel agree.
-- **A pause does not hold `claimTree` or `route`.** A paused run with a base branch still claims worktrees and routes
-  waiting milestones (`src/domain/run-machine.ts`, the paused filter). The README says so; hold them too if a pause
-  should freeze the run entirely.
-
-- **A watched transcript is re-read whole every 500 ms.** `tailTranscript` (`src/services/transcript.ts`, behind the
-  socket's `watch` message) reads the role's stream file from the start on each poll (`completeLines`) and skips the
-  lines it already sent, so a long role's stream costs more with every poll. _Where:_ keep the byte
-  offset of the last full line and read from it.
-- **A Setup section's save pins the defaults it shows.** The section patches (`patchFor`,
-  `web/src/routes/_app/setup/-lib/patch.ts`) send every field of the section as the page resolved it, so a default
-  the user never touched is written into the profile and no longer follows a new default. _Where:_ send only the keys
-  the user changed.
-- **The run index drops a run with a corrupt `meta.json` without a word.** `runIndex`
-  (`src/services/run-index.ts`) reads `listRuns(...).runs` and never looks at its `corrupt` list, so such a run is
-  just missing from the panel and the log. _Where:_ log each corrupt run once.
-- **A reconnect's refetch can overwrite a newer patch.** After a reconnect `RunDetail`
-  (`web/src/routes/_app/runs/$runId.tsx`) invalidates the model; a patch that lands while that read is in flight is
-  replaced by the older model it returns. _Where:_ keep the cached model when the refetched `seq` is lower.
-- **The overview accepts any date range.** `/api/overview` (`src/services/overview.ts`) takes any `from`/`to`, so a
-  request for years of days builds that many daily rows. _Where:_ clamp the range to 366 days.
-- **The run-index cache is never pruned.** Its map (`cache` in `src/services/run-index.ts`) keeps an entry for every
-  run dir it has seen, deleted runs included, for the life of the panel. _Where:_ drop the entries `listRuns` no longer
-  returns on each `runIndex` call.
-
-### From plan 33
-
-- **A lane on a held quota waits instead of failing over.** Plan 30's advance dispatches a pending lane only while
-  its quota is free, so a lane routed onto a held quota waits up to 30 minutes (plan 33, Ruling 16). _Where:_
-  dispatch it with `failoverFrom` set to its own rung, so `failoverRung` chooses a stand-in.
-- **The panel cannot show or edit `maxEffort` or `bars`** (plan 33, Ruling 17); only `catherd profile set` and the
-  session's `profile` tool do. _Where:_ the panel's Setup page (plan 31).
+- **The judge's first rung skips `maxEffort`.** `rungFor` (`src/services/run-effects.ts:255`) takes
+  `profile.roles.judge?.rungs[0]` as is, while a routed rung goes through `effortAllowed`, so a judge rung above its
+  cap still runs. Found while planning plan 38. Fix: pick the judge's first rung within `maxEffort`, or refuse as
+  validate does.
+- **`run_start`'s fix follows only the first role's cause.** When two roles have no rung for different causes (one
+  the cap, one the index), the message names both, but `fix` is chosen from `start.unusable[0]`'s cause only
+  (`src/services/run-service.ts:154`). Fix: one fix per cause group. (Plan 38 M5 verifier, NIT.)
+- **A workspace child's merge check runs outside the admission lock.** `startWorkspaceChild`
+  (`src/services/workspace-service.ts:161-167`) checks `dependencyBlockers(…, { merge: true })` before the lock, on
+  purpose (git outside the lock), so a dependency could change between the check and `childFor`. The M5 verifier
+  judged it harmless (a merge does not un-merge), but the Codex review of PR #83 found a real case: a dependency
+  milestone landed again while the call waits for the lock passes the pre-lock check on the old ledger commit, and the
+  locked recheck does not compare commits, so the child starts on a commit not yet in base. Fix: capture the checked
+  commit before the lock and require the same `landedCommitOf` under it. (Plan 38 M5 verifier NIT; Codex P2.)
+- **`status` lists a finished 1.5 run as unfinished, with empty metadata.** Before `run_start`, `status()` with no run
+  returned a 1.5 run (`engine 1.5`) with `phase: null`, `outcome: null`, all 10 milestones `landed` but
+  `commit: null`, `title` equal to the id, `startedAt == updatedAt` and `elapsedSec: 0`. A run whose milestones all
+  landed should read as finished, and the 2.0 server should read a 1.5 run's title, commits and times.
+- **The architect writes a fast check over a path the formatter ignores.** `lanes/M2.L3.md`'s `Fast check:` ended
+  with `bunx oxfmt --check docs/dev/scorecard.md`, but `.oxfmtrc.json` ignores `docs/**`, so the step could never
+  pass. The worker blocked `check_broken` (`runs/<run>/events.jsonl` seq 79), was re-dispatched with the same check
+  (seq 82), blocked again (seq 96), and the lane parked (seq 97). Fix: leave ignored paths out of a lane's fast check
+  (or run the repo's own `format:check`); a second `check_broken` with the same `why` on the same head parks at once
+  instead of re-dispatching.
+- **An owner's answer does not stick to the lane.** After the answer that dropped that docs step, the daemon kept
+  running the unchanged fast check (`check.ran` exit 2 at seq 150, 163, 186, 195), the lane climbed to the top rung
+  (seq 164, 198), and a judge skipped the step (seq 210). In M2's fix round the lane went out on a fresh thread
+  (seq 251) with the step still in its check and parked a third time (seq 290): about ten worker dispatches, two
+  climbs, one judge and three owner round trips on a step that cannot pass. Fix: an answer that drops a check step
+  edits the lane's `Fast check:` (or records a waiver the check honours), and a judge `skip` carries into later
+  rounds of that lane. (Run audit 22.)
+- **A lane misses the tests that pin the behaviour it changes.** `lanes/M4.L3.md` owned only `src/services/daemon.ts`
+  and its test; its task changed `ensureDaemon` for every caller, and `test/services/run-read.test.ts` and
+  `test/services/run-pause.test.ts` (which stub `daemonLauncher.launch`) expected the old launch. The worker parked
+  `out_of_scope`. In M4 a change to `src/domain/run-state.ts` broke `test/domain/run-state.test.ts`, which no lane
+  owned and no fast check ran; it surfaced only at the verifier, after five review rounds. Fix: when a lane changes
+  an exported function, the architect adds the tests that call or stub it to the lane's Owns:, and a lane's fast
+  check runs the test files of the source files it owns. (Run audit 15.)
+- **A plan-backed run maps no A-line, and the digest shows only the last review round.** M1's digest said "A-lines:
+  not mapped to this milestone (none cited as A<n>)" and listed all six: a plan written before the run does not cite
+  the run's `A<n>`, and a one-milestone mapping does not apply to six milestones. The same digest said "Reviewer:
+  reviewer-M1 · 0 finding(s)" after three review rounds, so rounds 1-2's findings are invisible. Fix: the architect
+  maps the A-lines onto milestones when it turns a plan into `plan.md`; the digest sums findings over every round.
+- **A push takes two parked round trips per milestone.** M1 parked for the push, then again for the MR. With the
+  owner's standing approval for a run's base branch, both could be one answer (`push+merge`) or a profile setting.
+- **A gate recorded in a broken env cannot be re-recorded.** The gate cache is keyed by HEAD only, not by the env it
+  ran in: a verifier's second and third `gate run` on M6's head returned the same cached failed record, `land` reads
+  it, and that head can never land without a new commit. Fix: let a verifier re-run a gate (a `fresh` flag), or key
+  the record by its env too. (Run audit 7.)
+- **A gate that fails on the base too counts as green.** M1 and M3 landed with `Gate: … exit 1` and the audit "every
+  failing line is pre-existing (60)", while 60 env failures on the base hid what the gate checked. The audit also
+  differed across milestones: M4's counted the same failing lines as pre-existing, M5's called one of them new. Fix: a
+  gate whose base also fails says so in the verdict, not as a pass, and the line matching is made deterministic.
+  (Run audit 4, 5.)
+- **The report's known issues can be a verifier reply cut into lines.** The cancelled run's `result` listed, as M4's
+  known issues, the verifier's whole reply split per line ("HEAD: 13f8a45…", "**Acceptance lines**", "**Gate
+  items**", "**Not checked**"), not findings. The report also shows tokens but no cost. Fix: take only finding lines
+  into `knownIssues`, and add the run's cost. (Run audit 19, 20.)
+- **An unattended coordinator asked an interactive question, and the run sat for six hours.** Five parked questions
+  (M2-M6) waited from 04:16 to 10:05 UTC while the coordinator showed a question menu in a terminal nobody watched;
+  the phone notices carry only catherd's own parks. Fix: the catherd skill tells a coordinator that runs unattended
+  never to ask interactively: rule, record the ruling, and send what needs the owner to the run's notify url.
+  (Run audit 25.)
+- **The run audit's other findings.** The five-lens audit of this run,
+  `docs/dev/reports/2026-10-23-plan-38-run-audit.md`, lists 29 findings. This branch fixes 7 (the role env in checks)
+  and 10 (an answered BLOCKER past the cap re-dispatches); the entries above hold 4, 5, 15,
+  19, 20, 22 and 25. The rest, each with its evidence and fix in the report:
+  - **Gate integrity.** 1: a check written `ROOT && web && openapi && privacy` stops at the first red part, so the web
+    gate, e2e, openapi sync and privacy grep never ran for any milestone; run one `gate_run` per item. 2: `gate_pass`
+    without a matching step records against the base checkout (M3's web rows name `d6b23a4`); require a milestone and
+    a step. 3: `gates.jsonl` never gates land. 6: `checkFailLines` keeps only 60 lines, so a 61st new failure is
+    invisible. 8: verifiers carry A-line results over from an earlier verifier with no record.
+  - **Orchestration.** 9: the architect widened M7's dependency to M1–M6 without surfacing it, so the run could never
+    reach M7. 10 (the part left): a verifier FAIL counts as a review round, so one failing test spends the cap with no
+    fix round. 11: lanes go `check_broken` on a repo-wide typecheck that imports a sibling lane's unwritten exports
+    (~16 dispatches). 12: a verifier re-runs on an unchanged HEAD and env. 13: a verifier's result is dropped when the
+    base moves. 14: milestone starts serialise on the memory check; verifier gates queue on the heavy lock in no
+    useful order; cancel leaves orphan parks and the trees.
+  - **Role output.** 16: reviewers do not run tests, so they PASS heads the verifier fails. 17: the same finding
+    repeats unchanged for three rounds on an unchanged HEAD. 18: replies missing `VERDICT:`/`HEAD:` lines are
+    accepted. 19 (first part): an architect requirement that contradicted its task cost a judge round.
+  - **Cost.** 20: Codex cost is never computed (`costUsd: null`; the run reported $11.09, about $49 with Codex at
+    catalog prices). 21: "in" tokens count cache reads, and cache writes are not recorded. 22 (the part left): a rung
+    climbs on an environment failure. 23: the ui-reviewer resumes a growing thread; judges run as full sessions; open
+    whether Codex usage is cumulative across a resumed thread.
+  - **Observability.** 24: nothing re-notifies a run parked with nobody answering (5h49m of `tick`). 26: `status
+    --json` `questions` reads the 1.x `questions.jsonl` and showed `[]` while parks were open. 27: a cancelled run's
+    report and finish message read like a success. 28: ntfy messages carry no reason, question text or link. 29: the
+    panel's Took, done count, Rounds and Cost mislead, and an ended run keeps its parks.
 
 ### From the plan 28–35 reviews (2026-10-21)
 
@@ -76,72 +114,28 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   (`src/services/dispatch-service.ts:457`) takes the caller's rung as is, while a lane's rung goes through routing,
   which applies `CODING_FLOOR` and `maxEffort` (`effortAllowed`, `src/domain/select.ts:40-52`). Fix: refuse or warn
   for a coding role's rung below the floor or above its cap, as validate does for the rungs.
-- **`run_start`'s refusal names the wrong cause.** It says "no usable rung on the Slopalytics index"
-  (`src/services/run-service.ts:131`) when the role's only rungs are removed by `maxEffort` or the coding floor
-  (`rolesWithoutRung`, `src/services/routing-service.ts:315`). Fix: name the cause (the cap, the floor, or the index)
-  in the message and the fix.
+  Nothing calls it since 2.0 (plan 38 triage).
 - **A task's signature and test are found by pattern.** `parsePlanDoc` (`src/domain/plan-doc.ts`) calls any code block a
   signature and any `Expected:` line a test, so a task with only a shell command passes preflight. _Where:_ ask
   Jev, or the judge at `readPlan`, whether each task names what its worker must build.
-- **An unfinished baseline row makes the wall-clock bar lenient** (`passBar`): a task the operator gave up on at the
-  4-hour cap still counts in the baseline's sum. Say so in the verdict.
-- **`scorecard record` leaves the acceptance files' folders behind** in the throwaway clone. Harmless.
-- **`saveTaskScore` writes the results file without a lock**: two concurrent `record` runs would lose a row. The
-  protocol runs one task at a time.
-- **A proxy answer with `fetchedAt` null makes validate's fix say `catherd catalog sync`** even though an index
-  exists, so the advice does not match the state.
-- **Reviving a daemon has no backoff:** with a corrupt events.jsonl every status call spawns a daemon that fails.
-- **Base-failure line matching hides untested `a && b` tails.** A check that fails only in lines the base fails in
-  too passes (`src/services/milestone-check.ts:171-206`, `src/domain/fail-lines.ts`). When the check is `a && b` and
-  `a` fails on the base the same way, `b` never runs on either side, so a new break in `b` stays invisible. Fix: when
-  the baseline's exit is non-zero, run the check's parts separately, or name the unreached tail in `audit`.
-- **The secret scan in a base run covers others' commits too.** `secretScan` scans `base..HEAD`
-  (`src/services/milestone-check.ts:77-89`), and once `integrate` has merged origin's base into the run's branch, that
-  range holds the commits of other people. A secret they pushed blocks this run's milestone. Fix: scan only the
-  first-parent chain (`--first-parent`) or exclude commits reachable from `origin/<base>`.
+- **Base-failure line matching hides untested `a && b` tails.** The audit line now names the unreached tail
+  (`andTail`, `src/domain/fail-lines.ts`); still open: when the baseline's exit is non-zero, run the check's parts
+  separately so a new break in the tail is caught.
 - **A last milestone that never merges keeps the run alive until the push answer.** In a base run `isFinished` (merged)
   gates the run's end (`src/domain/run-state.ts:254`, `src/domain/run-machine.ts:478`), as plan 30b's ledger ruling
   says; if the owner never merges it, the run waits on the push question forever. Fix: end the run when the last
   milestone is landed and the push question has been answered, and say that the merge is still open.
-- **The panel's CSP `connect-src` falls back to `default-src 'self'`, which old Safari may not extend to `ws:`.**
-  The run page's live socket could then be blocked there. The e2e runs Chromium only, so nothing has checked it;
-  add `connect-src 'self' ws://127.0.0.1:*` if a Safari user reports a dead "Live" dot.
-- **`decisionLines` reads only the `D<n>` line** (`src/domain/plan-doc.ts`). A decision wrapped onto a continuation
-  line, or rewritten as a list item such as `1. D1`, changes nothing the comparison sees, so an edit to its meaning
-  triggers no re-approval. Fix: read a decision up to the next `D<n>` line or blank line, and accept a list marker.
-- **The `labelled` parser splits a finding that contains ` - ` at the first separator.** A finding whose own text
-  holds a spaced hyphen loses the tail to the wrong field. Fix: split on the label once, or require the em dash.
-- **The rules review's `" — "` splitter cuts a rule that contains `" — "`.** `parseJudgeReply` (`src/domain/judge.ts`)
-  splits a `ADD`/`REMOVE` line at the last `" — "`, so a rule whose text holds one loses its tail to the reason.
-  _Where:_ ask the judge for a field separator a rule cannot hold, or parse the reason from a tagged suffix.
-- **The report has no cap.** `writeRunReport` (`src/services/run-report.ts`) lists every known issue, every standing
-  rule and every research block in full; a long run's report grows without bound. _Where:_ cap each list, with a
-  "+N more" line that points at the files.
-- **`git worktree prune` in `claimTree` prunes the owner's own stale entries too.** `claimTree`
-  (`src/services/milestone-tree.ts:111`) runs `git worktree prune` on the owner's repo, which drops every worktree
-  entry whose folder is missing, such as one on an unmounted drive. Fix: scope it to catherd's trees (prune only when
-  the missing folder is under `<run dir>/trees`), or drop the call and let `worktree add` report the stale entry.
-- **A memory deferral never tells the owner.** `claim` (`src/services/run-effects.ts:684-697`) appends `tree.deferred`
-  every `MEMORY_LIMITS.recheckMs` (2 minutes) while memory is short, and nothing reports it, so a milestone can wait
-  for hours with no sign. Fix: report once on the first deferral of a milestone (and when it is claimed after), with
-  the numbers the event already carries.
 - **In a base run `updateState` and the skip path read the main checkout's HEAD.** `updateState`
   (`src/services/state.ts:51`) takes `gitHead(run.meta.repo)`, and the skip path's `fullCommit(run, "HEAD")`
   (`src/services/lane-service.ts:357`) resolves in the repo as well, while the work is on the milestone's branch in
   its tree. Neither is reachable from the daemon today; a caller that reaches them in a base run gets the wrong
   commit. Fix: resolve them through `treeOf(run, milestone)`.
+  The skip path has no caller since 2.0 (plan 38 triage).
 
 ### From the 1.5 plan reviews (2026-10-02, still open)
 
 These concern code 2.0 kept: the 1.5 notifier, end push and `result` paths still serve a run started on 1.5, and the
 services behind the removed session tools stay for the CLI.
-
-Plan 21 (roles and ownership) review:
-
-- **Refused notices pile up in delivery.jsonl.** Each deliver pass writes another `failed` attempt and another
-  `error` log line for the same notice refused for a role's thread, so `delivery.jsonl` grows without bound while the
-  owner of record stays a role. Evidence: `src/services/notifier.ts:248-252`. Fix: skip the notice when its latest
-  attempt is already a role-thread refusal (`ROLE_THREAD_REFUSAL`) for the same target. (Minor 5.)
 
 Plan 22 (delivery and the loop) review:
 
@@ -150,109 +144,39 @@ Plan 22 (delivery and the loop) review:
   thread and an explicit newer thread is refused. Evidence: `src/services/dispatch-service.ts:297-321` (called at
   :354, before `claim`). Fix: also accept the threads of finished, unrecorded dispatches (`admit.thread` or the
   stream's thread), or finalize the name's finished dispatches before the check without claiming. (M1.)
-- **`advanceNext` runs on every `result()`.** A re-read of an already collected record can rewrite a Next that names
-  the role for a future step. Evidence: `src/services/run-service.ts:113-124`, called at :160. Fix: advance only
-  when the call marks the record read, or when the record ended after state.md's last write. (M2.)
-- **End push reads the owner before the notify lock.** A claim in the gap sends to the old owner, and the new
-  owner's notifier also sends (two sessions, one message each). Evidence: `src/services/end-push.ts:85` (owner) vs
-  :89 (`tryLock`). Fix: re-read `codexOwner` inside the lock. (M3.)
-- **End push reports an `ambiguous` delivery as "delivered".** Evidence: `src/services/end-push.ts:93`
-  (`deliveryState(...) !== "pending"` returns `"delivered"`). Fix: return the delivery state itself. (M4.)
-- **End push gives up at once on "busy".** If the server holding the notify lock then fails to submit, nobody
-  retries. Evidence: `src/services/end-push.ts:90`. Fix: one short retry after the lock frees. (M5.)
-- **`CATHERD_NO_END_PUSH` reaches only children that inherit `process.env`.** A test that spawns with an explicit
-  `env` could leave a supervisor running 20 s and calling the real `codex`. Evidence: `test/preload.ts:7`; there
-  is no shared spawn-env helper (each test builds its `env`, e.g. `test/plugin.test.ts:112`). Fix: add a shared
-  spawn-env helper in `test/helpers.ts` that sets `CATHERD_NO_END_PUSH=1` (and `ANTHROPIC_API_KEY: ""`), and use it
-  in the tests that spawn catherd. (M6.)
+  Nothing calls it since 2.0 (plan 38 triage).
 
 Plan 23 (verifier, gate and environment) review:
 
-- **A chatty login profile corrupts the login env.** A profile that prints to stdout (a motd, an `echo`) lands in
-  front of the first `env -0` record, so that variable (PATH, when it comes first) is lost; and the capture's
-  `spawnSync` blocks the MCP server's event loop for up to 5 s, once per process. Evidence:
-  `src/infra/login-env.ts:13`, `src/infra/login-env.ts:26`. Fix: parse only `K=V` records, dropping what precedes the
-  last newline before the first `\0`; capture it asynchronously (or at boot, off the request path). (Minor 2.)
-- **An `ENV:` line anywhere makes climb refuse.** `parseReplyEnvironment` matches an `ENV:` line anywhere in the
-  reply, a YAML or Dockerfile snippet in a code fence included, so `climb` refuses with `E_CLIMB_ENV` for a lane that
-  had no environment blocker. Evidence: `src/domain/record.ts:93-95`. Fix: read it outside code fences only, or only
-  among the lines just above the `STATUS:` line. (Minor 4.)
-- **The retry reset also fires when the `providerRetry` hook times out.** `bounded(..., null)` falls back to null,
-  which clears the stream-counted retries, so a slow hook hides an outage until the idle timeout. Evidence:
-  `src/infra/supervisor.ts` (the `providerRetry` poll). Fix: reset only on a hook answer of "no retry", not on a
-  timeout. (Re-review.)
-- **The reserved gate-env names are a hand-kept list.** It misses `GH_CONFIG_DIR`, `GIT_CONFIG_GLOBAL`,
-  `XDG_CACHE_HOME`, `BUN_INSTALL_CACHE_DIR` (the env order still protects them). Evidence: `src/services/gate-env.ts`
-  `RESERVED`. Fix: derive it from what the adapters' plans set. (Re-review.)
-- **A stray JSDoc in `supervise-command.ts`.** `runSupervise`'s doc sits above `superviseEnv`'s. Evidence:
-  `src/entry/supervise-command.ts:122-126`. Fix: move it back. (Re-review.)
+- **The login env is captured synchronously.** The capture's `spawnSync` blocks the MCP server's event loop for up
+  to 5 s, once per process (`src/infra/login-env.ts`). Fix: capture it asynchronously, or at boot, off the request
+  path. (Minor 2; the chatty-profile parse is fixed.)
 
 Plan 24 (routing and cost) review:
 
-- **`jev-kind` is claimed when Jev was sure of nothing.** When Jev answered but was sure of no kind, a lane's
-  declared `Kind:` alone still routes as source `jev-kind`, so `why` says "Jev's kind with …" and `decidedBy: jev-kind`
-  reaches the outcome rows used to calibrate Jev; with Jev off or failing, a `Kind:`-only lane falls to the default
-  and its declared kind is ignored. Evidence: `src/services/routing-service.ts:196` (`judged && lane.kind`). Fix:
-  label it `lane` (or a new source) and use `lane.kind` whether or not Jev answered. (Minor 2.)
 - **An explicit rung on a routed lane goes unchecked and unrecorded.** A lane dispatch with an explicit `rung` on a
   lane already routed is neither checked against the lane's ladder nor written to `routes.jsonl`. Evidence:
   `src/services/dispatch-service.ts:364-366`. Fix: refuse (or warn on) a rung off the ladder, and record the rung
   dispatched as a route row. (Minor 5.)
-- **Quota usage is read once per lane, and double-counts a re-route.** `runUsage(run)` is computed for each lane of a
-  batch, and a waiting lane that is re-routed counts both its routes. Evidence: `src/services/lane-service.ts:94`,
-  `src/services/lane-service.ts:141`. Fix: compute it once per batch and count each lane's latest route only.
-  (Minor 6.)
-- **`route` sends unbounded Jev requests.** `route`'s `lanes` has no upper bound, and every lane is judged at once, so
-  a large batch sends that many Jev requests in parallel. Evidence: `src/entry/mcp/lane-tools.ts:21`,
-  `src/services/routing-service.ts:237`. Fix: cap `lanes` (`.max(n)`) or judge with bounded concurrency. (Minor 10.)
+  Nothing calls it since 2.0 (plan 38 triage).
 
 Plan 25 (runs, programs and lanes) review:
 
-- **A merge release's git check runs inside the workspace lock.** `workspace_child_start` calls
-  `dependencyBlockers(…, { merge: true })`, whose `git merge-base --is-ancestor` runs while the workspace lock is
-  held, against Ruling 4 (git outside the lock); bounded only by git's 15 s timeout. Evidence:
-  `src/services/workspace-service.ts:182`, `:219`. Fix: compute the merge blockers before taking the lock and re-check
-  only the cheap record rule inside it. (Minor 1.)
 - **Two open questions on one milestone share one parked span.** `parkedSpans` opens a span on a question only when
   none is open, so a second question asked while the first is open is closed by the first answer, and the minutes
   after it stop being excluded. Evidence: `src/services/questions.ts:43-54`. Fix: count open questions (a span ends
   when the last open one is answered), or pair each answer with its question id. (Minor 2.)
-- **Some readers still use the repo's profile, not the run's pin.** Preflight, `jev.use` in lane routing, and the
-  budget `status` shows, all read `forRepo`, so admission enforces the pinned budget while status shows
-  the repo's. Evidence: `src/services/preflight.ts:260`, `src/services/lane-service.ts:240`, `:573`,
-  `src/services/summary.ts:81`. Fix: read `runProfile(deps, run)` there. (Minor 3.)
-- **An unreadable profile leaves an orphan run folder.** `startRun` and `startWorkspaceChild` call `writePin`
-  (`forRepo`) after `createRun`, so a profile that does not read throws with the run folder already made. Evidence:
-  `src/services/run-service.ts:121`, `src/services/workspace-service.ts:195`. Fix: resolve the pin before
-  `createRun`, or catch and remove the folder. (Minor 4.)
-- **The role lock's state file has no schema field.** `role-<role>.json` is written as `{ owner, holders }`, unlike
-  every other store file; pause rows rely only on the jsonl header. Evidence: `src/infra/heavy-lock.ts:96-115`. Fix:
-  add `schema: 1` and read it through `readVersioned`. (Minor 5.)
-- **`Allow:` misses a hit printed as `./path`.** `onlyAllowedHits` compares the hit's path verbatim, so
-  `./src/x.ts:12:` (a grep under `./`) does not match `Allow: src/x.ts`. Evidence: `src/domain/lane.ts:143-158`. Fix:
-  normalize both sides with `normalizeOwned`. (Minor 6.)
-- **Carried gate passes are not shared between worktrees the user made.** `gates.jsonl` stays keyed by the toplevel
-  (Ruling 20), so a worktree of the same origin that catherd did not make never reuses a pass recorded in another.
-  A base run's worktrees (plan 35) are one run's and share the repo's passes. Evidence:
-  `src/services/gate-service.ts:41`. Fix: key it by origin like knowledge; the content hashes already make a pass
-  checkout-independent. (Controller carry-over.)
 
 Plan 26 (the minors sweep) review:
 
-- **The `marked` hint fires on a failed verifier.** It fires on any non-passed headless verdict whose reply holds
-  `VERDICT: PASS`, including a verifier whose CLI exited failed or hit its limit. Evidence:
-  `src/services/lane-service.ts:419-423`. Fix: count only records with status `ok`. (Minor 1.)
 - **A skipped first landing says "changed nothing".** When the first milestone lands with skip and its commit equals
   the run's start head, the range is empty and the message reads "<commit> changed nothing" instead of "nothing
   committed since the run started" (it fails safe). Evidence: `src/services/lane-service.ts:368-373`,
   `milestoneFiles`. Fix: special-case commit == startHead with the clearer message. (Minor 2.)
+  The skip path has no caller since 2.0 (plan 38 triage).
 
 ### Found while releasing 1.5 (still open)
 
-
-- **`status` lists a previous owner session as live.** After a new session took the run on the 2026-09-29 resume of
-  that run, `status` and `peek` still listed the previous owner session as `live: true` (plan 22 closes the stale
-  verifier step itself, not this). Fix: list only the owner of record as live.
 - **A broken check is called expected.** In the payment run `-143512`, M1.L5, a compose file valid only layered on
   another failed `config -q`, and preflight called it `fails-as-expected`. Since 1.5 only an environment error is
   `cannot-start` (`src/services/preflight.ts:204`), so a check that is broken for another reason still reads as
@@ -269,11 +193,6 @@ Plan 26 (the minors sweep) review:
   start a goal-continuation turn about once a minute (11 turns in 21 minutes, 7.2 M input tokens). In 2.0 the
   skill ends the turn after `run_start` and nothing polls; a warning at `run_start` when the
   thread has an active goal would catch it before the first poll.
-- **`protocol.next` names failed items from history, the verifier from content.** `failedItems`
-  (`src/services/gate-service.ts:359`, used by `src/services/protocol.ts:186`) reads the step history alone (sync),
-  while `gate_check`'s listing and the verifier brief use `recordedItems`, which also re-opens a pass whose content
-  changed since. So the re-check step can name fewer items than the fresh verifier is given. Evidence: plan 23
-  ledger (Codex fixes for PR 48). Fix: make `protocol.next` async and use `recordedItems`, or cache its result.
 - **Stacked pushes need `-o ci.skip` (branch pipelines held the runner).** About the user's CI practice, not
   catherd. In the payment run, pushing five stacked branches started five branch pipelines on the single runner, and
   plan 5's MR pipeline sat pending for about 30 min. Stacked pushes need `-o ci.skip`.
@@ -293,8 +212,6 @@ Plan 26 (the minors sweep) review:
 - **The milestone memory defaults are a guess.** `limits.memory`'s defaults (2 GB reserve, 3 GB per milestone, 3 GB
   floor) were set from the shop run's 9 GB swap, not measured per milestone. Fix: record the peak RSS of each
   milestone's process tree on the scorecard runs, then retune the defaults.
-- **A kept worktree is only logged.** A merged milestone's tree with untracked files stays under `<run>/trees/` and
-  only the daemon log says so. Fix: list kept trees in the run's report.
 - **Stacked milestones.** Starting M2 only after M1 merged serializes the run behind review and the gate. M2 could
   start on a branch stacked on M1 while M1's gate and MR run, and rebase once it merges.
 

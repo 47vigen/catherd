@@ -6,13 +6,13 @@ import { type BudgetStatus, budgetStatus } from "../domain/budget.ts";
 import { errorMessage, isCatherdError } from "../domain/errors.ts";
 import type { RunRecord, Tokens } from "../domain/record.ts";
 import type { QuotaRow } from "../domain/scorecard.ts";
-import { median } from "../domain/util.ts";
+import { coveredMs, median } from "../domain/util.ts";
 import { nonBlankLines, readJsonl } from "../infra/store.ts";
 import { spendOf } from "./budget.ts";
 import { ensureDaemon } from "./daemon.ts";
 import { verifierStepView, type VerifierStepView } from "./verifier-step.ts";
-import { type Pause, pausesOver } from "./pause.ts";
-import { pinChanges } from "./run-pin.ts";
+import { type Pause, pauseSpans, pausesOver } from "./pause.ts";
+import { pinChanges, runProfile } from "./run-pin.ts";
 import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
@@ -87,6 +87,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const live = liveDispatches(run, now);
   // an ended run's clock stops at run.ended: its wall minutes and its minute budget
   const until = ended ? Date.parse(ended.at) : now;
+  const start = Date.parse(run.meta.createdAt);
   const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
@@ -97,10 +98,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const pinned = pinChanges(deps, run);
   for (const c of pinned) warnings.push(`pinned: ${c}; dispatch keeps the pinned value (run_pin re-pins)`);
   try {
-    budget = budgetStatus(
-      spendOf(run, records, live, until),
-      deps.profiles.budgetFor?.(run.meta.repo) ?? deps.profiles.forRepo(run.meta.repo).budget,
-    );
+    budget = budgetStatus(spendOf(run, records, live, until), runProfile(deps, run).budget);
   } catch (e) {
     warnings.push(`budget: ${isCatherdError(e) ? e.message : String(e)}`);
   }
@@ -148,7 +146,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       notOk: records.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
       tokens: { input: sum((t) => t.input), cached: sum((t) => t.cached), output: sum((t) => t.output) },
       costUsd: records.reduce((n, r) => n + (r.costUsd ?? 0), 0),
-      wallMinutes: Math.round((until - Date.parse(run.meta.createdAt)) / 60_000),
+      wallMinutes: Math.round(Math.max(0, until - start - coveredMs(start, until, pauseSpans(run))) / 60_000),
     },
     agents: {
       runs: agents.length,

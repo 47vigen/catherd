@@ -6,6 +6,7 @@ import {
   copyPlanInputs,
   laneTasks,
   milestoneTasks,
+  numberedALines,
   PLAN_CONTEXT_MAX,
   PLAN_INPUT_DIR,
   planContext,
@@ -206,4 +207,40 @@ describe("a lane's tasks", () => {
       "A1, A2, A3 are cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
     ]);
   });
+});
+
+it("numbers A-lines written without an id, and only when none has one", () => {
+  expect(numberedALines(["truncate cuts at 8", "plan: p.md", "bun test passes"])).toEqual([
+    { id: "A1", line: "A1 truncate cuts at 8" },
+    { id: undefined, line: "plan: p.md" },
+    { id: "A2", line: "A2 bun test passes" },
+  ]);
+  expect(numberedALines(["A3 x", "y"])).toEqual([
+    { id: "A3", line: "A3 x" },
+    { id: undefined, line: "y" },
+  ]);
+});
+
+it("refuses an unnumbered A-line cited under no milestone", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["login works", "logout works"];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeLane(run, "M2.L1", ["src/b.ts"]);
+  writeFileSync(join(run.dir, "plan.md"), "## M1 — core\n- A1 login works\n## M2 — docs\n");
+  expect(planProblems(run).filter((p) => p.includes("under no milestone"))).toEqual([
+    "A2 is cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
+  ]);
+});
+
+it("a one-milestone plan owns every A-line, and no plan.md owns none", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["A1 x", "A2 y"];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeFileSync(join(run.dir, "plan.md"), "# P\n## M1 — all\n");
+  const unowned = () => planProblems(run).filter((p) => p.includes("under no milestone"));
+  expect(unowned()).toEqual([]);
+  rmSync(join(run.dir, "plan.md"));
+  expect(unowned()).toEqual([
+    "A1, A2 are cited under no milestone: under the milestone that delivers each, write it in plan.md as an A<n> line",
+  ]);
 });

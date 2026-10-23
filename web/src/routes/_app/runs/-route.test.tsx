@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { RunModel } from "../../../client";
+import { getRunModelQueryKey } from "../../../client/@tanstack/react-query.gen";
 import { client } from "../../../client/client.gen";
 import { configureClient } from "../../../lib/api";
 import { getSocket, stopWebSocket } from "../../../lib/live-socket";
@@ -481,6 +482,17 @@ test("Cancel this role asks first", async () => {
 test("the plan opens on a running run", async () => {
   renderRoute("/runs/r1", api);
   expect(await screen.findByText("Split the wallet.")).toBeInTheDocument();
+  expect(screen.queryByText("This document is long, so only its start is shown.")).toBeNull();
+});
+
+test("a cut document says so under it", async () => {
+  renderRoute("/runs/r1", (req, url) =>
+    url.pathname === "/api/runs/r1/docs" && url.searchParams.get("name") === "plan.md"
+      ? Response.json({ name: "plan.md", text: "# The plan\n\nSplit the wallet.", cut: true })
+      : api(req, url),
+  );
+  expect(await screen.findByText("Split the wallet.")).toBeInTheDocument();
+  expect(screen.getByText("This document is long, so only its start is shown.")).toBeInTheDocument();
 });
 
 test("a phone gets the list of steps and no graph", async () => {
@@ -575,6 +587,44 @@ test("a reconnect refetches the model once", async () => {
   act(() => FakeSocket.last!.frame({ seq: 40, at: now(), type: "report.posted", text: "M1 landed" }));
   expect(await screen.findByText("M1 landed")).toBeInTheDocument();
   expect(modelReads(requests)).toBe(2);
+});
+
+test("a patch that lands while the reconnect's read is in flight is kept", async () => {
+  let release!: () => void;
+  const { requests, queryClient } = renderRoute("/runs/r1", (req, url) => {
+    if (url.pathname === "/api/runs/r1/model" && modelReads(requests) > 1) {
+      const older = structuredClone(model);
+      return new Promise<Response>((resolve) => {
+        release = () => resolve(Response.json(older));
+      });
+    }
+    return api(req, url);
+  });
+  await nodeButton(LANE);
+  const first = await openSocket();
+  act(() => first.close());
+  await waitFor(() => expect(FakeSocket.last).not.toBe(first));
+  act(() => FakeSocket.last!.open());
+  await waitFor(() => expect(modelReads(requests)).toBe(2));
+  const lane = model.nodes.find((n) => n.id === LANE)!;
+  const done = { ...lane, status: "done" as const, now: "Done in 4 min", endedAt: now() };
+  act(() =>
+    FakeSocket.last!.frame({
+      kind: "event",
+      seq: model.seq + 1,
+      at: now(),
+      type: "dispatch.ended",
+      text: "worker-M1.L1 ended",
+      event: {},
+      patch: { seq: model.seq + 1, phase: "running", outcome: null, nodes: [done], removed: [], edges: null },
+    }),
+  );
+  model = { ...model, seq: model.seq + 1, nodes: model.nodes.map((n) => (n.id === LANE ? done : n)) };
+  act(() => release());
+  await waitFor(() =>
+    expect(queryClient.isFetching({ queryKey: getRunModelQueryKey({ path: { id: "r1" } }) })).toBe(0),
+  );
+  expect(await nodeButton(LANE)).toBeInTheDocument();
 });
 
 const shellFrame = (dispatchId: string, command: string) => ({

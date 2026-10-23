@@ -14,10 +14,10 @@ export interface Reentry {
 }
 
 /** `notes`: state.json as the caller already read it (peek), so it is read once. */
-export function reentry(run: Run, now?: number, notes: Notes = readNotes(run)): Reentry {
+export async function reentry(run: Run, now?: number, notes: Notes = readNotes(run)): Promise<Reentry> {
   return {
     questions: openQuestions(run),
-    protocol: protocolView(run, notes.parked ?? [], now),
+    protocol: await protocolView(run, notes.parked ?? [], now),
     verifier: verifierStepView(run, now ?? Date.now()),
   };
 }

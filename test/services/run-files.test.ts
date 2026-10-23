@@ -176,7 +176,7 @@ describe("run docs", () => {
     writeFileSync(p.ledger, "ledger");
     writeFileSync(join(p.lanes, "M1.L1.md"), "lane");
     writeFileSync(join(run.dir, "digests", "M1.md"), "digest");
-    expect(runDoc(run, "plan.md")).toEqual({ name: "plan.md", text: "# plan" });
+    expect(runDoc(run, "plan.md")).toEqual({ name: "plan.md", text: "# plan", cut: false });
     expect(runDoc(run, "ledger.md").text).toBe("ledger");
     expect(runDoc(run, "lanes/M1.L1.md").text).toBe("lane");
     expect(runDoc(run, "digests/M1.md").text).toBe("digest");
@@ -185,6 +185,13 @@ describe("run docs", () => {
     expect(() => runDoc(run, "report.md")).toThrow(
       expect.objectContaining({ code: "E_RUN_NOT_FOUND", message: expect.stringContaining("report.md") }),
     );
+  });
+
+  it("a cut document says so and never ends inside a UTF-8 character", () => {
+    const { run } = freshRun();
+    const text = "x".repeat(512 * 1024 - 1);
+    writeFileSync(runPaths(run.dir).plan, `${text}émore`);
+    expect(runDoc(run, "plan.md")).toEqual({ name: "plan.md", text, cut: true });
   });
 
   it("reads a document up to the text cap, and a name that is not a file is not found", () => {
@@ -197,6 +204,16 @@ describe("run docs", () => {
 });
 
 describe("check logs", () => {
+  it("a log's tail never starts inside a UTF-8 character", async () => {
+    const run = await runWithDispatch();
+    const dir = join(runPaths(run.dir).scratch, "worker-M1.L1");
+    mkdirSync(dir, { recursive: true });
+    const text = "y".repeat(64 * 1024 - 1);
+    writeFileSync(join(dir, "full-check.log"), `é${text}`);
+    await appendEvent(run, { type: "check.ran", lane: "M1.L1", exit: 0, tail: "", foreign: [] }, at(6));
+    expect(checkLogs(run, "M1.L1").full).toBe(text);
+  });
+
   it("reads a lane's fast and full check logs and the newest exit", async () => {
     const run = await runWithDispatch();
     const dir = join(runPaths(run.dir).scratch, "worker-M1.L1");

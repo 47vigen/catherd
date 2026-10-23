@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   INJECTED_TASK,
@@ -18,12 +19,21 @@ import { SRC } from "../import-graph.ts";
 afterEach(snapshotEnv());
 
 function catherd(args: string[], env: Record<string, string> = {}) {
-  const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
-    env: { ...(process.env as Record<string, string>), ANTHROPIC_API_KEY: "", NO_COLOR: "1", ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  const inherited = { ...process.env };
+  delete inherited.CATHERD_ROLE;
+  const tmp = tempDir("scorecard-cli-");
+  try {
+    const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
+      cwd: tmp,
+      // A relative TMPDIR keeps the CLI from identifying the worker through its scratch path.
+      env: { ...inherited, TMPDIR: ".", ANTHROPIC_API_KEY: "", NO_COLOR: "1", ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 const score = (task: ScorecardTaskId, over: Partial<TaskScore> = {}): TaskScore => {
@@ -138,6 +148,12 @@ describe("catherd scorecard", () => {
     );
     expect(lines[1]).toEndWith("first try yes  quota 12k/3k");
     expect(lines.at(-1)).toBe("PASS");
+    const unfinished = file("1.5.0", 60, { "raqam-myanmar": { finished: false } });
+    const noted = formatComparison(current, unfinished, passBar(current, unfinished));
+    expect(noted.slice(-2)).toEqual([
+      "NOTE: baseline 1.5.0: raqam-myanmar did not finish, so its wall-clock stops where it was stopped and the wall-clock bar is lenient",
+      "PASS",
+    ]);
   });
 
   it("shows a task not recorded as a dash, a missing baseline as ?, and each failure", () => {
@@ -162,15 +178,16 @@ describe("catherd scorecard", () => {
     ]);
   });
 
-  it("compare exits 1 on a failing scorecard, 0 on a passing one, and 2 for a label never recorded", () => {
+  it("compare exits 1 on a failing scorecard, 0 on a passing one, and 2 for a label never recorded", async () => {
     withHome();
     const results = tempDir("scorecard-results-");
-    const put = (f: ScorecardFile) => {
-      for (const s of Object.values(f.tasks)) saveTaskScore(join(results, `${f.label}.json`), f.label, s);
+    const put = async (f: ScorecardFile) => {
+      for (const s of Object.values(f.tasks))
+        await saveTaskScore(join(results, `${f.label}.json`), f.label, s);
     };
-    put(file("1.5.0", 60));
-    put(file("plan-29", 60));
-    put(file("plan-30", 60, { "raqam-myanmar": { finished: false } }));
+    await put(file("1.5.0", 60));
+    await put(file("plan-29", 60));
+    await put(file("plan-30", 60, { "raqam-myanmar": { finished: false } }));
     const compare = (label: string) => catherd(["scorecard", "compare", label, "--results", results]);
     expect(compare("plan-29").code).toBe(0);
     expect(compare("plan-29").out).toEndWith("PASS\n");

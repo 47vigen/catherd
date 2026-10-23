@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Finding } from "../../src/domain/run-events.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
-import { gateLines, roundsLine, writeRunReport } from "../../src/services/run-report.ts";
+import { gateLines, REPORT_LIST_CAP, roundsLine, writeRunReport } from "../../src/services/run-report.ts";
 import { endDispatch, type Log, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import { freshRun } from "./helpers.ts";
@@ -91,6 +91,56 @@ describe("the run report (plan 34)", () => {
     const section = text.slice(text.indexOf("## M1"), text.indexOf("## Known issues"));
     expect(section).toContain("Rounds:");
     expect(section).toContain("Gate:");
+  });
+
+  it("shows at most REPORT_LIST_CAP known issues, then how many more and where", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "a".repeat(40),
+      knownIssues: Array.from({ length: REPORT_LIST_CAP + 3 }, (_, i) => `issue ${i + 1}`),
+      digestPath: "d.md",
+    });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(text).toContain("- M1: issue 40\n");
+    expect(text).not.toContain("- M1: issue 41\n");
+    expect(text).toContain("- +3 more in events.jsonl (milestone.landed) and digests/");
+  });
+
+  it.each([40, 41])("caps plan lint and audit lists at the boundary of %i lines", (count) => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const items = Array.from({ length: count }, (_, i) => `item ${i + 1}`);
+    log.add("preflight.done", { milestone: "M1", blocking: [], confirm: null, lint: items });
+    const text = readFileSync(writeRunReport(run, log.state(), log.events, { M1: items }), "utf8");
+    expect(text).toContain("- M1: item 40\n");
+    expect(text).toContain("- M1 (check): item 40\n");
+    expect(text).not.toContain("item 41\n");
+    if (count === 40) expect(text).not.toContain("more in");
+    else {
+      expect(text).toContain("- +1 more in events.jsonl (preflight.done)");
+      expect(text).toContain("- +1 more in events.jsonl and runs.jsonl");
+    }
+  });
+
+  it("lists the worktrees still on disk, and no section without any", () => {
+    const { run } = freshRun();
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    const report = () => readFileSync(writeRunReport(run, log.state(), log.events), "utf8");
+    expect(report()).not.toContain("## Kept worktrees");
+    mkdirSync(join(run.dir, "trees"));
+    writeFileSync(join(run.dir, "trees", "M1.ready"), "");
+    expect(report()).not.toContain("## Kept worktrees");
+    for (const m of ["M10", "M2", "M1"]) mkdirSync(join(run.dir, "trees", m));
+    const text = report();
+    expect(text).toContain(
+      `## Kept worktrees\n\nThese milestone worktrees are still on disk (uncommitted or untracked files, or a milestone not merged); remove each with \`git worktree remove <path>\` once its files are settled.\n- M1: ${join(run.dir, "trees", "M1")}\n- M2: ${join(run.dir, "trees", "M2")}\n- M10: ${join(run.dir, "trees", "M10")}\n\n## Audit`,
+    );
+    expect(text).not.toContain("M1.ready");
   });
 
   it("embeds a milestone digest without repeating its own H1 under the milestone heading", () => {

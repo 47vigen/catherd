@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
+import { ask } from "../../src/services/lane-service.ts";
+import { preflight } from "../../src/services/preflight.ts";
 import { admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { pinChanges, readPin, repin, runProfile } from "../../src/services/run-pin.ts";
@@ -96,4 +98,27 @@ it("reads the repo's profile for a run with no pin (before 1.5)", () => {
   expect(readPin(run)).toBeNull();
   expect(runProfile(deps, run)).toBe(deps.view);
   expect(pinChanges(deps, run)).toEqual([]);
+});
+
+it("preflight and Jev's verdicts read the pinned profile", async () => {
+  const { deps, run } = await pinnedRun();
+  const pinned = testView();
+  Object.assign(deps.view, { name: "other", preflight: { confirm: true }, jev: { use: "off" } });
+  deps.profiles.get = (name) => ({
+    active: "other",
+    here: "other",
+    profiles: ["test", "other"],
+    profile: name === "test" ? pinned : deps.view,
+    enforcement: {},
+  });
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  expect((await preflight(deps, { run: run.id })).needsConfirmation).toBe(false);
+  let use: string | undefined;
+  const finding = deps.routing.finding;
+  deps.routing.finding = (...args) => {
+    use = args[3];
+    return finding(...args);
+  };
+  await ask(deps, { run: run.id, question: "finding", state: { lane_file: "lanes/M1.L1.md", finding: "x" } });
+  expect(use).toBe("auto");
 });

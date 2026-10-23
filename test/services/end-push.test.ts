@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostSessionRef } from "../../src/domain/host.ts";
 import { readDelivery, writeDeliveryAttempt } from "../../src/infra/delivery.ts";
-import { awaitsCollect } from "../../src/infra/dispatch-dir.ts";
+import { awaitsCollect, dispatchPaths } from "../../src/infra/dispatch-dir.ts";
+import { tryLock } from "../../src/infra/filelock.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
 import { dispatch, watchersSettled } from "../../src/services/dispatch-service.ts";
 import { latestDispatch, type Dispatch } from "../../src/services/dispatches.ts";
@@ -22,6 +23,7 @@ afterEach(() => watchersSettled());
 afterEach(snapshotEnv());
 beforeEach(() => {
   resetReadiness();
+  delete process.env.ANTHROPIC_API_KEY;
   // the preload turns the supervisor's push off for every other test
   delete process.env.CATHERD_NO_END_PUSH;
 });
@@ -108,6 +110,80 @@ describe("push from where a role ends (plan 22)", () => {
     const r = recorder();
     expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("delivered");
     expect(r.sent).toEqual([]);
+  });
+
+  it("re-reads the owner under the notify lock, after one wait for a busy lock", async () => {
+    const { run, d } = await ended();
+    const r = recorder();
+    const held = tryLock(dispatchPaths(d.dir).notified);
+    expect(held).not.toBeNull();
+    const NEW = "0199c011-1234-7000-8000-000000000002";
+    let waits = 0;
+    try {
+      expect(
+        await pushFromEnd(d.dir, {
+          graceMs: 0,
+          sendCodex: r.sendCodex,
+          waitForLock: async () => {
+            waits++;
+            await claimRun(codexDeps(NEW), run);
+            held?.();
+          },
+        }),
+      ).toBe("accepted");
+      expect(waits).toBe(1);
+      expect(r.sent).toHaveLength(1);
+      expect(r.sent[0]?.target.sessionId).toBe(NEW);
+    } finally {
+      held?.();
+    }
+    const busy = tryLock(dispatchPaths(d.dir).notified);
+    expect(busy).not.toBeNull();
+    try {
+      expect(
+        await pushFromEnd(d.dir, {
+          graceMs: 0,
+          sendCodex: r.sendCodex,
+          waitForLock: async () => {
+            waits++;
+          },
+        }),
+      ).toBe("busy");
+      expect(waits).toBe(2);
+      expect(r.sent).toHaveLength(1);
+    } finally {
+      busy?.();
+    }
+  });
+
+  it("reports an ambiguous receipt as ambiguous", async () => {
+    const { run, d } = await ended();
+    const record = await finalizeDispatch(run, d);
+    const eventId = finishedNotice(run, d, record).eventId;
+    writeDeliveryAttempt(d.dir, {
+      attemptId: "server",
+      target,
+      eventIds: [eventId],
+      at: new Date().toISOString(),
+      status: "ambiguous",
+      msgId: null,
+      reason: "No verified receipt",
+    });
+    const r = recorder();
+    expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("ambiguous");
+    expect(r.sent).toEqual([]);
+  });
+
+  it("writes the role-thread refusal once", async () => {
+    const { run, d } = await ended();
+    await seedThread(run, "worker-M9.L9", OWNER, { backend: "codex" });
+    const r = recorder();
+    expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("failed");
+    expect(await pushFromEnd(d.dir, { graceMs: 0, sendCodex: r.sendCodex })).toBe("failed");
+    expect(r.sent).toEqual([]);
+    expect(
+      readDelivery(d.dir).filter((attempt) => attempt.reason?.startsWith(ROLE_THREAD_REFUSAL)),
+    ).toHaveLength(1);
   });
 
   it("never queues to a role's own thread (plan 21): the attempt fails with the role-thread refusal", async () => {

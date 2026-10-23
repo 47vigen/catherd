@@ -238,6 +238,36 @@ describe("supervise", () => {
     expect(exit?.reason).toBe("wall-timeout");
   });
 
+  it("keeps a stream retry when the retry hook fails (plan 23 re-review)", async () => {
+    const clock = manualClock();
+    const s = spec(`echo '{"type":"step_start"}'; echo '{"type":"step_start"}'; sleep 30`, {
+      idleMs: 60_000,
+      wallMs: 1_000,
+      killGraceMs: 20,
+      providerRetry: { pollMs: 50, ms: 300, attempts: 1_000 },
+    });
+    let lines = 0;
+    let asked = 0;
+    const running = supervise(s, {
+      clock,
+      onLine: (line) => {
+        lines++;
+        return { step: line.includes("step_start") };
+      },
+      isBusy: async () => true,
+      providerRetry: async () => {
+        asked++;
+        clock.advance(100);
+        throw new Error("hook failed");
+      },
+    });
+    await waitFor(() => lines === 2);
+    clock.advance(100);
+    const exit = await running;
+    expect(asked).toBeGreaterThan(0);
+    expect(exit?.reason).toBe("provider-unavailable");
+  });
+
   it("kills a CLI that lingers after its final event", async () => {
     const s = spec(`echo '{"type":"result"}'; sleep 30`, { graceAfterFinalMs: 100 });
     const exit = await supervise(s, { onLine: (l) => ({ final: l.includes("result") }) });

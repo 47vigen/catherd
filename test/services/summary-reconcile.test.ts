@@ -84,6 +84,21 @@ describe("reviving a daemon", () => {
     expect(s.budget?.minutes?.spent).toBeLessThan(1);
   });
 
+  it("leaves the run's pauses out of its wall minutes", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const { run } = freshRun("paused");
+    const start = Date.parse(run.meta.createdAt);
+    await appendEvent(run, { type: "run.started", ...startedFields }, new Date(start));
+    await appendEvent(run, { type: "run.paused", by: "owner" }, new Date(start + 10 * 60_000));
+    await appendEvent(run, { type: "run.resumed", by: "owner" }, new Date(start + 40 * 60_000));
+    await appendEvent(
+      run,
+      { type: "run.ended", outcome: "done", reportPath: null },
+      new Date(start + 60 * 60_000),
+    );
+    expect(summarizeRun(fakeDeps({ now: () => start + 6 * 60 * 60_000 }), run).totals.wallMinutes).toBe(30);
+  });
+
   it("shows a failed revive as a warning, never as a failed read", async () => {
     const { run } = freshRun("live");
     await appendEvent(run, { type: "run.started", ...startedFields });

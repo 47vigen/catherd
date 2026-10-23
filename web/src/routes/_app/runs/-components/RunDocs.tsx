@@ -23,7 +23,14 @@ function DocBody({ runId, name, empty, written }: { runId: string; name: string;
       </div>
     );
   if (doc.isError || doc.data.text.trim() === "") return <p className="text-muted py-6 text-sm">{empty}</p>;
-  return <Markdown source={doc.data.text} />;
+  return (
+    <>
+      <Markdown source={doc.data.text} />
+      {doc.data.cut ? (
+        <p className="text-muted mt-3 text-xs">This document is long, so only its start is shown.</p>
+      ) : null}
+    </>
+  );
 }
 
 /** The plan and the report of a run in one tile; the report shows first once the run has ended. */
