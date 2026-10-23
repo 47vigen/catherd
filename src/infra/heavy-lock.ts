@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+import { CatherdError } from "../domain/errors.ts";
 import { roleScopeOfScratch } from "../domain/role-scope.ts";
 import { tryLock, withFileLock } from "./filelock.ts";
 import { locksDir } from "./paths.ts";
 import { isAlive, selfIdentity } from "./proc.ts";
-import { ensurePrivateDir, writeJsonAtomic } from "./store.ts";
+import { ensurePrivateDir, readVersioned, writeJsonAtomic } from "./store.ts";
 
 /** Set in a locked command's env: a `catherd lock` inside it runs at once, holding nothing more. */
 export const LOCK_HELD_ENV = "CATHERD_LOCK_HELD";
@@ -102,18 +104,20 @@ interface RoleHolder {
   token: string;
 }
 
-interface RoleLockState {
+const RoleLockSchema = z.looseObject({
+  schema: z.literal(1).optional(),
   /** whose the lock is: a run id (holders of one run share it), or a lone process's own key */
-  owner: string;
-  holders: RoleHolder[];
-}
+  owner: z.string(),
+  holders: z.array(z.object({ pid: z.number(), startTime: z.string().nullable(), token: z.string() })),
+});
+
+type RoleLockState = z.infer<typeof RoleLockSchema>;
 
 function readRoleState(file: string): RoleLockState | null {
-  if (!existsSync(file)) return null;
   try {
-    const v = JSON.parse(readFileSync(file, "utf8")) as RoleLockState;
-    return typeof v?.owner === "string" && Array.isArray(v.holders) ? v : null;
-  } catch {
+    return readVersioned(file, RoleLockSchema, 1);
+  } catch (error) {
+    if (error instanceof CatherdError && error.code === "E_CONFIG_NEWER_SCHEMA") throw error;
     return null;
   }
 }
@@ -138,7 +142,7 @@ export async function withRoleLock<T>(
       const state = readRoleState(file);
       const live = (state?.holders ?? []).filter((h) => isAlive(h.pid, h.startTime));
       if (live.length && state?.owner !== owner) return false;
-      writeJsonAtomic(file, { owner, holders: [...live, me] } satisfies RoleLockState);
+      writeJsonAtomic(file, { schema: 1, owner, holders: [...live, me] } satisfies RoleLockState);
       return true;
     });
   while (!(await enter())) {
@@ -151,7 +155,11 @@ export async function withRoleLock<T>(
     await withFileLock(file, () => {
       const state = readRoleState(file);
       if (state)
-        writeJsonAtomic(file, { ...state, holders: state.holders.filter((h) => h.token !== me.token) });
+        writeJsonAtomic(file, {
+          ...state,
+          schema: 1,
+          holders: state.holders.filter((h) => h.token !== me.token),
+        });
     });
   }
 }

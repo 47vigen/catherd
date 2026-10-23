@@ -4,7 +4,7 @@ import { DAEMON_ENTRY } from "../../src/infra/launch.ts";
 import { fileURLToPath } from "node:url";
 import { daemonAlive, readHeartbeat } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, spawnEnv } from "../helpers.ts";
 import { importGraph, SRC } from "../import-graph.ts";
 import { freshRun, waitFor } from "../services/helpers.ts";
 
@@ -32,7 +32,7 @@ describe("daemon-bin", () => {
     // a cancelled run: whatever the daemon goes on to do, it starts no role
     await appendEvent(run, { type: "cancel.requested", by: "owner" });
     const p = Bun.spawn([process.execPath, DAEMON_ENTRY, run.id], {
-      env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+      env: spawnEnv(process.env),
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -56,7 +56,7 @@ describe("daemon-bin", () => {
     });
     await appendEvent(run, { type: "run.ended", outcome: "cancelled", reportPath: null });
     const p = Bun.spawn([process.execPath, DAEMON_ENTRY, run.id], {
-      env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+      env: spawnEnv(process.env),
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -67,7 +67,7 @@ describe("daemon-bin", () => {
   it("refuses a run id it does not know", async () => {
     freshRun();
     const p = Bun.spawn([process.execPath, DAEMON_ENTRY, "no-such-run"], {
-      env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+      env: spawnEnv(process.env),
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -90,7 +90,7 @@ describe("daemon-bin", () => {
     const launch = fileURLToPath(new URL("../../src/infra/launch.ts", import.meta.url));
     const src = `import { launchDaemon } from ${JSON.stringify(launch)}; launchDaemon(${JSON.stringify(run.id)}, ${JSON.stringify(run.dir)});`;
     const launcher = Bun.spawn([process.execPath, "-e", src], {
-      env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+      env: spawnEnv(process.env),
       stdout: "pipe",
       stderr: "pipe",
     });

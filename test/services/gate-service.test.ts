@@ -15,7 +15,7 @@ import {
 } from "../../src/services/gate-service.ts";
 import { createRun } from "../../src/services/run-store.ts";
 import { summarizeRun } from "../../src/services/summary.ts";
-import { snapshotEnv } from "../helpers.ts";
+import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildRoleServer } from "../../src/entry/mcp/role-server.ts";
@@ -30,7 +30,7 @@ function write(repo: string, file: string, text: string): void {
   writeFileSync(join(repo, file), text);
 }
 function commit(repo: string): string {
-  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8", env: process.env });
   git("add", "-A");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
   return git("rev-parse", "--short", "HEAD").trim();
@@ -45,6 +45,36 @@ const item = (run: string, over: Record<string, unknown> = {}) => ({
 });
 
 describe("the gate ledger (spec 1.1 §7)", () => {
+  it("carries a pass recorded in another worktree of the same origin", async () => {
+    withHome();
+    delete process.env.ANTHROPIC_API_KEY;
+    const main = tempRepo();
+    write(main, "src/a.ts", "a");
+    commit(main);
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: main, stdio: "ignore", env: process.env });
+    git("remote", "add", "origin", "git@github.com:Acme/platform.git");
+    const other = join(tempDir("catherd-wt-"), "wt");
+    git("worktree", "add", "-q", "-b", "other", other);
+    const mainRun = createRun({ repo: main, title: "main", aLines: [], version: "0.0.0-test" });
+    const otherRun = createRun({ repo: other, title: "other", aLines: [], version: "0.0.0-test" });
+    await gatePass(fakeDeps(), { ...item(mainRun.id), evidence: "ok" });
+    expect(await gateCheck(fakeDeps(), item(otherRun.id))).toMatchObject({ carried: true });
+  });
+
+  it("still carries a toplevel-only pass after an origin is added", async () => {
+    const { repo, run } = freshRun();
+    delete process.env.ANTHROPIC_API_KEY;
+    write(repo, "src/a.ts", "a");
+    commit(repo);
+    await gatePass(fakeDeps(), { ...item(run.id), evidence: "legacy" });
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:Acme/platform.git"], {
+      cwd: repo,
+      env: process.env,
+    });
+    expect(await gateCheck(fakeDeps(), item(run.id))).toMatchObject({ carried: true });
+  });
+
   it("carries a pass over while the command and the content of its paths are the same", async () => {
     const { repo, run } = freshRun();
     write(repo, "src/a.ts", "a");

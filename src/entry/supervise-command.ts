@@ -9,11 +9,6 @@ import { resolveRefs } from "../services/gate-env.ts";
 import "../adapters/all.ts";
 
 /**
- * Supervises the worker a spec file describes, with its backend's hooks, until exit.json is written.
- * spec.json holds only the adapter's env overrides; the worker's env is built here, from this process's
- * own inherited env (already without catherd's secrets), so no credential is ever on disk (spec §10.4).
- */
-/**
  * The worker's env: this process's env, the gate env's references (plan 23: read here from this env, else the
  * login env), then the spec's own env last, so no reference ever takes the role's identity, scratch or home.
  */
@@ -27,6 +22,11 @@ export function superviseEnv(
   return workerEnv(base, { ...refs.env, ...read.env }, read.cwd);
 }
 
+/**
+ * Supervises the worker a spec file describes, with its backend's hooks, until exit.json is written.
+ * spec.json holds only the adapter's env overrides; the worker's env is built here, from this process's
+ * own inherited env (already without catherd's secrets), so no credential is ever on disk (spec §10.4).
+ */
 export async function runSupervise(specPath: string): Promise<void> {
   const read = readVersioned(specPath, SuperviseSpecSchema, 1);
   const spec = { ...read, env: superviseEnv(read, process.env, loginEnv) };

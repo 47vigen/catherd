@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
 import { roleScopeOfScratch } from "../../src/domain/role-scope.ts";
@@ -12,6 +12,7 @@ import {
   withRoleLock,
 } from "../../src/infra/heavy-lock.ts";
 import { locksDir } from "../../src/infra/paths.ts";
+import { selfIdentity } from "../../src/infra/proc.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 
 const limits = { ...heavyLimits };
@@ -151,6 +152,32 @@ describe("heavy lock", () => {
     await Promise.all([a, b]);
     expect(log).toEqual(["A+", "A2", "A-", "B"]);
     expect(roleLockOwner("verifier")).toBeNull();
+  });
+
+  it("writes the role lock with schema 1, reads one written without it, and refuses a newer one", async () => {
+    withHome();
+    const file = join(locksDir(), "role-verifier.json");
+    await withRoleLock("verifier", "run:A", () => {
+      expect(JSON.parse(readFileSync(file, "utf8")).schema).toBe(1);
+    });
+    expect(JSON.parse(readFileSync(file, "utf8")).schema).toBe(1);
+    const legacy = { owner: "run:A", holders: [{ ...selfIdentity(), token: "t" }] };
+    writeFileSync(file, JSON.stringify(legacy));
+    expect(roleLockOwner("verifier")).toBe("run:A");
+    writeFileSync(file, JSON.stringify({ ...legacy, schema: 2 }));
+    expect(() => roleLockOwner("verifier")).toThrow(
+      expect.objectContaining({ code: "E_CONFIG_NEWER_SCHEMA" }),
+    );
+  });
+
+  it("treats damaged role-lock files as free", () => {
+    withHome();
+    mkdirSync(locksDir(), { recursive: true });
+    const file = join(locksDir(), "role-verifier.json");
+    for (const contents of ["{", "null", JSON.stringify({ owner: "run:A", holders: [null] })]) {
+      writeFileSync(file, contents);
+      expect(roleLockOwner("verifier")).toBeNull();
+    }
   });
 
   it("drops a role-lock holder that died", async () => {

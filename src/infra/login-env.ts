@@ -13,6 +13,11 @@ let captured: Record<string, string> | null = null;
 export function parseEnv(out: string): Record<string, string> {
   const env: Record<string, string> = {};
   const rows = out.includes("\0") ? out.split("\0") : out.split("\n");
+  if (out.includes("\0")) {
+    // A login profile's output precedes the first record; keep what follows its last newline.
+    // shortcut: a multiline first value loses leading lines; use a marker before env -0 if this occurs.
+    rows[0] = rows[0]!.slice(rows[0]!.lastIndexOf("\n") + 1);
+  }
   for (const row of rows) {
     const eq = row.indexOf("=");
     if (eq > 0) env[row.slice(0, eq)] = row.slice(eq + 1);

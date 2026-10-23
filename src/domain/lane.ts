@@ -155,6 +155,15 @@ export function assertLaneValues(text: string, where: string): LaneHeader {
   return h;
 }
 
+/** A repo path in the form normalizeOwned gives it, or null for one that leaves the repo. */
+function repoPath(p: string): string | null {
+  try {
+    return normalizeOwned(p);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether every line a failing check printed is a `path:line` hit its lane allows: an absence check (a grep
  * that must find nothing) whose only hits are the lane's declared exceptions has passed.
@@ -166,9 +175,11 @@ export function onlyAllowedHits(lines: string[], allow: string[]): boolean {
     allow.some((entry) => {
       const [, path, line] = ALLOW_ENTRY.exec(entry) ?? [];
       if (!path) return false;
-      const file = (m as RegExpExecArray)[1] as string;
+      const file = repoPath((m as RegExpExecArray)[1] as string);
+      const allowedPath = repoPath(path);
+      if (!file || !allowedPath) return false;
       const at = (m as RegExpExecArray)[2];
-      const inPath = file === path || (path.endsWith("/") && file.startsWith(path));
+      const inPath = file === allowedPath || (allowedPath.endsWith("/") && file.startsWith(allowedPath));
       return inPath && (line === undefined || line === at);
     }),
   );

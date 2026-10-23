@@ -1,6 +1,7 @@
 import { existsSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { movedHomeEnv } from "../adapters/access.ts";
 import { CatherdError } from "../domain/errors.ts";
 import { ROLE_ENV } from "../domain/role-scope.ts";
 import { isCatherdSecret } from "../infra/env.ts";
@@ -61,7 +62,8 @@ const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
 /**
  * The names catherd sets in a dispatch itself: the role's identity, dispatch id, testcontainers session, scratch
  * and working dir, the process basics, catherd's own dirs, and the homes an isolated CLI is moved to (codex,
- * cursor, opencode, claude). A gate env entry under one would take the role's identity or isolation.
+ * cursor, opencode, claude), including their config, credential and cache settings. Moved-home names come
+ * from movedHomeEnv so new cache settings stay reserved. A gate entry would take the role's identity or isolation.
  */
 const RESERVED = new Set([
   ROLE_ENV,
@@ -80,7 +82,18 @@ const RESERVED = new Set([
   "CURSOR_DATA_DIR",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  ...Object.keys(movedHomeEnv("/")),
+  "GH_CONFIG_DIR",
+  "GIT_CONFIG_GLOBAL",
+  "XDG_CACHE_HOME",
+  "NO_OPEN_BROWSER",
+  "AGENT_CLI_CREDENTIAL_STORE",
+  "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+  "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
 ]);
+
+/** Whether `name` is one catherd sets in a dispatch itself (exported for the coverage test). */
+export const reservedGateEnv = (name: string): boolean => RESERVED.has(name);
 
 /** The repo's gate environment, by name; empty when none is set. */
 export async function readGateEnv(toplevel: string): Promise<Record<string, GateEnvEntry>> {
@@ -128,7 +141,7 @@ export async function setGateEnv(
   entry: GateEnvEntry,
 ): Promise<{ repo: string; vars: Record<string, GateEnvEntry> }> {
   assertName(name);
-  if (RESERVED.has(name))
+  if (reservedGateEnv(name))
     throw new CatherdError("E_INPUT_INVALID", `${name} is set by catherd for every role`, {
       fix: "the gate environment holds what a gate needs (DOCKER_HOST, a proxy, a TESTCONTAINERS_* setting), not a role's identity, scratch or home",
     });
