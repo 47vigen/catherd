@@ -116,6 +116,10 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   - **The step summary truncates on a narrow screen.** At 390px, “Steps” appears as “ST…”. Evidence: M5 UI review
     screenshot `shots/M5-r2-waiting-mobile-dark.png`, with the summary at
     `web/src/routes/_app/runs/$runId.tsx:171`.
+  - **Passing tests can be reported as failures when their names contain `FAIL`.** The verifier's failure list
+    includes `(pass) the verifier's prompt (spec 1.1 §7) > records HEAD first, puts file:line in FAIL lines and calls
+    a minor issue a NIT`. Evidence: the verifier gate output recorded in the run events (seq 66); the passing test is
+    `test/domain/verifier-prompt.test.ts:47`.
 
 - **A public panel URL for phone links.** The panel binds to `127.0.0.1`, so phone notices cannot open it from
   another device. Evidence: `CLAUDE.md:17` and plan 39 decision D16; choosing a public URL is a product decision.
