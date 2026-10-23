@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
-import { PARK_REASONS, describeEvent } from "../domain/run-events.ts";
+import { PARK_REASONS, describeEvent, type RunEvent } from "../domain/run-events.ts";
 import { type RunState, liveDispatches } from "../domain/run-state.ts";
 import { coveredMs } from "../domain/util.ts";
 import { log } from "../infra/log.ts";
@@ -55,6 +55,7 @@ export const RunViewSchema = z.object({
       title: z.string(),
       status: z.string(),
       round: z.number().int(),
+      reviews: z.number(),
       commit: z.string().nullable(),
     }),
   ),
@@ -71,6 +72,8 @@ export const RunViewSchema = z.object({
   updatedAt: z.string(),
   /** seconds from the start to this read (to the last event once ended), less every pause */
   elapsedSec: z.number(),
+  /** Sum of the seconds each question stayed open, including questions already answered. */
+  waitingSec: z.number(),
   /** when `elapsedSec` was read, while the run is live and no pause is open: the page counts on from it */
   countingSince: z.string().nullable(),
 });
@@ -81,6 +84,7 @@ export { tailEvents };
 const answerCommand = (run: string, unit: string): string => `catherd answer ${run} ${unit} "<answer>"`;
 
 function parkedOf(run: Run, s: RunState): ParkedView[] {
+  if (s.phase === "ended") return [];
   return Object.values(s.questions).map((q) => ({
     run: run.id,
     runTitle: run.meta.title,
@@ -116,6 +120,7 @@ function view15(deps: Deps, run: Run): RunView {
       title: id,
       status: "landed",
       round: 0,
+      reviews: 0,
       commit: null,
     })),
     live: liveDispatchesOf(run, now).map((d) => ({
@@ -140,6 +145,7 @@ function view15(deps: Deps, run: Run): RunView {
     startedAt: run.meta.createdAt,
     updatedAt: run.meta.createdAt,
     elapsedSec: 0,
+    waitingSec: 0,
     countingSince: null,
   };
 }
@@ -157,6 +163,27 @@ function elapsedOf(
     elapsedSec: Math.max(0, (end - start - coveredMs(start, end, spans)) / 1000),
     countingSince: live && !open ? new Date(end).toISOString() : null,
   };
+}
+
+/** Every question's open interval, stopped by its answer, replacement or the run ending. */
+function waitingSec(events: RunEvent[], now: number): number {
+  const open = new Map<string, number>();
+  let ms = 0;
+  let end = now;
+  for (const e of events) {
+    const at = Date.parse(e.at);
+    if (e.type === "run.ended") {
+      end = at;
+      break;
+    }
+    if (e.type !== "question.parked" && e.type !== "question.answered") continue;
+    const since = open.get(e.unit);
+    if (since !== undefined) ms += Math.max(0, at - since);
+    if (e.type === "question.parked") open.set(e.unit, at);
+    else open.delete(e.unit);
+  }
+  for (const since of open.values()) ms += Math.max(0, end - since);
+  return ms / 1000;
 }
 
 /** One run at a glance. Reading an unfinished 2.0 run starts its daemon again if it died. */
@@ -185,6 +212,7 @@ export function runView(deps: Deps, runId: string): RunView {
       title: m.title,
       status: m.status,
       round: m.round,
+      reviews: m.counts.length,
       commit: m.commit,
     })),
     live: liveDispatches(s).map((d) => ({
@@ -195,6 +223,7 @@ export function runView(deps: Deps, runId: string): RunView {
       since: d.startedAt,
     })),
     parked: parkedOf(run, s),
+    waitingSec: waitingSec(events, deps.now()),
     holds: Object.entries(s.holds).map(([quota, until]) => ({ quota, until })),
     last: last ? describeEvent(last, (id) => s.dispatches[id]?.rung) : null,
     paused: s.paused,

@@ -35,8 +35,9 @@ export const RunCardSchema = z.object({
   paused: z.string().nullable(),
   totals: z.object({
     dispatches: z.number().int(),
-    tokens: z.object({ input: z.number(), cached: z.number(), output: z.number() }),
-    costUsd: z.number(),
+    tokens: z.object({ input: z.number(), cached: z.number(), cacheWrite: z.number(), output: z.number() }),
+    costUsd: z.number().nullable(),
+    unpriced: z.number(),
     interventions: z.number().int(),
     failovers: z.number().int(),
     climbs: z.number().int(),
@@ -87,18 +88,21 @@ function compute(deps: Deps, run: Run): RunCard {
   const endMs = state ? (state.phase === "ended" ? Date.parse(ended?.at ?? state.at) : null) : runEnd(run);
   const startedAt = run.meta.createdAt;
 
-  const tokens = { input: 0, cached: 0, output: 0 };
+  const tokens = { input: 0, cached: 0, cacheWrite: 0, output: 0 };
   const backends = new Map<string, { tokens: number; costUsd: number }>();
   const models = new Map<string, number>();
   const roles = new Map<string, number>();
-  let costUsd = 0;
+  let costUsd: number | null = null;
+  let unpriced = 0;
   for (const r of records) {
     tokens.input += r.tokens.input;
     tokens.cached += r.tokens.cached;
+    tokens.cacheWrite += r.tokens.cacheWrite ?? 0;
     tokens.output += r.tokens.output;
     const t = r.tokens.input + r.tokens.output;
     const c = r.costUsd ?? 0;
-    costUsd += c;
+    if (r.costUsd === null) unpriced++;
+    else costUsd = (costUsd ?? 0) + r.costUsd;
     const b = backends.get(r.backend) ?? { tokens: 0, costUsd: 0 };
     backends.set(r.backend, { tokens: b.tokens + t, costUsd: b.costUsd + c });
     bump(models, `${r.backend}:${tryParseRung(r.rung)?.model ?? r.rung}`, t);
@@ -134,11 +138,12 @@ function compute(deps: Deps, run: Run): RunCard {
       dispatches: records.length,
       tokens,
       costUsd,
+      unpriced,
       // shortcut: superseded counts refresh with the run's own files only, upgrade if the scorecard needs them live
       interventions: interventionsOf(run, endMs ?? deps.now(), 0).total,
       failovers: records.filter((r) => r.failoverFrom !== null).length,
       climbs: readRoutes(run).filter((r) => r.source === "climb").length,
-      rounds: state ? state.milestones.reduce((n, m) => n + m.round, 0) : 0,
+      rounds: state ? state.milestones.reduce((n, m) => n + m.counts.length, 0) : 0,
     },
     byBackend: [...backends].map(([backend, v]) => ({ backend, ...v })),
     byModel: [...models].map(([model, t]) => ({ model, tokens: t })),

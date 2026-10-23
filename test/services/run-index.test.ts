@@ -9,7 +9,7 @@ import { RunCardSchema, runIndex, runIndexCache } from "../../src/services/run-i
 import { appendRecord, appendRoute, createRun, type Run, runPaths } from "../../src/services/run-store.ts";
 import { interventionsOf } from "../../src/services/scorecard-metrics.ts";
 import { makeRecord } from "../domain/make-record.ts";
-import { PLAN, startedFields } from "../domain/run-fixtures.ts";
+import { PLAN, endDispatch, makeLog, startDispatch, startedFields } from "../domain/run-fixtures.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 import { fakeDeps } from "./helpers.ts";
 
@@ -106,6 +106,40 @@ describe("the run index", () => {
     ]);
   });
 
+  it("an unpriced run is counted, not zero", async () => {
+    withHome();
+    const run = await make(tempRepo(), "unpriced", HOUR);
+    await record(run, { costUsd: null, tokens: { input: 100, cached: 20, cacheWrite: 30, output: 10 } });
+    expect(runIndex(deps())[0]?.totals).toMatchObject({
+      costUsd: null,
+      unpriced: 1,
+      tokens: { input: 100, cached: 20, cacheWrite: 30, output: 10 },
+    });
+    await record(run, { costUsd: 0, tokens: { input: 50, cached: 0, output: 5 } });
+    expect(runIndex(deps())[0]?.totals).toMatchObject({
+      costUsd: 0,
+      unpriced: 1,
+      tokens: { input: 150, cached: 20, cacheWrite: 30, output: 15 },
+    });
+    await record(run, { costUsd: 2.5 });
+    expect(runIndex(deps())[0]?.totals).toMatchObject({ costUsd: 2.5, unpriced: 1 });
+  });
+
+  it("counts completed review rounds rather than commit fix rounds", async () => {
+    withHome();
+    const run = await make(tempRepo(), "reviewed", HOUR, {
+      type: "commit.made",
+      milestone: "M1",
+      round: 0,
+      commit: "abc",
+    });
+    const log = makeLog();
+    const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+    endDispatch(log, id, { name: "reviewer-M1", unit: "M1" });
+    for (const { v: _v, seq: _seq, at: _at, ...e } of log.events) await appendEvent(run, e, at(0));
+    expect(runIndex(deps())[0]?.totals.rounds).toBe(1);
+  });
+
   it("counts failovers, climbs, rounds and interventions", async () => {
     withHome();
     const run = await make(
@@ -133,7 +167,7 @@ describe("the run index", () => {
     appendRoute(run, { ...row, source: "climb" });
     await appendEvent(run, { type: "question.answered", unit: "M1.L1", answer: "yes", by: "owner" }, at(0));
     const [c] = runIndex(deps());
-    expect(c?.totals).toMatchObject({ failovers: 1, climbs: 1, rounds: 2 });
+    expect(c?.totals).toMatchObject({ failovers: 1, climbs: 1, rounds: 0 });
     expect(c?.totals.interventions).toBe(interventionsOf(run, NOW, 0).total);
     expect(c?.totals.interventions).toBeGreaterThan(0);
     expect(c?.openQuestions).toBe(0);

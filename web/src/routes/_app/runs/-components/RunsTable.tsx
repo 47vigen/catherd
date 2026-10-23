@@ -105,7 +105,12 @@ export function RunsTable({ items, now, onOpen }: { items: RunCard[]; now: Date;
                   </Table.Cell>
                   <Table.Cell className={NUM}>{wallMs === null ? DASH : formatElapsed(wallMs)}</Table.Cell>
                   <Table.Cell className={NUM}>{tokens > 0 ? formatTokens(tokens) : DASH}</Table.Cell>
-                  <Table.Cell className={NUM}>{r.totals.costUsd > 0 ? formatCost(r.totals.costUsd) : DASH}</Table.Cell>
+                  <Table.Cell className={NUM}>
+                    {formatCost(r.totals.costUsd)}
+                    {r.totals.unpriced > 0 ? (
+                      <span className="text-muted block text-xs">{r.totals.unpriced} unpriced</span>
+                    ) : null}
+                  </Table.Cell>
                   <Table.Cell className="text-muted text-right text-[13px] whitespace-nowrap">
                     <time
                       dateTime={r.endedAt ?? r.startedAt}

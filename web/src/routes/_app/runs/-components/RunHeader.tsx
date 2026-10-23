@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { formatCost, formatTokens, totalsOf } from "../-lib/format";
-import { formatDuration, roundsOf } from "../-lib/node-view";
+import { formatDuration } from "../-lib/node-view";
 import { runStatus } from "../-lib/run-status";
 import type { RunModel, RunView } from "../../../../client";
 import { cancelRunMutation, pauseRunMutation, resumeRunMutation } from "../../../../client/@tanstack/react-query.gen";
@@ -28,14 +28,6 @@ const STATUS_TEXT: Partial<Record<Status, string>> = {
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 const day = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
 const valid = (d: Date) => !Number.isNaN(d.getTime());
-
-/** Review rounds per milestone (the most any of its steps took), summed over the run. */
-function roundsIn(model: RunModel | undefined): number {
-  const most = new Map<string, number>();
-  for (const n of model?.nodes ?? [])
-    if (n.milestone) most.set(n.milestone, Math.max(most.get(n.milestone) ?? 0, roundsOf(n)));
-  return [...most.values()].reduce((a, b) => a + b, 0);
-}
 
 /** Title, repo and controls of the run, then its figures as one stat sheet. */
 export function RunHeader({
@@ -90,9 +82,11 @@ export function RunHeader({
     run.elapsedSec +
     (live && run.countingSince ? Math.max(0, now.getTime() - Date.parse(run.countingSince)) / 1000 : 0);
   const tokensIn = dispatches.reduce((a, d) => a + (d.tokens?.input ?? 0), 0);
+  const cacheRead = dispatches.reduce((a, d) => a + (d.tokens?.cached ?? 0), 0);
+  const cacheWrite = dispatches.reduce((a, d) => a + (d.tokens?.cacheWrite ?? 0), 0);
   const tokensOut = dispatches.reduce((a, d) => a + (d.tokens?.output ?? 0), 0);
   const milestones = run.milestones.length;
-  const rounds = roundsIn(model);
+  const rounds = run.milestones.reduce((sum, m) => sum + m.reviews, 0);
 
   return (
     <>
@@ -164,17 +158,33 @@ export function RunHeader({
         <Tile.Stat
           label={live ? "Running for" : "Took"}
           value={Number.isNaN(elapsed) ? "–" : formatDuration(elapsed)}
-          hint={live ? "So far" : valid(ended) ? `Ended ${clock.format(ended)}` : undefined}
+          hint={
+            run.waitingSec > 0
+              ? `waiting on you ${formatDuration(run.waitingSec)}`
+              : live
+                ? "So far"
+                : valid(ended)
+                  ? `Ended ${clock.format(ended)}`
+                  : undefined
+          }
         />
         <Tile.Stat
           label="Tokens"
           value={formatTokens(totals.tokens)}
-          hint={totals.tokens > 0 ? `${formatTokens(tokensIn)} in · ${formatTokens(tokensOut)} out` : undefined}
+          hint={
+            totals.tokens > 0
+              ? `${formatTokens(tokensIn - cacheRead - cacheWrite)} uncached · ${formatTokens(cacheRead)} cache read · ${formatTokens(cacheWrite)} cache write · ${formatTokens(tokensOut)} out`
+              : undefined
+          }
         />
         <Tile.Stat
           label="Cost"
           value={formatCost(totals.costUsd)}
-          hint={`${dispatches.length} ${dispatches.length === 1 ? "role run" : "role runs"}`}
+          hint={
+            totals.unpriced > 0
+              ? `${totals.unpriced} unpriced`
+              : `${dispatches.length} ${dispatches.length === 1 ? "role run" : "role runs"}`
+          }
         />
         <Tile.Stat
           label="Rounds"

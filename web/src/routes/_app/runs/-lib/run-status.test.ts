@@ -18,6 +18,7 @@ const run = (over: Partial<RunView>): RunView => ({
   startedAt: "2026-10-21T10:00:00Z",
   updatedAt: "2026-10-21T10:00:00Z",
   elapsedSec: 0,
+  waitingSec: 0,
   countingSince: null,
   ...over,
 });

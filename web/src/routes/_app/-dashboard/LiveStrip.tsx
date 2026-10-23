@@ -82,6 +82,7 @@ function LiveCard({ item, now }: { item: Overview["live"][number]; now: number }
             {formatElapsed(now - Date.parse(run.startedAt))}
           </span>
           <span>{formatCost(run.totals.costUsd)}</span>
+          {run.totals.unpriced > 0 ? <span>{run.totals.unpriced} unpriced</span> : null}
           <span>{formatCount(tokens)} tokens</span>
         </div>
       </div>
