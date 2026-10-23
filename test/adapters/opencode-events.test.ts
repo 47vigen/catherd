@@ -20,10 +20,31 @@ const fold = (n: string) =>
 afterEach(snapshotEnv());
 
 describe("opencode events", () => {
+  it("the fold keeps cache writes apart", () => {
+    const step = JSON.stringify({
+      type: "step_finish",
+      part: {
+        tokens: {
+          input: 10,
+          output: 2,
+          reasoning: 3,
+          cache: { read: 5, write: 7 },
+        },
+      },
+    });
+    expect(foldOpencodeEvents([step, step]).tokens).toEqual({
+      input: 44,
+      cached: 10,
+      cacheWrite: 14,
+      output: 10,
+    });
+  });
+
   it("counts cache reads and writes as input and reasoning as output (spec §4.3)", () => {
     expect(opencodeTokens({ input: 10, output: 2, reasoning: 3, cache: { read: 5, write: 1 } })).toEqual({
       input: 16,
       cached: 5,
+      cacheWrite: 1,
       output: 5,
     });
     expect(opencodeTokens(undefined)).toEqual({ input: 0, cached: 0, output: 0 });

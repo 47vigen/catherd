@@ -18,7 +18,7 @@ import { type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
@@ -31,16 +31,17 @@ import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones
 import { machineGate } from "./milestone-check.ts";
 import { branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
-import { planProblems } from "./plan-input.ts";
+import { planDocs, planProblems } from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
 import { briefFor, judgeBrief } from "./run-briefs.ts";
-import { appendEvent, appendEvents, readEvents, replayRun } from "./run-events-store.ts";
+import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
+import { refreshState } from "./state.ts";
 
 /**
  * What carries the machine's actions out. `run` appends the events the action produces (a long one when it is
@@ -196,6 +197,43 @@ export function planOf(run: Run): MilestonePlan[] {
     ];
   });
 }
+
+/** Milestones whose dependencies add to a matching section of an owner or approved plan. */
+function widenedAfter(run: Run, plan: MilestonePlan[]): { milestone: string; added: string[] }[] {
+  const sources = replayRun(run).plan.length ? planDocs(run).map((doc) => doc.text) : [];
+  const approved = read(join(run.dir, "plan-approved.md"));
+  if (approved) sources.push(approved);
+  const prior = sources.map((text) => {
+    const sections = new Map<string, Set<string>>();
+    let current: Set<string> | undefined;
+    for (const line of text.split("\n")) {
+      const heading = HEADING.exec(line);
+      if (heading) {
+        current = new Set();
+        sections.set(heading[1] as string, current);
+      } else if (line.startsWith("## ")) current = undefined;
+      else {
+        const after = AFTER.exec(line)?.[1];
+        if (after) for (const id of after.match(/\bM\d+\b/g) ?? []) current?.add(id);
+      }
+    }
+    return sections;
+  });
+  return plan.flatMap((m) => {
+    const approvedAfter = approved ? prior.at(-1)?.get(m.id) : undefined;
+    const baselines = approvedAfter
+      ? [approvedAfter]
+      : prior.flatMap((sections) => {
+          const after = sections.get(m.id);
+          return after ? [after] : [];
+        });
+    const added = m.after.filter((id) => baselines.some((after) => !after.has(id)));
+    return added.length ? [{ milestone: m.id, added }] : [];
+  });
+}
+
+const outcomeNext = (outcome: "done" | "cancelled" | "failed"): string =>
+  `the run ${outcome === "done" ? "finished" : outcome}; read report.md for what landed and what remains`;
 
 const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
 
@@ -425,16 +463,25 @@ export function realEffects(deps: Deps, run: Run): Effects {
     }
     const approved = read(join(run.dir, "plan-approved.md"));
     const changed = approved ? changedDecisions(approved, read(runPaths(run.dir).plan)) : [];
+    const widened = widenedAfter(run, milestones);
+    const questions = [
+      ...(changed.length ? [reapprovalQuestion(run.id, changed)] : []),
+      ...(widened.length
+        ? [
+            `The plan adds milestone dependencies: ${widened.map((m) => `${m.milestone} now waits for ${m.added.join(", ")}`).join("; ")}. Approve with: catherd answer ${run.id} run approve`,
+          ]
+        : []),
+    ];
     // one write: a crash between the two would lose the owner's change request
     await appendEvents(
       run,
       [
-        ...(changed.length > 0
+        ...(questions.length > 0
           ? [
               {
                 type: "question.parked" as const,
                 unit: RUN_UNIT,
-                question: reapprovalQuestion(run.id, changed),
+                question: questions.join("\n\n"),
                 reason: "approval" as const,
               },
             ]
@@ -496,9 +543,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
-    const r = await withHeavySlot(slots, (_slot, tmp) =>
-      runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
-    );
+    const { tree, r } = await withHeavySlot(slots, async (_slot, tmp) => {
+      const tree = await worktreeIdentity(cwd);
+      const r = await runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp });
+      return { tree, r };
+    });
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     const failed = !allowed && r.code !== 0;
@@ -507,6 +556,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
+      tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
     });
@@ -609,13 +659,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
       if (!fetched) stale = `; fetch of origin/${s.base} failed: using the copy from the last fetch`;
     }
     try {
+      const outcome = replayRun(run).outcome;
       const r = await land(deps, {
         run: run.id,
         milestone: a.milestone,
         what: m.title,
         commit: m.commit,
         evidence: `verifier-${a.milestone} PASS on ${m.commit.slice(0, 12)}${issues}${stale}`,
-        next: `the daemon continues after ${a.milestone}`,
+        next: outcome ? outcomeNext(outcome) : `the daemon continues after ${a.milestone}`,
       });
       await append({
         type: "milestone.landed",
@@ -789,6 +840,29 @@ export function realEffects(deps: Deps, run: Run): Effects {
         // the phone; the session hears the run's reports through its notifier
         await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
         return;
+      case "remind": {
+        // The action's snapshot binds it to the parked event, even if a replacement has identical text/time.
+        const pending = (): boolean => {
+          const current = replayRun(run);
+          const question = current.questions[a.unit];
+          return (
+            current.phase !== "ended" &&
+            !!s.questions[a.unit] &&
+            !!question &&
+            question.reminded < a.n &&
+            !readEvents(run, s.seq + 1).some(
+              (e) => (e.type === "question.parked" || e.type === "question.answered") && e.unit === a.unit,
+            )
+          );
+        };
+        if (!pending()) return;
+        await sendRunNotice(deps, run, { unit: a.unit, moment: "blocked" });
+        // Answer/replacement and the reminder append cannot interleave after this identity check.
+        await withEventsLock(run, (add) => {
+          if (pending()) add({ type: "question.reminded", unit: a.unit, n: a.n }, at());
+        });
+        return;
+      }
       case "finish": {
         // what each landed milestone's check passed on only through the base or a rerun
         const audits: Record<string, string[]> = {};
@@ -798,7 +872,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
           if (g?.audit.length) audits[m.id] = g.audit;
         }
         const reportPath = writeRunReport(run, s, readEvents(run), audits, a.proposals);
-        return void (await append({ type: "run.ended", outcome: a.outcome, reportPath }));
+        await append({ type: "run.ended", outcome: a.outcome, reportPath });
+        await refreshState(run, { next: outcomeNext(a.outcome), parked: [] });
+        return;
       }
       case "classify":
         return classify(a);

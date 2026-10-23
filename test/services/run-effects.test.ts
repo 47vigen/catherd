@@ -12,8 +12,9 @@ import { launcher, watchersSettled } from "../../src/services/dispatch-service.t
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
+import { preflightUser } from "../../src/services/preflight.ts";
 import { endedEvent, planOf, realEffects } from "../../src/services/run-effects.ts";
-import { appendCheckRecord } from "../../src/services/milestone-check.ts";
+import { appendCheckRecord, machineGate } from "../../src/services/milestone-check.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
@@ -702,6 +703,81 @@ describe("planning", () => {
     expect(lastOf(run, "plan.ready")?.milestones).toMatchObject([{ id: "M1", lanes: [{ id: "M1.L1" }] }]);
   });
 
+  function dependencyPlan(run: Run, after: string): void {
+    for (const id of ["M1", "M2", "M3"]) writeLane(run, `${id}.L1`, [`src/${id}/`], "true", WITH_TASK);
+    writeFileSync(join(run.dir, "plan.md"), `${DEEP}\n## M2 — next\nAfter: ${after}\n## M3 — independent\n`);
+  }
+
+  it("a plan.md After wider than the owner's plan parks for approval", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    const question = lastOf(run, "question.parked");
+    expect(question).toMatchObject({ unit: "run", reason: "approval" });
+    expect(question?.question).toContain("M2");
+    expect(question?.question).toContain("M3");
+    expect(types(run).slice(-2)).toEqual(["question.parked", "plan.ready"]);
+  });
+
+  it("keeps first-read dependency approval pending when the owner requests revision", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(replayRun(run).phase).toBe("approval");
+    await appendEvent(run, { type: "question.answered", unit: "run", answer: "remove M3", by: "owner" });
+    const actions = next(replayRun(run), lastOf(run, "question.answered")!);
+    expect(actions.some((a) => a.type === "route")).toBe(false);
+    expect(actions).toContainEqual(expect.objectContaining({ type: "dispatch", name: "architect" }));
+  });
+
+  it("uses an approved dependency section instead of the older owner input", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    writeFileSync(join(run.dir, "plan-approved.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "plan.approved", by: "owner" });
+    const before = readEvents(run).length;
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(
+      readEvents(run)
+        .slice(before)
+        .map((e) => e.type),
+    ).toEqual(["plan.ready"]);
+  });
+
+  it("an After equal to the owner's plan does not park", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toBeUndefined();
+    expect(lastOf(run, "plan.ready")).toBeDefined();
+  });
+
+  it("compares After to plan-approved.md without plan inputs, allowing narrower dependencies", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1");
+    writeFileSync(join(run.dir, "plan-approved.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    dependencyPlan(run, "none");
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toBeUndefined();
+    dependencyPlan(run, "M1, M3");
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")?.question).toContain("M2 now waits for M3");
+  });
+
   it("fails readPlan with the plan's problems, and reads it once it is deep enough", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
@@ -822,8 +898,13 @@ describe("routing, checking, committing, landing", () => {
     writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
     backed(run);
     await seed(run);
-    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
-    expect(lastOf(run, "preflight.done")?.blocking).toMatchObject([{ lane: "M1.L1" }]);
+    const uid = spyOn(preflightUser, "uid").mockReturnValue(1000);
+    try {
+      await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
+      expect(lastOf(run, "preflight.done")?.blocking).toMatchObject([{ lane: "M1.L1" }]);
+    } finally {
+      uid.mockRestore();
+    }
   });
 
   it("runs a fast check and reports its exit and tail", async () => {
@@ -837,6 +918,33 @@ describe("routing, checking, committing, landing", () => {
     expect(red).toMatchObject({ lane: "M1.L1", exit: 3 });
     expect((red as { tail: string }).tail).toContain("red-line");
     expect(green).toMatchObject({ lane: "M1.L2", exit: 0 });
+  });
+
+  it("fastCheck records the worktree identity it checked", async () => {
+    const { run, fx } = await treesSetup();
+    writeLane(run, "M1.L1", ["src/a/"], "echo red-line >&2; exit 3");
+    writeLane(run, "M1.L2", ["src/b/"], "");
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    const first = lastOf(run, "check.ran");
+    expect(first).toMatchObject({ lane: "M1.L1", exit: 3 });
+    expect(typeof first?.tree).toBe("string");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    expect(lastOf(run, "check.ran")?.tree).toBe(first?.tree);
+
+    writeFile(tree, "src/a/new.ts", "changed\n");
+    await fx.run({ type: "fastCheck", lane: "M1.L1" }, replayRun(run));
+    const changed = lastOf(run, "check.ran");
+    expect(changed).toMatchObject({ lane: "M1.L1", exit: 3 });
+    expect(typeof changed?.tree).toBe("string");
+    expect(changed?.tree).not.toBe(first?.tree);
+
+    await fx.run({ type: "fastCheck", lane: "M1.L2" }, replayRun(run));
+    const unchecked = lastOf(run, "check.ran");
+    expect(unchecked).toMatchObject({ lane: "M1.L2", exit: 0, tail: "the lane has no fast check" });
+    expect(unchecked).not.toHaveProperty("tree");
   });
 
   it("counts an absence check whose only hits are the lane's Allow: exceptions as passed", async () => {
@@ -1026,6 +1134,18 @@ describe("a run with a base branch (30b)", () => {
     expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1", commit });
   });
 
+  it("land evidence keeps the outcome when a stale land action runs after cancellation", async () => {
+    const { run, fx } = await baseSetup();
+    await passGate(run, "M1");
+    const beforeFinish = replayRun(run);
+    await fx.run({ type: "finish", outcome: "cancelled" }, beforeFinish);
+    await fx.run(land1, beforeFinish);
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1" });
+    const text = readFileSync(join(run.dir, "state.md"), "utf8");
+    expect(text).toContain("cancelled");
+    expect(text).not.toContain("the daemon continues");
+  });
+
   it("works from the last fetch when origin cannot be reached, and says so", async () => {
     const { repo, run, fx } = await baseSetup();
     git(repo, "remote", "set-url", "origin", join(repo, "no-such-origin"));
@@ -1126,6 +1246,68 @@ describe("parking, reporting, finishing", () => {
     expect(types(run).slice(2)).toEqual(["report.posted"]);
   });
 
+  it("the remind effect sends and records once", async () => {
+    const { run, fx } = setup(undefined, testView({ notify: ["blocked"] }));
+    await seed(run, { type: "question.parked", unit: "M1", question: "help?", reason: "needs_user" });
+    const state = replayRun(run);
+    delete process.env.CATHERD_NO_END_PUSH;
+    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+    try {
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(lastOf(run, "question.reminded")).toMatchObject({ unit: "M1", n: 1 });
+      expect(types(run).filter((t) => t === "question.reminded")).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not apply a reminder to a question replaced while its notice sends", async () => {
+    const { run, fx } = setup(undefined, testView({ notify: ["blocked"] }));
+    await seed(run, { type: "question.parked", unit: "M1", question: "old", reason: "needs_user" });
+    const state = replayRun(run);
+    delete process.env.CATHERD_NO_END_PUSH;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      await appendEvent(run, { type: "question.answered", unit: "M1", answer: "done", by: "owner" });
+      // Same timestamp too: the event sequence identifies the replacement.
+      await appendEvent(
+        run,
+        { type: "question.parked", unit: "M1", question: "old", reason: "needs_user" },
+        new Date(state.questions.M1!.at),
+      );
+      return new Response("ok");
+    }) as unknown as typeof fetch);
+    try {
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(replayRun(run).questions.M1?.reminded).toBe(0);
+      expect(lastOf(run, "question.reminded")).toBeUndefined();
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a cancelled run's state.md does not say the daemon continues", async () => {
+    const { run, fx } = setup();
+    await seed(run);
+    writeFileSync(
+      join(run.dir, "state.json"),
+      JSON.stringify({
+        schema: 1,
+        next: "the daemon continues after M1",
+        lastCheck: null,
+        lastLandedAt: null,
+      }),
+    );
+    await fx.run({ type: "finish", outcome: "cancelled" }, replayRun(run));
+    const text = readFileSync(join(run.dir, "state.md"), "utf8");
+    expect(text).toContain("cancelled");
+    expect(text).not.toContain("the daemon continues");
+  });
+
   it("finishes by writing the report and run.ended", async () => {
     const { run, fx } = setup();
     await seed(run);
@@ -1153,7 +1335,7 @@ describe("parking, reporting, finishing", () => {
     expect(lastOf(run, "run.ended")).toMatchObject({ outcome: "done" });
   });
 
-  it("lists what a landed milestone's check passed on only through the base under Audit", async () => {
+  it("treats red baselines as blockers rather than audit-only evidence", async () => {
     const { run, repo, fx } = setup();
     const head = "a".repeat(40);
     await seed(run, {
@@ -1173,8 +1355,12 @@ describe("parking, reporting, finishing", () => {
     };
     appendCheckRecord(repo, { ...row, head: "b".repeat(40), exit: 1, fails: ["FAIL x"], baseline: true });
     appendCheckRecord(repo, { ...row, head, exit: 1, fails: ["FAIL x"], secrets: "clean" });
+    const gate = await machineGate(run, "M1", head);
+    expect(gate.missing).toContainEqual(expect.stringContaining("pre-existing"));
+    expect(gate.missing).toContainEqual(expect.stringContaining("FAIL x"));
+    expect(gate.audit).toEqual([]);
     await fx.run({ type: "finish", outcome: "done" }, replayRun(run));
-    expect(readFileSync(join(run.dir, "report.md"), "utf8")).toMatch(
+    expect(readFileSync(join(run.dir, "report.md"), "utf8")).not.toMatch(
       /## Audit\n\n- M1 \(check\): .*pre-existing/,
     );
   });

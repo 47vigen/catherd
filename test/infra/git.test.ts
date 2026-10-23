@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changedPaths } from "../../src/domain/changes.ts";
@@ -13,6 +21,7 @@ import {
   gitToplevel,
   isAncestor,
   statusSnapshot,
+  worktreeIdentity,
 } from "../../src/infra/git.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempRepo } from "../helpers.ts";
 
@@ -47,6 +56,165 @@ describe("git", () => {
     expect(await commitExists(repo, head)).toBe(true);
     expect(await commitExists(repo, "0123456789abcdef")).toBe(false);
     expect(await gitHead(mkdtempSync(join(tmpdir(), "catherd-nogit-")))).toBeNull();
+  });
+
+  it("worktreeIdentity changes with every uncommitted change and holds otherwise", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "tracked.txt"), "original");
+    writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "tracked file");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).toMatch(/^[a-f0-9]{64}$/);
+    expect(await worktreeIdentity(repo)).toBe(clean);
+
+    writeFileSync(join(repo, "tracked.txt"), "unstaged edit");
+    const edited = await worktreeIdentity(repo);
+    expect(edited).not.toBeNull();
+    expect(edited).not.toBe(clean);
+    sh(repo, "add", "tracked.txt");
+    expect(await worktreeIdentity(repo)).toBe(edited);
+
+    writeFileSync(join(repo, "tracked.txt"), "edit after staging");
+    const editedAgain = await worktreeIdentity(repo);
+    expect(editedAgain).not.toBeNull();
+    expect(editedAgain).not.toBe(edited);
+
+    mkdirSync(join(repo, "new", "folder"), { recursive: true });
+    const untracked = join(repo, "new", "folder", "untracked.txt");
+    writeFileSync(untracked, "first");
+    const added = await worktreeIdentity(repo);
+    expect(added).not.toBeNull();
+    expect(added).not.toBe(editedAgain);
+    writeFileSync(untracked, "other");
+    const changed = await worktreeIdentity(repo);
+    expect(changed).not.toBeNull();
+    expect(changed).not.toBe(added);
+
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "worker changes");
+    const committed = await worktreeIdentity(repo);
+    expect(committed).not.toBeNull();
+    expect(committed).not.toBe(changed);
+    writeFileSync(join(repo, "tracked.txt"), "temporary edit");
+    expect(await worktreeIdentity(repo)).not.toBe(committed);
+    writeFileSync(join(repo, "tracked.txt"), "edit after staging");
+    expect(await worktreeIdentity(repo)).toBe(committed);
+    writeFileSync(join(repo, "ignored.txt"), "ignored content");
+    expect(await worktreeIdentity(repo)).toBe(committed);
+  });
+
+  it("worktreeIdentity gives an unchanged tracked deletion a stable identity", async () => {
+    const repo = tempRepo();
+    const file = join(repo, "tracked.txt");
+    writeFileSync(file, "original");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "tracked file");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).not.toBeNull();
+    unlinkSync(file);
+    const deleted = await worktreeIdentity(repo);
+    expect(deleted).toMatch(/^[a-f0-9]{64}$/);
+    expect(deleted).not.toBe(clean);
+    expect(await worktreeIdentity(repo)).toBe(deleted);
+    writeFileSync(file, "original");
+    expect(await worktreeIdentity(repo)).toBe(clean);
+  });
+
+  it("worktreeIdentity includes untracked symlink targets and file types", async () => {
+    const repo = tempRepo();
+    writeFileSync(join(repo, "a"), "same");
+    writeFileSync(join(repo, "b"), "same");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "targets");
+    const link = join(repo, "link");
+    symlinkSync("a", link);
+    const first = await worktreeIdentity(repo);
+    expect(first).not.toBeNull();
+    unlinkSync(link);
+    symlinkSync("b", link);
+    const second = await worktreeIdentity(repo);
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    unlinkSync(link);
+    writeFileSync(link, "same");
+    expect(await worktreeIdentity(repo)).not.toBe(second);
+  });
+
+  it("worktreeIdentity includes executable modes even when Git ignores file modes", async () => {
+    const repo = tempRepo();
+    sh(repo, "config", "core.filemode", "false");
+    const file = join(repo, "script");
+    writeFileSync(file, "echo test");
+    chmodSync(file, 0o644);
+    const untracked = await worktreeIdentity(repo);
+    expect(untracked).not.toBeNull();
+    chmodSync(file, 0o755);
+    expect(await worktreeIdentity(repo)).not.toBe(untracked);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "script");
+    const tracked = await worktreeIdentity(repo);
+    expect(tracked).not.toBeNull();
+    chmodSync(file, 0o644);
+    expect(await worktreeIdentity(repo)).not.toBe(tracked);
+  });
+
+  it("worktreeIdentity includes tracked bytes hidden by Git normalization", async () => {
+    const repo = tempRepo();
+    sh(repo, "config", "core.autocrlf", "false");
+    writeFileSync(join(repo, ".gitattributes"), "*.txt text\n");
+    writeFileSync(join(repo, "normalized.txt"), "line\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "normalized text");
+    const clean = await worktreeIdentity(repo);
+    expect(clean).not.toBeNull();
+    writeFileSync(join(repo, "normalized.txt"), "line\r\n");
+    expect(sh(repo, "diff", "HEAD")).toBe("");
+    const changed = await worktreeIdentity(repo);
+    expect(changed).not.toBeNull();
+    expect(changed).not.toBe(clean);
+  });
+
+  it("worktreeIdentity is unknown for successive edits in an already dirty submodule", async () => {
+    const source = tempRepo();
+    writeFileSync(join(source, "tracked"), "initial");
+    sh(source, "add", ".");
+    sh(source, "commit", "-qm", "submodule content");
+    const repo = tempRepo();
+    sh(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub");
+    sh(repo, "commit", "-qm", "submodule");
+    writeFileSync(join(repo, "sub", "tracked"), "first edit");
+    const firstDiff = sh(repo, "diff", "HEAD");
+    expect(await worktreeIdentity(repo)).toBeNull();
+    writeFileSync(join(repo, "sub", "tracked"), "second edit");
+    expect(sh(repo, "diff", "HEAD")).toBe(firstDiff);
+    expect(await worktreeIdentity(repo)).toBeNull();
+  });
+
+  it("worktreeIdentity is null when git cannot say", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "catherd-nogit-"));
+    expect(await worktreeIdentity(outside)).toBeNull();
+    sh(outside, "init", "-q");
+    expect(await worktreeIdentity(outside)).toBeNull();
+    const repo = tempRepo();
+    fakeGit("exit 128");
+    expect(await worktreeIdentity(repo)).toBeNull();
+  });
+
+  it("worktreeIdentity returns null on a later git failure or timeout", async () => {
+    const repo = tempRepo();
+    for (const command of ["diff", "ls-files"]) {
+      fakeGit(`if [ "$3" = "${command}" ]; then exit 128; fi\nprintf 'head'`);
+      expect(await worktreeIdentity(repo)).toBeNull();
+    }
+    fakeGit("while :; do :; done");
+    expect(await worktreeIdentity(repo, 50)).toBeNull();
+  });
+
+  it("worktreeIdentity returns null when an untracked file disappears before reading", async () => {
+    const repo = tempRepo();
+    fakeGit('if [ "$3" = "ls-files" ]; then printf "missing.txt\\0"; else printf "head"; fi');
+    expect(await worktreeIdentity(repo)).toBeNull();
   });
 
   it("snapshots untracked files inside new folders and modified tracked ones", async () => {

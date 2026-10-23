@@ -27,6 +27,8 @@ describe("the verifier's brief (plan 23)", () => {
     const rules = VERIFIER_GATE_RULES.join("\n");
     expect(rules).toContain("gate_run");
     expect(rules).toContain("committed HEAD");
+    expect(rules).toContain("every top-level `&&` part as its own item");
+    expect(rules).toContain("gate_pass with the same milestone");
   });
 
   it("splits the root gate from acceptance, keeps acceptance from HEAD, says BLOCKED, and prunes images", () => {

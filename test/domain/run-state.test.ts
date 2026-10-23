@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { next, actionKey, confirms } from "../../src/domain/run-machine.ts";
 import { type Finding, issueLine } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
@@ -449,5 +450,230 @@ describe("the rules review (plan 34)", () => {
     }
     expect(failed.state().rulesReview).toEqual({ changes: [], failed: true });
     expect(failed.state().stuck.run).toBeUndefined();
+  });
+});
+
+describe("plan 39 orchestration guards", () => {
+  it("a verifier FAIL on a commit is not retried on that commit", () => {
+    const log = reviewing();
+    review(log, []);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    const failed = endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", head: "c0" });
+    expect(log.state().milestones[0]).toMatchObject({ verifierFailedOn: "c0" });
+    expect(next(log.state(), failed).some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
+    const state = log.state();
+    state.milestones[0]!.status = "verifying";
+    expect(next(state, failed).some((a) => a.type === "dispatch" && a.role === "verifier")).toBe(false);
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, []);
+    expect(
+      next(log.state(), log.events.at(-1)!).some((a) => a.type === "dispatch" && a.role === "verifier"),
+    ).toBe(true);
+  });
+
+  it("check_broken parks at once", () => {
+    const log = reviewing();
+    review(log, []);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    const e = endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "fail",
+      reason: "check_broken",
+    });
+    expect(log.state().milestones[0]).toMatchObject({ verifierFailedOn: "c0" });
+    expect(next(log.state(), e)).toContainEqual(
+      expect.objectContaining({ type: "park", unit: "M1", reason: "check_broken" }),
+    );
+    log.add("question.parked", { unit: "M1", reason: "check_broken", question: "repair the check" });
+    expect(log.state().questions.M1).toMatchObject({ reason: "check_broken" });
+  });
+
+  it("an open question is reminded at 30 min, 2 h, 6 h, 24 h and every 24 h", () => {
+    const log = runningLog();
+    const parked = log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    expect(log.state().questions.M1).toMatchObject({ reminded: 0 });
+    const origin = Date.parse(parked.at);
+    for (const [i, offset] of [
+      1_800_000, 7_200_000, 21_600_000, 86_400_000, 172_800_000, 259_200_000,
+    ].entries()) {
+      const due = new Date(origin + offset).toISOString();
+      expect(log.state().wakeAt).toBe(due);
+      const before = log.add("tick", {}, new Date(origin + offset - 1).toISOString());
+      expect(next(log.state(), before).filter((a) => a.type === "remind")).toEqual([]);
+      const tick = log.add("tick", {}, due);
+      const action = { type: "remind", unit: "M1", n: i + 1 } as const;
+      expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([action]);
+      expect(actionKey(action)).toBe(`remind:M1:${i + 1}`);
+      const reminded = log.add("question.reminded", { unit: "M1", n: i + 1 }, due);
+      expect(confirms(reminded)).toEqual([`remind:M1:${i + 1}`]);
+      expect(log.state().questions.M1).toMatchObject({ reminded: i + 1 });
+      expect(next(log.state(), reminded).filter((a) => a.type === "remind")).toEqual([]);
+      const replayed = log.add("question.reminded", { unit: "M1", n: i + 1 }, due);
+      expect(next(log.state(), replayed).filter((a) => a.type === "remind")).toEqual([]);
+    }
+  });
+
+  it("owes one reminder when the daemon wakes after missed slots", () => {
+    const log = runningLog();
+    const parked = log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    const at = new Date(Date.parse(parked.at) + 3 * 86_400_000).toISOString();
+    const tick = log.add("tick", {}, at);
+    expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([
+      { type: "remind", unit: "M1", n: 1 },
+    ]);
+    const reminded = log.add("question.reminded", { unit: "M1", n: 1 }, at);
+    expect(next(log.state(), reminded).filter((a) => a.type === "remind")).toEqual([]);
+    expect(log.state().wakeAt).toBe(new Date(Date.parse(parked.at) + 4 * 86_400_000).toISOString());
+  });
+
+  it("an answered question owes no reminder", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    log.add("question.answered", { unit: "M1", answer: "done", by: "owner" });
+    const tick = log.add("tick", {}, "2026-10-23T10:00:00.000Z");
+    expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([]);
+    expect(log.state().wakeAt).toBeNull();
+  });
+
+  it("an ended run owes no reminder", () => {
+    const log = runningLog();
+    log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    log.add("run.ended", { outcome: "cancelled", reportPath: null });
+    const tick = log.add("tick", {}, "2026-10-23T10:00:00.000Z");
+    expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([]);
+    expect(log.state().wakeAt).toBeNull();
+  });
+});
+
+describe("repeated fast check failures", () => {
+  const check = { lane: "M1.L1", exit: 1, tail: "error: database unavailable [12ms]", foreign: [] };
+
+  it("a worker's uncommitted change frees a repeated failure", () => {
+    const log = runningLog();
+    log.add("check.ran", { ...check, tree: "t1" });
+    log.add("check.ran", { ...check, tree: "t2" });
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+    expect(log.state().lanes[check.lane]).toMatchObject({
+      lastFailHead: "t2",
+      checkFails: 2,
+      climbReason: "check-failed-twice",
+    });
+  });
+
+  it("the same tree and the same failure parks environment", () => {
+    for (const commitBetween of [false, true]) {
+      const log = runningLog();
+      log.add("check.ran", { ...check, tree: "t1" });
+      expect(log.state().lanes[check.lane]?.lastFailHead).toBe("t1");
+      if (commitBetween) log.add("commit.made", { milestone: "M1", round: 0, commit: "c1" });
+      log.add("check.ran", { ...check, tree: "t1" });
+      expect(log.state().stuck[check.lane]?.reason).toBe("environment");
+      expect(log.state().lanes[check.lane]?.climbReason).toBeNull();
+    }
+  });
+
+  it("an unknown tree never parks", () => {
+    const log = runningLog();
+    log.add("check.ran", { ...check, tree: null });
+    log.add("check.ran", { ...check, tree: null });
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+    expect(log.state().lanes[check.lane]).toMatchObject({
+      lastFailHead: null,
+      checkFails: 2,
+      climbReason: "check-failed-twice",
+    });
+  });
+
+  it("an identical check failure on an unchanged head parks without a climb", () => {
+    for (const head of [null, "c0"]) {
+      const log = runningLog();
+      if (head) log.add("commit.made", { milestone: "M1", round: 0, commit: head });
+      log.add("check.ran", check);
+      expect(log.state().lanes[check.lane]).toMatchObject({
+        lastFails: ["error: database unavailable"],
+        lastFailHead: head,
+      });
+      log.add("check.ran", { ...check, tail: "error: database unavailable [99ms]" });
+      const s = log.state();
+      expect(s.stuck[check.lane]).toEqual({
+        reason: "environment",
+        question: expect.stringContaining("error: database unavailable"),
+      });
+      expect(s.stuck[check.lane]?.question).toContain(check.lane);
+      expect(s.lanes[check.lane]?.climbReason).toBeNull();
+      expect(next(s, log.events.at(-1)!)).toContainEqual(
+        expect.objectContaining({ type: "park", unit: check.lane, reason: "environment" }),
+      );
+    }
+  });
+
+  it("a new milestone commit or different failures keep the normal climb", () => {
+    for (const change of ["head", "fails"]) {
+      const log = runningLog();
+      log.add("check.ran", check);
+      if (change === "head") log.add("commit.made", { milestone: "M1", round: 0, commit: "c1" });
+      log.add("check.ran", { ...check, tail: change === "fails" ? "error: missing module" : check.tail });
+      expect(log.state().stuck[check.lane]).toBeUndefined();
+      expect(log.state().lanes[check.lane]).toMatchObject({
+        checkFails: 2,
+        climbReason: "check-failed-twice",
+      });
+    }
+  });
+
+  it("a sibling milestone commit does not free an unchanged lane head", () => {
+    const log = runningLog();
+    log.add("check.ran", check);
+    log.add("commit.made", { milestone: "M2", round: 0, commit: "sibling" });
+    log.add("check.ran", check);
+    expect(log.state().stuck[check.lane]?.reason).toBe("environment");
+    expect(log.state().lanes[check.lane]?.climbReason).toBeNull();
+  });
+
+  it("a passing check clears the last failure", () => {
+    const log = runningLog();
+    log.add("check.ran", check);
+    log.add("check.ran", { ...check, exit: 0, tail: "passed" });
+    expect(log.state().lanes[check.lane]).toMatchObject({ lastFails: null, lastFailHead: null });
+    log.add("check.ran", check);
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+  });
+
+  it("empty failing lines never count as a repeated environment failure", () => {
+    const log = runningLog();
+    log.add("check.ran", { ...check, tail: "no diagnostic" });
+    log.add("check.ran", { ...check, tail: "no diagnostic" });
+    expect(log.state().stuck[check.lane]).toBeUndefined();
+    expect(log.state().lanes[check.lane]?.climbReason).toBe("check-failed-twice");
+  });
+});
+
+describe("pending reminder wake scheduling", () => {
+  it("does not keep an expired wake while the reminder effect is pending", () => {
+    const log = runningLog();
+    const parked = log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    const due = new Date(Date.parse(parked.at) + 1_800_000).toISOString();
+    expect(log.state().wakeAt).toBe(due);
+    const tick = log.add("tick", {}, due);
+    expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([
+      { type: "remind", unit: "M1", n: 1 },
+    ]);
+    expect(log.state().wakeAt).toBeNull();
+    const unrelated = log.add("daemon.started", { pid: 123, version: "1.5.0" }, due);
+    expect(log.state().wakeAt).toBeNull();
+    expect(next(log.state(), unrelated).filter((a) => a.type === "remind")).toEqual([
+      { type: "remind", unit: "M1", n: 1 },
+    ]);
+    log.add("question.reminded", { unit: "M1", n: 1 }, due);
+    expect(log.state().wakeAt).toBe(new Date(Date.parse(parked.at) + 7_200_000).toISOString());
+  });
+
+  it("keeps a future question's wake while another reminder is due", () => {
+    const log = runningLog();
+    const first = log.add("question.parked", { unit: "M1", question: "first?", reason: "environment" });
+    const second = log.add("question.parked", { unit: "M2", question: "second?", reason: "environment" });
+    log.add("tick", {}, new Date(Date.parse(first.at) + 1_800_000).toISOString());
+    expect(log.state().wakeAt).toBe(new Date(Date.parse(second.at) + 1_800_000).toISOString());
   });
 });

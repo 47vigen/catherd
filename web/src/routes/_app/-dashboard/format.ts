@@ -29,7 +29,7 @@ export function formatCount(n: number): string {
 }
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-export const formatCost = (usd: number): string => money.format(usd);
+export const formatCost = (usd: number | null): string => (usd === null ? "—" : money.format(usd));
 
 /** Wall minutes: "–" when unknown, "42 min", "1.6 h". */
 export function formatMinutes(min: number | null): string {

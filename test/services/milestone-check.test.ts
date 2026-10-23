@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendCheckRecord,
@@ -13,14 +13,27 @@ import {
   readChecks,
   secretScan,
 } from "../../src/services/milestone-check.ts";
+import { checkFailLines, FAIL_DISPLAY_CAP } from "../../src/domain/fail-lines.ts";
 import { ROLE_ENV } from "../../src/domain/role-scope.ts";
 import { LOCK_HELD_ENV, withRoleLock } from "../../src/infra/heavy-lock.ts";
 import { DISPATCH_ID_ENV } from "../../src/infra/lock-activity.ts";
+import { daemonLauncher } from "../../src/services/daemon.ts";
+import { answerUnit } from "../../src/services/run-client.ts";
+import { appendEvent } from "../../src/services/run-events-store.ts";
+import { openQuestions, park } from "../../src/services/questions.ts";
+import { PLAN, startedFields } from "../domain/run-fixtures.ts";
+import { fakeDeps, passGate } from "./helpers.ts";
+import { gateCheck, gatePass, recordedItems } from "../../src/services/gate-service.ts";
+import { land } from "../../src/services/lane-service.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
 import { snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 
 afterEach(snapshotEnv());
 const tools = { ...checkTools };
+const launch = daemonLauncher.launch;
+afterEach(() => {
+  daemonLauncher.launch = launch;
+});
 afterEach(() => Object.assign(checkTools, tools));
 
 const HEAD = "a".repeat(40);
@@ -101,6 +114,28 @@ describe("execMilestoneCheck", () => {
 });
 
 describe("execMilestoneCheck run by a verifier role", () => {
+  let fixtureDir: string;
+  let restoreEnv: () => void;
+
+  beforeEach(() => {
+    restoreEnv = snapshotEnv();
+    delete process.env[ROLE_ENV];
+    delete process.env[DISPATCH_ID_ENV];
+    delete process.env.TMPDIR;
+    // A worker's scratch would make the fixture's lock directory inherit that worker's role.
+    const testTmp = join(import.meta.dir, "../../.superpowers");
+    mkdirSync(testTmp, { recursive: true });
+    fixtureDir = mkdtempSync(join(testTmp, "milestone-check-"));
+    process.env.TMPDIR = fixtureDir;
+    withHome();
+    run = createRun({ repo, title: "t", aLines: ["A1"], version: "0.0.0-test", startHead: BASE });
+  });
+
+  afterEach(() => {
+    restoreEnv();
+    rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
   const probe = `bun -e 'import { roleScopeFromEnv } from "${join(import.meta.dir, "../../src/domain/role-scope.ts")}"; console.log(JSON.stringify(roleScopeFromEnv(process.env)))'`;
 
   it("runs the check as no role, in a slot or under a held lock", async () => {
@@ -199,21 +234,270 @@ describe("machineGate", () => {
     expect(await machineGate(run, "M1", HEAD)).toEqual({ missing: [], audit: [] });
   });
 
-  it("lets a failure through whose every line the base has, with an audit line", async () => {
+  it("a failing check on a red baseline blocks", async () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x", "FAIL y"] }));
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
     const g = await machineGate(run, "M1", HEAD);
-    expect(g.missing).toEqual([]);
-    expect(g.audit[0]).toContain("pre-existing");
+    expect(g.missing[0]).toContain("pre-existing");
+    expect(g.missing[0]).toContain("FAIL x");
+    expect(g.audit).toEqual([]);
   });
 
-  it("names the unreached tail of an && check in the audit", async () => {
-    const command = "bun run lint && bun test";
-    appendCheckRecord(repo, rec({ command, baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
-    appendCheckRecord(repo, rec({ command, exit: 1, fails: ["FAIL x"] }));
+  it("honors an owner accept through park/answer only for the baseline failures parked", async () => {
+    const deps = fakeDeps({ now: () => Date.parse("2026-10-21T10:01:00.000Z") });
+    daemonLauncher.launch = () => 1;
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
+    const refused = await machineGate(run, "M1", HEAD);
+    expect(refused.missing.join("\n")).toContain("pre-existing");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    const question = `land M1: the machine gate on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
+    await park(deps, { run: run.id, milestone: "M1", question });
+    await appendEvent(
+      run,
+      { type: "question.parked", unit: "M1", reason: "land", question },
+      new Date(deps.now()),
+    );
+    expect((await machineGate(run, "M1", HEAD)).missing).not.toEqual([]);
+    await answerUnit(deps, { run: run.id, unit: "M1", answer: "accept" });
+    expect(openQuestions(run)).toEqual([]);
+    const accepted = await machineGate(run, "M1", HEAD);
+    expect(accepted.missing).toEqual([]);
+    expect(accepted.audit.join("\n")).toContain("owner accepted");
+
+    // A later rerun of the same failures retains the waiver.
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:02:00.000Z", exit: 1, fails: ["FAIL x"] }));
+    expect((await machineGate(run, "M1", HEAD)).missing).toEqual([]);
+    // Even another red baseline cannot extend the accepted set of failures.
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x", "FAIL later"] }));
+    appendCheckRecord(
+      repo,
+      rec({ at: "2026-10-21T10:03:00.000Z", exit: 1, fails: ["FAIL x", "FAIL later"] }),
+    );
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("FAIL later");
+    const otherHead = "c".repeat(40);
+    appendCheckRecord(repo, rec({ head: otherHead, exit: 1, fails: ["FAIL x"] }));
+    expect((await machineGate(run, "M1", otherHead)).missing.join("\n")).toContain("pre-existing");
+    appendCheckRecord(
+      repo,
+      rec({ command: "another check", baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }),
+    );
+    appendCheckRecord(repo, rec({ command: "another check", exit: 1, fails: ["FAIL x"] }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`another check`");
+  });
+
+  it("lands an accepted red baseline through gate_check, park, answer, and land", async () => {
+    const deps = fakeDeps();
+    daemonLauncher.launch = () => 1;
+    const base = HEAD_REAL;
+    run = createRun({ repo, title: "waiver flow", aLines: ["A1"], version: "0.0.0-test", startHead: base });
+    writeFileSync(join(repo, "tracked.txt"), "work");
+    writeFileSync(join(repo, ".gitignore"), ".env\n");
+    writeFileSync(join(repo, ".env"), "MODE=before\n");
+    git(repo, "add", "tracked.txt", ".gitignore");
+    git(repo, "commit", "-q", "-m", "work");
+    const head = git(repo, "rev-parse", "HEAD");
+    await passGate(run, "M1", undefined, head);
+    const command = "(echo 'FAIL x'; exit 1)";
+    appendCheckRecord(repo, rec({ command, head: base, baseline: true, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ command, head, exit: 1, fails: ["FAIL x"] }));
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt", ".env"],
+    });
+    const input = {
+      run: run.id,
+      milestone: "M1",
+      what: "work",
+      commit: head,
+      evidence: "verified",
+      next: "M2",
+    };
+    let refused;
+    try {
+      await land(deps, input);
+    } catch (e) {
+      refused = e as { code: string; message: string };
+    }
+    expect(refused?.code).toBe("E_LAND_GATE");
+    expect(refused?.message).toContain("pre-existing");
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    const question = refused!.message;
+    await park(deps, { run: run.id, milestone: "M1", question });
+    await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question });
+    await answerUnit(deps, { run: run.id, unit: "M1", answer: "accept" });
+    expect((await machineGate(run, "M1", head)).missing).toEqual([]);
+    expect((await recordedItems(run, "M1"))[0]?.passed).toBe(false);
+    writeFileSync(join(repo, ".env"), "MODE=after\n");
+    await expect(land(deps, input)).rejects.toMatchObject({ code: "E_LAND_GATE" });
+    writeFileSync(join(repo, ".env"), "MODE=before\n");
+    // Removing the ignored input from the registered paths must not carry the original waiver either.
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt"],
+    });
+    await expect(land(deps, input)).rejects.toMatchObject({ code: "E_LAND_GATE" });
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt", ".env"],
+    });
+    writeFileSync(join(repo, "tracked.txt"), "uncommitted change");
+    await expect(land(deps, input)).rejects.toThrow("root check");
+    git(repo, "checkout", "--", "tracked.txt");
+    // A waiver for this failed check cannot stand in for another item's required pass.
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "other check",
+      command: "true",
+      paths: ["tracked.txt"],
+    });
+    await expect(land(deps, input)).rejects.toThrow("other check");
+    await gatePass(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "other check",
+      command: "true",
+      paths: ["tracked.txt"],
+      evidence: "passed",
+    });
+    await expect(land(deps, input)).resolves.toHaveProperty("ledger");
+  });
+
+  it("binds accept to the full record that caused refusal before an intervening rerun", async () => {
+    const fails = Array.from({ length: FAIL_DISPLAY_CAP + 2 }, (_, n) => `FAIL case ${n}`);
+    const rerunFails = [...fails.slice(0, -1), "FAIL unaccepted"];
+    appendCheckRecord(
+      repo,
+      rec({ baseline: true, head: BASE, exit: 1, fails: [...fails, "FAIL unaccepted"] }),
+    );
+    appendCheckRecord(repo, rec({ exit: 1, fails }));
+    const refused = await machineGate(run, "M1", HEAD);
+    const question = `on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:00:30.000Z", exit: 1, fails: rerunFails }));
+    const parkedAt = new Date("2026-10-21T10:01:00.000Z");
+    await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question }, parkedAt);
+    await appendEvent(
+      run,
+      { type: "question.answered", unit: "M1", by: "owner", answer: "accept" },
+      parkedAt,
+    );
+    expect((await machineGate(run, "M1", HEAD)).missing).not.toEqual([]);
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:02:00.000Z", exit: 1, fails }));
+    expect((await machineGate(run, "M1", HEAD)).missing).toEqual([]);
+  });
+
+  it("does not waive a baseline for an unrelated question, unit, reason, or non-owner accept", async () => {
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
+    const gate = await machineGate(run, "M1", HEAD);
+    const question = `on ${HEAD.slice(0, 12)}: ${gate.missing.join("; ")}`;
+    for (const [unit, reason, by, answer, text] of [
+      ["M1", "land", "owner", "accept", "missing reviewer"],
+      ["M2", "land", "owner", "accept", question],
+      ["M1", "blocker", "owner", "accept", question],
+      ["M1", "land", "owner", "continue", question],
+      ["M1", "land", "judge", "accept", question],
+    ] as const) {
+      await appendEvent(run, { type: "question.parked", unit, reason, question: text });
+      await appendEvent(run, { type: "question.answered", unit, by, answer });
+      expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("pre-existing");
+    }
+  });
+
+  it("scopes a waiver to the full failure record beyond the displayed lines", async () => {
+    const fails = Array.from({ length: FAIL_DISPLAY_CAP + 2 }, (_, n) => `FAIL case ${n}`);
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails }));
+    appendCheckRecord(repo, rec({ exit: 1, fails }));
+    const gate = await machineGate(run, "M1", HEAD);
+    const question = `on ${HEAD.slice(0, 12)}: ${gate.missing.join("; ")}`;
+    const parkedAt = new Date("2026-10-21T10:01:00.000Z");
+    await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question }, parkedAt);
+    await appendEvent(
+      run,
+      { type: "question.answered", unit: "M1", by: "owner", answer: "accept" },
+      parkedAt,
+    );
+    expect((await machineGate(run, "M1", HEAD)).missing).toEqual([]);
+    const changed = [...fails.slice(0, -1), "FAIL not accepted"];
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: changed }));
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:02:00.000Z", exit: 1, fails: changed }));
+    // The excerpt and failure count are unchanged, but a different full failure set must still block.
+    expect((await machineGate(run, "M1", HEAD)).missing).not.toEqual([]);
+  });
+
+  it("checks additional recorded item failures alongside the planned items", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: true\n");
+    appendCheckRecord(repo, rec({ command: "true" }));
+    appendCheckRecord(repo, rec({ command: "false", exit: 1 }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`false` exits 1");
+  });
+
+  it("machineGate names an item with no record", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    appendCheckRecord(repo, rec({ command: "a" }));
     const g = await machineGate(run, "M1", HEAD);
-    expect(g.missing).toEqual([]);
-    expect(g.audit[0]).toContain("`bun test` ran on neither side");
+    expect(g.missing).toHaveLength(1);
+    expect(g.missing[0]).toContain("`b`");
+  });
+
+  it("names every planned item when no check is recorded on this head", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing).toHaveLength(2);
+    expect(g.missing[0]).toContain("`a`");
+    expect(g.missing[1]).toContain("`b`");
+  });
+
+  it("requires items recorded on another head when the plan has no Check line", async () => {
+    appendCheckRecord(repo, rec({ command: "a" }));
+    appendCheckRecord(repo, rec({ command: "b", head: "c".repeat(40) }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`b`");
+  });
+
+  it("does not treat an old whole-command record as records of its items", async () => {
+    appendCheckRecord(repo, rec({ command: "a && b" }));
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing.join("\n")).toContain("`a`");
+    expect(g.missing.join("\n")).toContain("`b`");
+  });
+
+  it("judges item records rather than an obsolete whole-command failure", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: a && b\n");
+    appendCheckRecord(repo, rec({ command: "a && b", exit: 1, fails: ["FAIL old"] }));
+    appendCheckRecord(repo, rec({ command: "a" }));
+    appendCheckRecord(repo, rec({ command: "b" }));
+    expect(await machineGate(run, "M1", HEAD)).toEqual({ missing: [], audit: [] });
+  });
+
+  it("a fresh failure after line 60 is caught", async () => {
+    const lines = Array.from({ length: 61 }, (_, n) => `FAIL case ${n}`);
+    appendCheckRecord(
+      repo,
+      rec({ baseline: true, head: BASE, exit: 1, fails: checkFailLines(lines.join("\n")) }),
+    );
+    appendCheckRecord(repo, rec({ exit: 1, fails: checkFailLines([...lines, "FAIL fresh"].join("\n")) }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("FAIL fresh");
+  });
+
+  it("caps displayed pre-existing lines only", async () => {
+    const fails = Array.from({ length: FAIL_DISPLAY_CAP + 1 }, (_, n) => `FAIL case ${n}`);
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails }));
+    appendCheckRecord(repo, rec({ exit: 1, fails }));
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing.join("\n")).toContain(`FAIL case ${FAIL_DISPLAY_CAP - 1}`);
+    expect(g.missing.join("\n")).not.toContain(`FAIL case ${FAIL_DISPLAY_CAP}`);
   });
 
   it("refuses failing lines the base does not have, naming them", async () => {
@@ -246,7 +530,8 @@ describe("machineGate", () => {
     expect(g.audit.join("\n")).toContain("rerun");
   });
 
-  it("judges the latest record of each command, and only this milestone's on this commit", async () => {
+  it("judges the latest record of each planned command, and only this milestone's on this commit", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — first\nCheck: bun test\n");
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 0 }));
     appendCheckRecord(repo, rec({ milestone: "M2", command: "lint", exit: 1 }));

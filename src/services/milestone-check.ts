@@ -2,7 +2,9 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { andTail, checkFailLines, newFails } from "../domain/fail-lines.ts";
+import { checkFailLines, checkItems, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import type { RunEvent } from "../domain/run-events.ts";
+import { milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
 import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
 import { launchCheckWorker } from "../infra/launch.ts";
@@ -15,8 +17,10 @@ import {
   readJsonl,
   writeJsonAtomic,
 } from "../infra/store.ts";
+import { gateItemInputs } from "./gate-service.ts";
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
+import { readEvents } from "./run-events-store.ts";
 import { findRun, type Run } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
 
@@ -196,9 +200,94 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
   return rec;
 }
 
+/** Pair an owner's explicit accept with the land question they actually answered. */
+function acceptedLandQuestions(
+  run: Run,
+  milestone: string,
+): Extract<RunEvent, { type: "question.parked" }>[] {
+  const accepted: Extract<RunEvent, { type: "question.parked" }>[] = [];
+  let parked: Extract<RunEvent, { type: "question.parked" }> | null = null;
+  for (const event of readEvents(run)) {
+    if (event.type === "question.parked" && event.unit === milestone) parked = event;
+    else if (event.type === "question.answered" && event.unit === milestone) {
+      if (parked?.reason === "land" && event.by === "owner" && event.answer.trim().toLowerCase() === "accept")
+        accepted.push(parked);
+      parked = null;
+    }
+  }
+  return accepted;
+}
+
+const gateInputTag = (identity: string): string => `gate inputs ${identity}`;
+
+const checkRecordId = (rec: CheckRecord): string =>
+  new Bun.CryptoHasher("sha256").update(JSON.stringify(rec)).digest("hex");
+
+const baselineFailure = (rec: CheckRecord, base: CheckRecord): string =>
+  `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}; check record ${checkRecordId(rec)}`;
+
+/** The refusal identifies the exact full record, even when a rerun finishes before the question is parked. */
+function baselineWaived(
+  rec: CheckRecord,
+  base: CheckRecord,
+  records: CheckRecord[],
+  accepted: Extract<RunEvent, { type: "question.parked" }>[],
+): boolean {
+  if (base.exit === 0 || rec.fails.length === 0 || newFails(rec.fails, base.fails).length > 0) return false;
+  return records.some(
+    (previous) =>
+      previous.command === rec.command &&
+      previous.head === rec.head &&
+      previous.exit === rec.exit &&
+      previous.fails.length > 0 &&
+      newFails(rec.fails, previous.fails).length === 0 &&
+      accepted.some((q) => q.question.includes(baselineFailure(previous, base))),
+  );
+}
+
+/** An item's parts all passed or were explicitly waived on this head, including at least one waived failure. */
+export async function acceptedBaselineItem(
+  run: Run,
+  milestone: string,
+  head: string,
+  command: string | null,
+  item: string,
+): Promise<boolean> {
+  if (command === null) return false;
+  const records = readChecks(run.meta.repo).filter(
+    (r) => r.run === run.id && r.milestone === milestone && r.head === head && !r.baseline,
+  );
+  const inputs = (await gateItemInputs(run, milestone, head)).find(
+    (s) => s.item === item && s.command === command,
+  );
+  const identity = inputs?.identity;
+  if (!identity) return false;
+  const accepted = acceptedLandQuestions(run, milestone).filter((q) =>
+    q.question.includes(gateInputTag(identity)),
+  );
+  if (accepted.length === 0) return false;
+  const start = await checkBase(run, milestone);
+  let waived = false;
+  for (const item of checkItems(command)) {
+    const rec = records.findLast((r) => r.command === item);
+    if (!rec || rec.secrets === "found") return false;
+    if (rec.exit === 0) continue;
+    const base = baselineFor(run.meta.repo, item, start);
+    if (!base || !baselineWaived(rec, base, records, accepted)) return false;
+    waived = true;
+  }
+  if (!waived) return false;
+  const cwd = treeOf(run, milestone);
+  const [current, dirty] = await Promise.all([
+    git(cwd, ["rev-parse", "HEAD"]),
+    git(cwd, ["status", "--porcelain", "--untracked-files=no"]),
+  ]);
+  return current.kind === "ok" && current.out.trim() === head && dirty.kind === "ok" && !dirty.out.trim();
+}
+
 /**
- * The machine half of the land gate for milestone `m` on `head`: every command the run checked on it exits 0, or
- * fails only in lines the base fails in too. `audit` lists what passed only because of the base or a rerun.
+ * The machine half of the land gate: every required check item has a successful record on `head`.
+ * Red baselines block unless the owner accepted those failures; `audit` lists waivers, skipped scans and reruns.
  */
 export async function machineGate(
   run: Run,
@@ -207,17 +296,35 @@ export async function machineGate(
 ): Promise<{ missing: string[]; audit: string[] }> {
   const missing: string[] = [];
   const audit: string[] = [];
+  const records = readChecks(run.meta.repo).filter(
+    (r) => r.run === run.id && r.milestone === m && !r.baseline,
+  );
   const latest = new Map<string, CheckRecord>();
-  for (const r of readChecks(run.meta.repo))
-    if (r.run === run.id && r.milestone === m && r.head === head && !r.baseline) latest.set(r.command, r);
-  if (latest.size === 0) {
+  for (const r of records) if (r.head === head) latest.set(r.command, r);
+  const planFile = join(run.dir, "plan.md");
+  const command = existsSync(planFile) ? milestoneCheck(readFileSync(planFile, "utf8"), m) : null;
+  const required = new Set(
+    command === null ? records.flatMap((r) => checkItems(r.command)) : checkItems(command),
+  );
+  if (required.size === 0) {
     missing.push(
       `no machine check of ${m} on ${head.slice(0, 12)}: the verifier runs its full check with gate_run(run, "${m}", <command>) on the committed HEAD`,
     );
     return { missing, audit };
   }
+  for (const item of required)
+    if (!latest.has(item))
+      missing.push(`no machine check of \`${item}\` for ${m} on ${head.slice(0, 12)}: run it with gate_run`);
   const start = await checkBase(run, m);
-  for (const rec of latest.values()) {
+  const accepted = acceptedLandQuestions(run, m);
+  let inputs: Awaited<ReturnType<typeof gateItemInputs>> | undefined;
+  const checkedItems = new Set([
+    ...required,
+    ...[...latest.keys()].filter((item) => checkItems(item).length === 1),
+  ]);
+  for (const item of checkedItems) {
+    const rec = latest.get(item);
+    if (!rec) continue;
     if (rec.secrets === "found")
       missing.push(
         `gitleaks found secrets in ${(start ?? "").slice(0, 12)}..${head.slice(0, 12)}; see ${rec.log}`,
@@ -230,20 +337,34 @@ export async function machineGate(
     const fresh = newFails(rec.fails, base?.fails ?? null);
     if (!base || base.exit === 0)
       missing.push(
-        `\`${rec.command}\` exits ${rec.exit} on ${head.slice(0, 12)}${fresh.length ? `: ${fresh.slice(0, 5).join(" | ")}` : ""}`,
+        `\`${rec.command}\` exits ${rec.exit} on ${head.slice(0, 12)}${fresh.length ? `: ${fresh.slice(0, FAIL_DISPLAY_CAP).join(" | ")}` : ""}`,
       );
     else if (fresh.length)
-      missing.push(`failing lines the base does not have: ${fresh.slice(0, 8).join(" | ")}`);
+      missing.push(
+        `\`${rec.command}\` has failing lines the base does not have: ${fresh.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`,
+      );
     // a failure catherd cannot read is never matched against the base: it could be anything
     else if (rec.fails.length === 0)
       missing.push(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
     else {
-      const tail = andTail(rec.command);
-      audit.push(
-        `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; every failing line is pre-existing (${rec.fails.length})${tail ? `; if an earlier part failed, \`${tail}\` ran on neither side` : ""}`,
+      inputs ??= await gateItemInputs(run, m, head);
+      const relevant = inputs.filter(
+        (s) => s.command !== null && checkItems(s.command).includes(rec.command),
       );
+      const scoped = accepted.filter((q) =>
+        relevant.every((s) => s.identity !== null && q.question.includes(gateInputTag(s.identity))),
+      );
+      const waived = baselineWaived(rec, base, records, scoped);
+      if (waived)
+        audit.push(`owner accepted the pre-existing failures of \`${rec.command}\` on ${head.slice(0, 12)}`);
+      else {
+        const tags = relevant.flatMap((s) =>
+          s.identity === null ? [] : [`${gateInputTag(s.identity)} (${s.item})`],
+        );
+        missing.push([baselineFailure(rec, base), ...tags].join("; "));
+      }
     }
   }
   return { missing, audit };
@@ -300,6 +421,24 @@ const flightLive = (f: Flight): boolean =>
 export async function runMilestoneCheck(
   i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
   o: { onWait?: () => void } = {},
+): Promise<GateRunResult> {
+  let last: Extract<GateRunResult, { running: false }> | undefined;
+  let cached = true;
+  const hints = new Set<string>();
+  for (const command of checkItems(i.command)) {
+    const r = await runCheckItem({ ...i, command }, o);
+    if (r.running) return r;
+    last = r;
+    cached &&= r.cached;
+    for (const hint of r.hints ?? []) hints.add(hint);
+  }
+  // checkItems always returns at least one item, including for an empty command.
+  return { ...last!, cached, ...(hints.size ? { hints: [...hints] } : {}) };
+}
+
+async function runCheckItem(
+  i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
+  o: { onWait?: () => void },
 ): Promise<GateRunResult> {
   const run = findRun(i.run);
   const repo = run.meta.repo;

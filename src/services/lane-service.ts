@@ -17,6 +17,7 @@ import {
 } from "../domain/route.ts";
 import { withFileLock } from "../infra/filelock.ts";
 import { commitExists } from "../infra/git.ts";
+import { gatesFile, readPasses, recordedItems } from "./gate-service.ts";
 import { laneFile } from "./admission.ts";
 import { budgetOf } from "./budget.ts";
 import { pendingDispatches } from "./dispatches.ts";
@@ -40,7 +41,7 @@ import {
   milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
-import { machineGate } from "./milestone-check.ts";
+import { acceptedBaselineItem, machineGate } from "./milestone-check.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendKnowledge,
@@ -457,6 +458,32 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
       `land ${m}: the machine gate on ${landed.slice(0, 12)}: ${machine.missing.join("; ")}`,
       {
         fix: `run the full check with gate_run(run, "${m}", <command>) on ${landed.slice(0, 7)}; fix what fails, commit, and verify again`,
+      },
+    );
+  const items = await recordedItems(run, m);
+  const passes = readPasses(gatesFile(run.meta.repo));
+  const unpassed: string[] = [];
+  for (const item of items) {
+    const passed =
+      item.passed &&
+      passes.some(
+        (pass) =>
+          pass.run === run.id &&
+          pass.item === item.item &&
+          pass.command === item.command &&
+          pass.commit.length > 0 &&
+          !pass.commit.includes("+") &&
+          landed.startsWith(pass.commit),
+      );
+    if (!passed && !(await acceptedBaselineItem(run, m, landed, item.command, item.item)))
+      unpassed.push(item.item);
+  }
+  if (unpassed.length)
+    throw new CatherdError(
+      "E_LAND_GATE",
+      `land ${m}: gate items without a pass on ${landed.slice(0, 12)}: ${unpassed.join(", ")}`,
+      {
+        fix: `run each item and record gate_pass with milestone "${m}" on ${landed.slice(0, 7)}, then land again`,
       },
     );
   return machine.audit;

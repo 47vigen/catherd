@@ -96,8 +96,16 @@ const check = defineCommand({
 
 const pass = defineCommand({
   meta: { name: "pass", description: "Record a passed gate item with its evidence (gate_pass)" },
-  args: { ...GATE, evidence: { type: "string", required: true, description: "what showed it passed" } },
+  args: {
+    ...GATE,
+    evidence: { type: "string", required: true, description: "what showed it passed" },
+    milestone: { type: "string", description: "the milestone you verify, like M1" },
+  },
   async run({ args }) {
+    if (!args.milestone || !ID_PATTERN.test(args.milestone))
+      throw new CatherdError("E_INPUT_INVALID", "gate pass needs a milestone", {
+        fix: "call gate_check for this item, then pass --milestone M1",
+      });
     assertRoleMay(scope(), args.run, "gate_pass");
     printJson(
       await gatePass(defaultDeps(), {
@@ -106,6 +114,7 @@ const pass = defineCommand({
         command: args.command,
         paths: pathsOf(args.paths),
         evidence: args.evidence,
+        milestone: args.milestone,
       }),
     );
   },

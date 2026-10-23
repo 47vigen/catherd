@@ -58,6 +58,7 @@ export const ACTION_TYPES = [
   "cancel",
   "report",
   "notify",
+  "remind",
   "finish",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
@@ -162,6 +163,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     exit: z.number().int().nullable(),
     tail: z.string(),
     foreign: strings,
+    tree: z.string().nullable().optional(),
   }),
   ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
   ev("commit.failed", { milestone: z.string(), round: z.number().int().min(0), tail: z.string() }),
@@ -176,6 +178,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   }),
   ev("judge.failed", { id: z.string(), unit: z.string(), why: z.string() }),
   ev("question.parked", { unit: z.string(), question: z.string(), reason }),
+  ev("question.reminded", { unit: z.string(), n: z.number().int().min(1) }),
   ev("question.answered", { unit: z.string(), answer: z.string(), by: z.enum(["owner", "judge"]) }),
   ev("milestone.landed", {
     milestone: z.string(),
@@ -275,6 +278,8 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `judge ${e.id} on ${e.unit} failed: ${one(e.why)}`;
     case "question.parked":
       return `${e.unit} parked (${e.reason}): ${one(e.question)}`;
+    case "question.reminded":
+      return `${e.unit} reminder ${e.n}`;
     case "question.answered":
       return `${e.unit} answered by the ${e.by}`;
     case "milestone.landed":

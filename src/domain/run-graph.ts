@@ -62,7 +62,9 @@ export const AttemptSchema = z.object({
   failoverFrom: z.string().nullable(),
   judge: z.enum(JUDGE_KINDS).nullable(),
   secs: z.number().nullable(),
-  tokens: z.object({ input: z.number(), cached: z.number(), output: z.number() }).nullable(),
+  tokens: z
+    .object({ input: z.number(), cached: z.number(), cacheWrite: z.number().optional(), output: z.number() })
+    .nullable(),
   costUsd: z.number().nullable(),
   commit: z.string().nullable(),
   exit: z.number().int().nullable(),

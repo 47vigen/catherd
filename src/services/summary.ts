@@ -17,7 +17,7 @@ import { type OpenQuestion, openQuestions } from "./questions.ts";
 import { type DispatchState, listDispatches, liveDispatches } from "./dispatches.ts";
 import { readDelivery, ROLE_THREAD_REFUSAL } from "../infra/delivery.ts";
 import { type RunSession, sessionFacts } from "./session-view.ts";
-import { readEvents } from "./run-events-store.ts";
+import { isDaemonRun, readEvents, replayRun } from "./run-events-store.ts";
 import type { Deps } from "./ports.ts";
 import { orchestratorWait, type OrchestratorWait } from "./orchestrator-wait.ts";
 import {
@@ -53,7 +53,15 @@ export interface RunSummary {
   /** the run's `run.ended`: its outcome and when; state.md still says what came next, so the tail drops that */
   ended?: { at: string; outcome: string } | null;
   live: { name: string; rung: string; state: DispatchState; secs: number; dispatchId: string }[];
-  totals: { runs: number; ok: number; notOk: string[]; tokens: Tokens; costUsd: number; wallMinutes: number };
+  totals: {
+    runs: number;
+    ok: number;
+    notOk: string[];
+    tokens: Tokens;
+    costUsd: number | null;
+    unpriced: number;
+    wallMinutes: number;
+  };
   /** native subagent runs, as the orchestrator reported them: reported, not measured (spec §14) */
   agents: { runs: number; totalTokens: number; costUsd: number };
   jev: { decisions: number; fallbacks: number };
@@ -84,6 +92,15 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   } catch (e) {
     warnings.push(`events: ${errorMessage(e)}`);
   }
+  const questions = ended
+    ? []
+    : isDaemonRun(run)
+      ? Object.values(replayRun(run).questions).map((q) => ({
+          milestone: q.unit,
+          question: q.question,
+          at: q.at,
+        }))
+      : openQuestions(run);
   const live = liveDispatches(run, now);
   // an ended run's clock stops at run.ended: its wall minutes and its minute budget
   const until = ended ? Date.parse(ended.at) : now;
@@ -91,6 +108,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
   const recorded = new Set(records.map((r) => r.dispatchId));
   const agents = readAgentRuns(run);
   const jev = readJsonl<{ source?: string }>(runPaths(run.dir).jev).rows;
+  const priced = records.map((r) => r.costUsd).filter((cost) => cost !== null);
   const sum = (f: (t: Tokens) => number) => records.reduce((n, r) => n + f(r.tokens), 0);
   let budget: BudgetStatus | null = null;
   if (corrupt) warnings.push(`runs.jsonl: skipped ${corrupt} unreadable row(s)`);
@@ -124,7 +142,7 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
     id: run.id,
     supersededBy: supersededBy(run)?.by ?? null,
     pinChanges: pinned,
-    questions: openQuestions(run),
+    questions,
     title: run.meta.title,
     repo: run.meta.repo,
     createdAt: run.meta.createdAt,
@@ -144,8 +162,14 @@ export function summarizeRun(deps: Deps, run: Run): RunSummary {
       runs: records.length,
       ok: records.filter((r) => r.status === "ok").length,
       notOk: records.filter((r) => r.status !== "ok").map((r) => `${r.name} (${r.status})`),
-      tokens: { input: sum((t) => t.input), cached: sum((t) => t.cached), output: sum((t) => t.output) },
-      costUsd: records.reduce((n, r) => n + (r.costUsd ?? 0), 0),
+      tokens: {
+        input: sum((t) => t.input),
+        cached: sum((t) => t.cached),
+        cacheWrite: sum((t) => t.cacheWrite ?? 0),
+        output: sum((t) => t.output),
+      },
+      costUsd: priced.length ? priced.reduce((n, cost) => n + cost, 0) : null,
+      unpriced: records.length - priced.length,
       wallMinutes: Math.round(Math.max(0, until - start - coveredMs(start, until, pauseSpans(run))) / 60_000),
     },
     agents: {

@@ -91,6 +91,28 @@ describe("dispatch-scoped role MCP", () => {
     }
   });
 
+  it("requires the milestone argument of gate_pass", async () => {
+    const { run } = freshRun();
+    const client = await roleClient(run.id, "verifier");
+    try {
+      const pass = (await client.listTools()).tools.find((tool) => tool.name === "gate_pass");
+      expect(pass?.inputSchema.required).toContain("milestone");
+      expect(
+        (
+          await call(client, "gate_pass", {
+            run: run.id,
+            item: "unit",
+            command: "true",
+            paths: ["."],
+            evidence: "ok",
+          })
+        ).error?.code,
+      ).toBe("E_INPUT_INVALID");
+    } finally {
+      await client.close();
+    }
+  });
+
   it("lists the verifier's own run's recorded items for a milestone, and only that run's (plan 23)", async () => {
     const { run } = freshRun();
     const other = createRun({

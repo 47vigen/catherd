@@ -98,7 +98,7 @@ export function buildRoleServer(context: RoleMcpContext, deps: Deps = defaultDep
       "gate_pass",
       {
         description: "Record this run's passed gate item with the evidence, command and content hash.",
-        inputSchema: { ...gate, evidence: z.string().min(1) },
+        inputSchema: { ...gate, evidence: z.string().min(1), milestone: z.string().regex(ID_PATTERN) },
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       },
       (a) => call("gate_pass", () => gatePass(deps, a)),

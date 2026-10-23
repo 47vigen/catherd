@@ -21,6 +21,7 @@ export type RunView = {
         title: string;
         status: string;
         round: number;
+        reviews: number;
         commit: string | null;
     }>;
     live: Array<{
@@ -40,6 +41,7 @@ export type RunView = {
     startedAt: string;
     updatedAt: string;
     elapsedSec: number;
+    waitingSec: number;
     countingSince: string | null;
 };
 
@@ -70,9 +72,11 @@ export type RunCard = {
         tokens: {
             input: number;
             cached: number;
+            cacheWrite: number;
             output: number;
         };
-        costUsd: number;
+        costUsd: number | null;
+        unpriced: number;
         interventions: number;
         failovers: number;
         climbs: number;
@@ -151,6 +155,7 @@ export type Attempt = {
     tokens: {
         input: number;
         cached: number;
+        cacheWrite?: number;
         output: number;
     } | null;
     costUsd: number | null;
@@ -176,7 +181,7 @@ export type Overview = {
         cleanPct: number | null;
         medianWallMinutes: number | null;
         interventions: number;
-        costUsd: number;
+        costUsd: number | null;
         tokens: number;
     };
     daily: Array<{
@@ -234,6 +239,7 @@ export type DispatchDetail = {
         tokens: {
             input: number;
             cached: number;
+            cacheWrite?: number;
             output: number;
         };
         costUsd: number | null;

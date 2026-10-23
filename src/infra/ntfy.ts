@@ -21,7 +21,12 @@ export async function postNotify(
     const sent = (o.fetch ?? fetch)(url, {
       method: "POST",
       body: m.message,
-      headers: { Title: headerValue(m.title), Tags: m.tags.join(",") },
+      headers: {
+        Title: headerValue(m.title),
+        Tags: m.tags.join(","),
+        ...(m.click ? { Click: m.click } : {}),
+        ...(m.priority !== undefined ? { Priority: String(m.priority) } : {}),
+      },
       signal: AbortSignal.timeout(timeoutMs),
     });
     // a fetch that ignores its signal still gives up

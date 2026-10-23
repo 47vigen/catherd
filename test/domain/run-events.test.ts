@@ -67,6 +67,16 @@ function oneOfEach(): RunEvent[] {
 }
 
 describe("run events", () => {
+  it("check.ran parses with and without tree", () => {
+    const log = makeLog();
+    const check = log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "boom", foreign: [] });
+    expect(RunEventSchema.parse(check)).toEqual(check);
+    for (const tree of ["abc", null]) {
+      expect(RunEventSchema.parse({ ...check, tree })).toEqual({ ...check, tree });
+    }
+    expect(RunEventSchema.safeParse({ ...check, tree: 3 }).success).toBe(false);
+  });
+
   it("parses every event type, and refuses an unknown type or a newer v", () => {
     const all = oneOfEach();
     expect(new Set(all.map((e) => e.type)).size).toBe(all.length);
