@@ -19,7 +19,7 @@ its Rulings. The 1.6 drafts in `docs/plans/drafts-1.6/` are inputs only (plan 30
 | 34 knowledge and digest  | `docs/plans/2026-10-21-34-knowledge-digest.md`   | merged (#67; ledger `plan34-ledger.md`)                                             |
 | 35 milestone branches    | `docs/plans/2026-10-21-35-milestone-branches.md` | merged (#69; ledger `plan35-ledger.md`)                                             |
 | 36 release 2.0           | `docs/plans/2026-10-21-36-release.md`            | in PR (Tasks 3–8; 1.x line #68 merged; Tasks 9–12 wait for the owner)               |
-| 37 panel v2              | `docs/plans/2026-10-23-37-panel-v2.md`           | in PR (spec `docs/specs/2026-10-23-panel-v2-design.md`; owner-approved design pass; final review 0 C / 4 I fixed, re-review 1 I fixed; ledger `plan37-ledger.md`) |
+| 37 panel v2              | `docs/plans/2026-10-23-37-panel-v2.md`           | in PR #80 (spec `docs/specs/2026-10-23-panel-v2-design.md`; owner-approved design pass; final review 0 C / 4 I fixed, re-review 1 I fixed; Codex 2 P2 fixed; ledger `plan37-ledger.md`) |
 
 ## catherd 1.5 (2026-10-02, autopilot): everything open in ideas.md
 
