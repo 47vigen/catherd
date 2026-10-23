@@ -217,8 +217,62 @@ function acceptedLandQuestions(
   return accepted;
 }
 
+const checkRecordId = (rec: CheckRecord): string =>
+  new Bun.CryptoHasher("sha256").update(JSON.stringify(rec)).digest("hex");
+
 const baselineFailure = (rec: CheckRecord, base: CheckRecord): string =>
-  `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}`;
+  `\`${rec.command}\` exits ${rec.exit} here and ${base.exit} on the base ${base.head.slice(0, 12)}; pre-existing failing lines (${rec.fails.length}): ${rec.fails.slice(0, FAIL_DISPLAY_CAP).join(" | ")}; check record ${checkRecordId(rec)}`;
+
+/** The refusal identifies the exact full record, even when a rerun finishes before the question is parked. */
+function baselineWaived(
+  rec: CheckRecord,
+  base: CheckRecord,
+  records: CheckRecord[],
+  accepted: Extract<RunEvent, { type: "question.parked" }>[],
+): boolean {
+  if (base.exit === 0 || rec.fails.length === 0 || newFails(rec.fails, base.fails).length > 0) return false;
+  return records.some(
+    (previous) =>
+      previous.command === rec.command &&
+      previous.head === rec.head &&
+      previous.exit === rec.exit &&
+      previous.fails.length > 0 &&
+      newFails(rec.fails, previous.fails).length === 0 &&
+      accepted.some((q) => q.question.includes(baselineFailure(previous, base))),
+  );
+}
+
+/** An item's parts all passed or were explicitly waived on this head, including at least one waived failure. */
+export async function acceptedBaselineItem(
+  run: Run,
+  milestone: string,
+  head: string,
+  command: string | null,
+): Promise<boolean> {
+  if (command === null) return false;
+  const records = readChecks(run.meta.repo).filter(
+    (r) => r.run === run.id && r.milestone === milestone && r.head === head && !r.baseline,
+  );
+  const accepted = acceptedLandQuestions(run, milestone);
+  if (accepted.length === 0) return false;
+  const start = await checkBase(run, milestone);
+  let waived = false;
+  for (const item of checkItems(command)) {
+    const rec = records.findLast((r) => r.command === item);
+    if (!rec || rec.secrets === "found") return false;
+    if (rec.exit === 0) continue;
+    const base = baselineFor(run.meta.repo, item, start);
+    if (!base || !baselineWaived(rec, base, records, accepted)) return false;
+    waived = true;
+  }
+  if (!waived) return false;
+  const cwd = treeOf(run, milestone);
+  const [current, dirty] = await Promise.all([
+    git(cwd, ["rev-parse", "HEAD"]),
+    git(cwd, ["status", "--porcelain", "--untracked-files=no"]),
+  ]);
+  return current.kind === "ok" && current.out.trim() === head && dirty.kind === "ok" && !dirty.out.trim();
+}
 
 /**
  * The machine half of the land gate: every required check item has a successful record on `head`.
@@ -283,20 +337,7 @@ export async function machineGate(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
     else {
-      const waived = accepted.some((q) => {
-        // Snapshot the full record at park time: the displayed excerpt is not the accepted failure set.
-        const previous = records
-          .filter((r) => r.command === rec.command && r.head === head && Date.parse(r.at) <= Date.parse(q.at))
-          .at(-1);
-        return (
-          previous !== undefined &&
-          previous.exit === rec.exit &&
-          previous.fails.length > 0 &&
-          newFails(rec.fails, previous.fails).length === 0 &&
-          q.question.includes(head.slice(0, 12)) &&
-          q.question.includes(baselineFailure(previous, base))
-        );
-      });
+      const waived = baselineWaived(rec, base, records, accepted);
       if (waived)
         audit.push(`owner accepted the pre-existing failures of \`${rec.command}\` on ${head.slice(0, 12)}`);
       else missing.push(baselineFailure(rec, base));
