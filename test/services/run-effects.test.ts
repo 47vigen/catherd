@@ -722,6 +722,38 @@ describe("planning", () => {
     expect(types(run).slice(-2)).toEqual(["question.parked", "plan.ready"]);
   });
 
+  it("keeps first-read dependency approval pending when the owner requests revision", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(replayRun(run).phase).toBe("approval");
+    await appendEvent(run, { type: "question.answered", unit: "run", answer: "remove M3", by: "owner" });
+    const actions = next(replayRun(run), lastOf(run, "question.answered")!);
+    expect(actions.some((a) => a.type === "route")).toBe(false);
+    expect(actions).toContainEqual(expect.objectContaining({ type: "dispatch", name: "architect" }));
+  });
+
+  it("uses an approved dependency section instead of the older owner input", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    writeFileSync(join(run.dir, "plan-approved.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "plan.approved", by: "owner" });
+    const before = readEvents(run).length;
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(
+      readEvents(run)
+        .slice(before)
+        .map((e) => e.type),
+    ).toEqual(["plan.ready"]);
+  });
+
   it("an After equal to the owner's plan does not park", async () => {
     const { run, fx } = setup();
     dependencyPlan(run, "M1");
@@ -1199,6 +1231,33 @@ describe("parking, reporting, finishing", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(lastOf(run, "question.reminded")).toMatchObject({ unit: "M1", n: 1 });
       expect(types(run).filter((t) => t === "question.reminded")).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not apply a reminder to a question replaced while its notice sends", async () => {
+    const { run, fx } = setup(undefined, testView({ notify: ["blocked"] }));
+    await seed(run, { type: "question.parked", unit: "M1", question: "old", reason: "needs_user" });
+    const state = replayRun(run);
+    delete process.env.CATHERD_NO_END_PUSH;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      await appendEvent(run, { type: "question.answered", unit: "M1", answer: "done", by: "owner" });
+      // Same timestamp too: the event sequence identifies the replacement.
+      await appendEvent(
+        run,
+        { type: "question.parked", unit: "M1", question: "old", reason: "needs_user" },
+        new Date(state.questions.M1!.at),
+      );
+      return new Response("ok");
+    }) as unknown as typeof fetch);
+    try {
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(replayRun(run).questions.M1?.reminded).toBe(0);
+      expect(lastOf(run, "question.reminded")).toBeUndefined();
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
       fetchSpy.mockRestore();
     }

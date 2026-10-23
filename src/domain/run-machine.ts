@@ -466,8 +466,16 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
     case "review":
       return reviewActions(s, m);
     case "verifying":
-      return (m.commit !== null && m.commit === m.verifierFailedOn) ||
-        (m.tries[`verifier-${m.id}`] ?? 0) >= MAX_TRIES
+      if (m.commit !== null && m.commit === m.verifierFailedOn)
+        return [
+          {
+            type: "park",
+            unit: m.id,
+            reason: "verifier",
+            question: `${m.id}'s verifier already failed commit ${m.commit}; the fix round left it unchanged. Make a new commit or answer when the check is ready to retry.`,
+          },
+        ];
+      return (m.tries[`verifier-${m.id}`] ?? 0) >= MAX_TRIES
         ? []
         : roleDispatch(s, {
             unit: m.id,

@@ -612,3 +612,32 @@ describe("repeated fast check failures", () => {
     expect(log.state().lanes[check.lane]?.climbReason).toBe("check-failed-twice");
   });
 });
+
+describe("pending reminder wake scheduling", () => {
+  it("does not keep an expired wake while the reminder effect is pending", () => {
+    const log = runningLog();
+    const parked = log.add("question.parked", { unit: "M1", question: "repair?", reason: "environment" });
+    const due = new Date(Date.parse(parked.at) + 1_800_000).toISOString();
+    expect(log.state().wakeAt).toBe(due);
+    const tick = log.add("tick", {}, due);
+    expect(next(log.state(), tick).filter((a) => a.type === "remind")).toEqual([
+      { type: "remind", unit: "M1", n: 1 },
+    ]);
+    expect(log.state().wakeAt).toBeNull();
+    const unrelated = log.add("daemon.started", { pid: 123, version: "1.5.0" }, due);
+    expect(log.state().wakeAt).toBeNull();
+    expect(next(log.state(), unrelated).filter((a) => a.type === "remind")).toEqual([
+      { type: "remind", unit: "M1", n: 1 },
+    ]);
+    log.add("question.reminded", { unit: "M1", n: 1 }, due);
+    expect(log.state().wakeAt).toBe(new Date(Date.parse(parked.at) + 7_200_000).toISOString());
+  });
+
+  it("keeps a future question's wake while another reminder is due", () => {
+    const log = runningLog();
+    const first = log.add("question.parked", { unit: "M1", question: "first?", reason: "environment" });
+    const second = log.add("question.parked", { unit: "M2", question: "second?", reason: "environment" });
+    log.add("tick", {}, new Date(Date.parse(first.at) + 1_800_000).toISOString());
+    expect(log.state().wakeAt).toBe(new Date(Date.parse(second.at) + 1_800_000).toISOString());
+  });
+});
