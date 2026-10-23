@@ -135,6 +135,18 @@ export function milestoneTasks(run: Run, milestone: string): PlanTask[] {
 /** The `A<n>` id an A-line starts with (an owner line without one, like `plan: x`, has none). */
 export const aLineId = (line: string): string | undefined => /^\s*(A\d+)\b/.exec(line)?.[1];
 
+/** The run's A-lines with their own ids, or positional ids when none has one; plan inputs have none. */
+export function numberedALines(lines: string[]): { id: string | undefined; line: string }[] {
+  if (lines.some((line) => aLineId(line) !== undefined))
+    return lines.map((line) => ({ id: aLineId(line), line }));
+  let n = 0;
+  return lines.map((line) => {
+    if (/^\s*plan:\s*\S/i.test(line)) return { id: undefined, line };
+    const id = `A${++n}`;
+    return { id, line: `${id} ${line}` };
+  });
+}
+
 /** The `A<n>` ids plan.md's `## M<n>` section for `milestone` cites: its heading down to the next `## ` heading. */
 export function milestoneALines(plan: string, milestone: string): Set<string> {
   const cited = new Set<string>();
@@ -146,14 +158,21 @@ export function milestoneALines(plan: string, milestone: string): Set<string> {
   return cited;
 }
 
+/** The ids a milestone delivers: its cited ids, or every id when the run has only that milestone. */
+export function deliveredALines(run: Run, plan: string, m: string): Set<string> {
+  const milestones = new Set(laneIds(run).map((id) => id.slice(0, id.indexOf("."))));
+  if (milestones.size === 1 && milestones.has(m))
+    return new Set(numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.id] : [])));
+  return milestoneALines(plan, m);
+}
+
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */
 function unownedALines(run: Run): string[] {
   // no plan.md owns nothing; a milestone section with no lane never runs, so it owns nothing either
   const plan = read(runPaths(run.dir).plan) ?? "";
   const milestones = new Set(laneIds(run).map((id) => id.slice(0, id.indexOf("."))));
-  const owned = new Set([...milestones].flatMap((m) => [...milestoneALines(plan, m)]));
-  return run.meta.aLines.flatMap((l) => {
-    const id = aLineId(l);
+  const owned = new Set(plan ? [...milestones].flatMap((m) => [...deliveredALines(run, plan, m)]) : []);
+  return numberedALines(run.meta.aLines).flatMap(({ id }) => {
     return id && !owned.has(id) ? [id] : [];
   });
 }

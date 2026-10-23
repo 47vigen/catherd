@@ -722,7 +722,8 @@ describe("planning", () => {
   it("sends a plan that leaves an A-line without a milestone back to the architect, naming it", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"], "true", WITH_TASK);
-    writeFileSync(join(run.dir, "plan.md"), DEEP.replace("- A1 it works\n", ""));
+    writeLane(run, "M2.L1", ["src/b/"], "true", WITH_TASK);
+    writeFileSync(join(run.dir, "plan.md"), `${DEEP.replace("- A1 it works\n", "")}\n## M2 — docs\n`);
     await appendEvent(run, { type: "run.started", ...startedFields });
     await fx.run({ type: "readPlan" }, replayRun(run));
     expect(lastOf(run, "effect.failed")?.message).toContain("A1 is cited under no milestone");
