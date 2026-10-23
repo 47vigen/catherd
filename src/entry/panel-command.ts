@@ -4,6 +4,7 @@ import { defineCommand } from "citty";
 import { CatherdError } from "../domain/errors.ts";
 import type { HostContext } from "../domain/host.ts";
 import { gitToplevel } from "../infra/git.ts";
+import { recordPanelOrigin } from "../services/notify-service.ts";
 import { initHost } from "../services/profile-store.ts";
 import { defaultDeps } from "./deps.ts";
 import { refuseInRole } from "./cli-kit.ts";
@@ -43,18 +44,27 @@ export async function runPanel(o: { port: number; open: boolean; host?: string }
   if (!existsSync(join(distDir, "index.html")))
     throw new CatherdError("E_CONFIG_INVALID", "the panel is not built", { fix: "bun run panel:build" });
   const token = newToken();
+  const deps = defaultDeps(panelHost(o.host));
   const panel = panelServer.serve({
-    deps: defaultDeps(panelHost(o.host)),
+    deps,
     repo: await gitToplevel(process.cwd()),
     token,
     port: o.port,
     distDir,
     open: o.open,
   });
-  console.log(`catherd panel: ${panel.url}/login#token=${token}`);
-  console.log("Ctrl-C stops it.");
-  await panelServer.untilStopped();
-  await panel.stop();
+  try {
+    recordPanelOrigin(deps, panel.url);
+    console.log(`catherd panel: ${panel.url}/login#token=${token}`);
+    console.log("Ctrl-C stops it.");
+    await panelServer.untilStopped();
+  } finally {
+    try {
+      await panel.stop();
+    } finally {
+      recordPanelOrigin(deps, null);
+    }
+  }
 }
 
 /** `catherd panel [--port <n>] [--no-open]`: Setup, Runs and Questions in your browser, on 127.0.0.1 only. */
