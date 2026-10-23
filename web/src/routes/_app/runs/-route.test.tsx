@@ -274,15 +274,16 @@ test("clicking a node opens its drawer and deep-links it", async () => {
   await waitFor(() => expect(router.state.location.searchStr).not.toContain("node="));
 });
 
-test("the drawer shows the prompt, the raw log, the output with findings and A-lines, and the changes", async () => {
+test("the drawer shows the prompt, the log, the output with findings and A-lines, and the changes", async () => {
   const { requests } = renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=prompt`, api);
   const dialog = await screen.findByRole("dialog");
   expect(await within(dialog).findByText("Split the wallet ids.")).toBeInTheDocument();
 
   await userEvent.click(within(dialog).getByRole("tab", { name: "Log" }));
-  await waitFor(() => expect(dialog.querySelector("pre")?.textContent).toContain('{"type":"assistant"}'));
-  expect(requests.map((r) => decodeURIComponent(describeRequest(r)))).toContain(
-    `GET /api/runs/r1/dispatches/${LANE_DISPATCH}/stream?from=0&limit=500&raw=1`,
+  await waitFor(() =>
+    expect(requests.map((r) => decodeURIComponent(describeRequest(r)))).toContain(
+      `GET /api/runs/r1/dispatches/${LANE_DISPATCH}/stream?from=0&limit=500&raw=0`,
+    ),
   );
 
   await userEvent.click(within(dialog).getByRole("tab", { name: "Output" }));

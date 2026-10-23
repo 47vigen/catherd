@@ -3,7 +3,7 @@ import { Children, isValidElement, type ReactNode, useEffect, useState } from "r
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { CodeBlock } from "../code-block/CodeBlock";
+import { CodeBlock, normalizeLang } from "../code-block/CodeBlock";
 
 const textOf = (node: ReactNode): string =>
   Children.toArray(node)
@@ -16,7 +16,7 @@ const textOf = (node: ReactNode): string =>
     )
     .join("");
 
-/** A fenced block goes through CodeBlock (JSON gets colours; any other language shows as plain text). */
+/** A fenced block goes through CodeBlock (a known language gets colours; any other shows as plain text). */
 function Fence({ children }: { children?: ReactNode }) {
   const code = Children.toArray(children)[0];
   const props = isValidElement<{ className?: string; children?: ReactNode }>(code) ? code.props : undefined;
@@ -24,7 +24,7 @@ function Fence({ children }: { children?: ReactNode }) {
   return (
     <CodeBlock
       code={textOf(props?.children ?? children).replace(/\n$/, "")}
-      lang={lang === "json" ? "json" : "text"}
+      lang={normalizeLang(lang)}
       className="my-3"
     />
   );
@@ -100,7 +100,7 @@ export function Markdown({ source, className }: { source: string; className?: st
         </Button>
       </div>
       {raw ? (
-        <CodeBlock code={source} lang="text" />
+        <CodeBlock code={source} lang="markdown" />
       ) : (
         <div dir="auto" className="min-w-0 text-sm leading-6 break-words">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
