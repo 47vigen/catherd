@@ -12,13 +12,24 @@ import { integrateName, lanesOf, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
-import { laneTasks, milestoneALines, milestoneTasks, PLAN_INPUT_DIR, taskBlock } from "./plan-input.ts";
+import {
+  deliveredALines,
+  laneTasks,
+  milestoneTasks,
+  numberedALines,
+  PLAN_INPUT_DIR,
+  taskBlock,
+} from "./plan-input.ts";
 import { readRecords, type Run, runPaths } from "./run-store.ts";
 
 type DispatchAction = Extract<Action, { type: "dispatch" }>;
 
 const ALINES = (run: Run): string =>
-  run.meta.aLines.length ? run.meta.aLines.map((a) => `- ${a}`).join("\n") : "- (none written)";
+  run.meta.aLines.length
+    ? numberedALines(run.meta.aLines)
+        .map((a) => `- ${a.line}`)
+        .join("\n")
+    : "- (none written)";
 
 const read = (file: string): string => {
   try {
@@ -351,7 +362,7 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
   const m = s.milestones.find((x) => x.id === a.unit);
   const planFile = runPaths(run.dir).plan;
   const delivered = [
-    ...milestoneALines(existsSync(planFile) ? readFileSync(planFile, "utf8") : "", a.unit),
+    ...deliveredALines(run, existsSync(planFile) ? readFileSync(planFile, "utf8") : "", a.unit),
   ].sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
   const previous = lastReply(run, s, a.name)
     .split("\n")

@@ -124,7 +124,7 @@ function section(text: string, name: string): string | null {
   return lines.slice(at + 1, end < 0 ? undefined : end).join("\n");
 }
 
-const DECISION = /^[ \t]*(?:[-*][ \t]*)?\**(D\d+)\b/;
+const DECISION = /^[ \t]*(?:(?:[-*]|\d+[.)])[ \t]*)?\**(D\d+)\b/;
 
 /** What a plan the architect wrote lacks, to the depth the owner reviews: one line per gap. */
 export function depthProblems(doc: PlanDoc): string[] {
@@ -134,9 +134,8 @@ export function depthProblems(doc: PlanDoc): string[] {
   if (doc.tasks.length === 0) out.push('plan.md has no "### Task <n>:" heading');
   for (const t of doc.tasks)
     if (!t.test) out.push(`plan.md Task ${t.id} has no test: add a Test: line naming its test file and case`);
-  for (const line of (section(full, "Decisions") ?? "").split("\n")) {
-    const id = DECISION.exec(line)?.[1];
-    if (id && !/rejected/i.test(line))
+  for (const [id, text] of decisionLines(full)) {
+    if (!/rejected/i.test(text))
       out.push(
         `plan.md ${id} names no rejected alternative: write ${id} — <choice> — rejected: <alternative> — <why>`,
       );
@@ -164,13 +163,17 @@ export const approvalQuestion = (runId: string) =>
 export const reapprovalQuestion = (runId: string, ids: string[]) =>
   `The architect changed approved decisions ${ids.join(", ")} of plan.md: catherd run-file read ${runId} plan.md. Answer approve, or say what to change.`;
 
-/** Each `D<n>` line of the Decisions section, keyed by its id, whitespace collapsed. */
+/** Each decision of the Decisions section, keyed by its id: its `D<n>` line and the lines under it up to the next `D<n>` line, a blank line or a heading, whitespace collapsed. */
 export function decisionLines(text: string): Map<string, string> {
   const out = new Map<string, string>();
+  let id: string | undefined;
   for (const line of (section(text, "Decisions") ?? "").split("\n")) {
-    const id = DECISION.exec(line)?.[1];
-    if (id) out.set(id, line.trim().replace(/\s+/g, " "));
+    const next = DECISION.exec(line)?.[1];
+    if (next) out.set((id = next), line.trim());
+    else if (!line.trim() || /^\s*#/.test(line)) id = undefined;
+    else if (id) out.set(id, `${out.get(id)} ${line.trim()}`);
   }
+  for (const [k, v] of out) out.set(k, v.replace(/\s+/g, " "));
   return out;
 }
 

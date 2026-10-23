@@ -45,7 +45,7 @@ export const JUDGE_CONTRACT = [
   "- answer: ANSWER: <the answer the worker needs, from the plan and the code>",
   "- ask_owner or park: QUESTION: <one question only the owner can answer>",
   "- retry, climb or skip: WHY: <one line>",
-  "- rules: up to five lines, ADD <a one-line rule, with a [role, …] tag when it is not for every role> — <the event it comes from>, or REMOVE <the text of one line of knowledge.md> — <why>; no line when nothing should change",
+  "- rules: up to five lines, ADD <a one-line rule, with a [role, …] tag when it is not for every role> — WHY: <the event it comes from>, or REMOVE <the text of one line of knowledge.md> — WHY: <why>; no line when nothing should change",
   `Decide only from what the brief and the run's files show. The last line of your reply is: STATUS: complete — <one line why>. ${BLOCKED_LINE}`,
 ].join("\n");
 
@@ -104,12 +104,13 @@ export function parseJudgeReply(reply: string, kind: JudgeKind): JudgeDecision |
           const m = RULE_LINE.exec(l);
           if (!m) return [];
           const rest = (m[2] as string).trim();
-          const at = rest.lastIndexOf(" — ");
+          const tagged = [...rest.matchAll(/\s+—\s+WHY:\s*/gi)].at(-1);
+          const at = tagged?.index ?? rest.lastIndexOf(" — ");
           return [
             {
               op: (m[1] as string).toLowerCase(),
               text: (at < 0 ? rest : rest.slice(0, at)).trim(),
-              why: at < 0 ? "" : rest.slice(at + 3).trim(),
+              why: at < 0 ? "" : rest.slice(at + (tagged?.[0].length ?? 3)).trim(),
             },
           ];
         });

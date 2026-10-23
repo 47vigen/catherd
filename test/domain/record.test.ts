@@ -72,10 +72,12 @@ describe("parseReplyStatus", () => {
     });
   });
 
-  it("reads an ENV: line anywhere in the reply (plan 23)", () => {
+  it("reads an ENV: line outside code fences (plan 23)", () => {
     expect(parseReplyEnvironment("could not run the suite\nENV: vpn  \nSTATUS: blocked — vpn")).toBe("vpn");
     expect(parseReplyEnvironment("no env here\nSTATUS: complete — ok")).toBeNull();
     expect(parseReplyEnvironment("ENV:   \nSTATUS: blocked — x")).toBeNull();
+    expect(parseReplyEnvironment("Added:\n```yaml\nENV: production\n```\nSTATUS: complete — ok")).toBeNull();
+    expect(parseReplyEnvironment("```\nENV: x\n```\nENV: vpn\nSTATUS: blocked — vpn")).toBe("vpn");
   });
 });
 
@@ -91,6 +93,22 @@ describe("ZERO_TOKENS", () => {
 });
 
 describe("parseReplyHead", () => {
+  it("ignores ENV and HEAD inside fences until a matching closing fence", () => {
+    for (const [opening, inner, closing] of [
+      ["```yaml", "~~~", "```"],
+      ["~~~yaml", "```", "~~~"],
+      ["````yaml", "```", "````"],
+      ["~~~~yaml", "~~~", "~~~~~"],
+      ["```yaml", "```still inside", "```"],
+    ]) {
+      const reply = `${opening}\n${inner}\nENV: production\nHEAD: deadbeef\n${closing}`;
+      expect(parseReplyEnvironment(reply)).toBeNull();
+      expect(parseReplyHead(reply)).toBeNull();
+      expect(parseReplyEnvironment(`${reply}\nENV: vpn\nENV: other`)).toBe("vpn");
+      expect(parseReplyHead(`${reply}\nHEAD: ABCDEFF\nHEAD: 1234567`)).toBe("1234567");
+    }
+  });
+
   it("reads the last HEAD: line outside code fences, lower-cased", () => {
     expect(
       parseReplyHead("VERDICT: PASS\nHEAD: 0123456789ABCDEF0123456789abcdef01234567\nSTATUS: complete — ok"),
@@ -103,6 +121,15 @@ describe("parseReplyHead", () => {
 });
 
 describe("parseReplyExtras, parseReplyRejections and parseReplyDesign", () => {
+  it("keeps a spaced hyphen in the first field when the line has an em dash", () => {
+    expect(parseReplyRejections("REJECTED: BUG src/a.ts:3 - off by one — the loop is guarded\n")).toEqual([
+      { finding: "BUG src/a.ts:3 - off by one", why: "the loop is guarded" },
+    ]);
+    expect(parseReplyExtras("EXTRA: go.sum - a new module")).toEqual([
+      { path: "go.sum", why: "a new module" },
+    ]);
+  });
+
   it("reads EXTRA:, REJECTED: and DESIGN: lines as loosely as STATUS", () => {
     const reply = [
       "did it",
