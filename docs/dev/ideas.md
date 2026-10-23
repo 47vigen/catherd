@@ -160,6 +160,16 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   - **Codex dispatches stay unpriced in a run whose daemon predates the catalog pricing.** 68 Codex dispatches carry
     `costUsd: null` (24 Claude Code dispatches are priced), so the run's $24.03 covers Claude Code only. Plan 39 M3
     prices Codex from the catalog; the next run on this build should show it.
+  - **A lane's repo-wide typecheck sees a sibling's half-done edits.** In the Codex-fix run
+    (`20261023-151703-pr-91-codex-review-fixes-plan-39`), worker-M1.L5 stopped `check_broken` because `bun run
+    typecheck` failed in `src/domain/fail-lines.ts`, which lane M1.L2 was still editing in the shared milestone tree;
+    the rerun passed once L2 finished. Fix: a failure only in another lane's files is reported as foreign and the lane
+    finishes (the run's rules review proposed this worker rule).
+  - **`checkItems` keeps a command with an unquoted `${…}` whole.** Safe, but such a check is not split into items.
+    Evidence: verifier NIT on the Codex-fix run, `src/domain/fail-lines.ts`.
+  - **`worktreeIdentity` reads every tracked and untracked file on each fast check.** Correct, but slow on large
+    trees; a stat-keyed cache would avoid re-hashing unchanged files. Evidence: verifier NIT on the Codex-fix run,
+    `src/infra/git.ts`.
 
 - **A public panel URL for phone links.** The panel binds to `127.0.0.1`, so phone notices cannot open it from
   another device. Evidence: `CLAUDE.md:17` and plan 39 decision D16; choosing a public URL is a product decision.
