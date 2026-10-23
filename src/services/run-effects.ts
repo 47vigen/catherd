@@ -18,7 +18,7 @@ import { type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
-import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor } from "../infra/git.ts";
+import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
@@ -543,9 +543,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
-    const r = await withHeavySlot(slots, (_slot, tmp) =>
-      runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp }),
-    );
+    const { tree, r } = await withHeavySlot(slots, async (_slot, tmp) => {
+      const tree = await worktreeIdentity(cwd);
+      const r = await runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp });
+      return { tree, r };
+    });
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     const failed = !allowed && r.code !== 0;
@@ -554,6 +556,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       lane: a.lane,
       exit: allowed ? 0 : r.code,
       tail: r.tail.join("\n"),
+      tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
     });

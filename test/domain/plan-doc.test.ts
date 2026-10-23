@@ -180,3 +180,17 @@ it("milestoneCheck reads the Check line of its section only", () => {
   expect(milestoneCheck(plan, "M3")).toBeNull();
   expect(milestoneCheck(plan, "M4")).toBeNull();
 });
+
+it("milestoneCheck finds Check: under every heading form planOf accepts", () => {
+  for (const heading of ["## M1 — t", "## M1 – t", "## M1 - t", "## M1: t", "## M1. t", "## M1 t", "## M1"]) {
+    expect(milestoneCheck(`${heading}\nCheck: x && y\n`, "M1")).toBe("x && y");
+  }
+});
+
+it("milestoneCheck does not take M10's check for M1 and ends at non-milestone headings", () => {
+  const tenth = "## M10: t\nCheck: z\n";
+  expect(milestoneCheck(tenth, "M1")).toBeNull();
+  expect(milestoneCheck(tenth, "M10")).toBe("z");
+
+  expect(milestoneCheck("## M1: t\n## Decisions\nCheck: x\n## M2: t\nCheck: y\n", "M1")).toBeNull();
+});

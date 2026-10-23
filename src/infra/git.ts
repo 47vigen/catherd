@@ -1,4 +1,5 @@
-import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parsePorcelainZ, type Snapshot } from "../domain/changes.ts";
 import { CatherdError } from "../domain/errors.ts";
@@ -64,6 +65,55 @@ export async function gitOrigin(repo: string): Promise<string | null> {
 export async function gitHead(repo: string, timeoutMs?: number): Promise<string | null> {
   const r = await git(repo, ["rev-parse", "--short", "HEAD"], timeoutMs);
   return (r.kind === "ok" && r.out.trim()) || null;
+}
+
+/**
+ * A content identity of HEAD, tracked changes and non-ignored untracked files, staged or not.
+ * Null when git cannot say, a listed file cannot be read, or a submodule makes contents uncertain.
+ */
+export async function worktreeIdentity(repo: string, timeoutMs?: number): Promise<string | null> {
+  const head = await git(repo, ["rev-parse", "HEAD"], timeoutMs);
+  if (head.kind !== "ok") return null;
+  const diff = await git(
+    repo,
+    ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD"],
+    timeoutMs,
+  );
+  if (diff.kind !== "ok") return null;
+  const untracked = await git(repo, ["ls-files", "-z", "--others", "--exclude-standard"], timeoutMs);
+  if (untracked.kind !== "ok") return null;
+  const tracked = await git(repo, ["ls-files", "-z", "--cached"], timeoutMs);
+  if (tracked.kind !== "ok") return null;
+  const hash = createHash("sha256").update(head.out).update("\0").update(diff.out).update("\0");
+  try {
+    const trackedPaths = new Set(tracked.out.split("\0").filter(Boolean));
+    const untrackedPaths = new Set(untracked.out.split("\0").filter(Boolean));
+    const paths = new Set([...trackedPaths, ...untrackedPaths]);
+    for (const path of [...paths].sort()) {
+      const fullPath = join(repo, path);
+      const stat = lstatSync(fullPath, { throwIfNoEntry: false });
+      if (!stat) {
+        if (untrackedPaths.has(path)) return null;
+        hash.update(path).update("\0deleted\0");
+        continue;
+      }
+      // Direct bytes catch normalization and mode changes Git's diff can hide. Directories include submodules.
+      if (!stat.isFile() && !stat.isSymbolicLink()) return null;
+      const type = stat.isSymbolicLink() ? "link" : "file";
+      const content = stat.isSymbolicLink()
+        ? readlinkSync(fullPath, { encoding: "buffer" })
+        : readFileSync(fullPath);
+      // Length framing prevents file contents from being mistaken for another path or file.
+      hash
+        .update(path)
+        .update("\0")
+        .update(`${type}\0${stat.mode & 0o111}\0${content.length}\0`)
+        .update(content);
+    }
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
 }
 
 /** False for a missing commit; throws E_IO_UNEXPECTED when git times out, since that proves nothing. */
