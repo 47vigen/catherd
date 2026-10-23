@@ -475,7 +475,8 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
           !pass.commit.includes("+") &&
           landed.startsWith(pass.commit),
       );
-    if (!passed && !(await acceptedBaselineItem(run, m, landed, item.command))) unpassed.push(item.item);
+    if (!passed && !(await acceptedBaselineItem(run, m, landed, item.command, item.item)))
+      unpassed.push(item.item);
   }
   if (unpassed.length)
     throw new CatherdError(

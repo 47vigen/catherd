@@ -293,7 +293,9 @@ describe("machineGate", () => {
     const base = HEAD_REAL;
     run = createRun({ repo, title: "waiver flow", aLines: ["A1"], version: "0.0.0-test", startHead: base });
     writeFileSync(join(repo, "tracked.txt"), "work");
-    git(repo, "add", "tracked.txt");
+    writeFileSync(join(repo, ".gitignore"), ".env\n");
+    writeFileSync(join(repo, ".env"), "MODE=before\n");
+    git(repo, "add", "tracked.txt", ".gitignore");
     git(repo, "commit", "-q", "-m", "work");
     const head = git(repo, "rev-parse", "HEAD");
     await passGate(run, "M1", undefined, head);
@@ -305,7 +307,7 @@ describe("machineGate", () => {
       milestone: "M1",
       item: "root check",
       command: `true && ${command}`,
-      paths: ["tracked.txt"],
+      paths: ["tracked.txt", ".env"],
     });
     const input = {
       run: run.id,
@@ -331,6 +333,25 @@ describe("machineGate", () => {
     await answerUnit(deps, { run: run.id, unit: "M1", answer: "accept" });
     expect((await machineGate(run, "M1", head)).missing).toEqual([]);
     expect((await recordedItems(run, "M1"))[0]?.passed).toBe(false);
+    writeFileSync(join(repo, ".env"), "MODE=after\n");
+    await expect(land(deps, input)).rejects.toMatchObject({ code: "E_LAND_GATE" });
+    writeFileSync(join(repo, ".env"), "MODE=before\n");
+    // Removing the ignored input from the registered paths must not carry the original waiver either.
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt"],
+    });
+    await expect(land(deps, input)).rejects.toMatchObject({ code: "E_LAND_GATE" });
+    await gateCheck(deps, {
+      run: run.id,
+      milestone: "M1",
+      item: "root check",
+      command: `true && ${command}`,
+      paths: ["tracked.txt", ".env"],
+    });
     writeFileSync(join(repo, "tracked.txt"), "uncommitted change");
     await expect(land(deps, input)).rejects.toThrow("root check");
     git(repo, "checkout", "--", "tracked.txt");

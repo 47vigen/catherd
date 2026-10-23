@@ -17,6 +17,7 @@ import {
   readJsonl,
   writeJsonAtomic,
 } from "../infra/store.ts";
+import { gateItemInputs } from "./gate-service.ts";
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
 import { readEvents } from "./run-events-store.ts";
@@ -217,6 +218,8 @@ function acceptedLandQuestions(
   return accepted;
 }
 
+const gateInputTag = (identity: string): string => `gate inputs ${identity}`;
+
 const checkRecordId = (rec: CheckRecord): string =>
   new Bun.CryptoHasher("sha256").update(JSON.stringify(rec)).digest("hex");
 
@@ -248,12 +251,20 @@ export async function acceptedBaselineItem(
   milestone: string,
   head: string,
   command: string | null,
+  item: string,
 ): Promise<boolean> {
   if (command === null) return false;
   const records = readChecks(run.meta.repo).filter(
     (r) => r.run === run.id && r.milestone === milestone && r.head === head && !r.baseline,
   );
-  const accepted = acceptedLandQuestions(run, milestone);
+  const inputs = (await gateItemInputs(run, milestone, head)).find(
+    (s) => s.item === item && s.command === command,
+  );
+  const identity = inputs?.identity;
+  if (!identity) return false;
+  const accepted = acceptedLandQuestions(run, milestone).filter((q) =>
+    q.question.includes(gateInputTag(identity)),
+  );
   if (accepted.length === 0) return false;
   const start = await checkBase(run, milestone);
   let waived = false;
@@ -306,6 +317,7 @@ export async function machineGate(
       missing.push(`no machine check of \`${item}\` for ${m} on ${head.slice(0, 12)}: run it with gate_run`);
   const start = await checkBase(run, m);
   const accepted = acceptedLandQuestions(run, m);
+  let inputs: Awaited<ReturnType<typeof gateItemInputs>> | undefined;
   const checkedItems = new Set([
     ...required,
     ...[...latest.keys()].filter((item) => checkItems(item).length === 1),
@@ -337,10 +349,22 @@ export async function machineGate(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
     else {
-      const waived = baselineWaived(rec, base, records, accepted);
+      inputs ??= await gateItemInputs(run, m, head);
+      const relevant = inputs.filter(
+        (s) => s.command !== null && checkItems(s.command).includes(rec.command),
+      );
+      const scoped = accepted.filter((q) =>
+        relevant.every((s) => s.identity !== null && q.question.includes(gateInputTag(s.identity))),
+      );
+      const waived = baselineWaived(rec, base, records, scoped);
       if (waived)
         audit.push(`owner accepted the pre-existing failures of \`${rec.command}\` on ${head.slice(0, 12)}`);
-      else missing.push(baselineFailure(rec, base));
+      else {
+        const tags = relevant.flatMap((s) =>
+          s.identity === null ? [] : [`${gateInputTag(s.identity)} (${s.item})`],
+        );
+        missing.push([baselineFailure(rec, base), ...tags].join("; "));
+      }
     }
   }
   return { missing, audit };
