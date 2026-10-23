@@ -145,7 +145,7 @@ export function groupRuns(runs: Run[], files: SessionFile[] = readSessionFiles()
 
 /**
  * The session a run started in, as the runs page names it now (null for a run from before 1.1), and the session
- * that continued it, if another did.
+ * that continued it, if another did. Here, `live` means the session's process runs and it still owns the run.
  */
 export function sessionFacts(
   run: Run,
@@ -153,5 +153,10 @@ export function sessionFacts(
 ): { session: RunSession | null; continuedIn: string | null } {
   const starter = run.meta.startedBy ? sessionKey(run.meta.startedBy) : null;
   const own = groupRuns([run], files).find((g) => (g.session ? sessionKey(g.session) : null) === starter);
-  return { session: own?.session ?? null, continuedIn: own?.runs[0]?.continuedIn ?? null };
+  return {
+    session: own?.session
+      ? { ...own.session, live: own.session.live && own.runs[0]?.current === true }
+      : null,
+    continuedIn: own?.runs[0]?.continuedIn ?? null,
+  };
 }

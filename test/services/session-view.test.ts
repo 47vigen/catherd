@@ -96,6 +96,21 @@ describe("runs grouped by session (spec §4)", () => {
     expect(sessionFacts(stopped).session).toMatchObject({ name: "s-gone at start", live: false });
   });
 
+  it("status shows the starting session live only while it still owns the run", async () => {
+    withHome();
+    const repo = tempRepo();
+    const r = run(repo, "taken", "s-live", 5);
+    registry(process.pid, "s-live", "first");
+    expect(sessionFacts(r).session?.live).toBe(true);
+
+    await claimRun(fakeDeps({ session: registry(4_000_007, "s-new", "second") }), r);
+    expect(sessionFacts(r)).toMatchObject({
+      session: { sessionId: "s-live", live: false },
+      continuedIn: "second",
+    });
+    expect(groupRuns([r]).find((g) => g.session?.sessionId === "s-live")?.session?.live).toBe(true);
+  });
+
   it("orders sessions by their newest activity", () => {
     withHome();
     const repo = tempRepo();

@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { movedHomeEnv } from "../../src/adapters/access.ts";
+import type { RunRequest } from "../../src/adapters/backend.ts";
+import { claudeCodeAdapter } from "../../src/adapters/claude-code/index.ts";
+import { codexAdapter } from "../../src/adapters/codex/index.ts";
+import { cursorAdapter } from "../../src/adapters/cursor/index.ts";
+import { opencodeAdapter } from "../../src/adapters/opencode/index.ts";
 import { isCatherdError } from "../../src/domain/errors.ts";
+import { parseRung } from "../../src/domain/ids.ts";
 import { loginEnv, parseEnv, resetLoginEnv } from "../../src/infra/login-env.ts";
 import { admit } from "../../src/services/admission.ts";
 import {
@@ -9,10 +16,11 @@ import {
   gateEnvLines,
   readGateEnv,
   removeGateEnv,
+  reservedGateEnv,
   resolveGateEnv,
   setGateEnv,
 } from "../../src/services/gate-env.ts";
-import { snapshotEnv, tempDir } from "../helpers.ts";
+import { snapshotEnv, tempDir, withHome } from "../helpers.ts";
 import { simPath, withScenario } from "../sim/scenario.ts";
 import { fakeDeps, freshRun, testView } from "./helpers.ts";
 
@@ -20,6 +28,47 @@ afterEach(snapshotEnv());
 afterEach(resetLoginEnv);
 
 describe("the gate environment (plan 23)", () => {
+  it("reserves every env name an isolated adapter's plan sets", async () => {
+    const { repo } = freshRun();
+    const home = withHome();
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GH_CONFIG_DIR;
+    delete process.env.GIT_CONFIG_GLOBAL;
+    process.env.HOME = home;
+    const gitConfig = join(process.env.XDG_CONFIG_HOME!, "git");
+    mkdirSync(gitConfig, { recursive: true });
+    writeFileSync(join(gitConfig, "config"), "");
+    const e = await setGateEnv(repo, "GH_CONFIG_DIR", { value: "x" }).then(
+      () => null,
+      (x: unknown) => x,
+    );
+    expect(isCatherdError(e) && e.code).toBe("E_INPUT_INVALID");
+    const request: RunRequest = {
+      rung: parseRung("codex:gpt-6-sol#high"),
+      access: "workspace-write",
+      thread: null,
+      isolated: true,
+      repo,
+      briefPath: "/d/brief.md",
+      replyPath: "/d/reply.md",
+      dispatchDir: "/d",
+    };
+    for (const [adapter, rung] of [
+      [codexAdapter, "codex:gpt-6-sol#high"],
+      [cursorAdapter, "cursor:sonnet-5#default"],
+      [opencodeAdapter, "opencode:anthropic/claude-sonnet-5#high"],
+      [claudeCodeAdapter, "claude-code:claude-sonnet-5#high"],
+    ] as const) {
+      const plan = adapter.plan({
+        ...request,
+        rung: parseRung(rung),
+        ...(adapter === claudeCodeAdapter ? { roleMcp: { run: "r1", role: "worker" as const } } : {}),
+      });
+      for (const k of Object.keys(plan.env)) expect(reservedGateEnv(k)).toBe(true);
+    }
+    for (const k of Object.keys(movedHomeEnv("/x"))) expect(reservedGateEnv(k)).toBe(true);
+  });
+
   it("keeps values and references beside knowledge.md, one name each, and removes them", async () => {
     const { repo } = freshRun();
     await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///Users/me/.orbstack/run/docker.sock" });
@@ -120,6 +169,12 @@ describe("the gate environment (plan 23)", () => {
 });
 
 describe("the login environment (plan 23)", () => {
+  it("ignores what a chatty profile prints before the env", () => {
+    expect(
+      parseEnv("Welcome to the host\nlast login: x=1\nPATH=/usr/bin\0DOCKER_HOST=unix:///d.sock\0"),
+    ).toEqual({ PATH: "/usr/bin", DOCKER_HOST: "unix:///d.sock" });
+  });
+
   it("is what $SHELL -lc env prints, captured once, without catherd's secrets", () => {
     const dir = tempDir("catherd-shell-");
     const shell = join(dir, "fake-shell");

@@ -65,6 +65,30 @@ async function stolenRun(): Promise<{ run: Run; eventId: string; dir: string }> 
 }
 
 describe("deliveries never target a role thread (spec 1.5 plan 21)", () => {
+  it("writes the role-thread refusal once, however many passes see it", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const { run, dir } = await stolenRun();
+    const sent: string[] = [];
+    const role = startNotifier(as(VERIFIER_THREAD), {
+      coalesceMs: 0,
+      sendCodex: async (target) => {
+        sent.push(target.sessionId);
+        return { outcome: "accepted", msgId: "m" };
+      },
+    });
+    notifiers.push(role);
+    for (let pass = 0; pass < 3; pass++) {
+      await role.scan();
+      await role.idle();
+    }
+    const refusals = readDelivery(dir).filter((a) => a.reason?.startsWith(ROLE_THREAD_REFUSAL));
+    expect(refusals).toHaveLength(1);
+    expect(sent).toEqual([]);
+    expect(summarizeRun(fakeDeps(), run).warnings).toContain(
+      `worker-M1.L2: its notice was not sent: ${refusals[0]?.reason}`,
+    );
+  });
+
   it("knows a role's thread from its record, its resume, or what its supervisor wrote down", async () => {
     const { run } = freshRun();
     const live = await fakeDispatch(run, { name: "worker-M1.L1" }, { proc: "self" });

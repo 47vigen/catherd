@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { configDir, dataDir } from "../src/infra/paths.ts";
-import { snapshotEnv, withHome } from "./helpers.ts";
+import { snapshotEnv, spawnEnv, withHome } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 
@@ -12,5 +12,23 @@ describe("withHome", () => {
     const home = withHome();
     expect(dataDir().startsWith(home)).toBe(true);
     expect(configDir().startsWith(home)).toBe(true);
+  });
+});
+
+describe("spawnEnv", () => {
+  it("keeps the end push, the sync and the Anthropic key off over any env", () => {
+    expect(
+      spawnEnv({
+        PATH: "/bin",
+        CATHERD_NO_END_PUSH: "0",
+        CATHERD_NO_SYNC: "0",
+        ANTHROPIC_API_KEY: "sk-test",
+      }),
+    ).toEqual({
+      PATH: "/bin",
+      CATHERD_NO_END_PUSH: "1",
+      CATHERD_NO_SYNC: "1",
+      ANTHROPIC_API_KEY: "",
+    });
   });
 });

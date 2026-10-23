@@ -6,7 +6,7 @@ import { daemonLauncher } from "../../src/services/daemon.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import { findRun } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { repoWithOrigin, snapshotEnv, tempRepo, withHome } from "../helpers.ts";
+import { repoWithOrigin, snapshotEnv, spawnEnv, tempRepo, withHome } from "../helpers.ts";
 import { call, mcpClient } from "../mcp-helpers.ts";
 import { fakeDeps, freshRun, PLAN_TEXT, waitFor } from "../services/helpers.ts";
 
@@ -136,7 +136,7 @@ describe("catherd answer", () => {
     await appendEvent(run, { type: "cancel.requested", by: "owner" });
     const cli = (...args: string[]) =>
       Bun.spawnSync([process.execPath, join(import.meta.dir, "..", "..", "src", "cli.ts"), ...args], {
-        env: { ...process.env, ANTHROPIC_API_KEY: "", CATHERD_NO_END_PUSH: "1" },
+        env: spawnEnv(process.env),
         stdout: "pipe",
         stderr: "pipe",
       });

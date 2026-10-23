@@ -6,6 +6,7 @@ import { type QueueSendResult, sendToCodexQueue } from "../infra/codex-queue.ts"
 import {
   type DeliveryAttempt,
   deliveryState,
+  refusedForRole,
   ROLE_THREAD_REFUSAL,
   writeDeliveryAttempt,
 } from "../infra/delivery.ts";
@@ -25,6 +26,9 @@ import { runOwner } from "./sessions.ts";
  */
 export const END_PUSH_GRACE_MS = 20_000;
 
+/** How long the supervisor waits before its one retry of a notify lock another process holds. */
+export const END_PUSH_RETRY_MS = 5_000;
+
 /** `CATHERD_END_PUSH_GRACE_MS` (a test of the spawned supervisor shortens it), else END_PUSH_GRACE_MS. */
 function graceFromEnv(): number {
   const ms = Number(process.env.CATHERD_END_PUSH_GRACE_MS);
@@ -38,6 +42,8 @@ export interface EndPushOptions {
   /** the sender; tests replace it */
   sendCodex?: (target: HostSessionRef, content: string) => Promise<QueueSendResult>;
   now?: () => number;
+  /** waits before the one retry of a busy notify lock; tests replace it (default: END_PUSH_RETRY_MS) */
+  waitForLock?: () => Promise<void>;
 }
 
 /** Why the supervisor pushed nothing, or the receipt's status when it did. */
@@ -66,6 +72,7 @@ function codexOwner(runId: string): HostSessionRef | null {
  * server the daemon stopped (no client attached) at its next attach. The notice is the server's own text, and it
  * goes under the same per-event receipt (`delivery.json`, the dispatch's notify lock), so the two paths never
  * double-deliver. A usage limit is left to the owner's server, which fails it over before it announces it.
+ * A busy notify lock gets one retry after END_PUSH_RETRY_MS.
  * `CATHERD_NO_END_PUSH=1` turns it off (the test preload sets it). Never throws.
  */
 export async function pushFromEnd(dispatchDir: string, o: EndPushOptions = {}): Promise<EndPushOutcome> {
@@ -81,20 +88,29 @@ export async function pushFromEnd(dispatchDir: string, o: EndPushOptions = {}): 
     if (!d) return "not-a-run";
     const record = await finalizeDispatch(run, d);
     if (record.status === "limit") return "limit";
-    // the owner of record now, which a claim may have changed during the grace
-    const target = codexOwner(runId);
-    if (!target) return "not-codex";
     if (!awaitsCollect(d.dir)) return "read";
     const notice = finishedNotice(run, d, record);
-    const release = tryLock(dispatchPaths(d.dir).notified);
-    if (!release) return "busy";
+    const lockFile = dispatchPaths(d.dir).notified;
+    let release = tryLock(lockFile);
+    if (!release) {
+      await (o.waitForLock ?? (() => Bun.sleep(END_PUSH_RETRY_MS)))();
+      release = tryLock(lockFile);
+      if (!release) return "busy";
+    }
     try {
+      // Under the lock, so a claim made before it is seen, and one made after it finds this receipt.
+      const target = codexOwner(runId);
+      if (!target) return "not-codex";
       recoverSubmission(d.dir, notice.eventId);
-      if (deliveryState(d.dir, target, notice.eventId) !== "pending") return "delivered";
+      const state = deliveryState(d.dir, target, notice.eventId);
+      if (state === "enqueue-accepted") return "delivered";
+      if (state === "collected") return "read";
+      if (state === "ambiguous") return "ambiguous";
       // spec 1.5 plan 21: never to a role's own thread (a `codex exec` thread exits after its turn, so what is
       // queued there is lost); it fails loudly, with the notifier's reason, which `status` shows
       const role = roleThreadOf(run, target.sessionId);
       if (role !== null) {
+        if (refusedForRole(d.dir, target, notice.eventId)) return "failed";
         const reason = `${ROLE_THREAD_REFUSAL} (${role}, ${target.host} ${target.sessionId}), not the orchestrator's; peek(run) from the orchestrator's session takes the run back`;
         log("error", "notify", { from: "supervisor", run: run.id, dispatch: notice.dispatchId, reason });
         writeDeliveryAttempt(d.dir, {

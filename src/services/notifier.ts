@@ -9,6 +9,7 @@ import { sendToCodexQueue, type QueueSendResult } from "../infra/codex-queue.ts"
 import {
   deliveryState,
   readDelivery,
+  refusedForRole,
   ROLE_THREAD_REFUSAL,
   writeDeliveryAttempt,
   type DeliveryAttempt,
@@ -295,6 +296,7 @@ function notifierFor(deps: Deps, o: NotifierOptions, retryEvent?: string): Notif
       for (const [q, role] of roles) {
         if (role === null) continue;
         due.splice(due.indexOf(q), 1);
+        if (refusedForRole(q.dir, target, q.notice.eventId)) continue;
         const reason = `${ROLE_THREAD_REFUSAL} (${role}, ${target.host} ${target.sessionId}), not the orchestrator's; peek(run) from the orchestrator's session takes the run back`;
         log("error", "notify", {
           run: q.run.id,

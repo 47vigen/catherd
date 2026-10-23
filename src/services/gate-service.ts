@@ -1,11 +1,11 @@
 import { lstatSync, readdirSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { normalizeOwned, overlaps } from "../domain/lane.ts";
-import { git, gitHead, statusSnapshot } from "../infra/git.ts";
-import { repoDir } from "../infra/paths.ts";
-import { appendJsonl, ensureJsonlHeader, readJsonl } from "../infra/store.ts";
+import { git, gitHead, gitOrigin, statusSnapshot } from "../infra/git.ts";
+import { originDir, repoDir } from "../infra/paths.ts";
+import { appendJsonl, ensureJsonlHeader, ensurePrivateDir, readJsonl } from "../infra/store.ts";
 import { gateEnvLines, readGateEnv } from "./gate-env.ts";
 import type { Deps } from "./ports.ts";
 import { findRun, type Run } from "./run-store.ts";
@@ -42,6 +42,13 @@ export interface VerifierStep {
 
 /** `<data>/repos/<repo key>/gates.jsonl`, beside the repo's knowledge.md. */
 export const gatesFile = (toplevel: string): string => join(repoDir(toplevel), "gates.jsonl");
+
+/** `<data>/origins/<origin>/gates.jsonl` beside the shared knowledge.md, else the toplevel-keyed file. */
+async function sharedGatesFile(toplevel: string): Promise<string> {
+  const origin = await gitOrigin(toplevel);
+  return origin ? join(originDir(origin), "gates.jsonl") : gatesFile(toplevel);
+}
+
 const stepsFile = (run: Run): string => join(run.dir, "verifier.jsonl");
 
 /** Repo-relative paths, `.` (or `./`) for the whole repo; anything that leaves the repo is refused. */
@@ -278,8 +285,8 @@ async function contentHash(repo: string, paths: string[]): Promise<{ hash: strin
   return { hash: h.digest("hex"), dirty: dirty.length > 0 };
 }
 
-const readPasses = (repo: string): GatePass[] =>
-  readJsonl<unknown>(gatesFile(repo)).rows.flatMap((row) => {
+const readPasses = (file: string): GatePass[] =>
+  readJsonl<unknown>(file).rows.flatMap((row) => {
     const r = GatePassSchema.safeParse(row);
     return r.success ? [r.data] : [];
   });
@@ -324,7 +331,9 @@ async function carryingPass(
   cwd: string = repo,
 ): Promise<GatePass | undefined> {
   const { hash } = await contentHash(cwd, paths);
-  return readPasses(repo).findLast((p) => p.command === command && p.hash === hash);
+  return [...readPasses(gatesFile(repo)), ...readPasses(await sharedGatesFile(repo))].findLast(
+    (p) => p.command === command && p.hash === hash,
+  );
 }
 
 /**
@@ -335,7 +344,7 @@ async function carryingPass(
  */
 export async function recordedItems(run: Run, m: string): Promise<RecordedItem[]> {
   const repo = run.meta.repo;
-  const passes = readPasses(repo);
+  const passes = readPasses(gatesFile(repo));
   return Promise.all(
     lastSteps(milestoneSteps(run, m)).map(async (last) => {
       const command = last.command ?? null;
@@ -363,7 +372,7 @@ export async function recordedItems(run: Run, m: string): Promise<RecordedItem[]
  * a pass whose content has changed since.
  */
 export function failedItems(run: Run, m: string): string[] {
-  const passes = readPasses(run.meta.repo).filter((p) => p.run === run.id);
+  const passes = readPasses(gatesFile(run.meta.repo)).filter((p) => p.run === run.id);
   return lastSteps(milestoneSteps(run, m))
     .filter(
       (last) =>
@@ -460,7 +469,7 @@ export async function gatePass(
   const commit = dirty ? `${head}+uncommitted` : head;
   const file = gatesFile(run.meta.repo);
   ensureJsonlHeader(file, "gates");
-  appendJsonl(file, {
+  const row = {
     at: new Date(deps.now()).toISOString(),
     run: run.id,
     item: i.item,
@@ -469,6 +478,13 @@ export async function gatePass(
     hash,
     commit,
     evidence: i.evidence,
-  } satisfies GatePass);
+  } satisfies GatePass;
+  appendJsonl(file, row);
+  const shared = await sharedGatesFile(run.meta.repo);
+  if (shared !== file) {
+    ensurePrivateDir(dirname(shared));
+    ensureJsonlHeader(shared, "gates");
+    appendJsonl(shared, row);
+  }
   return { recorded: true, hash, commit };
 }

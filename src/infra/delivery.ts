@@ -66,6 +66,18 @@ export function writeDeliveryAttempt(dir: string, attempt: DeliveryAttempt): voi
   });
 }
 
+/** Whether the latest attempt is already a role-thread refusal, so it is not written again. */
+export function refusedForRole(dir: string, target: HostSessionRef, eventId: string): boolean {
+  try {
+    const last = readDelivery(dir).findLast(
+      (a) => sessionKey(a.target) === sessionKey(target) && a.eventIds.includes(eventId),
+    );
+    return last?.status === "failed" && last.reason?.startsWith(ROLE_THREAD_REFUSAL) === true;
+  } catch {
+    return false;
+  }
+}
+
 export function deliveryState(dir: string, target: HostSessionRef, eventId: string): DeliveryState {
   try {
     const event = JSON.parse(eventId) as unknown;

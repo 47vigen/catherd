@@ -292,8 +292,14 @@ async function superviseHeld(spec: SuperviseSpec, hooks: SuperviseHooks): Promis
         clock.now() - lastRetryPoll >= retry.pollMs
       ) {
         lastRetryPoll = clock.now();
-        const attempt = await bounded(() => hooks.providerRetry?.(thread, started), hookMs, null);
-        if (attempt !== null) {
+        const attempt = await bounded<number | null | undefined>(
+          () => hooks.providerRetry?.(thread, started),
+          hookMs,
+          undefined,
+        );
+        if (attempt === undefined) {
+          // No answer from the hook: keep what the stream counted.
+        } else if (attempt !== null) {
           retrySince ??= clock.now();
           retries = Math.max(retries, attempt);
         } else {

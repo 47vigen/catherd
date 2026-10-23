@@ -100,6 +100,14 @@ describe("onlyAllowedHits", () => {
     expect(onlyAllowedHits(["docs/a.md:3:x"], [])).toBe(false);
   });
 
+  it("matches a hit printed under ./ and an Allow written with ./", () => {
+    expect(
+      onlyAllowedHits(["./services/verification/internal/job/command.go:120:func Allowed()"], allow),
+    ).toBe(true);
+    expect(onlyAllowedHits(["docs/a.md:3:x"], ["./docs/"])).toBe(true);
+    expect(onlyAllowedHits(["../outside.ts:1:x"], ["outside.ts"])).toBe(false);
+  });
+
   it("returns nulls for missing or unknown kind and difficulty", () => {
     const h = parseLaneHeader("# x\nOwns: a.ts\nKind: poetry\n");
     expect(h.kind).toBeNull();
