@@ -17,6 +17,7 @@ const GRAMMARS = {
   shellscript: () => import("shiki/langs/shellscript.mjs"),
   diff: () => import("shiki/langs/diff.mjs"),
   yaml: () => import("shiki/langs/yaml.mjs"),
+  xml: () => import("shiki/langs/xml.mjs"),
 };
 type Grammar = keyof typeof GRAMMARS;
 export type CodeLang = Grammar | "text";

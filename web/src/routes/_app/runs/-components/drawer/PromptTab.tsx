@@ -1,9 +1,9 @@
-import { Markdown } from "../../../../../components/markdown/Markdown";
+import { PromptView } from "../../../../../components/prompt-view/PromptView";
 import { Empty, type DispatchQuery, WithDispatch } from "./parts";
 
 const NONE = "No prompt was recorded.";
 
-/** The brief the role was given, rendered, with a copy button. */
+/** The brief the role was given, read as its sections, with its source and a copy button. */
 export function PromptTab({ dispatch }: { dispatch: DispatchQuery }) {
   return (
     <WithDispatch dispatch={dispatch} none={NONE}>
@@ -13,7 +13,7 @@ export function PromptTab({ dispatch }: { dispatch: DispatchQuery }) {
             {d.truncated.includes("brief") ? (
               <p className="text-muted text-xs">The prompt is long, so only its start is shown.</p>
             ) : null}
-            <Markdown source={d.brief} />
+            <PromptView source={d.brief} />
           </div>
         ) : (
           <Empty>{NONE}</Empty>

@@ -35,7 +35,7 @@ const heading =
   ({ children }: { children?: ReactNode }) => <Tag className={className}>{children}</Tag>;
 
 // Raw HTML from an agent is never rendered: react-markdown escapes it, and no rehype-raw is added.
-const COMPONENTS: Components = {
+export const COMPONENTS: Components = {
   h1: heading("h1", "mt-8 mb-3 text-xl leading-7 font-semibold tracking-[-0.02em] first:mt-0"),
   h2: heading(
     "h2",
