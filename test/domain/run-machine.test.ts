@@ -830,7 +830,7 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(names(last(log))).toEqual(["worker-M1.L1"]);
   });
 
-  it("reruns a verifier's first check_broken and parks the second; BLOCKED: environment still parks first", () => {
+  it("parks a verifier's first check_broken; BLOCKED: environment also parks first", () => {
     const base = () => {
       const log = runningLog(plan(1));
       finishLane(log, "M1.L1");
@@ -845,7 +845,6 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     };
     const broken = { ...blocked("check_broken", "the check needs a db"), verdict: "fail" as const };
     const log = base();
-    expect(names(verify(log, broken))).toEqual(["verifier-M1"]);
     expect(of(verify(log, broken), "park")).toMatchObject([{ unit: "M1", reason: "check_broken" }]);
     expect(names(last(log))).toEqual([]);
     // an environment verdict keeps its own park, ahead of the reason
@@ -1797,5 +1796,33 @@ describe("the machine: milestones side by side (plan 35)", () => {
     expect(claims(last(log))).toHaveLength(1);
     log.add("tree.deferred", { milestone: "M2", availableMb: 1, needMb: 2 });
     expect(claims(last(log))).toHaveLength(0);
+  });
+});
+
+describe("plan 39 verifier answers and end reports", () => {
+  it("an answer frees the verifier", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
+    expect(names(last(log))).toEqual([]);
+    log.add("question.parked", { unit: "M1", question: "repair?", reason: "check_broken" });
+    log.add("question.answered", { unit: "M1", answer: "repaired", by: "owner" });
+    expect(log.state().milestones[0]).toMatchObject({ commit: "c0", verifierFailedOn: null });
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+  });
+
+  it("a cancelled run's end report says cancelled", () => {
+    for (const [outcome, text] of [
+      ["cancelled", "The run was cancelled"],
+      ["done", "The run finished"],
+      ["failed", "The run stopped"],
+    ] as const) {
+      const log = runningLog();
+      log.add("run.ended", { outcome, reportPath: "report.md" });
+      expect(of(last(log), "report").find((a) => a.unit === "run")?.text).toBe(`${text}: report.md`);
+    }
   });
 });

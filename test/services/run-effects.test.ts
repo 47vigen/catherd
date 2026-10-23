@@ -12,6 +12,7 @@ import { launcher, watchersSettled } from "../../src/services/dispatch-service.t
 import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
+import { preflightUser } from "../../src/services/preflight.ts";
 import { endedEvent, planOf, realEffects } from "../../src/services/run-effects.ts";
 import { appendCheckRecord } from "../../src/services/milestone-check.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
@@ -702,6 +703,49 @@ describe("planning", () => {
     expect(lastOf(run, "plan.ready")?.milestones).toMatchObject([{ id: "M1", lanes: [{ id: "M1.L1" }] }]);
   });
 
+  function dependencyPlan(run: Run, after: string): void {
+    for (const id of ["M1", "M2", "M3"]) writeLane(run, `${id}.L1`, [`src/${id}/`], "true", WITH_TASK);
+    writeFileSync(join(run.dir, "plan.md"), `${DEEP}\n## M2 — next\nAfter: ${after}\n## M3 — independent\n`);
+  }
+
+  it("a plan.md After wider than the owner's plan parks for approval", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1, M3");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), `${DEEP}\n## M2 — next\nAfter: M1\n`);
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    const question = lastOf(run, "question.parked");
+    expect(question).toMatchObject({ unit: "run", reason: "approval" });
+    expect(question?.question).toContain("M2");
+    expect(question?.question).toContain("M3");
+    expect(types(run).slice(-2)).toEqual(["question.parked", "plan.ready"]);
+  });
+
+  it("an After equal to the owner's plan does not park", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1");
+    mkdirSync(join(run.dir, "plan-input"));
+    writeFileSync(join(run.dir, "plan-input", "owner.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "run.started", ...startedFields, plan: ["owner.md"] });
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toBeUndefined();
+    expect(lastOf(run, "plan.ready")).toBeDefined();
+  });
+
+  it("compares After to plan-approved.md without plan inputs, allowing narrower dependencies", async () => {
+    const { run, fx } = setup();
+    dependencyPlan(run, "M1");
+    writeFileSync(join(run.dir, "plan-approved.md"), readFileSync(join(run.dir, "plan.md")));
+    await appendEvent(run, { type: "run.started", ...startedFields });
+    dependencyPlan(run, "none");
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")).toBeUndefined();
+    dependencyPlan(run, "M1, M3");
+    await fx.run({ type: "readPlan" }, replayRun(run));
+    expect(lastOf(run, "question.parked")?.question).toContain("M2 now waits for M3");
+  });
+
   it("fails readPlan with the plan's problems, and reads it once it is deep enough", async () => {
     const { run, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
@@ -822,8 +866,13 @@ describe("routing, checking, committing, landing", () => {
     writeLane(run, "M1.L2", ["src/b/"], "true", WITH_TASK);
     backed(run);
     await seed(run);
-    await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
-    expect(lastOf(run, "preflight.done")?.blocking).toMatchObject([{ lane: "M1.L1" }]);
+    const uid = spyOn(preflightUser, "uid").mockReturnValue(1000);
+    try {
+      await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
+      expect(lastOf(run, "preflight.done")?.blocking).toMatchObject([{ lane: "M1.L1" }]);
+    } finally {
+      uid.mockRestore();
+    }
   });
 
   it("runs a fast check and reports its exit and tail", async () => {
@@ -1026,6 +1075,18 @@ describe("a run with a base branch (30b)", () => {
     expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1", commit });
   });
 
+  it("land evidence keeps the outcome when a stale land action runs after cancellation", async () => {
+    const { run, fx } = await baseSetup();
+    await passGate(run, "M1");
+    const beforeFinish = replayRun(run);
+    await fx.run({ type: "finish", outcome: "cancelled" }, beforeFinish);
+    await fx.run(land1, beforeFinish);
+    expect(lastOf(run, "milestone.landed")).toMatchObject({ milestone: "M1" });
+    const text = readFileSync(join(run.dir, "state.md"), "utf8");
+    expect(text).toContain("cancelled");
+    expect(text).not.toContain("the daemon continues");
+  });
+
   it("works from the last fetch when origin cannot be reached, and says so", async () => {
     const { repo, run, fx } = await baseSetup();
     git(repo, "remote", "set-url", "origin", join(repo, "no-such-origin"));
@@ -1124,6 +1185,41 @@ describe("parking, reporting, finishing", () => {
     await fx.run({ type: "report", kind: "landed", unit: "M1", text: "M1 landed" }, replayRun(run));
     await fx.run({ type: "notify", unit: "M1", moment: "milestone" }, replayRun(run));
     expect(types(run).slice(2)).toEqual(["report.posted"]);
+  });
+
+  it("the remind effect sends and records once", async () => {
+    const { run, fx } = setup(undefined, testView({ notify: ["blocked"] }));
+    await seed(run, { type: "question.parked", unit: "M1", question: "help?", reason: "needs_user" });
+    const state = replayRun(run);
+    delete process.env.CATHERD_NO_END_PUSH;
+    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+    try {
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      await fx.run({ type: "remind", unit: "M1", n: 1 }, state);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(lastOf(run, "question.reminded")).toMatchObject({ unit: "M1", n: 1 });
+      expect(types(run).filter((t) => t === "question.reminded")).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("a cancelled run's state.md does not say the daemon continues", async () => {
+    const { run, fx } = setup();
+    await seed(run);
+    writeFileSync(
+      join(run.dir, "state.json"),
+      JSON.stringify({
+        schema: 1,
+        next: "the daemon continues after M1",
+        lastCheck: null,
+        lastLandedAt: null,
+      }),
+    );
+    await fx.run({ type: "finish", outcome: "cancelled" }, replayRun(run));
+    const text = readFileSync(join(run.dir, "state.md"), "utf8");
+    expect(text).toContain("cancelled");
+    expect(text).not.toContain("the daemon continues");
   });
 
   it("finishes by writing the report and run.ended", async () => {
