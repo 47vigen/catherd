@@ -1,7 +1,9 @@
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { withFileLockSync } from "../infra/filelock.ts";
+import { isSurelyAlive, selfIdentity } from "../infra/proc.ts";
 import { dataDir } from "../infra/paths.ts";
 import { ensurePrivateDir, writeTextAtomic } from "../infra/store.ts";
 import { replayRun } from "./run-events-store.ts";
@@ -13,6 +15,13 @@ import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 
 const panelOriginFile = (): string => join(dataDir(), "panel-origin");
+
+const PanelOriginSchema = z.object({
+  origin: z.string().url(),
+  owner: z.string(),
+  pid: z.number().int().positive(),
+  startTime: z.string().nullable(),
+});
 
 const panelOwners = new WeakMap<Deps, string>();
 
@@ -34,7 +43,11 @@ export function recordPanelOrigin(deps: Deps, origin: string | null): void {
       panelOwners.delete(deps);
     } else {
       // A unique registration distinguishes panels even when a stopped panel's port is reused.
-      const owned = `${new URL(origin).origin}\n${randomUUID()}`;
+      const owned = JSON.stringify({
+        origin: new URL(origin).origin,
+        owner: randomUUID(),
+        ...selfIdentity(),
+      });
       writeTextAtomic(panelOriginFile(), owned);
       panelOwners.set(deps, owned);
     }
@@ -43,7 +56,8 @@ export function recordPanelOrigin(deps: Deps, origin: string | null): void {
 
 export function panelOrigin(_deps: Deps): string | null {
   try {
-    return new URL(readPanelOrigin()?.split("\n")[0] ?? "").origin;
+    const record = PanelOriginSchema.parse(JSON.parse(readPanelOrigin() ?? "null"));
+    return isSurelyAlive(record.pid, record.startTime) ? new URL(record.origin).origin : null;
   } catch {
     return null;
   }
