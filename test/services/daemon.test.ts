@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tryLock } from "../../src/infra/filelock.ts";
 import {
   beat,
@@ -9,6 +9,7 @@ import {
   daemonLockTarget,
   ensureDaemon,
   heartbeatFile,
+  launchStamp,
   readHeartbeat,
   runDaemon,
 } from "../../src/services/daemon.ts";
@@ -48,6 +49,19 @@ afterEach(() => {
 });
 
 describe("ensureDaemon", () => {
+  it("launches a dead daemon at most once per reviveMs", async () => {
+    const launched = fakeLauncher();
+    const { run } = freshRun();
+    await appendEvent(run, started);
+    expect(ensureDaemon(run)).toBe("revived");
+    expect(ensureDaemon(run)).toBe("revived");
+    expect(launched).toHaveLength(1);
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(launchStamp(run), past, past);
+    expect(ensureDaemon(run)).toBe("revived");
+    expect(launched).toHaveLength(2);
+  });
+
   it("launches once, says alive while the lock is held, ended after run.ended, 1.5 without events", async () => {
     const launched = fakeLauncher();
     const { run } = freshRun();

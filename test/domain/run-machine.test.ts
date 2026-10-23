@@ -524,6 +524,24 @@ describe("the machine: review rounds", () => {
     ]);
   });
 
+  it("names the verifier on the known issues its PASS adds", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "pass",
+      head: "c0",
+      findings: [{ label: "NIT", text: "src/a/z.ts:3 — naming", file: "src/a/z.ts" }],
+    });
+    expect(last(log)).toEqual([
+      { type: "land", milestone: "M1", knownIssues: ["verifier-M1: NIT src/a/z.ts:3 — naming"] },
+    ]);
+  });
+
   it("stops at the soft cap", () => {
     const r = rounds([9, 7, 5, 3], { lanes: 4 });
     expect(names(r.last)).toEqual(["verifier-M1"]);
@@ -1576,6 +1594,33 @@ describe("the machine: milestones side by side (plan 35)", () => {
     log.add("milestone.merged", { milestone: "M1" });
     expect(names(last(log))).toContain("worker-M3.L1");
     expect(claims(last(log))).toEqual(["M2"]);
+  });
+
+  it("reports the first memory deferral once and the claim after it, with no phone notice", () => {
+    const log = sideBySide({ M1: {}, M2: {} });
+    treeReady(log, "M1");
+    const deferred = log.add("tree.deferred", { milestone: "M2", availableMb: 3100, needMb: 5120 });
+    expect(of(last(log), "report")).toMatchObject([{ kind: "memory", unit: "M2" }]);
+    expect(of(last(log), "report")[0]?.text).toContain("3100 MB available");
+    expect(of(last(log), "notify")).toEqual([]);
+    log.add("report.posted", { kind: "memory", unit: "M2", text: "waiting" });
+    log.add("tick", {}, log.state().milestones[1]?.claimAfter as string);
+    log.add("tree.deferred", { milestone: "M2", availableMb: 3200, needMb: 5120 });
+    expect(of(last(log), "report").filter((r) => r.kind === "memory")).toEqual([]);
+    treeReady(log, "M2");
+    expect(of(last(log), "report")).toMatchObject([{ kind: "memory", unit: "M2" }]);
+    expect(of(last(log), "report")[0]?.text).toContain("has its worktree");
+    expect(of(last(log), "report")[0]?.text).toContain(deferred.at);
+    expect(of(last(log), "notify")).toEqual([]);
+  });
+
+  it("replaces an unposted memory deferral report when the worktree is ready", () => {
+    const log = sideBySide({ M1: {} });
+    log.add("tree.deferred", { milestone: "M1", availableMb: 3100, needMb: 5120 });
+    treeReady(log, "M1");
+    expect(of(last(log), "report")).toMatchObject([{ kind: "memory", unit: "M1" }]);
+    expect(of(last(log), "report")[0]?.text).toContain("has its worktree");
+    expect(of(last(log), "notify")).toEqual([]);
   });
 
   it("waits out a memory deferral and claims again at the recheck", () => {

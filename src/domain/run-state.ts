@@ -157,6 +157,8 @@ export interface MilestoneState {
   treeAt: string | null;
   /** plan 35: a memory deferral: no new claim before this time */
   claimAfter: string | null;
+  /** plan 38: when the first memory deferral of this claim happened; null once the tree is ready */
+  memoryWaitSince: string | null;
   /** plan 35: the owner answered `push` and catherd has not pushed the branch yet */
   pushing: boolean;
   /** plan 35: the digest file the owner's MR takes as its body */
@@ -194,7 +196,8 @@ export interface OwedReport {
   kind: ReportKind;
   unit: string;
   text: string;
-  moment: NotifyMoment;
+  /** the phone notice it also sends; null for a session report only */
+  moment: NotifyMoment | null;
 }
 
 export interface RunState {
@@ -223,7 +226,7 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
-  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, land, push or integrate starts meanwhile */
+  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, claim, route, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
   /** an architect ended and the plan was not read since */
@@ -377,6 +380,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       tree: null,
       treeAt: null,
       claimAfter: null,
+      memoryWaitSince: null,
       pushing: false,
       digestPath: null,
       mr: null,
@@ -740,7 +744,9 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.checkBroken = 0;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
-        m.knownIssues = [...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings)])];
+        m.knownIssues = [
+          ...new Set([...m.knownIssues, ...m.nits, ...nitLines(e.findings).map((l) => `${e.name}: ${l}`)]),
+        ];
         m.tries = {};
         m.verifierNotes = [];
         m.status = "landing";
@@ -1182,6 +1188,15 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`claimTree@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
       if (m) {
+        if (m.memoryWaitSince !== null) {
+          s.owed[`memory:${e.milestone}`] = {
+            kind: "memory",
+            unit: e.milestone,
+            text: `${e.milestone} has its worktree, after waiting for memory since ${m.memoryWaitSince}`,
+            moment: null,
+          };
+          m.memoryWaitSince = null;
+        }
         m.tree = e.tree;
         m.branch = e.branch;
         m.treeAt = e.at;
@@ -1193,7 +1208,18 @@ function apply(s: RunState, e: RunEvent): void {
     case "tree.deferred": {
       ok(`claimTree@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
-      if (m) m.claimAfter = isoPlus(e.at, MEMORY_LIMITS.recheckMs);
+      if (m) {
+        m.claimAfter = isoPlus(e.at, MEMORY_LIMITS.recheckMs);
+        if (m.memoryWaitSince === null) {
+          m.memoryWaitSince = e.at;
+          s.owed[`memory:${e.milestone}`] = {
+            kind: "memory",
+            unit: e.milestone,
+            text: `${e.milestone} waits for memory: ${e.availableMb} MB available, ${e.needMb} MB needed; catherd looks again every ${MEMORY_LIMITS.recheckMs / 60_000} minutes`,
+            moment: null,
+          };
+        }
+      }
       recomputeWake(s);
       return;
     }

@@ -27,7 +27,15 @@ export const PARK_REASONS = [
 ] as const;
 export type ParkReason = (typeof PARK_REASONS)[number];
 
-export const REPORT_KINDS = ["started", "parked", "landed", "finished", "cancelled", "failed"] as const;
+export const REPORT_KINDS = [
+  "started",
+  "parked",
+  "landed",
+  "finished",
+  "cancelled",
+  "failed",
+  "memory",
+] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 /** The machine's action types, so `effect.failed` can name one without the events importing the machine. */

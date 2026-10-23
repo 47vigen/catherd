@@ -647,12 +647,20 @@ function owedActions(s: RunState): Action[] {
     .filter((o) => (s.failedEffects[`report@${o.unit}`] ?? 0) < MAX_TRIES)
     .flatMap((o): Action[] => [
       { type: "report", kind: o.kind, unit: o.unit, text: o.text },
-      { type: "notify", unit: o.unit, moment: o.moment },
+      ...(o.moment !== null ? [{ type: "notify" as const, unit: o.unit, moment: o.moment }] : []),
     ]);
 }
 
-/** What a pause holds back: every new step; a live role's check and commit still run. */
-const PAUSED_STEPS = new Set<Action["type"]>(["dispatch", "judge", "land", "pushBranch", "integrate"]);
+/** What a pause holds back: every new step, a worktree claim and a routing included; a live role's check and commit still run. */
+const PAUSED_STEPS = new Set<Action["type"]>([
+  "dispatch",
+  "judge",
+  "land",
+  "pushBranch",
+  "integrate",
+  "claimTree",
+  "route",
+]);
 
 const sameLine = (s: RunState, a: Action): boolean => a.type === "dispatch" && hasLive(s, a.name);
 

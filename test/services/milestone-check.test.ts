@@ -187,6 +187,15 @@ describe("machineGate", () => {
     expect(g.audit[0]).toContain("pre-existing");
   });
 
+  it("names the unreached tail of an && check in the audit", async () => {
+    const command = "bun run lint && bun test";
+    appendCheckRecord(repo, rec({ command, baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ command, exit: 1, fails: ["FAIL x"] }));
+    const g = await machineGate(run, "M1", HEAD);
+    expect(g.missing).toEqual([]);
+    expect(g.audit[0]).toContain("`bun test` ran on neither side");
+  });
+
   it("refuses failing lines the base does not have, naming them", async () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x", "FAIL new"] }));

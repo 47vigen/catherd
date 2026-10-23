@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { errorMessage } from "../domain/errors.ts";
@@ -19,9 +19,10 @@ import { findRun, type Run } from "./run-store.ts";
 /** The daemon holds this lock for its whole life: a second holder gets none, a dead one's is reclaimed. */
 export const daemonLockTarget = (run: Run): string => join(run.dir, "daemon");
 export const heartbeatFile = (run: Run): string => join(run.dir, "daemon.json");
+export const launchStamp = (run: Run): string => join(run.dir, "daemon.launched");
 
-/** `beatMs`: how often the heartbeat is written; `pollMs`: how often the loop reads the events. Tests shorten them. */
-export const daemonLimits = { beatMs: 5_000, pollMs: 500 };
+/** `beatMs`: heartbeat interval; `pollMs`: event poll interval; `reviveMs`: minimum time between launches. */
+export const daemonLimits = { beatMs: 5_000, pollMs: 500, reviveMs: 30_000 };
 
 export interface Heartbeat {
   schema: 1;
@@ -67,12 +68,16 @@ function hasEnded(run: Run): boolean {
 
 /**
  * Makes sure a 2.0 run that has not ended has a daemon: one that is alive is left alone, a dead one is
- * started again (two callers at once start two processes, and the lock lets one run). A 1.5 run has none.
+ * started again at most once per revive window. A 1.5 run has none.
  */
 export function ensureDaemon(run: Run): "alive" | "revived" | "ended" | "1.5" {
   if (!isDaemonRun(run)) return "1.5";
   if (hasEnded(run)) return "ended";
   if (daemonAlive(run)) return "alive";
+  // A daemon that died within reviveMs most likely fails at start: one launch per window, not per read.
+  const last = existsSync(launchStamp(run)) ? statSync(launchStamp(run)).mtimeMs : 0;
+  if (Date.now() - last < daemonLimits.reviveMs) return "revived";
+  writeFileSync(launchStamp(run), "");
   daemonLauncher.launch(run.id, run.dir);
   return "revived";
 }
