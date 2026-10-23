@@ -27,8 +27,11 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   (`src/services/run-service.ts:154`). Fix: one fix per cause group. (Plan 38 M5 verifier, NIT.)
 - **A workspace child's merge check runs outside the admission lock.** `startWorkspaceChild`
   (`src/services/workspace-service.ts:161-167`) checks `dependencyBlockers(…, { merge: true })` before the lock, on
-  purpose (git outside the lock), so a dependency could change between the check and `childFor`. Judged harmless: a
-  merge does not un-merge. (Plan 38 M5 verifier, NIT.)
+  purpose (git outside the lock), so a dependency could change between the check and `childFor`. The M5 verifier
+  judged it harmless (a merge does not un-merge), but the Codex review of PR #83 found a real case: a dependency
+  milestone landed again while the call waits for the lock passes the pre-lock check on the old ledger commit, and the
+  locked recheck does not compare commits, so the child starts on a commit not yet in base. Fix: capture the checked
+  commit before the lock and require the same `landedCommitOf` under it. (Plan 38 M5 verifier NIT; Codex P2.)
 - **`status` lists a finished 1.5 run as unfinished, with empty metadata.** Before `run_start`, `status()` with no run
   returned a 1.5 run (`engine 1.5`) with `phase: null`, `outcome: null`, all 10 milestones `landed` but
   `commit: null`, `title` equal to the id, `startedAt == updatedAt` and `elapsedSec: 0`. A run whose milestones all
