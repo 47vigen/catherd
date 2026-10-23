@@ -152,7 +152,10 @@ export async function setupView(
   // Every probe starts at once and shares one deadline; one that outlives it is shown as "checking" and finishes
   // behind the answer, into the cache the next read serves.
   const started = new Map<string, ReturnType<typeof cachedProbe>>();
+  const used = usedBackends([p]);
   for (const id of ADAPTER_IDS) {
+    // backendChecks does not probe a headless Claude the Codex host's profile never uses
+    if (deps.host.host === "codex" && id === "claude-code" && !used.has(id)) continue;
     const a = adapterFor(id);
     if (a) started.set(id, setupProbes.probe(a, { force: o?.fresh }));
   }
@@ -170,14 +173,9 @@ export async function setupView(
     probedAt.push(r.probedAt);
     return r;
   };
-  const checked = await backendChecks(
-    usedBackends([p]),
-    [p],
-    undefined,
-    deps.host.host,
-    probe,
-    false,
-  ).finally(() => clearTimeout(timer));
+  const checked = await backendChecks(used, [p], undefined, deps.host.host, probe, false).finally(() =>
+    clearTimeout(timer),
+  );
   const backends = checked.map((c) =>
     late.has(c.id.replace(/^backend:/, ""))
       ? {

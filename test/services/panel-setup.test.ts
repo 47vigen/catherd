@@ -68,6 +68,23 @@ describe("the panel's Setup view", () => {
     expect(SetupViewSchema.parse(await setupView(deps, repo)).pending).toBe(false);
   });
 
+  it("does not probe a backend it shows as not required", async () => {
+    const real = setupProbes.probe;
+    const probed: string[] = [];
+    setupProbes.probe = (a, o) => {
+      probed.push(a.id);
+      return real(a, o);
+    };
+    try {
+      const v = SetupViewSchema.parse(await setupView(deps, repo));
+      expect(v.backends.find((b) => b.label === "claude-code")).toMatchObject({ word: "not required" });
+      expect(probed).not.toContain("claude-code");
+      expect(probed).toContain("codex");
+    } finally {
+      setupProbes.probe = real;
+    }
+  });
+
   it("a second setup read probes no CLI", async () => {
     await setupView(deps, repo);
     const probes = probeCache.probes;

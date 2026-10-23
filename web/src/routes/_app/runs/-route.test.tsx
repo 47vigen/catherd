@@ -442,6 +442,28 @@ test("a paused run says paused and offers Resume", async () => {
   await waitFor(() => expect(requests.map(describeRequest)).toContain("POST /api/runs/r1/resume"));
 });
 
+test("with two roles live on one node, Cancel stops the selected attempt's role", async () => {
+  const lane = model.nodes.find((n) => n.id === LANE)!;
+  const first = lane.attempts[0]!;
+  const second = { ...first, id: `${first.id}-ui`, name: "ui-reviewer-M1" };
+  model = {
+    ...model,
+    nodes: model.nodes.map((n) => (n.id === LANE ? { ...n, attempts: [first, second, ...n.attempts.slice(1)] } : n)),
+  };
+  const { requests } = renderRoute(
+    `/runs/r1?node=${encodeURIComponent(LANE)}&attempt=${encodeURIComponent(second.id)}&tab=overview`,
+    (req, url) =>
+      url.pathname === "/api/runs/r1/roles/ui-reviewer-M1/cancel"
+        ? Response.json({ name: "ui-reviewer-M1", status: "cancelled" })
+        : api(req, url),
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Cancel this role" }));
+  const dialog = await screen.findByRole("alertdialog", { name: "Cancel ui-reviewer-M1?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel role" }));
+  await waitFor(() => expect(requests.map(describeRequest)).toContain("POST /api/runs/r1/roles/ui-reviewer-M1/cancel"));
+  expect(requests.map(describeRequest)).not.toContain("POST /api/runs/r1/roles/worker-M1.L1/cancel");
+});
+
 test("Cancel this role asks first", async () => {
   const { requests } = renderRoute(`/runs/r1?node=${encodeURIComponent(LANE)}&tab=overview`, (req, url) =>
     url.pathname === "/api/runs/r1/roles/worker-M1.L1/cancel"

@@ -135,7 +135,11 @@ export function NodeDrawer({
 
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-  const live_role = node?.attempts.find((a) => a.status === "running" && a.name);
+  // The selected attempt when it is the one running: a review node can run two roles at once.
+  const live_role =
+    attempt?.status === "running" && attempt.name
+      ? attempt
+      : node?.attempts.find((a) => a.status === "running" && a.name);
   const cancel = useMutation({
     ...cancelRoleMutation(),
     onSuccess: async () => {
