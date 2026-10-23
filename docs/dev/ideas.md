@@ -18,6 +18,16 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 ### Panel v2 follow-ups (plan 37 final review, 2026-10-23)
 
+- **A run document over 512 KiB is cut with no notice.** `runDoc` (`src/services/run-files.ts`) reads through
+  `readCapped` and drops its `cut` flag, so the panel shows a truncated plan or report as if whole, and a UTF-8
+  character at the cut can break. Send `cut` and say so under the document.
+- **`summary` and `scorecard` still count paused time.** `wallMinutes` in `src/services/summary.ts` and
+  `src/services/scorecard.ts` measure from creation to end; the panel's run index now subtracts pause spans
+  (`coveredMs(start, end, pauseSpans(run))`). Use the same there so the CLI and the panel agree.
+- **A pause does not hold `claimTree` or `route`.** A paused run with a base branch still claims worktrees and routes
+  waiting milestones (`src/domain/run-machine.ts`, the paused filter). The README says so; hold them too if a pause
+  should freeze the run entirely.
+
 - **A watched transcript is re-read whole every 500 ms.** `tailTranscript` (`src/services/transcript.ts`, behind the
   socket's `watch` message) reads the role's stream file from the start on each poll (`completeLines`) and skips the
   lines it already sent, so a long role's stream costs more with every poll. _Where:_ keep the byte

@@ -144,7 +144,6 @@ function view15(deps: Deps, run: Run): RunView {
   };
 }
 
-/** One run at a glance. Reading an unfinished 2.0 run starts its daemon again if it died. */
 /** The run's time from its start to `end`, less every pause; it goes on counting while `live` and no pause is open. */
 function elapsedOf(
   run: Run,
@@ -160,6 +159,7 @@ function elapsedOf(
   };
 }
 
+/** One run at a glance. Reading an unfinished 2.0 run starts its daemon again if it died. */
 export function runView(deps: Deps, runId: string): RunView {
   const run = findRun(runId);
   if (!isDaemonRun(run)) return view15(deps, run);

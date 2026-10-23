@@ -55,14 +55,14 @@ const unindexedMessage = (rung: string) => `${rung} has no Slopalytics intellige
 /** Spec 1.2 §6.2: two findings are the same one when they name the same path with the same message. */
 const sameIssue = (a: Issue, b: Issue): boolean => a.path === b.path && a.message === b.message;
 
-/**
- * Spec 1.2 §6.2: a save that leaves errors goes through when it removes at least one of the errors the
- * profile had and adds none. `before` is the stored profile's validation, null when it does not exist yet.
- */
 /** The errors of `after` that `before` (null: no stored profile) did not have. */
 export const addedErrors = (before: Validation | null, after: Validation): Issue[] =>
   after.errors.filter((e) => !before?.errors.some((b) => sameIssue(b, e)));
 
+/**
+ * Spec 1.2 §6.2: a save that leaves errors goes through when it removes at least one of the errors the
+ * profile had and adds none. `before` is the stored profile's validation, null when it does not exist yet.
+ */
 export function repairs(before: Validation | null, after: Validation): boolean {
   if (after.errors.length === 0) return true;
   if (!before) return false;

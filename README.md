@@ -291,7 +291,7 @@ socket from another origin.
   transcript, or the raw lines. Output shows the reply. Changes shows the diff, and Checks shows the check logs.
   A node that waits for you takes the answer in the drawer.
 - **Pause, resume and cancel**: **Pause** stops a run from starting new steps: no new role or judge, and no
-  landing, push or merge. Live roles finish their work, and their checks and commits still run. **Resume** starts
+  landing, push or merge. Live roles finish their work, and their checks, commits and the routing of waiting milestones still run. **Resume** starts
   the held steps again. **Cancel role** stops one live role, and **Cancel run** stops the whole run. Each cancel
   asks first. A run starts from your session, never from the panel.
 - **Questions**: each question that waits, with its run, unit and role, the reason, and the latest reply of the

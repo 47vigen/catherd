@@ -108,7 +108,12 @@ export function ChangePreview({
               ))}
             </ul>
             <Issues status="danger" title="Not saved" issues={errors} />
-            <Issues status="warning" title="Already wrong before this change" issues={before} />
+            {/* A save that adds nothing is still refused while it repairs nothing: the old errors are why. */}
+            {p && !p.wouldSave && errors.length === 0 ? (
+              <Issues status="danger" title="Not saved: this change must fix one of these first" issues={before} />
+            ) : (
+              <Issues status="warning" title="Already wrong before this change" issues={before} />
+            )}
             <Issues status="warning" title="Worth a look" issues={warnings} />
             {elsewhere > 0 ? (
               <p className="text-muted text-xs">

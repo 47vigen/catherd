@@ -354,6 +354,19 @@ test("a repair the server would save can be saved, its leftover errors shown as 
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
+test("a change that repairs nothing on a broken profile says the old errors are why it is not saved", async () => {
+  const old = { path: "failover", message: "same quota" };
+  renderRoute(
+    "/setup",
+    api({ "POST /api/setup/preview": () => Response.json(preview({ errors: [old], added: [], wouldSave: false })) }),
+  );
+  await editBudgetUsd("8");
+  expect(await screen.findByText(/failover: same quota/)).toBeInTheDocument();
+  expect(screen.getByText("Not saved: this change must fix one of these first")).toBeInTheDocument();
+  expect(screen.queryByText("Already wrong before this change")).toBeNull();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
 test("a changed profile on disk asks to review again", async () => {
   const { requests } = renderRoute(
     "/setup",

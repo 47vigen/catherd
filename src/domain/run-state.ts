@@ -223,7 +223,7 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
-  /** when the owner paused the run (the pause in force), else null: no dispatch or judge starts meanwhile */
+  /** when the owner paused the run (the pause in force), else null: no dispatch, judge, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
   /** an architect ended and the plan was not read since */
