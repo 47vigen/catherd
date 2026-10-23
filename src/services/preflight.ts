@@ -1,3 +1,4 @@
+import { runProfile } from "./run-pin.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
@@ -296,7 +297,7 @@ export async function preflight(
   i: { run: string; confirmed?: boolean; timeoutMs?: number; milestone?: string },
 ): Promise<PreflightReport> {
   const run = findRun(i.run);
-  const profile = deps.profiles.forRepo(run.meta.repo);
+  const profile = runProfile(deps, run);
   // plan 23: one milestone's lanes, or by default every lane whose milestone has not landed
   const landed = new Set(landedMilestones(run));
   const milestoneOf = (lane: string) => lane.split(".")[0] as string;

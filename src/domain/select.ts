@@ -91,6 +91,16 @@ export function rolesWithoutRung(c: Catalog, v: ProfileLike): Role[] {
   });
 }
 
+/** Why a role has no rung: the coding floor, the effort cap, or the index. */
+export type NoRungCause = "floor" | "cap" | "index";
+export function noRungCause(c: Catalog, v: ProfileLike, role: Role): NoRungCause {
+  const r = v.roles[role];
+  if (!r) return "index";
+  if (r.rungs.length > 0 && !r.rungs.some((rung) => effortAllowed({}, role, rung))) return "floor";
+  if (candidates(c, { objective: v.objective, billing: v.billing, role: r }, role).length > 0) return "cap";
+  return "index";
+}
+
 const byNull = (a: number | null, b: number | null) =>
   a === null || b === null ? (a === null ? 1 : 0) - (b === null ? 1 : 0) : a - b;
 

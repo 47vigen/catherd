@@ -269,6 +269,47 @@ describe("the land gate (spec 1.1 §6)", () => {
     );
   });
 
+  it("gives the bare-verdict hint only for a verifier that exited ok", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: newDispatchId(),
+        name: "reviewer-M1",
+        role: "reviewer",
+        endedAt: new Date().toISOString(),
+      }),
+    );
+    const verifier = async (reply: string | null, status: "ok" | "failed") => {
+      const dispatchId = newDispatchId();
+      const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
+      if (reply !== null) {
+        mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
+        writeFileSync(join(run.dir, replyPath), reply);
+      }
+      await appendRecord(
+        run,
+        makeRecord({
+          runId: run.id,
+          dispatchId,
+          name: "verifier-M1",
+          role: "verifier",
+          replyPath,
+          status,
+          endedAt: new Date().toISOString(),
+        }),
+      );
+    };
+    await verifier("VERDICT: PASS\nA1 PASS bun test\n", "failed");
+    expect((await refusal(land(fakeDeps(), landing(run.id, c)))).fix).not.toContain("bare VERDICT: PASS");
+    await verifier("**VERDICT: PASS**\n", "ok");
+    expect((await refusal(land(fakeDeps(), landing(run.id, c)))).fix).toStartWith(
+      "the reply's first line must be the bare VERDICT: PASS",
+    );
+  });
+
   it("gates on the latest native verifier attempt: a FAIL after a PASS refuses, and a native PASS cannot land", async () => {
     const { repo, run } = freshRun();
     const c = commitFiles(repo, ["src/a.ts"]);

@@ -50,6 +50,8 @@ export interface Validation {
 }
 
 const SYNC_FIX = "catherd catalog sync";
+/** No indexed pair at all (not fetched, corrupt or empty), whatever fetchedAt says. */
+const noIndex = (c: Catalog): boolean => Object.keys(c.index).length === 0;
 const unindexedMessage = (rung: string) => `${rung} has no Slopalytics intelligence index: routing skips it`;
 
 /** Spec 1.2 §6.2: two findings are the same one when they name the same path with the same message. */
@@ -193,7 +195,7 @@ export function validateProfile(
         (o.unindexed === "warning" ? warnings : errors).push({
           path: `${at}.rungs`,
           message: unindexedMessage(rung),
-          fix: c.indexedAt === null ? SYNC_FIX : `pick an indexed pair: catherd catalog list --role ${role}`,
+          fix: noIndex(c) ? SYNC_FIX : `pick an indexed pair: catherd catalog list --role ${role}`,
         });
       }
       if (info.listed === false)
@@ -221,11 +223,7 @@ export function validateProfile(
     if (usable.length === 0)
       // doctor's mode: rungs that are only unindexed are the same warning, so the role's total is one too, but
       // only when an index exists: with none (not fetched, corrupt, empty) nothing can route, which is an error
-      (o.unindexed === "warning" &&
-      c.indexedAt !== null &&
-      Object.keys(c.index).length > 0 &&
-      unindexed > 0 &&
-      unindexed === rc.rungs.length
+      (o.unindexed === "warning" && !noIndex(c) && unindexed > 0 && unindexed === rc.rungs.length
         ? warnings
         : errors
       ).push({
@@ -302,7 +300,7 @@ export function validateProfile(
       (o.unindexed === "warning" ? warnings : errors).push({
         path: at,
         message: unindexedMessage(to),
-        fix: c.indexedAt === null ? SYNC_FIX : `catherd profile set failover.${from} ${ranked[0] ?? "null"}`,
+        fix: noIndex(c) ? SYNC_FIX : `catherd profile set failover.${from} ${ranked[0] ?? "null"}`,
       });
     if (quotaOf(a) === quotaOf(b))
       errors.push({

@@ -14,7 +14,7 @@ import type { JevRow } from "../../src/services/jev-service.ts";
 import type { Bars } from "../../src/domain/bars.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
-import { routingService } from "../../src/services/routing-service.ts";
+import { JEV_PARALLEL, routingService } from "../../src/services/routing-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { freshRun, LADDER, testView } from "./helpers.ts";
@@ -230,6 +230,7 @@ describe("checkStart", () => {
     const lost = await routingService().checkStart(view, "/nowhere");
     // Luna high is the writer's rung; the worker keeps Luna high, the reviewer's Sol high is gone
     expect(lost.unusable).toEqual(["architect", "reviewer"]);
+    expect(lost.causes).toEqual({ architect: "index", reviewer: "index" });
     expect(lost.index).toEqual(indexOf({ "gpt-6-luna#high": 33 }));
   });
 
@@ -242,6 +243,26 @@ describe("checkStart", () => {
 });
 
 describe("route with Jev", () => {
+  it("routes a Kind-only lane on its kind as the lane's when Jev is sure of nothing", async () => {
+    const r = req(lane("prose", null));
+    const svc = routingService({
+      key: "k",
+      fetchImpl: fakeFetch({ status: 200, body: fx("route-v2-unsure.json") }).impl,
+      ...noWait,
+    });
+    expect(await svc.route(r)).toMatchObject({
+      ...TRACK_A,
+      source: "lane",
+      kind: "prose",
+      difficulty: "build",
+    });
+    expect(jevRows(r.runDir)[0]?.source).toBe("lane");
+    expect(await routingService().route(req(lane("prose", null)))).toMatchObject({
+      source: "lane",
+      kind: "prose",
+      difficulty: "build",
+    });
+  });
   it("keeps the lane's declaration over a confident track, says Jev disagreed, and logs it but never the lane", async () => {
     const f = fakeFetch({
       status: 200,
@@ -679,6 +700,24 @@ describe("route and quota headroom (spec 1.5 plan 24)", () => {
 });
 
 describe("batch route (spec 1.5 plan 24)", () => {
+  it("asks Jev about at most JEV_PARALLEL lanes at a time", async () => {
+    let active = 0;
+    let most = 0;
+    const impl = (async () => {
+      active++;
+      most = Math.max(most, active);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      active--;
+      return new Response(JSON.stringify(fx("route-v2-track-a.json")), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = routingService({ key: "k", fetchImpl: impl, ...noWait });
+    const dir = runDir();
+    const ids = Array.from({ length: JEV_PARALLEL + 2 }, (_, i) => `M1.L${i + 1}`);
+    const out = await svc.routeMany(ids.map((id) => ({ ...req(lane(null, null)), runDir: dir, lane: id })));
+    expect(most).toBe(JEV_PARALLEL);
+    expect(out.map((a) => a.source)).toEqual(ids.map(() => "jev"));
+    expect(jevRows(dir).map((r) => r.lane)).toEqual(ids);
+  });
   it("asks Jev about every lane at once, and decides each one", async () => {
     // each answer is held until both questions are in flight: asked one after the other, the first would hang
     const held: (() => void)[] = [];

@@ -152,13 +152,19 @@ export async function startWorkspaceChild(
   const step = workspace.steps.find((s) => s.id === input.step);
   if (!step) throw invalid(`unknown workspace step ${input.step}`);
   // Recovery must validate the checkout too; stored status remains readable without it. The git work runs
-  // outside the workspace lock (#43 finding 5).
+  // outside the workspace lock (#43 finding 5), including dependency merge checks.
   const repo = workspace.repos[step.repo]!;
   if ((await gitToplevel(repo)) !== repo)
     throw new CatherdError(
       "E_IO_PATH",
       `workspace repository ${step.repo} is no longer the captured git root`,
     );
+  if (!workspaceChildren(workspace).some((r) => r.meta.workspace?.step === step.id)) {
+    const merge = await dependencyBlockers(workspace, step, workspaceChildren(workspace), deps.now(), {
+      merge: true,
+    });
+    if (merge.length) throw invalid(`workspace step ${step.id} waits: ${merge.map((b) => b.why).join("; ")}`);
+  }
   const run = await withFileLock(
     paths.admission,
     () => childFor(deps, workspace, step, repo, paths.contract),
@@ -182,10 +188,11 @@ async function childFor(
   let run = children.find((r) => r.meta.workspace?.step === step.id);
   if (!run) {
     assertNotPaused({ meta: { workspace: { id: workspace.id, step: step.id } } });
-    const blockers = await dependencyBlockers(workspace, step, children, deps.now(), { merge: true });
+    const blockers = await dependencyBlockers(workspace, step, children, deps.now());
     if (blockers.length)
       throw invalid(`workspace step ${step.id} waits: ${blockers.map((b) => b.why).join("; ")}`);
     await assertWorkspaceBudget(workspace, deps.now(), children);
+    const view = deps.profiles.forRepo(repo);
     run = createRun({
       repo,
       title: step.title,
@@ -195,7 +202,7 @@ async function childFor(
       startedBy: currentSession(deps),
       workspace: { id: workspace.id, step: step.id },
     });
-    writePin(deps, run);
+    writePin(deps, run, view);
     // pinned like startRun does, so a pair the machine index drops later never breaks the child midway
     writeRunIndex(run.dir, readIndexFile(indexPath()));
   }

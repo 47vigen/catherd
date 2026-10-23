@@ -118,6 +118,41 @@ describe("validateProfile", () => {
     expect(messages(soft.errors)).toContain("the worker role has no usable rung");
   });
 
+  it("with an index whose fetchedAt is null, says to pick an indexed pair, not to sync", () => {
+    const rung = "codex:gpt-6-sol#xhigh";
+    const c = catalog({ index: { ...indexOf({ "gpt-6-sol#high": 42 }), fetchedAt: null } });
+    const v = check({ roles: { worker: { rungs: [rung] } } }, c);
+    expect(v.errors).toContainEqual({
+      path: "roles.worker.rungs",
+      message: `${rung} has no Slopalytics intelligence index: routing skips it`,
+      fix: "pick an indexed pair: catherd catalog list --role worker",
+    });
+  });
+
+  it("with an index whose fetchedAt is null, doctor's mode warns for a wholly unindexed role", () => {
+    const c = catalog({ index: { ...indexOf({ "gpt-6-sol#high": 42 }), fetchedAt: null } });
+    const p = resolveProfile(
+      applyPatch(defaultProfileDoc(), { roles: { worker: { rungs: ["codex:gpt-6-sol#xhigh"] } } }),
+      "p",
+      "claude-code",
+    );
+    const v = validateProfile(p, c, BACKENDS, undefined, "claude-code", { unindexed: "warning" });
+    expect(messages(v.errors)).not.toContain("the worker role has no usable rung");
+    expect(messages(v.warnings)).toContain("the worker role has no usable rung");
+  });
+
+  it("with an index whose fetchedAt is null, suggests a failover stand-in instead of syncing", () => {
+    const c = catalog({ index: { ...indexOf({ "gpt-6-sol#high": 42 }), fetchedAt: null } });
+    const from = "codex:gpt-6-sol#xhigh";
+    const to = "opencode:opencode-go/mystery-1#high";
+    const v = check({ failover: { [from]: to } }, c);
+    expect(v.errors).toContainEqual({
+      path: `failover.${from}`,
+      message: `${to} has no Slopalytics intelligence index: routing skips it`,
+      fix: `catherd profile set failover.${from} null`,
+    });
+  });
+
   it("says to sync when there is no index at all", () => {
     const v = check({}, catalog({ index: null }));
     const unindexed = v.errors.filter((e) => e.message.includes("has no Slopalytics intelligence index"));

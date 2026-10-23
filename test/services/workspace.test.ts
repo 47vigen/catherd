@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
+import { CatherdError } from "../../src/domain/errors.ts";
 import { indexPath, runsDir } from "../../src/infra/paths.ts";
 import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { loadCatalog } from "../../src/services/catalog-service.ts";
@@ -406,6 +407,44 @@ it("releases a merge step's dependents only once its landed commit is in the bas
   expect(web.run).not.toBe(api.id);
 });
 
+it("refuses an unmerged merge release without waiting for the workspace lock (Ruling 4)", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, {
+    ...input,
+    steps: [{ ...input.steps[0]!, release: "merge", base: "staging" }, input.steps[1]!],
+  });
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+      cwd: input.repos.api,
+      encoding: "utf8",
+      env: { ...process.env, ANTHROPIC_API_KEY: "" },
+    }).trim();
+  git("branch", "staging");
+  git("checkout", "-q", "-b", "feature");
+  git("commit", "-q", "--allow-empty", "-m", "api work");
+  const commit = git("rev-parse", "HEAD");
+  await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
+  const api = workspaceChildren(workspace)[0]!;
+  appendFileSync(runPaths(api.dir).ledger, `M1 | API | ${commit} | 1 | checked\n`);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let entered!: () => void;
+  const inside = new Promise<void>((resolve) => (entered = resolve));
+  const holder = withWorkspaceAdmission(api, deps.now, async () => {
+    entered();
+    await held;
+  });
+  await inside;
+  try {
+    await expect(startWorkspaceChild(deps, { workspace: workspace.id, step: "web" })).rejects.toThrow(
+      "is not merged into staging yet",
+    );
+  } finally {
+    release();
+    await holder;
+  }
+});
+
 it("refuses a merge release without a base ref, and a base that looks like an option", async () => {
   const { deps, input } = setup();
   for (const step of [
@@ -436,4 +475,16 @@ it("admission and child start wait on a dependency for the same reasons (#43 fin
   rmSync(recovered.dir, { recursive: true });
   await expect(startWorkspaceChild(deps, { workspace: workspace.id, step: "web" })).rejects.toThrow(why);
   expect((await workspaceStatus(deps, workspace.id)).steps[1]?.waitingFor).toEqual([why]);
+});
+
+it("creates no child run when the repo's profile cannot be read", async () => {
+  const { deps, input } = setup();
+  const { workspace } = await startWorkspace(deps, input);
+  deps.profiles.forRepo = () => {
+    throw new CatherdError("E_CONFIG_INVALID", "profile p does not parse");
+  };
+  await expect(startWorkspaceChild(deps, { workspace: workspace.id, step: "api" })).rejects.toMatchObject({
+    code: "E_CONFIG_INVALID",
+  });
+  expect(workspaceChildren(findWorkspace(workspace.id))).toEqual([]);
 });
