@@ -7,6 +7,8 @@ import { loadCatalog } from "../../src/services/catalog-service.ts";
 import { finalizeDispatch } from "../../src/services/finalize.ts";
 import { readRecords } from "../../src/services/run-store.ts";
 import { snapshotEnv } from "../helpers.ts";
+import { simPath } from "../sim/scenario.ts";
+import { withOpencodeScenario } from "../sim/sim-scenarios.ts";
 import { fakeDispatch, freshRun } from "./helpers.ts";
 
 afterEach(snapshotEnv());
@@ -49,4 +51,47 @@ it("keeps the backend's reported cost", async () => {
     },
   );
   expect((await finalizeDispatch(run, d)).costUsd).toBe(0);
+});
+
+it("subtracts all earlier cache writes when finalizing resumed OpenCode sessions", async () => {
+  const { run } = freshRun();
+  process.env.PATH = simPath();
+  const thread = "ses_cache_write_resume";
+  const cumulativeWrites = [0, 10, 30, 60];
+  const records = [];
+  for (const [i, write] of cumulativeWrites.entries()) {
+    const turns = i + 1;
+    Object.assign(
+      process.env,
+      withOpencodeScenario({
+        session: {
+          cost: turns,
+          outcome: "succeeded",
+          tokens: { input: turns * 10, output: turns, cache: { read: turns * 5, write } },
+        },
+      }).env,
+    );
+    const d = await fakeDispatch(
+      run,
+      {
+        backend: "opencode",
+        rung: "opencode:anthropic/claude-sonnet-5#high",
+        thread,
+      },
+      {
+        exit,
+        events: JSON.stringify({ type: "step_finish", sessionID: thread, part: { cost: 0 } }),
+      },
+    );
+    records.push(await finalizeDispatch(run, d));
+  }
+  expect(records.map((r) => ({ ...r.tokens, cacheWrite: r.tokens.cacheWrite ?? 0 }))).toEqual([
+    { input: 15, cached: 5, cacheWrite: 0, output: 1 },
+    { input: 25, cached: 5, cacheWrite: 10, output: 1 },
+    { input: 35, cached: 5, cacheWrite: 20, output: 1 },
+    { input: 45, cached: 5, cacheWrite: 30, output: 1 },
+  ]);
+  expect(records.map((r) => r.tokens.input - r.tokens.cached - (r.tokens.cacheWrite ?? 0))).toEqual([
+    10, 10, 10, 10,
+  ]);
 });
