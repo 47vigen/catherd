@@ -10,15 +10,17 @@ export const tokenTotal = (t: Tokens | null | undefined): number => (t ? t.input
 
 export const formatTokens = (n: number): string => (n < 1000 ? String(n) : compact.format(n));
 
-export const formatCost = (n: number | null | undefined): string => (n == null ? "–" : usd.format(n));
+export const formatCost = (n: number | null | undefined): string => (n == null ? "—" : usd.format(n));
 
 /** What a run has used so far: the sum over its dispatches; cost is null when no dispatch reported one. */
-export function totalsOf(dispatches: Attempt[]): { tokens: number; costUsd: number | null } {
+export function totalsOf(dispatches: Attempt[]): { tokens: number; costUsd: number | null; unpriced: number } {
   let costUsd: number | null = null;
   let tokens = 0;
+  let unpriced = 0;
   for (const d of dispatches) {
     tokens += tokenTotal(d.tokens);
     if (d.costUsd != null) costUsd = (costUsd ?? 0) + d.costUsd;
+    else unpriced++;
   }
-  return { tokens, costUsd };
+  return { tokens, costUsd, unpriced };
 }

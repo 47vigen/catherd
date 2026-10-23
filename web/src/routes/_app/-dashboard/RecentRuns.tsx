@@ -76,7 +76,12 @@ export function RecentRuns({ runs, now, className }: { runs: RunCard[]; now: Dat
                     <Table.Cell className={NUM}>
                       {formatCount(run.totals.tokens.input + run.totals.tokens.output)}
                     </Table.Cell>
-                    <Table.Cell className={NUM}>{formatCost(run.totals.costUsd)}</Table.Cell>
+                    <Table.Cell className={NUM}>
+                      {formatCost(run.totals.costUsd)}
+                      {run.totals.unpriced > 0 ? (
+                        <span className="text-muted block text-xs">{run.totals.unpriced} unpriced</span>
+                      ) : null}
+                    </Table.Cell>
                     <Table.Cell className="text-muted text-end text-[13px] whitespace-nowrap">
                       {formatRelative(run.endedAt ?? run.startedAt, now)}
                     </Table.Cell>

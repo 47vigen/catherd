@@ -100,3 +100,7 @@ test("a backend keeps one colour everywhere", () => {
   expect(backendTone("claude-code").bg).toBe(backendTone("claude").bg);
   expect(backendTone("codex").bg).not.toBe(backendTone("claude-code").bg);
 });
+
+test("unknown dashboard cost is a dash", () => {
+  expect(formatCost(null)).toBe("—");
+});

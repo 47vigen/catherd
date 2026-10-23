@@ -23,8 +23,9 @@ const card = (over: Partial<RunCard> = {}): RunCard => ({
   paused: null,
   totals: {
     dispatches: 3,
-    tokens: { input: 30_000, cached: 0, output: 4_000 },
+    tokens: { input: 30_000, cached: 0, cacheWrite: 0, output: 4_000 },
     costUsd: 1.5,
+    unpriced: 0,
     interventions: 0,
     failovers: 0,
     climbs: 0,
@@ -205,4 +206,15 @@ test("a waiting question is answered inline", async () => {
     return r;
   });
   expect(await post.clone().json()).toEqual({ unit: "M1.L2", answer: "keep it" });
+});
+
+test("unknown costs and unpriced runs appear across dashboard cards", async () => {
+  const data = overview();
+  data.kpis.costUsd = null;
+  const unknown = card({ totals: { ...card().totals, costUsd: null, unpriced: 2 } });
+  data.live = [{ run: unknown, now: [] }];
+  data.recent = [unknown];
+  renderRoute("/", serve(data));
+  expect(await screen.findAllByText("—")).toHaveLength(3);
+  expect(screen.getAllByText("2 unpriced")).toHaveLength(2);
 });
