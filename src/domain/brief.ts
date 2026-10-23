@@ -31,7 +31,7 @@ function cliForm(tool: string, run: string): string {
     case "gate_check":
       return `catherd gate check ${run} --milestone <M> --item <item> --command <command> --paths <path,…>`;
     case "gate_pass":
-      return `catherd gate pass ${run} --item <item> --command <command> --paths <path,…> --evidence <evidence>`;
+      return `catherd gate pass ${run} --milestone <M> --item <item> --command <command> --paths <path,…> --evidence <evidence>`;
     case "gate_run":
       return `catherd gate run ${run} --milestone <M> --command <command> [--at <base checkout>]`;
     default:

@@ -13,7 +13,7 @@ import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { endedEvent, planOf, realEffects } from "../../src/services/run-effects.ts";
-import { appendCheckRecord } from "../../src/services/milestone-check.ts";
+import { appendCheckRecord, machineGate } from "../../src/services/milestone-check.ts";
 import { addKnowledge, knowledgePath } from "../../src/services/run-service.ts";
 import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
@@ -1153,7 +1153,7 @@ describe("parking, reporting, finishing", () => {
     expect(lastOf(run, "run.ended")).toMatchObject({ outcome: "done" });
   });
 
-  it("lists what a landed milestone's check passed on only through the base under Audit", async () => {
+  it("treats red baselines as blockers rather than audit-only evidence", async () => {
     const { run, repo, fx } = setup();
     const head = "a".repeat(40);
     await seed(run, {
@@ -1173,8 +1173,12 @@ describe("parking, reporting, finishing", () => {
     };
     appendCheckRecord(repo, { ...row, head: "b".repeat(40), exit: 1, fails: ["FAIL x"], baseline: true });
     appendCheckRecord(repo, { ...row, head, exit: 1, fails: ["FAIL x"], secrets: "clean" });
+    const gate = await machineGate(run, "M1", head);
+    expect(gate.missing).toContainEqual(expect.stringContaining("pre-existing"));
+    expect(gate.missing).toContainEqual(expect.stringContaining("FAIL x"));
+    expect(gate.audit).toEqual([]);
     await fx.run({ type: "finish", outcome: "done" }, replayRun(run));
-    expect(readFileSync(join(run.dir, "report.md"), "utf8")).toMatch(
+    expect(readFileSync(join(run.dir, "report.md"), "utf8")).not.toMatch(
       /## Audit\n\n- M1 \(check\): .*pre-existing/,
     );
   });

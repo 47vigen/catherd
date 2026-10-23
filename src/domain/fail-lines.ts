@@ -1,3 +1,5 @@
+import { CatherdError } from "./errors.ts";
+
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 export const FAIL_DISPLAY_CAP = 60;
@@ -43,11 +45,17 @@ export const newFails = (fails: string[], base: string[] | null): string[] =>
 export function checkItems(command: string): string[] {
   const items: string[] = [];
   let start = 0;
-  let depth = 0;
+  const contexts: (string | null)[] = [];
   let quote: string | null = null;
   for (let i = 0; i < command.length; i++) {
     const char = command[i];
     if (char === "\\" && quote !== "'") {
+      i++;
+      continue;
+    }
+    if (char === "$" && command[i + 1] === "(" && quote !== "'" && quote !== "`") {
+      contexts.push(quote);
+      quote = null;
       i++;
       continue;
     }
@@ -56,15 +64,19 @@ export function checkItems(command: string): string[] {
       continue;
     }
     if (char === '"' || char === "'" || char === "`") quote = char;
-    else if (char === "(") depth++;
-    else if (char === ")") depth = Math.max(0, depth - 1);
-    else if (char === "&" && command[i + 1] === "&" && depth === 0) {
+    else if (char === "(") contexts.push(null);
+    else if (char === ")" && contexts.length) quote = contexts.pop() ?? null;
+    else if (char === "&" && command[i + 1] === "&" && contexts.length === 0) {
       items.push(command.slice(start, i).trim());
       start = i + 2;
       i++;
     }
   }
   items.push(command.slice(start).trim());
+  if (items.some((item) => !item))
+    throw new CatherdError("E_INPUT_INVALID", "empty check item", {
+      fix: "provide a command on both sides of every top-level &&",
+    });
   return items;
 }
 

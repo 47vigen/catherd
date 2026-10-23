@@ -6,7 +6,7 @@ describe("check failing lines", () => {
   it("andTail names what follows the first &&", () => {
     expect(andTail("a && b && c")).toBe("b && c");
     expect(andTail("bun test")).toBeNull();
-    expect(andTail("a &&")).toBeNull();
+    expect(() => andTail("a &&")).toThrow("empty check item");
   });
   it("strips colour, timings and counters, so two runs compare equal", () => {
     const a = checkFailLines("\x1b[31mFAIL\x1b[0m src/a.test.ts > adds [12.3ms]\nok 1 fine\n");
@@ -39,6 +39,23 @@ describe("check failing lines", () => {
 });
 
 describe("check items", () => {
+  it("keeps nested quoted substitutions whole", () => {
+    const command = 'echo "$(printf "x && y")"';
+    expect(failLines.checkItems(command)).toEqual([command]);
+    expect(failLines.checkItems(`${command} && bun test`)).toEqual([command, "bun test"]);
+    const nested = 'echo "$(printf "%s" "$(printf "x && y")")"';
+    expect(failLines.checkItems(`${nested} && done`)).toEqual([nested, "done"]);
+    expect(failLines.checkItems('echo "$(printf ") && (")" && done')).toEqual([
+      'echo "$(printf ") && (")"',
+      "done",
+    ]);
+  });
+  it("rejects empty check items before returning any commands", () => {
+    for (const command of ["", "  ", "true &&", "true &&  ", "&& true", "true && && false"]) {
+      expect(() => failLines.checkItems(command)).toThrow("empty check item");
+    }
+    expect(failLines.checkItems('echo "" && true')).toEqual(['echo ""', "true"]);
+  });
   it("checkItems splits top-level && and keeps quoted &&", () => {
     expect(failLines.checkItems('a && b "x && y"')).toEqual(["a", 'b "x && y"']);
     expect(failLines.checkItems("bun test")).toEqual(["bun test"]);

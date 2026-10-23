@@ -16,6 +16,8 @@ function catherd(args: string[], o: { role?: string; stdin?: string } = {}) {
     ANTHROPIC_API_KEY: "",
   };
   delete env.CATHERD_ROLE;
+  delete env.CATHERD_DISPATCH_ID;
+  delete env.TMPDIR;
   if (o.role) env.CATHERD_ROLE = o.role;
   const p = Bun.spawnSync([process.execPath, join(SRC, "cli.ts"), ...args], {
     env,
