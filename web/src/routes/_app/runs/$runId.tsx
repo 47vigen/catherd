@@ -1,4 +1,4 @@
-import { Alert, cn, Spinner } from "@heroui/react";
+import { Alert, cn, Modal, Spinner } from "@heroui/react";
 import { replaceEqualDeep, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -150,6 +150,11 @@ function RunDetail({ runId }: { runId: string }) {
   const arrivedEntries = liveEntries.filter((e) => !seen.has(e.seq) && matchesTypes(types, e.type));
   const entries = page === 1 ? [...arrivedEntries, ...fetched] : fetched;
   const arrived = new Set(arrivedEntries.map((e) => e.seq));
+  const [full, setFull] = useState(false);
+  // The drawer sits outside the dialog's DOM: when it closes, focus is lost, and Escape would no longer reach the dialog.
+  useEffect(() => {
+    if (full && !node) document.querySelector<HTMLElement>('[role="dialog"][aria-label="Steps of the run"]')?.focus();
+  }, [full, node]);
   const tick = useTicker(live === true);
   const now = new Date(Math.max(run.dataUpdatedAt, timeline.dataUpdatedAt, model.dataUpdatedAt, tick));
 
@@ -188,6 +193,29 @@ function RunDetail({ runId }: { runId: string }) {
     </span>
   );
 
+  const drawer =
+    is2 && model.data ? (
+      <LiveLogContext value={live ? liveLog : null}>
+        <NodeDrawer
+          runId={runId}
+          run={r}
+          model={model.data}
+          nodeId={node}
+          attemptId={attempt}
+          tab={tab ?? "overview"}
+          live={live === true}
+          now={now.getTime()}
+          onChange={(patch) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
+          onClose={() =>
+            void navigate({
+              search: (prev) => ({ ...prev, node: undefined, attempt: undefined, tab: undefined }),
+              replace: true,
+            })
+          }
+        />
+      </LiveLogContext>
+    ) : null;
+
   return (
     <div className="flex flex-col gap-4">
       <RunHeader run={r} model={model.data} live={live === true} now={now} />
@@ -203,13 +231,18 @@ function RunDetail({ runId }: { runId: string }) {
                 <LoadError title="Could not load the graph of this run" error={model.error} />
               </div>
             ) : isDesktop ? (
-              <RunGraph
-                model={model.data}
-                milestones={r.milestones}
-                selected={node}
-                now={now.getTime()}
-                onOpen={open}
-              />
+              full ? (
+                <p className="text-muted px-4 py-6 text-sm">The graph is open in full screen.</p>
+              ) : (
+                <RunGraph
+                  model={model.data}
+                  milestones={r.milestones}
+                  selected={node}
+                  now={now.getTime()}
+                  onOpen={open}
+                  onExpand={() => setFull(true)}
+                />
+              )
             ) : (
               <NodeList nodes={model.data.nodes} selected={node} now={now.getTime()} onOpen={open} />
             )}
@@ -291,26 +324,30 @@ function RunDetail({ runId }: { runId: string }) {
         </Tile>
       </div>
       {is2 && model.data ? (
-        <LiveLogContext value={live ? liveLog : null}>
-          <NodeDrawer
-            runId={runId}
-            run={r}
-            model={model.data}
-            nodeId={node}
-            attemptId={attempt}
-            tab={tab ?? "overview"}
-            live={live === true}
-            now={now.getTime()}
-            onChange={(patch) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
-            onClose={() =>
-              void navigate({
-                search: (prev) => ({ ...prev, node: undefined, attempt: undefined, tab: undefined }),
-                replace: true,
-              })
-            }
-          />
-        </LiveLogContext>
+        <Modal.Backdrop isOpen={full} onOpenChange={setFull}>
+          <Modal.Container size="full">
+            <Modal.Dialog aria-label="Steps of the run">
+              <Modal.Header>
+                <Modal.Heading>Steps</Modal.Heading>
+                {stepsAside}
+              </Modal.Header>
+              <Modal.CloseTrigger />
+              <Modal.Body className="flex min-h-0 flex-1 flex-col p-0">
+                <RunGraph
+                  model={model.data}
+                  milestones={r.milestones}
+                  selected={node}
+                  now={now.getTime()}
+                  onOpen={open}
+                  fill
+                />
+              </Modal.Body>
+              {full ? drawer : null}
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
       ) : null}
+      {full ? null : drawer}
     </div>
   );
 }

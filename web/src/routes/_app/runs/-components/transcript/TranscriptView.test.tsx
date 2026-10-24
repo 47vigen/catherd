@@ -34,17 +34,18 @@ test("it loads the first page of the stream and draws it", async () => {
   expect(seen).toEqual(["/api/runs/r%201/dispatches/d1/stream?from=0&limit=500&raw=0"]);
 });
 
-test("a full page offers Load more, which continues from where the last stopped", async () => {
+test("a log longer than a page is read to its end and shows its newest entry first", async () => {
   const seen = fakeStream((from) => ({
     items: [text(from, from === 0 ? "first page" : "second page")],
     next: from === 0 ? 500 : 501,
   }));
   render(<TranscriptView runId="r" dispatchId="d" live={false} />);
-  await screen.findByText("first page");
-  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(await screen.findByText("second page")).toBeInTheDocument();
   expect(screen.getByText("first page")).toBeInTheDocument();
+  expect(seen).toHaveLength(2);
+  expect(seen[0]).toContain("from=0");
   expect(seen[1]).toContain("from=500");
+  expect(document.querySelector("li[data-kind]")).toHaveTextContent("second page");
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 });
 

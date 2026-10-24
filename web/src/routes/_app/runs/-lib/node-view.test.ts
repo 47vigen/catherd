@@ -77,3 +77,33 @@ test("a set of steps takes its most urgent tone", () => {
   expect(toneOf([node({ status: "done" }), node({ status: "skipped" })])).toBe("success");
   expect(toneOf([node({ status: "done" }), node({ status: "pending" })])).toBe("muted");
 });
+
+const attempt = (over: Partial<RunNode["attempts"][number]>): RunNode["attempts"][number] => ({
+  ...CASE_HELPERS.nodes[1]!.attempts[0]!,
+  ...over,
+});
+const T = "2026-10-22T10:00:00.000Z";
+
+test("a check that ran once shows no duration", () => {
+  const one = attempt({ kind: "check", at: T, endedAt: T, secs: null });
+  expect(nodeSecs(node({ kind: "check", startedAt: T, endedAt: T, attempts: [one] }), 0)).toBeNull();
+});
+
+test("a check shows its newest run's own time, not first to last", () => {
+  const old = attempt({
+    kind: "check",
+    at: "2026-10-22T09:40:00.000Z",
+    endedAt: "2026-10-22T09:40:00.000Z",
+    secs: null,
+  });
+  const newest = attempt({ kind: "check", at: T, endedAt: "2026-10-22T10:00:18.000Z", secs: null });
+  const n = node({ kind: "check", startedAt: old.at, endedAt: newest.endedAt, attempts: [newest, old] });
+  expect(nodeSecs(n, 0)).toBe(18);
+});
+
+test("a commit made by one event shows no duration, a dispatch node keeps its span", () => {
+  const ev = attempt({ kind: "commit", at: T, endedAt: T, secs: null });
+  expect(nodeSecs(node({ kind: "commit", startedAt: T, endedAt: T, attempts: [ev] }), 0)).toBeNull();
+  const d = attempt({ kind: "dispatch", at: T, endedAt: T, secs: null });
+  expect(nodeSecs(node({ kind: "lane", startedAt: T, endedAt: T, attempts: [d] }), 0)).toBe(0);
+});

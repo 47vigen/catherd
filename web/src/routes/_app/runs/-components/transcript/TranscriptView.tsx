@@ -1,4 +1,4 @@
-import { Alert, Button, Label, SearchField, Switch } from "@heroui/react";
+import { Alert, Label, SearchField, Switch } from "@heroui/react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 
 import type { TranscriptFrame } from "../../-hooks/useLiveRun";
@@ -8,15 +8,15 @@ import { errorMessage } from "../../../../../lib/api";
 import { mergeTranscript, type Card } from "./merge";
 import { TranscriptCards } from "./TranscriptCards";
 
-/** Lines per request; a longer log is paged in with "Load more" (or read on at once, while live). */
+/** Lines per request; a longer log is read on page by page until the end, then drawn newest first. */
 const PAGE = 500;
 
 type Pages = { cards: Card[]; lines: string[]; ended: boolean; more: boolean; loaded: boolean; error: string | null };
 const EMPTY: Pages = { cards: [], lines: [], ended: false, more: false, loaded: false, error: null };
 
 /**
- * One mode (cards or raw lines) of a dispatch's stream, read page by page from line 0. While `live` full pages are
- * read on at once; otherwise `more` says a full page came back and `loadMore` asks for the next. `onFrame` folds in
+ * One mode (cards or raw lines) of a dispatch's stream, read page by page from line 0; full pages are read on at
+ * once, and `more` stays true until a short page comes back. `onFrame` folds in
  * a frame of the run socket's tail: the cards take its items past the line they hold, the raw lines read on over
  * HTTP (a frame's raw lines carry no line numbers to join them by).
  */
@@ -28,10 +28,6 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
   const pull = useRef<() => Promise<void>>(async () => {});
   const frame = useRef<(f: TranscriptFrame) => void>(() => {});
   const at = useRef(0);
-  const liveNow = useRef(live);
-  useEffect(() => {
-    liveNow.current = live;
-  }, [live]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -77,7 +73,8 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
         loaded: true,
         error: null,
       }));
-      if ((full && liveNow.current) || again) {
+      // shortcut: reads every page before drawing, add a tail query past ~20k lines
+      if (full || again) {
         again = false;
         void run();
       }
@@ -109,9 +106,8 @@ function useStreamPages(runId: string, dispatchId: string, raw: boolean, enabled
     wasLive.current = live;
   }, [live]);
 
-  const loadMore = useCallback(() => void pull.current(), []);
   const onFrame = useCallback((f: TranscriptFrame) => frame.current(f), []);
-  return { ...pages, loadMore, onFrame, at };
+  return { ...pages, onFrame, at };
 }
 
 /**
@@ -180,7 +176,7 @@ export function TranscriptView({ runId, dispatchId, live }: { runId: string; dis
           </Alert.Content>
         </Alert>
       ) : null}
-      {view.loaded || view.error ? (
+      {(view.loaded && !view.more) || view.error ? (
         <TranscriptCards
           cards={cards.cards}
           raw={showRaw ? lines.lines : null}
@@ -191,13 +187,6 @@ export function TranscriptView({ runId, dispatchId, live }: { runId: string; dis
       ) : (
         <p className="text-muted text-sm">Reading the log…</p>
       )}
-      {view.more && !live ? (
-        <div>
-          <Button size="sm" variant="secondary" onPress={view.loadMore}>
-            Load more
-          </Button>
-        </div>
-      ) : null}
     </section>
   );
 }

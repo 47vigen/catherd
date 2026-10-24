@@ -54,19 +54,8 @@ export const offeredRungs = (roles: { offered: IndexedPair[] }[]): string[] => [
 ];
 
 const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "default"];
-const NUM = /^\d+(\.\d+)?$/;
 
-/** A model id as people say it: `claude-opus-5-5` is Claude Opus 5.5, `gpt-6.1-sol` is GPT-6.1 Sol. */
-export function modelName(model: string): string {
-  const out: string[] = [];
-  for (const t of (model.split("/").pop() ?? model).split("-").filter(Boolean)) {
-    const last = out.at(-1);
-    if (NUM.test(t) && last === "GPT") out[out.length - 1] = `GPT-${t}`;
-    else if (/^\d{1,2}$/.test(t) && last !== undefined && /^\d/.test(last)) out[out.length - 1] = `${last}.${t}`;
-    else out.push(t === "gpt" ? "GPT" : t.charAt(0).toUpperCase() + t.slice(1));
-  }
-  return out.join(" ");
-}
+export { modelName } from "../../../../lib/model-name";
 
 /** The efforts the index offers for the backend and model of `rung`, lowest first, its own effort included. */
 export function effortsOf(rung: string, offered: { rung: string }[]): string[] {

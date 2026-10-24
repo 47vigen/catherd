@@ -350,6 +350,66 @@ test("the graph is drawn in the app's theme, not React Flow's light default", as
   }
 });
 
+const graphWidth = () => Number(document.querySelector("svg[aria-hidden='true'].block")?.getAttribute("width"));
+
+test("Zoom in and Zoom out scale the graph and stop at the limits", async () => {
+  renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  const toolbar = screen.getByRole("toolbar", { name: "Graph view" });
+  const percent = () => within(toolbar).getByRole("status").textContent;
+  const base = graphWidth();
+  expect(percent()).toBe("100%");
+  await userEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
+  expect(graphWidth()).toBeCloseTo(base * 1.25);
+  expect(percent()).toBe("125%");
+  const zoomOut = within(toolbar).getByRole("button", { name: "Zoom out" });
+  while (!zoomOut.hasAttribute("disabled")) await userEvent.click(zoomOut);
+  expect(percent()).toBe("25%");
+  const zoomIn = within(toolbar).getByRole("button", { name: "Zoom in" });
+  while (!zoomIn.hasAttribute("disabled")) await userEvent.click(zoomIn);
+  expect(percent()).toBe("200%");
+});
+
+test("Fit to view never zooms past 100%", async () => {
+  renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  const toolbar = screen.getByRole("toolbar", { name: "Graph view" });
+  await userEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
+  // jsdom has no layout, so the frame measures 0 and the fit clamps to the smallest zoom
+  await userEvent.click(within(toolbar).getByRole("button", { name: "Fit to view" }));
+  expect(within(toolbar).getByRole("status")).toHaveTextContent("25%");
+});
+
+test("Full screen shows one graph in a dialog and closes back to the page", async () => {
+  renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
+  const dialog = await screen.findByRole("dialog", { name: "Steps of the run" });
+  expect(await within(dialog).findByLabelText("Graph of the run")).toBeInTheDocument();
+  expect(document.querySelectorAll("[aria-label='Graph of the run']")).toHaveLength(1);
+  expect(within(dialog).queryByRole("button", { name: "Full screen" })).toBeNull();
+  await userEvent.click(within(dialog).getByRole("button", { name: /close/i }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(await screen.findByRole("button", { name: "Full screen" })).toBeInTheDocument();
+  expect(screen.getAllByLabelText("Graph of the run")).toHaveLength(1);
+});
+
+test("a node opened in full screen opens its drawer above it, and Escape closes the drawer first", async () => {
+  const { router } = renderRoute("/runs/r1", api);
+  await nodeButton(LANE);
+  await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
+  await screen.findByRole("dialog", { name: "Steps of the run" });
+  await userEvent.click(await nodeButton(LANE));
+  await waitFor(() => expect(router.state.location.searchStr).toContain("node="));
+  expect(await screen.findByRole("heading", { name: "M1.L1 worker" })).toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(router.state.location.searchStr).not.toContain("node="));
+  expect(screen.queryByRole("heading", { name: "M1.L1 worker" })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Steps of the run" })).toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 test("clicking a node opens its drawer and deep-links it", async () => {
   const { router } = renderRoute("/runs/r1", api);
   await userEvent.click(await nodeButton(LANE));

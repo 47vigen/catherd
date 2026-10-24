@@ -168,8 +168,21 @@ export function TranscriptCards({
 }) {
   const needle = query.trim().toLowerCase();
   const keep = (text: string) => !needle || text.toLowerCase().includes(needle);
-  const lines = (raw ?? []).filter(keep);
-  const shown = cards.filter((c) => keep(cardText(c)));
+  // Newest first, drawn after the filter. Keys come from ascending order (a card's place in its line, a raw line's
+  // index), so an append never remounts what is open.
+  const lines = (raw ?? [])
+    .map((text, i) => ({ text, key: String(i) }))
+    .filter((l) => keep(l.text))
+    .toReversed();
+  const seen = new Map<number, number>();
+  const shown = cards
+    .map((card) => {
+      const n = seen.get(card.line) ?? 0;
+      seen.set(card.line, n + 1);
+      return { card, key: `${card.line}:${n}` };
+    })
+    .filter((s) => keep(cardText(s.card)))
+    .toReversed();
   const total = showRaw ? (raw ?? []).length : cards.length;
   const count = showRaw ? lines.length : shown.length;
 
@@ -192,19 +205,19 @@ export function TranscriptCards({
         </p>
       ) : showRaw ? (
         <ol className="flex flex-col gap-0.5">
-          {lines.map((l, i) => (
-            <li key={i}>
+          {lines.map((l) => (
+            <li key={l.key}>
               <pre dir="ltr" className="font-mono text-xs leading-5 break-all whitespace-pre-wrap">
-                {l}
+                {l.text}
               </pre>
             </li>
           ))}
         </ol>
       ) : (
         <ol className="flex flex-col gap-3">
-          {shown.map((c, i) => (
-            <li key={`${c.line}:${i}`} data-kind={c.kind} className="min-w-0">
-              <CardView card={c} />
+          {shown.map(({ card, key }) => (
+            <li key={key} data-kind={card.kind} className="min-w-0">
+              <CardView card={card} />
             </li>
           ))}
         </ol>
