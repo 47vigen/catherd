@@ -1,6 +1,7 @@
 import type { Overview, RunCard } from "../../../client";
 import { backendName } from "../../../components/provider-icon/ProviderIcon";
 import type { Status } from "../../../components/status-chip/StatusChip";
+import { BRAND_BG, brandFill, brandOf } from "../../../lib/brand";
 
 const DAY = 86_400_000;
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -95,14 +96,10 @@ export function dailyRows(
 export const dailyTotals = (daily: Overview["daily"], metric: Metric): number[] =>
   daily.map((d) => d.backends.reduce((n, b) => n + (metric === "cost" ? b.costUsd : b.tokens), 0));
 
-const TONE: Record<string, number> = { Codex: 0, Cursor: 1, opencode: 2, "Claude Code": 4, Claude: 4 };
-const FILL = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"] as const;
-const BG = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"] as const;
-
 /** One colour per backend on every chart of the page, so Codex reads the same in the plot and the lists. */
 export function backendTone(backendOrName: string): { fill: string; bg: string } {
-  const i = TONE[backendName(backendOrName)] ?? 3;
-  return { fill: FILL[i]!, bg: BG[i]! };
+  const b = brandOf(backendOrName);
+  return { fill: brandFill(b), bg: BRAND_BG[b] };
 }
 
 export { modelName } from "../../../lib/model-name";

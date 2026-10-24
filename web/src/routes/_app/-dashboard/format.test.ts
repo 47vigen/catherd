@@ -98,6 +98,7 @@ test("a model reads the way people say it", () => {
 test("a backend keeps one colour everywhere", () => {
   expect(backendTone("codex:gpt-6-sol").fill).toBe(backendTone("Codex").fill);
   expect(backendTone("claude-code").bg).toBe(backendTone("claude").bg);
+  expect(backendTone("Claude Code").fill).toBe("var(--brand-anthropic)");
   expect(backendTone("codex").bg).not.toBe(backendTone("claude-code").bg);
 });
 

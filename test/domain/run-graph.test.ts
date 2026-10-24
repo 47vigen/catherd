@@ -359,6 +359,30 @@ describe("statuses", () => {
   });
 });
 
+describe("check attempts", () => {
+  const checkAttempt = (extra: { startedAt?: string; durationMs?: number }) => {
+    const log = runningLog();
+    log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [], ...extra });
+    return node(model(log), "M1/check/M1.L1").attempts[0] as {
+      at: string;
+      endedAt: string;
+      secs: number | null;
+    };
+  };
+
+  it("a check attempt spans the check's own run", () => {
+    const a = checkAttempt({ durationMs: 18_000 });
+    expect(Date.parse(a.endedAt) - Date.parse(a.at)).toBe(18_000);
+    expect(a.secs).toBe(18);
+  });
+
+  it("a check.ran without a start stays one instant", () => {
+    const a = checkAttempt({});
+    expect(a.at).toBe(a.endedAt);
+    expect(a.secs).toBeNull();
+  });
+});
+
 describe("diffRunModel", () => {
   it("returns only what changed", () => {
     const log = runningLog();

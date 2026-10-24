@@ -441,9 +441,26 @@ export function deriveRunModel(i: {
         const l = s.lanes[e.lane];
         if (!l) break;
         const round = commits[l.milestone] ?? 0;
+        // plan 40's start or duration makes the attempt span its own run; with neither it stays one instant
+        const end = Date.parse(e.at);
+        const startMs = e.startedAt
+          ? Date.parse(e.startedAt)
+          : e.durationMs !== undefined
+            ? end - e.durationMs
+            : NaN;
+        const span = Number.isFinite(startMs)
+          ? {
+              at: new Date(startMs).toISOString(),
+              secs: e.durationMs !== undefined ? e.durationMs / 1000 : (end - startMs) / 1000,
+            }
+          : {};
         push(
           `${l.milestone}/check/${l.id}`,
-          event(e, "check", `round ${round}`, e.exit === 0 ? "done" : "failed", { round, exit: e.exit }),
+          event(e, "check", `round ${round}`, e.exit === 0 ? "done" : "failed", {
+            round,
+            exit: e.exit,
+            ...span,
+          }),
         );
         break;
       }
