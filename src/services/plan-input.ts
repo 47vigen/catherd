@@ -91,8 +91,8 @@ function citedSections(text: string, tasks: PlanTask[]): string[] {
   const cited = new Set(tasks.flatMap((t) => [...t.text.matchAll(/§(\d+)/g)].map((m) => m[1])));
   return text
     .split(/^(?=##[ \t]+(?!#))/m)
-    .slice(1)
     .filter((section) => {
+      if (!/^##[ \t]/.test(section)) return false; // the text before the first `## ` is no section
       const head = (section.split("\n", 1)[0] ?? "").replace(/^##[ \t]+/, "");
       const n = /^(?:§)?(\d+)\b/.exec(head)?.[1];
       if (n !== undefined && cited.has(n)) return true;

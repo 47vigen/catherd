@@ -356,7 +356,7 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
     range,
     "",
     "The A-lines this run must meet:",
-    milestoneALinesText(run, a.unit),
+    ALINES(run),
     ...reviewPlan(run, s, a.unit),
     "",
     "Report every finding as: BLOCKER|BUG|NIT file:line — problem — fix. Cover:",

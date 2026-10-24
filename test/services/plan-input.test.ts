@@ -165,6 +165,17 @@ describe("planContext", () => {
     expect(text).not.toContain("intro");
   });
 
+  it("a taskless file that begins at its first section still gives it", async () => {
+    const { run } = await planRun(["c.md", "p.md"], {
+      "c.md": "## 1. Names\nthe names\n## 2. Other\nnot cited\n",
+      "p.md": "# P\n### Task 1: one\nSee contract §1.\nTest: a.test.ts\n",
+    });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    const text = planContext(run, "worker", "M1") as string;
+    expect(text).toContain("## 1. Names\nthe names");
+    expect(text).not.toContain("not cited");
+  });
+
   it("a taskless file gives the section whose heading text a task quotes", async () => {
     const { run } = await planRun(["c.md", "p.md"], {
       "c.md": "# Contracts\n## Wallet shapes\nthe shapes\n## Locks\nno\n",
