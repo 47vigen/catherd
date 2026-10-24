@@ -1,6 +1,7 @@
 import { defineCommand } from "citty";
 import { CatherdError, isCatherdError } from "../domain/errors.ts";
 import { ROLES, type Role } from "../domain/roles.ts";
+import type { OutcomeStat } from "../domain/track-record.ts";
 import { gitToplevel } from "../infra/git.ts";
 import {
   type CatalogModel,
@@ -11,6 +12,7 @@ import {
   refreshIndex,
 } from "../services/catalog-service.ts";
 import { indexCheck } from "../services/doctor-checks.ts";
+import { outcomeStats } from "../services/outcome-summary.ts";
 import { exitCodeOf, JSON_ARG, mark, printError } from "./cli-kit.ts";
 
 /** `sync`'s one line: the index's pair count and age, or why the last fetch failed and what was kept. */
@@ -115,8 +117,32 @@ const list = defineCommand({
   },
 });
 
-/** Spec §8: `catherd catalog refresh|list|sync`. */
+/** One line per rung, kind and difficulty: how its finished lanes went, for choosing a cheaper start. */
+export function formatOutcomes(stats: readonly OutcomeStat[]): string {
+  return stats
+    .map((s) => {
+      const per = (n: number) => (n / s.lanes).toFixed(1);
+      return `${s.model}  ${s.effort}  ${s.kind ?? "-"}/${s.difficulty ?? "-"}${s.chore ? " chore" : ""}  ${s.lanes} lanes  ${s.firstPass} first pass  ${per(s.rounds)} rounds/lane  ${per(s.findings)} findings/lane`;
+    })
+    .join("\n");
+}
+
+const outcomes = defineCommand({
+  meta: {
+    name: "outcomes",
+    description:
+      "How each rung's finished lanes went on this machine: first passes, rounds and findings per lane",
+  },
+  args: JSON_ARG,
+  run({ args }) {
+    const stats = outcomeStats();
+    if (args.json) console.log(JSON.stringify(stats, null, 2));
+    else console.log(stats.length ? formatOutcomes(stats) : "no finished lanes yet");
+  },
+});
+
+/** Spec §8: `catherd catalog refresh|list|sync|outcomes`. */
 export const catalogCommand = defineCommand({
   meta: { name: "catalog", description: "The model catalog" },
-  subCommands: { refresh, list, sync },
+  subCommands: { refresh, list, sync, outcomes },
 });

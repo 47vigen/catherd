@@ -29,6 +29,15 @@ const line = (seq: number, type = "tick"): string =>
   JSON.stringify({ v: 1, seq, at: "2026-10-21T10:00:00.000Z", type });
 
 describe("the event store", () => {
+  it("readEvents reads from an id and a dir", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { type: "tick" });
+    const ref = { id: run.id, dir: run.dir };
+    expect(isDaemonRun(ref)).toBe(true);
+    expect(eventsFile(ref)).toBe(eventsFile(run));
+    expect(readEvents(ref)).toEqual(readEvents(run));
+  });
+
   it("appends dense seqs from concurrent writers", async () => {
     const { run } = freshRun();
     await Promise.all(Array.from({ length: 30 }, () => appendEvent(run, { type: "tick" })));

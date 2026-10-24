@@ -30,7 +30,14 @@ describe("parseLaneHeader", () => {
       after: [],
       allow: [],
       tasks: [],
+      chore: false,
     });
+  });
+
+  it("Chore: yes is a chore lane", () => {
+    expect(parseLaneHeader("# x\n**Chore:** `yes`\n").chore).toBe(true);
+    expect(parseLaneHeader("# x\n").chore).toBe(false);
+    expect(parseLaneHeader("# x\nChore: no\n").chore).toBe(false);
   });
 
   it("reads a Tasks: line, and refuses a ref that is not a task number", () => {

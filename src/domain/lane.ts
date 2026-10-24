@@ -18,6 +18,8 @@ export interface LaneHeader {
   allow: string[];
   /** `Tasks: 3, plan.md#4`: the plan tasks the lane implements (catherd inlines them into its worker's brief) */
   tasks: string[];
+  /** `Chore: yes`: routing starts the lane on the cheapest capable rung */
+  chore: boolean;
 }
 
 /** An After: entry: a lane id (Mx.Ly, the shape lanes/<id>.md takes) or a whole milestone (Mx). */
@@ -79,6 +81,8 @@ export function normalizeOwned(p: string): string {
   return parts.join("/") + (s.endsWith("/") ? "/" : "");
 }
 
+const CHORE_VALUES = ["yes", "no"] as const;
+
 export function parseLaneHeader(text: string): LaneHeader {
   const title = /^#\s+(.+)$/m.exec(text)?.[1]?.trim() ?? null;
   const owns = (field(text, "owns") ?? "").split(",").map(unquote).filter(Boolean).map(normalizeOwned);
@@ -93,6 +97,7 @@ export function parseLaneHeader(text: string): LaneHeader {
     after: list("after"),
     allow: list("allow"),
     tasks: list("tasks"),
+    chore: oneOf(field(text, "chore"), CHORE_VALUES) === "yes",
   };
 }
 
@@ -106,6 +111,12 @@ export function milestoneAfter(lanes: { id: string; after: string[] }[], m: stri
         if (dep !== m) out.add(dep);
       }
   return [...out].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+}
+
+/** A Chore: value other than yes or no; none when the line is absent. */
+function choreProblems(text: string): string[] {
+  const v = field(text, "chore");
+  return v !== null && oneOf(v, CHORE_VALUES) === null ? [`Chore "${unquote(v)}" is not yes or no`] : [];
 }
 
 /** What is wrong with the After: and Allow: entries, one line each; none when they are well formed. */
@@ -147,6 +158,7 @@ export function assertLaneValues(text: string, where: string): LaneHeader {
   if (kind !== null && h.kind === null) problems.push(`Kind "${unquote(kind)}" is not one the catalog knows`);
   if (difficulty !== null && h.difficulty === null)
     problems.push(`Difficulty "${unquote(difficulty)}" is not one the catalog knows`);
+  problems.push(...choreProblems(text));
   problems.push(...orderProblems(h));
   if (problems.length)
     throw new CatherdError("E_LANE_INVALID", `${where}: ${problems.join("; ")}`, {
@@ -203,7 +215,7 @@ export function assertLaneHeader(text: string, where: string): LaneHeader {
   };
   check("Kind", field(text, "kind"), h.kind !== null);
   check("Difficulty", field(text, "difficulty"), h.difficulty !== null);
-  problems.push(...orderProblems(h));
+  problems.push(...orderProblems(h), ...choreProblems(text));
   if (problems.length)
     throw new CatherdError("E_LANE_INVALID", `${where}: ${problems.join("; ")}`, { fix: LANE_HEADER_FIX });
   return h;

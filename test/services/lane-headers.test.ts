@@ -47,6 +47,14 @@ describe("lane headers (spec 1.1 §6)", () => {
     expect(missing.message).toBe("lanes/M1.L1.md: no Kind: line; no Difficulty: line");
   });
 
+  it("a Chore value other than yes or no is refused", async () => {
+    const e = await refused(() =>
+      assertLaneHeader(header("Kind: ui\n", "Difficulty: hard\nChore: maybe\n"), "lanes/M1.L1.md"),
+    );
+    expect(e.code).toBe("E_LANE_INVALID");
+    expect(e.message).toContain('Chore "maybe"');
+  });
+
   it("route refuses such a lane before asking anyone", async () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: code\nDifficulty: easy\n");
