@@ -9,6 +9,7 @@ import {
 } from "../../domain/run-graph.ts";
 import { TranscriptItemSchema, TranscriptPageSchema } from "../../domain/transcript.ts";
 import { NowLineSchema, OverviewSchema } from "../../services/overview.ts";
+import { CatalogEntrySchema, CatalogViewSchema, ModelPointSchema } from "../../services/panel-catalog.ts";
 import {
   CheckSchema,
   IndexedPairSchema,
@@ -127,6 +128,7 @@ export type OperationId =
   | "getVersion"
   | "getOverview"
   | "getSetup"
+  | "getCatalog"
   | "recheckSetup"
   | "previewProfile"
   | "saveProfile"
@@ -183,6 +185,13 @@ export const OPERATIONS: readonly Operation[] = [
     response: OverviewSchema,
   },
   { id: "getSetup", method: "GET", path: "/api/setup", query: SetupQuerySchema, response: SetupViewSchema },
+  {
+    id: "getCatalog",
+    method: "GET",
+    path: "/api/catalog",
+    query: SetupQuerySchema,
+    response: CatalogViewSchema,
+  },
   {
     id: "recheckSetup",
     method: "POST",
@@ -333,6 +342,9 @@ const SCHEMAS: Record<string, z.ZodType> = {
   ParkedView: ParkedViewSchema,
   TimelineEntry: TimelineEntrySchema,
   SetupView: SetupViewSchema,
+  CatalogView: CatalogViewSchema,
+  CatalogEntry: CatalogEntrySchema,
+  ModelPoint: ModelPointSchema,
   Check: CheckSchema,
   Issue: IssueSchema,
   IndexedPair: IndexedPairSchema,

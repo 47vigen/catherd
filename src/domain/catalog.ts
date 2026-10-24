@@ -66,6 +66,9 @@ export interface Pair {
   price: { input: number; output: number } | null;
   speed: number | null;
   context: number | null;
+  /** measured USD per task, when the index has it */
+  costUsd?: number | null;
+  lab?: string | null;
 }
 
 /** Everything routing reads: the shipped families, the Slopalytics index, and each backend's listing. */
@@ -97,6 +100,8 @@ export function buildCatalog(o: {
           : null,
       speed: r.speed,
       context: r.context,
+      costUsd: r.cost ?? null,
+      lab: r.lab ?? null,
     };
   const shippedKeys = new Set(o.models.families.map((f) => slopKey(f.id)));
   const pool = [...shippedKeys]
