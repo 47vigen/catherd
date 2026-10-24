@@ -6,6 +6,7 @@ import { availableMemoryMb } from "../infra/memory.ts";
 import { currentBranch, fetchBase, git, gitRun } from "../infra/git.ts";
 import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
 import { ensurePrivateDir } from "../infra/store.ts";
+import { checkBase } from "./milestone-check.ts";
 import type { Deps } from "./ports.ts";
 import { planDocs } from "./plan-input.ts";
 import { checkEnvFor, runCheck } from "./preflight.ts";
@@ -168,4 +169,41 @@ export async function removeTree(run: Run, m: string): Promise<{ removed: boolea
     };
   rmSync(readyFile(run, m), { force: true });
   return { removed: true, hint: null };
+}
+
+/**
+ * Plan 40 D13: a detached worktree of the commit `checkBase(run, m)` names, under the run's scratch and set up as a
+ * milestone's own is. A failing item's baseline check runs there; `remove` takes it away, files and all.
+ */
+export async function baseTree(
+  deps: Deps,
+  run: Run,
+  m: string,
+): Promise<{ dir: string; remove: () => Promise<void> }> {
+  const base = await checkBase(run, m);
+  if (!base)
+    throw tree_(`no base commit to check ${m} against`, "start the run in a git checkout, then answer");
+  const repo = run.meta.repo;
+  const scratch = runPaths(run.dir).scratch;
+  const dir = join(scratch, `base-${m}`);
+  const remove = async (): Promise<void> => {
+    await gitRun(repo, ["worktree", "remove", "--force", dir]);
+    rmSync(dir, { recursive: true, force: true });
+    await gitRun(repo, ["worktree", "prune"]);
+  };
+  ensurePrivateDir(scratch);
+  await remove(); // a folder a cut-off run left behind
+  const r = await gitRun(repo, ["worktree", "add", "--detach", dir, base]);
+  if (r.code !== 0)
+    throw tree_(
+      `git worktree add failed for ${base.slice(0, 12)}: ${tail(`${r.out}${r.err}`)}`,
+      "fix the repository, then answer",
+    );
+  try {
+    await setUp(deps, run, dir);
+  } catch (e) {
+    await remove();
+    throw e;
+  }
+  return { dir, remove };
 }

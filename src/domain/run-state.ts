@@ -8,6 +8,7 @@ import type { ReplyStatus, RunStatus } from "./record.ts";
 import type { Role } from "./roles.ts";
 import type { NotifyMoment } from "./profile.ts";
 import { isPushAnswer } from "./branch.ts";
+import { isAccept } from "./plan-doc.ts";
 import type { ClimbReason } from "./route.ts";
 import {
   type Finding,
@@ -169,6 +170,18 @@ export interface MilestoneState {
   digestPath: string | null;
   /** plan 35: the MR command of the branch catherd pushed, named in the question that asks again */
   mr: string | null;
+  /** plan 40: the commit the daemon's check last passed on; null when its last check failed or none has run on this commit */
+  checkedOn: string | null;
+  /** plan 40: the commit a verifier last passed */
+  verifierPassedOn: string | null;
+  /** plan 40: the delivered A-lines the check does not cover; the verifier judges those */
+  uncovered: string[];
+  /** plan 40: the check covers every delivered A-line, so its pass lands the milestone with no verifier */
+  checkOnly: boolean;
+  /** plan 40: review rounds that stopped on BLOCKERs no lane owns and went to the triage judge (at most one) */
+  disputes: number;
+  /** plan 40: the triage judge is deciding those BLOCKERs */
+  disputing: boolean;
 }
 
 export interface DispatchView {
@@ -413,8 +426,20 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       pushing: false,
       digestPath: null,
       mr: null,
+      checkedOn: null,
+      verifierPassedOn: null,
+      uncovered: [],
+      checkOnly: false,
+      disputes: 0,
+      disputing: false,
     };
     m.verifierFailedOn ??= null;
+    m.checkedOn ??= null;
+    m.verifierPassedOn ??= null;
+    m.uncovered ??= [];
+    m.checkOnly ??= false;
+    m.disputes ??= 0;
+    m.disputing ??= false;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
@@ -535,6 +560,14 @@ function completeRound(s: RunState, m: MilestoneState): void {
   if (stop) {
     m.open = found;
     if (found.some((f) => f.label === "BLOCKER")) {
+      // BLOCKERs no lane owns dispute the plan, not the code: the triage judge reads them once before the owner does
+      const unowned = found.every((f) => f.label !== "BLOCKER" || ownerOfFile(f.file, lanes) === null);
+      if (unowned && m.disputes === 0) {
+        m.disputes += 1;
+        m.disputing = true;
+        m.status = "fixing";
+        return;
+      }
       m.status = "review";
       s.stuck[m.id] = {
         reason: "blocker",
@@ -700,6 +733,16 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
   }
 }
 
+/** A verdict on the milestone's commit is in: a verifier's PASS on it, one carried over from an earlier commit, or none owed. */
+function verdictIn(m: MilestoneState, carried = false): boolean {
+  return carried || m.checkOnly || (m.commit !== null && m.verifierPassedOn === m.commit);
+}
+
+/** The check and the verdict on the commit decide the milestone: it lands when both are in, else its verifier is owed. */
+function afterVerdict(m: MilestoneState): void {
+  m.status = m.commit !== null && m.checkedOn === m.commit && verdictIn(m) ? "landing" : "verifying";
+}
+
 /** The base is merged into the milestone's branch: a fresh verifier checks the merge commit. */
 function mergedIn(m: MilestoneState, commit: string): void {
   m.commit = commit;
@@ -790,6 +833,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.verifierRuns += 1;
       // a PASS about another commit than the milestone's is no verdict on it: a fresh verifier checks the right one
       if (m.commit !== null && e.head !== null && m.commit.startsWith(e.head)) {
+        m.verifierPassedOn = m.commit;
         // dedup before the prefix: a verifier NIT a reviewer already named is listed once, unprefixed
         const known = new Set([...m.knownIssues, ...m.nits]);
         const own = nitLines(e.findings).filter((l) => !known.has(l));
@@ -869,20 +913,44 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
   const d = e.decision;
   const lane = s.lanes[e.unit];
   const m = milestoneOf(s, e.unit);
+  // a dispute gets one judge call: whatever it decides, the milestone is no longer disputing
+  const disputing = m?.disputing ?? false;
+  if (m) m.disputing = false;
   switch (d.verb) {
     case "route": {
       if (!m) return;
       const lanes = lanesOf(s, m.id);
+      const sent = new Set<number>();
       for (const r of d.routes) {
         const f = m.open[r.finding - 1];
         if (!f) continue;
         const target = lanes.find((l) => l.id === r.to);
         if (target) {
+          sent.add(r.finding);
           target.notes.push(f.text);
           target.status = "pending";
           target.attempts = 0;
           target.fixedRound = m.counts.length;
-        } else if (r.to === "architect") m.delta.push(f.text);
+        } else if (r.to === "architect") {
+          sent.add(r.finding);
+          m.delta.push(f.text);
+        }
+      }
+      if (disputing) {
+        // what the judge sends nowhere is dismissed: a known issue of the milestone it lands
+        m.open.forEach((f, i) => {
+          if (!sent.has(i + 1)) m.knownIssues.push(`dismissed by the judge: ${f.text}`);
+        });
+        if (sent.size === 0) {
+          // the judge overrules a verifier's FAIL on this commit: the commit's verdict is a PASS
+          if (m.commit !== null && m.verifierFailedOn === m.commit) {
+            m.verifierPassedOn = m.commit;
+            m.verifierFailedOn = null;
+          }
+          m.open = [];
+          afterVerdict(m);
+          return;
+        }
       }
       m.open = [];
       settle(s, m);
@@ -961,6 +1029,8 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     else m.status = "merged";
     return;
   }
+  // read before the answer clears it: an accept after a verifier FAIL on this commit stands for the verifier's PASS
+  const failedHere = m.commit !== null && m.verifierFailedOn === m.commit;
   m.verifierFailedOn = null;
   m.notes.push(`The owner answered: ${e.answer}`);
   const from = m.parkedFrom ?? "waiting";
@@ -969,10 +1039,17 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
   if (from === "routing") {
     m.status = "waiting";
     m.confirmed = true;
-  } else if (q?.reason === "blocker" && e.answer.trim().toLowerCase() === "accept") {
+  } else if (q?.reason === "blocker" && isAccept(e.answer)) {
+    if (failedHere) m.verifierPassedOn = m.commit;
     m.knownIssues = m.open.map((f) => f.text);
     m.open = [];
-    m.status = "verifying";
+    afterVerdict(m);
+  } else if (q?.reason === "land" && from === "verifying" && isAccept(e.answer)) {
+    // the check's missing lines are waived for this commit: known issues, and the check counts as passed on it
+    m.knownIssues = [...m.knownIssues, ...m.open.map((f) => f.text)];
+    m.open = [];
+    m.checkedOn = m.commit;
+    afterVerdict(m);
   } else if (q?.reason === "blocker")
     // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
     fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
@@ -1137,6 +1214,38 @@ function apply(s: RunState, e: RunEvent): void {
       }
       return;
     }
+    case "milestone.checked": {
+      const m = milestoneOf(s, e.milestone);
+      // a check of another commit, or of a commit the milestone has left, is no verdict on this one
+      if (m?.status !== "verifying" || m.commit !== e.head) return;
+      ok(`machineCheck@${e.milestone}`);
+      m.uncovered = e.uncovered;
+      m.checkOnly = e.checkOnly;
+      if (e.findings.length > 0) {
+        // the failing lines are a fix round for their lanes: no verifier is asked about a commit the check fails
+        m.checkedOn = null;
+        m.open = e.findings;
+        completeRound(s, m);
+        return;
+      }
+      if (e.missing.length > 0) {
+        m.checkedOn = null;
+        m.open = e.missing.map((text) => ({ label: "BUG" as const, text, file: null }));
+        s.stuck[m.id] = {
+          reason: "land",
+          question: `${m.id}'s check fails on lines with no baseline:\n${e.missing.join("\n")}\nanswer accept to land with these pre-existing failures, or name the fix.`,
+        };
+        return;
+      }
+      m.checkedOn = e.head;
+      m.open = [];
+      if (verdictIn(m, e.verdictCarried)) {
+        m.tries = {};
+        m.verifierNotes = [];
+        m.status = "landing";
+      }
+      return;
+    }
     case "commit.made": {
       ok(`commit@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
@@ -1245,9 +1354,10 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`land@${e.milestone}`);
       const m = milestoneOf(s, e.milestone);
       if (m) m.landRefusals += 1;
-      // the first refusal is most often a verifier that skipped gate_run: a fresh one with the message; the second parks
+      // the first refusal reruns the check on the commit, the verdict it has stands; the second parks
       if (m?.status === "landing" && m.landRefusals === 1) {
         m.status = "verifying";
+        m.checkedOn = null;
         m.tries = {};
         m.verifierNotes = [
           `A landing of this milestone was refused (${e.code}): ${e.message}`,
@@ -1302,7 +1412,7 @@ function apply(s: RunState, e: RunEvent): void {
           s.owed[`memory:${e.milestone}`] = {
             kind: "memory",
             unit: e.milestone,
-            text: `${e.milestone} waits for memory: ${e.availableMb} MB available, ${e.needMb} MB needed; catherd looks again every ${MEMORY_LIMITS.recheckMs / 60_000} minutes`,
+            text: `${e.milestone} waits for ${e.resource ?? "memory"}: ${e.availableMb} MB available, ${e.needMb} MB needed; catherd looks again every ${MEMORY_LIMITS.recheckMs / 60_000} minutes`,
             moment: null,
           };
         }
@@ -1395,6 +1505,7 @@ function apply(s: RunState, e: RunEvent): void {
       // the commit under verification is behind origin's base: merge the base first
       const m = milestoneOf(s, e.milestone);
       ok(`land@${e.milestone}`);
+      ok(`machineCheck@${e.milestone}`);
       if (m && !isDone(m)) {
         m.status = "integrating";
         m.integrateFiles = [];
@@ -1417,6 +1528,7 @@ function apply(s: RunState, e: RunEvent): void {
       return;
     }
     case "daemon.started":
+    case "lock.waiting":
       return;
   }
 }

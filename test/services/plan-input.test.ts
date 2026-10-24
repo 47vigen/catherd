@@ -15,6 +15,7 @@ import {
   planProblems,
   resolvePlanInputs,
   taskBlock,
+  uncoveredALines,
 } from "../../src/services/plan-input.ts";
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import type { Run } from "../../src/services/run-store.ts";
@@ -219,6 +220,14 @@ it("numbers A-lines written without an id, and only when none has one", () => {
     { id: "A3", line: "A3 x" },
     { id: undefined, line: "y" },
   ]);
+});
+
+it("uncoveredALines drops lines marked (Check)", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["A1 — x", "A2 — the root gate is green (Check)."];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeFileSync(join(run.dir, "plan.md"), "## M1 — core\nA1 — x\nA2 — the root gate is green (Check).\n");
+  expect(uncoveredALines(run, "M1")).toEqual(["A1 — x"]);
 });
 
 it("refuses an unnumbered A-line cited under no milestone", () => {

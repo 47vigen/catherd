@@ -9,9 +9,12 @@ import {
   type CheckRecord,
   checkTools,
   execMilestoneCheck,
+  freshFailures,
   machineGate,
+  missingBaselines,
   readChecks,
   secretScan,
+  verdictCarries,
 } from "../../src/services/milestone-check.ts";
 import { checkFailLines, FAIL_DISPLAY_CAP } from "../../src/domain/fail-lines.ts";
 import { ROLE_ENV } from "../../src/domain/role-scope.ts";
@@ -19,10 +22,18 @@ import { LOCK_HELD_ENV, withRoleLock } from "../../src/infra/heavy-lock.ts";
 import { DISPATCH_ID_ENV } from "../../src/infra/lock-activity.ts";
 import { daemonLauncher } from "../../src/services/daemon.ts";
 import { answerUnit } from "../../src/services/run-client.ts";
-import { appendEvent } from "../../src/services/run-events-store.ts";
+import { appendEvent, appendEvents } from "../../src/services/run-events-store.ts";
 import { openQuestions, park } from "../../src/services/questions.ts";
-import { PLAN, startedFields } from "../domain/run-fixtures.ts";
-import { fakeDeps, passGate } from "./helpers.ts";
+import {
+  endDispatch,
+  finishLane,
+  type Log,
+  PLAN,
+  runningLog,
+  startDispatch,
+  startedFields,
+} from "../domain/run-fixtures.ts";
+import { fakeDeps, passGate, writeLane } from "./helpers.ts";
 import { gateCheck, gatePass, recordedItems } from "../../src/services/gate-service.ts";
 import { land } from "../../src/services/lane-service.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
@@ -77,6 +88,32 @@ const rec = (over: Partial<CheckRecord> = {}): CheckRecord => ({
   secrets: "clean",
   ...over,
 });
+
+/** The daemon's events for M1 verified on `head`: its lanes done and reviewed, checked green, and a verifier's PASS. */
+function verifiedLog(head: string): Log {
+  const log = runningLog();
+  finishLane(log, "M1.L1");
+  finishLane(log, "M1.L2");
+  log.add("commit.made", { milestone: "M1", round: 0, commit: head });
+  const reviewer = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+  endDispatch(log, reviewer, { name: "reviewer-M1", unit: "M1", findings: [] });
+  log.add("milestone.checked", {
+    milestone: "M1",
+    head,
+    command: "true",
+    missing: [],
+    findings: [],
+    uncovered: ["A1"],
+    checkOnly: false,
+    verdictCarried: false,
+    startedAt: "2026-10-21T10:00:00.000Z",
+    durationMs: 1,
+    waitedMs: 0,
+  });
+  const verifier = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+  endDispatch(log, verifier, { name: "verifier-M1", unit: "M1", verdict: "pass", head });
+  return log;
+}
 
 describe("execMilestoneCheck", () => {
   it("records the exit code and failing lines against HEAD, with its log", async () => {
@@ -232,6 +269,40 @@ describe("baselineFor", () => {
   });
 });
 
+describe("the verdict's carry and the base's lines", () => {
+  it("verdictCarries ignores files outside the milestone", async () => {
+    writeLane(run, "M1.L1", ["src/m1"]);
+    writeLane(run, "M2.L1", ["src/m2"]);
+    mkdirSync(join(repo, "src/m1"), { recursive: true });
+    mkdirSync(join(repo, "src/m2"), { recursive: true });
+    writeFileSync(join(repo, "src/m1/a.ts"), "1");
+    writeFileSync(join(repo, "src/m2/b.ts"), "1");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "one");
+    const one = git(repo, "rev-parse", "HEAD");
+    writeFileSync(join(repo, "src/m2/b.ts"), "2");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "sibling");
+    const sibling = git(repo, "rev-parse", "HEAD");
+    expect(await verdictCarries(run, "M1", one, sibling)).toBe(true);
+    writeFileSync(join(repo, "src/m1/a.ts"), "2");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "owned");
+    expect(await verdictCarries(run, "M1", sibling, git(repo, "rev-parse", "HEAD"))).toBe(false);
+  });
+
+  it("freshFailures and missingBaselines name the lines the base lacks", async () => {
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x", "FAIL y"] }));
+    appendCheckRecord(repo, rec({ command: "lint", exit: 1, fails: ["FAIL z"] }));
+    expect(await freshFailures(run, "M1", HEAD)).toEqual([
+      { item: "bun test", lines: ["FAIL y"] },
+      { item: "lint", lines: ["FAIL z"] },
+    ]);
+    expect(await missingBaselines(run, "M1", HEAD)).toEqual(["lint"]);
+  });
+});
+
 describe("machineGate", () => {
   it("refuses a milestone with no check on the commit, naming gate_run", async () => {
     const g = await machineGate(run, "M1", HEAD);
@@ -296,6 +367,44 @@ describe("machineGate", () => {
     expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("`another check`");
   });
 
+  it("a plan Baseline line waives pre-existing lines", async () => {
+    writeFileSync(join(run.dir, "plan.md"), "# P\nBaseline: bun test\n## M1 — first\n");
+    appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+    appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
+    const waived = await machineGate(run, "M1", HEAD);
+    expect(waived.missing).toEqual([]);
+    expect(waived.audit.join("\n")).toContain("`bun test`");
+    appendCheckRecord(repo, rec({ at: "2026-10-21T10:02:00.000Z", exit: 1, fails: ["FAIL x", "FAIL new"] }));
+    expect((await machineGate(run, "M1", HEAD)).missing.join("\n")).toContain("FAIL new");
+  });
+
+  for (const [answer, title, waives] of [
+    ["accept, known red base", "accept with text waives a land park", true],
+    ["accepted", "accepted does not waive a land park", false],
+  ] as const)
+    it(title, async () => {
+      const deps = fakeDeps({ now: () => Date.parse("2026-10-21T10:01:00.000Z") });
+      daemonLauncher.launch = () => 1;
+      appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
+      appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x"] }));
+      const refused = await machineGate(run, "M1", HEAD);
+      expect(refused.missing.join("\n")).toContain("pre-existing");
+      await appendEvent(run, { type: "run.started", ...startedFields });
+      await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+      const question = `land M1: the machine gate on ${HEAD.slice(0, 12)}: ${refused.missing.join("; ")}`;
+      await park(deps, { run: run.id, milestone: "M1", question });
+      await appendEvent(
+        run,
+        { type: "question.parked", unit: "M1", reason: "land", question },
+        new Date(deps.now()),
+      );
+      await answerUnit(deps, { run: run.id, unit: "M1", answer });
+      expect(openQuestions(run)).toEqual([]);
+      const after = await machineGate(run, "M1", HEAD);
+      if (waives) expect(after.missing).toEqual([]);
+      else expect(after.missing.join("\n")).toContain("pre-existing");
+    });
+
   it("lands an accepted red baseline through gate_check, park, answer, and land", async () => {
     const deps = fakeDeps();
     daemonLauncher.launch = () => 1;
@@ -334,8 +443,7 @@ describe("machineGate", () => {
     }
     expect(refused?.code).toBe("E_LAND_GATE");
     expect(refused?.message).toContain("pre-existing");
-    await appendEvent(run, { type: "run.started", ...startedFields });
-    await appendEvent(run, { type: "plan.ready", milestones: PLAN });
+    await appendEvents(run, verifiedLog(head).events);
     const question = refused!.message;
     await park(deps, { run: run.id, milestone: "M1", question });
     await appendEvent(run, { type: "question.parked", unit: "M1", reason: "land", question });

@@ -44,6 +44,18 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
     }
   });
 
+  it("the verifier is not told to stay in the foreground", () => {
+    expect(rolePrompt("verifier", "1.5.0")).not.toContain("Stay in the foreground");
+  });
+
+  it("leaves the milestone's Check to catherd, and runs only what its acceptance lines need", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    expect(text).toContain("The milestone's Check is catherd's");
+    expect(text).toContain(
+      "Run only what your acceptance lines need, each heavy command in `catherd lock --role verifier -- <command>`",
+    );
+  });
+
   it("records HEAD first, puts file:line in FAIL lines and calls a minor issue a NIT", () => {
     const text = rolePrompt("verifier", "1.5.0");
     expect(text).toContain("0. Record git rev-parse HEAD first");

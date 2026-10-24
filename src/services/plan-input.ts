@@ -3,8 +3,10 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import {
+  CHECK_COVERED,
   coverageProblems,
   depthProblems,
+  milestoneSection,
   type PlanDoc,
   type PlanTask,
   parsePlanDoc,
@@ -164,6 +166,22 @@ export function deliveredALines(run: Run, plan: string, m: string): Set<string> 
   if (milestones.size === 1 && milestones.has(m))
     return new Set(numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.id] : [])));
   return milestoneALines(plan, m);
+}
+
+/**
+ * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), in full: the line its section of
+ * plan.md gives the id, else the run's own A-line.
+ */
+export function uncoveredALines(run: Run, m: string): string[] {
+  const plan = read(runPaths(run.dir).plan) ?? "";
+  const section = (milestoneSection(plan, m) ?? "").split("\n");
+  const own = numberedALines(run.meta.aLines);
+  return [...deliveredALines(run, plan, m)].flatMap((id) => {
+    const text =
+      section.find((line) => new RegExp(`^\\s*(?:[-*]\\s+)?${id}\\b`).test(line)) ??
+      own.find((a) => a.id === id)?.line;
+    return text !== undefined && !CHECK_COVERED.test(text) ? [text] : [];
+  });
 }
 
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */

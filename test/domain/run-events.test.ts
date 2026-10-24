@@ -61,6 +61,20 @@ function oneOfEach(): RunEvent[] {
   log.add("cancel.requested", { by: "owner" });
   log.add("effect.failed", { action: "commit", unit: "M1", message: "boom" });
   log.add("report.posted", { kind: "landed", unit: "M1", text: "landed" });
+  log.add("milestone.checked", {
+    milestone: "M1",
+    head: "abc1234",
+    command: "bun test",
+    missing: [],
+    findings: [],
+    uncovered: [],
+    checkOnly: false,
+    verdictCarried: false,
+    startedAt: "2026-10-21T10:00:00.000Z",
+    durationMs: 1200,
+    waitedMs: 0,
+  });
+  log.add("lock.waiting", { unit: "M1.L1", lock: "heavy", holder: null, ahead: 1 });
   log.add("tick", {});
   log.add("run.ended", { outcome: "done", reportPath: "report.md" });
   return log.events;
@@ -111,6 +125,58 @@ describe("run events", () => {
     expect(lines).toContain("M1 has its worktree on branch t-m1");
     expect(lines).toContain("M2 waits for memory: 3100 MB available, 5120 MB needed");
     expect(lines).toContain("M1's branch t-m1 is pushed to origin");
+  });
+
+  it("milestone.checked and lock.waiting parse and describe (plan 40)", () => {
+    const log = makeLog();
+    const green = log.add("milestone.checked", {
+      milestone: "M1",
+      head: "abc1234def",
+      command: "bun test",
+      missing: [],
+      findings: [],
+      uncovered: ["A1 it works"],
+      checkOnly: true,
+      verdictCarried: false,
+      startedAt: "2026-10-21T10:00:00.000Z",
+      durationMs: 1200,
+      waitedMs: 300,
+    });
+    const waiting = log.add("lock.waiting", { unit: "M1.L1", lock: "heavy", holder: "M2.L2", ahead: 2 });
+    expect(RunEventSchema.parse(green)).toEqual(green);
+    expect(RunEventSchema.parse(waiting)).toEqual(waiting);
+    expect(describeEvent(green)).toBe("M1 check passed at abc1234 (covers every A-line)");
+    expect(describeEvent(waiting)).toBe("M1.L1 waits for the heavy lock, held by M2.L2 (2 ahead)");
+    expect(describeEvent({ ...green, findings: [finding] })).toBe("M1 check failed at abc1234: 1 finding(s)");
+    expect(describeEvent({ ...green, missing: ["test/x.test.ts:4"] })).toBe(
+      "M1 check at abc1234: 1 line(s) with no baseline",
+    );
+    expect(describeEvent({ ...green, command: null, checkOnly: false })).toBe(
+      "M1 has no check; its verifier gates it",
+    );
+    expect(describeEvent({ ...waiting, holder: null })).toBe("M1.L1 waits for the heavy lock (2 ahead)");
+  });
+
+  it("parses a disk deferral and the timings of a check (plan 40)", () => {
+    const log = makeLog();
+    const disk = log.add("tree.deferred", {
+      milestone: "M2",
+      availableMb: 1024,
+      needMb: 4096,
+      resource: "disk",
+    });
+    expect(RunEventSchema.parse(disk)).toEqual(disk);
+    expect(describeEvent(disk)).toBe("M2 waits for disk: 1024 MB available, 4096 MB needed");
+    const ran = log.add("check.ran", {
+      lane: "M1.L1",
+      exit: 0,
+      tail: "",
+      foreign: [],
+      startedAt: "2026-10-21T10:00:00.000Z",
+      durationMs: 900,
+      waitedMs: 0,
+    });
+    expect(RunEventSchema.parse(ran)).toEqual(ran);
   });
 
   it("reads a preflight.done without lint as no lint, and counts lint in its line (plan 34)", () => {

@@ -20,6 +20,7 @@ import {
   readChecks,
 } from "../../src/services/milestone-check.ts";
 import { protocolNext } from "../../src/services/protocol.ts";
+import { appendEvents } from "../../src/services/run-events-store.ts";
 import {
   appendAgentRun,
   appendRecord,
@@ -30,6 +31,7 @@ import {
 } from "../../src/services/run-store.ts";
 import { writeDeliveryAttempt } from "../../src/infra/delivery.ts";
 import { result, recordAgentRun, startRun } from "../../src/services/run-service.ts";
+import { endDispatch, finishLane, type Log, runningLog, startDispatch } from "../domain/run-fixtures.ts";
 import { snapshotEnv } from "../helpers.ts";
 import {
   fakeDeps,
@@ -72,6 +74,50 @@ const passingCheck = (run: Run, head: string): CheckRecord => ({
   log: "",
   secrets: "clean",
 });
+
+/** The milestone's reviewer, clean, as the daemon's log holds it (plan 40 D1). */
+function reviewedClean(log: Log): void {
+  const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+  endDispatch(log, id, { name: "reviewer-M1", unit: "M1", findings: [] });
+}
+
+/** The daemon's check of `head` ran green, as the log holds it. */
+function checkedGreen(log: Log, head: string, checkOnly: boolean): void {
+  log.add("milestone.checked", {
+    milestone: "M1",
+    head,
+    command: "true",
+    missing: [],
+    findings: [],
+    uncovered: ["A1 it works"],
+    checkOnly,
+    verdictCarried: false,
+    startedAt: "2026-10-21T10:00:00.000Z",
+    durationMs: 1,
+    waitedMs: 0,
+  });
+}
+
+/** The reviewer's record, which the land gate reads beside the daemon's events. */
+async function reviewerRecorded(run: Run): Promise<void> {
+  const at = new Date().toISOString();
+  await appendRecord(
+    run,
+    makeRecord({
+      runId: run.id,
+      dispatchId: newDispatchId(),
+      name: "reviewer-M1",
+      role: "reviewer",
+      lane: null,
+      rung: "codex:gpt-6-sol#high",
+      startedAt: at,
+      endedAt: at,
+      tokens: { input: 0, cached: 0, output: 0 },
+      changedOwned: [],
+      access: "read-only",
+    }),
+  );
+}
 
 async function refusal(p: Promise<unknown>): Promise<CatherdError> {
   try {
@@ -648,7 +694,7 @@ describe("the land gate (spec 1.1 §6)", () => {
     expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).not.toContain("M1 |");
   });
 
-  it("a pass on an older commit does not carry", async () => {
+  it("a gate item passed on unchanged content carries to a new head", async () => {
     const { repo, run } = freshRun();
     commitFiles(repo, ["src/a.ts"]);
     const item = {
@@ -662,9 +708,81 @@ describe("the land gate (spec 1.1 §6)", () => {
     await gatePass(fakeDeps(), { ...item, evidence: "passed" });
     const c = commitFiles(repo, ["docs/later.md"]);
     await passGate(run, "M1");
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+  });
+
+  it("a BLOCKED verdict still refuses a daemon land", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const head = fullOf(repo, c);
+    const log = runningLog();
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: head });
+    reviewedClean(log);
+    checkedGreen(log, head, false);
+    await appendEvents(run, log.events);
+    await reviewerRecorded(run);
+    appendCheckRecord(repo, passingCheck(run, head));
+    const dispatchId = newDispatchId();
+    const replyPath = `roles/verifier-M1/${dispatchId}/reply.md`;
+    mkdirSync(dirname(join(run.dir, replyPath)), { recursive: true });
+    writeFileSync(join(run.dir, replyPath), "VERDICT: BLOCKED: environment — the check host is gone\n");
+    await appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId,
+        name: "verifier-M1",
+        role: "verifier",
+        replyPath,
+        endedAt: new Date().toISOString(),
+      }),
+    );
     const e = await refusal(land(fakeDeps(), landing(run.id, c)));
     expect(e.code).toBe("E_LAND_GATE");
-    expect(e.message).toContain("unit tests");
+    expect(e.message).toContain("blocked by the environment");
+  });
+
+  it("a check-only milestone lands with no verifier record", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const head = fullOf(repo, c);
+    const log = runningLog();
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: head });
+    reviewedClean(log);
+    checkedGreen(log, head, true);
+    await appendEvents(run, log.events);
+    await reviewerRecorded(run);
+    appendCheckRecord(repo, passingCheck(run, head));
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
+  });
+
+  it("an owner accept stands for the verifier's PASS", async () => {
+    const { repo, run } = freshRun();
+    const c = commitFiles(repo, ["src/a.ts"]);
+    const head = fullOf(repo, c);
+    const log = runningLog();
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: head });
+    reviewedClean(log);
+    checkedGreen(log, head, false);
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "fail",
+      findings: [{ label: "BLOCKER", text: "BLOCKER src/a/x.ts:1 — A1 is not met", file: "src/a/x.ts" }],
+    });
+    log.add("question.parked", { unit: "M1", question: "A1 is not met", reason: "blocker" });
+    log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
+    await appendEvents(run, log.events);
+    await reviewerRecorded(run);
+    appendCheckRecord(repo, passingCheck(run, head));
+    expect((await land(fakeDeps(), landing(run.id, c))).ledger).toStartWith("M1 |");
   });
 
   it("every item passed on the head lands", async () => {
@@ -737,7 +855,8 @@ describe("the land gate (spec 1.1 §6)", () => {
       const file = gatesFile(repo);
       const text = readFileSync(file, "utf8");
       const row = JSON.parse(text.trim().split("\n").at(-1)!);
-      writeFileSync(file, text + JSON.stringify({ ...row, commit }) + "\n");
+      // the malformed row is the only pass: an older pass with unchanged content would carry (plan 40 D3(c))
+      writeFileSync(file, JSON.stringify({ ...row, commit }) + "\n");
       const e = await refusal(land(fakeDeps(), landing(run.id, c)));
       expect(e.code).toBe("E_LAND_GATE");
       expect(e.message).toContain("unit tests");

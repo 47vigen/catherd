@@ -5,6 +5,7 @@ import { assertId, ID_PATTERN, parseRung } from "../domain/ids.ts";
 import { quotaUsage } from "../domain/select.ts";
 import { assertLaneHeader } from "../domain/lane.ts";
 import type { Role } from "../domain/roles.ts";
+import type { MilestoneState } from "../domain/run-state.ts";
 import { cell, coveredMs } from "../domain/util.ts";
 import {
   type ClimbReason,
@@ -41,7 +42,7 @@ import {
   milestoneCommits,
   milestoneVerifier,
 } from "./milestones.ts";
-import { acceptedBaselineItem, machineGate } from "./milestone-check.ts";
+import { acceptedBaselineItem, machineGate, verdictCarries } from "./milestone-check.ts";
 import type { Deps, Verdict } from "./ports.ts";
 import {
   appendKnowledge,
@@ -59,6 +60,7 @@ import {
 import { writeDigest } from "./protocol.ts";
 import { pauseSpans } from "./pause.ts";
 import { openQuestions, parkedSpans } from "./questions.ts";
+import { isDaemonRun, replayRun } from "./run-events-store.ts";
 import { runProfile } from "./run-pin.ts";
 import { type Notes, type NotesPatch, patchNotes, refreshState } from "./state.ts";
 
@@ -339,6 +341,16 @@ export const LAND_SKIPS = ["docs-only", "no-code"] as const;
 export type LandSkip = (typeof LAND_SKIPS)[number];
 
 /**
+ * Plan 40 D1: a daemon run's verdict stands on the landed commit when the replayed milestone passed it there, when
+ * that PASS carries over (D3(b)), or when the milestone is check-only and its check ran on that commit.
+ */
+async function verdictSettles(run: Run, m: string, state: MilestoneState, landed: string): Promise<boolean> {
+  if (state.checkOnly && state.checkedOn === landed) return true;
+  if (state.verifierPassedOn === null) return false;
+  return state.verifierPassedOn === landed || (await verdictCarries(run, m, state.verifierPassedOn, landed));
+}
+
+/**
  * Spec 1.1 §6: a milestone lands only with a reviewer record and a verifier verdict since its lanes
  * started, or with a `skip` the commit range bears out. Throws E_LAND_GATE naming what is missing.
  */
@@ -407,13 +419,17 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
         fix: `surface it to the owner: park(run, "${m}", <the blocker and its probe>); once the environment is fixed, run a fresh verifier on ${m}. A fix round or a climb cannot help`,
       },
     );
+  // plan 40 D1: a daemon run's verdict is its replayed milestone's, which knows the commit each verdict is about
+  const replayed = isDaemonRun(run) ? replayRun(run).milestones.find((s) => s.id === m) : undefined;
+  const landed = await fullCommit(run, commit);
+  const settled = replayed ? await verdictSettles(run, m, replayed, landed) : verdict?.passed === true;
   const missing = [
     ...(reviewerPassed(run, m, start)
       ? []
       : [
           `a reviewer record (a dispatch named reviewer-${m}, or record_agent_run with role reviewer and that name, status ok)`,
         ]),
-    ...(verdict?.passed
+    ...(settled
       ? []
       : [
           `a verifier verdict (record_agent_run with role verifier named exactly verifier-${m}, status ok; a headless verifier-${m}'s reply opening VERDICT: PASS)${verdict ? `: the latest, ${verdict.name}${verdict.headless ? " (headless)" : ""}, is ${verdict.verdict}` : ""}`,
@@ -433,9 +449,8 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
       },
     );
   // plan 30b: the verdict must be about the commit being landed, and catherd's own check must have run on it
-  const landed = await fullCommit(run, commit);
   const checked = verdict?.head ?? null;
-  if (verdict && checked === null)
+  if (!replayed && verdict && checked === null)
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: ${verdict.name}'s PASS names no HEAD, so it cannot be told to cover ${landed.slice(0, 12)}`,
@@ -443,7 +458,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
         fix: `a headless verifier's reply ends with HEAD: <sha>; run a fresh verifier-${m} on the committed milestone (${landed.slice(0, 7)})`,
       },
     );
-  if (verdict && checked !== null && !landed.startsWith(checked))
+  if (!replayed && verdict && checked !== null && !landed.startsWith(checked))
     throw new CatherdError(
       "E_LAND_GATE",
       `land ${m}: ${verdict.name} checked ${checked.slice(0, 12)}, and the commit being landed is ${landed.slice(0, 12)}: a PASS from before a later commit does not count`,
@@ -472,8 +487,7 @@ async function gate(run: Run, m: string, commit: string, skip: LandSkip | undefi
           pass.item === item.item &&
           pass.command === item.command &&
           pass.commit.length > 0 &&
-          !pass.commit.includes("+") &&
-          landed.startsWith(pass.commit),
+          !pass.commit.includes("+"),
       );
     if (!passed && !(await acceptedBaselineItem(run, m, landed, item.command, item.item)))
       unpassed.push(item.item);
