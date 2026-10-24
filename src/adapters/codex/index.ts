@@ -15,6 +15,7 @@ import {
   type Probe,
   type RunRequest,
   type SpawnPlan,
+  type Spent,
 } from "../backend.ts";
 import { type CliResult, runCli } from "../cli.ts";
 import { scratchShell, writableRoots } from "../access.ts";
@@ -150,6 +151,22 @@ function finalize(run: FinishedRun): Outcome {
           },
     // plan 22: -o keeps the last turn's message; a later turn never overwrites the report
     ...(reply !== run.reply ? { reply } : {}),
+  };
+}
+
+/**
+ * plan 40: a resumed thread's usage counts the turns before this dispatch too, so what earlier records on the
+ * thread counted comes off, never below zero (a record written before this fix counted more).
+ */
+async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outcome> {
+  if (run.request.thread === null) return o;
+  return {
+    ...o,
+    tokens: {
+      input: Math.max(0, o.tokens.input - prior.tokens.input),
+      cached: Math.max(0, o.tokens.cached - prior.tokens.cached),
+      output: Math.max(0, o.tokens.output - prior.tokens.output),
+    },
   };
 }
 
@@ -289,6 +306,7 @@ export const codexAdapter: BackendAdapter = {
   },
   transcript: codexTranscript,
   finalize,
+  settle,
   enforcement: { "read-only": "enforced", "workspace-write": "enforced", full: "enforced" },
   errors: { limit: CODEX_LIMIT, tooOld: CODEX_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },

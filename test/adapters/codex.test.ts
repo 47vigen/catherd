@@ -40,6 +40,12 @@ const finished = (eventLines: string[], over: Partial<FinishedRun> = {}): Finish
   ...over,
 });
 
+const completedTurn = (input: number, cached = 0, output = 0) =>
+  JSON.stringify({
+    type: "turn.completed",
+    usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output },
+  });
+
 describe("codex parse", () => {
   it("reports a tool call opening and closing, so a quiet one keeps the run busy", () => {
     const [started, completed] = lines("ok-with-reconnect.jsonl").filter((l) => l.includes('"id":"item_1"'));
@@ -166,7 +172,7 @@ describe("codex plan", () => {
 });
 
 describe("codex finalize", () => {
-  it("does not fail a run for a reconnect error event, and sums tokens", () => {
+  it("does not fail a run for a reconnect error event, and records its tokens", () => {
     const o = codexAdapter.finalize(finished(lines("ok-with-reconnect.jsonl")));
     expect(o.status).toBe("ok");
     expect(o.thread).toBe("01a0d0d4-d0a6-71a1-983c-82a9169200b4");
@@ -198,11 +204,45 @@ describe("codex finalize", () => {
     expect(codexAdapter.finalize(finished(lines("ok-with-reconnect.jsonl"))).reply).toBeUndefined();
   });
 
-  it("sums tokens over turns", () => {
+  it("takes the last turn's usage over turns: codex reports the thread's running total", () => {
     expect(codexAdapter.finalize(finished(lines("two-turns.jsonl"))).tokens).toEqual({
-      input: 300,
-      cached: 190,
-      output: 30,
+      input: 200,
+      cached: 150,
+      output: 20,
+    });
+  });
+
+  it("a fresh thread records its last usage", () => {
+    const o = codexAdapter.finalize(finished([completedTurn(100), completedTurn(250)]));
+    expect(o.tokens.input).toBe(250);
+  });
+
+  it("a fresh thread's settle returns the outcome unchanged", async () => {
+    const run = finished([completedTurn(100), completedTurn(250)]);
+    const o = codexAdapter.finalize(run);
+    const prior = { tokens: { input: 40, cached: 0, output: 0 }, costUsd: 0 };
+    expect(await codexAdapter.settle?.(o, run, prior)).toBe(o);
+  });
+
+  it("a resumed dispatch records the delta", async () => {
+    const run = finished([completedTurn(5_568_331, 5_000_000, 9_000)], {
+      request: req({ thread: "019a-thread-1" }),
+    });
+    const prior = { tokens: { input: 4_430_000, cached: 4_000_000, output: 8_000 }, costUsd: 0 };
+    expect((await codexAdapter.settle?.(codexAdapter.finalize(run), run, prior))?.tokens).toEqual({
+      input: 1_138_331,
+      cached: 1_000_000,
+      output: 1_000,
+    });
+  });
+
+  it("a record written before the fix over-counts: the delta clamps at zero, part by part", async () => {
+    const run = finished([completedTurn(100, 40, 10)], { request: req({ thread: "019a-thread-1" }) });
+    const prior = { tokens: { input: 900, cached: 30, output: 5 }, costUsd: 0 };
+    expect((await codexAdapter.settle?.(codexAdapter.finalize(run), run, prior))?.tokens).toEqual({
+      input: 0,
+      cached: 10,
+      output: 5,
     });
   });
 
