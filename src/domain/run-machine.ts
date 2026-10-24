@@ -9,6 +9,7 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
+  dependsOn,
   integrateName,
   isFinished,
   type LaneState,
@@ -51,6 +52,7 @@ export type Action =
   | { type: "judge"; input: JudgeInput }
   | { type: "classify"; dispatchId: string }
   | { type: "park"; unit: string; question: string; reason: ParkReason }
+  | { type: "machineCheck"; milestone: string; commit: string }
   | { type: "land"; milestone: string; knownIssues: string[] }
   | { type: "checkMerged"; milestone: string }
   | { type: "integrate"; milestone: string }
@@ -76,6 +78,7 @@ export function actionKey(a: Action): string {
     case "readPlan":
       return "readPlan";
     case "route":
+    case "machineCheck":
     case "land":
     case "checkMerged":
     case "integrate":
@@ -117,6 +120,7 @@ export function unitOf(a: Action, s?: RunState): string {
     case "classify":
       return s?.dispatches[a.dispatchId]?.unit ?? RUN_UNIT;
     case "route":
+    case "machineCheck":
     case "land":
     case "checkMerged":
     case "integrate":
@@ -171,10 +175,13 @@ export function confirms(e: RunEvent): string[] {
       return [`park:${e.unit}`];
     case "question.reminded":
       return [`remind:${e.unit}:${e.n}`];
+    case "milestone.checked":
+      return [`machineCheck:${e.milestone}`];
     case "milestone.landed":
     case "land.refused":
-    case "base.behind":
       return [`land:${e.milestone}`];
+    case "base.behind":
+      return [`land:${e.milestone}`, `machineCheck:${e.milestone}`];
     case "integrate.done":
     case "integrate.conflict":
       return [`integrate:${e.milestone}`];
@@ -294,7 +301,7 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
 function waitsForSibling(s: RunState, l: LaneState): boolean {
   if (l.lastReason !== "check_broken" || l.stopRun !== 1) return false;
   return lanesOf(s, l.milestone).some((o) => {
-    if (o.id === l.id || o.after.includes(l.id)) return false;
+    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
     if (o.status === "running") return true;
     if (o.status !== "pending") return false;
     const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
@@ -330,8 +337,11 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
       out.push({ type: "classify", dispatchId: l.classify.dispatchId });
       continue;
     }
-    if (l.status === "checking" && !hasLive(s, laneName(l))) out.push({ type: "fastCheck", lane: l.id });
-    else if (l.status === "parked") {
+    if (l.status === "checking" && !hasLive(s, laneName(l))) {
+      // a check broken by a sibling's files reruns once that sibling is done
+      if (l.waitOn.every((id) => s.lanes[id] === undefined || s.lanes[id]?.status === "done"))
+        out.push({ type: "fastCheck", lane: l.id });
+    } else if (l.status === "parked") {
       if (!judgeOpen(s, l.id))
         out.push(...onLaneStopped(s, l, l.awaiting ?? (l.top ? "unexpected" : "question")));
     } else if (l.status === "pending") {
@@ -466,6 +476,9 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
     case "review":
       return reviewActions(s, m);
     case "verifying":
+      // the daemon's check of the commit comes first; the verifier is owed only for what it does not settle
+      if (m.commit !== null && m.checkedOn !== m.commit)
+        return [{ type: "machineCheck", milestone: m.id, commit: m.commit }];
       if (m.commit !== null && m.commit === m.verifierFailedOn)
         return [
           {
@@ -682,6 +695,7 @@ function owedActions(s: RunState): Action[] {
 const PAUSED_STEPS = new Set<Action["type"]>([
   "dispatch",
   "judge",
+  "machineCheck",
   "land",
   "pushBranch",
   "integrate",

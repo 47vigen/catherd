@@ -11,7 +11,7 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       "Run independent items side by side, each heavy one wrapped in catherd lock",
       "catherd lock --role verifier -- <command>",
       "Build each commit's images once, and reuse them for the boot check and the acceptance suite.",
-      "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
+      "- One line per gate item: `PASS <item>`, `FAIL <item> — the decisive output`, or carried over from <commit>.",
     ])
       expect(text).toContain(s);
     expect(text.split("\n")[1]).toStartWith("You verify work you did not write.");
@@ -42,6 +42,18 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       expect(text).toContain("Read and write it only through catherd's read_run_file and write_run_file");
       expect(text).toContain("catherd run-file write <run> <path> with the content on stdin");
     }
+  });
+
+  it("the verifier is not told to stay in the foreground", () => {
+    expect(rolePrompt("verifier", "1.5.0")).not.toContain("Stay in the foreground");
+  });
+
+  it("leaves the milestone's Check to catherd, and runs only what its acceptance lines need", () => {
+    const text = rolePrompt("verifier", "1.5.0");
+    expect(text).toContain("The milestone's Check is catherd's");
+    expect(text).toContain(
+      "Run only what your acceptance lines need, each heavy command in `catherd lock --role verifier -- <command>`",
+    );
   });
 
   it("records HEAD first, puts file:line in FAIL lines and calls a minor issue a NIT", () => {

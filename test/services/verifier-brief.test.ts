@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GATE_NOTES_HEADING, gateNotes, VERIFIER_GATE_RULES } from "../../src/domain/gate-brief.ts";
-import { replyContract, rolePrompt } from "../../src/domain/role-prompts.ts";
+import { replyContract, roleSections, rolePrompt } from "../../src/domain/role-prompts.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { admit } from "../../src/services/admission.ts";
 import { setGateEnv } from "../../src/services/gate-env.ts";
@@ -23,9 +23,10 @@ describe("the verifier's brief (plan 23)", () => {
     expect(milestoneOfName("verifier")).toBeNull();
   });
 
-  it("tells every verifier to run the full check through gate_run on the committed HEAD", () => {
+  it("tells a verifier with no Check to run the full check through gate_run on the committed HEAD", () => {
     const rules = VERIFIER_GATE_RULES.join("\n");
     expect(rules).toContain("gate_run");
+    expect(rules).toContain("gate_run (or catherd gate run) is only for a milestone with no Check line");
     expect(rules).toContain("committed HEAD");
     expect(rules).toContain("every top-level `&&` part as its own item");
     expect(rules).toContain("gate_pass with the same milestone");
@@ -39,9 +40,7 @@ describe("the verifier's brief (plan 23)", () => {
     expect(rules).toContain("docker image prune -f");
     // the native verifier's agent file carries the same rules
     expect(rolePrompt("verifier", "1.0.0")).toContain(rules);
-    expect(gateNotes({ milestone: null, recorded: [], env: [] })).toBe(
-      [GATE_NOTES_HEADING, "", ...VERIFIER_GATE_RULES.map((r) => `- ${r}`)].join("\n"),
-    );
+    expect(gateNotes({ milestone: null, recorded: [], env: [] })).toBe("");
   });
 
   it("adds the recorded items, the failed ones to re-check first with a cap, and the gate env, once", async () => {
@@ -69,7 +68,8 @@ describe("the verifier's brief (plan 23)", () => {
   });
 
   it("is what dispatch writes for a verifier, before its reply contract", async () => {
-    const { run } = freshRun();
+    const { repo, run } = freshRun();
+    await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
     process.env.PATH = simPath();
     Object.assign(process.env, withScenario({ reply: "VERDICT: PASS" }).env);
     const view = testView();
@@ -86,5 +86,14 @@ describe("the verifier's brief (plan 23)", () => {
     const text = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(text).toContain(GATE_NOTES_HEADING);
     expect(text).toEndWith(`\n\n<reply_contract>\n${replyContract("verifier")}\n</reply_contract>\n`);
+  });
+
+  it("the gate rules appear once", async () => {
+    const { repo, run } = freshRun();
+    await setGateEnv(repo, "DOCKER_HOST", { value: "unix:///tmp/d.sock" });
+    const brief = await verifierBrief(run, "verifier", "verifier-M1", "Verify M1.");
+    expect(brief).toContain(GATE_NOTES_HEADING);
+    const first = VERIFIER_GATE_RULES[0] as string;
+    expect(roleSections("verifier", "1.0.0", { task: brief }).split(first)).toHaveLength(2);
   });
 });

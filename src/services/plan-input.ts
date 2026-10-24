@@ -3,8 +3,10 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CatherdError } from "../domain/errors.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import {
+  CHECK_COVERED,
   coverageProblems,
   depthProblems,
+  milestoneSection,
   type PlanDoc,
   type PlanTask,
   parsePlanDoc,
@@ -84,21 +86,64 @@ function planFiles(run: Run): { path: string; doc: PlanDoc }[] {
 /** The run's plan as documents: the copies in `run.started.plan` order; else plan.md; none when neither exists. */
 export const planDocs = (run: Run): PlanDoc[] => planFiles(run).map((f) => f.doc);
 
-/** Each plan file's preamble, which applies to every task, for every role but the architect and the judge. */
-export function planContext(run: Run, role: Role): string | null {
+/** The `## ` sections of a taskless plan file that a milestone's tasks cite: by `§<n>`, or by quoting the heading text. */
+function citedSections(text: string, tasks: PlanTask[]): string[] {
+  const cited = new Set(tasks.flatMap((t) => [...t.text.matchAll(/§(\d+)/g)].map((m) => m[1])));
+  return text
+    .split(/^(?=##[ \t]+(?!#))/m)
+    .filter((section) => {
+      if (!/^##[ \t]/.test(section)) return false; // the text before the first `## ` is no section
+      const head = (section.split("\n", 1)[0] ?? "").replace(/^##[ \t]+/, "");
+      const n = /^(?:§)?(\d+)\b/.exec(head)?.[1];
+      if (n !== undefined && cited.has(n)) return true;
+      const words = head.replace(/^(?:§\d+|\d+\.?)[ \t]*/, "").trim();
+      return words.length >= 4 && tasks.some((t) => t.text.includes(words));
+    })
+    .map((s) => s.trim());
+}
+
+/**
+ * The preambles a role reads, for every role but the architect and the judge. A milestone's role gets those of the
+ * plan files its tasks come from, and of a taskless file only the sections they cite (plan 40 D15); a run-level role
+ * (no milestone), or a milestone with no tasks, gets every preamble.
+ */
+export function planContext(run: Run, role: Role, milestone?: string | null): string | null {
   if (role === "architect" || role === "judge" || !isDaemonRun(run)) return null;
-  const files = planFiles(run);
-  const parts = files.flatMap(({ doc }) => {
-    if (doc.tasks.length === 0)
-      return [`The plan file ${doc.name}, which every task follows:\n\n${doc.text.trim()}`];
-    const pre = doc.preamble.trim();
-    return pre ? [`The plan's preamble (${doc.name}), which applies to every task:\n\n${pre}`] : [];
+  const tasks = milestone ? milestoneTasks(run, milestone) : [];
+  const parts = planFiles(run).flatMap(({ path, doc }) => {
+    let body: string | null;
+    if (tasks.length === 0) {
+      body =
+        doc.tasks.length === 0
+          ? `The plan file ${doc.name}, which every task follows:\n\n${doc.text.trim()}`
+          : doc.preamble.trim() &&
+            `The plan's preamble (${doc.name}), which applies to every task:\n\n${doc.preamble.trim()}`;
+    } else if (doc.tasks.length === 0) {
+      const sections = citedSections(doc.text, tasks);
+      body = sections.length
+        ? `The plan file ${doc.name}, the sections these tasks cite:\n\n${sections.join("\n\n")}`
+        : null;
+    } else {
+      body =
+        tasks.some((t) => t.doc === doc.name) && doc.preamble.trim()
+          ? `The plan's preamble (${doc.name}), which applies to every task:\n\n${doc.preamble.trim()}`
+          : null;
+    }
+    return body ? [{ path, body }] : [];
   });
   if (parts.length === 0) return null;
-  const text = parts.join("\n\n");
-  return text.length > PLAN_CONTEXT_MAX
-    ? `The run's plan files are too long to repeat here; read them before you start, with read_run_file: ${files.map((f) => f.path).join(", ")}`
-    : text;
+  let room = PLAN_CONTEXT_MAX;
+  const out: string[] = [];
+  for (const { path, body } of parts) {
+    const kept = body.slice(0, Math.max(room, 0));
+    room -= body.length + 2;
+    out.push(
+      kept.length === body.length
+        ? body
+        : `${kept}\n[… ${body.length - kept.length} characters of ${path} cut: read it with read_run_file]`,
+    );
+  }
+  return out.join("\n\n");
 }
 
 const natural = (a: string, b: string): number => a.localeCompare(b, "en", { numeric: true });
@@ -164,6 +209,32 @@ export function deliveredALines(run: Run, plan: string, m: string): Set<string> 
   if (milestones.size === 1 && milestones.has(m))
     return new Set(numberedALines(run.meta.aLines).flatMap((a) => (a.id ? [a.id] : [])));
   return milestoneALines(plan, m);
+}
+
+/** A plan line's indent and list marker, which an A-line's text does not carry. */
+const LIST_MARKER = /^\s*(?:[-*]\s+)?/;
+
+/**
+ * The A-lines milestone `m` delivers, in full: the line its section of plan.md gives the id, else the run's own
+ * A-line, without its list marker. Whether a Check covers them is the caller's to say (plan 40 D2).
+ */
+export function deliveredALineTexts(run: Run, m: string): string[] {
+  const plan = read(runPaths(run.dir).plan) ?? "";
+  const section = (milestoneSection(plan, m) ?? "").split("\n");
+  const own = numberedALines(run.meta.aLines);
+  return [...deliveredALines(run, plan, m)].flatMap((id) => {
+    const line =
+      section.find((l) => new RegExp(`${LIST_MARKER.source}${id}\\b`).test(l)) ??
+      own.find((a) => a.id === id)?.line;
+    return line === undefined ? [] : [line.replace(LIST_MARKER, "")];
+  });
+}
+
+/**
+ * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), as `deliveredALineTexts` gives them.
+ */
+export function uncoveredALines(run: Run, m: string): string[] {
+  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text));
 }
 
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */

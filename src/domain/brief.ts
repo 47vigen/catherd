@@ -17,6 +17,8 @@ export interface BriefContext {
   version: string;
   /** the plan's preamble, which applies to every task (plan 32); null when the run has none for this role */
   context: string | null;
+  /** a resumed dispatch: its thread holds the role, team and context already, so only the task and contract go */
+  resumed?: boolean;
 }
 
 /** The CLI form of each role server tool, which any role can run from its shell. */
@@ -102,5 +104,9 @@ export function composeBrief(brief: string, c: BriefContext): string {
   const task = [body, ...(c.lane ? [laneBlock(c.lane.id, c.lane.text)] : []), roleNotes(c)]
     .filter(Boolean)
     .join("\n\n");
-  return `${roleSections(c.role, c.version, { context: c.context, task })}\n`;
+  return `${roleSections(c.role, c.version, {
+    context: c.context,
+    task,
+    only: c.resumed ? ["task", "reply_contract"] : undefined,
+  })}\n`;
 }

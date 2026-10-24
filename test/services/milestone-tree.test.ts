@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
+  baseTree,
   branchPusher,
   claimTree,
   removeTree,
@@ -171,6 +172,32 @@ describe("claimTree", () => {
   it("refuses a run without a base", async () => {
     const { run } = freshRun();
     expect((await refusal(claimTree(deps, run, "M1", { known: false }))).code).toBe("E_INPUT_INVALID");
+  });
+});
+
+describe("baseTree", () => {
+  it("is a detached worktree of the base commit, set up as a milestone's own, and gone after remove", async () => {
+    const { repo, run } = branchRun();
+    plan(run, "# P\nSetup: echo ok > setup.txt\n");
+    await claimTree(deps, run, "M1", { known: false });
+    const b = await baseTree(deps, run, "M1");
+    expect(b.dir).toBe(join(runPaths(run.dir).scratch, "base-M1"));
+    expect(sh(b.dir, "rev-parse", "HEAD")).toBe(sh(repo, "rev-parse", "origin/main"));
+    expect(existsSync(join(b.dir, "setup.txt"))).toBe(true);
+    await b.remove();
+    expect(existsSync(b.dir)).toBe(false);
+    expect(sh(repo, "worktree", "list")).not.toContain("base-M1");
+  });
+
+  it("removes the baseline tree when its Setup: fails, and throws E_TREE", async () => {
+    const { run } = branchRun();
+    plan(run, "# P\nSetup: true\n");
+    await claimTree(deps, run, "M1", { known: false });
+    plan(run, "# P\nSetup: echo boom; exit 3\n");
+    const e = await refusal(baseTree(deps, run, "M1"));
+    expect(e.code).toBe("E_TREE");
+    expect(e.message).toMatch(/exited 3/);
+    expect(existsSync(join(runPaths(run.dir).scratch, "base-M1"))).toBe(false);
   });
 });
 

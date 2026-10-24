@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkBase, checkLimits, readChecks, runMilestoneCheck } from "../../src/services/milestone-check.ts";
+import { type LockWait, withRoleLock } from "../../src/infra/heavy-lock.ts";
+import {
+  checkBase,
+  type CheckJob,
+  checkLimits,
+  execMilestoneCheck,
+  readChecks,
+  runMilestoneCheck,
+} from "../../src/services/milestone-check.ts";
 import { claimTree } from "../../src/services/milestone-tree.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
@@ -92,6 +100,46 @@ describe("runMilestoneCheck", () => {
     expect(readChecks(repo).map((r) => r.command)).toEqual([first, second]);
   });
 
+  it("a folder item carries across a commit outside it", async () => {
+    mkdirSync(join(repo, "web"));
+    writeFileSync(join(repo, "web", "a.txt"), "w");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web");
+    const c1 = git(repo, "rev-parse", "HEAD");
+    const command = "(cd web && true)";
+    expect(await runMilestoneCheck({ ...i, command })).toMatchObject({ cached: false, record: { head: c1 } });
+    mkdirSync(join(repo, "src"));
+    writeFileSync(join(repo, "src", "x.ts"), "x");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "src");
+    const c2 = git(repo, "rev-parse", "HEAD");
+    expect(await runMilestoneCheck({ ...i, command })).toMatchObject({
+      cached: true,
+      record: { head: c2, carriedFrom: c1, exit: 0 },
+    });
+    writeFileSync(join(repo, "web", "b.txt"), "b");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web again");
+    const c3 = git(repo, "rev-parse", "HEAD");
+    const fresh = await runMilestoneCheck({ ...i, command });
+    expect(fresh).toMatchObject({ cached: false, record: { head: c3 } });
+    expect(fresh.running === false && fresh.record.carriedFrom).toBeUndefined();
+  });
+
+  it("a folder item does not carry across a rename out of it", async () => {
+    mkdirSync(join(repo, "web"));
+    writeFileSync(join(repo, "web", "a.ts"), "export const a = 1;\n".repeat(20));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web");
+    const command = "(cd web && true)";
+    await runMilestoneCheck({ ...i, command });
+    mkdirSync(join(repo, "src"));
+    git(repo, "mv", "web/a.ts", "src/a.ts");
+    git(repo, "commit", "-q", "-m", "move");
+    const r = await runMilestoneCheck({ ...i, command });
+    expect(r.running === false && r.record.carriedFrom).toBeUndefined();
+  });
+
   it("refuses tracked uncommitted changes: a record names a commit", async () => {
     writeFileSync(join(repo, "tracked.txt"), "edit");
     const e = await runMilestoneCheck(i).catch((x) => x);
@@ -142,6 +190,83 @@ describe("runMilestoneCheck", () => {
     const r = await runMilestoneCheck({ ...i, command: "echo 'FAIL a'; exit 1" });
     expect(r.running === false && r.hints?.[0]).toContain("git worktree add --detach");
     expect(r.running === false && r.missing[0]).toContain("exits 1");
+  });
+
+  it("a nested catherd lock sees CATHERD_LOCK_HELD, so it runs at once", async () => {
+    const r = await runMilestoneCheck({ ...i, command: "printenv CATHERD_LOCK_HELD" });
+    expect(r.running === false && readFileSync(r.record.log, "utf8").trim()).toBe("1");
+  });
+
+  it("a restarted caller waits for the same worker, and hears the lock the worker waits on", async () => {
+    let inside = () => {};
+    const entered = new Promise<void>((resolve) => (inside = resolve));
+    let release = () => {};
+    const held = withRoleLock("verifier", "run:other", () => {
+      inside();
+      return new Promise<void>((resolve) => (release = resolve));
+    });
+    await entered;
+    checkLimits.waitMs = 50;
+    expect(await runMilestoneCheck(i)).toMatchObject({ running: true });
+    checkLimits.waitMs = 60_000;
+    const heard: (LockWait | null)[] = [];
+    const r = await runMilestoneCheck(i, {
+      onWait: (w) => {
+        heard.push(w);
+        if (w) release();
+      },
+    });
+    await held;
+    expect(r).toMatchObject({ running: false, record: { exit: 0 } });
+    expect(heard.find((w) => w !== null)).toMatchObject({ lock: "role-verifier", holder: "run:other" });
+  });
+});
+
+describe("the time a check takes", () => {
+  const job = (command: string): CheckJob => ({
+    run: run.id,
+    repo,
+    cwd: repo,
+    milestone: "M1",
+    command,
+    head: HEAD,
+    base: BASE,
+    baseline: false,
+  });
+
+  it("durationMs leaves out the lock wait", async () => {
+    let inside = () => {};
+    const entered = new Promise<void>((resolve) => (inside = resolve));
+    let release = () => {};
+    const held = withRoleLock("verifier", "run:other", () => {
+      inside();
+      return new Promise<void>((resolve) => (release = resolve));
+    });
+    await entered;
+    let queued = () => {};
+    const waiting = new Promise<void>((resolve) => (queued = resolve));
+    let polls = 0;
+    const pending = execMilestoneCheck(job("true"), {
+      // hold the lock for two polls, so the wait is far longer than the check itself
+      onWait: () => {
+        if (++polls === 2) queued();
+      },
+    });
+    await waiting;
+    const released = Date.now();
+    release();
+    await held;
+    const r = await pending;
+    expect(r.durationMs).toBeLessThan(r.waitedMs ?? 0);
+    expect(Date.parse(r.startedAt ?? "")).toBeGreaterThanOrEqual(released);
+  });
+
+  it("an item past itemMs is recorded timed out", async () => {
+    checkLimits.itemMs = 200;
+    const r = await execMilestoneCheck(job("sleep 5"));
+    expect(r).toMatchObject({ exit: 124 });
+    expect(r.fails.join("\n")).toContain("timed out");
+    expect(r.durationMs).toBeLessThan(5_000);
   });
 });
 

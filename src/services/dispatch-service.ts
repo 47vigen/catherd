@@ -19,7 +19,7 @@ import { log } from "../infra/log.ts";
 import { isAlive, isSurelyAlive, killGroup } from "../infra/proc.ts";
 import { groupAlive, stopGroup } from "../infra/supervisor.ts";
 import { writeJsonAtomic } from "../infra/store.ts";
-import { admit, killLimits, laneFile, laneOwns, launch } from "./admission.ts";
+import { admit, fullBriefPath, killLimits, laneFile, laneOwns, launch } from "./admission.ts";
 import { standInFor } from "./backends.ts";
 import {
   type Dispatch,
@@ -645,7 +645,7 @@ function standInBrief(run: Run, d: Dispatch): string {
   return [
     `You take over ${d.admit.name} from ${d.admit.rung}, which hit a usage limit. You start on a fresh thread, so read these first:`,
     ...(d.admit.lane ? [`- the lane file: ${laneFile(run, d.admit.lane)}`] : []),
-    `- the fix brief the previous thread was given: ${own}`,
+    `- the fix brief the previous thread was given: ${fullBriefPath(own)}`,
     "The work so far is in the tree. Do what the fix brief asks.",
   ].join("\n");
 }

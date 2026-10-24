@@ -45,6 +45,7 @@ export const ACTION_TYPES = [
   "readPlan",
   "route",
   "fastCheck",
+  "machineCheck",
   "commit",
   "climb",
   "judge",
@@ -157,6 +158,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     findings: z.array(FindingSchema),
     foreign: strings,
     replyPath: z.string(),
+    /** plan 40: the sibling lanes whose files a broken check named; older lines have none */
+    siblings: strings.optional(),
   }),
   ev("check.ran", {
     lane: z.string(),
@@ -164,6 +167,26 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     tail: z.string(),
     foreign: strings,
     tree: z.string().nullable().optional(),
+    /** plan 40: when the check ran, how long it ran and how long it waited for its slot; older lines have none */
+    startedAt: z.string().optional(),
+    durationMs: z.number().optional(),
+    waitedMs: z.number().optional(),
+    /** the sibling lanes whose files the failing output names */
+    siblings: strings.optional(),
+  }),
+  /** plan 40: the daemon's check of a milestone's commit: its failing lines, the lines the base has no record of, what it covers */
+  ev("milestone.checked", {
+    milestone: z.string(),
+    head: z.string(),
+    command: z.string().nullable(),
+    missing: strings,
+    findings: z.array(FindingSchema),
+    uncovered: strings,
+    checkOnly: z.boolean(),
+    verdictCarried: z.boolean(),
+    startedAt: z.string(),
+    durationMs: z.number(),
+    waitedMs: z.number(),
   }),
   ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
   ev("commit.failed", { milestone: z.string(), round: z.number().int().min(0), tail: z.string() }),
@@ -202,7 +225,20 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     hints: strings,
   }),
   /** plan 35: no room in memory for another milestone yet; the claim is tried again later */
-  ev("tree.deferred", { milestone: z.string(), availableMb: z.number(), needMb: z.number() }),
+  /** plan 40: `disk` when the free space of catherd's data dir is short; older lines are memory waits */
+  ev("tree.deferred", {
+    milestone: z.string(),
+    availableMb: z.number(),
+    needMb: z.number(),
+    resource: z.enum(["memory", "disk"]).optional(),
+  }),
+  /** plan 40: a daemon step waited for a lock (a heavy slot or a role's): one event per wait */
+  ev("lock.waiting", {
+    unit: z.string(),
+    lock: z.string(),
+    holder: z.string().nullable(),
+    ahead: z.number().int(),
+  }),
   /** plan 35: catherd pushed the milestone's branch on the owner's word; `mr` is the command that opens its MR */
   ev("branch.pushed", {
     milestone: z.string(),
@@ -264,6 +300,17 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     }
     case "check.ran":
       return `${e.lane} fast check ${e.exit === 0 ? "passed" : `failed (exit ${e.exit ?? "timeout"})`}`;
+    case "milestone.checked": {
+      const at = e.head.slice(0, 7);
+      if (e.findings.length > 0)
+        return `${e.milestone} check failed at ${at}: ${e.findings.length} finding(s)`;
+      if (e.missing.length > 0)
+        return `${e.milestone} check at ${at}: ${e.missing.length} line(s) with no baseline`;
+      if (e.command === null) return `${e.milestone} has no check; its verifier gates it`;
+      return `${e.milestone} check passed at ${at}${e.checkOnly ? " (covers every A-line)" : e.verdictCarried ? " (verdict carried)" : ""}`;
+    }
+    case "lock.waiting":
+      return `${e.unit} waits for the ${e.lock} lock${e.holder ? `, held by ${e.holder}` : ""} (${e.ahead} ahead)`;
     case "commit.made":
       return `${e.milestone} committed ${e.commit.slice(0, 7)} (round ${e.round})`;
     case "commit.failed":
@@ -297,7 +344,7 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "tree.ready":
       return `${e.milestone} has its worktree on branch ${e.branch}`;
     case "tree.deferred":
-      return `${e.milestone} waits for memory: ${e.availableMb} MB available, ${e.needMb} MB needed`;
+      return `${e.milestone} waits for ${e.resource ?? "memory"}: ${e.availableMb} MB available, ${e.needMb} MB needed`;
     case "branch.pushed":
       return `${e.milestone}'s branch ${e.branch} is pushed to ${e.remote}`;
     case "cancel.requested":

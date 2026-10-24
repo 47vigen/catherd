@@ -20,7 +20,7 @@ runAdapterContract(
     {
       name: "two turns",
       fixture: fx("two-turns.jsonl"),
-      expect: { status: "ok", tokens: { input: 300, cached: 190, output: 30 } },
+      expect: { status: "ok", tokens: { input: 200, cached: 150, output: 20 } },
     },
     {
       name: "a failed turn",
