@@ -744,20 +744,22 @@ export function dependsOn(s: RunState, o: LaneState, id: string, seen = new Set<
   return o.after.some((a) => a === id || (s.lanes[a] !== undefined && dependsOn(s, s.lanes[a], id, seen)));
 }
 
+/** Whether `o` cannot finish before `id`: it follows `id` or waits on it, directly or through other lanes. */
+function holdsFor(s: RunState, o: LaneState, id: string, seen = new Set<string>()): boolean {
+  if (seen.has(o.id)) return false;
+  seen.add(o.id);
+  const next = o.status === "done" ? o.after : [...o.after, ...o.waitOn];
+  return next.some((a) => a === id || (s.lanes[a] !== undefined && holdsFor(s, s.lanes[a], id, seen)));
+}
+
 /**
  * A broken check that names files of siblings not done yet is a wait for them, not a try: the lane checks again
- * once they are. A sibling that follows the lane, or already waits on it, never holds it: that would be a deadlock.
+ * once they are. A sibling that follows the lane, or waits on it through any chain, never holds it: that would be a deadlock.
  */
 function waitForSiblings(s: RunState, l: LaneState, siblings: string[]): boolean {
   const wait = siblings.filter((id) => {
     const o = s.lanes[id];
-    return (
-      o !== undefined &&
-      id !== l.id &&
-      o.status !== "done" &&
-      !dependsOn(s, o, l.id) &&
-      !o.waitOn.includes(l.id)
-    );
+    return o !== undefined && id !== l.id && o.status !== "done" && !holdsFor(s, o, l.id);
   });
   if (wait.length === 0) return false;
   l.waitOn = wait;

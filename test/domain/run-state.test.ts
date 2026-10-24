@@ -1141,6 +1141,36 @@ describe("pending reminder wake scheduling", () => {
     expect(mutual.state().lanes["M1.L2"]).toMatchObject({ status: "pending", waitOn: [], checkFails: 1 });
   });
 
+  it("three siblings never wait on each other in a ring", () => {
+    const three: MilestonePlan[] = [
+      {
+        ...(independent[0] as MilestonePlan),
+        lanes: ["a", "b", "c"].map((d, n) => ({
+          id: `M1.L${n + 1}`,
+          role: "worker",
+          kind: "repo_code",
+          after: [],
+          owns: [`src/${d}/`],
+        })),
+      },
+    ];
+    const log = runningLog(three);
+    const ids = ["M1.L1", "M1.L2", "M1.L3"];
+    const ws = ids.map((id) => startDispatch(log, { name: `worker-${id}`, unit: id }));
+    ids.forEach((id, n) => {
+      endDispatch(log, ws[n] as string, { name: `worker-${id}`, unit: id });
+      log.add("check.ran", {
+        lane: id,
+        exit: 1,
+        tail: "src/x.ts:3 error",
+        foreign: [],
+        siblings: [ids[(n + 1) % 3] as string],
+      });
+    });
+    expect(ids.map((id) => log.state().lanes[id]?.status)).not.toEqual(["checking", "checking", "checking"]);
+    expect(log.state().lanes["M1.L3"]).toMatchObject({ status: "pending", waitOn: [] });
+  });
+
   it("a rerun check forgets what it waited on", () => {
     const log = runningLog(independent);
     const w = startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
