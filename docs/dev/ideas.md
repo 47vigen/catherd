@@ -45,6 +45,18 @@ Defects the run's lanes and reviews reported, which plan 40 did not fix:
   183), its dispatch with `claude-code:claude-haiku-5-5#max` was refused `E_ADMIT_RUNG` ("not on the worker ladder of
   profile default") and parked as `effect` (seq 185–186). The owner had to answer a question about the profile. Fix: a
   route to an off-ladder rung is refused with a fix that names the ladder, or the route picks a rung the ladder has.
+- **`run_start` reports a failure after the run started.** A host's MCP server still bound to a removed Bun binary
+  answered `E_IO_UNEXPECTED` (`posix_spawn` of the old Bun path), yet the run and its daemon were already created; the
+  retry made a duplicate run (`20261024-133032`, cancelled). Fix: return the run id once the run exists, and have the
+  daemon spawn use the `bun` on `PATH` when `process.execPath` is gone.
+- **A lane routed before a profile edit keeps its old rung.** Answering the parked lane only retries the same rung, so
+  the owner's ladder change cannot reach it; the coordinator had to append a `lane.climbed` event by hand (seq 188).
+  Fix: on `E_ADMIT_RUNG`, route the lane again against the current ladder.
+- **The commit fails on the repo's format hook.** M5's round-0 commit was refused by lefthook's `oxfmt --check` on four
+  worker-edited files (seq 294). Fix: run the repo's formatter on the lane's owned files before committing, or tell
+  workers the format command in the brief.
+- **The push question's merge commit fails commitlint.** The question says "merge it with a merge commit", and git's
+  default `Merge branch …` subject fails this repo's commitlint. Fix: the question gives a conventional subject.
 
 Ideas the plan leaves for this file. The evidence is the event or code cited; where this run shows nothing, it is the
 2026-10-24 run-efficiency studies that plan 40 names as its source.
