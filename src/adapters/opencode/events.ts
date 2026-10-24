@@ -9,7 +9,8 @@ export const OPENCODE_TOO_OLD = [/ProviderModelNotFoundError/];
 export interface OpencodeFold {
   thread: string | null;
   tokens: Tokens;
-  costUsd: number;
+  /** the sum of step_finish costs; null when a step that used tokens carried no positive cost (unpriced model) */
+  costUsd: number | null;
   lastEvent: string | null;
   error: { type: string | null; message: string } | null;
   limit: boolean;
@@ -18,6 +19,8 @@ export interface OpencodeFold {
   declined: string | null;
   /** the text of the last assistant message: earlier narration is not the reply */
   reply: string;
+  /** the last error is `aborted` and a `text` part follows it */
+  recovered: boolean;
 }
 
 type Event = Record<string, any>;
@@ -74,7 +77,9 @@ export function foldOpencodeEvents(lines: string[]): OpencodeFold {
     tooOld: false,
     declined: null,
     reply: "",
+    recovered: false,
   };
+  let unpriced = false;
   const texts = new Map<string, string[]>();
   let lastMessage: string | null = null;
   for (const line of lines) {
@@ -86,17 +91,21 @@ export function foldOpencodeEvents(lines: string[]): OpencodeFold {
       const id = String(e.part.messageID ?? "");
       texts.set(id, [...(texts.get(id) ?? []), e.part.text]);
       lastMessage = id;
+      if (f.error?.type === "aborted") f.recovered = true;
     } else if (e.type === "step_finish") {
       const t = opencodeTokens(e.part?.tokens);
       f.tokens.input += t.input;
       f.tokens.cached += t.cached;
       if (t.cacheWrite) f.tokens.cacheWrite = (f.tokens.cacheWrite ?? 0) + t.cacheWrite;
       f.tokens.output += t.output;
-      if (typeof e.part?.cost === "number") f.costUsd += e.part.cost;
+      const cost = e.part?.cost;
+      if (typeof cost === "number" && cost > 0) f.costUsd = (f.costUsd ?? 0) + cost;
+      else if (t.input + t.output > 0) unpriced = true;
     } else if (e.type === "tool_use" && e.part?.state?.status === "error") {
       if (/declined/i.test(String(e.part.state.error ?? "")))
         f.declined = `${e.part.tool} ${firstString(e.part.state.input)}`.trim();
     } else if (e.type === "error") {
+      f.recovered = false;
       if (isV1Error(e)) {
         f.tooOld = true;
         f.error = { type: null, message: String(e.error.data?.message ?? e.error.name) };
@@ -107,6 +116,7 @@ export function foldOpencodeEvents(lines: string[]): OpencodeFold {
       }
     }
   }
+  if (unpriced) f.costUsd = null;
   if (lastMessage !== null) f.reply = (texts.get(lastMessage) ?? []).join("\n");
   return f;
 }

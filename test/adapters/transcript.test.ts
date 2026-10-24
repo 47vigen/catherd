@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeTranscript } from "../../src/adapters/claude-code/transcript.ts";
 import { codexTranscript } from "../../src/adapters/codex/transcript.ts";
+import { opencodeTranscript } from "../../src/adapters/opencode/transcript.ts";
 import { TranscriptItemSchema, type TranscriptItem } from "../../src/domain/transcript.ts";
 
 const FX = join(import.meta.dir, "..", "fixtures", "transcript");
@@ -64,6 +65,50 @@ describe("codex transcript", () => {
 
   it("a line that is not JSON is raw", () => {
     expect(codexTranscript("plain text", 7)).toEqual([{ kind: "raw", line: 7, text: "plain text" }]);
+  });
+});
+
+describe("opencode transcript", () => {
+  it("opencode: shell, file, tool, text, error and one turn", () => {
+    const items = all("opencode-worker.jsonl", opencodeTranscript);
+    for (const i of items) TranscriptItemSchema.parse(i);
+    const shells = kinds(items, "shell");
+    expect(shells[0]).toMatchObject({ exit: 0, output: "1 pass\n" });
+    expect(shells[1]?.exit).toBe(1);
+    const files = kinds(items, "file");
+    expect(files[0]?.diff).toBe("--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-a\n+b\n");
+    expect(files[1]?.diff).toContain("-x");
+    expect(files[1]?.diff).toContain("+y");
+    expect(files[2]?.changes).toEqual([{ path: "src/new.ts", kind: "add" }]);
+    const tools = kinds(items, "tool");
+    expect(tools.map((t) => t.name)).toEqual(["write", "read", "glob"]);
+    expect(tools[0]).toMatchObject({ error: true, output: "permission denied" });
+    expect(kinds(items, "text")).toHaveLength(2);
+    const turns = kinds(items, "turn");
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({ tokens: { input: 250, cached: 50, output: 25 }, costUsd: 0.0025 });
+    expect(kinds(items, "error")).toEqual([{ kind: "error", line: 11, text: "Step interrupted" }]);
+    expect(items.some((i) => i.kind === "raw")).toBe(false);
+  });
+
+  it("opencode: a step start is nothing, a bad line is raw", () => {
+    expect(opencodeTranscript(j({ type: "step_start", part: { type: "step-start" } }), 0)).toEqual([]);
+    expect(opencodeTranscript("oops", 1)).toEqual([{ kind: "raw", line: 1, text: "oops" }]);
+    expect(opencodeTranscript(j({ type: "mystery" }), 2)[0]?.kind).toBe("raw");
+    expect(opencodeTranscript(j({ type: "tool_use", part: { id: "x", tool: "bash" } }), 3)[0]?.kind).toBe(
+      "raw",
+    );
+  });
+
+  it("opencode: a write is cut at 400 lines", () => {
+    const content = Array.from({ length: 500 }, (_, i) => `l${i}`).join("\n");
+    const line = j({
+      type: "tool_use",
+      part: { id: "w", tool: "write", state: { status: "completed", input: { path: "a.ts", content } } },
+    });
+    const [item] = opencodeTranscript(line, 0);
+    if (item?.kind !== "file") throw new Error("not a file");
+    expect(item.diff?.split("\n").filter((l) => l.startsWith("+l"))).toHaveLength(400);
   });
 });
 
@@ -194,5 +239,6 @@ describe("claude transcript", () => {
 });
 
 it("the fixtures hold no home path", () => {
-  for (const n of ["codex-worker.jsonl", "claude-architect.jsonl"]) expect(read(n)).not.toContain("/Users/");
+  for (const n of ["codex-worker.jsonl", "claude-architect.jsonl", "opencode-worker.jsonl"])
+    expect(read(n)).not.toContain("/Users/");
 });

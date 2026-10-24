@@ -1,0 +1,14 @@
+{"type":"step_start","timestamp":1,"sessionID":"ses_test0001","part":{"type":"step-start"}}
+{"type":"text","timestamp":2,"sessionID":"ses_test0001","part":{"type":"text","messageID":"msg_1","text":"I will read the file and fix it."}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_test0001","part":{"id":"call_1","tool":"bash","state":{"status":"completed","input":{"command":"bun test"},"output":"1 pass\n","metadata":{"metadata":{"exit":0}}}}}
+{"type":"tool_use","timestamp":4,"sessionID":"ses_test0001","part":{"id":"call_2","tool":"bash","state":{"status":"error","input":{"command":"sleep 1 && false"},"error":"command failed","metadata":{}}}}
+{"type":"tool_use","timestamp":5,"sessionID":"ses_test0001","part":{"id":"call_3","tool":"edit","state":{"status":"completed","input":{"filePath":"src/app.ts","oldString":"a","newString":"b"},"output":"ok","metadata":{"metadata":{"files":[{"patch":"--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-a\n+b\n"}]}}}}}
+{"type":"tool_use","timestamp":6,"sessionID":"ses_test0001","part":{"id":"call_4","tool":"edit","state":{"status":"completed","input":{"filePath":"src/util.ts","oldString":"x","newString":"y"},"output":"ok","metadata":{}}}}
+{"type":"tool_use","timestamp":7,"sessionID":"ses_test0001","part":{"id":"call_5","tool":"write","state":{"status":"completed","input":{"filePath":"src/new.ts","content":"one\ntwo"},"output":"ok","metadata":{}}}}
+{"type":"tool_use","timestamp":8,"sessionID":"ses_test0001","part":{"id":"call_6","tool":"write","state":{"status":"error","input":{"filePath":"src/nope.ts","content":"x"},"error":"permission denied","metadata":{}}}}
+{"type":"tool_use","timestamp":9,"sessionID":"ses_test0001","part":{"id":"call_7","tool":"read","state":{"status":"completed","input":{"filePath":"src/app.ts","limit":20},"output":"const a = 1;","metadata":{}}}}
+{"type":"tool_use","timestamp":10,"sessionID":"ses_test0001","part":{"id":"call_8","tool":"glob","state":{"status":"completed","input":{"pattern":"src/**/*.ts"},"output":"src/app.ts","metadata":{}}}}
+{"type":"step_finish","timestamp":11,"sessionID":"ses_test0001","part":{"type":"step-finish","reason":"tool-calls","cost":0.001,"tokens":{"input":100,"output":10,"reasoning":0,"cache":{"read":0,"write":0}}}}
+{"type":"error","timestamp":12,"sessionID":"ses_test0001","error":{"type":"aborted","message":"Step interrupted"}}
+{"type":"text","timestamp":13,"sessionID":"ses_test0001","part":{"type":"text","messageID":"msg_2","text":"Done.\nSTATUS: complete"}}
+{"type":"step_finish","timestamp":14,"sessionID":"ses_test0001","part":{"type":"step-finish","reason":"stop","cost":0.0025,"tokens":{"input":200,"output":20,"reasoning":5,"cache":{"read":50,"write":0}}}}

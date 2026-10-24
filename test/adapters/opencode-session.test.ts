@@ -156,6 +156,18 @@ describe("opencode settle", () => {
     expect(s?.costUsd).toBeCloseTo(0.5);
   });
 
+  it("settle keeps an unpriced run null", async () => {
+    onSim({
+      session: {
+        cost: 0,
+        tokens: { input: 10, output: 2, cache: { read: 0, write: 0 } },
+        outcome: "succeeded",
+      },
+    });
+    expect((await opencodeAdapter.settle?.({ ...o, costUsd: null }, run, none))?.costUsd).toBeNull();
+    expect((await opencodeAdapter.settle?.(o, run, none))?.costUsd).toBe(0);
+  });
+
   it("keeps cache writes in settlement, less what earlier records counted", async () => {
     onSim({
       session: {

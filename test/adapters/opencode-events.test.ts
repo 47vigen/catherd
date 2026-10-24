@@ -82,6 +82,30 @@ describe("opencode events", () => {
     expect(isV1Error(parseOpencodeLine('{"type":"error","error":{"type":"aborted"}}') ?? {})).toBe(false);
   });
 
+  const aborted = JSON.stringify({ type: "error", error: { type: "aborted", message: "Step interrupted" } });
+  const say = (text: string) => JSON.stringify({ type: "text", part: { messageID: "m2", text } });
+  const step = (cost: number) =>
+    JSON.stringify({ type: "step_finish", part: { cost, tokens: { input: 10, output: 2 } } });
+
+  it("an abort followed by a reply is recovered", () => {
+    expect(foldOpencodeEvents([aborted, say("done")]).recovered).toBe(true);
+    expect(foldOpencodeEvents([aborted]).recovered).toBe(false);
+    expect(foldOpencodeEvents([say("done"), aborted]).recovered).toBe(false);
+    // a later error of another type ends the recovery
+    const quota = JSON.stringify({ type: "error", error: { type: "provider.quota", message: "q" } });
+    expect(foldOpencodeEvents([aborted, say("done"), quota]).recovered).toBe(false);
+  });
+
+  it("an unpriced model's cost is null", () => {
+    expect(foldOpencodeEvents([step(0), step(0)]).costUsd).toBeNull();
+    expect(foldOpencodeEvents([]).costUsd).toBe(0);
+  });
+
+  it("a price added mid-run leaves the cost null", () => {
+    expect(foldOpencodeEvents([step(0), step(0.01)]).costUsd).toBeNull();
+    expect(foldOpencodeEvents([step(0.01), step(0.02)]).costUsd).toBeCloseTo(0.03);
+  });
+
   it("reads nothing from a line that is not a JSON object", () => {
     expect(parseOpencodeLine("hello")).toBeNull();
     expect(parseOpencodeLine("[1]")).toBeNull();
