@@ -180,6 +180,35 @@ describe("check items", () => {
     expect(andTail('a "x && y" && (b && c) && d')).toBe("(b && c) && d");
     expect(andTail('a "x && y"')).toBeNull();
   });
+  it("a leading cd runs with the rest", () => {
+    expect(failLines.checkItems("bun install && cd services/credit && task acceptance")).toEqual([
+      "bun install",
+      "cd services/credit && task acceptance",
+    ]);
+    expect(failLines.checkItems('cd "my dir" && b && c')).toEqual(['cd "my dir" && b && c']);
+    expect(failLines.checkItems("a && cd d && cd e && c")).toEqual(["a", "cd d && cd e && c"]);
+    expect(failLines.checkItems("(cd web && bun test) && lint")).toEqual(["(cd web && bun test)", "lint"]);
+    expect(() => failLines.checkItems("cd d && && b")).toThrow("empty check item");
+  });
+  it("coveredDir names the subshell's folder", () => {
+    expect(failLines.coveredDir("(cd web && bun run test)")).toBe("web/");
+    expect(failLines.coveredDir("cd a/b && x")).toBe("a/b/");
+    expect(failLines.coveredDir("cd web/ && x")).toBe("web/");
+    expect(failLines.coveredDir("bun test")).toBeNull();
+  });
+  it("coveredDir is null for an item it cannot pin to one folder", () => {
+    for (const item of [
+      "(cd web && a) || b",
+      "(cd web && a) ; (b)",
+      "cd web && cd .. && b",
+      "cd . && b",
+      "cd ../x && b",
+      "cd /x && b",
+      "cd - && b",
+      "cd web",
+    ])
+      expect(failLines.coveredDir(item)).toBeNull();
+  });
 });
 
 describe("failure normalization", () => {

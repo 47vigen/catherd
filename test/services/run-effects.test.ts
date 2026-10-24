@@ -516,9 +516,9 @@ describe("what a dispatch said", () => {
     const ended = (reply: string, over: Partial<RunRecord> = {}) =>
       endedEvent(run, withReply(run, { role: "verifier", name: "verifier-M1", ...over }, reply), "M1");
     expect(ended("VERDICT: PASS\nSTATUS: complete — ok")).toMatchObject({ verdict: "pass", findings: [] });
-    expect(ended("VERDICT: FAIL\n- bun test src/a fails\nSTATUS: complete — failed")).toMatchObject({
+    expect(ended("VERDICT: FAIL\n- FAIL bun test src/a fails\nSTATUS: complete — failed")).toMatchObject({
       verdict: "fail",
-      findings: [{ label: "BLOCKER", text: "bun test src/a fails", file: "src/a" }],
+      findings: [{ label: "BLOCKER", text: "FAIL bun test src/a fails", file: "src/a" }],
     });
     expect(
       ended("VERDICT: BLOCKED: environment — docker ps says no daemon\nSTATUS: blocked — env"),

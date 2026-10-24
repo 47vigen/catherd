@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { lintLanes } from "../../src/domain/plan-lint.ts";
+import { lintLanes, lintPlan } from "../../src/domain/plan-lint.ts";
 
 const lane = (id: string, owns: string[], after: string[] = [], kind = "repo_code") => ({
   id,
@@ -102,6 +102,32 @@ describe("lintLanes (plan 34)", () => {
     ]);
     expect(lintLanes([lane("M2.L1", ["b.ts"], ["M2"])], known, ["M1"]).stuck).toEqual([
       { lane: "M2.L1", note: "M2.L1: After: M2 is its own milestone: this lane never starts" },
+    ]);
+  });
+});
+
+describe("lintPlan (plan 40, D11)", () => {
+  const plan = (check: string | null, lines: string[] = []) =>
+    ["## M1 — one", ...(check === null ? [] : [`Check: ${check}`]), ...lines].join("\n");
+
+  it("a loop item and a history A-line are warned", () => {
+    expect(
+      lintPlan(plan("for p in a b; do x; done && y", ["A8 — tests failed before the code"]), "M1", []),
+    ).toEqual([
+      "M1: Check item `for p in a b; do x; done` is a shell loop: one 30-minute budget for every package; write one item per package",
+      "M1: A8 asks for commit history (failed before): catherd commits tests and code together; it is judged from the tree",
+    ]);
+  });
+
+  it("a milestone without Check: is warned", () => {
+    expect(lintPlan(plan(null, ["A1 — it works"]), "M1", [])).toEqual([
+      "M1: no Check: line: the verifier must run the whole gate by hand",
+    ]);
+  });
+
+  it("reads the run's own A-lines beside the milestone's", () => {
+    expect(lintPlan(plan("true"), "M1", ["A2 — TDD all the way"])).toEqual([
+      "M1: A2 asks for commit history (TDD): catherd commits tests and code together; it is judged from the tree",
     ]);
   });
 });

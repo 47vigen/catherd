@@ -41,10 +41,17 @@ export function checkFailLines(out: string): string[] {
 export const newFails = (fails: string[], base: string[] | null): string[] =>
   fails.filter((f) => !base?.includes(f));
 
-/** Top-level `&&` parts, keeping quoted strings and subshells intact. */
+/** A part that is exactly `cd <dir>`: the shell runs every part after it in that folder. */
+const BARE_CD = /^cd\s+("[^"]*"|'[^']*'|\S+)$/;
+
+/**
+ * Top-level `&&` parts, keeping quoted strings and subshells intact. A bare `cd <dir>` part joins every part after
+ * it, since the shell runs them in `<dir>`.
+ */
 export function checkItems(command: string): string[] {
   const items: string[] = [];
   let start = 0;
+  let cdStart = -1;
   const contexts: (string | null)[] = [];
   const blocks: { close: string; pattern?: boolean; header?: boolean }[] = [];
   let quote: string | null = null;
@@ -57,7 +64,9 @@ export function checkItems(command: string): string[] {
       throw new CatherdError("E_INPUT_INVALID", "empty check item", {
         fix: "provide a command on both sides of every top-level &&",
       });
-    items.push(item);
+    if (cdStart >= 0) return;
+    if (BARE_CD.test(item)) cdStart = start;
+    else items.push(item);
   };
   const endWord = (): boolean => {
     if (!word) return true;
@@ -184,7 +193,22 @@ export function checkItems(command: string): string[] {
   }
   if (!endWord() || quote || contexts.length || blocks.length) return whole();
   addItem(command.length);
+  if (cdStart >= 0) items.push(command.slice(cdStart).trim());
   return items;
+}
+
+/** The folder a check item runs in, as `d/`: `cd d && …`, or one `(cd d && …)` group. Null: the whole tree. */
+export function coveredDir(item: string): string | null {
+  const head = /^(\(?)cd (\w[\w.+@-]*(?:\/\w[\w.+@-]*)*)\/?\s*&&/.exec(item);
+  if (!head) return null;
+  let rest = item.slice(head[0].length);
+  // A group must be the whole item, with no other group in it.
+  if (head[1]) {
+    if (!rest.endsWith(")") || /[()]/.test(rest.slice(0, -1))) return null;
+    rest = rest.slice(0, -1);
+  }
+  // shortcut: a sourced file or function can still leave the folder, upgrade to a shell parser when one does
+  return /\b(?:cd|pushd|popd)\b/.test(rest) ? null : `${head[2]}/`;
 }
 
 /** The check items after the first one, which may never run when an earlier part fails. */

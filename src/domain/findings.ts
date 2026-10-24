@@ -3,19 +3,27 @@ import type { Finding } from "./run-events.ts";
 const LINE = /^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(BLOCKER|BUG|NIT)\b\**\s*:?\s*(.*)$/;
 /** What a reviewer writes where it has nothing to report: `BUG: none`, `NIT n/a`, a lone dash. */
 const NOTHING = /^(?:none|n\/a|nil|no findings?|clean|[-—–]+)\.?\**$/i;
-const PATH = /^[`'"(]*((?:\.{0,2}\/)?[\w@~.+-]+(?:\/[\w@~.+-]+)*)(?::\d+(?:[-:]\d+)?)?[`'"),;:]*$/;
+const PATH = /^[`'"(]*((?:\.{0,2}\/)?[\w@~.+-]+(?:\/[\w@~.+-]+)*)(?::L?\d+(?:[-,:]L?\d+)*)?[`'"),;:]*$/;
+/** A verifier's failing line after its list marker and bold: `FAIL`, `BLOCKER`, `BUG` or `A<n> … FAIL`. */
+const FAIL_LINE = /^(?:[-*]\s+|\d+[.)]\s+)?\**(?:(?:FAIL|BLOCKER|BUG)\b|A\d+\b.*\bFAIL\b)/;
 
 /**
- * The first `path:line` or `path` token of a finding's first words (a reviewer writes
- * `BLOCKER file:line — problem — fix`), or null: a path has a `/` or an extension.
+ * Every file a text names, in order: `path`, `path:12`, `path:12-20`, `path:L12`, `path:1,2,3`. A path has
+ * a `/` or an extension.
  */
+export function filesOf(text: string): string[] {
+  return text
+    .trim()
+    .split(/\s+/)
+    .flatMap((tok) => {
+      const p = PATH.exec(tok)?.[1];
+      return p && (p.includes("/") || /\.[A-Za-z]\w*$/.test(p)) ? [p] : [];
+    });
+}
+
+/** The first file of a finding's first 4 words (`BLOCKER file:line — problem — fix`), or null. */
 export function fileOf(text: string): string | null {
-  for (const tok of text.trim().split(/\s+/).slice(0, 4)) {
-    if (/^[—–-]+$/.test(tok)) return null;
-    const p = PATH.exec(tok)?.[1];
-    if (p && (p.includes("/") || /\.[A-Za-z]\w*$/.test(p))) return p;
-  }
-  return null;
+  return filesOf(text.trim().split(/\s+/, 4).join(" "))[0] ?? null;
 }
 
 /** A reviewer's reply as findings, in order: its BLOCKER, BUG and NIT lines, as written; "none" lines left out. */
@@ -31,17 +39,15 @@ export function parseFindings(reply: string): Finding[] {
   return out;
 }
 
-/** The lines a failing verifier lists below its VERDICT line, as BLOCKERs: what the next fix round starts from. */
-export function parseFailLines(reply: string, max = 12): Finding[] {
+/** The failing lines under a verifier's VERDICT, as BLOCKERs: what the next fix round starts from. */
+export function parseFailLines(reply: string): Finding[] {
   const lines = reply.split("\n").map((l) => l.trim());
   const at = lines.findIndex((l) => l !== "");
   return lines
     .slice(at + 1)
-    .filter((l) => l !== "" && !/^STATUS:/i.test(l))
-    .slice(0, max)
-    .map((l) => ({
-      label: "BLOCKER" as const,
-      text: l.replace(/^(?:[-*]\s+|\d+[.)]\s+)/, ""),
-      file: fileOf(l.replace(/^(?:[-*]\s+|\d+[.)]\s+)/, "").replace(/^\**FAIL\**:?\s*/i, "")),
-    }));
+    .filter((l) => FAIL_LINE.test(l))
+    .map((l) => {
+      const text = l.replace(/^(?:[-*]\s+|\d+[.)]\s+)/, "");
+      return { label: "BLOCKER" as const, text, file: fileOf(text) };
+    });
 }

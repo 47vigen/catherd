@@ -16,8 +16,10 @@ export interface PlanDoc {
   text: string;
 }
 
-export const TASK_HEADING = /^#{2,4}[ \t]+Task[ \t]+(\d+[a-z]?)\b[ \t]*[:.—–-]?[ \t]*(.*)$/gim;
-export const TASK_REF = /^(?:([^\s#,]+)#)?(\d+[a-z]?)$/;
+export const TASK_HEADING = /^#{2,4}[ \t]+Task[ \t]+(\d+(?:\.\d+)*[a-z]?)\b[ \t]*[:.—–-]?[ \t]*(.*)$/gim;
+export const TASK_REF = /^(?:([^\s#,]+)#)?(\d+(?:\.\d+)*[a-z]?)$/;
+/** An A-line the milestone's Check covers: it ends `(Check)`, a trailing `.` allowed. */
+export const CHECK_COVERED = /\(Check\)\s*\.?\s*$/i;
 
 const SIGNATURE = [
   /^[ \t]*(?:[-*][ \t]*)?\**(?:Interfaces|Produces|Signatures?)\**[ \t]*:/im,
@@ -157,6 +159,11 @@ export function isApproval(answer: string): boolean {
   return (APPROVE_WORDS as readonly string[]).includes(w);
 }
 
+/** An owner answer that waives: its first word is `accept`, any case ("accept: A8 is judged from the tree"). */
+export function isAccept(answer: string): boolean {
+  return /^accept\b/i.test(answer.trim());
+}
+
 export const approvalQuestion = (runId: string) =>
   `The architect's plan is ready for your review: catherd run-file read ${runId} plan.md. Answer approve, or say what to change.`;
 
@@ -200,15 +207,31 @@ export function planInputNames(paths: string[]): string[] {
   });
 }
 
-/** The Check command of one milestone section, or null when absent. */
-export function milestoneCheck(planText: string, id: string): string | null {
+/** One milestone's section: its `## <id>` line up to the next `## ` heading, or null when the plan has none. */
+export function milestoneSection(planText: string, id: string): string | null {
   const lines = planText.split("\n");
   const at = lines.findIndex((line) => /^##[ \t]+(M\d+)\b/.exec(line)?.[1] === id);
   if (at < 0) return null;
-  for (const line of lines.slice(at + 1)) {
-    if (/^##[ \t]+/.test(line)) break;
+  const end = lines.findIndex((line, i) => i > at && /^##[ \t]+/.test(line));
+  return lines.slice(at, end < 0 ? undefined : end).join("\n");
+}
+
+/** The Check command of one milestone section, or null when absent. */
+export function milestoneCheck(planText: string, id: string): string | null {
+  for (const line of (milestoneSection(planText, id) ?? "").split("\n")) {
     const check = /^[ \t]*Check:[ \t]*(.+)/.exec(line)?.[1]?.trim();
     if (check) return check;
   }
   return null;
+}
+
+/** The `Baseline:` items of one milestone's section and of the preamble above the first milestone, in plan order. */
+export function baselineItems(planText: string, id: string): string[] {
+  const preamble = planText.slice(0, /^##[ \t]+M\d+\b/m.exec(planText)?.index ?? planText.length);
+  const out: string[] = [];
+  for (const line of [...preamble.split("\n"), ...(milestoneSection(planText, id) ?? "").split("\n")]) {
+    const item = /^[ \t]*Baseline:[ \t]*(.+)/.exec(line)?.[1]?.trim();
+    if (item) out.push(item);
+  }
+  return out;
 }

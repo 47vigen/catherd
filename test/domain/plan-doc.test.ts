@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import {
   approvalQuestion,
+  baselineItems,
+  CHECK_COVERED,
   changedDecisions,
   coverageProblems,
   decisionLines,
   depthProblems,
+  isAccept,
   isApproval,
   milestoneCheck,
+  milestoneSection,
   parsePlanDoc,
   planInputNames,
   reapprovalQuestion,
@@ -38,6 +42,21 @@ describe("parsePlanDoc", () => {
 
   it("ends the preamble at the first milestone heading when it comes before any task", () => {
     expect(parsePlanDoc("p.md", "intro\n## M2 — x\ntext\n").preamble).toBe("intro\n");
+  });
+
+  it("a dotted task id is its own task", () => {
+    const d = parsePlanDoc("p.md", "### Task 1.3: x\nTest: a.test.ts\n\n### Task 1.4: y\nTest: b.test.ts\n");
+    expect(d.tasks.map((t) => [t.id, t.title])).toEqual([
+      ["1.3", "x"],
+      ["1.4", "y"],
+    ]);
+    expect(resolveTask([d], "1.3")).toMatchObject({ id: "1.3", title: "x" });
+    expect(resolveTask([d], "p.md#1.4")).toMatchObject({ id: "1.4", title: "y" });
+  });
+
+  it("`### Task 1. Title` still parses as task 1", () => {
+    const d = parsePlanDoc("p.md", "### Task 1. Title\nTest: a.test.ts\n");
+    expect(d.tasks.map((t) => [t.id, t.title])).toEqual([["1", "Title"]]);
   });
 });
 
@@ -193,4 +212,43 @@ it("milestoneCheck does not take M10's check for M1 and ends at non-milestone he
   expect(milestoneCheck(tenth, "M10")).toBe("z");
 
   expect(milestoneCheck("## M1: t\n## Decisions\nCheck: x\n## M2: t\nCheck: y\n", "M1")).toBeNull();
+});
+
+it("isAccept takes accept with text after it", () => {
+  expect(["accept", "Accept.", "accept: A8 is judged from the tree"].every(isAccept)).toBe(true);
+  const notAccept = ["do not accept", "acceptance", "accepted", "acceptance criteria are met"];
+  expect(notAccept.some(isAccept)).toBe(false);
+});
+
+it("CHECK_COVERED takes an A-line that ends (Check), a trailing period allowed", () => {
+  const covered = [
+    "- A1 the sum is right (Check)",
+    "- A2 the page loads (Check).",
+    "- A3 it is quick (check)",
+  ];
+  expect(covered.every((line) => CHECK_COVERED.test(line))).toBe(true);
+  const uncovered = ["- A4 judged by eye", "- A5 (Check) and then more", "- A6 Check"];
+  expect(uncovered.some((line) => CHECK_COVERED.test(line))).toBe(false);
+});
+
+it("baselineItems reads the section and the preamble", () => {
+  const plan = [
+    "# P",
+    "Baseline: bun test legacy",
+    "## M1 — one",
+    "Check: x",
+    "## M2 — two",
+    "Baseline: bun test m2",
+    "## Out of scope",
+    "Baseline: never",
+    "",
+  ].join("\n");
+  expect(baselineItems(plan, "M2")).toEqual(["bun test legacy", "bun test m2"]);
+  expect(baselineItems(plan, "M1")).toEqual(["bun test legacy"]);
+});
+
+it("milestoneSection stops at the next ## heading", () => {
+  const plan = "## M1 — one\nCheck: a && b\n### Task 1: x\nprose\n## M2 — two\nCheck: c && d\n";
+  expect(milestoneSection(plan, "M1")).toBe("## M1 — one\nCheck: a && b\n### Task 1: x\nprose");
+  expect(milestoneSection(plan, "M3")).toBeNull();
 });
