@@ -40,6 +40,7 @@ beforeEach(() => {
 });
 
 const FX = join(import.meta.dir, "..", "fixtures", "adapters", "codex");
+const THREAD = "01a0d0d4-d0a6-71a1-983c-82a9169200b4";
 const input = (over: Partial<AdmitInput> = {}): AdmitInput => ({
   role: "worker",
   name: "worker-M1.L1",
@@ -103,10 +104,45 @@ describe("admission", () => {
     const { d } = await admit(fakeDeps(), run, input());
     const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
     expect(brief).toContain(
-      "</team>\n\n<context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n</context>\n\n<task>\n",
+      "<context>\nThe plan's preamble (p.md), which applies to every task:\n\n# Plan P\nGoal: a wallet.\n</context>\n\n<role>\n",
     );
     // the architect's brief carries no preamble: it translates the plan itself
     expect(planContext(run, "architect")).toBeNull();
+  });
+
+  it("a lane's context comes from its own milestone", async () => {
+    const { repo, run } = setup();
+    const a = join(repo, "a.md");
+    const b = join(repo, "b.md");
+    writeFileSync(a, "# Plan A\nGoal: alpha.\n\n## M1 — core\n\n### Task 1: add the store\nDo it.\n");
+    writeFileSync(b, "# Plan B\nGoal: beta.\n\n## M2 — docs\n\n### Task 2: docs\nWrite the docs.\n");
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [a, b] });
+    copyPlanInputs(run, [a, b]);
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    const { d } = await admit(fakeDeps(), run, input());
+    const brief = readFileSync(dispatchPaths(d.dir).brief, "utf8");
+    expect(brief).toContain("Goal: alpha.");
+    expect(brief).not.toContain("Goal: beta.");
+  });
+
+  it("a resumed dispatch's brief.md has no role section", async () => {
+    const { repo, run } = setup();
+    const plan = join(repo, "p.md");
+    writeFileSync(plan, PLAN_TEXT);
+    await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: [plan] });
+    copyPlanInputs(run, [plan]);
+    const first = await admit(fakeDeps(), run, input());
+    appendRecord(
+      run,
+      makeRecord({
+        runId: run.id,
+        dispatchId: first.d.admit.dispatchId,
+        name: "worker-M1.L1",
+        thread: THREAD,
+      }),
+    );
+    const again = await admit(fakeDeps(), run, input({ thread: THREAD }));
+    expect(readFileSync(dispatchPaths(again.d.dir).brief, "utf8").startsWith("<task>")).toBe(true);
   });
 
   it("puts the role's standing rules in every brief, and no block when the role has none (plan 34)", async () => {

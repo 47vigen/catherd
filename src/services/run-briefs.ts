@@ -31,6 +31,15 @@ const ALINES = (run: Run): string =>
         .join("\n")
     : "- (none written)";
 
+/** The A-lines of the unit's milestone: those it delivers and those with no id; the run's whole list for the run itself. */
+function milestoneALinesText(run: Run, unit: string): string {
+  const m = unit === RUN_UNIT ? null : unitMilestone(unit);
+  if (m === null) return ALINES(run);
+  const delivered = deliveredALines(run, read(runPaths(run.dir).plan), m);
+  const lines = numberedALines(run.meta.aLines).filter((a) => a.id === undefined || delivered.has(a.id));
+  return lines.length ? lines.map((a) => `- ${a.line}`).join("\n") : "- (none written)";
+}
+
 const read = (file: string): string => {
   try {
     return readFileSync(file, "utf8");
@@ -209,6 +218,14 @@ export function researchAnswers(run: Run, s: RunState, lane: string): string[] {
 function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
   const lane = s.lanes[a.unit];
   const fix = a.brief === "fix";
+  const fixLines = [
+    "This is a fix round. Fix exactly these, each as it was reported, and nothing beside them:",
+    ...a.notes.map((n) => `- ${n}`),
+    ...(a.notes.length && lane ? failingCheck(run, lane.milestone) : []),
+    ...(lane ? fastChecks(run, s, lane.milestone) : []),
+  ];
+  // a resumed thread holds the A-lines, the Owns rule and the plan tasks already: only the new lines go in
+  if (fix && a.thread !== null) return fixLines.join("\n");
   return [
     `You are ${a.name}, a ${a.role} of catherd run ${run.id} (${run.meta.title}). Your lane is ${a.unit}${lane ? `, in milestone ${lane.milestone}` : ""}; its file is below.`,
     "",
@@ -217,15 +234,7 @@ function workerBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     `Own only the files on your lane's Owns: line; change nothing else. ${READ_RULES}`,
     ...planTasks(run, a.unit),
-    ...(fix
-      ? [
-          "",
-          "This is a fix round. Fix exactly these, each as it was reported, and nothing beside them:",
-          ...a.notes.map((n) => `- ${n}`),
-          ...(a.notes.length && lane ? failingCheck(run, lane.milestone) : []),
-          ...(lane ? fastChecks(run, s, lane.milestone) : []),
-        ]
-      : []),
+    ...(fix ? ["", ...fixLines] : []),
     "",
     `Run your fast check until it passes. Run the full suite only if this brief says so, and wrap any full build or full test suite in: bunx catherd-cli@${VERSION} lock -- <command>. Other lanes share this machine.`,
     ...researchAnswers(run, s, a.unit).flatMap((block) => ["", block]),
@@ -322,12 +331,14 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
           "",
           `This is a re-check: the lines you reported last time were fixed in ${m?.commit?.slice(0, 12) ?? "HEAD"}. Re-check only these BLOCKER and BUG lines, and report each that is still open as it was, plus any new BLOCKER or BUG the fixes introduced:`,
           ...open.map((f) => `- ${f.text}`),
-          ...reviewPlan(run, s, a.unit),
+          ...(a.thread === null ? reviewPlan(run, s, a.unit) : []),
           ...rejections(run, s, a.unit),
           "",
           "With none open and none new, the reply is CLEAN.",
         ].join("\n");
   }
+  if (ui && a.thread !== null)
+    return `Re-check the screens commit ${m?.commit?.slice(0, 12) ?? "HEAD"} changed, in the same format.`;
   if (ui)
     return [
       head,
@@ -338,14 +349,14 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
       "Report every finding as: BLOCKER|BUG|NIT <screen> — problem — fix — <screenshot path>, always with the path. With no finding, the reply is CLEAN.",
       "",
       "The A-lines this run must meet:",
-      ALINES(run),
+      milestoneALinesText(run, a.unit),
     ].join("\n");
   return [
     head,
     range,
     "",
     "The A-lines this run must meet:",
-    ALINES(run),
+    milestoneALinesText(run, a.unit),
     ...reviewPlan(run, s, a.unit),
     "",
     "Report every finding as: BLOCKER|BUG|NIT file:line — problem — fix. Cover:",
@@ -391,7 +402,7 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
     "",
     ...(checked ?? [
       "The A-lines this run must meet:",
-      ALINES(run),
+      milestoneALinesText(run, a.unit),
       "",
       `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
       "",
@@ -500,7 +511,7 @@ export function judgeBrief(run: Run, input: JudgeInput): string {
     `Kind: ${input.kind}. Unit: ${input.unit}. Your verbs: ${verbs}.`,
     "",
     "The A-lines this run must meet:",
-    ALINES(run),
+    milestoneALinesText(run, input.unit),
     "",
     input.context,
     ...(design

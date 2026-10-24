@@ -39,13 +39,13 @@ const refusal = (fn: () => unknown) => {
 /** A daemon run whose run.started names `plan` (copied as run_start would). */
 async function planRun(
   plan: string[],
-  text = PLAN_TEXT,
+  text: string | Record<string, string> = PLAN_TEXT,
 ): Promise<{ run: Run; repo: string; files: string[] }> {
   const { run, repo } = freshRun();
   const files = plan.map((name) => {
     const f = join(repo, name);
     mkdirSync(join(f, ".."), { recursive: true });
-    writeFileSync(f, text);
+    writeFileSync(f, typeof text === "string" ? text : (text[name] as string));
     return f;
   });
   await appendEvent(run, { type: "run.started", ...startedFields, repo, plan: files });
@@ -129,18 +129,63 @@ describe("planContext", () => {
     expect(planContext(run, "judge")).toBeNull();
   });
 
-  it("gives a file with no task whole, and names the copies past the cap", async () => {
+  it("gives a file with no task whole to a run-level role", async () => {
     const { run } = await planRun(["c.md"], "# Contracts\nnames\n");
     expect(planContext(run, "worker")).toBe(
       "The plan file c.md, which every task follows:\n\n# Contracts\nnames",
     );
+  });
+
+  it("a milestone gets only its plan files' preambles", async () => {
+    const { run } = await planRun(["a.md", "b.md"], {
+      "a.md": "# A\nalpha rules\n### Task 1: one\nTest: a.test.ts\n",
+      "b.md": "# B\nbeta rules\n### Task 2: two\nTest: b.test.ts\n",
+    });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: a.md#1\n");
+    writeLane(run, "M2.L1", ["src/b.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: b.md#2\n");
+    expect(planContext(run, "worker", "M2")).toBe(
+      "The plan's preamble (b.md), which applies to every task:\n\n# B\nbeta rules",
+    );
+    expect(planContext(run, "worker")).toContain("alpha rules");
+    expect(planContext(run, "worker")).toContain("beta rules");
+    expect(planContext(run, "judge", "M2")).toBeNull();
+  });
+
+  it("a taskless file gives only the cited sections", async () => {
+    const { run } = await planRun(["c.md", "p.md"], {
+      "c.md":
+        "# Contracts\nintro\n## 2. Other\nnot cited\n## 3. Wallet shapes\nthe shapes\n## 4. Locks\nno\n",
+      "p.md": "# P\n### Task 1: one\nSee contract §3.\nTest: a.test.ts\n",
+    });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    const text = planContext(run, "worker", "M1") as string;
+    expect(text).toContain("## 3. Wallet shapes\nthe shapes");
+    expect(text).not.toContain("not cited");
+    expect(text).not.toContain("## 4. Locks");
+    expect(text).not.toContain("intro");
+  });
+
+  it("a taskless file gives the section whose heading text a task quotes", async () => {
+    const { run } = await planRun(["c.md", "p.md"], {
+      "c.md": "# Contracts\n## Wallet shapes\nthe shapes\n## Locks\nno\n",
+      "p.md": "# P\n### Task 1: one\nFollow Wallet shapes exactly.\nTest: a.test.ts\n",
+    });
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nTasks: 1\n");
+    const text = planContext(run, "worker", "M1") as string;
+    expect(text).toContain("the shapes");
+    expect(text).not.toContain("## Locks");
+  });
+
+  it("no read-everything pointer past the cap", async () => {
     const big = await planRun(
       ["big.md"],
-      `# Big\n${"x".repeat(PLAN_CONTEXT_MAX)}\n### Task 1: t\nTest: a.test.ts\n`,
+      `# Big\n${"x".repeat(PLAN_CONTEXT_MAX + 20_000)}\n### Task 1: t\nTest: a.test.ts\n`,
     );
-    expect(planContext(big.run, "worker")).toBe(
-      `The run's plan files are too long to repeat here; read them before you start, with read_run_file: ${PLAN_INPUT_DIR}/big.md`,
-    );
+    const text = planContext(big.run, "worker") as string;
+    expect(text).not.toContain("too long to repeat");
+    expect(text.match(/\[… \d+ characters of /g)).toHaveLength(1);
+    expect(text).toEndWith(`characters of ${PLAN_INPUT_DIR}/big.md cut: read it with read_run_file]`);
+    expect(text.length).toBeLessThan(PLAN_CONTEXT_MAX + 400);
   });
 
   it("is null for a run with no plan, and for a 1.5 run", async () => {

@@ -48,7 +48,7 @@ import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
-import { verifierBrief } from "./verifier-brief.ts";
+import { milestoneOfName, verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -360,7 +360,11 @@ export async function admit(
         scratch,
         roleServer,
         version: deps.version,
-        context: [planContext(run, i.role), rulesBlock(rules, i.role)].filter(Boolean).join("\n\n") || null,
+        resumed: i.thread !== null,
+        context:
+          [planContext(run, i.role, milestoneOfName(i.lane ?? i.name)), rulesBlock(rules, i.role)]
+            .filter(Boolean)
+            .join("\n\n") || null,
       }),
     );
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn

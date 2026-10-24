@@ -304,6 +304,44 @@ describe("briefs", () => {
     });
   });
 
+  it("a resumed fix brief has no plan tasks or A-lines", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a/"], "bun test src/a");
+    const fix = (thread: string | null) =>
+      briefFor(
+        run,
+        runningLog().state(),
+        act({ brief: "fix", thread, notes: ["BUG src/a/x.ts:3 — wrong — fix it"] }),
+      );
+    expect(fix(null)).toContain("The A-lines");
+    const text = fix("T1");
+    expect(text).toContain("BUG src/a/x.ts:3 — wrong — fix it");
+    expect(text).not.toContain("<plan-task");
+    expect(text).not.toContain("The A-lines");
+    expect(text).not.toContain("Owns:");
+  });
+
+  it("a judge sees only its milestone's A-lines", () => {
+    const { repo } = freshRun();
+    const run = createRun({
+      repo,
+      title: "two",
+      aLines: ["A1 one works", "A2 two works"],
+      version: "0.0.0-test",
+    });
+    writeFileSync(join(run.dir, "plan.md"), "## M1 — one\nA1 one works\n## M2 — two\nA2 two works\n");
+    const text = judgeBrief(run, {
+      id: "1",
+      kind: "question",
+      unit: "M2",
+      context: "Milestone M2: stopped.",
+      findings: [],
+      lanes: [],
+    });
+    expect(text).toContain("A2 two works");
+    expect(text).not.toContain("A1 one works");
+  });
+
   it("gives a judge only its kind, unit, context, numbered findings and the lanes' Owns", () => {
     const { run } = freshRun();
     mkdirSync(join(run.dir, "roles", "worker-M1.L1", "D1"), { recursive: true });
