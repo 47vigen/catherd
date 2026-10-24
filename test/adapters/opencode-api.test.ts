@@ -80,7 +80,7 @@ describe("opencode probe", () => {
 });
 
 describe("opencode discovery", () => {
-  it("keeps only Zen and Go models, with their variants as efforts, retrying once on an empty first list", async () => {
+  it("keeps every enabled provider's models, with their variants as efforts, retrying once on an empty first list", async () => {
     onSim({ models: MODELS, warmup: true });
     const ms = await opencodeAdapter.listModels();
     expect(ms.map((m) => m.id)).toEqual([
@@ -91,6 +91,7 @@ describe("opencode discovery", () => {
       "opencode-go/qwen3.8-max",
       "opencode/qwen3.8-max",
       "opencode-go/glm-5.3",
+      "github-copilot/gpt-6-luna",
     ]);
     expect(ms.find((m) => m.id === "opencode-go/qwen3.8-max")?.efforts).toEqual(["low", "medium", "xhigh"]);
     expect(ms.find((m) => m.id === "opencode/space-bunny-free")).toMatchObject({
@@ -121,7 +122,7 @@ describe("opencode discovery", () => {
     const only = MODELS.filter((m) => m.id === "glm-5.3");
     onSim({ models: MODELS, modelsAt: { [REPO]: only }, modelLocationsTo: asked });
     expect((await opencodeAdapter.listModels(REPO)).map((m) => m.id)).toEqual(["opencode-go/glm-5.3"]);
-    expect(await opencodeAdapter.listModels()).toHaveLength(7);
+    expect(await opencodeAdapter.listModels()).toHaveLength(8);
     expect(readFileSync(asked, "utf8")).toBe(`${REPO}\n-\n`);
   });
 });
@@ -134,7 +135,7 @@ describe("opencode prepare", () => {
     expect(await code(prepare("opencode:opencode-go/glm-5.3#low"))).toBe("ok");
     expect(existsSync(join(agentsDir(userConfigRoot()), "catherd-worker.md"))).toBe(true);
     expect(readFileSync(reloads, "utf8")).toBe("reload\n");
-    expect(readDiscovery("opencode", REPO)?.models).toHaveLength(7);
+    expect(readDiscovery("opencode", REPO)?.models).toHaveLength(8);
   });
 
   it("validates against each repository's own listing, not another's cached one", async () => {
@@ -167,7 +168,13 @@ describe("opencode prepare", () => {
     expect(await code(prepare("opencode:opencode-go/nope#default"))).toBe("E_BACKEND_MODEL_UNKNOWN");
   });
 
-  it("does not validate a provider outside Zen and Go, nor block when opencode lists nothing", async () => {
+  it("validates a provider outside Zen and Go against the same listing", async () => {
+    onSim({ models: MODELS });
+    expect(await code(prepare("opencode:github-copilot/gpt-6-luna#default"))).toBe("ok");
+    expect(await code(prepare("opencode:openrouter/some-model#high"))).toBe("E_BACKEND_MODEL_UNKNOWN");
+  });
+
+  it("does not block when opencode lists nothing", async () => {
     onSim({ models: [] });
     expect(await code(prepare("opencode:openrouter/some-model#high"))).toBe("ok");
     expect(await code(prepare("opencode:opencode/anything#high"))).toBe("ok");

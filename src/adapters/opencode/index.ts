@@ -36,7 +36,7 @@ import {
 /** Spec §6.3: v2 only (`@opencode/cli` 2.0.16 or newer). */
 const OPENCODE_MIN_VERSION = "2.0.16";
 export const OPENCODE_INSTALL = "curl -fsSL https://opencode.ai/v2/install | bash";
-/** Spec §6.3: discovery is limited to OpenCode Zen and Go. */
+/** OpenCode Zen and Go: the providers a login is reported for; discovery covers every enabled provider. */
 const OPENCODE_PROVIDERS = ["opencode", "opencode-go"];
 const THREAD = /^ses_[A-Za-z0-9]{20,40}$/;
 const DAY_MS = 24 * 60 * 60_000;
@@ -96,7 +96,7 @@ function plan(r: RunRequest): SpawnPlan {
 }
 
 /**
- * The Zen and Go models enabled in `repo`; without one, in the home directory, where v2 resolves a
+ * The models of every provider enabled in `repo`; without one, in the home directory, where v2 resolves a
  * request that names no location (research §2.4).
  */
 async function listModels(repo?: string): Promise<DiscoveredModel[]> {
@@ -110,9 +110,7 @@ async function listModels(repo?: string): Promise<DiscoveredModel[]> {
     if (r === null) break; // the CLI did not answer; a retry would only wait again
   }
   return data
-    .filter(
-      (m) => OPENCODE_PROVIDERS.includes(m.providerID) && m.enabled !== false && typeof m.id === "string",
-    )
+    .filter((m) => typeof m.providerID === "string" && m.enabled !== false && typeof m.id === "string")
     .map((m) => ({
       id: `${m.providerID}/${m.id}`,
       efforts: ((m.variants ?? []) as { id?: unknown }[])
@@ -124,15 +122,14 @@ async function listModels(repo?: string): Promise<DiscoveredModel[]> {
 }
 
 /**
- * Spec §6.3: install the catherd agents, and refuse a Zen or Go model or variant opencode does not list
- * in the repository (its config can enable or disable models), from a listing cached per repository.
+ * Spec §6.3: install the catherd agents, and refuse a model or variant opencode does not list in the
+ * repository (its config can enable or disable models), from a listing cached per repository.
  */
 async function prepare(req: { rung: Rung; access: Access; isolated: boolean; repo: string }): Promise<void> {
   const root = req.isolated ? isolatedConfigRoot() : userConfigRoot();
   // the background service only sees a new agent file after a reload (verified on 2.0.16)
   if (installAgents(root) && !req.isolated) await runCli("opencode", ["reload"], opencodeShell);
   const { model, effort } = req.rung;
-  if (!OPENCODE_PROVIDERS.includes(model.split("/")[0] ?? "")) return;
   const models = await discovered("opencode", () => listModels(req.repo), {
     maxAgeMs: DAY_MS,
     need: model,
@@ -144,7 +141,9 @@ async function prepare(req: { rung: Rung; access: Access; isolated: boolean; rep
     throw new CatherdError("E_BACKEND_MODEL_UNKNOWN", `opencode does not list ${model}`, {
       fix: model.startsWith("opencode-go/")
         ? "subscribe to OpenCode Go and run: opencode auth login opencode-go --method key"
-        : "run: opencode auth login opencode --method key, or pick a model catalog_query lists",
+        : model.startsWith("opencode/")
+          ? "run: opencode auth login opencode --method key, or pick a model catalog_query lists"
+          : "enable its provider and model in opencode's config, or pick a model catalog_query lists",
     });
   if (effort !== "default" && !m.efforts.includes(effort))
     throw new CatherdError("E_BACKEND_MODEL_UNKNOWN", `${model} has no variant "${effort}"`, {

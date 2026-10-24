@@ -190,7 +190,7 @@ export const ROLE_NEEDS: Record<Role, { toolUse?: true; imageIn?: true; imageGen
 };
 
 /**
- * A listed model catherd has no family for can use tools (Zen and Go serve coding models) and reports
+ * A listed model catherd has no family for can use tools (opencode's providers serve coding models) and reports
  * its own image input; image generation is a backend capability (spec §5.2: Codex's tool).
  */
 export function capableFor(c: Catalog, info: RungInfo, role: Role): boolean {
