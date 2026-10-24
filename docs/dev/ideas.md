@@ -331,13 +331,28 @@ Plan 26 (the minors sweep) review:
 
 ## Routing and cost
 
-- **Jev hit-rate review.** After N runs, show how often each Jev start rung had to climb, per kind and difficulty:
-  "build lanes on `codex:gpt-6-luna#high` climbed 3 of 10". _Why:_ it is the raw material for catalog tuning, and it
-  tells the user whether a bar is too low today. _Where:_ `catherd runs`, the panel's Runs page, and the setup skill.
+- **Jev hit-rate review: the panel and setup views.** `catherd catalog outcomes` (plan 41) prints each rung's first
+  passes, rounds and findings per lane, by kind and difficulty, so the CLI summary exists. Still open: the same view
+  on the panel's Runs page and in the setup skill.
 - **Jev difficulty calibration.** In the first two real runs Jev was sure of the kind (1.0) but not the difficulty
   (0.4), so 3 of 4 routes fell back to the default. Since 1.5 each lane's final outcome (climbed or not) is logged
   beside Jev's answer in `routes.jsonl` (plan 24): tune the difficulty question's wording, its options or its
   threshold from that data.
+- **The catalog price and opencode's configured price for one model differ 5×.** The owner's review of the first
+  DeepSeek V4.1 Flash lanes (2026-10-24, plan 41's source) found the two 5× apart. A run's cost is opencode's own
+  figure when opencode reports a price, else the catalog's (plan 41 D2). _Why:_ the cheap tier's saving depends on
+  which price a run takes. _Where:_ `src/services/finalize.ts`, `src/adapters/opencode/index.ts`.
+- **The DeepSeek Harness (`dsh`) A/B experiment.** Not run; plans 40 and 41 both left it for later. The owner's review
+  of the first DeepSeek V4.1 Flash lanes (plan 41's source) found them 5–15× cheaper than GPT Sol, but 1.5–3× slower
+  with 2–4× the tool calls. _Why:_ those numbers come from one harness, so an A/B would show whether the harness
+  causes the slowdown. _Where:_ a manual run first, then a plan.
+- **Best-of-N cheap workers.** Run several cheap workers on one lane and keep the result the review passes. Not built.
+  _Why:_ at 5–15× less per lane than GPT Sol (plan 41's source), a few cheap tries may cost less than one strong try;
+  untested. _Where:_ the worker dispatch, after plan 41's routing.
+- **opencode streams carry no reasoning text.** The v2 stream has no reasoning part, so an opencode transcript shows
+  the text and the tool calls, never the model's reasoning; a step's token count is the only trace of it. The research
+  notes list a `reasoning` part only with `--thinking` (`docs/research/2026-09-25-opencode.md:190`). _Why:_ a reviewer
+  reading a DeepSeek lane cannot see why it took a step. _Where:_ `src/adapters/opencode/transcript.ts`.
 
 ## Orchestration
 
