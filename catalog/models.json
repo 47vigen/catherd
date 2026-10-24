@@ -146,6 +146,14 @@
       }
     },
     {
+      "id": "claude-haiku-5-5",
+      "name": "Claude Haiku 5.5",
+      "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
+      "on": {
+        "claude-code": { "id": "claude-haiku-5-5" }
+      }
+    },
+    {
       "id": "claude-4-5-haiku",
       "name": "Claude Haiku 4.5",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
