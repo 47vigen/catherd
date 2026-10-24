@@ -4,7 +4,7 @@ import { mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
-import { parseFailLines, parseFindings } from "../domain/findings.ts";
+import { parseFailLines, parseFindings, unlistedFail } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
@@ -110,8 +110,11 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     else if (record.status === "ok") verdict = "fail";
     if (verdict === "fail") {
       findings = parseFailLines(reply);
-      if (!FIRST_LINE.test(first) && findings.length === 0)
-        findings = [{ label: "BLOCKER", text: `no VERDICT line: ${first || "empty reply"}`, file: null }];
+      // a FAIL that lists no failing line still routes what it said, so the fix round never starts empty
+      if (findings.length === 0)
+        findings = FIRST_LINE.test(first)
+          ? [unlistedFail(reply)]
+          : [{ label: "BLOCKER", text: `no VERDICT line: ${first || "empty reply"}`, file: null }];
     }
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";

@@ -11,7 +11,7 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
       "Run independent items side by side, each heavy one wrapped in catherd lock",
       "catherd lock --role verifier -- <command>",
       "Build each commit's images once, and reuse them for the boot check and the acceptance suite.",
-      "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
+      "- One line per gate item: `PASS <item>`, `FAIL <item> — the decisive output`, or carried over from <commit>.",
     ])
       expect(text).toContain(s);
     expect(text.split("\n")[1]).toStartWith("You verify work you did not write.");

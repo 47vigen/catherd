@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fileOf, filesOf, parseFailLines, parseFindings } from "../../src/domain/findings.ts";
+import { fileOf, filesOf, parseFailLines, parseFindings, unlistedFail } from "../../src/domain/findings.ts";
 
 describe("fileOf", () => {
   it("takes the first path or path:line among a finding's first words", () => {
@@ -90,5 +90,54 @@ describe("parseFailLines", () => {
     expect(found).toHaveLength(16);
     expect(found.every((f) => f.text.includes("FAIL"))).toBe(true);
     expect(found[0]).toEqual({ label: "BLOCKER", text: "A2 FAIL — src/a.ts:3 is wrong", file: "src/a.ts" });
+  });
+});
+
+describe("unlistedFail", () => {
+  it("quotes the first line a FAIL verdict said, past its HEAD and PASS lines", () => {
+    const reply = [
+      "VERDICT: FAIL",
+      "HEAD: abc",
+      "A1 PASS — bun test: 12 pass",
+      "- src/a.test.ts: 2 tests fail",
+      "STATUS: complete — failed",
+    ].join("\n");
+    expect(unlistedFail(reply)).toEqual({
+      label: "BLOCKER",
+      text: "verifier FAIL listed no failing line: src/a.test.ts: 2 tests fail",
+      file: "src/a.test.ts",
+    });
+  });
+
+  it("says so when the FAIL verdict named nothing", () => {
+    expect(unlistedFail("VERDICT: FAIL\nSTATUS: complete — failed")).toEqual({
+      label: "BLOCKER",
+      text: "verifier FAIL listed no failing line: nothing after the verdict",
+      file: null,
+    });
+  });
+
+  it("quotes the line that names a file over a heading above it", () => {
+    const reply = [
+      "VERDICT: FAIL",
+      "**Gate items**",
+      "- bun test: 2 red",
+      "- src/a.test.ts: 2 tests fail",
+      "STATUS: complete — failed",
+    ].join("\n");
+    expect(unlistedFail(reply)).toEqual({
+      label: "BLOCKER",
+      text: "verifier FAIL listed no failing line: src/a.test.ts: 2 tests fail",
+      file: "src/a.test.ts",
+    });
+  });
+
+  it("keeps a failing line that also says PASS", () => {
+    const reply = ["VERDICT: FAIL", "- src/a.test.ts: 2 PASS, 1 fail"].join("\n");
+    expect(unlistedFail(reply)).toEqual({
+      label: "BLOCKER",
+      text: "verifier FAIL listed no failing line: src/a.test.ts: 2 PASS, 1 fail",
+      file: "src/a.test.ts",
+    });
   });
 });

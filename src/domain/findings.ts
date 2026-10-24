@@ -51,3 +51,21 @@ export function parseFailLines(reply: string): Finding[] {
       return { label: "BLOCKER" as const, text, file: fileOf(text) };
     });
 }
+
+/**
+ * A FAIL verdict that lists no FAIL, BLOCKER or BUG line: one BLOCKER quoting the first line it said that
+ * names a file, else its first line.
+ */
+export function unlistedFail(reply: string): Finding {
+  const said = reply
+    .split("\n")
+    .map((l) => l.trim().replace(/^(?:[-*]\s+|\d+[.)]\s+)/, ""))
+    .filter((l) => l && !/^(?:VERDICT|STATUS|HEAD):|^\*\*[^*]+\*\*:?$/i.test(l))
+    .filter((l) => !/\bPASS\b/.test(l) || /fail/i.test(l));
+  const line = said.find((l) => fileOf(l)) ?? said[0] ?? "";
+  return {
+    label: "BLOCKER",
+    text: `verifier FAIL listed no failing line: ${line || "nothing after the verdict"}`,
+    file: fileOf(line),
+  };
+}
