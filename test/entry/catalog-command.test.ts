@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
-import { formatModel, syncLine } from "../../src/entry/catalog-command.ts";
+import { formatModel, formatOutcomes, syncLine } from "../../src/entry/catalog-command.ts";
 import type { CatalogModel, IndexStatus } from "../../src/services/catalog-service.ts";
 import { snapshotEnv, tempRepo, withHome } from "../helpers.ts";
 
@@ -68,7 +68,39 @@ describe("formatModel", () => {
   });
 });
 
+describe("formatOutcomes", () => {
+  it("prints one line per stat with the effort apart", () => {
+    const stat = {
+      rung: "codex:gpt-6.1-sol#high",
+      model: "codex:gpt-6.1-sol",
+      effort: "high",
+      kind: "repo_code" as const,
+      difficulty: "build" as const,
+      chore: false,
+      lanes: 4,
+      landed: 4,
+      firstPass: 3,
+      rounds: 6,
+      findings: 2,
+    };
+    expect(
+      formatOutcomes([stat, { ...stat, effort: "max", kind: null, difficulty: "copy", chore: true }]).split(
+        "\n",
+      ),
+    ).toEqual([
+      "codex:gpt-6.1-sol  high  repo_code/build  4 lanes  3 first pass  1.5 rounds/lane  0.5 findings/lane",
+      "codex:gpt-6.1-sol  max  -/copy chore  4 lanes  3 first pass  1.5 rounds/lane  0.5 findings/lane",
+    ]);
+  });
+});
+
 describe("catherd catalog", () => {
+  it("prints that no lane has finished yet", () => {
+    withHome();
+    expect(catherd("outcomes")).toMatchObject({ code: 0, out: "no finished lanes yet\n" });
+    expect(JSON.parse(catherd("outcomes", "--json").out)).toEqual([]);
+  });
+
   it("lists models with their indexed pairs, as text or JSON", () => {
     withHome();
     const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol");

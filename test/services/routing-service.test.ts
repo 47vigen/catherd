@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BackendAdapter } from "../../src/adapters/backend.ts";
 import { writeDiscovery } from "../../src/adapters/discovery.ts";
@@ -9,7 +9,11 @@ import { indexPath } from "../../src/infra/paths.ts";
 import { writeIndexFile } from "../../src/infra/slopalytics.ts";
 import { resetFreshen, writeRunIndex } from "../../src/services/catalog-service.ts";
 import { indexOf } from "../domain/shipped.ts";
-import { runPaths } from "../../src/services/run-store.ts";
+import { appendOutcome, appendRoute, runPaths } from "../../src/services/run-store.ts";
+import type { OutcomeRow, RouteRow } from "../../src/domain/route.ts";
+import type { MilestonePlan } from "../../src/domain/run-events.ts";
+import { appendEvents } from "../../src/services/run-events-store.ts";
+import { CHORE_WHY } from "../../src/domain/track-record.ts";
 import type { JevRow } from "../../src/services/jev-service.ts";
 import type { Bars } from "../../src/domain/bars.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
@@ -204,6 +208,179 @@ describe("route's provenance", () => {
     expect(a.source).toBe("default");
     expect(a.provenance?.bar).toBeNull();
     expect(a.provenance?.intelligence).toBeGreaterThan(0);
+  });
+});
+
+const plan = (milestones: [string, string[]][]): MilestonePlan[] =>
+  milestones.map(([id, after]) => ({
+    id,
+    title: id,
+    after,
+    lanes: [{ id: `${id}.L1`, role: "worker", kind: "repo_code", after: [], owns: [`src/${id}/`] }],
+  }));
+
+/** a run dir whose events hold a plan.ready: M1 → M2 → M3 and M1 → M4 (M2.L1 is critical, M4.L1 has slack 2) */
+function planned(): string {
+  const dir = runDir();
+  const e = {
+    v: 1,
+    seq: 1,
+    at: "2026-10-24T10:00:00.000Z",
+    type: "plan.ready",
+    milestones: plan([
+      ["M1", []],
+      ["M2", ["M1"]],
+      ["M3", ["M2"]],
+      ["M4", ["M1"]],
+    ]),
+  };
+  writeFileSync(join(dir, "events.jsonl"), `${JSON.stringify(e)}\n`);
+  return dir;
+}
+
+describe("route by chore, slack, record and the critical path", () => {
+  it("a chore lane starts on the cheapest rung", async () => {
+    const f = fakeFetch({ status: 200, body: fx("route-v2-track-a.json") });
+    const r = req(`${lane("repo_code", "hard")}\nChore: yes`);
+    const a = await routingService({ key: "k", fetchImpl: f.impl }).route(r);
+    expect(a).toMatchObject({ rung: LADDER[0], ladder: LADDER, difficulty: "hard", source: "lane" });
+    expect(a.why).toContain(CHORE_WHY);
+    expect(jevRows(r.runDir)).toEqual([]);
+    expect(f.sent).toHaveLength(0);
+  });
+
+  it("a chore lane with no kind says only that it is a chore", async () => {
+    const a = await routingService().route(req(`# M1.L1\nChore: yes`));
+    expect(a).toMatchObject({ rung: LADDER[0], source: "default", why: CHORE_WHY });
+  });
+
+  it("a lane with slack routes on the easier bar", async () => {
+    const a = await routingService().route(
+      req(lane("repo_code", "build"), { runDir: planned(), lane: "M4.L1" }),
+    );
+    expect(a).toMatchObject({ rung: LADDER[0], difficulty: "build" });
+    expect(a.why).toContain("slack 2: held to copy's bar");
+  });
+
+  it("a critical lane starts no lower than the default rung", async () => {
+    const dir = planned();
+    // sol#high as the default: the cheapest rung that clears build (sol#medium) is below it
+    const high = view({
+      roles: {
+        ...view().roles,
+        worker: { enabled: true, access: "workspace-write", rungs: LADDER, defaultRung: LADDER[2] },
+      },
+    });
+    const a = await routingService().route(
+      req(lane("repo_code", "build"), { runDir: dir, lane: "M2.L1", profile: high }),
+    );
+    expect(a).toMatchObject({ rung: LADDER[2], difficulty: "build" });
+    expect(a.why).toContain("critical path: no lower than the default rung");
+    const copy = await routingService().route(
+      req(lane("repo_code", "copy"), { runDir: dir, lane: "M2.L1", profile: high }),
+    );
+    expect(copy.rung).toBe(COPY.rung);
+    expect(copy.why).not.toContain("critical path");
+  });
+
+  it("a lane not in the plan, or a corrupt events file, routes as today", async () => {
+    const dir = planned();
+    const late = await routingService().route(
+      req(lane("repo_code", "build"), { runDir: dir, lane: "M9.L1" }),
+    );
+    expect(late).toMatchObject({ ...TRACK_A, why: expect.stringContaining("first rung in objective order") });
+    const bad = runDir();
+    writeFileSync(join(bad, "events.jsonl"), "not json\n{}\n");
+    expect(await routingService().route(req(lane("repo_code", "build"), { runDir: bad }))).toMatchObject(
+      TRACK_A,
+    );
+  });
+
+  describe("with recorded outcomes", () => {
+    const AT = "2026-10-24T10:00:00.000Z";
+    const rungs = [LADDER[0], LADDER[1]] as [string, string];
+    /** one past run whose finished build lanes are `[rung, lanes, lanes that landed on the first pass]` */
+    async function record(...specs: [string, number, number][]): Promise<void> {
+      const { run } = freshRun();
+      const lanes = specs.flatMap(([rung, n, first]) =>
+        Array.from({ length: n }, (_, i) => ({ id: `M1.L${rung.length}x${i}`, rung, one: i < first })),
+      );
+      await appendEvents(run, [
+        {
+          type: "plan.ready",
+          milestones: [
+            {
+              id: "M1",
+              title: "m",
+              after: [],
+              lanes: lanes.map((l) => ({ id: l.id, role: "worker", kind: "repo_code", after: [], owns: [] })),
+            },
+          ],
+        },
+        ...lanes.flatMap((l) =>
+          Array.from({ length: l.one ? 1 : 2 }, (_, k) => ({
+            type: "dispatch.started" as const,
+            dispatchId: `${l.id}-${k}`,
+            name: `worker-${l.id}`,
+            role: "worker" as const,
+            unit: l.id,
+            lane: l.id,
+            rung: l.rung,
+            thread: null,
+          })),
+        ),
+      ]);
+      for (const l of lanes) {
+        const r: RouteRow = {
+          at: AT,
+          lane: l.id,
+          role: "worker",
+          rung: l.rung,
+          ladder: [l.rung],
+          source: "route",
+          decidedBy: "lane",
+          from: null,
+          reason: null,
+          kind: "repo_code",
+          difficulty: "build",
+        };
+        const o: OutcomeRow = {
+          at: AT,
+          lane: l.id,
+          questionSet: null,
+          jevProbs: null,
+          source: "lane",
+          startRung: l.rung,
+          finalRung: l.rung,
+          climbs: [],
+          landed: true,
+          start_ok: true,
+          min_ok_index: 0,
+          envCaused: false,
+        };
+        appendRoute(run, r);
+        appendOutcome(run, o);
+      }
+    }
+
+    it("a cheaper rung with a better record is learned", async () => {
+      await record([rungs[1] as string, 5, 3], [rungs[0] as string, 5, 5]);
+      const a = await routingService().route(req(lane("repo_code", "build")));
+      expect(a.rung).toBe(rungs[0]);
+      expect(a.why).toContain(`learned from build lanes: ${rungs[0]} 5/5 first pass`);
+      expect(a.why).toContain(`against ${rungs[1]} 3/5 first pass`);
+      // a critical lane with the same record keeps the default rung
+      const c = await routingService().route(
+        req(lane("repo_code", "build"), { runDir: planned(), lane: "M2.L1" }),
+      );
+      expect(c.rung).toBe(TRACK_A.rung);
+      expect(c.why).toContain("critical path");
+    });
+
+    it("learns nothing from fewer than five lanes on the start rung", async () => {
+      await record([rungs[1] as string, 4, 2], [rungs[0] as string, 5, 5]);
+      expect((await routingService().route(req(lane("repo_code", "build")))).rung).toBe(TRACK_A.rung);
+    });
   });
 });
 

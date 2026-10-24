@@ -8,18 +8,21 @@ import { log } from "../infra/log.ts";
 import { appendJsonlBatch } from "../infra/store.ts";
 import type { Run } from "./run-store.ts";
 
+/** What the reads need of a run: its id for messages, its folder for the file. */
+type RunRef = Pick<Run, "id" | "dir">;
+
 /** `<run>/events.jsonl`: one fact per line, dense `seq`, the only state a 2.0 run keeps. */
-export const eventsFile = (run: Run): string => join(run.dir, "events.jsonl");
+export const eventsFile = (run: RunRef): string => join(run.dir, "events.jsonl");
 
 /** A 2.0 run has an events.jsonl; a run without one is a 1.5 run, and the daemon never drives it. */
-export const isDaemonRun = (run: Run): boolean => existsSync(eventsFile(run));
+export const isDaemonRun = (run: RunRef): boolean => existsSync(eventsFile(run));
 
-const corrupt = (run: Run, after: number, why: string): CatherdError =>
+const corrupt = (run: RunRef, after: number, why: string): CatherdError =>
   new CatherdError("E_RUN_CORRUPT", `${eventsFile(run)} is corrupt after seq ${after}: ${why}`, {
     fix: `restore events.jsonl from a backup, or finish run ${run.id} with catherd 1.x`,
   });
 
-const tooOld = (run: Run, v: unknown): CatherdError =>
+const tooOld = (run: RunRef, v: unknown): CatherdError =>
   new CatherdError(
     "E_RUNTIME_TOO_OLD",
     `${eventsFile(run)} holds events of version ${String(v)}, newer than this catherd (${EVENTS_SCHEMA})`,
@@ -27,7 +30,7 @@ const tooOld = (run: Run, v: unknown): CatherdError =>
   );
 
 /** One line as an event: a newer `v` is too old a catherd, anything else invalid is corrupt (null here). */
-function decode(run: Run, line: string): RunEvent | null {
+function decode(run: RunRef, line: string): RunEvent | null {
   let raw: unknown;
   try {
     raw = JSON.parse(line);
@@ -46,7 +49,7 @@ function decode(run: Run, line: string): RunEvent | null {
  * is not the line's number, refuses the read (E_RUN_CORRUPT, naming the seq before it); a newer `v`, too.
  * Lines before `fromSeq` are skipped unread: the caller replayed them already.
  */
-export function readEvents(run: Run, fromSeq = 1): RunEvent[] {
+export function readEvents(run: RunRef, fromSeq = 1): RunEvent[] {
   let text: string;
   try {
     text = readFileSync(eventsFile(run), "utf8");
