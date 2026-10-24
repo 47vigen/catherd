@@ -206,6 +206,45 @@
         }
       }
     },
+    "/api/catalog": {
+      "get": {
+        "operationId": "getCatalog",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/setup/recheck": {
       "post": {
         "operationId": "recheckSetup",
@@ -4634,6 +4673,99 @@
           "backends",
           "issues",
           "roles"
+        ],
+        "additionalProperties": false
+      },
+      "CatalogView": {
+        "type": "object",
+        "properties": {
+          "indexedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogEntry"
+            }
+          }
+        },
+        "required": [
+          "indexedAt",
+          "models"
+        ],
+        "additionalProperties": false
+      },
+      "CatalogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "backends": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelPoint"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "lab",
+          "backends",
+          "points"
+        ],
+        "additionalProperties": false
+      },
+      "ModelPoint": {
+        "type": "object",
+        "properties": {
+          "effort": {
+            "type": "string"
+          },
+          "rung": {
+            "type": "string"
+          },
+          "intelligence": {
+            "type": "number"
+          },
+          "usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "measured": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "effort",
+          "rung",
+          "intelligence",
+          "usd",
+          "measured"
         ],
         "additionalProperties": false
       },

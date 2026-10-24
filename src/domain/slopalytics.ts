@@ -10,6 +10,10 @@ export interface SlopRecord {
   outputPrice: number | null;
   speed: number | null;
   context: number | null;
+  /** measured USD per task; absent in an index fetched before the field existed */
+  cost?: number | null;
+  /** Slopalytics lab id */
+  lab?: string | null;
 }
 
 const RecordSchema = z.object({
@@ -20,6 +24,8 @@ const RecordSchema = z.object({
   outputPrice: z.number().nullable(),
   speed: z.number().nullable(),
   context: z.number().nullable(),
+  cost: z.number().nullable().optional(),
+  lab: z.string().nullable().optional(),
 });
 
 /** `<data>/slopalytics.json`: the last good answer, when it was fetched and checked, and the last failure. */
@@ -51,6 +57,7 @@ export function parseProxy(body: unknown): { fetchedAt: string | null; models: S
     if (typeof r.effort !== "string" || !r.effort) continue;
     if (intelligence === null || intelligence <= 0) continue;
     const context = num(r.context);
+    const cost = num(r.cost);
     models.push({
       family: r.family,
       effort: r.effort,
@@ -59,6 +66,8 @@ export function parseProxy(body: unknown): { fetchedAt: string | null; models: S
       outputPrice: num(r.outputPrice),
       speed: num(r.speed),
       context: context !== null && Number.isInteger(context) && context > 0 ? context : null,
+      cost: cost !== null && cost > 0 ? cost : null,
+      lab: typeof r.lab === "string" && r.lab ? r.lab : null,
     });
   }
   return { fetchedAt: typeof b.fetchedAt === "string" ? b.fetchedAt : null, models };

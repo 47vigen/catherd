@@ -25,6 +25,7 @@ import {
   panelOriginOk,
   servePanel,
 } from "../../src/entry/panel/server.ts";
+import { CatalogViewSchema } from "../../src/services/panel-catalog.ts";
 import { ProfileSavedSchema } from "../../src/services/panel-setup.ts";
 import { probeCache } from "../../src/services/probe-cache.ts";
 import { CHANGED_ON_DISK } from "../../src/services/profile-service.ts";
@@ -737,6 +738,14 @@ describe("the panel's v2 operations", () => {
     expect((await post(cookie, "/api/profiles/default/activate", { repo: "relative" })).status).toBe(400);
     expect((await call(cookie, "/api/setup?repo=relative")).status).toBe(400);
     expect((await getJson(cookie, "/api/setup?repo=global")).repo).toBeNull();
+  });
+
+  it("GET /api/catalog answers the catalog view", async () => {
+    const cookie = await signIn();
+    const view = CatalogViewSchema.parse(await getJson(cookie, "/api/catalog"));
+    expect(view.models.length).toBeGreaterThan(0);
+    expect(view.indexedAt).toBe("2026-10-13T20:47:14.735Z");
+    expect((await call(cookie, "/api/catalog?repo=relative")).status).toBe(400);
   });
 
   it("an unknown host makes Setup read-only until the host is set", async () => {

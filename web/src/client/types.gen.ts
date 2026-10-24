@@ -608,6 +608,27 @@ export type SetupView = {
     }>;
 };
 
+export type CatalogView = {
+    indexedAt: string | null;
+    models: Array<CatalogEntry>;
+};
+
+export type CatalogEntry = {
+    id: string;
+    name: string | null;
+    lab: string | null;
+    backends: Array<string>;
+    points: Array<ModelPoint>;
+};
+
+export type ModelPoint = {
+    effort: string;
+    rung: string;
+    intelligence: number;
+    usd: number | null;
+    measured: boolean;
+};
+
 export type Check = {
     id: string;
     label: string;
@@ -861,6 +882,33 @@ export type GetSetupResponses = {
 };
 
 export type GetSetupResponse = GetSetupResponses[keyof GetSetupResponses];
+
+export type GetCatalogData = {
+    body?: never;
+    path?: never;
+    query?: {
+        repo?: string;
+    };
+    url: '/api/catalog';
+};
+
+export type GetCatalogErrors = {
+    /**
+     * error
+     */
+    default: ErrorBody;
+};
+
+export type GetCatalogError = GetCatalogErrors[keyof GetCatalogErrors];
+
+export type GetCatalogResponses = {
+    /**
+     * ok
+     */
+    200: CatalogView;
+};
+
+export type GetCatalogResponse = GetCatalogResponses[keyof GetCatalogResponses];
 
 export type RecheckSetupData = {
     body?: never;

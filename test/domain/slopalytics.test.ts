@@ -24,14 +24,30 @@ describe("parseProxy", () => {
     expect(by["kimi-k3#max"]?.inputPrice).toBe(3);
     expect(Object.keys(by["gpt-6-sol#high"] as object).sort()).toEqual([
       "context",
+      "cost",
       "effort",
       "family",
       "inputPrice",
       "intelligence",
+      "lab",
       "outputPrice",
       "speed",
     ]);
     expect(r.fetchedAt).toBe(proxyFixture.fetchedAt);
+  });
+
+  it("parseProxy keeps the measured cost and the lab", () => {
+    const by = Object.fromEntries(parseProxy(proxyFixture).models.map((m) => [`${m.family}#${m.effort}`, m]));
+    expect(by["gpt-6-sol#high"]?.cost).toBe(0.3728406839161857);
+    expect(by["gpt-6-sol#high"]?.lab).toBe("openai");
+    expect(by["gemini-3-8-flash#low"]?.cost).toBeNull();
+  });
+
+  it("a cost that is not a positive number is missing", () => {
+    for (const cost of [0, -1, "abc"])
+      expect(
+        parseProxy({ models: [{ family: "m", effort: "high", intelligence: 40, cost }] }).models[0]?.cost,
+      ).toBeNull();
   });
 
   it("takes a trimmed finite numeric string, and nothing else, as a number", () => {
@@ -60,6 +76,8 @@ describe("parseProxy", () => {
         outputPrice: null,
         speed: null,
         context: null,
+        cost: null,
+        lab: null,
       },
     ]);
     expect(r.fetchedAt).toBeNull();
