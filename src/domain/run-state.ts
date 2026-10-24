@@ -182,6 +182,8 @@ export interface MilestoneState {
   checkedOn: string | null;
   /** plan 40: the commit whose check failed with findings; accepting or dismissing those findings settles them */
   checkFailedOn: string | null;
+  /** the commit whose failing check the owner accepted or the judge dismissed: the land gate takes its lines as known */
+  checkWaivedOn: string | null;
   /** plan 40: the commit a verifier last passed */
   verifierPassedOn: string | null;
   /** plan 40: the delivered A-lines the check does not cover; the verifier judges those */
@@ -438,6 +440,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       mr: null,
       checkedOn: null,
       checkFailedOn: null,
+      checkWaivedOn: null,
       verifierPassedOn: null,
       uncovered: [],
       checkOnly: false,
@@ -447,6 +450,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
     m.checkFailedOn ??= null;
+    m.checkWaivedOn ??= null;
     m.verifierPassedOn ??= null;
     m.uncovered ??= [];
     m.checkOnly ??= false;
@@ -815,7 +819,7 @@ function afterVerdict(m: MilestoneState): void {
 
 /** The owner or the judge accepted a failing check's findings on the commit: the check counts as passed on it, the verdict still decides. */
 function waiveCheck(m: MilestoneState): void {
-  if (m.commit !== null && m.checkFailedOn === m.commit) m.checkedOn = m.commit;
+  if (m.commit !== null && m.checkFailedOn === m.commit) m.checkedOn = m.checkWaivedOn = m.commit;
 }
 
 /** The base is merged into the milestone's branch: a fresh verifier checks the merge commit. */

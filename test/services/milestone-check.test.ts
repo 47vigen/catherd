@@ -525,6 +525,76 @@ describe("machineGate", () => {
     await expect(land(deps, input)).resolves.toHaveProperty("ledger");
   });
 
+  it("an owner accept on a check-red blocker lands that commit, and only that commit", async () => {
+    const deps = fakeDeps();
+    daemonLauncher.launch = () => 1;
+    const base = HEAD_REAL;
+    run = createRun({
+      repo,
+      title: "blocker accept",
+      aLines: ["A1"],
+      version: "0.0.0-test",
+      startHead: base,
+    });
+    writeFileSync(join(repo, "tracked.txt"), "work");
+    git(repo, "add", "tracked.txt");
+    git(repo, "commit", "-q", "-m", "work");
+    const head = git(repo, "rev-parse", "HEAD");
+    await passGate(run, "M1", undefined, head);
+    const command = "(echo 'FAIL x'; exit 1)";
+    appendCheckRecord(repo, rec({ command, head: base, baseline: true }));
+    appendCheckRecord(repo, rec({ command, head, exit: 1, fails: ["FAIL x"] }));
+    const owned = (text: string) => ({
+      label: "BLOCKER" as const,
+      text: `BLOCKER src/a/x.ts:1 — ${text}`,
+      file: "src/a/x.ts",
+    });
+    const review = (findings: ReturnType<typeof owned>[]) => {
+      const id = startDispatch(log, { name: "reviewer-M1", role: "reviewer", unit: "M1", lane: null });
+      endDispatch(log, id, { name: "reviewer-M1", unit: "M1", findings });
+    };
+    const log = runningLog();
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c".repeat(40) });
+    review([owned("first"), owned("second")]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: head });
+    review([]);
+    log.add("milestone.checked", {
+      milestone: "M1",
+      head,
+      command,
+      missing: [],
+      findings: [owned("third")],
+      uncovered: ["A1"],
+      checkOnly: false,
+      verdictCarried: false,
+      startedAt: "2026-10-21T10:00:00.000Z",
+      durationMs: 1,
+      waitedMs: 0,
+    });
+    log.add("question.parked", { unit: "M1", question: "third", reason: "blocker" });
+    log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
+    const verifier = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, verifier, { name: "verifier-M1", unit: "M1", verdict: "pass", head });
+    await appendEvents(run, log.events);
+    expect((await machineGate(run, "M1", head)).missing).toEqual([]);
+    await expect(
+      land(deps, {
+        run: run.id,
+        milestone: "M1",
+        what: "work",
+        commit: head,
+        evidence: "verified",
+        next: "M2",
+      }),
+    ).resolves.toHaveProperty("ledger");
+    const other = "d".repeat(40);
+    appendCheckRecord(repo, rec({ command, head: other, exit: 1, fails: ["FAIL x"] }));
+    expect((await machineGate(run, "M1", other)).missing.join("\n")).toContain("exits 1");
+  });
+
   it("binds accept to the full record that caused refusal before an intervening rerun", async () => {
     const fails = Array.from({ length: FAIL_DISPLAY_CAP + 2 }, (_, n) => `FAIL case ${n}`);
     const rerunFails = [...fails.slice(0, -1), "FAIL unaccepted"];

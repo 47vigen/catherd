@@ -5,6 +5,7 @@ import { CatherdError } from "../domain/errors.ts";
 import { checkFailLines, checkItems, coveredDir, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import type { RunEvent } from "../domain/run-events.ts";
+import { replay } from "../domain/run-state.ts";
 import { baselineItems, isAccept, milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
 import {
@@ -366,6 +367,7 @@ export async function machineGate(
   const start = await checkBase(run, m);
   const accepted = acceptedLandQuestions(run, m);
   let inputs: Awaited<ReturnType<typeof gateItemInputs>> | undefined;
+  let waivedOn: string | null | undefined;
   const checkedItems = new Set([
     ...required,
     ...[...latest.keys()].filter((item) => checkItems(item).length === 1),
@@ -381,6 +383,13 @@ export async function machineGate(
     if (rec.rerunOf !== undefined)
       audit.push(`\`${rec.command}\` exited ${rec.rerunOf} once and was rerun (exit ${rec.exit})`);
     if (rec.exit === 0) continue;
+    waivedOn ??= replay(readEvents(run), run.id).milestones.find((x) => x.id === m)?.checkWaivedOn ?? null;
+    if (waivedOn === head) {
+      audit.push(
+        `the failing lines of \`${rec.command}\` on ${head.slice(0, 12)} were accepted as known issues`,
+      );
+      continue;
+    }
     const base = baselineFor(run.meta.repo, rec.command, start);
     const fresh = newFails(rec.fails, base?.fails ?? null);
     if (!base || base.exit === 0)

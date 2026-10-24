@@ -935,7 +935,11 @@ describe("plan 40: the verifying flow", () => {
     expect(log.state().milestones[0]).toMatchObject({ status: "review", checkedOn: null });
     log.add("question.parked", { unit: "M1", question: "third", reason: "blocker" });
     log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
-    expect(log.state().milestones[0]).toMatchObject({ status: "verifying", checkedOn: "c1" });
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "verifying",
+      checkedOn: "c1",
+      checkWaivedOn: "c1",
+    });
     const out = next(log.state(), log.events.at(-1)!);
     expect(out.some((a) => a.type === "machineCheck")).toBe(false);
     expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
@@ -963,6 +967,7 @@ describe("plan 40: the verifying flow", () => {
       status: "verifying",
       disputing: false,
       checkedOn: "c1",
+      checkWaivedOn: "c1",
     });
     const out = next(log.state(), log.events.at(-1)!);
     expect(out.some((a) => a.type === "machineCheck")).toBe(false);
