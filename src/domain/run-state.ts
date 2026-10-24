@@ -170,8 +170,10 @@ export interface MilestoneState {
   digestPath: string | null;
   /** plan 35: the MR command of the branch catherd pushed, named in the question that asks again */
   mr: string | null;
-  /** plan 40: the commit the daemon's check last passed on; null when its last check failed or none has run on this commit */
+  /** plan 40: the commit the daemon's check passed on, or whose failing findings were settled; null while a failure is open or no check ran on this commit */
   checkedOn: string | null;
+  /** plan 40: the commit whose check failed with findings; accepting or dismissing those findings settles them */
+  checkFailedOn: string | null;
   /** plan 40: the commit a verifier last passed */
   verifierPassedOn: string | null;
   /** plan 40: the delivered A-lines the check does not cover; the verifier judges those */
@@ -427,6 +429,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       digestPath: null,
       mr: null,
       checkedOn: null,
+      checkFailedOn: null,
       verifierPassedOn: null,
       uncovered: [],
       checkOnly: false,
@@ -435,6 +438,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     };
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
+    m.checkFailedOn ??= null;
     m.verifierPassedOn ??= null;
     m.uncovered ??= [];
     m.checkOnly ??= false;
@@ -743,6 +747,11 @@ function afterVerdict(m: MilestoneState): void {
   m.status = m.commit !== null && m.checkedOn === m.commit && verdictIn(m) ? "landing" : "verifying";
 }
 
+/** The owner or the judge accepted a failing check's findings on the commit: the check counts as passed on it, the verdict still decides. */
+function waiveCheck(m: MilestoneState): void {
+  if (m.commit !== null && m.checkFailedOn === m.commit) m.checkedOn = m.commit;
+}
+
 /** The base is merged into the milestone's branch: a fresh verifier checks the merge commit. */
 function mergedIn(m: MilestoneState, commit: string): void {
   m.commit = commit;
@@ -947,6 +956,7 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
             m.verifierPassedOn = m.commit;
             m.verifierFailedOn = null;
           }
+          waiveCheck(m);
           m.open = [];
           afterVerdict(m);
           return;
@@ -1041,6 +1051,7 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     m.confirmed = true;
   } else if (q?.reason === "blocker" && isAccept(e.answer)) {
     if (failedHere) m.verifierPassedOn = m.commit;
+    waiveCheck(m);
     m.knownIssues = m.open.map((f) => f.text);
     m.open = [];
     afterVerdict(m);
@@ -1224,8 +1235,14 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.findings.length > 0) {
         // the failing lines are a fix round for their lanes: no verifier is asked about a commit the check fails
         m.checkedOn = null;
+        m.checkFailedOn = e.head;
         m.open = e.findings;
         completeRound(s, m);
+        // findings that ended the round as known issues, or as none, are settled: the check does not run again here
+        if (m.status === "verifying") {
+          m.checkedOn = e.head;
+          afterVerdict(m);
+        }
         return;
       }
       if (e.missing.length > 0) {
@@ -1238,6 +1255,7 @@ function apply(s: RunState, e: RunEvent): void {
         return;
       }
       m.checkedOn = e.head;
+      m.checkFailedOn = null;
       m.open = [];
       if (verdictIn(m, e.verdictCarried)) {
         m.tries = {};

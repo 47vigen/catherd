@@ -909,6 +909,75 @@ describe("plan 40: the verifying flow", () => {
     expect(log.state().stuck.M1).toMatchObject({ reason: "blocker" });
   });
 
+  it("accept after a check-red blocker verifies, without checking the same commit again", () => {
+    const log = reviewing();
+    const owned = (text: string) => bug(`BLOCKER src/a/x.ts:1 — ${text}`, "src/a/x.ts", "BLOCKER");
+    review(log, [owned("first"), owned("second")]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, []);
+    // the check on c1 is red with a BLOCKER a lane owns, and the third failing round reaches the cap
+    checked(log, "c1", { findings: [owned("third")] });
+    expect(log.state().milestones[0]).toMatchObject({ status: "review", checkedOn: null });
+    log.add("question.parked", { unit: "M1", question: "third", reason: "blocker" });
+    log.add("question.answered", { unit: "M1", answer: "accept", by: "owner" });
+    expect(log.state().milestones[0]).toMatchObject({ status: "verifying", checkedOn: "c1" });
+    const out = next(log.state(), log.events.at(-1)!);
+    expect(out.some((a) => a.type === "machineCheck")).toBe(false);
+    expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c1" });
+    expect(log.state().milestones[0]).toMatchObject({ status: "landing" });
+  });
+
+  it("a judge's dismissal of a check-red dispute verifies, without checking the same commit again", () => {
+    const log = reviewing();
+    review(log, [bug("BLOCKER src/a/x.ts:1 — owned", "src/a/x.ts", "BLOCKER")]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, []);
+    // the check on c1 is red with BLOCKERs no lane owns, at the cap: the triage judge reads them
+    checked(log, "c1", {
+      findings: [
+        bug("BLOCKER A8 is not met", null, "BLOCKER"),
+        bug("BLOCKER A9 is untestable", null, "BLOCKER"),
+      ],
+    });
+    expect(log.state().milestones[0]).toMatchObject({ status: "fixing", disputing: true });
+    triaged(log, "7", []);
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "verifying",
+      disputing: false,
+      checkedOn: "c1",
+    });
+    const out = next(log.state(), log.events.at(-1)!);
+    expect(out.some((a) => a.type === "machineCheck")).toBe(false);
+    expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
+  });
+
+  it("a check red at the cap with only BUGs settles them as known issues, and the verifier gates the commit", () => {
+    const log = reviewing();
+    review(log, [
+      bug("BUG src/a/x.ts:1 — two", "src/a/x.ts"),
+      bug("BUG src/a/x.ts:2 — two too", "src/a/x.ts"),
+    ]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [bug("BUG src/a/x.ts:3 — one", "src/a/x.ts")]);
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 2, commit: "c2" });
+    review(log, []);
+    checked(log, "c2", { findings: [bug("BUG src/a/x.ts:4 — the check", "src/a/x.ts")] });
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "verifying",
+      checkedOn: "c2",
+      knownIssues: ["BUG src/a/x.ts:4 — the check"],
+    });
+    const out = next(log.state(), log.events.at(-1)!);
+    expect(out.some((a) => a.type === "machineCheck")).toBe(false);
+    expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", role: "verifier" }));
+  });
+
   it("a disk deferral is owed as a wait for disk", () => {
     const log = runningLog(PLAN, "main");
     log.add("tree.deferred", { milestone: "M1", availableMb: 1024, needMb: 4096, resource: "disk" });

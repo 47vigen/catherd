@@ -403,12 +403,12 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
         : []),
     ]),
     ...(a.notes.length ? ["Before you start:", ...a.notes.map((n) => `- ${n}`), ""] : []),
-    // a Check that passed now replaces the gate items the last verifier failed: "run those items first" would repeat it
-    ...(previous.length && !checked
+    ...(previous.length
       ? [
           "A verifier failed this milestone before; it said:",
           ...previous.map((l) => `- ${l}`),
-          "Run those items first.",
+          // a passed Check already ran the gate items the last verifier failed: the verifier is not told to run them again
+          ...(checked ? [] : ["Run those items first."]),
           "",
         ]
       : []),

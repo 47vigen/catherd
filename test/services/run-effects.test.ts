@@ -1913,8 +1913,16 @@ describe("the daemon's machine check (plan 40 D1, D4, D13)", () => {
     ]);
   });
 
-  it("a plan with no Check runs no check, and leaves every delivered line to the verifier", async () => {
-    const { repo, run, fx } = setup();
+  it("a plan with no Check runs no check, and leaves every delivered line to the verifier, marked or not", async () => {
+    const { repo, deps } = setup();
+    // A2 is marked `(Check)`, yet no Check runs: a plan with no Check leaves it to the verifier too
+    const run = createRun({
+      repo,
+      title: "t",
+      aLines: ["A1 it works", "A2 it also works (Check)"],
+      version: "0.0.0-test",
+    });
+    const fx = realEffects(deps, run);
     writeLane(run, "M1.L1", ["src/a/"]);
     writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\n- A1 it works\n");
     await seed(run);
@@ -1928,7 +1936,7 @@ describe("the daemon's machine check (plan 40 D1, D4, D13)", () => {
       command: null,
       missing: [],
       findings: [],
-      uncovered: ["- A1 it works"],
+      uncovered: ["A1 it works", "A2 it also works (Check)"],
       checkOnly: false,
     });
   });

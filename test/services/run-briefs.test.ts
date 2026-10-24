@@ -255,7 +255,7 @@ describe("briefs", () => {
         mkdirSync(join(run.dir, "roles", "verifier-M1", id), { recursive: true });
         writeFileSync(
           join(run.dir, "roles", "verifier-M1", id, "reply.md"),
-          "VERDICT: FAIL\n- bun test fails: 2 red\nSTATUS: complete — failed\n",
+          "VERDICT: FAIL\n- bun test fails: 2 red\nA1 FAIL it works — the output\nSTATUS: complete — failed\n",
         );
       }
       const s = log.state();
@@ -290,10 +290,17 @@ describe("briefs", () => {
       expect(text).not.toContain("Judge only these acceptance lines");
     });
 
-    it("does not send the verifier back to the items its last verifier failed", () => {
+    it("keeps what its last verifier failed on, without telling the verifier to run it again", () => {
       const text = checkedBrief("bun test", ["A1 it works"], true);
       expect(text).toContain("do not run it again");
-      expect(text).not.toContain("A verifier failed this milestone before");
+      expect(text).toContain("A verifier failed this milestone before; it said:");
+      expect(text).toContain("A1 FAIL it works — the output");
+      expect(text).not.toContain("Run those items first.");
+    });
+
+    it("a milestone with no Check still tells its verifier to run what the last one failed", () => {
+      const text = checkedBrief(null, ["A1 it works"], true);
+      expect(text).toContain("Run those items first.");
     });
   });
 

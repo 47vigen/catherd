@@ -460,12 +460,13 @@ function milestonePaths(run: Run, m: string): string[] {
     .filter((f) => f.startsWith(`${m}.`) && f.endsWith(".md"))
     .flatMap((f) => parseLaneHeader(readFileSync(join(dir, f), "utf8")).owns);
   const { records } = readRecords(run);
+  // Owns keeps a directory's slash; verdictCarries compares a path as a prefix, so the slash goes
   return [
     ...owns,
     ...records
       .filter((r) => r.lane?.startsWith(`${m}.`))
       .flatMap((r) => [...r.changedOwned, ...r.violations]),
-  ];
+  ].map((p) => p.replace(/\/+$/, ""));
 }
 
 /** Plan 40 D3(b): a verifier's PASS on `from` answers `to` when no file of the milestone's paths changed between them. */

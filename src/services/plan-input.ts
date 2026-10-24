@@ -168,18 +168,22 @@ export function deliveredALines(run: Run, plan: string, m: string): Set<string> 
   return milestoneALines(plan, m);
 }
 
+/** A plan line's indent and list marker, which an A-line's text does not carry. */
+const LIST_MARKER = /^\s*(?:[-*]\s+)?/;
+
 /**
  * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), in full: the line its section of
- * plan.md gives the id, else the run's own A-line.
+ * plan.md gives the id, else the run's own A-line, without its list marker.
  */
 export function uncoveredALines(run: Run, m: string): string[] {
   const plan = read(runPaths(run.dir).plan) ?? "";
   const section = (milestoneSection(plan, m) ?? "").split("\n");
   const own = numberedALines(run.meta.aLines);
   return [...deliveredALines(run, plan, m)].flatMap((id) => {
-    const text =
-      section.find((line) => new RegExp(`^\\s*(?:[-*]\\s+)?${id}\\b`).test(line)) ??
+    const line =
+      section.find((l) => new RegExp(`${LIST_MARKER.source}${id}\\b`).test(l)) ??
       own.find((a) => a.id === id)?.line;
+    const text = line?.replace(LIST_MARKER, "");
     return text !== undefined && !CHECK_COVERED.test(text) ? [text] : [];
   });
 }

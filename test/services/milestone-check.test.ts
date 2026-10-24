@@ -291,6 +291,26 @@ describe("the verdict's carry and the base's lines", () => {
     expect(await verdictCarries(run, "M1", sibling, git(repo, "rev-parse", "HEAD"))).toBe(false);
   });
 
+  it("verdictCarries reads an Owns entry with its slash as a directory", async () => {
+    writeLane(run, "M1.L1", ["src/m1/"]);
+    mkdirSync(join(repo, "src/m1"), { recursive: true });
+    mkdirSync(join(repo, "src/m1-extra"), { recursive: true });
+    writeFileSync(join(repo, "src/m1/a.ts"), "1");
+    writeFileSync(join(repo, "src/m1-extra/b.ts"), "1");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "one");
+    const one = git(repo, "rev-parse", "HEAD");
+    writeFileSync(join(repo, "src/m1-extra/b.ts"), "2");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "sibling");
+    const sibling = git(repo, "rev-parse", "HEAD");
+    expect(await verdictCarries(run, "M1", one, sibling)).toBe(true);
+    writeFileSync(join(repo, "src/m1/a.ts"), "2");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "owned");
+    expect(await verdictCarries(run, "M1", sibling, git(repo, "rev-parse", "HEAD"))).toBe(false);
+  });
+
   it("freshFailures and missingBaselines name the lines the base lacks", async () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x", "FAIL y"] }));
