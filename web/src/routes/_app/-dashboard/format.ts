@@ -105,24 +105,4 @@ export function backendTone(backendOrName: string): { fill: string; bg: string }
   return { fill: FILL[i]!, bg: BG[i]! };
 }
 
-const UPPER = new Set(["gpt", "glm"]);
-
-/** A model as people say it: "codex:gpt-6-luna#high" is "GPT-6 Luna", "claude-opus-5-5" is "Claude Opus 5.5". */
-export function modelName(rung: string): string {
-  const id =
-    rung
-      .replace(/^[^:]*:/, "")
-      .replace(/#.*$/, "")
-      .split("/")
-      .pop() ?? rung;
-  const out: string[] = [];
-  // A dated snapshot suffix ("-20250929") is noise in a label.
-  for (const part of id.split("-").filter((p) => p && !/^\d{6,}$/.test(p))) {
-    const prev = out.at(-1);
-    if (/^\d{1,2}$/.test(part) && prev && /\d$/.test(prev)) out[out.length - 1] = `${prev}.${part}`;
-    else if (/^[\d.]+$/.test(part) && prev === "GPT") out[out.length - 1] = `GPT-${part}`;
-    else if (UPPER.has(part.toLowerCase())) out.push(part.toUpperCase());
-    else out.push(part.charAt(0).toUpperCase() + part.slice(1));
-  }
-  return out.join(" ") || rung;
-}
+export { modelName } from "../../../lib/model-name";

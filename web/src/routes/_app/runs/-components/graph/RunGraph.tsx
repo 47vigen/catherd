@@ -1,4 +1,5 @@
-import { Spinner } from "@heroui/react";
+import { ArrowsExpand, Frame, MagnifierMinus, MagnifierPlus } from "@gravity-ui/icons";
+import { Button, Spinner } from "@heroui/react";
 import { type Edge, ReactFlow } from "@xyflow/react";
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -31,10 +32,14 @@ function edgeClass(from: RunNode["status"] | undefined, to: RunNode["status"] | 
 /** Room around the graph, in pixels. */
 const PAD = 24;
 
-// The canvas is the size of the graph at full scale inside a frame that scrolls natively: a wide run is swiped or
-// scrolled sideways like a CI pipeline, the page keeps its own vertical scroll, and nothing is ever shrunk to fit.
+/** The zoom the buttons step through: each press multiplies or divides by `step`. */
+export const ZOOM = { min: 0.25, max: 2, step: 1.25 } as const;
+const clampZoom = (z: number) => Math.min(ZOOM.max, Math.max(ZOOM.min, z));
+
+// The canvas is the size of the graph at the chosen zoom inside a frame that scrolls natively: a wide run is swiped or
+// scrolled sideways like a CI pipeline, the page keeps its own vertical scroll, and it opens at full scale.
 const FRAME = [
-  "bg-background w-full max-h-[72vh] overflow-auto overscroll-x-contain",
+  "bg-background w-full overflow-auto overscroll-x-contain",
   "bg-[radial-gradient(color-mix(in_oklab,var(--muted)_22%,transparent)_1px,transparent_1px)] bg-size-[20px_20px]",
 ].join(" ");
 const CANVAS = [
@@ -55,6 +60,8 @@ export function RunGraph({
   selected,
   now,
   onOpen,
+  onExpand,
+  fill = false,
 }: {
   model: RunModel;
   milestones: RunView["milestones"];
@@ -62,11 +69,18 @@ export function RunGraph({
   /** The time the running steps count to, in ms. */
   now: number;
   onOpen: (id: string) => void;
+  /** Adds a Full screen button; the caller shows the graph larger. */
+  onExpand?: () => void;
+  /** Fills its parent's height instead of capping at the page's. */
+  fill?: boolean;
 }) {
   const colorMode = useColorMode();
   const key = layoutKey(model);
   const [laid, setLaid] = useState<Laid>();
   const frame = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  // The point at the frame's centre, in unscaled pixels, to hold still across a zoom change.
+  const anchor = useRef<{ x: number; y: number }>(null);
   const latest = useEffectEvent(() => model);
 
   useEffect(() => {
@@ -85,10 +99,28 @@ export function RunGraph({
     const active = model.nodes.find((n) => n.status === "running" || n.status === "parked");
     const at = laid && active ? absolutePosition(laid.nodes, active.id) : null;
     if (!el || !at) return;
-    el.scrollLeft = Math.max(0, PAD + at.x + CARD.width / 2 - el.clientWidth / 2);
-    el.scrollTop = Math.max(0, PAD + at.y + CARD.height / 2 - el.clientHeight / 2);
+    el.scrollLeft = Math.max(0, zoom * (PAD + at.x + CARD.width / 2) - el.clientWidth / 2);
+    el.scrollTop = Math.max(0, zoom * (PAD + at.y + CARD.height / 2) - el.clientHeight / 2);
   });
   useLayoutEffect(() => scrollToActive(), [laid?.key]);
+
+  const zoomTo = (next: number) => {
+    const el = frame.current;
+    if (el)
+      anchor.current = {
+        x: (el.scrollLeft + el.clientWidth / 2) / zoom,
+        y: (el.scrollTop + el.clientHeight / 2) / zoom,
+      };
+    setZoom(clampZoom(next));
+  };
+  useLayoutEffect(() => {
+    const el = frame.current;
+    const at = anchor.current;
+    anchor.current = null;
+    if (!el || !at) return;
+    el.scrollLeft = Math.max(0, at.x * zoom - el.clientWidth / 2);
+    el.scrollTop = Math.max(0, at.y * zoom - el.clientHeight / 2);
+  }, [zoom]);
 
   // Positions come from the layout; everything a status change touches is read from the model on each render.
   const { nodes, edges } = useMemo(() => {
@@ -121,36 +153,80 @@ export function RunGraph({
 
   const w = laid.width + 2 * PAD;
   const h = laid.height + 2 * PAD;
+  // Never above 100 %: a graph smaller than the frame is shown as it is.
+  const fit = () => {
+    const el = frame.current;
+    zoomTo(el ? Math.min(el.clientWidth / w, el.clientHeight / h, 1) : 1);
+  };
   return (
-    <div ref={frame} className={FRAME}>
-      <div className="relative mx-auto w-fit">
-        {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
-        <svg aria-hidden="true" width={w} height={h} className="block" />
-        <ReactFlow
-          key={laid.key}
-          className={CANVAS}
-          colorMode={colorMode}
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          defaultViewport={{ x: PAD, y: PAD, zoom: 1 }}
-          minZoom={1}
-          maxZoom={1}
-          panOnDrag={false}
-          panOnScroll={false}
-          zoomOnScroll={false}
-          zoomOnPinch={false}
-          zoomOnDoubleClick={false}
-          preventScrolling={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          nodesFocusable={false}
-          edgesFocusable={false}
-          // Selectable only so React Flow lets pointer events reach the card, which is a button.
-          elementsSelectable
-          aria-label="Graph of the run"
-          attributionPosition="bottom-left"
-        />
+    <div className={fill ? "flex min-h-0 flex-1 flex-col" : undefined}>
+      <div
+        role="toolbar"
+        aria-label="Graph view"
+        className="border-border bg-surface flex shrink-0 items-center justify-end gap-1 border-b px-2 py-1"
+      >
+        <Button
+          isIconOnly
+          size="sm"
+          variant="secondary"
+          aria-label="Zoom out"
+          isDisabled={zoom <= ZOOM.min}
+          onPress={() => zoomTo(zoom / ZOOM.step)}
+        >
+          <MagnifierMinus />
+        </Button>
+        <output aria-label="Zoom" className="text-muted w-10 text-center font-mono text-xs tabular-nums">
+          {Math.round(zoom * 100)}%
+        </output>
+        <Button
+          isIconOnly
+          size="sm"
+          variant="secondary"
+          aria-label="Zoom in"
+          isDisabled={zoom >= ZOOM.max}
+          onPress={() => zoomTo(zoom * ZOOM.step)}
+        >
+          <MagnifierPlus />
+        </Button>
+        <Button isIconOnly size="sm" variant="secondary" aria-label="Fit to view" onPress={fit}>
+          <Frame />
+        </Button>
+        {onExpand ? (
+          <Button isIconOnly size="sm" variant="secondary" aria-label="Full screen" onPress={onExpand}>
+            <ArrowsExpand />
+          </Button>
+        ) : null}
+      </div>
+      <div ref={frame} className={`${FRAME} ${fill ? "min-h-0 flex-1" : "max-h-[72vh]"}`}>
+        <div className="relative mx-auto w-fit">
+          {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
+          <svg aria-hidden="true" width={w * zoom} height={h * zoom} className="block" />
+          <ReactFlow
+            key={laid.key}
+            className={CANVAS}
+            colorMode={colorMode}
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            viewport={{ x: PAD * zoom, y: PAD * zoom, zoom }}
+            minZoom={ZOOM.min}
+            maxZoom={ZOOM.max}
+            panOnDrag={false}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            // Selectable only so React Flow lets pointer events reach the card, which is a button.
+            elementsSelectable
+            aria-label="Graph of the run"
+            attributionPosition="bottom-left"
+          />
+        </div>
       </div>
     </div>
   );

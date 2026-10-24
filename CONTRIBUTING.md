@@ -99,6 +99,17 @@ Other CI jobs run `bun audit --audit-level=high` and a package smoke test (`bun 
     and the checks. A Setup edit shows before/after and saves to the profile file. A question answered from the
     graph or from Questions clears. Each page also loads with no console error.
     The e2e server listens on port 4318; when a panel already holds it, set `CATHERD_E2E_PORT`.
+  - **Reviewing the screens.** From the repo root, build the panel once under the lock:
+    `(cd web && catherd lock -- bun run build)`. Start the seeded e2e server in the background with
+    `CATHERD_E2E_STATE=web/test-results/review-state.json CATHERD_E2E_PORT=43<NN> bun test/panel-e2e-serve.ts`,
+    where `<NN>` is the milestone number (M33 uses 4333), and wait for its line `panel e2e server on …`. Open
+    `http://127.0.0.1:43<NN>/login?redirect=<path>#token=e2e-token`, with `<path>` URL-encoded (`%2Fmodels` for
+    `/models`). The token is fixed: `e2e-token`. The state file `web/test-results/review-state.json` names the seeded
+    runs: `fixture.id` is a finished run with checks, commits, a fix round and a judge's decision, and `live.id` is a
+    running worker with a log. Look at `/` (the dashboard), `/runs/<fixture.id>` (the checks, the commits, and a
+    node's drawer), `/runs/<live.id>` (the running worker and its Log tab), `/setup`, and `/models` once M33 lands.
+    Switch the theme from the **Theme** button's menu (Light, Dark, System). Check each screen at 1280×800 and
+    375×812. Stop the server when you are done.
 
 ## Architecture
 

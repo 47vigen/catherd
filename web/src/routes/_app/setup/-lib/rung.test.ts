@@ -58,7 +58,7 @@ test("a model id reads the way people say it", () => {
   expect(modelName("gpt-6.1-sol")).toBe("GPT-6.1 Sol");
   expect(modelName("opencode-go/gpt-6-luna")).toBe("GPT-6 Luna");
   expect(modelName("gemini-3.8-flash")).toBe("Gemini 3.8 Flash");
-  expect(modelName("claude-haiku-4-5-20251001")).toBe("Claude Haiku 4.5 20251001");
+  expect(modelName("claude-haiku-4-5-20251001")).toBe("Claude Haiku 4.5");
 });
 
 test("a rung's efforts are the ones offered for its model, lowest first", () => {
