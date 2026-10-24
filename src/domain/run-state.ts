@@ -1,5 +1,6 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
+import { mechanicalFix } from "./cheap-fix.ts";
 import { checkFailLines } from "./fail-lines.ts";
 import { filesOf } from "./findings.ts";
 import { MEMORY_LIMITS } from "./milestone-memory.ts";
@@ -124,6 +125,12 @@ export interface LaneState {
   queued: string[];
   /** plan 40: sibling lanes whose files broke the lane's check: its fast check reruns once they are done */
   waitOn: string[];
+  /** plan 41: the lane's next dispatch is a cheap try: its fix is mechanical, so the cheapest capable rung runs it first */
+  cheapFirst: boolean;
+  /** plan 41: the lane's last dispatch was a cheap try: a failure of it goes back to the lane's own rung, uncounted */
+  cheapRan: boolean;
+  /** plan 41: the lane's cheap try of this round already fell back to its own rung: no second one is armed */
+  cheapSpent: boolean;
 }
 
 export interface MilestoneState {
@@ -466,6 +473,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.lastFailHead ??= null;
         l.queued ??= [];
         l.waitOn ??= [];
+        l.cheapFirst ??= false;
+        l.cheapRan ??= false;
+        l.cheapSpent ??= false;
         l.role = lp.role;
         l.kind = lp.kind;
         l.after = lp.after;
@@ -500,6 +510,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           climbedAt: null,
           queued: [],
           waitOn: [],
+          cheapFirst: false,
+          cheapRan: false,
+          cheapSpent: false,
         };
     }
     next.push(m);
@@ -535,6 +548,8 @@ function settle(s: RunState, m: MilestoneState): void {
 
 function laneDone(s: RunState, l: LaneState): void {
   l.waitOn = [];
+  l.cheapFirst = false;
+  l.cheapSpent = false;
   if (l.queued.length > 0) {
     // a route arrived during this try: the lane takes it as a new try, not as done
     l.notes = l.queued;
@@ -625,6 +640,7 @@ function fixRound(
   const unowned: Finding[] = [];
   const routed = new Set<LaneState>();
   const survived = new Set<string>();
+  const fellBack = new Set<string>();
   for (const f of found) {
     // a finding naming files of several lanes goes to each of them
     const owners = new Set<string>();
@@ -651,7 +667,19 @@ function fixRound(
     }
   }
   if (note) for (const lane of routed) lane.notes.push(note);
-  for (const id of survived) (s.lanes[id] as LaneState).climbReason = "same-defect";
+  for (const id of survived) {
+    const lane = s.lanes[id] as LaneState;
+    if (lane.cheapRan) {
+      // the cheap try left the finding: the lane's own rung takes it once, and that is no same-defect climb
+      lane.cheapRan = false;
+      lane.thread = null;
+      fellBack.add(id);
+    } else lane.climbReason = "same-defect";
+  }
+  for (const lane of routed) {
+    lane.cheapSpent = fellBack.has(lane.id);
+    lane.cheapFirst = !lane.cheapSpent && mechanicalFix(lane.notes);
+  }
   m.open = unowned;
   m.status = "fixing";
   settle(s, m);
@@ -777,11 +805,21 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.status = "pending";
     l.failoverFrom = x.rung;
     l.thread = null;
+    // a cheap try that hit a limit is still the cheap try: its stand-in takes it
+    l.cheapFirst = l.cheapRan;
     return;
   }
   l.waitOn = [];
   if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
     l.thread = x.thread ?? l.thread;
+    return;
+  }
+  if (l.cheapRan && !(x.status === "ok" && (x.replyStatus === null || x.replyStatus === "complete"))) {
+    // the cheap try failed: the lane's own rung takes the work once, with no attempt counted
+    l.cheapRan = false;
+    l.cheapSpent = true;
+    l.thread = null;
+    l.status = "pending";
     return;
   }
   if (reason !== null) return laneStopped(s, l, x, reason);
@@ -794,7 +832,8 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.climbReason = "blocked";
   } else if (x.status === "ok" && x.replyStatus !== "partial") {
     l.attempts = 0;
-    l.thread = x.thread ?? l.thread;
+    // a cheap try's thread is on another rung than the lane's: a later fix round must not resume it
+    if (!l.cheapRan) l.thread = x.thread ?? l.thread;
     l.failoverFrom = null;
     l.failoverNow = false;
     if (l.kind === "research") laneDone(s, l);
@@ -806,6 +845,12 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
   }
 }
+
+/** `notes` with the fast check's failure as its one check note. */
+const failNotes = (notes: string[], e: Extract<RunEvent, { type: "check.ran" }>): string[] => [
+  ...notes.filter((n) => !n.startsWith("The fast check failed")),
+  `The fast check failed (exit ${e.exit ?? "timeout"}); its last lines:\n${e.tail}`,
+];
 
 /** A verdict on the milestone's commit is in: a verifier's PASS on it, one carried over from an earlier commit, or none owed. */
 function verdictIn(m: MilestoneState, carried = false): boolean {
@@ -966,6 +1011,9 @@ function onClimbed(s: RunState, e: Extract<RunEvent, { type: "lane.climbed" }>):
   l.tooHard = false;
   l.stopRun = 0;
   l.climbedAt = e.at;
+  l.cheapFirst = false;
+  l.cheapRan = false;
+  l.cheapSpent = false;
   if (e.top) {
     l.status = "parked";
     l.sameReason += 1;
@@ -1223,6 +1271,10 @@ function apply(s: RunState, e: RunEvent): void {
         s.judges[id] = { unit: e.unit, kind: e.judgeKind ?? "unexpected", tries: s.judges[id]?.tries ?? 0 };
       }
       const l = e.lane ? s.lanes[e.lane] : undefined;
+      if (l && e.role !== "judge") {
+        l.cheapRan = l.cheapFirst && e.rung !== l.rung;
+        l.cheapFirst = false;
+      }
       if (l && (l.status === "pending" || l.status === "checking")) {
         l.status = "running";
         l.climbReason = null;
@@ -1282,6 +1334,13 @@ function apply(s: RunState, e: RunEvent): void {
         l.lastFails = null;
         l.lastFailHead = null;
         laneDone(s, l);
+      } else if (l.cheapRan) {
+        // the cheap try's failed check goes back to the lane's own rung, uncounted
+        l.cheapRan = false;
+        l.cheapSpent = true;
+        l.thread = null;
+        l.notes = failNotes(l.notes, e);
+        l.status = "pending";
       } else {
         const fails = checkFailLines(e.tail);
         const key = e.tree !== undefined ? e.tree : (milestoneOf(s, l.milestone)?.commit ?? null);
@@ -1302,12 +1361,10 @@ function apply(s: RunState, e: RunEvent): void {
         l.lastFails = fails;
         l.lastFailHead = key;
         l.checkFails += 1;
-        l.notes = [
-          ...l.notes.filter((n) => !n.startsWith("The fast check failed")),
-          `The fast check failed (exit ${e.exit ?? "timeout"}); its last lines:\n${e.tail}`,
-        ];
+        l.notes = failNotes(l.notes, e);
         l.status = "pending";
         if (l.checkFails >= MAX_TRIES) l.climbReason = "check-failed-twice";
+        else if (l.checkFails === 1 && !l.cheapSpent) l.cheapFirst = mechanicalFix(l.notes);
       }
       return;
     }

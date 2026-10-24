@@ -186,6 +186,13 @@ function statsOrNone(): OutcomeStat[] | null {
   }
 }
 
+/** The cheapest capable rung of `role` under the profile, or null when it has none. */
+export function cheapestRung(view: ProfileView, role: Role, repo: string, runDir: string): string | null {
+  const p = routingProfile(view, role, 0);
+  const c = loadCatalog({ repo, runDir });
+  return candidates(c, p, role).length === 0 ? null : cheapest(c, p, role).rung;
+}
+
 async function prepare(req: RouteRequest, o: RoutingOpts): Promise<Prepared> {
   const p = routingProfile(req.profile, req.role, req.spentFraction, req.usage);
   await freshenWithin(p.role.rungs, req.repo, o.discoveryBudgetMs ?? DISCOVERY_BUDGET_MS);

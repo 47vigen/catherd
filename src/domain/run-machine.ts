@@ -40,6 +40,8 @@ export type Action =
       rung: string | null;
       thread: string | null;
       failoverFrom: string | null;
+      /** a mechanical fix: the cheapest capable rung runs it first, on a fresh thread */
+      cheap?: true;
       brief: BriefKind;
       notes: string[];
     }
@@ -374,8 +376,9 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
         role: l.role,
         lane: l.id,
         rung: l.rung,
-        thread: failoverFrom ? null : l.thread,
+        thread: failoverFrom || l.cheapFirst ? null : l.thread,
         failoverFrom,
+        ...(l.cheapFirst ? { cheap: true as const } : {}),
         brief: l.notes.length ? "fix" : "lane",
         notes: l.notes,
       });
