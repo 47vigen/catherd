@@ -18,7 +18,7 @@ import type { JevRow } from "../../src/services/jev-service.ts";
 import type { Bars } from "../../src/domain/bars.ts";
 import type { ProfileView, RouteRequest } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
-import { JEV_PARALLEL, routingService } from "../../src/services/routing-service.ts";
+import { cheapestRung, JEV_PARALLEL, routingService } from "../../src/services/routing-service.ts";
 import { fakeFetch } from "../fake-fetch.ts";
 import { snapshotEnv, withHome } from "../helpers.ts";
 import { freshRun, LADDER, testView } from "./helpers.ts";
@@ -937,5 +937,16 @@ describe("batch route (spec 1.5 plan 24)", () => {
     expect(out[1]?.tie).toMatch(
       /opencode-go has the most headroom \(dispatches in this run: codex 1, opencode-go 0\)$/,
     );
+  });
+});
+
+describe("cheapestRung", () => {
+  it("is the cheapest capable worker rung", () => {
+    const dir = runDir();
+    expect(cheapestRung(view(), "worker", "/nowhere", dir)).toBe(LADDER[0] as string);
+    const none = view({
+      roles: { ...view().roles, worker: { enabled: false, access: "workspace-write", rungs: [] } },
+    });
+    expect(cheapestRung(none, "worker", "/nowhere", dir)).toBeNull();
   });
 });

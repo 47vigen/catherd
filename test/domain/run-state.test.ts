@@ -1212,4 +1212,138 @@ describe("pending reminder wake scheduling", () => {
     log.add("check.ran", { lane: "M1.L2", exit: 0, tail: "", foreign: [] });
     expect(owed()).toContain("M1.L1");
   });
+
+  describe("the cheap try of a mechanical fix", () => {
+    const CHEAP = "codex:gpt-5-luna#low";
+    const comment = bug("BUG src/a/x.ts:3 — the comment restates the code", "src/a/x.ts");
+    const unused = bug("BUG src/a/y.ts:1 — unused import", "src/a/y.ts");
+    const logic = bug("BUG src/a/z.ts:5 — off by one in the total", "src/a/z.ts");
+    const lane = (log: ReturnType<typeof makeLog>) => log.state().lanes["M1.L1"];
+
+    /** M1.L1 done, committed and reviewed with `findings`: its fix round is armed */
+    function armed(findings: Finding[]) {
+      const log = runningLog();
+      finishLane(log, "M1.L1");
+      finishLane(log, "M1.L2");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, findings);
+      return log;
+    }
+    /** the lane's fix dispatch on `rung` ends ok */
+    function fixOn(log: ReturnType<typeof makeLog>, rung: string, o: { ok?: boolean } = {}) {
+      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung });
+      endDispatch(log, id, {
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        thread: "t-cheap",
+        ...(o.ok === false ? { status: "failed" as const, replyStatus: null, environment: "network" } : {}),
+      });
+    }
+
+    it("a fix round of convention findings arms the cheap try", () => {
+      expect(lane(armed([comment, unused]))).toMatchObject({ status: "pending", cheapFirst: true });
+      expect(lane(armed([comment, logic]))?.cheapFirst).toBe(false);
+    });
+
+    it("a cheap dispatch is spent once", () => {
+      const log = armed([comment]);
+      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: CHEAP });
+      expect(lane(log)).toMatchObject({ cheapRan: true, cheapFirst: false });
+      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 bad", foreign: [] });
+      startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+      expect(lane(log)).toMatchObject({ cheapRan: false, cheapFirst: false });
+    });
+
+    it("a cheap fix on the lane's own rung is an ordinary fix", () => {
+      const log = armed([comment]);
+      startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: "codex:gpt-6-sol#medium" });
+      expect(lane(log)).toMatchObject({ cheapRan: false, cheapFirst: false });
+    });
+
+    it("a failed check after the cheap try goes back to the lane's rung and does not count", () => {
+      const log = armed([comment]);
+      fixOn(log, CHEAP);
+      // the cheap try's thread is not the lane's: a later fix round must not resume it on the lane's rung
+      expect(lane(log)?.thread).toBe("t-M1.L1");
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 error", foreign: [] });
+      expect(lane(log)).toMatchObject({
+        status: "pending",
+        thread: null,
+        checkFails: 0,
+        attempts: 0,
+        climbReason: null,
+        cheapRan: false,
+        cheapFirst: false,
+      });
+      expect(lane(log)?.notes.at(-1)).toContain("The fast check failed");
+    });
+
+    it("a failed cheap dispatch retries on the lane's rung with no attempt counted", () => {
+      const log = armed([comment]);
+      fixOn(log, CHEAP, { ok: false });
+      expect(lane(log)).toMatchObject({
+        status: "pending",
+        thread: null,
+        attempts: 0,
+        climbReason: null,
+        cheapRan: false,
+      });
+    });
+
+    it("a cheap try that hit a limit is still the cheap try on its stand-in", () => {
+      const log = armed([comment]);
+      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: CHEAP });
+      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1", status: "limit", replyStatus: null });
+      expect(lane(log)).toMatchObject({ status: "pending", cheapFirst: true });
+    });
+
+    it("a lint failure of a lane's first try arms the cheap try, a test failure does not", () => {
+      const log = runningLog();
+      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1" });
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
+      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: true });
+      const tests = runningLog();
+      const t = startDispatch(tests, { name: "worker-M1.L1", unit: "M1.L1" });
+      endDispatch(tests, t, { name: "worker-M1.L1", unit: "M1.L1" });
+      tests.add("check.ran", {
+        lane: "M1.L1",
+        exit: 1,
+        tail: "(fail) wallet > adds\nexpect(1).toBe(2)",
+        foreign: [],
+      });
+      expect(lane(tests)?.cheapFirst).toBe(false);
+    });
+
+    it("a finding the cheap try left is no same-defect climb", () => {
+      const log = armed([comment, unused]);
+      fixOn(log, CHEAP);
+      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+      expect(lane(log)).toMatchObject({ status: "done", cheapRan: true });
+      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
+      expect(lane(log)).toMatchObject({
+        status: "pending",
+        thread: null,
+        climbReason: null,
+        cheapRan: false,
+        cheapFirst: false,
+      });
+    });
+
+    it("a finding left by an ordinary fix still climbs as same-defect", () => {
+      const log = armed([comment, unused]);
+      fixOn(log, "codex:gpt-6-sol#medium");
+      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
+      expect(lane(log)?.climbReason).toBe("same-defect");
+    });
+
+    it("a replay of a log from before the cheap try owes none", () => {
+      const log = runningLog();
+      expect(lane(log)).toMatchObject({ cheapFirst: false, cheapRan: false });
+    });
+  });
 });

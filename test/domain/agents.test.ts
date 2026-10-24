@@ -148,6 +148,12 @@ describe("rolePrompt", () => {
     expect(text).not.toContain("first three lines");
   });
 
+  it("the architect is told when to write Chore: yes", () => {
+    const text = rolePrompt("architect", "1.0.0");
+    expect(text).toContain("Chore: yes");
+    for (const s of ["stubs", "fixtures", "renames"]) expect(text).toContain(s);
+  });
+
   it("has the architect end an A-line the Check proves on its own with (Check), in both plan paths (plan 40)", () => {
     expect(rolePrompt("architect", "1.0.0").split("ends with `(Check)`")).toHaveLength(3);
   });
