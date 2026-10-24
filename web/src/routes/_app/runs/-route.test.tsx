@@ -374,9 +374,18 @@ test("Fit to view never zooms past 100%", async () => {
   renderRoute("/runs/r1", api);
   await nodeButton(LANE);
   const toolbar = screen.getByRole("toolbar", { name: "Graph view" });
+  const fit = () => userEvent.click(within(toolbar).getByRole("button", { name: "Fit to view" }));
+  const frame = document.querySelector("svg[aria-hidden='true'].block")!.parentElement!.parentElement!;
   await userEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
-  // jsdom has no layout, so the frame measures 0 and the fit clamps to the smallest zoom
-  await userEvent.click(within(toolbar).getByRole("button", { name: "Fit to view" }));
+  // a frame far larger than the graph: the fit is capped at 100%, not scaled up to fill it
+  Object.defineProperty(frame, "clientWidth", { configurable: true, value: 100_000 });
+  Object.defineProperty(frame, "clientHeight", { configurable: true, value: 100_000 });
+  await fit();
+  expect(within(toolbar).getByRole("status")).toHaveTextContent("100%");
+  // jsdom has no layout, so an unstubbed frame measures 0 and the fit clamps to the smallest zoom
+  Object.defineProperty(frame, "clientWidth", { configurable: true, value: 0 });
+  Object.defineProperty(frame, "clientHeight", { configurable: true, value: 0 });
+  await fit();
   expect(within(toolbar).getByRole("status")).toHaveTextContent("25%");
 });
 

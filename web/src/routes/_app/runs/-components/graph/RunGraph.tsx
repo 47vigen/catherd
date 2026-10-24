@@ -159,42 +159,11 @@ export function RunGraph({
     zoomTo(el ? Math.min(el.clientWidth / w, el.clientHeight / h, 1) : 1);
   };
   return (
-    <div className={fill ? "relative min-h-0 flex-1" : "relative"}>
-      <div ref={frame} className={`${FRAME} ${fill ? "h-full" : "max-h-[72vh]"}`}>
-        <div className="relative mx-auto w-fit">
-          {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
-          <svg aria-hidden="true" width={w * zoom} height={h * zoom} className="block" />
-          <ReactFlow
-            key={laid.key}
-            className={CANVAS}
-            colorMode={colorMode}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            viewport={{ x: PAD * zoom, y: PAD * zoom, zoom }}
-            minZoom={ZOOM.min}
-            maxZoom={ZOOM.max}
-            panOnDrag={false}
-            panOnScroll={false}
-            zoomOnScroll={false}
-            zoomOnPinch={false}
-            zoomOnDoubleClick={false}
-            preventScrolling={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            nodesFocusable={false}
-            edgesFocusable={false}
-            // Selectable only so React Flow lets pointer events reach the card, which is a button.
-            elementsSelectable
-            aria-label="Graph of the run"
-            attributionPosition="bottom-left"
-          />
-        </div>
-      </div>
+    <div className={fill ? "flex min-h-0 flex-1 flex-col" : undefined}>
       <div
         role="toolbar"
         aria-label="Graph view"
-        className="bg-surface border-border absolute top-2 right-4 flex items-center gap-1 rounded-md border p-1 shadow-sm"
+        className="border-border bg-surface flex shrink-0 items-center justify-end gap-1 border-b px-2 py-1"
       >
         <Button
           isIconOnly
@@ -227,6 +196,37 @@ export function RunGraph({
             <ArrowsExpand />
           </Button>
         ) : null}
+      </div>
+      <div ref={frame} className={`${FRAME} ${fill ? "min-h-0 flex-1" : "max-h-[72vh]"}`}>
+        <div className="relative mx-auto w-fit">
+          {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
+          <svg aria-hidden="true" width={w * zoom} height={h * zoom} className="block" />
+          <ReactFlow
+            key={laid.key}
+            className={CANVAS}
+            colorMode={colorMode}
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            viewport={{ x: PAD * zoom, y: PAD * zoom, zoom }}
+            minZoom={ZOOM.min}
+            maxZoom={ZOOM.max}
+            panOnDrag={false}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            // Selectable only so React Flow lets pointer events reach the card, which is a button.
+            elementsSelectable
+            aria-label="Graph of the run"
+            attributionPosition="bottom-left"
+          />
+        </div>
       </div>
     </div>
   );
