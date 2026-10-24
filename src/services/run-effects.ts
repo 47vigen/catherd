@@ -2,7 +2,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
-import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
+import {
+  type BlockedReason,
+  foreignFailure,
+  parseBlockedReason,
+  siblingLanesNamed,
+} from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
 import { fileOf, parseFailLines, parseFindings, unlistedFail } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
@@ -93,7 +98,14 @@ const read = (file: string): string => {
 };
 
 /** A lane's `Owns:` entries, and those of the other lanes of its milestone; empty when a lane file is gone. */
-function laneOwnsOf(run: Run, lane: string): { own: string[]; siblings: string[] } {
+function laneOwnsOf(
+  run: Run,
+  lane: string,
+): {
+  own: string[];
+  siblings: string[];
+  lanes: { id: string; owns: string[] }[];
+} {
   const dir = runPaths(run.dir).lanes;
   const prefix = lane.slice(0, lane.indexOf(".") + 1);
   const owns = (id: string): string[] => parseLaneHeader(read(join(dir, `${id}.md`))).owns;
@@ -102,13 +114,19 @@ function laneOwnsOf(run: Run, lane: string): { own: string[]; siblings: string[]
         .filter((f) => f.endsWith(".md") && f.startsWith(prefix))
         .map((f) => f.slice(0, -3))
     : [];
-  return { own: owns(lane), siblings: ids.filter((id) => id !== lane).flatMap(owns) };
+  const lanes = ids.filter((id) => id !== lane).map((id) => ({ id, owns: owns(id) }));
+  return { own: owns(lane), siblings: lanes.flatMap((l) => l.owns), lanes };
 }
 
 /** The sibling entries a failed lane check blames when it blames only them: the lane counts as done. */
 function foreignOf(run: Run, lane: string, log: string): string[] {
   const { own, siblings } = laneOwnsOf(run, lane);
   return foreignFailure(log, own, siblings);
+}
+
+/** The sibling lanes a failed lane check names, whether or not it names the lane's own files too. */
+function siblingsOf(run: Run, lane: string, log: string): string[] {
+  return siblingLanesNamed(log, laneOwnsOf(run, lane).lanes);
 }
 
 const FIRST_LINE = /^VERDICT:\s*FAIL\b/i;
@@ -141,7 +159,13 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
       if (findings.length === 0)
         findings = FIRST_LINE.test(first)
           ? [unlistedFail(reply)]
-          : [{ label: "BLOCKER", text: `no VERDICT line: ${first || "empty reply"}`, file: null }];
+          : [
+              {
+                label: "BLOCKER",
+                text: `no VERDICT line: ${first || "empty reply"}`,
+                file: null,
+              },
+            ];
     }
   }
   const stopped = record.replyStatus === "blocked" || record.replyStatus === "refused";
@@ -161,6 +185,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     verdict,
     findings,
     foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
+    siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
   };
 }
@@ -169,7 +194,10 @@ const ID = /^M[\w-]*\.\S+$/;
 const HEADING = /^##\s+(M\d+)\b\s*(?:[—–:.-]\s*)?(.*)$/;
 const AFTER = /^\s*[*_]*After[*_]*\s*:[*_]*\s*(.*)$/i;
 
-const ROLE_OF_KIND: Record<string, Role> = { prose: "writer", research: "researcher" };
+const ROLE_OF_KIND: Record<string, Role> = {
+  prose: "writer",
+  research: "researcher",
+};
 
 /** The plan the architect wrote: milestones from plan.md's `## M<n> …` headings, their lanes from lanes/*.md. */
 export function planOf(run: Run): MilestonePlan[] {
@@ -195,7 +223,12 @@ export function planOf(run: Run): MilestonePlan[] {
   const heads: { id: string; title: string; after: string[] }[] = [];
   for (const line of read(runPaths(run.dir).plan).split("\n")) {
     const h = HEADING.exec(line);
-    if (h) heads.push({ id: h[1] as string, title: (h[2] ?? "").trim() || (h[1] as string), after: [] });
+    if (h)
+      heads.push({
+        id: h[1] as string,
+        title: (h[2] ?? "").trim() || (h[1] as string),
+        after: [],
+      });
     else if (line.startsWith("## ")) heads.push({ id: "", title: "", after: [] });
     else if (heads.length) {
       const a = AFTER.exec(line)?.[1];
@@ -285,9 +318,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
     return (w) => {
       if (!w || told) return;
       told = true;
-      append({ type: "lock.waiting", unit, lock: w.lock, holder: w.holder, ahead: w.ahead }).catch((e) =>
-        log("warn", "daemon", { run: run.id, unit, error: errorMessage(e) }),
-      );
+      append({
+        type: "lock.waiting",
+        unit,
+        lock: w.lock,
+        holder: w.holder,
+        ahead: w.ahead,
+      }).catch((e) => log("warn", "daemon", { run: run.id, unit, error: errorMessage(e) }));
     };
   };
   const watching = new Set<string>();
@@ -325,7 +362,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
 
   /** The rung a dispatch runs on, or a refusal's code and message. */
   async function rungFor(
-    a: { name: string; role: Role; lane: string | null; rung: string | null; failoverFrom: string | null },
+    a: {
+      name: string;
+      role: Role;
+      lane: string | null;
+      rung: string | null;
+      failoverFrom: string | null;
+    },
     s: RunState,
   ): Promise<{ rung: string } | { code: string; message: string }> {
     const profile = runProfile(deps, run);
@@ -333,7 +376,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (!rung && a.lane) rung = currentRoute(readRoutes(run), a.lane)?.rung ?? null;
     if (!rung && a.role === "judge") rung = profile.roles.judge?.rungs[0] ?? null;
     if (!rung) {
-      const [routed] = await routeLanes(deps, { run: run.id, laneFiles: [undefined], role: a.role });
+      const [routed] = await routeLanes(deps, {
+        run: run.id,
+        laneFiles: [undefined],
+        role: a.role,
+      });
       rung = routed?.rung ?? null;
     }
     if (!rung) throw new CatherdError("E_ADMIT_RUNG", `no rung for the ${a.role}`);
@@ -372,7 +419,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
         const decision = record.status === "ok" ? parseJudgeReply(reply, judge.kind) : null;
         await append(
           decision
-            ? { type: "judge.decided", id: judge.id, unit, kind: judge.kind, decision, dispatchId: id }
+            ? {
+                type: "judge.decided",
+                id: judge.id,
+                unit,
+                kind: judge.kind,
+                decision,
+                dispatchId: id,
+              }
             : {
                 type: "judge.failed",
                 id: judge.id,
@@ -416,7 +470,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
     judge: { id: string; kind: JudgeKind } | null,
   ): Promise<void> {
     const refuse = (code: string, message: string) =>
-      append({ type: "dispatch.refused", name: a.name, unit: a.unit, code, message });
+      append({
+        type: "dispatch.refused",
+        name: a.name,
+        unit: a.unit,
+        code,
+        message,
+      });
     // the daemon died between its admission and its event: the dispatch is recorded and watched, never launched twice
     const adopt = async (found: Dispatch): Promise<void> => {
       await append({
@@ -470,7 +530,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
       launcher.launch(d, specPath);
     } catch (e) {
       // watched all the same: a dispatch that never started is recorded as lost once its start grace passes
-      log("warn", "daemon", { run: run.id, name: a.name, launch: errorMessage(e) });
+      log("warn", "daemon", {
+        run: run.id,
+        name: a.name,
+        launch: errorMessage(e),
+      });
     }
     await append({
       type: "dispatch.started",
@@ -539,11 +603,23 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const routed: { lane: string; rung: string; ladder: string[] }[] = [];
     for (const role of roles) {
       const ids = lanes.filter((l) => l.role === role).map((l) => l.id);
-      const out = await routeLanes(deps, { run: run.id, laneFiles: ids.map((id) => `lanes/${id}.md`), role });
+      const out = await routeLanes(deps, {
+        run: run.id,
+        laneFiles: ids.map((id) => `lanes/${id}.md`),
+        role,
+      });
       for (const r of out) if (r.lane) routed.push({ lane: r.lane, rung: r.rung, ladder: r.ladder });
     }
-    await append({ type: "lanes.routed", milestone: a.milestone, lanes: routed });
-    const rep = await preflight(deps, { run: run.id, milestone: a.milestone, confirmed: a.confirmed });
+    await append({
+      type: "lanes.routed",
+      milestone: a.milestone,
+      lanes: routed,
+    });
+    const rep = await preflight(deps, {
+      run: run.id,
+      milestone: a.milestone,
+      confirmed: a.confirmed,
+    });
     await append(
       rep.needsConfirmation
         ? {
@@ -618,6 +694,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
+      siblings: failed ? siblingsOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
       startedAt,
       durationMs,
       waitedMs,
@@ -633,7 +710,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
       tree = await baseTree(deps, run, m);
     } catch (e) {
       // the items keep no baseline, so their lines count as fresh; the log says why
-      log("warn", "daemon", { run: run.id, milestone: m, baseline: errorMessage(e) });
+      log("warn", "daemon", {
+        run: run.id,
+        milestone: m,
+        baseline: errorMessage(e),
+      });
       return;
     }
     try {
@@ -655,7 +736,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (s.base !== null) {
       await fetchBase(repo, s.base);
       if ((await isAncestor(repo, `origin/${s.base}`, a.commit)) === false)
-        return void (await append({ type: "base.behind", milestone: a.milestone }));
+        return void (await append({
+          type: "base.behind",
+          milestone: a.milestone,
+        }));
     }
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
@@ -721,7 +805,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
         );
         if (v.source === "jev" && v.value !== "other") reason = v.value;
       } catch (e) {
-        log("warn", "daemon", { run: run.id, action: "classify", error: errorMessage(e) });
+        log("warn", "daemon", {
+          run: run.id,
+          action: "classify",
+          error: errorMessage(e),
+        });
       }
     }
     await append({ type: "stop.classified", dispatchId: a.dispatchId, reason });
@@ -757,7 +845,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
       for (const f of m?.integrateFiles ?? []) {
         const text = existsSync(join(repo, f)) ? readFileSync(join(repo, f), "utf8") : "";
         if (/^<{7} /m.test(text) && /^>{7} /m.test(text))
-          return void (await failed({ out: "", err: `${f} still holds conflict markers`, timedOut: false }));
+          return void (await failed({
+            out: "",
+            err: `${f} still holds conflict markers`,
+            timedOut: false,
+          }));
       }
       // an open merge is committed whole: a partial commit is refused while one is in progress
       const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
@@ -787,7 +879,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);
     if (head.code !== 0) return void (await failed(head));
-    await append({ type: "commit.made", milestone: a.milestone, round: a.round, commit: head.out.trim() });
+    await append({
+      type: "commit.made",
+      milestone: a.milestone,
+      round: a.round,
+      commit: head.out.trim(),
+    });
   }
 
   async function landIt(a: Extract<Action, { type: "land" }>, s: RunState): Promise<void> {
@@ -800,7 +897,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
       const repo = run.meta.repo;
       const fetched = await fetchBase(repo, s.base);
       if ((await isAncestor(repo, `origin/${s.base}`, m.commit)) === false)
-        return void (await append({ type: "base.behind", milestone: a.milestone }));
+        return void (await append({
+          type: "base.behind",
+          milestone: a.milestone,
+        }));
       if (!fetched) stale = `; fetch of origin/${s.base} failed: using the copy from the last fetch`;
     }
     try {
@@ -819,7 +919,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
         commit: m.commit,
         knownIssues: a.knownIssues,
         digestPath: r.digestPath,
-        ...(s.base !== null ? { branch: m.branch ?? (await currentBranch(treeOf(run, a.milestone))) } : {}),
+        ...(s.base !== null
+          ? {
+              branch: m.branch ?? (await currentBranch(treeOf(run, a.milestone))),
+            }
+          : {}),
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -848,7 +952,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (r.code === 0) {
       const head = await gitRun(repo, ["rev-parse", "HEAD"]);
       if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
-      return void (await append({ type: "integrate.done", milestone: a.milestone, commit: head.out.trim() }));
+      return void (await append({
+        type: "integrate.done",
+        milestone: a.milestone,
+        commit: head.out.trim(),
+      }));
     }
     const unmerged = await gitRun(repo, ["diff", "--name-only", "--diff-filter=U"]);
     const files = unmerged.out.split("\n").filter(Boolean);
@@ -872,7 +980,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
     }
     if (!merged) return;
     const gone = await removeTree(run, a.milestone);
-    if (gone.hint) log("warn", "trees", { run: run.id, milestone: a.milestone, hint: gone.hint });
+    if (gone.hint)
+      log("warn", "trees", {
+        run: run.id,
+        milestone: a.milestone,
+        hint: gone.hint,
+      });
     await append({ type: "milestone.merged", milestone: a.milestone });
   }
 
@@ -926,7 +1039,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
       branch: m.branch,
       body: m.digestPath ?? "",
     });
-    await append({ type: "branch.pushed", milestone: a.milestone, branch: m.branch, remote: "origin", mr });
+    await append({
+      type: "branch.pushed",
+      milestone: a.milestone,
+      branch: m.branch,
+      remote: "origin",
+      mr,
+    });
   }
 
   async function perform(a: Action, s: RunState): Promise<void> {
@@ -966,13 +1085,26 @@ export function realEffects(deps: Deps, run: Run): Effects {
       case "commit":
         return commit(a, s);
       case "climb": {
-        const r = await climb(deps, { run: run.id, lane: a.lane, reason: a.reason });
-        return void (await append({ type: "lane.climbed", lane: a.lane, rung: r.rung, top: r.top }));
+        const r = await climb(deps, {
+          run: run.id,
+          lane: a.lane,
+          reason: a.reason,
+        });
+        return void (await append({
+          type: "lane.climbed",
+          lane: a.lane,
+          rung: r.rung,
+          top: r.top,
+        }));
       }
       case "park":
         // the push question is the daemon's own: a 1.5 question would hold the run's pause and ask twice
         if (milestoneOf(s, a.unit) && a.reason !== "push")
-          await park(deps, { run: run.id, milestone: a.unit, question: a.question });
+          await park(deps, {
+            run: run.id,
+            milestone: a.unit,
+            question: a.question,
+          });
         return void (await append({
           type: "question.parked",
           unit: a.unit,
@@ -994,7 +1126,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return;
       }
       case "report":
-        return void (await append({ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }));
+        return void (await append({
+          type: "report.posted",
+          kind: a.kind,
+          unit: a.unit,
+          text: a.text,
+        }));
       case "notify":
         // the phone; the session hears the run's reports through its notifier
         await sendRunNotice(deps, run, { unit: a.unit, moment: a.moment });
@@ -1053,7 +1190,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
       try {
         await perform(a, s);
       } catch (e) {
-        log("warn", "daemon", { run: run.id, action: a.type, error: errorMessage(e) });
+        log("warn", "daemon", {
+          run: run.id,
+          action: a.type,
+          error: errorMessage(e),
+        });
         try {
           await append({
             type: "effect.failed",
@@ -1062,7 +1203,11 @@ export function realEffects(deps: Deps, run: Run): Effects {
             message: errorMessage(e),
           });
         } catch (inner) {
-          log("error", "daemon", { run: run.id, action: a.type, lost: errorMessage(inner) });
+          log("error", "daemon", {
+            run: run.id,
+            action: a.type,
+            lost: errorMessage(inner),
+          });
         }
       }
     },

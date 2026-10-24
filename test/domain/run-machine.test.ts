@@ -847,6 +847,16 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(names(last(log))).toEqual([]);
   });
 
+  it("a transitive dependent never holds a check_broken lane", () => {
+    const chain = plan(3);
+    const [, l2, l3] = (chain[0] as MilestonePlan).lanes;
+    (l2 as { after: string[] }).after = ["M1.L1"];
+    (l3 as { after: string[] }).after = ["M1.L2"];
+    const log = runningLog(chain);
+    stop(log, "M1.L1", blocked("check_broken", "lint fails in src/z/y.ts"));
+    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+  });
+
   it("does not hold a check_broken lane for a sibling that tried and stopped", () => {
     const log = runningLog(plan(2));
     stop(log, "M1.L2", blocked("no_access"));

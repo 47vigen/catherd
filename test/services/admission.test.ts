@@ -281,6 +281,20 @@ describe("admission", () => {
     expect(await refusal(admit(deps, run, input({ name: "worker-M1.L4", lane: "M1.L4" })))).toBe("admitted");
   });
 
+  it("lanes in different worktrees never overlap", async () => {
+    const { repo, run } = setup();
+    // L1 runs in another tree with the same Owns
+    await fakeDispatch(
+      run,
+      { name: "worker-M1.L1", owns: ["src/"], repo: join(repo, "tree-M1") },
+      { proc: "self" },
+    );
+    writeLane(run, "M1.L3", ["src/a.ts"]);
+    expect(await refusal(admit(fakeDeps(), run, input({ name: "worker-M1.L3", lane: "M1.L3" })))).toBe(
+      "admitted",
+    );
+  });
+
   it("refuses a lane overlapping what owns_add granted a running lane since its admission", async () => {
     const { run } = setup();
     const deps = fakeDeps();

@@ -1,6 +1,7 @@
 import type { BlockedReason } from "./blocked.ts";
 import { quotaOf } from "./failover.ts";
 import { checkFailLines } from "./fail-lines.ts";
+import { filesOf } from "./findings.ts";
 import { MEMORY_LIMITS } from "./milestone-memory.ts";
 import { tryParseRung } from "./ids.ts";
 import { type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
@@ -24,6 +25,8 @@ import {
 export const HOLD_MS = 30 * 60_000;
 /** A paused machine, or a refusal that clears itself, is tried again after this long. */
 export const REFUSAL_WAIT_MS = 5 * 60_000;
+/** Admission refusals in a row (order or overlap) before a lane parks as an effect. */
+export const ADMIT_WAITS = 12;
 /** A lane parked this many times at the top rung stops asking the judge and waits for the owner. */
 export const TOP_RUNG_JUDGES = 3;
 /** A name refused as a duplicate this many times in a row parks its unit. */
@@ -72,6 +75,7 @@ interface LaneEnd {
   thread: string | null;
   why: string;
   foreign: string[];
+  siblings: string[];
 }
 
 export interface LaneState {
@@ -116,6 +120,10 @@ export interface LaneState {
   classify: (LaneEnd & { dispatchId: string }) | null;
   /** when the lane last climbed: a sibling "untried since" is judged against it */
   climbedAt: string | null;
+  /** plan 40: judge routes that arrived while the lane was running or checking: its notes when that try ends */
+  queued: string[];
+  /** plan 40: sibling lanes whose files broke the lane's check: its fast check reruns once they are done */
+  waitOn: string[];
 }
 
 export interface MilestoneState {
@@ -452,6 +460,8 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       if (l) {
         l.lastFails ??= null;
         l.lastFailHead ??= null;
+        l.queued ??= [];
+        l.waitOn ??= [];
         l.role = lp.role;
         l.kind = lp.kind;
         l.after = lp.after;
@@ -484,6 +494,8 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           awaiting: null,
           classify: null,
           climbedAt: null,
+          queued: [],
+          waitOn: [],
         };
     }
     next.push(m);
@@ -518,6 +530,16 @@ function settle(s: RunState, m: MilestoneState): void {
 }
 
 function laneDone(s: RunState, l: LaneState): void {
+  l.waitOn = [];
+  if (l.queued.length > 0) {
+    // a route arrived during this try: the lane takes it as a new try, not as done
+    l.notes = l.queued;
+    l.queued = [];
+    l.status = "pending";
+    l.attempts = 0;
+    l.checkFails = 0;
+    return;
+  }
   l.status = "done";
   l.notes = [];
   l.checkFails = 0;
@@ -600,20 +622,29 @@ function fixRound(
   const routed = new Set<LaneState>();
   const survived = new Set<string>();
   for (const f of found) {
-    const owner = ownerOfFile(f.file, lanes);
-    const lane = owner ? s.lanes[owner] : undefined;
-    if (!lane) {
+    // a finding naming files of several lanes goes to each of them
+    const owners = new Set<string>();
+    for (const file of filesOf(f.text)) {
+      const o = ownerOfFile(file, lanes);
+      if (o) owners.add(o);
+    }
+    const first = ownerOfFile(f.file, lanes);
+    if (owners.size === 0 && first) owners.add(first);
+    if (owners.size === 0) {
       // the triage judge reads only the finding text, so the note rides in it
       unowned.push(note ? { ...f, text: `${f.text}\n${note}` } : f);
       continue;
     }
-    lane.notes.push(f.text);
-    lane.status = "pending";
-    lane.attempts = 0;
-    lane.checkFails = 0;
-    lane.fixedRound = m.counts.length;
-    routed.add(lane);
-    if (previous.has(findingKey(f.text))) survived.add(lane.id);
+    for (const id of owners) {
+      const lane = s.lanes[id] as LaneState;
+      lane.notes.push(f.text);
+      lane.status = "pending";
+      lane.attempts = 0;
+      lane.checkFails = 0;
+      lane.fixedRound = m.counts.length;
+      routed.add(lane);
+      if (previous.has(findingKey(f.text))) survived.add(lane.id);
+    }
   }
   if (note) for (const lane of routed) lane.notes.push(note);
   for (const id of survived) (s.lanes[id] as LaneState).climbReason = "same-defect";
@@ -706,12 +737,45 @@ function laneStopped(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReaso
   }
 }
 
+/** Whether `o` follows `id`, directly or through other lanes. */
+export function dependsOn(s: RunState, o: LaneState, id: string, seen = new Set<string>()): boolean {
+  if (seen.has(o.id)) return false;
+  seen.add(o.id);
+  return o.after.some((a) => a === id || (s.lanes[a] !== undefined && dependsOn(s, s.lanes[a], id, seen)));
+}
+
+/**
+ * A broken check that names files of siblings not done yet is a wait for them, not a try: the lane checks again
+ * once they are. A sibling that follows the lane, or already waits on it, never holds it: that would be a deadlock.
+ */
+function waitForSiblings(s: RunState, l: LaneState, siblings: string[]): boolean {
+  const wait = siblings.filter((id) => {
+    const o = s.lanes[id];
+    return (
+      o !== undefined &&
+      id !== l.id &&
+      o.status !== "done" &&
+      !dependsOn(s, o, l.id) &&
+      !o.waitOn.includes(l.id)
+    );
+  });
+  if (wait.length === 0) return false;
+  l.waitOn = wait;
+  l.status = "checking";
+  return true;
+}
+
 /** One lane dispatch's end, once its stop has a reason (or none): what 1.5 did with it, or the reason's rule. */
 function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason | null): void {
   if (x.status === "limit") {
     l.status = "pending";
     l.failoverFrom = x.rung;
     l.thread = null;
+    return;
+  }
+  l.waitOn = [];
+  if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
+    l.thread = x.thread ?? l.thread;
     return;
   }
   if (reason !== null) return laneStopped(s, l, x, reason);
@@ -794,6 +858,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       thread: e.thread,
       why: e.why,
       foreign: e.foreign,
+      siblings: e.siblings ?? [],
     };
     // a stop that names no reason waits for its classification: nothing else happens to the lane meanwhile
     if (e.status !== "limit" && unexplained(e)) {
@@ -936,6 +1001,11 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
         const target = lanes.find((l) => l.id === r.to);
         if (target) {
           sent.add(r.finding);
+          // a running or checking lane keeps the route for its next try: cancelling the try could undo its own fix
+          if (target.status === "running" || target.status === "checking") {
+            target.queued.push(f.text);
+            continue;
+          }
           target.notes.push(f.text);
           target.status = "pending";
           target.attempts = 0;
@@ -994,6 +1064,7 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
       if (lane) {
         const lm = milestoneOf(s, lane.milestone);
         lm?.knownIssues.push(`${lane.id} skipped: ${d.why}`);
+        lane.queued = [];
         laneDone(s, lane);
       }
       return;
@@ -1140,6 +1211,7 @@ function apply(s: RunState, e: RunEvent): void {
       recomputeWake(s);
       ok(`dispatch@${e.unit}`);
       ok(`duplicate:${e.name}@${e.unit}`);
+      ok(`admit:${e.name}@${e.unit}`);
       if (e.role === "judge") {
         const id = e.name.replace(/^judge-/, "");
         s.judges[id] = { unit: e.unit, kind: e.judgeKind ?? "unexpected", tries: s.judges[id]?.tries ?? 0 };
@@ -1174,6 +1246,12 @@ function apply(s: RunState, e: RunEvent): void {
             question: stopQuestion(l, "provider_error", "no stand-in rung is free"),
           };
         } else wait(heldUntil ?? isoPlus(e.at, REFUSAL_WAIT_MS));
+      } else if (e.code === "E_ADMIT_ORDER" || e.code === "E_ADMIT_OVERLAP") {
+        const key = `admit:${e.name}@${e.unit}`;
+        s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
+        if ((s.failedEffects[key] as number) >= ADMIT_WAITS)
+          s.stuck[e.unit] = { reason: "effect", question: `${e.name} was refused (${e.code}): ${e.message}` };
+        else wait(isoPlus(e.at, REFUSAL_WAIT_MS));
       } else if (e.code === "E_ADMIT_DUPLICATE") {
         const key = `duplicate:${e.name}@${e.unit}`;
         s.failedEffects[key] = (s.failedEffects[key] ?? 0) + 1;
@@ -1191,7 +1269,9 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`fastCheck@${e.lane}`);
       const l = s.lanes[e.lane];
       if (!l) return;
+      l.waitOn = [];
       // a check that fails only in a sibling's files has nothing to say about this lane
+      if (e.exit !== 0 && waitForSiblings(s, l, e.siblings ?? [])) return;
       if (e.exit === 0 || e.foreign.length > 0) {
         l.lastFails = null;
         l.lastFailHead = null;
