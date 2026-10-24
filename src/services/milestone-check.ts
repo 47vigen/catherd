@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
@@ -6,10 +6,16 @@ import { checkFailLines, checkItems, FAIL_DISPLAY_CAP, newFails } from "../domai
 import type { RunEvent } from "../domain/run-events.ts";
 import { milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
-import { heavySlots, LOCK_HELD_ENV, withHeavySlot, withRoleLock } from "../infra/heavy-lock.ts";
+import {
+  heavySlots,
+  LOCK_HELD_ENV,
+  type LockWait,
+  withHeavySlot,
+  withRoleLock,
+} from "../infra/heavy-lock.ts";
 import { launchCheckWorker } from "../infra/launch.ts";
 import { repoDir } from "../infra/paths.ts";
-import { isAlive, processStartTime } from "../infra/proc.ts";
+import { isAlive, killGroup, processStartTime } from "../infra/proc.ts";
 import {
   appendJsonl,
   ensureJsonlHeader,
@@ -41,6 +47,11 @@ export const CheckRecordSchema = z.looseObject({
   rerunOf: z.number().optional(),
   /** "clean" | "found" | "skipped: <why>"; non-baseline records only */
   secrets: z.string().optional(),
+  /** when the command started, after its locks: durationMs runs from here, and waitedMs is the wait before */
+  startedAt: z.string().optional(),
+  waitedMs: z.number().optional(),
+  /** the record whose result this one carries (plan 40 D3) */
+  carriedFrom: z.string().optional(),
 });
 export type CheckRecord = z.infer<typeof CheckRecordSchema>;
 
@@ -107,18 +118,34 @@ export interface CheckJob {
 
 const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
 
-/** One logged run of the command: its merged output goes to the log, its exit code is kept. */
+/** The exit code of an item that ran past `checkLimits.itemMs`, as timeout(1) reports one. */
+const TIMED_OUT = 124;
+
+/**
+ * One logged run of the command: its merged output goes to the log, its exit code is kept. The command runs with
+ * CATHERD_LOCK_HELD set, so a `catherd lock` inside it runs at once. Past the item budget its group is killed,
+ * and the log gets a FAIL line, which checkFailLines keeps.
+ */
 async function runLogged(job: CheckJob, log: string, tmp: string | null): Promise<number> {
   const env = await checkEnvFor(job.repo);
   const p = Bun.spawn(["sh", "-c", 'exec > "$1" 2>&1; eval "$2"', "sh", log, job.command], {
     cwd: job.cwd,
-    env: tmp ? { ...env, TMPDIR: tmp, GOTMPDIR: tmp } : env,
+    env: { ...(tmp ? { ...env, TMPDIR: tmp, GOTMPDIR: tmp } : env), [LOCK_HELD_ENV]: "1" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
     detached: true,
   });
-  return (await p.exited) ?? 1;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup(p.pid, "SIGKILL");
+  }, checkLimits.itemMs);
+  const code = (await p.exited) ?? 1;
+  clearTimeout(timer);
+  if (!timedOut) return code;
+  appendFileSync(log, `FAIL catherd: timed out after ${Math.round(checkLimits.itemMs / 60_000)} min\n`);
+  return TIMED_OUT;
 }
 
 /**
@@ -142,8 +169,12 @@ async function assertCheckout(job: CheckJob, when: string): Promise<void> {
 /**
  * Runs a milestone's check under the verifier lock and a heavy slot, records its exit code and failing lines
  * against `head`, reruns a failure with lines the base lacks once, and scans the run's commits for secrets.
+ * `onWait` hears each lock wait, and null once the command runs (the detached worker keeps it in its flight).
  */
-export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
+export async function execMilestoneCheck(
+  job: CheckJob,
+  o: { onWait?: (w: LockWait | null) => void } = {},
+): Promise<CheckRecord> {
   const dir = checkLogDir(job.repo);
   ensurePrivateDir(dir);
   const one = async () => {
@@ -151,9 +182,12 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
       dir,
       `${job.milestone}-${job.head.slice(0, 12)}${job.baseline ? "-base" : ""}-${Date.now()}.log`,
     );
-    const start = Date.now();
+    const requested = Date.now();
+    let started = requested;
     // the locks may have been waited for while the checkout moved on, and the command may move it
     const guarded = async (tmp: string | null): Promise<number> => {
+      started = Date.now();
+      o.onWait?.(null);
       await assertCheckout(job, "before");
       const code = await runLogged(job, log, tmp);
       await assertCheckout(job, "during");
@@ -168,17 +202,29 @@ export async function execMilestoneCheck(job: CheckJob): Promise<CheckRecord> {
       } catch {
         // a profile that cannot be read leaves the default
       }
+      const onWait = (w: LockWait) => o.onWait?.(w);
       // no tmpBase: a slot dir under the verifier's scratch would make the check a role (checkEnv)
-      exit = await withRoleLock("verifier", `run:${job.run}`, () =>
-        withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp)),
+      exit = await withRoleLock(
+        "verifier",
+        `run:${job.run}`,
+        () => withHeavySlot(heavySlots(setting), (_slot, tmp) => guarded(tmp), { onWait }),
+        { onWait },
       );
     }
     const out = readFileSync(log, "utf8");
-    return { exit, durationMs: Date.now() - start, fails: checkFailLines(out), log };
+    return {
+      exit,
+      durationMs: Date.now() - started,
+      startedAt: new Date(started).toISOString(),
+      waitedMs: started - requested,
+      fails: checkFailLines(out),
+      log,
+    };
   };
   let r = await one();
   let rerunOf: number | undefined;
-  if (r.exit !== 0 && !job.baseline) {
+  // a timeout is not rerun: a rerun would spend the item's budget a second time
+  if (r.exit !== 0 && r.exit !== TIMED_OUT && !job.baseline) {
     // a failure with lines the base lacks gets one rerun: load flakes are common on a shared host
     const base = baselineFor(job.repo, job.command, job.base);
     if (!base || newFails(r.fails, base.fails).length > 0) {
@@ -370,8 +416,11 @@ export async function machineGate(
   return { missing, audit };
 }
 
-/** What a caller waits for, and how often it looks; a worker that has not written its pid yet gets `graceMs`. */
-export const checkLimits = { waitMs: 600_000, pollMs: 1_000, graceMs: 30_000 };
+/**
+ * What a caller waits for, and how often it looks; a worker that has not written its pid yet gets `graceMs`.
+ * An item runs at most `itemMs` (plan 40 D12), then its group is killed.
+ */
+export const checkLimits = { waitMs: 600_000, pollMs: 1_000, graceMs: 30_000, itemMs: 1_800_000 };
 
 export type GateRunResult =
   | { running: true; log: string | null; hint: string }
@@ -390,6 +439,8 @@ interface Flight {
   startTime: string | null;
   at: string;
   job: CheckJob;
+  /** the lock the worker waits on, while it waits; null once it runs */
+  waiting?: LockWait | null;
 }
 
 const flightOf = (job: CheckJob): string =>
@@ -409,6 +460,13 @@ function readFlight(file: string): Flight | null {
   }
 }
 
+/** The worker's lock wait, kept in its flight file for the caller that waits on it. */
+function markWaiting(file: string, waiting: LockWait | null): void {
+  const f = readFlight(file);
+  // the launcher writes the pid once: a flight without it, or removed, is not the worker's to rewrite
+  if (f && f.pid > 0) writeJsonAtomic(file, { ...f, waiting });
+}
+
 /** A flight is live while its worker is, or while a worker that has not written its pid yet is within its grace. */
 const flightLive = (f: Flight): boolean =>
   f.pid > 0 ? isAlive(f.pid, f.startTime) : Date.now() - Date.parse(f.at) < checkLimits.graceMs;
@@ -420,7 +478,7 @@ const flightLive = (f: Flight): boolean =>
  */
 export async function runMilestoneCheck(
   i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
-  o: { onWait?: () => void } = {},
+  o: { onWait?: (w: LockWait | null) => void } = {},
 ): Promise<GateRunResult> {
   let last: Extract<GateRunResult, { running: false }> | undefined;
   let cached = true;
@@ -438,7 +496,7 @@ export async function runMilestoneCheck(
 
 async function runCheckItem(
   i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
-  o: { onWait?: () => void },
+  o: { onWait?: (w: LockWait | null) => void },
 ): Promise<GateRunResult> {
   const run = findRun(i.run);
   const repo = run.meta.repo;
@@ -544,7 +602,7 @@ async function runCheckItem(
         log: checkLogDir(repo),
         hint: "the check is still running; call gate_run again with the same arguments to wait for it",
       };
-    o.onWait?.();
+    o.onWait?.(f.waiting ?? null);
     await Bun.sleep(Math.min(checkLimits.pollMs, Math.max(1, deadline - Date.now())));
   }
   const record = readChecks(repo)
@@ -562,7 +620,7 @@ export async function checkWorker(flight: string): Promise<void> {
   const f = readFlight(flight);
   if (!f) throw new Error(`no readable flight file ${flight}`);
   try {
-    await execMilestoneCheck(f.job);
+    await execMilestoneCheck(f.job, { onWait: (waiting) => markWaiting(flight, waiting) });
   } finally {
     try {
       unlinkSync(flight);

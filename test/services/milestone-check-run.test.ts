@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkBase, checkLimits, readChecks, runMilestoneCheck } from "../../src/services/milestone-check.ts";
+import { type LockWait, withRoleLock } from "../../src/infra/heavy-lock.ts";
+import {
+  checkBase,
+  type CheckJob,
+  checkLimits,
+  execMilestoneCheck,
+  readChecks,
+  runMilestoneCheck,
+} from "../../src/services/milestone-check.ts";
 import { claimTree } from "../../src/services/milestone-tree.ts";
 import { branchRun, fakeDeps } from "./helpers.ts";
 import { createRun, type Run } from "../../src/services/run-store.ts";
@@ -142,6 +150,84 @@ describe("runMilestoneCheck", () => {
     const r = await runMilestoneCheck({ ...i, command: "echo 'FAIL a'; exit 1" });
     expect(r.running === false && r.hints?.[0]).toContain("git worktree add --detach");
     expect(r.running === false && r.missing[0]).toContain("exits 1");
+  });
+
+  it("a nested catherd lock sees CATHERD_LOCK_HELD, so it runs at once", async () => {
+    const r = await runMilestoneCheck({ ...i, command: "printenv CATHERD_LOCK_HELD" });
+    expect(r.running === false && readFileSync(r.record.log, "utf8").trim()).toBe("1");
+  });
+
+  it("a restarted caller waits for the same worker, and hears the lock the worker waits on", async () => {
+    let inside = () => {};
+    const entered = new Promise<void>((resolve) => (inside = resolve));
+    let release = () => {};
+    const held = withRoleLock("verifier", "run:other", () => {
+      inside();
+      return new Promise<void>((resolve) => (release = resolve));
+    });
+    await entered;
+    checkLimits.waitMs = 50;
+    expect(await runMilestoneCheck(i)).toMatchObject({ running: true });
+    checkLimits.waitMs = 60_000;
+    const heard: (LockWait | null)[] = [];
+    const r = await runMilestoneCheck(i, {
+      onWait: (w) => {
+        heard.push(w);
+        if (w) release();
+      },
+    });
+    await held;
+    expect(r).toMatchObject({ running: false, record: { exit: 0 } });
+    expect(heard.find((w) => w !== null)).toMatchObject({ lock: "role-verifier", holder: "run:other" });
+  });
+});
+
+describe("the time a check takes", () => {
+  const job = (command: string): CheckJob => ({
+    run: run.id,
+    repo,
+    cwd: repo,
+    milestone: "M1",
+    command,
+    head: HEAD,
+    base: BASE,
+    baseline: false,
+  });
+
+  it("durationMs leaves out the lock wait", async () => {
+    let inside = () => {};
+    const entered = new Promise<void>((resolve) => (inside = resolve));
+    let release = () => {};
+    const held = withRoleLock("verifier", "run:other", () => {
+      inside();
+      return new Promise<void>((resolve) => (release = resolve));
+    });
+    await entered;
+    let queued = () => {};
+    const waiting = new Promise<void>((resolve) => (queued = resolve));
+    let polls = 0;
+    const pending = execMilestoneCheck(job("true"), {
+      // hold the lock for two polls, so the wait is far longer than the check itself
+      onWait: () => {
+        if (++polls === 2) queued();
+      },
+    });
+    await waiting;
+    const released = Date.now();
+    release();
+    await held;
+    const r = await pending;
+    expect(r.durationMs).toBeLessThan(r.waitedMs ?? 0);
+    expect(Date.parse(r.startedAt ?? "")).toBeGreaterThanOrEqual(released);
+  });
+
+  it("an item past itemMs is recorded timed out, and is not rerun", async () => {
+    checkLimits.itemMs = 200;
+    const r = await execMilestoneCheck(job("sleep 5"));
+    expect(r).toMatchObject({ exit: 124 });
+    expect(r.fails.join("\n")).toContain("timed out");
+    expect(r.rerunOf).toBeUndefined();
+    expect(r.durationMs).toBeLessThan(5_000);
   });
 });
 
