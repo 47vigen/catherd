@@ -16,7 +16,7 @@ it, not its driver. Your job is four things:
 - carry the owner's answers to the questions the run parks;
 - relay the finished report.
 
-**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@1.5.0`. If it
+**Your first call is `status()`.** Its `version` must be the one this plugin pins, `catherd-cli@2.0.0`. If it
 differs, stop and tell the user to restart their host session so the plugin and its server match.
 
 **You never edit product files and you never dispatch a role.** Every line of code, tests or docs comes from a
