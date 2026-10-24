@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { parseFindings } from "../domain/findings.ts";
 import { JUDGE_CONTRACT, type JudgeInput, JUDGE_VERBS } from "../domain/judge.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
-import { planInputNames } from "../domain/plan-doc.ts";
+import { milestoneCheck, planInputNames } from "../domain/plan-doc.ts";
 import { parseReplyDesign } from "../domain/record.ts";
 import { RUN_UNIT } from "../domain/run-events.ts";
 import type { Action } from "../domain/run-machine.ts";
 import { unitMilestone } from "../domain/branch.ts";
-import { integrateName, lanesOf, type RunState } from "../domain/run-state.ts";
+import { integrateName, lanesOf, type MilestoneState, type RunState } from "../domain/run-state.ts";
 import { VERSION } from "../infra/version.ts";
 import { landedCommits } from "./milestones.ts";
 import { readChecks } from "./milestone-check.ts";
@@ -358,37 +358,57 @@ function reviewBrief(run: Run, s: RunState, a: DispatchAction): string {
   ].join("\n");
 }
 
+/**
+ * plan 40: the verifier's lines once its milestone's Check passed on its commit: the acceptance lines the Check does not
+ * show, and nothing else. A milestone with no Check line has no command, so no such run: null.
+ */
+function checkedLines(m: MilestoneState | undefined, command: string | null): string[] | null {
+  if (!m || command === null || m.commit === null || m.checkedOn !== m.commit) return null;
+  return [
+    `catherd ran this milestone's Check (${command}) on ${m.commit.slice(0, 12)} and it passed: do not run it again. ${m.uncovered.length ? "Judge only these acceptance lines, which the Check does not show:" : "No acceptance line of this milestone is left for you: judge its diff."}`,
+    ...m.uncovered.map((line) => `- ${line}`),
+    "",
+    READ_RULES,
+    "",
+  ];
+}
+
 function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
   const m = s.milestones.find((x) => x.id === a.unit);
   const planFile = runPaths(run.dir).plan;
-  const delivered = [
-    ...deliveredALines(run, existsSync(planFile) ? readFileSync(planFile, "utf8") : "", a.unit),
-  ].sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
+  const plan = existsSync(planFile) ? readFileSync(planFile, "utf8") : "";
+  const delivered = [...deliveredALines(run, plan, a.unit)].sort((x, y) =>
+    x.localeCompare(y, "en", { numeric: true }),
+  );
   const previous = lastReply(run, s, a.name)
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
     .slice(1, 13);
+  const checked = checkedLines(m, milestoneCheck(plan, a.unit));
   return [
     `You verify milestone ${a.unit}${m ? ` (${m.title})` : ""} of catherd run ${run.id}: you own the independent gate. The commit under test is ${m?.commit ?? "HEAD"}; the tree is frozen.`,
     "",
-    "The A-lines this run must meet:",
-    ALINES(run),
-    "",
-    `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
-    "",
-    ...(delivered.length
-      ? [
-          `This milestone delivers ${delivered.join(", ")}: report each as \`A<n> PASS|FAIL\`, with the command you ran and the decisive output.`,
-          "",
-        ]
-      : []),
+    ...(checked ?? [
+      "The A-lines this run must meet:",
+      ALINES(run),
+      "",
+      `Run the milestone's full check, named under "## ${a.unit}" in ${join(run.dir, "plan.md")}, and each lane's fast check where the full check does not cover it. ${READ_RULES}`,
+      "",
+      ...(delivered.length
+        ? [
+            `This milestone delivers ${delivered.join(", ")}: report each as \`A<n> PASS|FAIL\`, with the command you ran and the decisive output.`,
+            "",
+          ]
+        : []),
+    ]),
     ...(a.notes.length ? ["Before you start:", ...a.notes.map((n) => `- ${n}`), ""] : []),
     ...(previous.length
       ? [
           "A verifier failed this milestone before; it said:",
           ...previous.map((l) => `- ${l}`),
-          "Run those items first.",
+          // a passed Check already ran the gate items the last verifier failed: the verifier is not told to run them again
+          ...(checked ? [] : ["Run those items first."]),
           "",
         ]
       : []),

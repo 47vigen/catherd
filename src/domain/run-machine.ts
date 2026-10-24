@@ -51,6 +51,7 @@ export type Action =
   | { type: "judge"; input: JudgeInput }
   | { type: "classify"; dispatchId: string }
   | { type: "park"; unit: string; question: string; reason: ParkReason }
+  | { type: "machineCheck"; milestone: string; commit: string }
   | { type: "land"; milestone: string; knownIssues: string[] }
   | { type: "checkMerged"; milestone: string }
   | { type: "integrate"; milestone: string }
@@ -76,6 +77,7 @@ export function actionKey(a: Action): string {
     case "readPlan":
       return "readPlan";
     case "route":
+    case "machineCheck":
     case "land":
     case "checkMerged":
     case "integrate":
@@ -117,6 +119,7 @@ export function unitOf(a: Action, s?: RunState): string {
     case "classify":
       return s?.dispatches[a.dispatchId]?.unit ?? RUN_UNIT;
     case "route":
+    case "machineCheck":
     case "land":
     case "checkMerged":
     case "integrate":
@@ -171,10 +174,13 @@ export function confirms(e: RunEvent): string[] {
       return [`park:${e.unit}`];
     case "question.reminded":
       return [`remind:${e.unit}:${e.n}`];
+    case "milestone.checked":
+      return [`machineCheck:${e.milestone}`];
     case "milestone.landed":
     case "land.refused":
-    case "base.behind":
       return [`land:${e.milestone}`];
+    case "base.behind":
+      return [`land:${e.milestone}`, `machineCheck:${e.milestone}`];
     case "integrate.done":
     case "integrate.conflict":
       return [`integrate:${e.milestone}`];
@@ -466,6 +472,9 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
     case "review":
       return reviewActions(s, m);
     case "verifying":
+      // the daemon's check of the commit comes first; the verifier is owed only for what it does not settle
+      if (m.commit !== null && m.checkedOn !== m.commit)
+        return [{ type: "machineCheck", milestone: m.id, commit: m.commit }];
       if (m.commit !== null && m.commit === m.verifierFailedOn)
         return [
           {
@@ -682,6 +691,7 @@ function owedActions(s: RunState): Action[] {
 const PAUSED_STEPS = new Set<Action["type"]>([
   "dispatch",
   "judge",
+  "machineCheck",
   "land",
   "pushBranch",
   "integrate",

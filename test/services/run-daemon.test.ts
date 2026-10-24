@@ -125,6 +125,24 @@ function happy(plan: MilestonePlan[] = PLAN, tweak: Script = () => []): Script {
             digestPath: "",
           },
         ];
+      case "machineCheck":
+        // a green Check that leaves every A-line to the verifier
+        return [
+          {
+            type: "milestone.checked",
+            milestone: a.milestone,
+            head: a.commit,
+            command: "true",
+            missing: [],
+            findings: [],
+            uncovered: ["A1"],
+            checkOnly: false,
+            verdictCarried: false,
+            startedAt: new Date(T0).toISOString(),
+            durationMs: 0,
+            waitedMs: 0,
+          },
+        ];
       case "report":
         return [{ type: "report.posted", kind: a.kind, unit: a.unit, text: a.text }];
       case "judge":

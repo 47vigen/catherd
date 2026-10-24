@@ -62,6 +62,23 @@ function review(log: Log, findings: Finding[], name = "reviewer-M1") {
   return endDispatch(log, id, { name, unit: "M1", findings });
 }
 
+/** the daemon's check of `head` passed: the verifier is owed next, or the landing when the check covers every A-line */
+function checked(log: Log, head: string, o: { checkOnly?: boolean } = {}) {
+  return log.add("milestone.checked", {
+    milestone: "M1",
+    head,
+    command: "bun test",
+    missing: [],
+    findings: [],
+    uncovered: ["A1 it works"],
+    checkOnly: o.checkOnly ?? false,
+    verdictCarried: false,
+    startedAt: "2026-10-21T10:00:00.000Z",
+    durationMs: 1000,
+    waitedMs: 0,
+  });
+}
+
 /** the classification of a stop that gave no reason, as the effect appends it */
 const classified = (log: Log, dispatchId: string, reason: BlockedReason | null) =>
   log.add("stop.classified", { dispatchId, reason });
@@ -89,6 +106,9 @@ function rounds(counts: number[], o: { lanes?: number } = {}) {
       log.add("commit.made", { milestone: "M1", round: i + 1, commit: `c${i + 1}` });
     }
   });
+  // a verifier is owed only once the check passed on the commit: the check passes here
+  const m = log.state().milestones[0];
+  if (m?.status === "verifying" && m.commit !== null) checked(log, m.commit);
   return { log, state: log.state(), last: last(log), lastOpenLines: lines };
 }
 
@@ -516,6 +536,7 @@ describe("the machine: review rounds", () => {
     log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
     const nit = { label: "NIT" as const, text: "**NIT** src/a/z.ts:3 — naming — rename", file: "src/a/z.ts" };
     review(log, [open, other, nit]);
+    checked(log, "c1");
     expect(names(last(log))).toEqual(["verifier-M1"]);
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c1" });
@@ -645,9 +666,12 @@ describe("the machine: review rounds", () => {
     expect(triage?.input.findings).toEqual(["BLOCKER docs/z.md:1 — wrong\nThe owner answered: rewrite z.md"]);
   });
 
-  it("lands a BLOCKER park the owner answers `accept` with the findings as known issues", () => {
+  it("a BLOCKER park the owner answers `accept` still verifies, with the findings as known issues", () => {
     const log = parkedAtCap();
     log.add("question.answered", { unit: "M1", answer: " Accept ", by: "owner" });
+    // no verifier failed on this commit, so the accept waives nothing: the check runs, then the verifier
+    expect(of(last(log), "machineCheck")).toEqual([{ type: "machineCheck", milestone: "M1", commit: "c2" }]);
+    checked(log, "c2");
     expect(names(last(log))).toEqual(["verifier-M1"]);
     expect(log.state().milestones[0]).toMatchObject({
       status: "verifying",
@@ -661,6 +685,7 @@ describe("the machine: review rounds", () => {
       finishLane(log, "M1.L1");
       log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
       review(log, []);
+      checked(log, "c0");
       return log;
     };
     const verify = (log: Log, o: Omit<Parameters<typeof endDispatch>[2], "name" | "unit">) => {
@@ -683,6 +708,7 @@ describe("the machine: review rounds", () => {
     log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
     expect(names(last(log))).toEqual(["reviewer-M1"]);
     review(log, []);
+    checked(log, "c1");
     expect(names(last(log))).toEqual(["verifier-M1"]);
     log = base();
     const park = verify(log, { verdict: "blocked", environment: "docker ps fails" });
@@ -703,12 +729,11 @@ describe("the machine: review rounds", () => {
     expect(last(log)).toEqual([{ type: "commit", milestone: "M1", round: 0 }]);
     const l = base1();
     l.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "no reviewer", fix: "run it" });
-    // the first refusal is most often a verifier that skipped gate_run: a fresh one hears the message
+    // the first refusal reruns the check on the same commit: the verdict it has stands, so no verifier is asked
     expect(of(last(l), "park")).toEqual([]);
-    expect(of(last(l), "dispatch")[0]).toMatchObject({ name: "verifier-M1", brief: "verify" });
-    expect(of(last(l), "dispatch")[0]?.notes.join("\n")).toContain("no reviewer");
-    const v = startDispatch(l, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
-    endDispatch(l, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    expect(of(last(l), "machineCheck")).toEqual([{ type: "machineCheck", milestone: "M1", commit: "c0" }]);
+    expect(of(last(l), "dispatch")).toEqual([]);
+    checked(l, "c0");
     expect(of(last(l), "land")).toHaveLength(1);
     l.add("land.refused", { milestone: "M1", code: "E_LAND_GATE", message: "again", fix: "run it" });
     expect(of(last(l), "park")).toMatchObject([{ unit: "M1", reason: "land" }]);
@@ -893,6 +918,7 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     finishLane(log, "M1.L1");
     log.add("commit.made", { milestone: "M1", round: 0, commit: "c0123456789abcdef" });
     review(log, []);
+    checked(log, "c0123456789abcdef");
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "deadbeef" });
     const out = last(log);
@@ -913,6 +939,7 @@ function base1(): Log {
   finishLane(log, "M1.L1");
   log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
   review(log, []);
+  checked(log, "c0");
   const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
   endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
   return log;
@@ -924,6 +951,7 @@ function baseRun(): Log {
   finishLane(log, "M1.L1");
   log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
   review(log, []);
+  checked(log, "c0");
   const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
   endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
   return log;
@@ -967,6 +995,11 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     log.add("integrate.done", { milestone: "M1", commit: "m1abcdef0123456" });
     out = last(log);
     expect(of(out, "land")).toEqual([]);
+    expect(of(out, "machineCheck")).toEqual([
+      { type: "machineCheck", milestone: "M1", commit: "m1abcdef0123456" },
+    ]);
+    checked(log, "m1abcdef0123456");
+    out = last(log);
     expect(of(out, "dispatch")).toMatchObject([
       {
         name: "verifier-M1",
@@ -1001,8 +1034,12 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     expect(of(last(log), "commit")).toEqual([{ type: "commit", milestone: "M1", round: 1 }]);
     log.add("commit.made", { milestone: "M1", round: 1, commit: "m2abcdef0123456" });
     const after = last(log);
-    expect(of(after, "dispatch")).toMatchObject([{ name: "verifier-M1", brief: "verify" }]);
-    expect(names(after)).not.toContain("reviewer-M1");
+    expect(of(after, "machineCheck")).toEqual([
+      { type: "machineCheck", milestone: "M1", commit: "m2abcdef0123456" },
+    ]);
+    checked(log, "m2abcdef0123456");
+    expect(of(last(log), "dispatch")).toMatchObject([{ name: "verifier-M1", brief: "verify" }]);
+    expect(names(last(log))).not.toContain("reviewer-M1");
     expect(log.state().milestones[0]?.integrateFiles).toEqual([]);
   });
 
@@ -1805,6 +1842,7 @@ describe("plan 39 verifier answers and end reports", () => {
     finishLane(log, "M1.L1");
     log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
     review(log, []);
+    checked(log, "c0");
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
     expect(names(last(log))).toEqual([]);
@@ -1827,12 +1865,39 @@ describe("plan 39 verifier answers and end reports", () => {
   });
 });
 
+describe("plan 40: the machine's check comes before the verifier", () => {
+  it("verifying owes machineCheck before the verifier, and a pause holds it back", () => {
+    const log = runningLog(plan(1));
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    const owed = last(log);
+    expect(owed).toEqual([{ type: "machineCheck", milestone: "M1", commit: "c0" }]);
+    expect(actionKey(owed[0] as Action)).toBe("machineCheck:M1");
+    expect(names(owed)).toEqual([]);
+    log.add("run.paused", { by: "owner" });
+    expect(last(log)).toEqual([]);
+    log.add("run.resumed", { by: "owner" });
+    expect(last(log)).toEqual([{ type: "machineCheck", milestone: "M1", commit: "c0" }]);
+    const passed = checked(log, "c0");
+    expect(confirms(passed)).toEqual(["machineCheck:M1"]);
+    expect(names(last(log))).toEqual(["verifier-M1"]);
+  });
+
+  it("base.behind confirms the machine check as well as the landing", () => {
+    const log = baseRun();
+    const behind = log.add("base.behind", { milestone: "M1" });
+    expect(confirms(behind)).toEqual(["land:M1", "machineCheck:M1"]);
+  });
+});
+
 describe("unchanged verifier failure recovery", () => {
   it("parks after a fix round and clean review leave the failed commit unchanged", () => {
     const log = runningLog(plan(1));
     finishLane(log, "M1.L1");
     log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
     review(log, []);
+    checked(log, "c0");
     const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
     endDispatch(log, v, {
       name: "verifier-M1",

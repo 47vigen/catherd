@@ -3,9 +3,9 @@ import { gateEnvLines, readGateEnv } from "./gate-env.ts";
 import { recordedItems } from "./gate-service.ts";
 import type { Run } from "./run-store.ts";
 
-// Plan 23: a dispatched verifier's brief ends with the gate's rules and the run's facts: the milestone's
-// recorded items (reuse their names), the failed ones (a re-check runs them first, each command capped), and
-// the repo's gate environment.
+// Plan 23: a dispatched verifier's brief ends with the run's gate facts: the milestone's recorded items (reuse
+// their names), the failed ones (a re-check runs them first, each command capped), and the repo's gate
+// environment. The gate's rules are in the verifier's role prompt, not here.
 
 /** The milestone a verifier dispatch checks: the first `M<n>` its name names as a word (verifier-M1 → M1). */
 export const milestoneOfName = (name: string): string | null =>

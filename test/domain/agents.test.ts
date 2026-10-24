@@ -148,6 +148,10 @@ describe("rolePrompt", () => {
     expect(text).not.toContain("first three lines");
   });
 
+  it("has the architect end an A-line the Check proves on its own with (Check), in both plan paths (plan 40)", () => {
+    expect(rolePrompt("architect", "1.0.0").split("ends with `(Check)`")).toHaveLength(3);
+  });
+
   it("puts the linter of every package the lane touches and the type check in the architect's fast check (plan 23)", () => {
     expect(rolePrompt("architect", "1.0.0")).toContain(
       "its targeted tests plus the linter of every package the lane touches (each package's own: golangci-lint for a Go module, its lint script for a JS one), and the type check when the project has one, scoped to those packages",

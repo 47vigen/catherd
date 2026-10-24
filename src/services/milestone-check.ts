@@ -1,10 +1,11 @@
-import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { checkFailLines, checkItems, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import { checkFailLines, checkItems, coveredDir, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import { parseLaneHeader } from "../domain/lane.ts";
 import type { RunEvent } from "../domain/run-events.ts";
-import { milestoneCheck } from "../domain/plan-doc.ts";
+import { baselineItems, isAccept, milestoneCheck } from "../domain/plan-doc.ts";
 import { git } from "../infra/git.ts";
 import {
   heavySlots,
@@ -27,7 +28,7 @@ import { gateItemInputs } from "./gate-service.ts";
 import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
 import { readEvents } from "./run-events-store.ts";
-import { findRun, type Run } from "./run-store.ts";
+import { findRun, readRecords, type Run, runPaths } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
 
 /** One run of a milestone's full check on one commit (spec 2.0 decision 18), or of the base's own (a baseline). */
@@ -255,8 +256,7 @@ function acceptedLandQuestions(
   for (const event of readEvents(run)) {
     if (event.type === "question.parked" && event.unit === milestone) parked = event;
     else if (event.type === "question.answered" && event.unit === milestone) {
-      if (parked?.reason === "land" && event.by === "owner" && event.answer.trim().toLowerCase() === "accept")
-        accepted.push(parked);
+      if (parked?.reason === "land" && event.by === "owner" && isAccept(event.answer)) accepted.push(parked);
       parked = null;
     }
   }
@@ -347,7 +347,10 @@ export async function machineGate(
   const latest = new Map<string, CheckRecord>();
   for (const r of records) if (r.head === head) latest.set(r.command, r);
   const planFile = join(run.dir, "plan.md");
-  const command = existsSync(planFile) ? milestoneCheck(readFileSync(planFile, "utf8"), m) : null;
+  const plan = existsSync(planFile) ? readFileSync(planFile, "utf8") : null;
+  const command = plan === null ? null : milestoneCheck(plan, m);
+  // plan 40 D13: a Baseline line of the plan accepts its item's pre-existing failing lines
+  const baselines = plan === null ? [] : baselineItems(plan, m);
   const required = new Set(
     command === null ? records.flatMap((r) => checkItems(r.command)) : checkItems(command),
   );
@@ -393,6 +396,10 @@ export async function machineGate(
       missing.push(
         `\`${rec.command}\` exits ${rec.exit} with no failing line catherd can compare; see ${rec.log}`,
       );
+    else if (baselines.includes(rec.command))
+      audit.push(
+        `the plan's Baseline line accepts the pre-existing failing lines of \`${rec.command}\` on ${head.slice(0, 12)}`,
+      );
     else {
       inputs ??= await gateItemInputs(run, m, head);
       const relevant = inputs.filter(
@@ -413,6 +420,61 @@ export async function machineGate(
     }
   }
   return { missing, audit };
+}
+
+/** The latest machine record of each item on `head`, for this run's milestone `m`. */
+function latestOnHead(run: Run, m: string, head: string): CheckRecord[] {
+  const latest = new Map<string, CheckRecord>();
+  for (const r of readChecks(run.meta.repo))
+    if (r.run === run.id && r.milestone === m && !r.baseline && r.head === head) latest.set(r.command, r);
+  return [...latest.values()];
+}
+
+/** Each failing item on `head` with the lines its base record lacks; with no base record, all of its lines. */
+export async function freshFailures(
+  run: Run,
+  m: string,
+  head: string,
+): Promise<{ item: string; lines: string[] }[]> {
+  const start = await checkBase(run, m);
+  return latestOnHead(run, m, head)
+    .filter((r) => r.exit !== 0)
+    .map((r) => ({
+      item: r.command,
+      lines: newFails(r.fails, baselineFor(run.meta.repo, r.command, start)?.fails ?? null),
+    }));
+}
+
+/** The failing items on `head` that have no base record, so nothing says whether they were red before. */
+export async function missingBaselines(run: Run, m: string, head: string): Promise<string[]> {
+  const start = await checkBase(run, m);
+  return latestOnHead(run, m, head)
+    .filter((r) => r.exit !== 0 && baselineFor(run.meta.repo, r.command, start) === null)
+    .map((r) => r.command);
+}
+
+/** The paths a milestone is about: its lanes' Owns, and the files its lanes' records changed outside them. */
+function milestonePaths(run: Run, m: string): string[] {
+  const dir = runPaths(run.dir).lanes;
+  const owns = (existsSync(dir) ? readdirSync(dir) : [])
+    .filter((f) => f.startsWith(`${m}.`) && f.endsWith(".md"))
+    .flatMap((f) => parseLaneHeader(readFileSync(join(dir, f), "utf8")).owns);
+  const { records } = readRecords(run);
+  // Owns keeps a directory's slash; verdictCarries compares a path as a prefix, so the slash goes
+  return [
+    ...owns,
+    ...records
+      .filter((r) => r.lane?.startsWith(`${m}.`))
+      .flatMap((r) => [...r.changedOwned, ...r.violations]),
+  ].map((p) => p.replace(/\/+$/, ""));
+}
+
+/** Plan 40 D3(b): a verifier's PASS on `from` answers `to` when no file of the milestone's paths changed between them. */
+export async function verdictCarries(run: Run, m: string, from: string, to: string): Promise<boolean> {
+  const diff = await git(treeOf(run, m), ["diff", "--name-only", from, to]);
+  if (diff.kind !== "ok") return false;
+  const paths = milestonePaths(run, m);
+  return diff.out.split("\n").every((f) => !f || !paths.some((p) => f === p || f.startsWith(`${p}/`)));
 }
 
 /**
@@ -493,6 +555,45 @@ export async function runMilestoneCheck(
   return { ...last!, cached, ...(hints.size ? { hints: [...hints] } : {}) };
 }
 
+/**
+ * Plan 40 D3(a): a folder item's latest pass answers a new HEAD when `git diff` leaves that folder alone. The copy
+ * keeps the old exit and lines, names its source, and is scanned again, since the scan covers base..HEAD.
+ */
+async function carriedRecord(
+  run: Run,
+  m: string,
+  command: string,
+  head: string,
+  cwd: string,
+  base: string | null,
+): Promise<CheckRecord | null> {
+  const dir = coveredDir(command);
+  if (dir === null) return null;
+  const old = readChecks(run.meta.repo)
+    .filter(
+      (r) =>
+        r.run === run.id &&
+        r.milestone === m &&
+        r.command === command &&
+        !r.baseline &&
+        r.exit === 0 &&
+        r.head !== head,
+    )
+    .at(-1);
+  if (!old) return null;
+  const diff = await git(cwd, ["diff", "--name-only", old.head, head]);
+  if (diff.kind !== "ok" || diff.out.split("\n").some((f) => f.startsWith(dir))) return null;
+  const rec: CheckRecord = {
+    ...old,
+    at: new Date().toISOString(),
+    head,
+    carriedFrom: old.head,
+    secrets: await secretScan(cwd, base),
+  };
+  appendCheckRecord(run.meta.repo, rec);
+  return rec;
+}
+
 async function runCheckItem(
   i: { run: string; milestone: string; command: string; at?: string; force?: boolean },
   o: { onWait?: (w: LockWait | null) => void },
@@ -540,6 +641,8 @@ async function runCheckItem(
   if (!i.force) {
     const prior = readChecks(repo).filter(mine).at(-1);
     if (prior) return result(prior, true);
+    const carried = baseline ? null : await carriedRecord(run, i.milestone, i.command, head, cwd, base);
+    if (carried) return result(carried, true);
   }
   const job: CheckJob = {
     run: i.run,

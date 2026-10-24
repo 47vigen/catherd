@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { RunRecord } from "../../src/domain/record.ts";
 import type { MilestonePlan } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
+import type { MilestoneState } from "../../src/domain/run-state.ts";
 import { VERSION } from "../../src/infra/version.ts";
 import { appendCheckRecord, type CheckRecord } from "../../src/services/milestone-check.ts";
 import { briefFor, judgeBrief, RULES_REVIEW_BRIEF } from "../../src/services/run-briefs.ts";
@@ -13,7 +14,7 @@ import { endDispatch, runningLog, startDispatch, makeLog } from "../domain/run-f
 import { appendEvent } from "../../src/services/run-events-store.ts";
 import { copyPlanInputs, planDocs, taskBlock } from "../../src/services/plan-input.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
-import { appendRecord, type Run } from "../../src/services/run-store.ts";
+import { appendRecord, createRun, type Run } from "../../src/services/run-store.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { briefFor as withLane, freshRun, makeRecord, PLAN_TEXT, writeLane } from "./helpers.ts";
 
@@ -230,6 +231,77 @@ describe("briefs", () => {
     expect(text).toContain(join(run.dir, "plan.md"));
     expect(text).toContain("This milestone delivers A1: report each as `A<n> PASS|FAIL`");
     expect(text).toContain("- bun test src/a fails: 2 red");
+  });
+
+  describe("a verifier after its milestone's Check (plan 40)", () => {
+    const HEAD = "0123456789abcdef0123456789abcdef01234567";
+    // M1 on HEAD, whose check passed there with `uncovered` still open; `checkLine` is the plan's Check line, if any
+    const checkedBrief = (checkLine: string | null, uncovered: string[], failedBefore = false): string => {
+      const { repo } = freshRun();
+      const run = createRun({
+        repo,
+        title: "checked",
+        aLines: ["A1 it works", "A2 it also works"],
+        version: "0.0.0-test",
+      });
+      writeFileSync(
+        join(run.dir, "plan.md"),
+        `## M1 — core\n${checkLine === null ? "" : `Check: ${checkLine}\n`}`,
+      );
+      const log = runningLog();
+      if (failedBefore) {
+        const id = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+        endDispatch(log, id, { name: "verifier-M1", unit: "M1", verdict: "fail" });
+        mkdirSync(join(run.dir, "roles", "verifier-M1", id), { recursive: true });
+        writeFileSync(
+          join(run.dir, "roles", "verifier-M1", id, "reply.md"),
+          "VERDICT: FAIL\n- bun test fails: 2 red\nA1 FAIL it works — the output\nSTATUS: complete — failed\n",
+        );
+      }
+      const s = log.state();
+      const m = s.milestones.find((x) => x.id === "M1") as MilestoneState;
+      Object.assign(m, { commit: HEAD, checkedOn: HEAD, uncovered });
+      return briefFor(
+        run,
+        s,
+        act({ brief: "verify", role: "verifier", name: "verifier-M1", unit: "M1", lane: null }),
+      );
+    };
+
+    it("a checked milestone's verifier brief lists only uncovered lines", () => {
+      const text = checkedBrief("bun test", ["A1 it works"]);
+      expect(text).toContain(
+        "catherd ran this milestone's Check (bun test) on 0123456789ab and it passed: do not run it again. Judge only these acceptance lines, which the Check does not show:\n- A1 it works",
+      );
+      expect(text).not.toContain("A2 it also works");
+      expect(text).not.toContain("Run the milestone's full check");
+    });
+
+    it("a milestone with no Check keeps today's verifier brief", () => {
+      const text = checkedBrief(null, ["A1 it works", "A2 it also works"]);
+      expect(text).toContain(`Run the milestone's full check, named under "## M1"`);
+      expect(text).toContain("The A-lines this run must meet:");
+      expect(text).not.toContain("do not run it again");
+    });
+
+    it("says the diff is all that is left when the milestone delivers no line", () => {
+      const text = checkedBrief("bun test", []);
+      expect(text).toContain("No acceptance line of this milestone is left for you: judge its diff.");
+      expect(text).not.toContain("Judge only these acceptance lines");
+    });
+
+    it("keeps what its last verifier failed on, without telling the verifier to run it again", () => {
+      const text = checkedBrief("bun test", ["A1 it works"], true);
+      expect(text).toContain("do not run it again");
+      expect(text).toContain("A verifier failed this milestone before; it said:");
+      expect(text).toContain("A1 FAIL it works — the output");
+      expect(text).not.toContain("Run those items first.");
+    });
+
+    it("a milestone with no Check still tells its verifier to run what the last one failed", () => {
+      const text = checkedBrief(null, ["A1 it works"], true);
+      expect(text).toContain("Run those items first.");
+    });
   });
 
   it("gives a judge only its kind, unit, context, numbered findings and the lanes' Owns", () => {

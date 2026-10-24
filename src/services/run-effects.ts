@@ -4,22 +4,22 @@ import { mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import { type BlockedReason, foreignFailure, parseBlockedReason } from "../domain/blocked.ts";
 import { quotaOf } from "../domain/failover.ts";
-import { parseFailLines, parseFindings, unlistedFail } from "../domain/findings.ts";
+import { fileOf, parseFailLines, parseFindings, unlistedFail } from "../domain/findings.ts";
 import { headlessRung, tryParseRung } from "../domain/ids.ts";
 import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
-import { changedDecisions, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { changedDecisions, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { currentRoute } from "../domain/route.ts";
 import type { Role } from "../domain/roles.ts";
-import { type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
+import { type Finding, type MilestonePlan, RUN_UNIT, type RunEventInput } from "../domain/run-events.ts";
 import { type Action, unitOf } from "../domain/run-machine.ts";
 import { lanesOf, milestoneOf, ownerOfFile, type RunState } from "../domain/run-state.ts";
 import { endCollect, requestCancel, tryCollect } from "../infra/dispatch-dir.ts";
 import { currentBranch, fetchBase, gitOrigin, gitRun, isAncestor, worktreeIdentity } from "../infra/git.ts";
-import { heavySlots, withHeavySlot } from "../infra/heavy-lock.ts";
+import { heavyLimits, heavySlots, LOCK_HELD_ENV, type LockWait, withHeavySlot } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { admit } from "./admission.ts";
 import { cancel, launcher } from "./dispatch-service.ts";
@@ -28,10 +28,23 @@ import { finalizeDispatch, waitForFinish } from "./finalize.ts";
 import { failoverRung } from "./failover-rungs.ts";
 import { climb, land, routeLanes } from "./lane-service.ts";
 import { blockedByEnvironment, landedCommitOf, replyVerdict } from "./milestones.ts";
-import { machineGate } from "./milestone-check.ts";
-import { branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
+import {
+  freshFailures,
+  machineGate,
+  missingBaselines,
+  readChecks,
+  runMilestoneCheck,
+  verdictCarries,
+} from "./milestone-check.ts";
+import { baseTree, branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
-import { planDocs, planProblems } from "./plan-input.ts";
+import {
+  deliveredALines,
+  deliveredALineTexts,
+  planDocs,
+  planProblems,
+  uncoveredALines,
+} from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
@@ -53,6 +66,20 @@ export interface Effects {
 
 /** Limits a test shortens. */
 export const effectLimits = { checkMs: 600_000, commitMs: 300_000 };
+
+/** The milestone check the daemon runs (plan 40 D1); a test replaces it. */
+export const milestoneChecker = { run: runMilestoneCheck };
+
+/** The most failing lines of one item that become findings; the rest stay in its check log. */
+const FINDINGS_PER_ITEM = 20;
+
+type CheckInput = Parameters<typeof runMilestoneCheck>[0];
+
+/** Runs a check until it answers: past its wait limit it answers running, and the next call waits for the same run. */
+async function untilChecked(i: CheckInput, o: { onWait?: (w: LockWait | null) => void }): Promise<void> {
+  let r = await milestoneChecker.run(i, o);
+  while (r.running) r = await milestoneChecker.run(i, o);
+}
 
 /** The lane a finding's file belongs to, by the longest `Owns:` entry. */
 export const ownerOf = ownerOfFile;
@@ -252,6 +279,17 @@ const tailOf = (text: string, n = 40): string =>
 export function realEffects(deps: Deps, run: Run): Effects {
   const at = (): Date => new Date(deps.now());
   const append = (e: RunEventInput) => appendEvent(run, e, at());
+  /** A step's first lock wait, as one `lock.waiting` event; the event is written while the wait goes on. */
+  const waitingOnce = (unit: string): ((w: LockWait | null) => void) => {
+    let told = false;
+    return (w) => {
+      if (!w || told) return;
+      told = true;
+      append({ type: "lock.waiting", unit, lock: w.lock, holder: w.holder, ahead: w.ahead }).catch((e) =>
+        log("warn", "daemon", { run: run.id, unit, error: errorMessage(e) }),
+      );
+    };
+  };
   const watching = new Set<string>();
 
   const heldQuotas = (s: RunState): string[] =>
@@ -546,11 +584,29 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
     const slots = heavySlots(runProfile(deps, run).heavy);
-    const { tree, r } = await withHeavySlot(slots, async (_slot, tmp) => {
-      const tree = await worktreeIdentity(cwd);
-      const r = await runCheck(cwd, check, effectLimits.checkMs, { ...env, TMPDIR: tmp, GOTMPDIR: tmp });
-      return { tree, r };
-    });
+    const requested = Date.now();
+    const { tree, r, startedAt, durationMs, waitedMs } = await withHeavySlot(
+      slots,
+      async (_slot, tmp) => {
+        const tree = await worktreeIdentity(cwd);
+        const started = Date.now();
+        const r = await runCheck(cwd, check, effectLimits.checkMs, {
+          ...env,
+          TMPDIR: tmp,
+          GOTMPDIR: tmp,
+          // a `catherd lock` inside the check runs at once: this check holds its slot already
+          [LOCK_HELD_ENV]: "1",
+        });
+        return {
+          tree,
+          r,
+          startedAt: new Date(started).toISOString(),
+          durationMs: Date.now() - started,
+          waitedMs: started - requested,
+        };
+      },
+      { onWait: waitingOnce(a.lane) },
+    );
     // an absence check whose only hits are the lane's Allow: exceptions has passed
     const allowed = r.code !== 0 && !r.timedOut && onlyAllowedHits(r.lines, header.allow);
     const failed = !allowed && r.code !== 0;
@@ -562,6 +618,91 @@ export function realEffects(deps: Deps, run: Run): Effects {
       tree,
       // a check that fails only in a sibling's files still counts: the sibling is not done writing them
       foreign: failed ? foreignOf(run, a.lane, (r.lines.length ? r.lines : r.tail).join("\n")) : [],
+      startedAt,
+      durationMs,
+      waitedMs,
+    });
+  }
+
+  /** Plan 40 D13: each failing item with no baseline record runs once on the base's own tree, which is removed after. */
+  async function runBaselines(m: string, head: string): Promise<void> {
+    const items = await missingBaselines(run, m, head);
+    if (items.length === 0) return;
+    let tree: Awaited<ReturnType<typeof baseTree>>;
+    try {
+      tree = await baseTree(deps, run, m);
+    } catch (e) {
+      // the items keep no baseline, so their lines count as fresh; the log says why
+      log("warn", "daemon", { run: run.id, milestone: m, baseline: errorMessage(e) });
+      return;
+    }
+    try {
+      for (const command of items)
+        await untilChecked({ run: run.id, milestone: m, command, at: tree.dir }, {});
+    } finally {
+      await tree.remove();
+    }
+  }
+
+  /**
+   * The daemon's check of a milestone's commit (plan 40 D1). In a base run the base is merged in first (D4). Then the
+   * Check runs in its worker, and each failing item with no baseline runs once on the base's own tree (D13). The
+   * verdict is `milestone.checked`: fresh failing lines are findings, and the A-lines the Check does not show are
+   * left to the verifier.
+   */
+  async function machineCheck(a: Extract<Action, { type: "machineCheck" }>, s: RunState): Promise<void> {
+    const repo = run.meta.repo;
+    if (s.base !== null) {
+      await fetchBase(repo, s.base);
+      if ((await isAncestor(repo, `origin/${s.base}`, a.commit)) === false)
+        return void (await append({ type: "base.behind", milestone: a.milestone }));
+    }
+    const started = Date.now();
+    const startedAt = new Date(started).toISOString();
+    const plan = read(runPaths(run.dir).plan);
+    const command = milestoneCheck(plan, a.milestone);
+    // with no Check nothing is covered: every delivered A-line goes to the verifier, marked or not (plan 40 D2)
+    const uncovered =
+      command === null ? deliveredALineTexts(run, a.milestone) : uncoveredALines(run, a.milestone);
+    let missing: string[] = [];
+    let findings: Finding[] = [];
+    if (command !== null) {
+      await untilChecked(
+        { run: run.id, milestone: a.milestone, command },
+        { onWait: waitingOnce(a.milestone) },
+      );
+      await runBaselines(a.milestone, a.commit);
+      missing = (await machineGate(run, a.milestone, a.commit)).missing;
+      findings = (await freshFailures(run, a.milestone, a.commit)).flatMap(({ item, lines }) =>
+        lines.slice(0, FINDINGS_PER_ITEM).map((line) => ({
+          label: "BLOCKER" as const,
+          text: `\`${item}\` fails: ${line}`,
+          file: fileOf(line),
+        })),
+      );
+    }
+    const verified = milestoneOf(s, a.milestone)?.verifierPassedOn ?? null;
+    const verdictCarried =
+      verified !== null &&
+      verified !== a.commit &&
+      (await verdictCarries(run, a.milestone, verified, a.commit));
+    await append({
+      type: "milestone.checked",
+      milestone: a.milestone,
+      head: a.commit,
+      command,
+      missing,
+      findings,
+      uncovered,
+      checkOnly:
+        command !== null && deliveredALines(run, plan, a.milestone).size > 0 && uncovered.length === 0,
+      verdictCarried,
+      startedAt,
+      durationMs: Date.now() - started,
+      // the waits of the records this check wrote: a carried record waited for nothing of its own
+      waitedMs: readChecks(repo)
+        .filter((r) => r.run === run.id && r.milestone === a.milestone && !r.carriedFrom && r.at >= startedAt)
+        .reduce((sum, r) => sum + (r.waitedMs ?? 0), 0),
     });
   }
 
@@ -607,8 +748,9 @@ export function realEffects(deps: Deps, run: Run): Effects {
     for (const f of merging ? (m?.integrateFiles ?? []) : []) paths.add(f);
     for (const p of paths) {
       const r = await gitRun(repo, ["--literal-pathspecs", "add", "-A", "--", p], effectLimits.commitMs);
-      // an Owns: entry the lane never created is no error
-      if (r.code !== 0 && !/did not match any files/.test(r.err)) return void (await failed(r));
+      // an Owns: entry the lane never created, or one git ignores (plan 40 D11), is no error
+      if (r.code !== 0 && !/did not match any files|The following paths are ignored/.test(r.err))
+        return void (await failed(r));
     }
     if (merging) {
       // a file the worker left unresolved must not become the milestone's commit
@@ -734,7 +876,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     await append({ type: "milestone.merged", milestone: a.milestone });
   }
 
-  /** A memory check, then the milestone's worktree: `tree.deferred` while the machine has no room for another. */
+  /**
+   * A memory check, then the milestone's worktree: `tree.deferred` while the machine has no room for another, and
+   * while another is working on a disk short of its reserve (plan 40 D14).
+   */
   async function claim(a: Extract<Action, { type: "claimTree" }>, s: RunState): Promise<void> {
     const limits = memoryLimitsOf(runProfile(deps, run));
     const load = memoryLoad(s.milestones, deps.now(), limits);
@@ -745,6 +890,15 @@ export function realEffects(deps: Deps, run: Run): Effects {
         milestone: a.milestone,
         availableMb,
         needMb: neededMb(load.ramping, limits),
+      }));
+    const freeMb = heavyLimits.freeMb();
+    if (load.working > 0 && freeMb < heavyLimits.diskReserveMb)
+      return void (await append({
+        type: "tree.deferred",
+        milestone: a.milestone,
+        availableMb: freeMb,
+        needMb: heavyLimits.diskReserveMb,
+        resource: "disk",
       }));
     const c = await claimTree(deps, run, a.milestone, {
       known: milestoneOf(s, a.milestone)?.branch != null,
@@ -807,6 +961,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return route(a, s);
       case "fastCheck":
         return fastCheck(a);
+      case "machineCheck":
+        return machineCheck(a, s);
       case "commit":
         return commit(a, s);
       case "climb": {

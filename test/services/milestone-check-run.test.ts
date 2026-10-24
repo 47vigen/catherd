@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type LockWait, withRoleLock } from "../../src/infra/heavy-lock.ts";
 import {
@@ -98,6 +98,32 @@ describe("runMilestoneCheck", () => {
     expect(pending).toMatchObject({ running: true });
     expect(r).toMatchObject({ running: false });
     expect(readChecks(repo).map((r) => r.command)).toEqual([first, second]);
+  });
+
+  it("a folder item carries across a commit outside it", async () => {
+    mkdirSync(join(repo, "web"));
+    writeFileSync(join(repo, "web", "a.txt"), "w");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web");
+    const c1 = git(repo, "rev-parse", "HEAD");
+    const command = "(cd web && true)";
+    expect(await runMilestoneCheck({ ...i, command })).toMatchObject({ cached: false, record: { head: c1 } });
+    mkdirSync(join(repo, "src"));
+    writeFileSync(join(repo, "src", "x.ts"), "x");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "src");
+    const c2 = git(repo, "rev-parse", "HEAD");
+    expect(await runMilestoneCheck({ ...i, command })).toMatchObject({
+      cached: true,
+      record: { head: c2, carriedFrom: c1, exit: 0 },
+    });
+    writeFileSync(join(repo, "web", "b.txt"), "b");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web again");
+    const c3 = git(repo, "rev-parse", "HEAD");
+    const fresh = await runMilestoneCheck({ ...i, command });
+    expect(fresh).toMatchObject({ cached: false, record: { head: c3 } });
+    expect(fresh.running === false && fresh.record.carriedFrom).toBeUndefined();
   });
 
   it("refuses tracked uncommitted changes: a record names a commit", async () => {
