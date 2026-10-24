@@ -212,6 +212,15 @@ describe("secretScan", () => {
   });
 });
 
+describe("check records", () => {
+  it("reads a record written before the timing fields, with none of them", () => {
+    appendCheckRecord(repo, rec());
+    const [r] = readChecks(repo);
+    expect(r).toMatchObject({ exit: 0, head: HEAD });
+    expect([r?.startedAt, r?.waitedMs, r?.carriedFrom]).toEqual([undefined, undefined, undefined]);
+  });
+});
+
 describe("baselineFor", () => {
   it("takes only the baseline on the base: another commit's is no baseline, a missing base the newest", () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1 }));
