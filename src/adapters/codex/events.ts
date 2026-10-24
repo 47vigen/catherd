@@ -62,9 +62,10 @@ export function foldCodexEvents(lines: string[]): CodexFold {
     if (CODEX_TOO_OLD.some((r) => r.test(msg))) f.tooOld = true;
     if (e.type === "thread.started") f.thread = e.thread_id ?? null;
     else if (e.type === "turn.completed" && e.usage) {
-      f.tokens.input += e.usage.input_tokens ?? 0;
-      f.tokens.cached += e.usage.cached_input_tokens ?? 0;
-      f.tokens.output += e.usage.output_tokens ?? 0;
+      // plan 40: codex reports the thread's running total, so the last turn's usage is the whole of it
+      f.tokens.input = e.usage.input_tokens ?? 0;
+      f.tokens.cached = e.usage.cached_input_tokens ?? 0;
+      f.tokens.output = e.usage.output_tokens ?? 0;
     } else if (e.type === "turn.failed") {
       f.turnFailed = true;
       f.failure = msg || "turn failed";
