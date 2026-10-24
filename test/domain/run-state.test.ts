@@ -1316,6 +1316,26 @@ describe("pending reminder wake scheduling", () => {
       expect(lane(tests)?.cheapFirst).toBe(false);
     });
 
+    it("the cheap try runs once per round: a lint failure after the fallback does not arm another", () => {
+      const log = armed([comment]);
+      fixOn(log, CHEAP);
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "src/a/x.ts:3 error", foreign: [] });
+      fixOn(log, "codex:gpt-6-sol#medium");
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
+      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: false });
+    });
+
+    it("a survived finding's fallback spends the cheap try too", () => {
+      const log = armed([comment, unused]);
+      fixOn(log, CHEAP);
+      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+      review(log, [bug("BUG src/a/x.ts:9 — the comment restates the code", "src/a/x.ts")]);
+      fixOn(log, "codex:gpt-6-sol#medium");
+      log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "oxlint: unused variable x", foreign: [] });
+      expect(lane(log)).toMatchObject({ checkFails: 1, cheapFirst: false });
+    });
+
     it("a finding the cheap try left is no same-defect climb", () => {
       const log = armed([comment, unused]);
       fixOn(log, CHEAP);

@@ -129,6 +129,8 @@ export interface LaneState {
   cheapFirst: boolean;
   /** plan 41: the lane's last dispatch was a cheap try: a failure of it goes back to the lane's own rung, uncounted */
   cheapRan: boolean;
+  /** plan 41: the lane's cheap try of this round already fell back to its own rung: no second one is armed */
+  cheapSpent: boolean;
 }
 
 export interface MilestoneState {
@@ -473,6 +475,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.waitOn ??= [];
         l.cheapFirst ??= false;
         l.cheapRan ??= false;
+        l.cheapSpent ??= false;
         l.role = lp.role;
         l.kind = lp.kind;
         l.after = lp.after;
@@ -509,6 +512,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           waitOn: [],
           cheapFirst: false,
           cheapRan: false,
+          cheapSpent: false,
         };
     }
     next.push(m);
@@ -545,6 +549,7 @@ function settle(s: RunState, m: MilestoneState): void {
 function laneDone(s: RunState, l: LaneState): void {
   l.waitOn = [];
   l.cheapFirst = false;
+  l.cheapSpent = false;
   if (l.queued.length > 0) {
     // a route arrived during this try: the lane takes it as a new try, not as done
     l.notes = l.queued;
@@ -671,7 +676,10 @@ function fixRound(
       fellBack.add(id);
     } else lane.climbReason = "same-defect";
   }
-  for (const lane of routed) lane.cheapFirst = !fellBack.has(lane.id) && mechanicalFix(lane.notes);
+  for (const lane of routed) {
+    lane.cheapSpent = fellBack.has(lane.id);
+    lane.cheapFirst = !lane.cheapSpent && mechanicalFix(lane.notes);
+  }
   m.open = unowned;
   m.status = "fixing";
   settle(s, m);
@@ -809,6 +817,7 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
   if (l.cheapRan && !(x.status === "ok" && (x.replyStatus === null || x.replyStatus === "complete"))) {
     // the cheap try failed: the lane's own rung takes the work once, with no attempt counted
     l.cheapRan = false;
+    l.cheapSpent = true;
     l.thread = null;
     l.status = "pending";
     return;
@@ -1004,6 +1013,7 @@ function onClimbed(s: RunState, e: Extract<RunEvent, { type: "lane.climbed" }>):
   l.climbedAt = e.at;
   l.cheapFirst = false;
   l.cheapRan = false;
+  l.cheapSpent = false;
   if (e.top) {
     l.status = "parked";
     l.sameReason += 1;
@@ -1327,6 +1337,7 @@ function apply(s: RunState, e: RunEvent): void {
       } else if (l.cheapRan) {
         // the cheap try's failed check goes back to the lane's own rung, uncounted
         l.cheapRan = false;
+        l.cheapSpent = true;
         l.thread = null;
         l.notes = failNotes(l.notes, e);
         l.status = "pending";
@@ -1353,7 +1364,7 @@ function apply(s: RunState, e: RunEvent): void {
         l.notes = failNotes(l.notes, e);
         l.status = "pending";
         if (l.checkFails >= MAX_TRIES) l.climbReason = "check-failed-twice";
-        else if (l.checkFails === 1) l.cheapFirst = mechanicalFix(l.notes);
+        else if (l.checkFails === 1 && !l.cheapSpent) l.cheapFirst = mechanicalFix(l.notes);
       }
       return;
     }
