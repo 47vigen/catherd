@@ -16,6 +16,87 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 ## 2.0 follow-ups
 
+### From plan 40 (run 20261024-133108-plan-40-run-efficiency)
+
+Defects the run's lanes and reviews reported, which plan 40 did not fix:
+
+- **A verifier's scratch `TMPDIR` makes the CLI read its shell as a role's.** With the verifier's scratch folder as
+  `TMPDIR`, 48 CLI tests fail (pause, init, profile, knowledge, supersede and similar); with a normal temp directory
+  the full suite is green. The verifier could not tell whether the path alone causes it, since `CATHERD_ROLE` and
+  `CATHERD_DISPATCH_ID` were unset in that run. Evidence: verifier-M3 NIT, `milestone.landed` seq 68. Fix: settle which
+  signal the CLI's role check reads, and let the shared test helper of "Spawned-CLI tests inherit the worker's role"
+  cover it.
+- **The plan lint warns twice for one A-line.** `lintPlan` (`src/domain/plan-lint.ts`) scans the milestone section and
+  the run's `aLines`, so an A-line in both gets the commit-history warning twice. Input that shows it:
+  `lintPlan("## M1\nCheck: x\nA1 — list the commit history\n", "M1", ["A1 — list the commit history"])`. Warnings
+  only. Evidence: verifier-M1 NIT, seq 123. Fix: scan each A-line once.
+- **`coveredDir` reads `cd` with a regex, not a shell.** `coveredDir` (`src/domain/fail-lines.ts`) matches `cd <dir> &&`
+  as text, so a sourced file that changes directory still counts as one covered directory. The code carries a
+  `shortcut:` comment for it. Evidence: verifier-M1 NIT, seq 123. Fix: treat an item that sources a file, or whose `cd`
+  the regex cannot place, as whole-tree.
+- **A waiting cycle of three or more lanes can deadlock.** The guard at `src/domain/run-state.ts:752` checks only that a
+  lane does not wait on the lane it blames, so L1 waits on L2, L2 on L3 and L3 on L1 can each blame the next lane and
+  never finish. Rare, and it holds no milestone. Evidence: reviewer-M5 NIT, seq 307. Fix: follow `waitOn` transitively
+  from the blamed lane back to this one.
+- **A resumed dispatch's full brief has no test.** Round 3 of plan 40's M6 writes `brief-full.md` and points the
+  stand-in brief at it (`src/services/dispatch-service.ts:648`); no test reads the file or the path. Evidence:
+  reviewer-M6 NIT, seq 353. Fix: one assertion in the resumed-dispatch test.
+- **A routed rung off the worker ladder parks the lane as `effect`.** After the judge routed a finding to M4.L3 (seq
+  183), its dispatch with `claude-code:claude-haiku-5-5#max` was refused `E_ADMIT_RUNG` ("not on the worker ladder of
+  profile default") and parked as `effect` (seq 185–186). The owner had to answer a question about the profile. Fix: a
+  route to an off-ladder rung is refused with a fix that names the ladder, or the route picks a rung the ladder has.
+
+Ideas the plan leaves for this file. The evidence is the event or code cited; where this run shows nothing, it is the
+2026-10-24 run-efficiency studies that plan 40 names as its source.
+
+- **The ui-reviewer runs with no way to log in, or on screens that are stubs.** A review of a login page or a
+  placeholder cannot show the screen the milestone changed. Evidence: the 2026-10-24 studies; plan 40 changed no UI.
+  Fix: the ui-reviewer's brief names how to log in, and a stub screen is reported as not reviewed.
+- **A missing `STATUS:` line reads as clean.** Two worker replies in this run had no `STATUS:` line and were recorded
+  `ok` with an empty `why`: worker-M1.L2 (seq 31) and worker-M1.L4 (seq 44). Fix: a reply without the line is a parse
+  failure that asks again, as the plan 38 audit proposes (`docs/dev/reports/2026-10-23-plan-38-run-audit.md`).
+- **A retry when idle for load-induced timeouts.** The retry after a timeout under host load does not wait for the host
+  to go idle. Evidence: the 2026-10-24 studies. Fix: wait for the load to drop before the retry, and count that wait
+  apart from the tries.
+- **`git submodule update` runs only at tree setup.** `setUp` (`src/services/milestone-tree.ts:70–92`) runs
+  `git submodule update --init --recursive` once, when a milestone tree is set up. `integrate` merges the base into the
+  milestone's branch without it, so a base change that moves a submodule pointer can leave the tree's submodules stale.
+  Evidence: the code (`src/services/milestone-tree.ts:73–82`); no event in this run shows it. Fix: run it again after
+  `integrate`, in the same heavy slot.
+- **A judge refused `E_ADMIT_PAUSED` that never comes back.** The refusal repeats on a timer until the owner resumes
+  the machine. In this run a reviewer, which takes the same admission path as a judge, was refused 37 times, one every
+  five minutes from 17:11 to 21:39 UTC (seq 194–266), all `E_ADMIT_PAUSED`. Fix: a paused refusal parks the question
+  once and waits for the owner's answer, as other parks do.
+- **A squash merge does not advance the base for dependants.** Dependants of a squash-merged milestone stay blocked until
+  the owner answers the push question, because catherd does not count a squash as a merge. The rulings are
+  `docs/plans/2026-10-21-35-milestone-branches.md` (Ruling 13) and `docs/plans/drafts-1.6/2026-10-12-33-milestone-branches.md`
+  (Ruling 9). Fix: treat a squash whose tree matches the landed commit as merged.
+- **One push and merge answer per milestone.** The same as "A push takes two parked round trips per milestone" above,
+  which carries this run's evidence.
+- **A per-run `pause --run` scope.** `catherd pause` is machine-wide: the refusals name "the machine is paused" (seq 194),
+  not the run. Fix: `pause --run <id>` stops one run's admissions, and the machine pause stays for every run.
+- **Milestones start by remaining critical path.** This run started each milestone when a predecessor landed, in ID
+  order: `tree.ready` at seq 7, 13, 26, 129, 278 and 313. M5 and M6 started a few events after M4 and M5 landed (seq
+  274 and 309). Whether a path-length order starts them sooner is not measured. Fix: order the ready milestones by the
+  work left on the critical path, and record the order.
+- **Tearing down compose stacks a gate started.** A gate that starts compose stacks leaves them running after it ends.
+  Evidence: the 2026-10-24 studies; no compose stack ran in this run. Fix: the gate runs `compose down` for each stack it
+  started, as its last step.
+- **An owner ruling never reaches later lane briefs.** The owner's answer at seq 81, that M1.L4's no-Check warning is
+  intended, is recorded against M1.L3 only, the lane parked on it. No event shows it reaching another lane. Fix: write
+  a ruling into the run's ledger and into the brief of each later lane it touches.
+- **The daemon does not alert or restart after ENOSPC.** The disk reserve in plan 40 (D14) makes heavy slots wait for
+  free space; it does not alert or restart the daemon. Evidence: the 2026-10-24 studies. Fix: notify through the run's
+  notify url on ENOSPC, and restart the daemon's loop after a write succeeds.
+- **`status` prints one collected line per dispatch.** A run with many dispatches prints a long list where one line per
+  unit would do. Evidence: the 2026-10-24 studies. Fix: print one line per unit, with its last dispatch.
+- **A merge that deletes the run's base branch.** A merge that deletes the branch a run started from leaves its
+  dependants with no base to integrate into. Evidence: the 2026-10-24 studies; no event in this run. Fix: refuse to
+  delete a branch that a run's base names, or leave it in place after the merge.
+- **Skipping the daemon's fast-check rerun when the worker's passing run is recorded.** A lane's passing fast check on
+  the head could stand in for the daemon's rerun. M2.L2 removed a rerun skip in its fix round (seq 75, "the rerun skip
+  is removed"), so the idea needs the recorded run to name the same head and the lane's files to be unchanged.
+
 ### From plan 38 (the ideas sweep, run 20261023-025529-ideas-sweep-plan-38)
 
 - **The judge's first rung skips `maxEffort`.** `rungFor` (`src/services/run-effects.ts:255`) takes
@@ -36,12 +117,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   returned a 1.5 run (`engine 1.5`) with `phase: null`, `outcome: null`, all 10 milestones `landed` but
   `commit: null`, `title` equal to the id, `startedAt == updatedAt` and `elapsedSec: 0`. A run whose milestones all
   landed should read as finished, and the 2.0 server should read a 1.5 run's title, commits and times.
-- **The architect writes a fast check over a path the formatter ignores.** `lanes/M2.L3.md`'s `Fast check:` ended
-  with `bunx oxfmt --check docs/dev/scorecard.md`, but `.oxfmtrc.json` ignores `docs/**`, so the step could never
-  pass. The worker blocked `check_broken` (`runs/<run>/events.jsonl` seq 79), was re-dispatched with the same check
-  (seq 82), blocked again (seq 96), and the lane parked (seq 97). Fix: leave ignored paths out of a lane's fast check
-  (or run the repo's own `format:check`); a second `check_broken` with the same `why` on the same head parks at once
-  instead of re-dispatching.
 - **An owner's answer does not stick to the lane.** After the answer that dropped that docs step, the daemon kept
   running the unchanged fast check (`check.ran` exit 2 at seq 150, 163, 186, 195), the lane climbed to the top rung
   (seq 164, 198), and a judge skipped the step (seq 210). In M2's fix round the lane went out on a fresh thread
@@ -63,14 +138,12 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   maps the A-lines onto milestones when it turns a plan into `plan.md`; the digest sums findings over every round.
 - **A push takes two parked round trips per milestone.** M1 parked for the push, then again for the MR. With the
   owner's standing approval for a run's base branch, both could be one answer (`push+merge`) or a profile setting.
+  Plan 40's run parked a push question for every landed milestone (run `20261024-133108-plan-40-run-efficiency`, seq
+  70, 111, 125, 274, 309 and 355) and a second, MR question for M3 (seq 85).
 - **A gate recorded in a broken env cannot be re-recorded.** The gate cache is keyed by HEAD only, not by the env it
   ran in: a verifier's second and third `gate run` on M6's head returned the same cached failed record, `land` reads
   it, and that head can never land without a new commit. Fix: let a verifier re-run a gate (a `fresh` flag), or key
   the record by its env too. (Run audit 7.)
-- **The report's known issues can be a verifier reply cut into lines.** The cancelled run's `result` listed, as M4's
-  known issues, the verifier's whole reply split per line ("HEAD: 13f8a45…", "**Acceptance lines**", "**Gate
-  items**", "**Not checked**"), not findings. The report also shows tokens but no cost. Fix: take only finding lines
-  into `knownIssues`, and add the run's cost. (Run audit 19, 20.)
 - **An unattended coordinator asked an interactive question, and the run sat for six hours.** Five parked questions
   (M2-M6) waited from 04:16 to 10:05 UTC while the coordinator showed a question menu in a terminal nobody watched;
   the phone notices carry only catherd's own parks. Fix: the catherd skill tells a coordinator that runs unattended
@@ -79,16 +152,12 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 - **The run audit's open findings.** The five-lens audit
   (`docs/dev/reports/2026-10-23-plan-38-run-audit.md`) leaves these items outside plan 39. Finding 7: a verifier gate
   inherits role and scratch variables, and cached failures cannot be re-recorded; 8: verifiers can carry A-line
-  results without a record; 11: repo-wide typechecks make parallel lanes fail on unwritten sibling exports; 13: a
-  base move discards a verifier result; 14: milestone starts serialize on memory checks, verifier gates queue without
-  useful order, and cancel leaves orphan parks and trees. Evidence: report findings 7–8 and 11–14, including the
-  ~16 failed dispatches in finding 11.
+  results without a record; 14: milestone starts serialize on memory checks, and cancel leaves orphan parks and trees.
+  Evidence: report findings 7–8 and 14.
   Findings 15–19 also remain open: lane ownership can omit tests of changed exports (15); reviewers do not run tests
   (16); unchanged findings repeat across rounds (17); malformed role replies can pass parsing (18); architect
   requirements can contradict tasks, and known issues can contain a verifier reply split into lines (19). Evidence:
   report findings 15–19, including M2.L1's contradictory requirement and the cancelled run's split reply.
-  Finding 23 remains open: ui-reviewers resume growing threads, judges use full sessions, and Codex usage across a
-  resumed thread may be cumulative. Evidence: report finding 23; the cumulative-usage question remains unresolved.
   Finding 25 remains open: an unattended coordinator can ask an interactive question that no one sees. Evidence:
   report finding 25, where five questions waited from 04:16 to 10:05 UTC.
 
@@ -117,15 +186,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 - **Coordinator findings from the plan 39 run** (run `20261023-105527-run-audit-fixes-plan-39`; seq numbers are its
   `events.jsonl`):
-  - **Admission and the reducer disagree on whether a blocked lane finished (it deadlocked M1).** worker-M1.L1
-    replied `blocked` (check_broken) at seq 30, 43 and 60. The replayed state marks the lane `done` and parks
-    nothing, but `unfinishedAfter` (`src/services/protocol.ts:123`, from the dispatch records) still counts it
-    unfinished, so M1.L4 (`After: M1.L1`) was refused `E_ADMIT_ORDER` on every try (seq 61, 172) and parked as
-    `effect`. Answering M1.L4 repeated the refusal; answering M1.L1 failed "has no open question". The owner unblocked
-    it by deleting the `After:` line with `catherd run-file write` (the plan lint had flagged it at seq 24). Fix:
-    admission reads the reducer's lane state; a `blocked` reply parks the lane with its reason; the lint's "shares no
-    file: drop it" drops the line instead of only warning. The first refusal also raced the predecessor's finish (seq
-    60 and 61 in the same second).
   - **A host session's MCP server older than the run's daemon goes silent.** The coordinator's `catherd mcp` started
     from an npm build; `bun link` then pointed the global command at a newer checkout, and the daemon started from
     it. From seq 22 (`report.posted` kind `memory`) the old server could not replay the log: no channel message for
@@ -148,6 +208,8 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
     back to `committing`), so the owner had to run the formatter in the tree. Fix: a commit failure goes back to the
     lane that owns the file with the hook output, and a lane's fast check runs the format check on its files (the
     run's rules review proposed the latter).
+    Plan 40's M5 hit it again: the format hook rejected its commit (seq 292), and the owner's formatter run on four
+    files reflowed about 100 unrelated lines of `src/services/run-effects.ts` (verifier-M5 NIT, seq 307).
   - **Lanes still break callers no lane owns (run audit 11).** M1.L2 (seq 37, four `gatePass` callers), M1.L1 (seq
     44), M3.L1 (seq 91, `Tokens.cacheWrite` fixtures in three adapter tests and `src/adapters/opencode/index.ts`) and
     M5.L2 (seq 253, nullable `costUsd` in `web/`) each parked until the owner widened the lane. The run's rules review
@@ -160,11 +222,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
   - **Codex dispatches stay unpriced in a run whose daemon predates the catalog pricing.** 68 Codex dispatches carry
     `costUsd: null` (24 Claude Code dispatches are priced), so the run's $24.03 covers Claude Code only. Plan 39 M3
     prices Codex from the catalog; the next run on this build should show it.
-  - **A lane's repo-wide typecheck sees a sibling's half-done edits.** In the Codex-fix run
-    (`20261023-151703-pr-91-codex-review-fixes-plan-39`), worker-M1.L5 stopped `check_broken` because `bun run
-    typecheck` failed in `src/domain/fail-lines.ts`, which lane M1.L2 was still editing in the shared milestone tree;
-    the rerun passed once L2 finished. Fix: a failure only in another lane's files is reported as foreign and the lane
-    finishes (the run's rules review proposed this worker rule).
   - **`checkItems` keeps a command with an unquoted `${…}` whole.** Safe, but such a check is not split into items.
     Evidence: verifier NIT on the Codex-fix run, `src/domain/fail-lines.ts`.
   - **`worktreeIdentity` reads every tracked and untracked file on each fast check.** Correct, but slow on large
