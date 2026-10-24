@@ -8,7 +8,7 @@ import { assertId, formatRung, headlessRung, newDispatchId, parseRung } from "..
 import { assertLaneHeader, overlaps } from "../domain/lane.ts";
 import { roleTimeouts } from "../domain/profile.ts";
 import type { RunRecord } from "../domain/record.ts";
-import { composeBrief } from "../domain/brief.ts";
+import { type BriefContext, composeBrief } from "../domain/brief.ts";
 import { rulesBlock } from "../domain/rules.ts";
 import { briefOwns, DOCS_OWNS } from "../domain/changes.ts";
 import { grantsScratch, ROLE_SERVER_BACKENDS } from "../domain/role-tools.ts";
@@ -48,7 +48,7 @@ import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
-import { verifierBrief } from "./verifier-brief.ts";
+import { milestoneOfName, verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
 export interface AdmitInput {
@@ -70,6 +70,9 @@ export interface AdmitInput {
 
 /** Spec §3.3: SIGTERM, then SIGKILL this long after; tests shorten it. */
 export const killLimits = { killGraceMs: 10_000 };
+
+/** The whole brief of a resumed dispatch, beside its trimmed brief.md. */
+export const fullBriefPath = (brief: string): string => brief.replace(/brief\.md$/, "brief-full.md");
 
 export const laneFile = (run: Run, lane: string): string => join(runPaths(run.dir).lanes, `${lane}.md`);
 
@@ -350,19 +353,25 @@ export async function admit(
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
     // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
     // a verifier's brief also carries the gate's rules and the run's recorded items
-    writeTextAtomic(
-      p.brief,
-      composeBrief(await verifierBrief(run, i.role, i.name, i.brief), {
-        run: run.id,
-        name: i.name,
-        role: i.role,
-        lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
-        scratch,
-        roleServer,
-        version: deps.version,
-        context: [planContext(run, i.role), rulesBlock(rules, i.role)].filter(Boolean).join("\n\n") || null,
-      }),
-    );
+    const briefCtx: BriefContext = {
+      run: run.id,
+      name: i.name,
+      role: i.role,
+      lane: i.lane === null ? null : { id: i.lane, text: readFileSync(laneFile(run, i.lane), "utf8") },
+      scratch,
+      roleServer,
+      version: deps.version,
+      resumed: i.thread !== null,
+      context:
+        [planContext(run, i.role, milestoneOfName(i.lane ?? i.name)), rulesBlock(rules, i.role)]
+          .filter(Boolean)
+          .join("\n\n") || null,
+    };
+    const task = await verifierBrief(run, i.role, i.name, i.brief);
+    writeTextAtomic(p.brief, composeBrief(task, briefCtx));
+    // a failover stand-in has no thread to resume, so it reads the whole brief by path (dispatch-service standInBrief)
+    if (briefCtx.resumed)
+      writeTextAtomic(fullBriefPath(p.brief), composeBrief(task, { ...briefCtx, resumed: false }));
     // Spec §10.4: the adapter's overrides only; the supervisor adds its own inherited env at spawn
     // time (src/entry/supervise-command.ts), so no credential is ever written to disk. 0600 all the same.
     writeJsonAtomic(

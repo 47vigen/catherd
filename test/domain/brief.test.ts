@@ -14,6 +14,7 @@ const worker: BriefContext = {
   roleServer: true,
   version: "0.0.0-test",
   context: null,
+  resumed: false,
 };
 
 describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
@@ -47,9 +48,21 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
     expect(text).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
   });
 
-  it("puts the plan's preamble between team and task when one is given", () => {
+  it("puts the plan's preamble before the role when one is given", () => {
     const text = composeBrief("x", { ...worker, context: "The plan's preamble (p.md)…" });
-    expect(text).toContain("</team>\n\n<context>\nThe plan's preamble (p.md)…\n</context>\n\n<task>\n");
+    expect(text).toStartWith("<context>\nThe plan's preamble (p.md)…\n</context>\n\n<role>\n");
+  });
+
+  it("the context comes first", () => {
+    const text = composeBrief("x", { ...worker, context: "ctx" });
+    expect(text.indexOf("<context>")).toBeLessThan(text.indexOf("<role>"));
+  });
+
+  it("a resumed brief carries only the task and the reply contract", () => {
+    const text = composeBrief("x", { ...worker, context: "ctx", resumed: true });
+    for (const t of ["role", "team", "context", "done_when"]) expect(text).not.toContain(`<${t}>`);
+    expect(text).toStartWith("<task>\n");
+    expect(text).toEndWith(`<reply_contract>\n${replyContract("worker")}\n</reply_contract>\n`);
   });
 
   it("gives a role with no role server its CLI forms, and names no scratch where the backend grants none", () => {
@@ -62,6 +75,7 @@ describe("what admission adds to a brief (spec 1.5 plan 21)", () => {
       roleServer: false,
       version: "0.0.0-test",
       context: null,
+      resumed: false,
     });
     expect(text).not.toContain("<lane-file");
     expect(text).not.toContain("scratch folder");
