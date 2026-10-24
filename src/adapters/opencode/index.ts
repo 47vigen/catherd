@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CatherdError } from "../../domain/errors.ts";
 import type { Rung } from "../../domain/ids.ts";
-import type { Access, RunStatus, Tokens } from "../../domain/record.ts";
+import { type Access, parseReplyStatus, type RunStatus, type Tokens } from "../../domain/record.ts";
 import {
   type BackendAdapter,
   compareVersions,
@@ -32,6 +32,7 @@ import {
   opencodeTokens,
   parseOpencodeLine,
 } from "./events.ts";
+import { opencodeTranscript } from "./transcript.ts";
 
 /** Spec §6.3: v2 only (`@opencode/cli` 2.0.16 or newer). */
 const OPENCODE_MIN_VERSION = "2.0.16";
@@ -178,7 +179,8 @@ function finalize(run: FinishedRun): Outcome {
           ? "cli-too-old"
           : f.limit
             ? "limit"
-            : f.error !== null || run.exit.code !== 0
+            : (f.error !== null || run.exit.code !== 0) &&
+                !(f.recovered && parseReplyStatus(f.reply).status !== null)
               ? "failed"
               : "ok";
   const lastErr = run.stderr.trim().split("\n").at(-1) ?? "";
@@ -281,7 +283,11 @@ async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outco
     out = {
       ...out,
       tokens: minus(opencodeTokens(s.tokens), prior.tokens),
-      costUsd: typeof s.cost === "number" ? Math.max(0, s.cost - prior.costUsd) : out.costUsd,
+      // an unpriced stream (null) stays null unless the service reports a real price
+      costUsd:
+        typeof s.cost === "number" && (out.costUsd !== null || s.cost > 0)
+          ? Math.max(0, s.cost - prior.costUsd)
+          : out.costUsd,
     };
   if (out.status === "timeout" || out.status === "failed") {
     const messages = (await opencodeApi("GET", `/api/session/${o.thread}/message`))?.data;
@@ -361,6 +367,7 @@ export const opencodeAdapter: BackendAdapter = {
   parse,
   finalize,
   settle,
+  transcript: opencodeTranscript,
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: OPENCODE_LIMIT, tooOld: OPENCODE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
