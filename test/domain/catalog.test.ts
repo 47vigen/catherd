@@ -17,6 +17,7 @@ describe("catalog/models.json", () => {
       "claude-opus-5-5",
       "claude-sonnet-5-5",
       "claude-sonnet-5",
+      "claude-haiku-5-5",
       "claude-4-5-haiku",
       "grok-4-7",
       "grok-4-6",

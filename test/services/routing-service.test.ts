@@ -150,7 +150,7 @@ describe("route without Jev", () => {
       source: "lane",
       kind: "repo_code",
       difficulty: "hard",
-      noClear: expect.stringContaining("no rung clears hard (bar 44.1); best is codex:gpt-6-sol#high (42.4)"),
+      noClear: expect.stringContaining("no rung clears hard (bar 43.4); best is codex:gpt-6-sol#high (42.4)"),
     });
     expect(a.why).toStartWith("the lane's Kind/Difficulty, repo_code/hard; no rung clears hard");
     expect(f.sent).toHaveLength(0);

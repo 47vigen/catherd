@@ -23,6 +23,51 @@
       "context": 200000
     },
     {
+      "family": "claude-haiku-5-5",
+      "effort": "max",
+      "intelligence": 43.3950199670746,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 236.416198985795,
+      "context": 1000000
+    },
+    {
+      "family": "claude-haiku-5-5",
+      "effort": "high",
+      "intelligence": 37.8240211671094,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 174.809948673297,
+      "context": 1000000
+    },
+    {
+      "family": "claude-haiku-5-5",
+      "effort": "low",
+      "intelligence": 29.4523685891139,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 169.95086385473,
+      "context": 1000000
+    },
+    {
+      "family": "claude-haiku-5-5",
+      "effort": "medium",
+      "intelligence": 34.4646519474657,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 174.915316123953,
+      "context": 1000000
+    },
+    {
+      "family": "claude-haiku-5-5",
+      "effort": "xhigh",
+      "intelligence": 41.2489304677024,
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "speed": 183.209244220411,
+      "context": 1000000
+    },
+    {
       "family": "claude-fable-5-1",
       "effort": "max",
       "intelligence": 53.3549259623252,
