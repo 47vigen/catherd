@@ -158,6 +158,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     findings: z.array(FindingSchema),
     foreign: strings,
     replyPath: z.string(),
+    /** plan 40: the sibling lanes whose files a broken check named; older lines have none */
+    siblings: strings.optional(),
   }),
   ev("check.ran", {
     lane: z.string(),
@@ -169,6 +171,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     startedAt: z.string().optional(),
     durationMs: z.number().optional(),
     waitedMs: z.number().optional(),
+    /** the sibling lanes whose files the failing output names */
+    siblings: strings.optional(),
   }),
   /** plan 40: the daemon's check of a milestone's commit: its failing lines, the lines the base has no record of, what it covers */
   ev("milestone.checked", {

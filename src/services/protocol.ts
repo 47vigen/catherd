@@ -21,6 +21,7 @@ import {
 } from "./milestones.ts";
 import { deliveredALines, numberedALines } from "./plan-input.ts";
 import { openQuestions } from "./questions.ts";
+import { isDaemonRun, replayRun } from "./run-events-store.ts";
 import { readAgentRuns, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 
 // Spec 1.1 §10: the protocol's next step, derived from the run's own files so a session that lost its
@@ -124,6 +125,11 @@ export function unfinishedAfter(run: Run, lane: string, routes: RouteRow[] = rea
   const landed = new Set(landedMilestones(run));
   const after = afterOf(run, lane).filter((a) => !landed.has(milestoneOf(a)));
   if (after.length === 0) return [];
+  // a daemon run's reducer already settled each lane (plan 40 D22): a done lane is finished whatever its last reply
+  if (isDaemonRun(run)) {
+    const lanes = replayRun(run).lanes;
+    return after.filter((a) => lanes[a]?.status !== "done");
+  }
   const evidence = laneEvidence(run, routes, []);
   return after.filter((a) => !laneDone(a, evidence));
 }

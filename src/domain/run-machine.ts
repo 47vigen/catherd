@@ -292,6 +292,13 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
   };
 }
 
+/** Whether `o` follows `id`, directly or through other lanes. */
+function dependsOn(s: RunState, o: LaneState, id: string, seen = new Set<string>()): boolean {
+  if (seen.has(o.id)) return false;
+  seen.add(o.id);
+  return o.after.some((a) => a === id || (s.lanes[a] !== undefined && dependsOn(s, s.lanes[a], id, seen)));
+}
+
 /**
  * A lane whose check was broken by something outside its task waits while a sibling of its milestone is still
  * working or has not tried yet: the sibling may be what breaks (or fixes) the check. A sibling that waits on this
@@ -300,7 +307,7 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
 function waitsForSibling(s: RunState, l: LaneState): boolean {
   if (l.lastReason !== "check_broken" || l.stopRun !== 1) return false;
   return lanesOf(s, l.milestone).some((o) => {
-    if (o.id === l.id || o.after.includes(l.id)) return false;
+    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
     if (o.status === "running") return true;
     if (o.status !== "pending") return false;
     const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
@@ -336,8 +343,11 @@ function laneActions(s: RunState, m: MilestoneState): Action[] {
       out.push({ type: "classify", dispatchId: l.classify.dispatchId });
       continue;
     }
-    if (l.status === "checking" && !hasLive(s, laneName(l))) out.push({ type: "fastCheck", lane: l.id });
-    else if (l.status === "parked") {
+    if (l.status === "checking" && !hasLive(s, laneName(l))) {
+      // a check broken by a sibling's files reruns once that sibling is done
+      if (l.waitOn.every((id) => s.lanes[id] === undefined || s.lanes[id]?.status === "done"))
+        out.push({ type: "fastCheck", lane: l.id });
+    } else if (l.status === "parked") {
       if (!judgeOpen(s, l.id))
         out.push(...onLaneStopped(s, l, l.awaiting ?? (l.top ? "unexpected" : "question")));
     } else if (l.status === "pending") {

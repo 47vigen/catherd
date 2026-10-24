@@ -3,6 +3,7 @@ import { next, actionKey, confirms } from "../../src/domain/run-machine.ts";
 import { type Finding, issueLine } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
+  ADMIT_WAITS,
   findingKey,
   HOLD_MS,
   liveDispatches,
@@ -1013,5 +1014,105 @@ describe("pending reminder wake scheduling", () => {
     const second = log.add("question.parked", { unit: "M2", question: "second?", reason: "environment" });
     log.add("tick", {}, new Date(Date.parse(first.at) + 1_800_000).toISOString());
     expect(log.state().wakeAt).toBe(new Date(Date.parse(second.at) + 1_800_000).toISOString());
+  });
+  it("a finding naming two lanes' files goes to both", () => {
+    const log = reviewing();
+    review(log, [bug("BUG src/a/x.ts:3 and src/b/y.ts:4 disagree on the id", "src/a/x.ts")]);
+    const s = log.state();
+    expect(s.lanes["M1.L1"]?.notes).toHaveLength(1);
+    expect(s.lanes["M1.L2"]?.notes).toEqual(s.lanes["M1.L1"]?.notes as string[]);
+    expect(s.milestones[0]?.open).toEqual([]);
+  });
+
+  it("a route to a running lane is kept for its next round", () => {
+    const log = reviewing();
+    review(log, [bug("BUG src/a/x.ts:3 wrong", "src/a/x.ts"), bug("BUG unrelated to any file", null)]);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("running");
+    triaged(log, "j1", [{ finding: 1, to: "M1.L1", why: "yours" }]);
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "running",
+      queued: ["BUG unrelated to any file"],
+    });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1" });
+    log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      notes: ["BUG unrelated to any file"],
+      queued: [],
+      attempts: 0,
+    });
+  });
+
+  it("drops a queued route with the lane a judge skips", () => {
+    const log = reviewing();
+    review(log, [bug("BUG src/a/x.ts:3 wrong", "src/a/x.ts"), bug("BUG unrelated to any file", null)]);
+    startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    triaged(log, "j1", [{ finding: 1, to: "M1.L1", why: "yours" }]);
+    const j = startDispatch(log, { name: "judge-j2", role: "judge", unit: "M1.L1", lane: null });
+    log.add("judge.decided", {
+      id: "j2",
+      unit: "M1.L1",
+      kind: "unexpected",
+      decision: { verb: "skip", why: "no" },
+      dispatchId: j,
+    });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", queued: [] });
+  });
+
+  it("an order refusal waits, and parks only at the limit", () => {
+    const log = runningLog();
+    const refuse = () =>
+      log.add("dispatch.refused", {
+        name: "worker-M1.L2",
+        unit: "M1.L2",
+        code: "E_ADMIT_ORDER",
+        message: "M1.L1 first",
+      });
+    for (let i = 1; i < ADMIT_WAITS; i++) refuse();
+    expect(log.state().stuck["M1.L2"]).toBeUndefined();
+    expect(log.state().waiting["worker-M1.L2"]).toBeDefined();
+    refuse();
+    expect(log.state().stuck["M1.L2"]).toMatchObject({ reason: "effect" });
+  });
+
+  it("a started dispatch clears the admission count", () => {
+    const log = runningLog();
+    const refuse = () =>
+      log.add("dispatch.refused", {
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        code: "E_ADMIT_OVERLAP",
+        message: "x",
+      });
+    for (let i = 1; i < ADMIT_WAITS; i++) refuse();
+    startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    expect(log.state().failedEffects["admit:worker-M1.L1@M1.L1"]).toBeUndefined();
+  });
+
+  it("a failure in a running sibling's file waits for it", () => {
+    const log = runningLog();
+    const w1 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    const w2 = startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(log, w1, { name: "worker-M1.L1", unit: "M1.L1" });
+    log.add("check.ran", {
+      lane: "M1.L1",
+      exit: 1,
+      tail: "src/b/x.ts:3 error",
+      foreign: [],
+      siblings: ["M1.L2"],
+    });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "checking",
+      waitOn: ["M1.L2"],
+      checkFails: 0,
+      stopRun: 0,
+    });
+    const owed = (): string[] =>
+      next(log.state(), log.events.at(-1) as never).flatMap((a) => (a.type === "fastCheck" ? [a.lane] : []));
+    expect(owed()).not.toContain("M1.L1");
+    endDispatch(log, w2, { name: "worker-M1.L2", unit: "M1.L2" });
+    log.add("check.ran", { lane: "M1.L2", exit: 0, tail: "", foreign: [] });
+    expect(owed()).toContain("M1.L1");
   });
 });

@@ -294,7 +294,8 @@ export async function admit(
               : `its record is announced when it finishes; or cancel(run, "${i.name}")`,
         },
       );
-    for (const d of pending) {
+    // plan 40 D22: another working tree cannot collide
+    for (const d of pending.filter((d) => d.admit.repo === cwd)) {
       // a running lane holds what owns_add granted it since its admission, too
       const held = d.admit.lane ? [...d.admit.owns, ...currentOwns(run, d.admit.lane)] : d.admit.owns;
       const shared = overlaps(owns, held);
