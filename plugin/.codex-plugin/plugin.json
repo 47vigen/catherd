@@ -1,6 +1,6 @@
 {
   "name": "catherd",
-  "version": "1.5.0",
+  "version": "2.0.0-next.20261024110723",
   "description": "Shared catherd orchestration, profiles and durable role results through the versioned MCP core.",
   "author": { "name": "47vigen", "url": "https://github.com/47vigen" },
   "homepage": "https://github.com/47vigen/catherd",
