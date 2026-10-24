@@ -283,8 +283,9 @@ async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outco
     out = {
       ...out,
       tokens: minus(opencodeTokens(s.tokens), prior.tokens),
+      // an unpriced stream (null) stays null unless the service reports a real price
       costUsd:
-        out.costUsd !== null && typeof s.cost === "number"
+        typeof s.cost === "number" && (out.costUsd !== null || s.cost > 0)
           ? Math.max(0, s.cost - prior.costUsd)
           : out.costUsd,
     };

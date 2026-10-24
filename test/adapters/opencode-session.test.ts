@@ -168,6 +168,22 @@ describe("opencode settle", () => {
     expect((await opencodeAdapter.settle?.(o, run, none))?.costUsd).toBe(0);
   });
 
+  it("settle takes a positive API cost over an unpriced stream", async () => {
+    onSim({
+      session: {
+        cost: 0.12,
+        tokens: { input: 10, output: 2, cache: { read: 0, write: 0 } },
+        outcome: "succeeded",
+      },
+    });
+    const unpriced = { ...o, costUsd: null };
+    expect((await opencodeAdapter.settle?.(unpriced, run, none))?.costUsd).toBe(0.12);
+    expect((await opencodeAdapter.settle?.(unpriced, run, { ...none, costUsd: 0.05 }))?.costUsd).toBeCloseTo(
+      0.07,
+    );
+    expect((await opencodeAdapter.settle?.(unpriced, run, { ...none, costUsd: 0.5 }))?.costUsd).toBe(0);
+  });
+
   it("keeps cache writes in settlement, less what earlier records counted", async () => {
     onSim({
       session: {
