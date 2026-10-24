@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { CatherdError, errorMessage } from "../domain/errors.ts";
 import { assertLaneHeader, LANE_HEADER_FIX, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { coverageProblems } from "../domain/plan-doc.ts";
-import { lintLanes } from "../domain/plan-lint.ts";
+import { lintLanes, lintPlan } from "../domain/plan-lint.ts";
 import { checkEnv } from "../infra/env.ts";
-import { heavySlots, withHeavySlotWithin } from "../infra/heavy-lock.ts";
+import { git } from "../infra/git.ts";
+import { heavySlots, LOCK_HELD_ENV, withHeavySlotWithin } from "../infra/heavy-lock.ts";
 import { loginEnv } from "../infra/login-env.ts";
 import { killGroup } from "../infra/proc.ts";
 import { readGateEnv, resolveGateEnv } from "./gate-env.ts";
@@ -48,7 +49,8 @@ export type PreflightReport =
       lint: string[];
     };
 
-const CHECK_TIMEOUT_MS = 120_000;
+/** The daemon's fast check limit, so a check that passes there passes here too. */
+const CHECK_TIMEOUT_MS = 600_000;
 
 /** Whose uid preflight runs under; tests stand in for root with it. */
 export const preflightUser = { uid: (): number => process.getuid?.() ?? -1 };
@@ -318,6 +320,15 @@ export async function preflight(
           .map((m) => m.id)
       : [...landed],
   );
+  // plan 35: a base run's milestone is checked in its own worktree
+  const cwd = treeOf(run, i.milestone ?? null);
+  // plan 40 D11: advice only, like the lint above: the milestone's plan lint, and each Owns entry git ignores
+  if (i.milestone && existsSync(runPaths(run.dir).plan))
+    lint.push(...lintPlan(readFileSync(runPaths(run.dir).plan, "utf8"), i.milestone, run.meta.aLines));
+  for (const l of lanes)
+    for (const p of l.owns)
+      if ((await git(cwd, ["check-ignore", "-q", "--", p])).kind === "ok")
+        lint.push(`${l.lane}: Owns ${p} is ignored by git: catherd cannot commit it`);
   // plan 32: a daemon run starts no lane the plan does not back, before the confirm list and before any check
   if (isDaemonRun(run)) {
     const problems = coverageProblems(
@@ -343,8 +354,6 @@ export async function preflight(
   }
   if (profile.preflight.confirm && !i.confirmed) return { needsConfirmation: true, commands, lint };
   const timeoutMs = i.timeoutMs ?? CHECK_TIMEOUT_MS;
-  // plan 35: a base run's milestone is checked in its own worktree
-  const cwd = treeOf(run, i.milestone ?? null);
   const results: PreflightResult[] = [];
   // the login env is captured once per server; the gate env is read once per preflight
   let env: Record<string, string> | undefined;
@@ -374,10 +383,17 @@ export async function preflight(
     env ??= await checkEnvFor(run.meta.repo);
     const checkEnvironment = env;
     // plan 23: each check waits for its slot within its own budget, and says lock-busy past it
+    // plan 40 D8: the check holds a slot, so a `catherd lock` inside it runs at once
     const slot = await withHeavySlotWithin(
       heavySlots(profile.heavy),
       preflightLimits.lockWaitMs,
-      (_slot, tmp) => runCheck(cwd, check, timeoutMs, { ...checkEnvironment, TMPDIR: tmp, GOTMPDIR: tmp }),
+      (_slot, tmp) =>
+        runCheck(cwd, check, timeoutMs, {
+          ...checkEnvironment,
+          TMPDIR: tmp,
+          GOTMPDIR: tmp,
+          [LOCK_HELD_ENV]: "1",
+        }),
     );
     if (slot.busy) {
       const note = `every heavy slot stayed busy for ${preflightLimits.lockWaitMs / 1000} s (other lanes' checks); run preflight again when they finish`;

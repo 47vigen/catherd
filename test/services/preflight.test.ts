@@ -179,6 +179,14 @@ describe("preflight", () => {
     expect(outcomes(await preflight(fakeDeps(), { run: run.id }))).toEqual([["M1.L1", "pass"]]);
   });
 
+  it("a preflight check runs with CATHERD_LOCK_HELD", async () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"], "printenv CATHERD_LOCK_HELD");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.results).toMatchObject([{ lane: "M1.L1", outcome: "pass", tail: ["1"] }]);
+  });
+
   it("runs checks with an allowlisted env: no backend credentials, but PATH and PWD (spec §4.7)", async () => {
     const { repo } = freshRun();
     Object.assign(process.env, {
@@ -387,6 +395,30 @@ describe("preflight lint (plan 34)", () => {
       tail: [],
       note: "M1.L1: After: M1.L9 has no lane file",
     });
+  });
+});
+
+describe("preflight lint (plan 40)", () => {
+  it("an ignored Owns entry is a lint warning", async () => {
+    const { repo, run } = freshRun();
+    writeFileSync(join(repo, ".gitignore"), "gen/\n");
+    writeLane(run, "M1.L1", ["gen/client.ts"], "true");
+    const r = await preflight(fakeDeps(), { run: run.id });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.lint).toEqual(["M1.L1: Owns gen/client.ts is ignored by git: catherd cannot commit it"]);
+    expect(r.blocked).toBe(false);
+  });
+
+  it("the plan's lint for the milestone it checks joins preflight's lint", async () => {
+    const { run } = freshRun();
+    writeFileSync(runPaths(run.dir).plan, "## M1 — one\nA1 — tests failed before the code\n");
+    writeLane(run, "M1.L1", ["src/a.ts"], "true");
+    const r = await preflight(fakeDeps(), { run: run.id, milestone: "M1" });
+    if (r.needsConfirmation) throw new Error("unexpected");
+    expect(r.lint).toEqual([
+      "M1: no Check: line: the verifier must run the whole gate by hand",
+      "M1: A1 asks for commit history (failed before): catherd commits tests and code together; it is judged from the tree",
+    ]);
   });
 });
 

@@ -516,9 +516,19 @@ describe("what a dispatch said", () => {
     const ended = (reply: string, over: Partial<RunRecord> = {}) =>
       endedEvent(run, withReply(run, { role: "verifier", name: "verifier-M1", ...over }, reply), "M1");
     expect(ended("VERDICT: PASS\nSTATUS: complete — ok")).toMatchObject({ verdict: "pass", findings: [] });
-    expect(ended("VERDICT: FAIL\n- bun test src/a fails\nSTATUS: complete — failed")).toMatchObject({
+    expect(ended("VERDICT: FAIL\n- FAIL bun test src/a fails\nSTATUS: complete — failed")).toMatchObject({
       verdict: "fail",
-      findings: [{ label: "BLOCKER", text: "bun test src/a fails", file: "src/a" }],
+      findings: [{ label: "BLOCKER", text: "FAIL bun test src/a fails", file: "src/a" }],
+    });
+    expect(ended("VERDICT: FAIL\n- src/a.test.ts: 2 tests fail\nSTATUS: complete — failed")).toMatchObject({
+      verdict: "fail",
+      findings: [
+        {
+          label: "BLOCKER",
+          text: "verifier FAIL listed no failing line: src/a.test.ts: 2 tests fail",
+          file: "src/a.test.ts",
+        },
+      ],
     });
     expect(
       ended("VERDICT: BLOCKED: environment — docker ps says no daemon\nSTATUS: blocked — env"),
@@ -876,9 +886,11 @@ describe("routing, checking, committing, landing", () => {
     backed(run);
     await seed(run);
     await fx.run({ type: "route", milestone: "M1", confirmed: false }, replayRun(run));
+    // plan 40 D11: a milestone with no Check: line is warned, never refused
     expect(lastOf(run, "preflight.done")?.lint).toEqual([
       "M1.L1: Owns names whole folders (src/a/): name the files, unless the lane creates the folder",
       "M1.L2: Owns names whole folders (src/b/): name the files, unless the lane creates the folder",
+      "M1: no Check: line: the verifier must run the whole gate by hand",
     ]);
   });
 

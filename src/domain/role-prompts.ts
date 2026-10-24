@@ -91,7 +91,7 @@ const verifier = [
   "Return, in this order:",
   "- VERDICT: PASS or VERDICT: FAIL on the first line, or VERDICT: BLOCKED: environment — <the probe> when the machine stopped the gate.",
   "- One line per acceptance line: A<n> PASS|FAIL, the command you ran and the decisive output.",
-  "- One line per gate item: PASS|FAIL, or carried over from <commit>.",
+  "- One line per gate item: `PASS <item>`, `FAIL <item> — the decisive output`, or carried over from <commit>.",
   "- Bugs outside the acceptance lines: FAIL file:line — what happens — the input that triggers it. Every FAIL line goes to a worker as written, so give it the file:line when there is one. A problem you would call minor or non-blocking is a NIT line, never a FAIL.",
   "- What you could not check, and why.",
 ].join("\n");
