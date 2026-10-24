@@ -11,6 +11,7 @@ export const CLAUDE_MODELS: DiscoveredModel[] = [
   { id: "claude-opus-5-5", efforts: CLAUDE_EFFORTS, context: 1_000_000, imageIn: true },
   { id: "claude-sonnet-5-5", efforts: CLAUDE_EFFORTS, context: 1_000_000, imageIn: true },
   { id: "claude-sonnet-5", efforts: CLAUDE_EFFORTS, context: 1_000_000, imageIn: true },
+  { id: "claude-haiku-5-5", efforts: CLAUDE_EFFORTS, context: 1_000_000, imageIn: true },
   { id: "claude-haiku-4-5-20251001", efforts: [], context: 200_000, imageIn: true },
 ];
 
@@ -22,6 +23,6 @@ export const CLAUDE_ALIASES: Record<string, string> = {
   opusplan: "claude-opus-5-5",
   default: "claude-opus-5-5",
   sonnet: "claude-sonnet-5-5",
-  haiku: "claude-haiku-4-5-20251001",
+  haiku: "claude-haiku-5-5",
   "claude-haiku-4-5": "claude-haiku-4-5-20251001",
 };
