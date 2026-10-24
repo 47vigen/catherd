@@ -10,12 +10,7 @@ import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
-import {
-  changedDecisions,
-  milestoneCheck,
-  milestoneSection,
-  reapprovalQuestion,
-} from "../domain/plan-doc.ts";
+import { changedDecisions, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { currentRoute } from "../domain/route.ts";
 import type { Role } from "../domain/roles.ts";
@@ -43,7 +38,13 @@ import {
 } from "./milestone-check.ts";
 import { baseTree, branchPusher, claimTree, memoryReader, removeTree } from "./milestone-tree.ts";
 import { sendRunNotice } from "./notify-service.ts";
-import { deliveredALines, numberedALines, planDocs, planProblems, uncoveredALines } from "./plan-input.ts";
+import {
+  deliveredALines,
+  deliveredALineTexts,
+  planDocs,
+  planProblems,
+  uncoveredALines,
+} from "./plan-input.ts";
 import type { Deps } from "./ports.ts";
 import { checkEnvFor, preflight, runCheck } from "./preflight.ts";
 import { park } from "./questions.ts";
@@ -78,25 +79,6 @@ type CheckInput = Parameters<typeof runMilestoneCheck>[0];
 async function untilChecked(i: CheckInput, o: { onWait?: (w: LockWait | null) => void }): Promise<void> {
   let r = await milestoneChecker.run(i, o);
   while (r.running) r = await milestoneChecker.run(i, o);
-}
-
-/** A plan line's list marker, which an A-line's text does not carry: uncoveredALines drops it too. */
-const LIST_MARKER = /^\s*(?:[-*]\s+)?/;
-
-/**
- * Every A-line milestone `m` delivers, marked `(Check)` or not, each as uncoveredALines has it: the line its plan
- * section gives the id, else the run's own. With no Check none of them is covered (plan 40 D2).
- */
-function deliveredTexts(run: Run, m: string): string[] {
-  const plan = read(runPaths(run.dir).plan);
-  const section = (milestoneSection(plan, m) ?? "").split("\n");
-  const own = numberedALines(run.meta.aLines);
-  return [...deliveredALines(run, plan, m)].flatMap((id) => {
-    const line =
-      section.find((l) => new RegExp(`${LIST_MARKER.source}${id}\\b`).test(l)) ??
-      own.find((a) => a.id === id)?.line;
-    return line === undefined ? [] : [line.replace(LIST_MARKER, "")];
-  });
 }
 
 /** The lane a finding's file belongs to, by the longest `Owns:` entry. */
@@ -680,7 +662,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const plan = read(runPaths(run.dir).plan);
     const command = milestoneCheck(plan, a.milestone);
     // with no Check nothing is covered: every delivered A-line goes to the verifier, marked or not (plan 40 D2)
-    const uncovered = command === null ? deliveredTexts(run, a.milestone) : uncoveredALines(run, a.milestone);
+    const uncovered =
+      command === null ? deliveredALineTexts(run, a.milestone) : uncoveredALines(run, a.milestone);
     let missing: string[] = [];
     let findings: Finding[] = [];
     if (command !== null) {

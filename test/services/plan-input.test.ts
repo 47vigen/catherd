@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { isCatherdError } from "../../src/domain/errors.ts";
 import {
   copyPlanInputs,
+  deliveredALineTexts,
   laneTasks,
   milestoneTasks,
   numberedALines,
@@ -239,6 +240,17 @@ it("uncoveredALines gives each line without its list marker", () => {
     "## M1 — core\n- A1 — x\n  * A2 — y\n- A3 — the root gate is green (Check).\n",
   );
   expect(uncoveredALines(run, "M1")).toEqual(["A1 — x", "A2 — y"]);
+});
+
+it("deliveredALineTexts keeps the lines marked (Check), each without its list marker", () => {
+  const { run } = freshRun();
+  run.meta.aLines = ["A1 — x", "A2 — the root gate is green (Check)."];
+  writeLane(run, "M1.L1", ["src/a.ts"]);
+  writeFileSync(
+    join(run.dir, "plan.md"),
+    "## M1 — core\n- A1 — x\n  * A2 — the root gate is green (Check).\n",
+  );
+  expect(deliveredALineTexts(run, "M1")).toEqual(["A1 — x", "A2 — the root gate is green (Check)."]);
 });
 
 it("refuses an unnumbered A-line cited under no milestone", () => {

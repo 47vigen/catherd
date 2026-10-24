@@ -172,10 +172,10 @@ export function deliveredALines(run: Run, plan: string, m: string): Set<string> 
 const LIST_MARKER = /^\s*(?:[-*]\s+)?/;
 
 /**
- * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), in full: the line its section of
- * plan.md gives the id, else the run's own A-line, without its list marker.
+ * The A-lines milestone `m` delivers, in full: the line its section of plan.md gives the id, else the run's own
+ * A-line, without its list marker. Whether a Check covers them is the caller's to say (plan 40 D2).
  */
-export function uncoveredALines(run: Run, m: string): string[] {
+export function deliveredALineTexts(run: Run, m: string): string[] {
   const plan = read(runPaths(run.dir).plan) ?? "";
   const section = (milestoneSection(plan, m) ?? "").split("\n");
   const own = numberedALines(run.meta.aLines);
@@ -183,9 +183,15 @@ export function uncoveredALines(run: Run, m: string): string[] {
     const line =
       section.find((l) => new RegExp(`${LIST_MARKER.source}${id}\\b`).test(l)) ??
       own.find((a) => a.id === id)?.line;
-    const text = line?.replace(LIST_MARKER, "");
-    return text !== undefined && !CHECK_COVERED.test(text) ? [text] : [];
+    return line === undefined ? [] : [line.replace(LIST_MARKER, "")];
   });
+}
+
+/**
+ * The A-lines milestone `m` delivers that its Check does not cover (plan 40 D2), as `deliveredALineTexts` gives them.
+ */
+export function uncoveredALines(run: Run, m: string): string[] {
+  return deliveredALineTexts(run, m).filter((text) => !CHECK_COVERED.test(text));
 }
 
 /** The run's A<n> lines that no laned milestone's section of plan.md cites: nothing ties a landed commit to them. */
