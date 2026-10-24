@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tryLock } from "../../src/infra/filelock.ts";
@@ -356,6 +357,22 @@ describe("heavy lock", () => {
     expect(await withHeavySlot(1, () => ++runs, { pollMs: 1, onWait: () => waits++ })).toBe(1);
     expect(waits).toBe(2);
     expect(runs).toBe(1);
+  });
+
+  it("does not hold a slot for a disk it cannot read", async () => {
+    withHome();
+    Object.assign(heavyLimits, { cores: () => 4, load: () => 0, loadWaitMs: 60_000, loadPollMs: 1 });
+    const statfs = spyOn(fs, "statfsSync").mockImplementation(() => {
+      throw Object.assign(new Error("statfs failed"), { code: "ENOSYS" });
+    });
+    let waits = 0;
+    try {
+      expect(heavyLimits.freeMb()).toBe(Number.POSITIVE_INFINITY);
+      expect(await withHeavySlot(1, () => "ran", { pollMs: 1, onWait: () => waits++ })).toBe("ran");
+    } finally {
+      statfs.mockRestore();
+    }
+    expect(waits).toBe(0);
   });
 
   it("drops the ticket of a waiter that died, on the next look", async () => {

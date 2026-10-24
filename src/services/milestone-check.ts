@@ -223,8 +223,7 @@ export async function execMilestoneCheck(
   };
   let r = await one();
   let rerunOf: number | undefined;
-  // a timeout is not rerun: a rerun would spend the item's budget a second time
-  if (r.exit !== 0 && r.exit !== TIMED_OUT && !job.baseline) {
+  if (r.exit !== 0 && !job.baseline) {
     // a failure with lines the base lacks gets one rerun: load flakes are common on a shared host
     const base = baselineFor(job.repo, job.command, job.base);
     if (!base || newFails(r.fails, base.fails).length > 0) {

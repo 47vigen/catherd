@@ -39,8 +39,13 @@ export const heavyLimits = {
   diskReserveMb: 4096,
   /** Free space an unprivileged write can still use on the disk that holds catherd's locks, in MB. */
   freeMb: (): number => {
-    const s = statfsSync(locksDir());
-    return Math.floor((s.bavail * s.bsize) / 1_048_576);
+    try {
+      const s = statfsSync(locksDir());
+      return Math.floor((s.bavail * s.bsize) / 1_048_576);
+    } catch {
+      // the gate is advisory: a disk that cannot be read holds no slot
+      return Number.POSITIVE_INFINITY;
+    }
   },
 };
 

@@ -221,12 +221,11 @@ describe("the time a check takes", () => {
     expect(Date.parse(r.startedAt ?? "")).toBeGreaterThanOrEqual(released);
   });
 
-  it("an item past itemMs is recorded timed out, and is not rerun", async () => {
+  it("an item past itemMs is recorded timed out", async () => {
     checkLimits.itemMs = 200;
     const r = await execMilestoneCheck(job("sleep 5"));
     expect(r).toMatchObject({ exit: 124 });
     expect(r.fails.join("\n")).toContain("timed out");
-    expect(r.rerunOf).toBeUndefined();
     expect(r.durationMs).toBeLessThan(5_000);
   });
 });
