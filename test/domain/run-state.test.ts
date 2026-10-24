@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { next, actionKey, confirms } from "../../src/domain/run-machine.ts";
-import { type Finding, issueLine } from "../../src/domain/run-events.ts";
+import { type Finding, issueLine, type MilestonePlan } from "../../src/domain/run-events.ts";
 import {
   activeMilestones,
   ADMIT_WAITS,
@@ -23,6 +23,19 @@ import {
 } from "./run-fixtures.ts";
 
 const bug = (text: string, file: string | null, label: "BUG" | "BLOCKER" = "BUG") => ({ label, text, file });
+
+/** M1's two lanes with no `After:` between them */
+const independent: MilestonePlan[] = [
+  {
+    id: "M1",
+    title: "t",
+    after: [],
+    lanes: [
+      { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a/"] },
+      { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: ["src/b/"] },
+    ],
+  },
+];
 
 /** M1's lanes done and committed: its review starts */
 function reviewing() {
@@ -1090,8 +1103,57 @@ describe("pending reminder wake scheduling", () => {
     expect(log.state().failedEffects["admit:worker-M1.L1@M1.L1"]).toBeUndefined();
   });
 
-  it("a failure in a running sibling's file waits for it", () => {
+  it("siblings never wait on each other, nor on a lane that follows them", () => {
     const log = runningLog();
+    const w1 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(log, w1, { name: "worker-M1.L1", unit: "M1.L1" });
+    // M1.L2 follows M1.L1: waiting for it would never end
+    log.add("check.ran", {
+      lane: "M1.L1",
+      exit: 1,
+      tail: "src/b/x.ts:3 error",
+      foreign: [],
+      siblings: ["M1.L2"],
+    });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "pending", waitOn: [], checkFails: 1 });
+    // mutual: M1.L1 waits for the running M1.L2 (a plan where neither follows the other)
+    const mutual = runningLog(independent);
+    const a1 = startDispatch(mutual, { name: "worker-M1.L1", unit: "M1.L1" });
+    const a2 = startDispatch(mutual, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(mutual, a1, { name: "worker-M1.L1", unit: "M1.L1" });
+    mutual.add("check.ran", {
+      lane: "M1.L1",
+      exit: 1,
+      tail: "src/b/x.ts:3",
+      foreign: [],
+      siblings: ["M1.L2"],
+    });
+    expect(mutual.state().lanes["M1.L1"]).toMatchObject({ status: "checking", waitOn: ["M1.L2"] });
+    endDispatch(mutual, a2, { name: "worker-M1.L2", unit: "M1.L2" });
+    mutual.add("check.ran", {
+      lane: "M1.L2",
+      exit: 1,
+      tail: "src/a/y.ts:3",
+      foreign: [],
+      siblings: ["M1.L1"],
+    });
+    expect(mutual.state().lanes["M1.L2"]).toMatchObject({ status: "pending", waitOn: [], checkFails: 1 });
+  });
+
+  it("a rerun check forgets what it waited on", () => {
+    const log = runningLog(independent);
+    const w = startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
+    endDispatch(log, w, { name: "worker-M1.L2", unit: "M1.L2" });
+    startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    log.add("check.ran", { lane: "M1.L2", exit: 1, tail: "src/a/x.ts:3", foreign: [], siblings: ["M1.L1"] });
+    expect(log.state().lanes["M1.L2"]?.waitOn).toEqual(["M1.L1"]);
+    log.add("check.ran", { lane: "M1.L2", exit: 1, tail: "src/b/x.ts:1 other", foreign: [] });
+    expect(log.state().lanes["M1.L2"]?.waitOn).toEqual([]);
+  });
+
+  it("a failure in a running sibling's file waits for it", () => {
+    const log = runningLog(independent);
     const w1 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
     const w2 = startDispatch(log, { name: "worker-M1.L2", unit: "M1.L2" });
     endDispatch(log, w1, { name: "worker-M1.L1", unit: "M1.L1" });

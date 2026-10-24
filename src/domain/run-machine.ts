@@ -9,6 +9,7 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
+  dependsOn,
   integrateName,
   isFinished,
   type LaneState,
@@ -290,13 +291,6 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
     findings: [],
     lanes,
   };
-}
-
-/** Whether `o` follows `id`, directly or through other lanes. */
-function dependsOn(s: RunState, o: LaneState, id: string, seen = new Set<string>()): boolean {
-  if (seen.has(o.id)) return false;
-  seen.add(o.id);
-  return o.after.some((a) => a === id || (s.lanes[a] !== undefined && dependsOn(s, s.lanes[a], id, seen)));
 }
 
 /**

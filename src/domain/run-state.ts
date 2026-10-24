@@ -737,11 +737,28 @@ function laneStopped(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReaso
   }
 }
 
-/** A broken check that names files of siblings not done yet is a wait for them, not a try: the lane checks again once they are. */
+/** Whether `o` follows `id`, directly or through other lanes. */
+export function dependsOn(s: RunState, o: LaneState, id: string, seen = new Set<string>()): boolean {
+  if (seen.has(o.id)) return false;
+  seen.add(o.id);
+  return o.after.some((a) => a === id || (s.lanes[a] !== undefined && dependsOn(s, s.lanes[a], id, seen)));
+}
+
+/**
+ * A broken check that names files of siblings not done yet is a wait for them, not a try: the lane checks again
+ * once they are. A sibling that follows the lane, or already waits on it, never holds it: that would be a deadlock.
+ */
 function waitForSiblings(s: RunState, l: LaneState, siblings: string[]): boolean {
-  const wait = siblings.filter(
-    (id) => id !== l.id && s.lanes[id] !== undefined && s.lanes[id]?.status !== "done",
-  );
+  const wait = siblings.filter((id) => {
+    const o = s.lanes[id];
+    return (
+      o !== undefined &&
+      id !== l.id &&
+      o.status !== "done" &&
+      !dependsOn(s, o, l.id) &&
+      !o.waitOn.includes(l.id)
+    );
+  });
   if (wait.length === 0) return false;
   l.waitOn = wait;
   l.status = "checking";
@@ -756,6 +773,7 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.thread = null;
     return;
   }
+  l.waitOn = [];
   if (reason === "check_broken" && waitForSiblings(s, l, x.siblings)) {
     l.thread = x.thread ?? l.thread;
     return;
@@ -1251,6 +1269,7 @@ function apply(s: RunState, e: RunEvent): void {
       ok(`fastCheck@${e.lane}`);
       const l = s.lanes[e.lane];
       if (!l) return;
+      l.waitOn = [];
       // a check that fails only in a sibling's files has nothing to say about this lane
       if (e.exit !== 0 && waitForSiblings(s, l, e.siblings ?? [])) return;
       if (e.exit === 0 || e.foreign.length > 0) {
