@@ -471,7 +471,7 @@ function milestonePaths(run: Run, m: string): string[] {
 
 /** Plan 40 D3(b): a verifier's PASS on `from` answers `to` when no file of the milestone's paths changed between them. */
 export async function verdictCarries(run: Run, m: string, from: string, to: string): Promise<boolean> {
-  const diff = await git(treeOf(run, m), ["diff", "--name-only", from, to]);
+  const diff = await git(treeOf(run, m), ["diff", "--name-only", "--no-renames", from, to]);
   if (diff.kind !== "ok") return false;
   const paths = milestonePaths(run, m);
   return diff.out.split("\n").every((f) => !f || !paths.some((p) => f === p || f.startsWith(`${p}/`)));
@@ -581,7 +581,7 @@ async function carriedRecord(
     )
     .at(-1);
   if (!old) return null;
-  const diff = await git(cwd, ["diff", "--name-only", old.head, head]);
+  const diff = await git(cwd, ["diff", "--name-only", "--no-renames", old.head, head]);
   if (diff.kind !== "ok" || diff.out.split("\n").some((f) => f.startsWith(dir))) return null;
   const rec: CheckRecord = {
     ...old,

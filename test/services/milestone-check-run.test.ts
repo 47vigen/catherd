@@ -126,6 +126,20 @@ describe("runMilestoneCheck", () => {
     expect(fresh.running === false && fresh.record.carriedFrom).toBeUndefined();
   });
 
+  it("a folder item does not carry across a rename out of it", async () => {
+    mkdirSync(join(repo, "web"));
+    writeFileSync(join(repo, "web", "a.ts"), "export const a = 1;\n".repeat(20));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "web");
+    const command = "(cd web && true)";
+    await runMilestoneCheck({ ...i, command });
+    mkdirSync(join(repo, "src"));
+    git(repo, "mv", "web/a.ts", "src/a.ts");
+    git(repo, "commit", "-q", "-m", "move");
+    const r = await runMilestoneCheck({ ...i, command });
+    expect(r.running === false && r.record.carriedFrom).toBeUndefined();
+  });
+
   it("refuses tracked uncommitted changes: a record names a commit", async () => {
     writeFileSync(join(repo, "tracked.txt"), "edit");
     const e = await runMilestoneCheck(i).catch((x) => x);
