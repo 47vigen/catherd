@@ -79,6 +79,9 @@ export const milestoneChecker = { run: runMilestoneCheck };
 
 /** The most failing lines of one item that become findings; the rest stay in its check log. */
 const FINDINGS_PER_ITEM = 20;
+const MERGE_ATTEMPTS = 3;
+/** a push refused only because origin moved since the fetch; a hook refusal or a conflict is not this */
+const LOST_RACE = /\((?:fetch first|non-fast-forward)\)|cannot lock ref|failed to update ref/;
 
 type CheckInput = Parameters<typeof runMilestoneCheck>[0];
 
@@ -1090,23 +1093,32 @@ export function realEffects(deps: Deps, run: Run): Effects {
       });
     };
     try {
-      const fetched = await gitRun(repo, ["fetch", "-q", "origin", s.base], effectLimits.commitMs);
-      if (fetched.code !== 0) return await fail(fetched);
-      await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs); // left by a crashed try
-      const added = await gitRun(
-        repo,
-        ["worktree", "add", "--detach", wt, `origin/${s.base}`],
-        effectLimits.commitMs,
-      );
-      if (added.code !== 0) return await fail(added);
-      const merged = await gitRun(
-        wt,
-        ["merge", "--no-ff", "-m", mergeSubject(run.id, a.milestone, m.title), commit],
-        effectLimits.commitMs,
-      );
-      if (merged.code !== 0) return await fail(merged);
-      const pushed = await gitRun(wt, ["push", "origin", `HEAD:refs/heads/${s.base}`], effectLimits.commitMs);
-      if (pushed.code !== 0) return await fail(pushed);
+      for (let attempt = 1; ; attempt++) {
+        const fetched = await gitRun(repo, ["fetch", "-q", "origin", s.base], effectLimits.commitMs);
+        if (fetched.code !== 0) return await fail(fetched);
+        await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs); // left by a crashed try
+        const added = await gitRun(
+          repo,
+          ["worktree", "add", "--detach", wt, `origin/${s.base}`],
+          effectLimits.commitMs,
+        );
+        if (added.code !== 0) return await fail(added);
+        const merged = await gitRun(
+          wt,
+          ["merge", "--no-ff", "-m", mergeSubject(run.id, a.milestone, m.title), commit],
+          effectLimits.commitMs,
+        );
+        if (merged.code !== 0) return await fail(merged);
+        const pushed = await gitRun(
+          wt,
+          ["push", "origin", `HEAD:refs/heads/${s.base}`],
+          effectLimits.commitMs,
+        );
+        if (pushed.code === 0) break;
+        // another push moved the base first (two milestones landing together): merge again on top of it
+        if (attempt >= MERGE_ATTEMPTS || !LOST_RACE.test(`${pushed.out}\n${pushed.err}`))
+          return await fail(pushed);
+      }
       const head = await gitRun(wt, ["rev-parse", "HEAD"]);
       const gone = await removeTree(run, a.milestone);
       if (gone.hint) log("warn", "trees", { run: run.id, milestone: a.milestone, hint: gone.hint });

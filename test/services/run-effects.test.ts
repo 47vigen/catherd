@@ -2276,6 +2276,26 @@ describe("a milestone per branch (plan 35)", () => {
     expect(existsSync(treeDir(run, "M1"))).toBe(true);
   });
 
+  it("a push that loses the race to another push merges again on the new base and lands", async () => {
+    const { repo, origin, run, fx } = await treesSetup();
+    const commit = await landedOneCommit(run, "one.txt", "1\n");
+    // another clone pushes to origin's main after catherd's merge, before its push: a real non-fast-forward
+    const racer = tempDir("catherd-racer-");
+    execFileSync("git", ["clone", "-q", origin, racer], { stdio: "ignore" });
+    const hook = join(repo, ".git", "hooks", "post-merge");
+    writeFileSync(
+      hook,
+      `#!/bin/sh\n[ -e "${racer}/raced" ] && exit 0\ntouch "${racer}/raced"\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n` +
+        `git -C "${racer}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m racer && git -C "${racer}" push -q origin HEAD:main\n`,
+    );
+    chmodSync(hook, 0o755);
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(types(run)).not.toContain("merge.failed");
+    const raced = git(racer, "rev-parse", "HEAD").trim();
+    expect(git(origin, "log", "-1", "--format=%P", "main").trim().split(" ")).toEqual([raced, commit]);
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1", by: "catherd" });
+  });
+
   it("a mergeLanded it cannot start is merge.failed, never silent", async () => {
     const { run, fx } = await treesSetup();
     await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
