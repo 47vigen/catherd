@@ -52,7 +52,7 @@ function ModelsPage() {
   return (
     <div className="bg-background relative flex flex-col lg:h-dvh lg:overflow-hidden">
       <header
-        className={`${OVERLAY} m-4 flex max-w-xl flex-col gap-1 px-4 py-3 lg:absolute lg:top-0 lg:left-0 lg:z-10`}
+        className={`${OVERLAY} m-4 flex max-w-xl flex-col gap-1 px-4 py-3 lg:absolute lg:top-0 lg:right-[22rem] lg:left-0 lg:z-10`}
       >
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-lg leading-6 font-medium tracking-[-0.02em]">Models</h1>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { logTicks, type Series } from "../-lib/series";
@@ -19,6 +20,8 @@ export function CostChart({
   className?: string;
 }) {
   const costs = series.flatMap((s) => s.points.map((p) => p.usd));
+  // The dot under the pointer, not recharts' nearest x: two models at one cost would otherwise share a tooltip.
+  const [hover, setHover] = useState<{ id: string; point: Point }>();
   const ticks = scale === "log" && costs.length > 0 ? logTicks(Math.min(...costs), Math.max(...costs)) : undefined;
   return (
     <div
@@ -51,9 +54,9 @@ export function CostChart({
           />
           <Tooltip
             shared={false}
-            content={({ active, payload }) => {
-              const p = active ? (payload?.[0]?.payload as Point | undefined) : undefined;
-              const s = series.find((x) => x.points.includes(p as Point));
+            content={() => {
+              const p = hover?.point;
+              const s = series.find((x) => x.id === hover?.id);
               if (!p || !s) return null;
               return (
                 <ChartTooltip title={s.name}>
@@ -79,17 +82,24 @@ export function CostChart({
               strokeWidth={1.5}
               isAnimationActive={false}
               dot={(d: { cx?: number; cy?: number; index?: number; payload?: Point }) => (
-                <circle
+                <g
                   key={d.index}
-                  cx={d.cx}
-                  cy={d.cy}
-                  r={3.5}
-                  stroke={brandFill(s.brand)}
-                  strokeWidth={1.5}
-                  fill={d.payload?.measured ? brandFill(s.brand) : "var(--surface)"}
-                />
+                  onMouseEnter={() => d.payload && setHover({ id: s.id, point: d.payload })}
+                  onMouseLeave={() => setHover(undefined)}
+                >
+                  {/* a wider transparent ring, so a 3.5 px dot is easy to hit */}
+                  <circle cx={d.cx} cy={d.cy} r={8} fill="transparent" />
+                  <circle
+                    cx={d.cx}
+                    cy={d.cy}
+                    r={hover?.id === s.id && hover.point === d.payload ? 5 : 3.5}
+                    stroke={brandFill(s.brand)}
+                    strokeWidth={1.5}
+                    fill={d.payload?.measured ? brandFill(s.brand) : "var(--surface)"}
+                  />
+                </g>
               )}
-              activeDot={{ r: 5 }}
+              activeDot={false}
             />
           ))}
         </LineChart>
