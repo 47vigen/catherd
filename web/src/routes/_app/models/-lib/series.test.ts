@@ -46,8 +46,8 @@ describe("seriesOf", () => {
     expect(shadesOf(m)).toEqual(
       new Map([
         ["strong", 900],
-        ["mid", 600],
-        ["weak", 300],
+        ["mid", 500],
+        ["weak", 100],
       ]),
     );
     const all = seriesOf(m, NONE, "log").series;
@@ -56,6 +56,16 @@ describe("seriesOf", () => {
     const some = seriesOf(m, new Set(["mid"]), "log").series;
     expect(some.map((s) => s.id)).toEqual(["weak", "strong"]);
     expect(some[0]!.color).toBe(all[0]!.color);
+  });
+
+  it("a model a newer version replaces takes the faintest step and leaves the range to the current ones", () => {
+    const old = { ...model("old", "openai", [pt("low", 1, 50)]), superseded: true };
+    const shades = shadesOf([
+      old,
+      model("new", "openai", [pt("low", 1, 60)]),
+      model("low", "openai", [pt("low", 1, 10)]),
+    ]);
+    expect([shades.get("new"), shades.get("low"), shades.get("old")]).toEqual([900, 100, 100]);
   });
 
   it("a lab with one model draws it in the brand itself", () => {

@@ -18,18 +18,20 @@ export const nameOfModel = (m: CatalogEntry): string => m.name ?? modelName(m.id
 export const peak = (m: CatalogEntry) => Math.max(0, ...m.points.map((p) => p.intelligence));
 
 /**
- * Each model's palette step within its lab: the lab's strongest model (by its best score) is 900, its weakest 300,
- * the rest spread between. Every model of the lab counts, shown or not, so switching one off recolours nothing.
+ * Each model's palette step within its lab: the lab's strongest current model (by its best score) is 900, its
+ * weakest 100, the rest spread evenly between, so a lab's lines sit as far apart as the palette allows. A model a
+ * newer version replaces is off by default and takes the faintest step, 100, instead of a step a current model
+ * needs. Every model counts, shown or not, so switching one recolours nothing.
  */
 export function shadesOf(models: CatalogEntry[]): Map<string, Shade> {
   const byLab = new Map<Brand, CatalogEntry[]>();
-  for (const m of models) byLab.set(brandOfModel(m), [...(byLab.get(brandOfModel(m)) ?? []), m]);
-  const out = new Map<string, Shade>();
+  for (const m of models) if (!m.superseded) byLab.set(brandOfModel(m), [...(byLab.get(brandOfModel(m)) ?? []), m]);
+  const out = new Map<string, Shade>(models.filter((m) => m.superseded).map((m) => [m.id, 100]));
   for (const lab of byLab.values()) {
     const ranked = lab.toSorted((a, b) => peak(b) - peak(a));
     ranked.forEach((m, i) => {
       const t = ranked.length === 1 ? 0 : i / (ranked.length - 1);
-      out.set(m.id, (Math.round((900 - 600 * t) / 100) * 100) as Shade);
+      out.set(m.id, (Math.round((900 - 800 * t) / 100) * 100) as Shade);
     });
   }
   return out;

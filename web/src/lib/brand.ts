@@ -58,12 +58,13 @@ export type Shade = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
 
 /**
  * The brand at a palette step: lower steps fade it into the page background, so a step reads fainter in light and
- * dark alike and follows the theme with no second set of values. 100 keeps 29% of the brand, enough for a line.
+ * dark alike and follows the theme with no second set of values. The steps share the range evenly from 100 (a
+ * quarter of the brand, still a visible line) to 900, so neighbouring steps stay apart.
  */
 export const brandShade = (b: Brand, step: Shade): string =>
   step === 900
     ? brandFill(b)
-    : `color-mix(in oklab, ${brandFill(b)} ${Math.round(20 + (80 * step) / 900)}%, var(--background))`;
+    : `color-mix(in oklab, ${brandFill(b)} ${Math.round(25 + (75 * (step - 100)) / 800)}%, var(--background))`;
 
 // Literal class names, so Tailwind sees each one.
 export const BRAND_BG: Record<Brand, string> = {
