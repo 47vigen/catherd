@@ -7,6 +7,7 @@ import {
   coverageProblems,
   decisionLines,
   depthProblems,
+  formatCommand,
   isAccept,
   isApproval,
   milestoneCheck,
@@ -245,6 +246,21 @@ it("baselineItems reads the section and the preamble", () => {
   ].join("\n");
   expect(baselineItems(plan, "M2")).toEqual(["bun test legacy", "bun test m2"]);
   expect(baselineItems(plan, "M1")).toEqual(["bun test legacy"]);
+});
+
+it("formatCommand reads the section, then the preamble", () => {
+  const plan = [
+    "# P",
+    "Format: bunx oxfmt",
+    "## M1 — one",
+    "Check: x",
+    "## M2 — two",
+    "Format: npx prettier --write",
+    "",
+  ].join("\n");
+  expect(formatCommand(plan, "M2")).toBe("npx prettier --write");
+  expect(formatCommand(plan, "M1")).toBe("bunx oxfmt");
+  expect(formatCommand("# P\n## M1 — one\nCheck: x\n", "M1")).toBeNull();
 });
 
 it("milestoneSection stops at the next ## heading", () => {

@@ -235,3 +235,13 @@ export function baselineItems(planText: string, id: string): string[] {
   }
   return out;
 }
+
+/** The `Format:` command of one milestone: its section's last such line, else the preamble's; null when neither has one. */
+export function formatCommand(planText: string, id: string): string | null {
+  const preamble = planText.slice(0, /^##[ \t]+M\d+\b/m.exec(planText)?.index ?? planText.length);
+  for (const text of [milestoneSection(planText, id) ?? "", preamble]) {
+    const found = [...text.matchAll(/^[ \t]*Format:[ \t]*(.+)$/gm)].map((m) => m[1]?.trim()).at(-1);
+    if (found) return found;
+  }
+  return null;
+}

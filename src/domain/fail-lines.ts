@@ -1,4 +1,5 @@
 import { CatherdError } from "./errors.ts";
+import { filesOf } from "./findings.ts";
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
@@ -21,9 +22,12 @@ export function normalizeFailLine(line: string): string {
     .trim();
 }
 
+/** A passing test line: a pass marker first, after an optional `<package> <script>:` prefix. */
+export const PASS_LINE = /^(?:(?!FAIL\b)\S+ \S+:\s*)?(?:\(pass\)|[✓✔√]|ok\b|--- PASS|PASS\b)/;
+
 /**
  * The lines of a check's output that name a failure, stripped of colour, timings and counters so two runs compare
- * equal: every distinct failure, at most 300 characters per line.
+ * equal: every distinct failure, at most 300 characters per line. A passing line never counts.
  */
 export function checkFailLines(out: string): string[] {
   const seen = new Set<string>();
@@ -31,10 +35,44 @@ export function checkFailLines(out: string): string[] {
     const line = normalizeFailLine(raw);
     const vuln = line.match(/^Vulnerability #\d+: (GO-\d{4}-\d+)/)?.[1];
     if (vuln) seen.add(`vulnerability ${vuln}`);
+    else if (PASS_LINE.test(line)) continue;
     else if (/(^|\s)(FAIL|FAILED|✗|✕|×)(\s|:|$)|^\(fail\)|^--- FAIL|^not ok\b|\bpanic:|^error:/.test(line))
       seen.add(line.slice(0, 300));
   }
   return [...seen];
+}
+
+const BUN_HEADER = /^(\S+\.(?:test|spec)\.\w+):$/;
+
+/**
+ * The repo files each fail line of `out` names: the output is cut into blocks that end at each `(pass)` or
+ * `(fail)` line, and a block's files are the last bun file header seen, then every path the block names (an
+ * absolute one under `root` made relative, `node_modules` and other absolute paths dropped).
+ */
+// shortcut: blocks follow bun's layout; another runner gets the paths its lines name, upgrade when a second runner needs headers
+export function failFiles(out: string, root: string): Record<string, string[]> {
+  const base = `${root.replace(/\/+$/, "")}/`;
+  const result: Record<string, string[]> = {};
+  let header: string | null = null;
+  let block: string[] = [];
+  const flush = () => {
+    const text = block.join("\n");
+    block = [];
+    const lines = checkFailLines(text);
+    if (!lines.length) return;
+    const paths = [...(header ? [header] : []), ...filesOf(text)]
+      .map((p) => (p.startsWith(base) ? p.slice(base.length) : p.replace(/^\.\//, "")))
+      .filter((p) => !p.startsWith("/") && !p.split("/").includes("node_modules"));
+    for (const line of lines) result[line] = [...new Set([...(result[line] ?? []), ...paths])];
+  };
+  for (const raw of out.replace(ANSI, "").split("\n")) {
+    block.push(raw);
+    const h = BUN_HEADER.exec(raw.trim())?.[1];
+    if (h) header = h;
+    if (/^\s*\((?:pass|fail)\)/.test(raw)) flush();
+  }
+  flush();
+  return Object.fromEntries(Object.entries(result).filter(([, files]) => files.length));
 }
 
 /** The lines of `fails` the base does not have; all of them when there is no base record. */

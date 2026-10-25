@@ -41,7 +41,10 @@ describe("the role's env (spec 1.5 plan 21)", () => {
     const roots = seen.args.find((a) => a.startsWith("sandbox_workspace_write.writable_roots="));
     expect(JSON.parse(roots!.split("=").slice(1).join("="))).toContain(scratch);
     // and a catherd MCP server its Codex starts, which sees TMPDIR but not CATHERD_ROLE, knows it is that role
-    expect(roleScopeFromEnv({ TMPDIR: seen.tmpdir! })).toEqual({ run: run.id, name: "worker-M1.L1" });
+    expect(roleScopeFromEnv({ TMPDIR: seen.tmpdir! }, { scratch: true })).toEqual({
+      run: run.id,
+      name: "worker-M1.L1",
+    });
     expect(existsSync(join(run.dir, "scratch"))).toBe(true);
     // the supervisor wrote the role's thread down as soon as the CLI named it, so no notice ever targets it
     expect(record.thread).toBe("01a0d0d4-d0a6-71a1-983c-82a9169200b4");
