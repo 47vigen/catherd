@@ -135,6 +135,8 @@ export interface LaneState {
   statusAsked: boolean;
   /** plan 43: the digest of the lane file (without its Owns line) the lane last ran against; null before the first plan.ready that gave one */
   digest: string | null;
+  /** when the lane's unbroken run of transport failures began: it retries its rung until HOLD_MS has passed */
+  transportSince: string | null;
 }
 
 export interface MilestoneState {
@@ -558,6 +560,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           cheapSpent: false,
           statusAsked: false,
           digest: lp.digest ?? null,
+          transportSince: null,
         };
     }
     next.push(m);
@@ -774,6 +777,32 @@ function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean 
   if (e.reason !== null) return false;
   if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";
   return (e.status === "failed" || e.status === "timeout") && e.environment === null;
+}
+
+/** The provider could not be reached (a proxy, the network, an overloaded server): no fault of the lane or its rung. */
+const TRANSPORT =
+  /ERR_PROXY|couldn't connect|ECONNRESET|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|socket hang up|overloaded|\b(?:502|503|504|529)\b/i;
+
+/** A transport failure retries the lane's rung after a backoff as long as the failures have run; HOLD_MS of them parks it. */
+function transportHold(s: RunState, l: LaneState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
+  l.transportSince ??= e.at;
+  const elapsed = Date.parse(e.at) - Date.parse(l.transportSince);
+  l.status = "pending";
+  if (elapsed >= HOLD_MS) {
+    l.status = "parked";
+    l.transportSince = null;
+    s.stuck[l.id] = {
+      reason: "provider_error",
+      question: stopQuestion(
+        l,
+        "provider_error",
+        `the provider was unreachable for ${Math.round(elapsed / 60_000)} min: ${e.why}`,
+      ),
+    };
+    return;
+  }
+  s.waiting[e.name] = isoPlus(e.at, Math.min(REFUSAL_WAIT_MS, Math.max(60_000, elapsed)));
+  recomputeWake(s);
 }
 
 /** plan 43 D21: answerUnit copies the plan inputs from their source again, so an edit of the copy is lost. */
@@ -1010,6 +1039,9 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       foreign: e.foreign,
       siblings: e.siblings ?? [],
     };
+    if ((e.status === "failed" || e.status === "timeout") && TRANSPORT.test(e.why))
+      return transportHold(s, lane, e);
+    lane.transportSince = null;
     // a stop that names no reason waits for its classification: nothing else happens to the lane meanwhile
     if (e.status !== "limit" && unexplained(e)) {
       lane.classify = { dispatchId: e.dispatchId, ...x };

@@ -21,6 +21,7 @@ import {
   makeLog,
   routeMilestone,
   runningLog,
+  START,
   startDispatch,
   startedFields,
 } from "./run-fixtures.ts";
@@ -280,6 +281,41 @@ describe("run state", () => {
       climbReason: null,
       thread: null,
     });
+  });
+
+  it("a transport error holds the lane on its rung with a backoff, never classified or climbed, and parks after the hold window", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const why =
+      "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel";
+    const rung = log.state().lanes["M1.L1"]?.rung;
+    const t0 = Date.parse(START) + 3_600_000;
+    for (const min of [0, 4, 12, 25]) {
+      const at = new Date(t0 + min * 60_000).toISOString();
+      const w = startDispatch(log, { name, unit: "M1.L1" });
+      endDispatch(log, w, { name, unit: "M1.L1", status: "failed", replyStatus: null, why, at });
+      const s = log.state();
+      expect(s.lanes["M1.L1"]).toMatchObject({
+        status: "pending",
+        classify: null,
+        attempts: 0,
+        climbReason: null,
+        rung,
+      });
+      expect(s.waiting[name]! > at).toBe(true);
+      expect(s.stuck["M1.L1"]).toBeUndefined();
+    }
+    const w = startDispatch(log, { name, unit: "M1.L1" });
+    endDispatch(log, w, {
+      name,
+      unit: "M1.L1",
+      status: "failed",
+      replyStatus: null,
+      why: "connect ECONNRESET 10.0.0.1:443",
+      at: new Date(t0 + HOLD_MS).toISOString(),
+    });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "provider_error" });
   });
 
   it("checks a lane after an ok end, and counts a failed check on the lane", () => {
