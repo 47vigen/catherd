@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { IndexFileSchema } from "../../src/domain/slopalytics.ts";
 import { capableFor, pairOf, rungInfo } from "../../src/domain/catalog.ts";
 import { fixtureIndex, indexOf, shipped, shippedModels } from "./shipped.ts";
 
@@ -207,5 +208,21 @@ describe("capableFor", () => {
     expect(rungInfo(c, "claude:claude-next-7#default").listed).toBe(true);
     expect(capableFor(c, rungInfo(c, "claude:claude-next-7#default"), "ui-reviewer")).toBe(true);
     expect(capableFor(c, rungInfo(c, "claude-code:claude-next-7#default"), "ui-reviewer")).toBe(true);
+  });
+
+  it("a pair carries the index's measured cost and lab", () => {
+    const c = shipped({
+      index: indexOf({
+        "gpt-6-sol#high": { intelligence: 42, cost: 0.37, lab: "openai" },
+        "gpt-6-sol#low": 30,
+      }),
+    });
+    expect(pairOf(c, "codex:gpt-6-sol#high")).toMatchObject({ costUsd: 0.37, lab: "openai" });
+    expect(pairOf(c, "codex:gpt-6-sol#low")?.costUsd).toBeNull();
+  });
+
+  it("an index file without cost parses", () => {
+    const old = indexOf({ "gpt-6-sol#high": 42 });
+    expect(() => IndexFileSchema.parse(old)).not.toThrow();
   });
 });

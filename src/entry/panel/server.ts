@@ -15,6 +15,7 @@ import { log } from "../../infra/log.ts";
 import { VERSION } from "../../infra/version.ts";
 import { cancel } from "../../services/dispatch-service.ts";
 import { type NowLine, overview } from "../../services/overview.ts";
+import { catalogView } from "../../services/panel-catalog.ts";
 import { setupView } from "../../services/panel-setup.ts";
 import type { Deps } from "../../services/ports.ts";
 import { activate, createProfile, deleteProfile, recordHost } from "../../services/profile-service.ts";
@@ -211,6 +212,7 @@ const HANDLERS: Record<OperationId, (c: Call) => unknown> = {
     return overview(c.deps, { from, to, repo: q.repo }, nowLines);
   },
   getSetup: (c) => setupView(c.deps, repoOf(c)),
+  getCatalog: (c) => catalogView(repoOf(c) ?? undefined),
   recheckSetup: (c) => setupView(c.deps, repoOf(c), { fresh: true }),
   previewProfile: (c) => {
     writableHost(c.deps);

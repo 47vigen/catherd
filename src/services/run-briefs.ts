@@ -78,7 +78,7 @@ const LANE_HEADER = [
   "  Kind: repo_code|terminal|ui|prose|research",
   "  Difficulty: copy|build|logic|hard",
   "  Tasks: <plan task numbers, comma-separated; <plan file>#<n> when the run has several plan files>",
-  "Three optional lines follow: `After: Mx.Ly, …` when the lane compiles against another lane's changes; `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions; and `Reference: <repo path>` when the lane builds something with a close sibling in the repository.",
+  "Four optional lines follow: `After: Mx.Ly, …` when the lane compiles against another lane's changes; `Allow: path[:line], …` under a fast check that greps for absence, naming the hits that are allowed exceptions; `Reference: <repo path>` when the lane builds something with a close sibling in the repository; and `Chore: yes` when the lane is mechanically simple (stubs, fixtures, renames, boilerplate, docs, version or pin bumps), or when the owner's plan marks it `chore` in its lanes section, so catherd runs it on the cheapest capable model. A lane with any logic, a new behaviour or a judgement call is never a chore.",
   "Two lanes of one milestone never own the same file.",
 ];
 

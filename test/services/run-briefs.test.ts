@@ -425,6 +425,12 @@ describe("briefs from the plan (plan 32)", () => {
     expect(written).not.toContain("called back on");
   });
 
+  it("the architect brief's header lists Chore", async () => {
+    const { run, s } = await planned();
+    const base = act({ brief: "architect", role: "architect", lane: null, unit: "run", name: "architect" });
+    expect(briefFor(run, s, base)).toContain("Chore: yes");
+  });
+
   it("gives the reviewer the milestone's tasks and every out-of-lane file, declared or not", async () => {
     const { run, s } = await planned();
     await appendRecord(

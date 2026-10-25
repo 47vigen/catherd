@@ -8,6 +8,7 @@ import { defaultProfileDoc, resolveProfile } from "../../src/domain/profile.ts";
 import { routingProfileOf } from "../../src/domain/profile-rules.ts";
 import {
   candidates,
+  cheapest,
   defaultDifficulty,
   effortAllowed,
   defaultLadder,
@@ -16,6 +17,7 @@ import {
   rolesWithoutRung,
   noRungCause,
   select,
+  startAt,
 } from "../../src/domain/select.ts";
 import { indexOf, shipped } from "./shipped.ts";
 
@@ -217,6 +219,21 @@ describe("objective speed", () => {
   it("keeps the cost ladder as the default ladder under either objective", () => {
     expect(defaultLadder(cat(), speed(), "worker")).toEqual(defaultLadder(cat(), worker(), "worker"));
     expect(defaultLadder(cat(), worker(), "worker")).toEqual({ rung: MED, ladder: [MED, LUNA, HIGH, XHIGH] });
+  });
+});
+
+describe("cheapest and startAt", () => {
+  // Sol medium above Luna, so the whole LADDER only goes up
+  const up = () => cat({ "gpt-6-sol#medium": { intelligence: 35, speed: 50, ...price } });
+
+  it("cheapest starts on the cheapest candidate and climbs up", () => {
+    expect(cheapest(up(), worker(), "worker")).toEqual({ rung: LUNA, ladder: LADDER });
+    expect(cheapest(up(), worker({ objective: "speed" }), "worker")).toEqual({ rung: LUNA, ladder: LADDER });
+  });
+
+  it("startAt starts at the named rung", () => {
+    expect(startAt(up(), worker(), "worker", MED)).toEqual({ rung: MED, ladder: [MED, HIGH, XHIGH] });
+    expect(() => startAt(up(), worker(), "worker", "codex:nope#high")).toThrow();
   });
 });
 

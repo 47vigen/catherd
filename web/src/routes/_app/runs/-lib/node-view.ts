@@ -20,6 +20,8 @@ import type { ComponentType, SVGProps } from "react";
 
 import type { RunNode } from "../../../../client";
 
+export { modelName } from "../../../../lib/model-name";
+
 export type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 export type Kind = RunNode["kind"];
 export type Status = RunNode["status"];
@@ -106,29 +108,29 @@ export function formatDuration(secs: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
-/** Seconds a step took (or has taken so far); null before it started. */
+/** Seconds a step took (or has taken so far); null before it started, or when it was one event with no recorded time. */
 export function nodeSecs(n: RunNode, nowMs: number): number | null {
   if (!n.startedAt) return null;
-  const start = Date.parse(n.startedAt);
-  const end = n.endedAt ? Date.parse(n.endedAt) : n.status === "running" ? nowMs : Number.NaN;
-  return Number.isNaN(start) || Number.isNaN(end) ? null : Math.max(0, (end - start) / 1000);
-}
-
-const ACRONYM = new Set(["gpt", "glm"]);
-
-/** A model id as people say it: `claude-opus-5-5` is "Claude Opus 5.5", `gpt-6.1-sol` is "GPT-6.1 Sol". */
-export function modelName(id: string): string {
-  const out: string[] = [];
-  for (const part of id.split(/[-_]/).filter(Boolean)) {
-    const prev = out.at(-1);
-    if (prev !== undefined && /^\d+(\.\d+)*$/.test(part)) {
-      // A version after a version is its minor ("5-5" is 5.5); after an acronym it joins with a dash (GPT-6).
-      if (/\d$/.test(prev)) out[out.length - 1] = `${prev}.${part}`;
-      else if (ACRONYM.has(prev.toLowerCase())) out[out.length - 1] = `${prev}-${part}`;
-      else out.push(part);
-    } else out.push(ACRONYM.has(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1));
+  let start = Date.parse(n.startedAt);
+  let end = n.endedAt ? Date.parse(n.endedAt) : n.status === "running" ? nowMs : Number.NaN;
+  let secs: number | null = null;
+  if (n.kind === "check") {
+    // A check's own time is its newest run's, not first to last; a run with no start of its own spans 0.
+    const last = n.attempts.reduce<RunNode["attempts"][number] | undefined>(
+      (m, a) => (m === undefined || Date.parse(a.at) > Date.parse(m.at) ? a : m),
+      undefined,
+    );
+    if (last) {
+      start = Date.parse(last.at);
+      end = last.endedAt ? Date.parse(last.endedAt) : end;
+      secs = last.secs;
+    }
   }
-  return out.join(" ");
+  if (secs === null) {
+    if (Number.isNaN(start) || Number.isNaN(end)) return null;
+    secs = Math.max(0, (end - start) / 1000);
+  }
+  return secs === 0 && !n.attempts.some((a) => a.kind === "dispatch") ? null : secs;
 }
 
 /** A step's title inside its milestone's box, which already names the milestone: "M1 review" reads "Review". */

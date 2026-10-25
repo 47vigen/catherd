@@ -1,4 +1,4 @@
-import { CircleQuestion, Gear, House, ListUl } from "@gravity-ui/icons";
+import { ChartLine, CircleQuestion, Gear, House, ListUl } from "@gravity-ui/icons";
 import { cn, Link } from "@heroui/react";
 import type { ComponentType, ReactNode, SVGProps } from "react";
 
@@ -22,7 +22,13 @@ const GROUPS: readonly { label: string; items: readonly NavItem[] }[] = [
       { href: "/questions", label: "Questions", icon: CircleQuestion },
     ],
   },
-  { label: "Configure", items: [{ href: "/setup", label: "Setup", icon: Gear }] },
+  {
+    label: "Configure",
+    items: [
+      { href: "/models", label: "Models", icon: ChartLine },
+      { href: "/setup", label: "Setup", icon: Gear },
+    ],
+  },
 ];
 
 function isCurrent(href: string, current: string): boolean {

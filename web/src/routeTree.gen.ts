@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppModelsIndexRouteImport } from './routes/_app/models/index'
 import { Route as AppQuestionsIndexRouteImport } from './routes/_app/questions/index'
 import { Route as AppRunsIndexRouteImport } from './routes/_app/runs/index'
 import { Route as AppRunsRunIdRouteImport } from './routes/_app/runs/$runId'
@@ -29,6 +30,11 @@ const LoginRoute = LoginRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppModelsIndexRoute = AppModelsIndexRouteImport.update({
+  id: '/models/',
+  path: '/models/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppQuestionsIndexRoute = AppQuestionsIndexRouteImport.update({
@@ -56,6 +62,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/runs/$runId': typeof AppRunsRunIdRoute
+  '/models/': typeof AppModelsIndexRoute
   '/questions/': typeof AppQuestionsIndexRoute
   '/runs/': typeof AppRunsIndexRoute
   '/setup/': typeof AppSetupIndexRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/': typeof AppIndexRoute
   '/runs/$runId': typeof AppRunsRunIdRoute
+  '/models': typeof AppModelsIndexRoute
   '/questions': typeof AppQuestionsIndexRoute
   '/runs': typeof AppRunsIndexRoute
   '/setup': typeof AppSetupIndexRoute
@@ -74,6 +82,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/': typeof AppIndexRoute
   '/_app/runs/$runId': typeof AppRunsRunIdRoute
+  '/_app/models/': typeof AppModelsIndexRoute
   '/_app/questions/': typeof AppQuestionsIndexRoute
   '/_app/runs/': typeof AppRunsIndexRoute
   '/_app/setup/': typeof AppSetupIndexRoute
@@ -81,15 +90,29 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/runs/$runId' | '/questions/' | '/runs/' | '/setup/'
+    | '/'
+    | '/login'
+    | '/runs/$runId'
+    | '/models/'
+    | '/questions/'
+    | '/runs/'
+    | '/setup/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/' | '/runs/$runId' | '/questions' | '/runs' | '/setup'
+  to:
+    | '/login'
+    | '/'
+    | '/runs/$runId'
+    | '/models'
+    | '/questions'
+    | '/runs'
+    | '/setup'
   id:
     | '__root__'
     | '/_app'
     | '/login'
     | '/_app/'
     | '/_app/runs/$runId'
+    | '/_app/models/'
     | '/_app/questions/'
     | '/_app/runs/'
     | '/_app/setup/'
@@ -121,6 +144,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/models/': {
+      id: '/_app/models/'
+      path: '/models'
+      fullPath: '/models/'
+      preLoaderRoute: typeof AppModelsIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/questions/': {
@@ -157,6 +187,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppRunsRunIdRoute: typeof AppRunsRunIdRoute
+  AppModelsIndexRoute: typeof AppModelsIndexRoute
   AppQuestionsIndexRoute: typeof AppQuestionsIndexRoute
   AppRunsIndexRoute: typeof AppRunsIndexRoute
   AppSetupIndexRoute: typeof AppSetupIndexRoute
@@ -165,6 +196,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppRunsRunIdRoute: AppRunsRunIdRoute,
+  AppModelsIndexRoute: AppModelsIndexRoute,
   AppQuestionsIndexRoute: AppQuestionsIndexRoute,
   AppRunsIndexRoute: AppRunsIndexRoute,
   AppSetupIndexRoute: AppSetupIndexRoute,

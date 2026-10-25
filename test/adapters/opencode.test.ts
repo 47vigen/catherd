@@ -100,6 +100,43 @@ describe("opencode finalize", () => {
     expect(o.error).toEqual({ code: "failed", message: "permission rejected: read <scratch>/outside.txt" });
   });
 
+  const aborted = JSON.stringify({ type: "error", error: { type: "aborted", message: "Step interrupted" } });
+  const say = (text: string) => JSON.stringify({ type: "text", part: { messageID: "m2", text } });
+  const exit1 = { code: 1, signal: null, reason: "exited" as const, endedAt: "x" };
+
+  it("a recovered abort with a STATUS reply ends ok", () => {
+    const o = opencodeAdapter.finalize(
+      finished([aborted, say("All done.\nSTATUS: complete — all done")], { exit: exit1 }),
+    );
+    expect(o).toMatchObject({ status: "ok", error: null });
+    // the reply's own status decides the lane
+    expect(
+      opencodeAdapter.finalize(finished([aborted, say("STATUS: blocked — needs_user: x")], { exit: exit1 }))
+        .status,
+    ).toBe("ok");
+  });
+
+  it("an abort with no later reply, or a reply with no STATUS line, stays failed", () => {
+    const o = opencodeAdapter.finalize(finished(lines("permission-rejected.jsonl"), { exit: exit1 }));
+    expect(o).toMatchObject({
+      status: "failed",
+      error: { code: "failed", message: "permission rejected: read <scratch>/outside.txt" },
+    });
+    expect(opencodeAdapter.finalize(finished([aborted, say("I give up")], { exit: exit1 })).status).toBe(
+      "failed",
+    );
+  });
+
+  it("an unpriced run finalizes with a null cost", () => {
+    expect(opencodeAdapter.finalize(finished(lines("shell-ok.jsonl"))).costUsd).toBeNull();
+  });
+
+  it("the adapter renders its stream as transcript items", () => {
+    const items = opencodeAdapter.transcript?.(say("hello"), 1);
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text" });
+  });
+
   it("reports cancel and timeouts from the exit reason, and a non-zero exit with no events as failed", () => {
     const at = (reason: "cancelled" | "wall-timeout") =>
       opencodeAdapter.finalize(

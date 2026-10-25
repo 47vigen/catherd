@@ -56,6 +56,7 @@ import { park } from "./questions.ts";
 import { briefFor, judgeBrief } from "./run-briefs.ts";
 import { appendEvent, appendEvents, readEvents, replayRun, withEventsLock } from "./run-events-store.ts";
 import { writeRunReport } from "./run-report.ts";
+import { cheapestRung } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
 import { treeOf } from "./tree-path.ts";
@@ -368,11 +369,14 @@ export function realEffects(deps: Deps, run: Run): Effects {
       lane: string | null;
       rung: string | null;
       failoverFrom: string | null;
+      cheap?: boolean;
     },
     s: RunState,
   ): Promise<{ rung: string } | { code: string; message: string }> {
     const profile = runProfile(deps, run);
     let rung = a.failoverFrom ?? a.rung;
+    // a mechanical fix runs once on the cheapest rung; the held-quota check below still applies to it
+    if (a.cheap && !a.failoverFrom) rung = cheapestRung(profile, a.role, run.meta.repo, run.dir) ?? rung;
     if (!rung && a.lane) rung = currentRoute(readRoutes(run), a.lane)?.rung ?? null;
     if (!rung && a.role === "judge") rung = profile.roles.judge?.rungs[0] ?? null;
     if (!rung) {

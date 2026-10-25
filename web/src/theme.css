@@ -70,6 +70,21 @@
     --chart-4: oklch(0.58 0.15 305);
     --chart-5: oklch(0.66 0.14 22);
 
+    /* Brand colours mark who made a model or tool in charts and lists; they never mark a status. */
+    --brand-anthropic: oklch(0.6 0.13 39);
+    --brand-openai: oklch(0.28 0 0);
+    --brand-google: oklch(0.56 0.14 305);
+    --brand-xai: oklch(0.5 0 0);
+    --brand-deepseek: oklch(0.592 0.22 270);
+    --brand-meta: oklch(0.5 0.2 255);
+    --brand-alibaba: oklch(0.55 0.2 290);
+    --brand-mistral: oklch(0.6 0.19 50);
+    --brand-kimi: oklch(0.55 0.15 245);
+    --brand-zai: oklch(0.45 0.08 250);
+    --brand-opencode: oklch(0.55 0.05 70);
+    --brand-cursor: oklch(0.5 0.08 275);
+    --brand-other: oklch(0.58 0.01 250);
+
     --surface-shadow: 0 0 0 0 transparent;
     --field-shadow: 0 0 0 0 transparent;
     --overlay-shadow: 0 0 0 1px var(--border), 0 12px 32px -12px oklch(0.21 0.028 265 / 0.18);
@@ -131,6 +146,21 @@
     --chart-4: oklch(0.72 0.14 305);
     --chart-5: oklch(0.74 0.13 24);
 
+    /* Brand colours mark who made a model or tool in charts and lists; they never mark a status. */
+    --brand-anthropic: oklch(0.672 0.131 39);
+    --brand-openai: oklch(0.93 0 0);
+    --brand-google: oklch(0.7 0.13 305);
+    --brand-xai: oklch(0.75 0 0);
+    --brand-deepseek: oklch(0.68 0.18 270);
+    --brand-meta: oklch(0.78 0.12 245);
+    --brand-alibaba: oklch(0.7 0.15 290);
+    --brand-mistral: oklch(0.74 0.16 55);
+    --brand-kimi: oklch(0.72 0.12 225);
+    --brand-zai: oklch(0.74 0.06 200);
+    --brand-opencode: oklch(0.8 0.04 75);
+    --brand-cursor: oklch(0.72 0.08 275);
+    --brand-other: oklch(0.66 0.01 250);
+
     --surface-shadow: 0 0 0 0 transparent;
     --field-shadow: 0 0 0 0 transparent;
     --overlay-shadow: 0 0 0 1px var(--border), 0 16px 40px -12px oklch(0 0 0 / 0.6);
@@ -145,6 +175,19 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-brand-anthropic: var(--brand-anthropic);
+  --color-brand-openai: var(--brand-openai);
+  --color-brand-google: var(--brand-google);
+  --color-brand-xai: var(--brand-xai);
+  --color-brand-deepseek: var(--brand-deepseek);
+  --color-brand-meta: var(--brand-meta);
+  --color-brand-alibaba: var(--brand-alibaba);
+  --color-brand-mistral: var(--brand-mistral);
+  --color-brand-kimi: var(--brand-kimi);
+  --color-brand-zai: var(--brand-zai);
+  --color-brand-opencode: var(--brand-opencode);
+  --color-brand-cursor: var(--brand-cursor);
+  --color-brand-other: var(--brand-other);
 }
 
 @layer base {

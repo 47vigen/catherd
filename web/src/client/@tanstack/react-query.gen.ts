@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { activateProfile, answerUnit, cancelRole, cancelRun, createProfile, deleteProfile, getCheckLogs, getCommitDiff, getDispatch, getDispatchStream, getOverview, getRun, getRunDoc, getRunModel, getRunTimeline, getSession, getSetup, getVersion, listAnswered, listQuestions, listRuns, login, logout, type Options, pauseRun, previewProfile, recheckSetup, resumeRun, saveProfile, setHost, setNotifyUrl } from '../sdk.gen';
-import type { ActivateProfileData, ActivateProfileError, ActivateProfileResponse, AnswerUnitData, AnswerUnitError, AnswerUnitResponse, CancelRoleData, CancelRoleError, CancelRoleResponse, CancelRunData, CancelRunError, CancelRunResponse, CreateProfileData, CreateProfileError, CreateProfileResponse, DeleteProfileData, DeleteProfileError, DeleteProfileResponse, GetCheckLogsData, GetCheckLogsError, GetCheckLogsResponse, GetCommitDiffData, GetCommitDiffError, GetCommitDiffResponse, GetDispatchData, GetDispatchError, GetDispatchResponse, GetDispatchStreamData, GetDispatchStreamError, GetDispatchStreamResponse, GetOverviewData, GetOverviewError, GetOverviewResponse, GetRunData, GetRunDocData, GetRunDocError, GetRunDocResponse, GetRunError, GetRunModelData, GetRunModelError, GetRunModelResponse, GetRunResponse, GetRunTimelineData, GetRunTimelineError, GetRunTimelineResponse, GetSessionData, GetSessionError, GetSessionResponse, GetSetupData, GetSetupError, GetSetupResponse, GetVersionData, GetVersionError, GetVersionResponse, ListAnsweredData, ListAnsweredError, ListAnsweredResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListRunsData, ListRunsError, ListRunsResponse, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, PauseRunData, PauseRunError, PauseRunResponse, PreviewProfileData, PreviewProfileError, PreviewProfileResponse, RecheckSetupData, RecheckSetupError, RecheckSetupResponse, ResumeRunData, ResumeRunError, ResumeRunResponse, SaveProfileData, SaveProfileError, SaveProfileResponse, SetHostData, SetHostError, SetHostResponse, SetNotifyUrlData, SetNotifyUrlError, SetNotifyUrlResponse } from '../types.gen';
+import { activateProfile, answerUnit, cancelRole, cancelRun, createProfile, deleteProfile, getCatalog, getCheckLogs, getCommitDiff, getDispatch, getDispatchStream, getOverview, getRun, getRunDoc, getRunModel, getRunTimeline, getSession, getSetup, getVersion, listAnswered, listQuestions, listRuns, login, logout, type Options, pauseRun, previewProfile, recheckSetup, resumeRun, saveProfile, setHost, setNotifyUrl } from '../sdk.gen';
+import type { ActivateProfileData, ActivateProfileError, ActivateProfileResponse, AnswerUnitData, AnswerUnitError, AnswerUnitResponse, CancelRoleData, CancelRoleError, CancelRoleResponse, CancelRunData, CancelRunError, CancelRunResponse, CreateProfileData, CreateProfileError, CreateProfileResponse, DeleteProfileData, DeleteProfileError, DeleteProfileResponse, GetCatalogData, GetCatalogError, GetCatalogResponse, GetCheckLogsData, GetCheckLogsError, GetCheckLogsResponse, GetCommitDiffData, GetCommitDiffError, GetCommitDiffResponse, GetDispatchData, GetDispatchError, GetDispatchResponse, GetDispatchStreamData, GetDispatchStreamError, GetDispatchStreamResponse, GetOverviewData, GetOverviewError, GetOverviewResponse, GetRunData, GetRunDocData, GetRunDocError, GetRunDocResponse, GetRunError, GetRunModelData, GetRunModelError, GetRunModelResponse, GetRunResponse, GetRunTimelineData, GetRunTimelineError, GetRunTimelineResponse, GetSessionData, GetSessionError, GetSessionResponse, GetSetupData, GetSetupError, GetSetupResponse, GetVersionData, GetVersionError, GetVersionResponse, ListAnsweredData, ListAnsweredError, ListAnsweredResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListRunsData, ListRunsError, ListRunsResponse, LoginData, LoginError, LoginResponse, LogoutData, LogoutError, LogoutResponse, PauseRunData, PauseRunError, PauseRunResponse, PreviewProfileData, PreviewProfileError, PreviewProfileResponse, RecheckSetupData, RecheckSetupError, RecheckSetupResponse, ResumeRunData, ResumeRunError, ResumeRunResponse, SaveProfileData, SaveProfileError, SaveProfileResponse, SetHostData, SetHostError, SetHostResponse, SetNotifyUrlData, SetNotifyUrlError, SetNotifyUrlResponse } from '../types.gen';
 
 export const loginMutation = (options?: Partial<Options<LoginData>>): UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> => {
     const mutationOptions: UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> = {
@@ -125,6 +125,21 @@ export const getSetupOptions = (options?: Options<GetSetupData>) => queryOptions
         return data;
     },
     queryKey: getSetupQueryKey(options)
+});
+
+export const getCatalogQueryKey = (options?: Options<GetCatalogData>) => createQueryKey('getCatalog', options);
+
+export const getCatalogOptions = (options?: Options<GetCatalogData>) => queryOptions<GetCatalogResponse, GetCatalogError, GetCatalogResponse, ReturnType<typeof getCatalogQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getCatalog({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getCatalogQueryKey(options)
 });
 
 export const recheckSetupMutation = (options?: Partial<Options<RecheckSetupData>>): UseMutationOptions<RecheckSetupResponse, RecheckSetupError, Options<RecheckSetupData>> => {

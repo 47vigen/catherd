@@ -44,6 +44,35 @@ test("search keeps the matching cards and counts them", () => {
   expect(screen.getByText("1 of 4 entries match.")).toBeInTheDocument();
 });
 
+test("cards are drawn newest first, after the search", () => {
+  const kinds = () => [...document.querySelectorAll("li[data-kind]")].map((li) => li.getAttribute("data-kind"));
+  const { rerender } = render(<TranscriptCards {...base} cards={cards} />);
+  expect(kinds()).toEqual(["turn", "shell", "thinking", "text"]);
+  const two: Card[] = [
+    { kind: "text", line: 0, text: "match one" },
+    { kind: "text", line: 1, text: "other" },
+    { kind: "text", line: 2, text: "match two" },
+  ];
+  rerender(<TranscriptCards {...base} cards={two} query="match" />);
+  const items = [...document.querySelectorAll("li[data-kind]")].map((li) => li.textContent);
+  expect(items).toEqual(["match two", "match one"]);
+});
+
+test("raw lines are drawn newest first", () => {
+  render(<TranscriptCards {...base} cards={cards} raw={["first", "second"]} showRaw />);
+  const items = [...document.querySelectorAll("li")].map((li) => li.textContent);
+  expect(items).toEqual(["second", "first"]);
+});
+
+test("an open Thinking block stays open when a newer card arrives", () => {
+  const { container, rerender } = render(<TranscriptCards {...base} cards={cards} />);
+  const details = container.querySelector("details") as HTMLDetailsElement;
+  details.open = true;
+  rerender(<TranscriptCards {...base} cards={[...cards, { kind: "text", line: 4, text: "newer" }]} />);
+  expect(container.querySelector("details")).toBe(details);
+  expect(details.open).toBe(true);
+});
+
 test("Raw shows the lines as written", () => {
   const raw = ['{"type":"assistant","n":1}', '{"type":"result"}'];
   render(<TranscriptCards {...base} cards={cards} raw={raw} showRaw />);

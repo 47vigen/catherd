@@ -166,6 +166,30 @@ describe("dispatching", () => {
     expect(liveDispatches(run, deps.now())).toEqual([]);
   });
 
+  it("a cheap dispatch starts on the profile's cheapest rung", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(
+      dispatchAction({ rung: "codex:gpt-6-sol#medium", thread: null, cheap: true }),
+      replayRun(run),
+    );
+    expect(lastOf(run, "dispatch.started")).toMatchObject({
+      rung: "codex:gpt-6-luna#high",
+      thread: null,
+    });
+  });
+
+  it("a cheap dispatch with nothing cheaper keeps the lane's rung", async () => {
+    const view = testView();
+    view.roles.worker = role("workspace-write", ["codex:gpt-6-sol#medium"]);
+    const { run, fx } = setup(undefined, view);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-sol#medium", cheap: true }), replayRun(run));
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "codex:gpt-6-sol#medium" });
+  });
+
   it("dispatches headless, mapping claude: to claude-code:", async () => {
     const { run, fx } = setup();
     const sim = withClaudeScenario({ eventsFile: join(FX, "ok.jsonl") });

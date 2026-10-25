@@ -12,6 +12,7 @@ const PAGES: Entry[] = [
   { id: "page:/", label: "Dashboard", href: "/" },
   { id: "page:/runs", label: "Runs", href: "/runs" },
   { id: "page:/questions", label: "Questions", href: "/questions" },
+  { id: "page:/models", label: "Models", href: "/models" },
   { id: "page:/setup", label: "Setup", href: "/setup" },
 ];
 

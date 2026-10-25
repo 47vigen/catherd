@@ -1,6 +1,7 @@
 import type { Overview, RunCard } from "../../../client";
 import { backendName } from "../../../components/provider-icon/ProviderIcon";
 import type { Status } from "../../../components/status-chip/StatusChip";
+import { BRAND_BG, brandFill, brandOf } from "../../../lib/brand";
 
 const DAY = 86_400_000;
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -95,34 +96,10 @@ export function dailyRows(
 export const dailyTotals = (daily: Overview["daily"], metric: Metric): number[] =>
   daily.map((d) => d.backends.reduce((n, b) => n + (metric === "cost" ? b.costUsd : b.tokens), 0));
 
-const TONE: Record<string, number> = { Codex: 0, Cursor: 1, opencode: 2, "Claude Code": 4, Claude: 4 };
-const FILL = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"] as const;
-const BG = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"] as const;
-
 /** One colour per backend on every chart of the page, so Codex reads the same in the plot and the lists. */
 export function backendTone(backendOrName: string): { fill: string; bg: string } {
-  const i = TONE[backendName(backendOrName)] ?? 3;
-  return { fill: FILL[i]!, bg: BG[i]! };
+  const b = brandOf(backendOrName);
+  return { fill: brandFill(b), bg: BRAND_BG[b] };
 }
 
-const UPPER = new Set(["gpt", "glm"]);
-
-/** A model as people say it: "codex:gpt-6-luna#high" is "GPT-6 Luna", "claude-opus-5-5" is "Claude Opus 5.5". */
-export function modelName(rung: string): string {
-  const id =
-    rung
-      .replace(/^[^:]*:/, "")
-      .replace(/#.*$/, "")
-      .split("/")
-      .pop() ?? rung;
-  const out: string[] = [];
-  // A dated snapshot suffix ("-20250929") is noise in a label.
-  for (const part of id.split("-").filter((p) => p && !/^\d{6,}$/.test(p))) {
-    const prev = out.at(-1);
-    if (/^\d{1,2}$/.test(part) && prev && /\d$/.test(prev)) out[out.length - 1] = `${prev}.${part}`;
-    else if (/^[\d.]+$/.test(part) && prev === "GPT") out[out.length - 1] = `GPT-${part}`;
-    else if (UPPER.has(part.toLowerCase())) out.push(part.toUpperCase());
-    else out.push(part.charAt(0).toUpperCase() + part.slice(1));
-  }
-  return out.join(" ") || rung;
-}
+export { modelName } from "../../../lib/model-name";

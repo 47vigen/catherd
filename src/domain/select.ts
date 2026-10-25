@@ -220,6 +220,27 @@ export function defaultLadder(c: Catalog, p: RoutingProfile, role: Role): Pick {
   return ladderFrom(start, all, p.usage);
 }
 
+/** The cost-ordered candidates; throws when the role has none. */
+function byCostOf(c: Catalog, p: RoutingProfile, role: Role): Candidate[] {
+  const all = candidates(c, { ...p, objective: "cost" }, role);
+  if (all.length === 0) throw noRung(role);
+  return all;
+}
+
+/** The ladder that starts at `rung` (a candidate), in cost order, only going up. */
+export function startAt(c: Catalog, p: RoutingProfile, role: Role, rung: string): Pick {
+  const all = byCostOf(c, p, role);
+  const start = all.find((x) => x.rung === rung);
+  if (!start) throw noRung(role);
+  return ladderFrom(start, all, p.usage);
+}
+
+/** The cheapest candidate in cost order, and the ladder up from it. */
+export function cheapest(c: Catalog, p: RoutingProfile, role: Role): Pick {
+  const all = byCostOf(c, p, role);
+  return ladderFrom(all[0] as Candidate, all, p.usage);
+}
+
 /**
  * The role's default difficulty: the hardest difficulty whose bar the role's default rung clears (`build` when
  * it clears none, or is no candidate: never `copy`, whose start is the cheapest rung). A route sure of the

@@ -168,6 +168,7 @@ In a terminal:
 | `catherd runs clean [<id>]`                                                                                                                                            | Removes the roles' scratch folders (each role's `$TMPDIR`) of runs with no live role                                                                                                                                                                                        |
 | `catherd catalog refresh\|list [--backend <b>] [--role <r>] [--text <t>]`                                                                                              | The models catherd can place, with their indexed pairs                                                                                                                                                                                                                      |
 | `catherd catalog sync [--force]`                                                                                                                                       | Fetches the Slopalytics index now (below); it is refreshed at most hourly otherwise                                                                                                                                                                                         |
+| `catherd catalog outcomes [--json]`                                                                                                                                    | Each rung's finished lanes on this machine: first passes, rounds and findings per lane, by kind and difficulty; `--json` prints the stats                                                                                                                                   |
 | `catherd knowledge show [--role <role>]\|add "<line>"\|rm "<text>"\|path [--repo <path>]`                                                                              | The repo's knowledge.md, keyed by its git origin (its toplevel when it has none), which new runs read; `add` appends a fact of yours, marked "by hand"; a `[role, …]` tag after the source scopes a line to those roles' briefs; `rm` removes the one line the text matches |
 | `catherd knowledge env set NAME=value\|NAME --from VAR`, `env rm NAME`, `env list`                                                                                     | The repo's gate environment, which the verifier and preflight run with; a secret by reference only                                                                                                                                                                          |
 | `catherd runs supersede <id> --by <id>`, `catherd runs pin <id>`                                                                                                       | Closes a run with a pointer to the one that took over; re-pins a run to the repo's profile now                                                                                                                                                                              |
@@ -203,9 +204,33 @@ least. A failover stand-in must be indexed, on another quota and at least as int
 Routing gives the rung, its ladder and a one-line why (a lane's declared `Kind:`/`Difficulty:` wins over Jev, and
 the why says when Jev disagreed, when no rung clears the bar, or when a tie decided); the run's `routes.jsonl`
 keeps every role's decision with, for the rung it picks, its intelligence, the bar it was held to and catherd's own
-runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on. A run starts only when every
-enabled role has an indexed rung, and it keeps the index it started on: a later refresh never changes what it
-dispatches on.
+runs on it ("12 lanes, 2 climbed, 1 partial"), which it shows but never routes on, with one exception: the learned
+start below. A run starts only when every enabled role has an indexed rung, and it keeps the index it started on: a
+later refresh never changes what it dispatches on.
+
+A lane on the critical path of the remaining plan starts no lower than the role's default rung, unless it is a copy
+lane, which keeps the cheapest rung that clears copy's bar. catherd finds the critical path from the plan the run
+approved: each lane and each milestone's review, verify and land counts as one step, and a lane with no slack lies
+on the longest chain through the plan. A lane with slack starts on the cheapest rung that clears the bar of the next
+easier difficulty (hard to logic, logic to build, build to copy), and its why says `slack N: held to <bar>'s bar`.
+A lane the plan does not list, such as one the architect added later, or a run with no event log, routes on its bar
+alone.
+
+A lane its lane file marks `Chore: yes` starts on the cheapest capable rung, and Jev is not asked about it. The
+architect sets that line for mechanically simple work (stubs, fixtures, renames, boilerplate, docs, version bumps),
+or when the owner's plan marks the lane `chore`. A chore lane keeps its own kind and difficulty in the record.
+
+A cheaper rung with at least as good a record on this machine is preferred over the start the bar gives. Both rungs
+need 5 or more finished lanes of the lane's difficulty, the cheaper one's first-pass rate must be at least the
+start's, and its rounds per lane no more than the start's. A first pass is a lane that landed on its start rung in
+one dispatch, with no retry, fix round or capability climb. Chore lanes are left out of the record. The why names
+both records, and `catherd catalog outcomes` shows them.
+
+A fix round whose notes are all mechanical runs once on the profile's cheapest capable rung, on a fresh thread. A
+note counts as mechanical when it is a nit, or a bug about lint, formatting, the type check, naming, a comment or an
+unused symbol, or a fast check that failed on lint, formatting or the type check. If that try fails, its fast check
+fails, or one of its findings survives the next review, the lane goes back to its own rung once, and the cheap try
+does not count toward a climb.
 
 Jev's yes/no answers shape the difficulty it gives: a yes to an unexplained cause, a cross-service invariant or
 shared state lifts a lane to at least logic, and a yes to purely mechanical work holds it at build. A profile can

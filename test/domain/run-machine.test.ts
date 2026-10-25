@@ -611,6 +611,21 @@ describe("the machine: review rounds", () => {
     });
   });
 
+  it("an armed lane owes a cheap dispatch on a fresh thread", () => {
+    const log = runningLog(plan(2));
+    finishLane(log, "M1.L1");
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [
+      bug("BUG src/a/x.ts:3 — the comment restates the code", "src/a/x.ts"),
+      bug("BUG src/b/y.ts:1 — off by one in the total", "src/b/y.ts"),
+    ]);
+    const [cheap, plain] = of(last(log), "dispatch");
+    expect(cheap).toMatchObject({ name: "worker-M1.L1", brief: "fix", thread: null, cheap: true });
+    expect(plain).toMatchObject({ name: "worker-M1.L2", brief: "fix", thread: "t-M1.L2" });
+    expect(plain).not.toHaveProperty("cheap");
+  });
+
   it("parks a milestone whose BLOCKER outlives the rounds, and moves on to the next one", () => {
     const log = runningLog(plan(1));
     finishLane(log, "M1.L1");
