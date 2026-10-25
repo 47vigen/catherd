@@ -19,9 +19,7 @@ test("maps every backend to its mark, a monogram or nothing", () => {
   expect(backendName("mystery")).toBe("mystery");
 
   expect(render(<ProviderIcon backend="codex:gpt-6-sol#high" />).container.querySelector("svg")).not.toBeNull();
-  const cursor = render(<ProviderIcon backend="cursor" />).container;
-  expect(cursor.querySelector("svg")).toBeNull();
-  expect(cursor).toHaveTextContent("C");
+  expect(render(<ProviderIcon backend="cursor" />).container.querySelector("svg")).not.toBeNull();
   expect(render(<ProviderIcon backend="mystery" />).container).toHaveTextContent("M");
 });
 
