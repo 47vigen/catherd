@@ -90,6 +90,21 @@ describe("runStart", () => {
     expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
   });
 
+  it("run_start returns the run when the daemon launch fails", async () => {
+    withHome();
+    const repo = tempRepo();
+    daemonLauncher.launch = () => {
+      throw new Error("posix_spawn failed");
+    };
+    const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"] });
+    expect(r).toMatchObject({
+      run: expect.any(String),
+      daemon: "failed",
+      warning: "the run started, its daemon did not: posix_spawn failed; status(run) starts it again",
+    });
+    expect(listRuns().runs.map((x) => x.id)).toEqual([r.run]);
+  });
+
   it("a run without base has no meta.base and run.started.base null", async () => {
     withHome();
     const repo = tempRepo();

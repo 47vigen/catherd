@@ -423,6 +423,9 @@ function verifyBrief(run: Run, s: RunState, a: DispatchAction): string {
           "",
         ]
       : []),
+    ...(m?.knownIssues.length
+      ? ["The owner accepted these; do not FAIL on them:", ...m.knownIssues.map((k) => `- ${k}`), ""]
+      : []),
     "The first line of your reply is the verdict: VERDICT: PASS, VERDICT: FAIL, or VERDICT: BLOCKED: environment — <the probe that proves it>. On FAIL, list each failing item on its own line below, starting the line with `FAIL` and giving the file and the command that failed.",
   ].join("\n");
 }

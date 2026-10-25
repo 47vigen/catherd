@@ -56,6 +56,10 @@ describe("the verifier's prompt (spec 1.1 §7)", () => {
     );
   });
 
+  it("the verifier judges a commit-history line from the tree", () => {
+    expect(rolePrompt("verifier", "1.5.0")).toContain("judged from the tree");
+  });
+
   it("records HEAD first, puts file:line in FAIL lines and calls a minor issue a NIT", () => {
     const text = rolePrompt("verifier", "1.5.0");
     expect(text).toContain("0. Record git rev-parse HEAD first");

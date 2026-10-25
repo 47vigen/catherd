@@ -219,6 +219,10 @@ describe("rolePrompt", () => {
       expect(text).toContain(s);
   });
 
+  it("a worker is told never to end its turn on a background wait", () => {
+    expect(rolePrompt("worker", "1.0.0")).toContain("Never end your turn to wait");
+  });
+
   it("asks the architect to translate a given plan and to write a deep one otherwise", () => {
     const text = rolePrompt("architect", "1.0.0");
     for (const s of [

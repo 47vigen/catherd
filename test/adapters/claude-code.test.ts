@@ -282,7 +282,43 @@ describe("claude-code finalize", () => {
   });
 });
 
+describe("claude-code settle", () => {
+  const resumed = (thread: string | null) =>
+    finished(lines("resume-cost.jsonl"), { request: req({ thread }) });
+  const prior = { tokens: { input: 1, cached: 1, output: 1 }, costUsd: 2.50550973 };
+
+  it("a resumed dispatch records only its own cost", async () => {
+    const run = resumed("t-1");
+    const o = await claudeCodeAdapter.settle?.(claudeCodeAdapter.finalize(run), run, prior);
+    expect(o?.costUsd).toBeCloseTo(0.567426, 6);
+    expect(o?.tokens).toEqual({
+      input: 32 + 7844170 + 65994,
+      cached: 7844170,
+      cacheWrite: 65994,
+      output: 43683,
+    });
+  });
+
+  it("a fresh thread keeps its total cost", async () => {
+    const run = resumed(null);
+    const o = await claudeCodeAdapter.settle?.(claudeCodeAdapter.finalize(run), run, prior);
+    expect(o?.costUsd).toBe(3.07293573);
+  });
+});
+
 describe("claude-code parse", () => {
+  it("a result with no turns is not the final reply", () => {
+    const all = lines("orphan-result.jsonl");
+    expect(all.map((l) => claudeCodeAdapter.parse(l).final === true)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+    expect(claudeCodeAdapter.finalize(finished(all)).reply).toBe("all done");
+  });
+
   it("reports the thread, a retry, and the final result with its tokens", () => {
     const [init, retry, , result] = lines("retry.jsonl");
     expect(claudeCodeAdapter.parse(init as string)).toMatchObject({
