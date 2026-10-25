@@ -10,6 +10,7 @@ import {
   refusedForRole,
   type RoleScope,
   roleScopeError,
+  roleScopeFromEnv,
 } from "../../domain/role-scope.ts";
 import { takeBootLock } from "../../infra/boot-lock.ts";
 import { resolveHost } from "../../infra/host-context.ts";
@@ -162,7 +163,8 @@ export async function startMcpServer(
     bootLock?: () => (() => void) | null;
   } = {},
 ): Promise<void> {
-  const deps = o.deps ?? defaultDeps();
+  // Codex starts a role's MCP servers without CATHERD_ROLE but with its scratch TMPDIR
+  const deps = o.deps ?? { ...defaultDeps(), role: roleScopeFromEnv(process.env, { scratch: true }) };
   const observed = new Map<string, ReturnType<typeof startNotifier>>();
   const server = buildServer(deps, (context) => {
     const target = currentSession(context);

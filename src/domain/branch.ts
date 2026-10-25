@@ -39,6 +39,12 @@ export function planSetup(planText: string): string | null {
 /** Whether the owner's answer to a landed milestone's question is the word that has catherd push its branch. */
 export const isPushAnswer = (answer: string): boolean => answer.trim().toLowerCase() === "push";
 
+/** The subject of the merge commit that lands a milestone on the base: the run's slug, lower case, at most 100 characters. */
+export function mergeSubject(runId: string, milestone: string, title: string): string {
+  const stem = runId.replace(/^\d{8}-\d{6}-/, "");
+  return `chore: merge ${stem} ${milestone} ${title}`.toLowerCase().slice(0, 100);
+}
+
 /** The command that opens a milestone's MR, for the origin's host: gh on github.com, else glab. */
 export function mrCommand(o: { originUrl: string; base: string; branch: string; body: string }): string {
   return /(^|[@/.])github\.com[:/]/.test(o.originUrl)

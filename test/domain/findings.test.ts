@@ -7,12 +7,28 @@ describe("fileOf", () => {
     expect(fileOf("`src/b/c.ts:10-12` — x")).toBe("src/b/c.ts");
     expect(fileOf("README.md — typo")).toBe("README.md");
     expect(fileOf("the wallet is wrong")).toBeNull();
-    expect(fileOf("— no file here: src/late.ts")).toBeNull();
+    expect(fileOf("— no file here: src/late.ts")).toBe("src/late.ts");
   });
 
   it("comma and L line lists keep their path", () => {
     expect(fileOf("BUG src/domain/run-state.ts:152,401,522 — x")).toBe("src/domain/run-state.ts");
     expect(fileOf("src/a.ts:L12")).toBe("src/a.ts");
+  });
+});
+
+describe("fileOf over the whole text", () => {
+  it("a ~ line mark keeps its path and a route is no file", () => {
+    const text =
+      "BUG /models tooltip — raw float — at web/src/routes/_app/models/-components/CostChart.tsx:~58 — /tmp/shots/m33.png";
+    expect(fileOf(text)).toBe("web/src/routes/_app/models/-components/CostChart.tsx");
+    expect(filesOf(text)).not.toContain("/models");
+    expect(filesOf(text)).toContain("/tmp/shots/m33.png");
+  });
+
+  it("fileOf reads past the fourth word", () => {
+    expect(fileOf("BUG run graph, Fit to view — hides nodes (`graph/RunGraph.tsx`)")).toBe(
+      "graph/RunGraph.tsx",
+    );
   });
 });
 

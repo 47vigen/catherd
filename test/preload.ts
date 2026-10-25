@@ -9,6 +9,10 @@ process.env.CATHERD_NO_END_PUSH = "1";
 // over CATHERD_HOME, so a test that sets only CATHERD_HOME would write into the real ones.
 delete process.env.CATHERD_DATA_DIR;
 delete process.env.CATHERD_CONFIG_DIR;
+// A suite a role's shell started carries that role's CATHERD_ROLE and dispatch id; the role guards would refuse the
+// commands under test, in this process and in every child that inherits the env.
+delete process.env.CATHERD_ROLE;
+delete process.env.CATHERD_DISPATCH_ID;
 // Heavy slots wait while the host load is above twice its cores (up to 15 minutes). A CI runner running the suite
 // is that busy, so no lock in a test, nor any `catherd lock` a test spawns, may wait on it. A test of the wait sets
 // heavyLimits.loadWaitMs itself.

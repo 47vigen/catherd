@@ -3,13 +3,13 @@ import type { Finding } from "./run-events.ts";
 const LINE = /^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(BLOCKER|BUG|NIT)\b\**\s*:?\s*(.*)$/;
 /** What a reviewer writes where it has nothing to report: `BUG: none`, `NIT n/a`, a lone dash. */
 const NOTHING = /^(?:none|n\/a|nil|no findings?|clean|[-—–]+)\.?\**$/i;
-const PATH = /^[`'"(]*((?:\.{0,2}\/)?[\w@~.+-]+(?:\/[\w@~.+-]+)*)(?::L?\d+(?:[-,:]L?\d+)*)?[`'"),;:]*$/;
+const PATH = /^[`'"(]*((?:\.{0,2}\/)?[\w@~.+-]+(?:\/[\w@~.+-]+)*)(?::[L~]?\d+(?:[-,:][L~]?\d+)*)?[`'"),;:]*$/;
 /** A verifier's failing line after its list marker and bold: `FAIL`, `BLOCKER`, `BUG` or `A<n> … FAIL`. */
 const FAIL_LINE = /^(?:[-*]\s+|\d+[.)]\s+)?\**(?:(?:FAIL|BLOCKER|BUG)\b|A\d+\b.*\bFAIL\b)/;
 
 /**
- * Every file a text names, in order: `path`, `path:12`, `path:12-20`, `path:L12`, `path:1,2,3`. A path has
- * a `/` or an extension.
+ * Every file a text names, in order: `path`, `path:12`, `path:12-20`, `path:L12`, `path:~12`, `path:1,2,3`. A
+ * path has a `/` or an extension; a leading `/` with no extension (`/models`) is a route, not a file.
  */
 export function filesOf(text: string): string[] {
   return text
@@ -17,13 +17,13 @@ export function filesOf(text: string): string[] {
     .split(/\s+/)
     .flatMap((tok) => {
       const p = PATH.exec(tok)?.[1];
-      return p && (p.includes("/") || /\.[A-Za-z]\w*$/.test(p)) ? [p] : [];
+      return p && (/\.[A-Za-z]\w*$/.test(p) || (p.includes("/") && !p.startsWith("/"))) ? [p] : [];
     });
 }
 
-/** The first file of a finding's first 4 words (`BLOCKER file:line — problem — fix`), or null. */
+/** The first file a finding's text names, or null. */
 export function fileOf(text: string): string | null {
-  return filesOf(text.trim().split(/\s+/, 4).join(" "))[0] ?? null;
+  return filesOf(text)[0] ?? null;
 }
 
 /** A reviewer's reply as findings, in order: its BLOCKER, BUG and NIT lines, as written; "none" lines left out. */
