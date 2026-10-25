@@ -1,5 +1,6 @@
 import { type JudgeInput, type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import { overlaps } from "./lane.ts";
+import { mergeSubject } from "./branch.ts";
 import { approvalQuestion } from "./plan-doc.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
@@ -10,6 +11,7 @@ import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent
 import {
   activeMilestones,
   siblingMayChange,
+  SOURCE_PLAN_NOTE,
   integrateName,
   isFinished,
   type LaneState,
@@ -548,7 +550,14 @@ function approvalActions(s: RunState): Action[] {
   if (s.planDirty) return [{ type: "readPlan" }];
   if (hasLive(s, "architect")) return [];
   if (s.revise.length > 0) return architectAgain(s);
-  return [{ type: "park", unit: RUN_UNIT, question: approvalQuestion(s.run), reason: "approval" }];
+  return [
+    {
+      type: "park",
+      unit: RUN_UNIT,
+      question: `${approvalQuestion(s.run)} ${SOURCE_PLAN_NOTE}`,
+      reason: "approval",
+    },
+  ];
 }
 
 /** The check the owner runs right before merging an MR: the branch must contain origin's base. */
@@ -565,9 +574,9 @@ const precheck = (s: RunState, m: MilestoneState): string => {
 function pushQuestion(s: RunState, m: MilestoneState): string {
   const branch = m.branch ?? "the run's branch";
   if (m.mr !== null)
-    return `${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
+    return `${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
   const tree = m.tree ?? ".";
-  return `${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
+  return `${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
 }
 
 /**
@@ -710,7 +719,7 @@ export function next(state: RunState, e: RunEvent): Action[] {
   return [...react(state, e), ...owedActions(state), ...advance(state)].filter((a) => {
     const key = actionKey(a);
     if (seen.has(key) || sameLine(state, a)) return false;
-    if (state.paused !== null && PAUSED_STEPS.has(a.type)) return false;
+    if ((state.paused !== null || state.held !== null) && PAUSED_STEPS.has(a.type)) return false;
     seen.add(key);
     return true;
   });

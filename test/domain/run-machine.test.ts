@@ -17,6 +17,7 @@ import {
   liveDispatches,
   type RunState,
   siblingMayChange,
+  SOURCE_PLAN_NOTE,
   STATUS_ASK,
 } from "../../src/domain/run-state.ts";
 import { memoryLoad } from "../../src/domain/milestone-memory.ts";
@@ -35,6 +36,8 @@ import {
 
 const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { type: T }>[] =>
   as.filter((a): a is Extract<Action, { type: T }> => a.type === type);
+/** the question the machine asks for the architect's plan (D21 note included) */
+const approvalAsk = `${approvalQuestion("r1")} ${SOURCE_PLAN_NOTE}`;
 const names = (as: Action[]): string[] => of(as, "dispatch").map((a) => a.name);
 /** what the machine does after the log's last event */
 const last = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunEvent);
@@ -1118,6 +1121,42 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     expect(of(out, "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
   });
 
+  it("the push question names the merge subject", () => {
+    const mk = () => {
+      const p = plan(1);
+      (p[0] as MilestonePlan).title = "Lanes";
+      const log = runningLog(p, "main");
+      finishLane(log, "M1.L1");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      checked(log, "c0");
+      const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+      endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+      landed(log, "feat/wallet");
+      return log;
+    };
+    const log = mk();
+    expect(of(last(log), "park")[0]?.question).toContain(
+      "with a merge commit whose subject is `chore: merge r1 m1 lanes`",
+    );
+    log.add("branch.pushed", {
+      milestone: "M1",
+      branch: "feat/wallet",
+      remote: "origin",
+      mr: "gh pr create",
+    });
+    expect(of(last(log), "park")[0]?.question).toContain("`chore: merge r1 m1 lanes`");
+  });
+
+  it("the approval question tells the owner to edit the source plan files", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(of(last(log), "park")[0]?.question).toEndWith(
+      "Edit the source plan files, not the run's plan-input copies: catherd copies them again when you answer.",
+    );
+  });
+
   it("unblocks a dependant of a squash merge only by the owner's answer", () => {
     const log = baseRun();
     landed(log, "feat/wallet");
@@ -1510,7 +1549,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
     return log;
   }
   const ask = (log: Log) =>
-    log.add("question.parked", { unit: "run", question: approvalQuestion("r1"), reason: "approval" });
+    log.add("question.parked", { unit: "run", question: approvalAsk, reason: "approval" });
   const noWork = (as: Action[]) =>
     expect(as.filter((a) => ["route", "dispatch", "fastCheck", "commit", "land"].includes(a.type))).toEqual(
       [],
@@ -1519,9 +1558,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
   it("waits in approval for the owner, revises on a change request and routes only after the approval", () => {
     const log = planned();
     expect(log.state().phase).toBe("approval");
-    expect(last(log)).toEqual([
-      { type: "park", unit: "run", question: approvalQuestion("r1"), reason: "approval" },
-    ]);
+    expect(last(log)).toEqual([{ type: "park", unit: "run", question: approvalAsk, reason: "approval" }]);
     ask(log);
     expect(last(log).map((a) => a.type)).toEqual(["report", "notify"]);
     log.add("question.answered", { unit: "run", answer: "rename Ledger to Book", by: "owner" });

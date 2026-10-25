@@ -11,6 +11,7 @@ import {
   reduce,
   replay,
   softCap,
+  SOURCE_PLAN_NOTE,
   STATUS_ASK,
 } from "../../src/domain/run-state.ts";
 import {
@@ -18,6 +19,7 @@ import {
   endDispatch,
   finishLane,
   makeLog,
+  routeMilestone,
   runningLog,
   startDispatch,
   startedFields,
@@ -377,7 +379,7 @@ describe("run state", () => {
     expect(activeMilestones(log.state()).map((m) => m.id)).toEqual(["M2"]);
   });
 
-  it("lists live dispatches, and a refusal waits", () => {
+  it("lists live dispatches, and a paused refusal holds the run", () => {
     const log = runningLog();
     startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
     expect(liveDispatches(log.state()).map((d) => d.name)).toEqual(["worker-M1.L1"]);
@@ -386,8 +388,9 @@ describe("run state", () => {
       { name: "worker-M1.L2", unit: "M1.L2", code: "E_ADMIT_PAUSED", message: "paused" },
       "2026-10-21T10:00:00.000Z",
     );
-    expect(log.state().waiting["worker-M1.L2"]).toBe("2026-10-21T10:05:00.000Z");
-    expect(log.state().wakeAt).toBe("2026-10-21T10:05:00.000Z");
+    // a machine pause holds the run until `pause.lifted`: no timed wait
+    expect(log.state().waiting["worker-M1.L2"]).toBeUndefined();
+    expect(log.state().held).toBe("2026-10-21T10:00:00.000Z");
   });
 
   it("parks a unit whose name is refused as a duplicate again and again", () => {
@@ -1589,5 +1592,170 @@ describe("plan 43 M3: owners, parks and STATUS asks", () => {
     log.add("question.parked", { unit: "M1", question: "q", reason: "check_broken" });
     log.add("question.answered", { unit: "M1", answer: "accept, the env is flaky", by: "owner" });
     expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c0" });
+  });
+});
+
+describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
+  const digested = (l1: string, l2: string): MilestonePlan[] =>
+    PLAN.map((m) =>
+      m.id === "M1" ? { ...m, lanes: m.lanes.map((l) => ({ ...l, digest: l.id === "M1.L1" ? l1 : l2 })) } : m,
+    );
+
+  it("a replan that edits a done lane's file re-runs it", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    log.add("plan.approved", { by: "owner" });
+    routeMilestone(log, PLAN[0] as MilestonePlan);
+    finishLane(log, "M1.L1", { thread: "t1" });
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [bug("BLOCKER nowhere/x.ts:1 — unowned", "nowhere/x.ts", "BLOCKER")]);
+    expect(log.state().milestones[0]?.status).toBe("fixing");
+    log.add("plan.ready", { milestones: digested("c", "b") });
+    const s = log.state();
+    expect(s.lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      thread: "t1",
+      digest: "c",
+      notes: ["The architect changed lanes/M1.L1.md: re-read it and make the change it asks for."],
+    });
+    expect(s.lanes["M1.L2"]).toMatchObject({ status: "done", digest: "b" });
+    const out = next(s, log.events.at(-1)!);
+    expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }));
+    expect(out.some((a) => a.type === "commit")).toBe(false);
+  });
+
+  it("a replan that edits a done lane sends a landing or parked milestone back to fixing", () => {
+    const done = () => {
+      const log = makeLog();
+      log.add("run.started", startedFields);
+      log.add("plan.ready", { milestones: digested("a", "b") });
+      log.add("plan.approved", { by: "owner" });
+      routeMilestone(log, PLAN[0] as MilestonePlan);
+      finishLane(log, "M1.L1", { thread: "t1" });
+      finishLane(log, "M1.L2");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      return log;
+    };
+    const landing = done();
+    checked(landing, "c0");
+    const v = startDispatch(landing, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(landing, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    expect(landing.state().milestones[0]?.status).toBe("landing");
+    landing.add("plan.ready", { milestones: digested("c", "b") });
+    expect(landing.state().milestones[0]?.status).toBe("fixing");
+    expect(landing.state().lanes["M1.L1"]).toMatchObject({ status: "pending", thread: "t1" });
+
+    const parked = done();
+    parked.add("question.parked", { unit: "M1", question: "q", reason: "blocker" });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "verifying" });
+    parked.add("plan.ready", { milestones: digested("c", "b") });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "fixing" });
+    parked.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+    expect(parked.state().milestones[0]?.status).toBe("fixing");
+  });
+
+  it("a replan with no digest, the same digest or a first digest re-runs nothing", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    routeMilestone(log, PLAN[0] as MilestonePlan);
+    finishLane(log, "M1.L1");
+    // no stored digest: the first one is taken, nothing re-runs
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a" });
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a", notes: [] });
+    // a plan without digests keeps the stored one
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a" });
+  });
+
+  describe("a pre-commit hook refusal", () => {
+    const committing = () => {
+      const log = runningLog(lone);
+      finishLane(log, "M1.L1", { thread: "t1" });
+      return log;
+    };
+    const lone: MilestonePlan[] = [
+      {
+        id: "M1",
+        title: "t",
+        after: [],
+        lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a.ts"] }],
+      },
+    ];
+
+    it("goes to the owning lane once", () => {
+      const log = committing();
+      expect(log.state().milestones[0]?.status).toBe("committing");
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts: not formatted", hook: true });
+      let s = log.state();
+      expect(s.stuck.M1).toBeUndefined();
+      expect(s.milestones[0]).toMatchObject({ status: "fixing", hookFixes: 1 });
+      expect(s.lanes["M1.L1"]).toMatchObject({ status: "pending", thread: "t1" });
+      expect(s.lanes["M1.L1"]?.notes).toEqual([
+        "The pre-commit hook refused the commit:\nsrc/a.ts: not formatted",
+      ]);
+      // a second refusal before a commit parks as it always did
+      finishLane(log, "M1.L1");
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts: still not", hook: true });
+      s = log.state();
+      expect(s.stuck.M1).toMatchObject({ reason: "commit" });
+    });
+
+    it("a refusal without hook, or a commit.made, behaves as before", () => {
+      const log = committing();
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts" });
+      expect(log.state().stuck.M1).toMatchObject({ reason: "commit" });
+      const again = committing();
+      again.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts", hook: true });
+      finishLane(again, "M1.L1");
+      again.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      expect(again.state().milestones[0]?.hookFixes).toBe(0);
+    });
+
+    it("a refusal naming no lane's file goes to the triage judge", () => {
+      const log = committing();
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "lefthook failed", hook: true });
+      expect(log.state().milestones[0]).toMatchObject({
+        status: "fixing",
+        open: [{ label: "BLOCKER", file: null }],
+      });
+    });
+  });
+
+  it("a paused machine holds the run with one refusal", () => {
+    const log = runningLog();
+    const refuse = (name: string) =>
+      log.add("dispatch.refused", { name, unit: name.slice(7), code: "E_ADMIT_PAUSED", message: "paused" });
+    refuse("worker-M1.L1");
+    refuse("worker-M1.L1");
+    const s = log.state();
+    expect(s.held).toBe(log.events.find((e) => e.type === "dispatch.refused")?.at ?? null);
+    expect(s.waiting).toEqual({});
+    const tick = log.add("tick", {});
+    const out = next(log.state(), tick);
+    expect(out.filter((a) => a.type === "dispatch" || a.type === "judge")).toEqual([]);
+    const lifted = log.add("pause.lifted", {});
+    expect(log.state().held).toBeNull();
+    expect(next(log.state(), lifted)).toContainEqual(
+      expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }),
+    );
+  });
+
+  it("a plan-check park tells the owner to edit the source plan files", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    for (let i = 0; i < 3; i++)
+      log.add("effect.failed", { action: "readPlan", unit: "run", message: "lane M1.L1 owns nothing" });
+    expect(log.state().stuck.run?.question).toBe(
+      `readPlan on run failed: lane M1.L1 owns nothing\n${SOURCE_PLAN_NOTE}`,
+    );
   });
 });

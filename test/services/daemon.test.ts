@@ -14,6 +14,7 @@ import {
   readHeartbeat,
   runDaemon,
 } from "../../src/services/daemon.ts";
+import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import type { MilestonePlan, RunEventInput } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
@@ -198,6 +199,69 @@ describe("runDaemon", () => {
     writeFileSync(heartbeatFile(run), "{");
     expect(readHeartbeat(run)).toBeNull();
     expect(readFileSync(heartbeatFile(run), "utf8")).toBe("{");
+  });
+
+  it("a lifted machine pause appends one pause.lifted", async () => {
+    const { run } = freshRun();
+    let now = Date.parse("2026-10-21T10:00:00.000Z");
+    pauseMachine(now, "vpn");
+    await appendEvent(run, started, new Date(now));
+    await appendEvent(
+      run,
+      {
+        type: "dispatch.refused",
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        code: "E_ADMIT_PAUSED",
+        message: "paused",
+      },
+      new Date(now),
+    );
+    const lifted = () => readEvents(run).filter((e) => e.type === "pause.lifted").length;
+    let sleeps = 0;
+    let liftedBeforeResume = -1;
+    await runDaemon(fakeDeps({ now: () => now }), run.id, {
+      effects: { async run() {} },
+      clock: {
+        now: () => now,
+        async sleep() {
+          sleeps++;
+          now += 5_000;
+          if (sleeps === 5) {
+            liftedBeforeResume = lifted();
+            resumeMachine(now);
+          }
+        },
+      },
+      until: () => sleeps >= 12,
+    });
+    expect(liftedBeforeResume).toBe(0);
+    expect(lifted()).toBe(1);
+  });
+
+  it("an effect that hits ENOSPC stops the loop", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    let slept = 0;
+    const err = new Error("ENOSPC: no space left on device, write");
+    await expect(
+      runDaemon(fakeDeps(), run.id, {
+        effects: {
+          async run() {
+            throw err;
+          },
+        },
+        clock: {
+          now: () => Date.now(),
+          async sleep() {
+            slept++;
+          },
+        },
+        until: () => slept > 50,
+      }),
+    ).rejects.toBe(err);
+    expect(daemonAlive(run)).toBe(false);
   });
 
   it("frees the lock when it returns", async () => {

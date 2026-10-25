@@ -5,6 +5,7 @@ import { errorMessage } from "../domain/errors.ts";
 import { launchDaemon } from "../infra/launch.ts";
 import type { SuperviseClock } from "../infra/supervisor.ts";
 import { lockHeld, tryLock, withFileLockSync } from "../infra/filelock.ts";
+import { heavyLimits } from "../infra/heavy-lock.ts";
 import { log } from "../infra/log.ts";
 import { processStartTime } from "../infra/proc.ts";
 import { readVersioned, writeJsonAtomic } from "../infra/store.ts";
@@ -14,6 +15,7 @@ import { type Action, actionKey, confirms, failKey, next } from "../domain/run-m
 import { reduce, replay, type RunState } from "../domain/run-state.ts";
 import { type Effects, realEffects } from "./run-effects.ts";
 import { appendEvent, eventsFile, isDaemonRun, readEvents } from "./run-events-store.ts";
+import { pausesFor } from "./pause.ts";
 import { findRun, type Run } from "./run-store.ts";
 
 /** The daemon holds this lock for its whole life: a second holder gets none, a dead one's is reclaimed. */
@@ -120,6 +122,10 @@ export interface DaemonOptions {
   until?: () => boolean;
 }
 
+/** Whether `e` is a full disk: an errno code, or a message that starts with it (a wrapped write error). */
+const isEnospc = (e: unknown): boolean =>
+  (e as { code?: unknown } | null)?.code === "ENOSPC" || errorMessage(e).startsWith("ENOSPC");
+
 const REAL_CLOCK: SuperviseClock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
 
 /**
@@ -154,15 +160,18 @@ export async function runDaemon(
     /** action key → the key `effect.failed` frees it by */
     const issued = new Map<string, string>();
     const inFlight = new Set<Promise<void>>();
+    /** the full-disk error that stops the loop once the effects in flight have settled */
+    let stopError: unknown = null;
     const issue = (a: Action): void => {
       const key = actionKey(a);
       if (issued.has(key)) return;
       issued.set(key, failKey(a, state));
       const p: Promise<void> = effects
         .run(a, state)
-        .catch((e: unknown) =>
-          log("error", "daemon", { run: run.id, action: a.type, error: errorMessage(e) }),
-        )
+        .catch((e: unknown) => {
+          log("error", "daemon", { run: run.id, action: a.type, error: errorMessage(e) });
+          if (isEnospc(e)) stopError ??= e;
+        })
         .finally(() => {
           inFlight.delete(p);
           // Notices, stale reminders and empty merge checks leave no event to free their key.
@@ -178,6 +187,10 @@ export async function runDaemon(
     };
     let beatAt = clock.now();
     while (!o.until?.()) {
+      if (stopError !== null) {
+        await Promise.allSettled(inFlight);
+        throw stopError;
+      }
       const fresh = readEvents(run, state.seq + 1);
       for (const e of fresh) take(e);
       if (fresh.length > 0) continue;
@@ -188,6 +201,11 @@ export async function runDaemon(
       if (clock.now() - beatAt >= daemonLimits.beatMs) {
         beat(run, deps, state.seq);
         beatAt = clock.now();
+        // The pause that held a refused dispatch is gone (also one lifted while no daemon ran): owe it again.
+        if (state.held !== null && pausesFor(run).length === 0) {
+          await appendEvent(run, { type: "pause.lifted" }, new Date(clock.now()));
+          continue;
+        }
       }
       if (state.phase === "ended" && inFlight.size === 0) break;
       await clock.sleep(daemonLimits.pollMs);
@@ -199,5 +217,35 @@ export async function runDaemon(
     throw e;
   } finally {
     release();
+  }
+}
+
+export interface SuperviseOptions {
+  freeMb: () => number;
+  reserveMb: () => number;
+  sleep: (ms: number) => Promise<unknown>;
+  pollMs: number;
+}
+
+/**
+ * Runs the daemon (`once`); one that a full disk stopped waits until the disk has its reserve again and runs it
+ * again, since the new daemon replays and issues what was lost. Any other error is the caller's.
+ */
+export async function superviseDaemon<T>(
+  once: () => Promise<T>,
+  o: SuperviseOptions = {
+    freeMb: heavyLimits.freeMb,
+    reserveMb: () => heavyLimits.diskReserveMb,
+    sleep: Bun.sleep,
+    pollMs: 30_000,
+  },
+): Promise<T> {
+  for (;;) {
+    try {
+      return await once();
+    } catch (e) {
+      if (!isEnospc(e)) throw e;
+      while (o.freeMb() < o.reserveMb()) await o.sleep(o.pollMs);
+    }
   }
 }

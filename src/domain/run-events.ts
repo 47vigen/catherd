@@ -87,6 +87,8 @@ export const MilestonePlanSchema = z.object({
       kind: z.string().nullable(),
       after: z.array(z.string()),
       owns: z.array(z.string()),
+      /** plan 43: a hash of the lane file without its Owns line: a replan that changes it re-runs a done lane (absent before) */
+      digest: z.string().optional(),
     }),
   ),
 });
@@ -189,7 +191,13 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     waitedMs: z.number(),
   }),
   ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
-  ev("commit.failed", { milestone: z.string(), round: z.number().int().min(0), tail: z.string() }),
+  ev("commit.failed", {
+    milestone: z.string(),
+    round: z.number().int().min(0),
+    tail: z.string(),
+    /** plan 43: the pre-commit hook refused the commit (absent before) */
+    hook: z.boolean().optional(),
+  }),
   ev("lane.climbed", { lane: z.string(), rung: z.string(), top: z.boolean() }),
   ev("stop.classified", { dispatchId: z.string(), reason: z.enum(BLOCKED_REASONS).nullable() }),
   ev("judge.decided", {
@@ -250,6 +258,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   /** plan 37: the owner holds one run; live roles finish, nothing new starts until `run.resumed` */
   ev("run.paused", { by: z.literal("owner") }),
   ev("run.resumed", { by: z.literal("owner") }),
+  /** plan 43: no machine pause covers the run any more: what a refused dispatch held is owed again */
+  ev("pause.lifted", {}),
   ev("effect.failed", { action: z.enum(ACTION_TYPES), unit: z.string(), message: z.string() }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
   ev("tick", {}),
@@ -353,6 +363,8 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `run paused by the ${e.by}`;
     case "run.resumed":
       return `run resumed by the ${e.by}`;
+    case "pause.lifted":
+      return "the machine pause was lifted";
     case "effect.failed":
       return `${e.action} on ${e.unit} failed: ${one(e.message)}`;
     case "report.posted":
