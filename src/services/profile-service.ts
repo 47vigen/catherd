@@ -343,6 +343,7 @@ function viewOf(p: Profile): ProfileView {
     budget: p.budget,
     timeouts: p.timeouts,
     preflight: p.preflight,
+    land: p.land,
     heavy: p.lock.heavy,
     notify: p.notify,
     limits: { memory: pickMemory(memoryLimitsOf(p)) },

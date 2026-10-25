@@ -82,6 +82,7 @@ export async function runStart(
       plan,
       base: i.base ?? null,
       engine: "2.0",
+      autoMerge: runProfile(deps, run).land.autoMerge,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),

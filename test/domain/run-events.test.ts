@@ -223,4 +223,16 @@ describe("plan 43 events", () => {
     const { hook: _h, ...old } = hook;
     expect(RunEventSchema.parse(old)).toEqual(old);
   });
+
+  it("merge.failed, autoMerge and a milestone merged by catherd parse and describe", () => {
+    const log = makeLog();
+    const failed = log.add("merge.failed", { milestone: "M1", error: "CONFLICT" });
+    const merged = log.add("milestone.merged", { milestone: "M1", by: "catherd", commit: "e1" });
+    const owner = log.add("milestone.merged", { milestone: "M2" });
+    for (const e of [failed, merged, owner]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(RunEventSchema.safeParse({ ...merged, by: "owner" }).success).toBe(false);
+    expect(describeEvent(failed)).toBe("M1 could not be merged by catherd: CONFLICT");
+    expect(describeEvent(merged)).toBe("M1 merged by catherd");
+    expect(describeEvent(owner)).toBe("M2 merged");
+  });
 });

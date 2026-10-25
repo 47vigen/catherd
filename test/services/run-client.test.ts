@@ -12,7 +12,7 @@ import { approvalQuestion } from "../../src/domain/plan-doc.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { git } from "../../src/infra/git.ts";
-import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -65,6 +65,17 @@ describe("runStart", () => {
       notifyUrl: "https://ntfy.sh/catherd-test",
     });
     expect(r.next).toContain("https://ntfy.sh/catherd-test");
+  });
+
+  it("run.started pins the profile's autoMerge", async () => {
+    withHome();
+    const repo = tempRepo();
+    const view = testView();
+    view.land = { autoMerge: true };
+    const r = await runStart(fakeDeps({ view }), { repo, title: "w", aLines: ["A1 x"] });
+    expect(readEvents(findRun(r.run))[0]).toMatchObject({ type: "run.started", autoMerge: true });
+    const off = await runStart(fakeDeps(), { repo, title: "w2", aLines: ["A1 x"] });
+    expect(readEvents(findRun(off.run))[0]).toMatchObject({ autoMerge: false });
   });
 
   it("records base in meta and run.started, after fetching it", async () => {

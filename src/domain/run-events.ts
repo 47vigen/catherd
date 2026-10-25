@@ -56,6 +56,7 @@ export const ACTION_TYPES = [
   "integrate",
   "claimTree",
   "pushBranch",
+  "mergeLanded",
   "cancel",
   "report",
   "notify",
@@ -118,6 +119,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     engine: z.literal("2.0"),
     /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
     rolesOff: z.array(role).optional(),
+    /** plan 43: `land.autoMerge` as the profile had it at the start; catherd merges the run's landed milestones (absent before) */
+    autoMerge: z.boolean().optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("plan.ready", { milestones: z.array(MilestonePlanSchema) }),
@@ -220,7 +223,14 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     branch: z.string().nullable().optional(),
   }),
   ev("land.refused", { milestone: z.string(), code: z.string(), message: z.string(), fix: z.string() }),
-  ev("milestone.merged", { milestone: z.string() }),
+  /** `by: "catherd"`: plan 43's autoMerge merged it (at `commit` on the base); absent: the owner did */
+  ev("milestone.merged", {
+    milestone: z.string(),
+    by: z.literal("catherd").optional(),
+    commit: z.string().optional(),
+  }),
+  /** plan 43: catherd could not merge a landed milestone; the owner is asked to */
+  ev("merge.failed", { milestone: z.string(), error: z.string() }),
   ev("base.behind", { milestone: z.string() }),
   ev("integrate.done", { milestone: z.string(), commit: z.string() }),
   ev("integrate.conflict", { milestone: z.string(), files: strings }),
@@ -344,7 +354,9 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "land.refused":
       return `${e.milestone} land refused: ${e.code}`;
     case "milestone.merged":
-      return `${e.milestone} merged`;
+      return `${e.milestone} merged${e.by ? ` by ${e.by}` : ""}`;
+    case "merge.failed":
+      return `${e.milestone} could not be merged by catherd: ${e.error}`;
     case "base.behind":
       return `${e.milestone} is behind its base`;
     case "integrate.done":

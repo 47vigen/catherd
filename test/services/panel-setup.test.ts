@@ -37,6 +37,12 @@ describe("the panel's Setup view", () => {
     );
   });
 
+  it("the settings carry landAutoMerge", async () => {
+    expect(SetupViewSchema.parse(await setupView(deps, repo)).settings.landAutoMerge).toBe(false);
+    deps.profiles.set(undefined, { land: { autoMerge: true } }, repo);
+    expect(SetupViewSchema.parse(await setupView(deps, repo)).settings.landAutoMerge).toBe(true);
+  });
+
   it("offers older versions too, each naming the newer one that hides it by default", async () => {
     const v = SetupViewSchema.parse(await setupView(deps, repo));
     const newer = (rung: string) =>

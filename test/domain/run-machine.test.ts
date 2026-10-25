@@ -1121,6 +1121,29 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     expect(of(out, "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
   });
 
+  it("a run without autoMerge still asks to push", () => {
+    const log = baseRun();
+    landed(log, "feat/wallet");
+    const out = last(log);
+    expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "push" }]);
+    expect(of(out, "mergeLanded")).toEqual([]);
+  });
+
+  it("an autoMerge run owes mergeLanded per landed milestone, and holds it while paused", () => {
+    const log = runningLog(plan(1), { ...startedFields, base: "main", autoMerge: true });
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    landed(log, "feat/wallet");
+    expect(of(last(log), "mergeLanded")).toEqual([{ type: "mergeLanded", milestone: "M1" }]);
+    expect(actionKey({ type: "mergeLanded", milestone: "M1" })).toBe("mergeLanded:M1");
+    log.add("run.paused", { by: "owner" });
+    expect(of(last(log), "mergeLanded")).toEqual([]);
+  });
+
   it("the push question names the merge subject", () => {
     const mk = () => {
       const p = plan(1);

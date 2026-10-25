@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mrCommand, unitMilestone } from "../domain/branch.ts";
+import { mergeSubject, mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import {
   type BlockedReason,
@@ -1067,6 +1067,56 @@ export function realEffects(deps: Deps, run: Run): Effects {
   }
 
   /**
+   * Plan 43 D20: merges a landed milestone into origin's base from a detached worktree of its own (the owner's checkout
+   * may be dirty or elsewhere), pushes it without force and drops the milestone's tree. Any git failure leaves origin
+   * alone and is `merge.failed`, which turns into the owner's push question.
+   */
+  async function mergeLanded(a: Extract<Action, { type: "mergeLanded" }>, s: RunState): Promise<void> {
+    const m = milestoneOf(s, a.milestone);
+    const commit = m?.commit ?? landedCommitOf(run, a.milestone);
+    if (!m || s.base === null || !commit) return;
+    const repo = run.meta.repo;
+    const wt = join(run.dir, "scratch", `merge-${a.milestone}`);
+    const fail = async (r: { out: string; err: string; timedOut: boolean }): Promise<void> => {
+      await append({
+        type: "merge.failed",
+        milestone: a.milestone,
+        error: r.timedOut ? "git timed out" : tailOf(`${r.out}\n${r.err}`, 5),
+      });
+    };
+    try {
+      const fetched = await gitRun(repo, ["fetch", "-q", "origin", s.base], effectLimits.commitMs);
+      if (fetched.code !== 0) return await fail(fetched);
+      await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs); // left by a crashed try
+      const added = await gitRun(
+        repo,
+        ["worktree", "add", "--detach", wt, `origin/${s.base}`],
+        effectLimits.commitMs,
+      );
+      if (added.code !== 0) return await fail(added);
+      const merged = await gitRun(
+        wt,
+        ["merge", "--no-ff", "-m", mergeSubject(run.id, a.milestone, m.title), commit],
+        effectLimits.commitMs,
+      );
+      if (merged.code !== 0) return await fail(merged);
+      const pushed = await gitRun(wt, ["push", "origin", `HEAD:refs/heads/${s.base}`], effectLimits.commitMs);
+      if (pushed.code !== 0) return await fail(pushed);
+      const head = await gitRun(wt, ["rev-parse", "HEAD"]);
+      const gone = await removeTree(run, a.milestone);
+      if (gone.hint) log("warn", "trees", { run: run.id, milestone: a.milestone, hint: gone.hint });
+      await append({
+        type: "milestone.merged",
+        milestone: a.milestone,
+        by: "catherd",
+        ...(head.code === 0 ? { commit: head.out.trim() } : {}),
+      });
+    } finally {
+      await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs);
+    }
+  }
+
+  /**
    * A memory check, then the milestone's worktree: `tree.deferred` while the machine has no room for another, and
    * while another is working on a disk short of its reserve (plan 40 D14).
    */
@@ -1259,6 +1309,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return claim(a, s);
       case "pushBranch":
         return pushBranch(a, s);
+      case "mergeLanded":
+        return mergeLanded(a, s);
     }
   }
 

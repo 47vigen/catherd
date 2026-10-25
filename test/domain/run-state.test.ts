@@ -1759,3 +1759,55 @@ describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
     );
   });
 });
+
+describe("plan 43 M5: catherd merges its own landed milestones", () => {
+  const landedLog = (autoMerge: boolean) => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, base: "main", autoMerge });
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "c0abcdef0123",
+      knownIssues: [],
+      digestPath: "d",
+      branch: "feat/wallet",
+    });
+    return log;
+  };
+  const last = (log: ReturnType<typeof makeLog>) => next(log.state(), log.events.at(-1) as never);
+
+  it("an autoMerge run's landed milestone is merged by catherd", () => {
+    const log = landedLog(true);
+    expect(log.state().autoMerge).toBe(true);
+    let out = last(log);
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([{ type: "mergeLanded", milestone: "M1" }]);
+    expect(out.filter((a) => a.type === "park" || a.type === "pushBranch")).toEqual([]);
+    log.add("milestone.merged", { milestone: "M1", by: "catherd", commit: "e1" });
+    out = last(log);
+    expect(log.state().milestones[0]?.status).toBe("merged");
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([]);
+    expect(out.filter((a) => a.type === "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
+    expect(confirms(log.events.at(-1) as never)).toContain("mergeLanded:M1");
+  });
+
+  it("a failed merge falls back to the push question", () => {
+    const log = landedLog(true);
+    log.add("merge.failed", { milestone: "M1", error: "CONFLICT (content): src/a.ts" });
+    expect(confirms(log.events.at(-1) as never)).toContain("mergeLanded:M1");
+    const out = last(log);
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([]);
+    const park = out.find((a) => a.type === "park");
+    expect(park).toMatchObject({ unit: "M1", reason: "push" });
+    const question = (park as { question: string }).question;
+    expect(question).toContain("catherd could not merge it: CONFLICT (content): src/a.ts.");
+    expect(question).toContain("chore: merge");
+  });
+
+  it("autoMerge turned on later does not change a run that started without it", () => {
+    const log = landedLog(false);
+    expect(log.state().autoMerge).toBe(false);
+    expect(last(log).filter((a) => a.type === "mergeLanded")).toEqual([]);
+    expect(last(log).filter((a) => a.type === "park")).toHaveLength(1);
+  });
+});

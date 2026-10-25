@@ -69,6 +69,7 @@ export const ProfileDocSchema = z.looseObject({
     .optional(),
   timeouts: z.looseObject({ idleMin: positive.optional(), wallMin: positive.optional() }).optional(),
   preflight: z.looseObject({ confirm: z.boolean().optional() }).optional(),
+  land: z.looseObject({ autoMerge: z.boolean().optional() }).optional(),
   lock: z
     .looseObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]).optional() })
     .optional(),
@@ -193,6 +194,8 @@ export interface Profile {
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
+  /** plan 43: who merges a landed milestone into the base */
+  land: { autoMerge: boolean };
   lock: { heavy: number | "cpus/2" };
   notify: NotifyMoment[];
   /** plan 35: only the memory numbers the profile sets; the defaults are `MEMORY_LIMITS` */
@@ -273,6 +276,7 @@ export function defaultProfileDoc(name = "default"): ProfileDoc {
     budget: {},
     timeouts: { idleMin: 15, wallMin: 90 },
     preflight: { confirm: false },
+    land: { autoMerge: false },
     lock: { heavy: "cpus/2" },
     notify: [...NOTIFY],
   };
@@ -364,6 +368,7 @@ export function resolveProfile(doc: ProfileDoc, name: string, host: Orchestratio
     budget,
     timeouts: { idleMin: doc.timeouts?.idleMin ?? 15, wallMin: doc.timeouts?.wallMin ?? 90 },
     preflight: { confirm: doc.preflight?.confirm ?? false },
+    land: { autoMerge: doc.land?.autoMerge ?? false },
     lock: { heavy: doc.lock?.heavy ?? "cpus/2" },
     notify: doc.notify === undefined ? [...NOTIFY] : doc.notify.filter((n) => known(NOTIFY, n)),
     limits: {
@@ -425,6 +430,7 @@ export const ProfilePatchSchema = z.strictObject({
     .optional(),
   timeouts: z.strictObject({ idleMin: positive, wallMin: positive }).partial().optional(),
   preflight: z.strictObject({ confirm: z.boolean() }).optional(),
+  land: z.strictObject({ autoMerge: z.boolean() }).optional(),
   lock: z.strictObject({ heavy: z.union([z.number().int().positive(), z.literal("cpus/2")]) }).optional(),
   notify: z.array(z.enum(NOTIFY)).optional(),
   limits: z
