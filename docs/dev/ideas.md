@@ -342,10 +342,17 @@ Plan 26 (the minors sweep) review:
   DeepSeek V4.1 Flash lanes (2026-10-24, plan 41's source) found the two 5× apart. A run's cost is opencode's own
   figure when opencode reports a price, else the catalog's (plan 41 D2). _Why:_ the cheap tier's saving depends on
   which price a run takes. _Where:_ `src/services/finalize.ts`, `src/adapters/opencode/index.ts`.
-- **The DeepSeek Harness (`dsh`) A/B experiment.** Not run; plans 40 and 41 both left it for later. The owner's review
-  of the first DeepSeek V4.1 Flash lanes (plan 41's source) found them 5–15× cheaper than GPT Sol, but 1.5–3× slower
-  with 2–4× the tool calls. _Why:_ those numbers come from one harness, so an A/B would show whether the harness
-  causes the slowdown. _Where:_ a manual run first, then a plan.
+- **A `dsh` adapter for cheap chore lanes, at a stable release.** The A/B ran on 2026-10-25
+  (`docs/dev/reports/2026-10-25-dsh-vs-opencode-pilot.md`): 15 headless runs of `dsh` 0.2.1-rc.3 against opencode 2.1.4
+  on the same model (DeepSeek V4.1 Flash, max, through one OpenAI-compatible gateway), three `ideas.md` tasks with hidden
+  acceptance tests and blind grading. Medians: opencode 145 s, 25 tool calls, $0.0107, hidden tests 6/6, blind 7.0;
+  `dsh` native 153 s, 25 calls, $0.0101, 5/6, blind 5.2; `dsh` with programmatic tool calling 124 s, 15 calls, $0.0080,
+  2/3, blind 6.0. So the harness does not cause DeepSeek's slowdown, and `dsh` is no better than opencode on quality
+  (worse on the hardest task). _Why:_ PTC mode may cut chore-lane cost by about a quarter; 3 runs do not show it.
+  _Where:_ an adapter under `src/adapters/`, once `dsh` ships a stable release: the model set by a YAML patch (no
+  `--model` flag), an isolated `DSH_HOME`, the permission mode by `DSH_PERMISSION_MODE` (rc.3 has no
+  `--permission-mode` flag), cost from catalog prices (the stream has none), web tools off, `DSH_TELEMETRY_DISABLED=1`,
+  `--session-id` for resume and a version pin. Re-run the A/B on PTC only, with more runs, before routing to it.
 - **Best-of-N cheap workers.** Run several cheap workers on one lane and keep the result the review passes. Not built.
   _Why:_ at 5–15× less per lane than GPT Sol (plan 41's source), a few cheap tries may cost less than one strong try;
   untested. _Where:_ the worker dispatch, after plan 41's routing.
