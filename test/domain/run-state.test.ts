@@ -1298,6 +1298,20 @@ describe("pending reminder wake scheduling", () => {
       expect(lane(log)).toMatchObject({ status: "pending", cheapFirst: true });
     });
 
+    it("a failed stand-in of a limited cheap try falls back to the lane's own rung, not another stand-in", () => {
+      const log = armed([comment]);
+      const cheap = "claude-code:claude-haiku-5-5#low";
+      const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", rung: cheap });
+      endDispatch(log, id, { name: "worker-M1.L1", unit: "M1.L1", status: "limit", replyStatus: null });
+      fixOn(log, "opencode:glm-5#low", { ok: false });
+      expect(lane(log)).toMatchObject({ status: "pending", failoverFrom: null, failoverNow: false });
+      const owed = next(log.state(), log.events.at(-1) as never).find(
+        (a) => a.type === "dispatch" && a.unit === "M1.L1",
+      );
+      expect(owed).toMatchObject({ rung: "codex:gpt-6-sol#medium", failoverFrom: null });
+      expect(owed).not.toHaveProperty("cheap");
+    });
+
     it("a lint failure of a lane's first try arms the cheap try, a test failure does not", () => {
       const log = runningLog();
       const id = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });

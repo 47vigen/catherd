@@ -832,6 +832,9 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.cheapRan = false;
     l.cheapSpent = true;
     l.thread = null;
+    // a stand-in of a limited cheap rung: the lane's own rung goes on its own quota
+    l.failoverFrom = null;
+    l.failoverNow = false;
     l.status = "pending";
     return;
   }
