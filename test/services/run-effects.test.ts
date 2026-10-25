@@ -2276,6 +2276,15 @@ describe("a milestone per branch (plan 35)", () => {
     expect(existsSync(treeDir(run, "M1"))).toBe(true);
   });
 
+  it("a mergeLanded it cannot start is merge.failed, never silent", async () => {
+    const { run, fx } = await treesSetup();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "merge.failed")).toMatchObject({
+      milestone: "M1",
+      error: "no landed commit to merge",
+    });
+  });
+
   it("parks a landed milestone for its push, naming its branch, the push answer, the push command, the digest and the precheck", async () => {
     const { run, fx } = await treesSetup();
     const { tree } = await claimM(run, "M1");

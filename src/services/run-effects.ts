@@ -1074,7 +1074,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
   async function mergeLanded(a: Extract<Action, { type: "mergeLanded" }>, s: RunState): Promise<void> {
     const m = milestoneOf(s, a.milestone);
     const commit = m?.commit ?? landedCommitOf(run, a.milestone);
-    if (!m || s.base === null || !commit) return;
+    if (!m || s.base === null || !commit)
+      return void (await append({
+        type: "merge.failed",
+        milestone: a.milestone,
+        error: s.base === null ? "the run has no base branch" : "no landed commit to merge",
+      }));
     const repo = run.meta.repo;
     const wt = join(run.dir, "scratch", `merge-${a.milestone}`);
     const fail = async (r: { out: string; err: string; timedOut: boolean }): Promise<void> => {
