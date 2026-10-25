@@ -48,10 +48,20 @@ export function dropAt(list: string[], dragged: Iterable<string>, target: string
   return at < 0 ? list : [...rest.slice(0, at), ...moving, ...rest.slice(at)];
 }
 
-/** Every rung any role is offered, once each. */
+/** Every rung any role is offered, once each; a model a newer version replaces is left out. */
 export const offeredRungs = (roles: { offered: IndexedPair[] }[]): string[] => [
-  ...new Set(roles.flatMap((r) => r.offered.map((p) => p.rung))),
+  ...new Set(roles.flatMap((r) => r.offered.filter((p) => p.newer === null).map((p) => p.rung))),
 ];
+
+/** The newer version that replaces the backend and model of `rung`, by name; null when it is current or unknown. */
+export function newerOf(rung: string, offered: IndexedPair[]): string | null {
+  const { backend, model } = parseRung(rung);
+  const same = offered.find((p) => {
+    const x = parseRung(p.rung);
+    return x.backend === backend && x.model === model;
+  });
+  return same?.newer ?? null;
+}
 
 const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "default"];
 

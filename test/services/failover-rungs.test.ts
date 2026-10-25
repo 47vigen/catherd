@@ -58,9 +58,9 @@ describe("failoverRung", () => {
     const { run, deps } = setup({ failover: {} });
     // free: opencode-go luna (equal), claude opus (far above): the non-Claude one wins
     expect(failoverRung(deps, run, "worker", LUNA, ["codex"])).toBe(GO_LUNA);
-    // only Claude is free
+    // only Claude is free; Claude Sonnet 5, which Sonnet 5.5 replaces, is never picked
     expect(failoverRung(deps, run, "worker", LUNA, ["codex", "opencode-go", "cursor"])).toBe(
-      "claude-code:claude-sonnet-5#xhigh",
+      "claude-code:claude-haiku-5-5#medium",
     );
   });
 

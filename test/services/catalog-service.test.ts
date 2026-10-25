@@ -288,7 +288,9 @@ describe("discovery per repository", () => {
 describe("catalogQuery", () => {
   it("lists only indexed pairs, each with its intelligence, price, speed and cost", () => {
     withHome();
-    const sol = q({ backend: "codex", text: "gpt-6-sol" }).models.find((m) => m.model === "gpt-6-sol");
+    const sol = q({ backend: "codex", text: "gpt-6-sol", older: true }).models.find(
+      (m) => m.model === "gpt-6-sol",
+    );
     expect(sol).toMatchObject({ id: "gpt-6-sol", backend: "codex", billing: "codex", listed: null });
     expect(sol?.rungs.map((r) => r.rung)).not.toContain("codex:gpt-6-sol#ultra");
     expect(sol?.rungs[0]).toMatchObject({ cost: { tier: 0 } });
@@ -309,10 +311,29 @@ describe("catalogQuery", () => {
     expect(q({ backend: "claude", text: "opus" }).models[0]?.rungs.map((r) => r.rung)).toContain(
       "claude:claude-opus-5-5#high",
     );
-    expect(q({ backend: "opencode-go" }).models.map((m) => m.model)).toEqual([
-      "opencode-go/gpt-5.6-luna",
-      "opencode-go/gpt-6-luna",
+    expect(q({ backend: "opencode-go" }).models.map((m) => m.model)).toEqual(["opencode-go/gpt-6-luna"]);
+  });
+
+  it("leaves out a model a newer version replaces on its backend, unless asked for the older ones", () => {
+    withHome();
+    const rows = (o: Parameters<typeof q>[0]) =>
+      q(o).models.map((m) => `${m.backend}:${m.model} ${m.supersededBy}`);
+    expect(rows({ text: "sol" })).toEqual([
+      "cursor:gpt-6-sol null",
+      "opencode:opencode/gpt-6-sol null",
+      "codex:gpt-6.1-sol null",
     ]);
+    expect(rows({ text: "sol", older: true })).toEqual([
+      "codex:gpt-5.6-sol gpt-6-sol",
+      "opencode:opencode/gpt-5.6-sol gpt-6-sol",
+      "codex:gpt-6-sol gpt-6.1-sol",
+      "cursor:gpt-6-sol null",
+      "opencode:opencode/gpt-6-sol null",
+      "codex:gpt-6.1-sol null",
+    ]);
+    // GPT-6.1 Sol missing from codex's listing: GPT-6 Sol is current there again
+    writeDiscovery("codex", [{ id: "gpt-6-sol", efforts: ["high"], context: 1, imageIn: true }], T0);
+    expect(rows({ backend: "codex", text: "gpt-6-sol" })).toEqual(["codex:gpt-6-sol null"]);
   });
 
   it("says a rung's run evidence (spec 1.2 §8)", () => {

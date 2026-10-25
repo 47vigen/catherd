@@ -105,10 +105,10 @@ describe("the profile tools on the profile service", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       (
         routingService().catalog(
-          { backend: "codex", text: "gpt-6-sol", limit: 50 },
+          { backend: "codex", text: "gpt-6.1-sol", limit: 50 },
           profiles.forRepo(null).billing,
         ).models[0] as any
-      ).rungs.find((r: { rung: string }) => r.rung === "codex:gpt-6-sol#high").cost;
+      ).rungs.find((r: { rung: string }) => r.rung === "codex:gpt-6.1-sol#high").cost;
     expect(cost().mode).toBe("chatgpt-plan");
     profiles.set(undefined, { billing: { codex: "metered" } });
     expect(cost().mode).toBe("metered");

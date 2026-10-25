@@ -150,6 +150,8 @@ export interface CatalogFilter {
   role?: Role;
   backend?: string;
   text?: string;
+  /** include models a newer version replaces on their backend */
+  older?: boolean;
   limit: number;
   /** the git toplevel whose per-repository listings (opencode's) to read; none reads the global ones */
   repo?: string;

@@ -130,13 +130,17 @@ describe("catalogPairs", () => {
       },
     });
     const all = catalogPairs(c);
-    expect(all).toContain("codex:gpt-6-sol#high");
-    expect(all).not.toContain("codex:gpt-6-sol#ultra");
+    expect(all).toContain("opencode:opencode/gpt-6-sol#high");
+    expect(all).not.toContain("opencode:opencode/gpt-6-sol#ultra");
+    // GPT-6.1 Sol replaces GPT-6 Sol on codex: no stand-in is picked from the older version there
+    expect(all).toContain("codex:gpt-6.1-sol#high");
+    expect(all).not.toContain("codex:gpt-6-sol#high");
     expect(all).toContain(OPUS("max"));
     expect(all).toContain("opencode:opencode/claude-opus-5-5#high");
     expect(all).toContain(KIMI);
     // a model with no effort has one rung, #default, when the index files it so
-    expect(all).toContain("claude-code:claude-haiku-4-5-20251001#default");
+    expect(all).toContain("opencode:opencode/claude-haiku-4-5#default");
+    expect(all).not.toContain("claude-code:claude-haiku-4-5-20251001#default");
     expect(all).not.toContain("cursor:composer-2.5#default");
     expect(all).not.toContain("opencode:opencode-go/glm-5.3#high");
     expect(all.some((r) => r.startsWith("grok:") || r.startsWith("antigravity:"))).toBe(false);

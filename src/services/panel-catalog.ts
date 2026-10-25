@@ -31,6 +31,8 @@ export const CatalogEntrySchema = z.object({
   name: z.string().nullable(),
   lab: z.string().nullable(),
   backends: z.array(z.string()),
+  /** a newer version replaces it on every backend that offers it: the page starts with it switched off */
+  superseded: z.boolean(),
   points: z.array(ModelPointSchema),
 });
 export const CatalogViewSchema = z.object({
@@ -48,10 +50,13 @@ export function catalogView(repo?: string): CatalogView {
   const c = loadCatalog({ repo });
   const byId = new Map<string, z.infer<typeof CatalogEntrySchema>>();
   const offered = new Set<string>();
-  for (const m of catalogQuery({ limit: 10_000, repo }).models) {
+  const current = new Set<string>();
+  for (const m of catalogQuery({ older: true, limit: 10_000, repo }).models) {
     if (m.listed !== false) offered.add(m.id);
+    if (m.listed !== false && m.supersededBy === null) current.add(m.id);
     let e = byId.get(m.id);
-    if (!e) byId.set(m.id, (e = { id: m.id, name: m.name, lab: null, backends: [], points: [] }));
+    if (!e)
+      byId.set(m.id, (e = { id: m.id, name: m.name, lab: null, backends: [], superseded: true, points: [] }));
     if (!e.backends.includes(m.backend)) e.backends.push(m.backend);
     for (const r of m.rungs) {
       const effort = r.rung.slice(r.rung.lastIndexOf("#") + 1);
@@ -64,6 +69,9 @@ export function catalogView(repo?: string): CatalogView {
     }
   }
   const models = [...byId.values()].filter((e) => offered.has(e.id));
-  for (const e of models) e.points.sort((a, b) => rank(a.effort) - rank(b.effort));
+  for (const e of models) {
+    e.superseded = !current.has(e.id);
+    e.points.sort((a, b) => rank(a.effort) - rank(b.effort));
+  }
   return { indexedAt: c.indexedAt, models };
 }

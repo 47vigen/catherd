@@ -1,4 +1,4 @@
-import { billingKeyOf, type Catalog, pairOf, rungInfo } from "./catalog.ts";
+import { billingKeyOf, type Catalog, pairOf, rungInfo, successorOf } from "./catalog.ts";
 import { type BillingMode, compareCost, type Cost, costOf, DEFAULT_BILLING } from "./cost.ts";
 import { type Rung, tryParseRung } from "./ids.ts";
 
@@ -76,10 +76,12 @@ const BACKEND_OF_KEY: Record<string, string> = { "opencode-go": "opencode" };
 /**
  * Every indexed rung catherd can name: each shipped family's model on each backend at each effort the index
  * (or the backend's listing) gives it, and each listed model at each listed effort. Sorted, without duplicates.
+ * A model a newer version replaces on its backend is left out: no stand-in is picked from an older version.
  */
 export function catalogPairs(c: Catalog): string[] {
   const out = new Set<string>();
   const add = (backend: string, model: string, efforts: readonly string[]) => {
+    if (successorOf(c, `${backend}:${model}#default`)) return;
     for (const e of [...efforts, "default"]) {
       const rung = `${backend}:${model}#${e}`;
       if (pairOf(c, rung)) out.add(rung);

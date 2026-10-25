@@ -1,11 +1,14 @@
-import { Description, Header, Label, ListBox, Modal, SearchField } from "@heroui/react";
+import { Description, Header, Label, ListBox, Modal, SearchField, Switch } from "@heroui/react";
 import { useState } from "react";
 
 import { modelName, pairLine, parseRung, providerGroups } from "../-lib/rung";
 import type { IndexedPair } from "../../../../client";
 import { ProviderIcon, backendName } from "../../../../components/provider-icon/ProviderIcon";
 
-/** The pairs the index offers a role, grouped by provider, each with its score, price and speed. Picking one adds it. */
+/**
+ * The pairs the index offers a role, grouped by provider, each with its score, price and speed. Picking one adds it.
+ * A model a newer version replaces shows only once "Show older versions" is on.
+ */
 export function PairPicker({
   role,
   pairs,
@@ -20,8 +23,12 @@ export function PairPicker({
   onPick(rung: string): void;
 }) {
   const [q, setQ] = useState("");
+  const [older, setOlder] = useState(false);
   const needle = q.trim().toLowerCase();
-  const shown = pairs.filter((p) => `${p.rung} ${modelName(parseRung(p.rung).model)}`.toLowerCase().includes(needle));
+  const shown = pairs.filter(
+    (p) =>
+      (older || p.newer === null) && `${p.rung} ${modelName(parseRung(p.rung).model)}`.toLowerCase().includes(needle),
+  );
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Modal.Container size="lg" scroll="inside">
@@ -47,6 +54,16 @@ export function PairPicker({
                     <SearchField.ClearButton />
                   </SearchField.Group>
                 </SearchField>
+                {pairs.some((p) => p.newer !== null) ? (
+                  <Switch size="sm" isSelected={older} onChange={setOlder}>
+                    <Switch.Content>
+                      <Switch.Control>
+                        <Switch.Thumb />
+                      </Switch.Control>
+                      <Label className="text-sm">Show older versions</Label>
+                    </Switch.Content>
+                  </Switch>
+                ) : null}
                 <ListBox aria-label="Indexed pairs" onAction={(key) => onPick(String(key))}>
                   {providerGroups(shown).map((g) => (
                     <ListBox.Section key={g.backend}>
@@ -63,7 +80,10 @@ export function PairPicker({
                                 {modelName(r.model)}
                                 {r.effort ? <span className="text-muted"> · {r.effort}</span> : null}
                               </Label>
-                              <Description className="text-xs">{pairLine(p)}</Description>
+                              <Description className="text-xs">
+                                {pairLine(p)}
+                                {p.newer ? ` · Newer: ${p.newer}` : null}
+                              </Description>
                             </div>
                           </ListBox.Item>
                         );

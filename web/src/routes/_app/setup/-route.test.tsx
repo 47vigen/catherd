@@ -14,6 +14,7 @@ const pair = (rung: string, intelligence: number, over: object = {}) => ({
   context: null,
   cost: { tier: 0, value: 0, mode: "chatgpt-plan" },
   evidence: null,
+  newer: null,
   ...over,
 });
 const LUNA = "codex:gpt-6-luna#high";
@@ -447,6 +448,35 @@ test("Add a fallback model picks a pair grouped by provider", async () => {
   const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
   expect(steps).toHaveLength(3);
   expect(steps[2]).toHaveTextContent("Claude Opus 5.5");
+});
+
+test("older versions stay out of the picker until asked for, and a rung on the role names its newer version", async () => {
+  const OLD_LUNA = "codex:gpt-5.6-luna#high";
+  const OLD_SOL = "codex:gpt-5.6-sol#high";
+  const view = setup({
+    roles: [
+      role("worker", {
+        rungs: [{ rung: OLD_LUNA, intelligence: 30 }],
+        offered: [
+          pair(SOL, 50),
+          pair(OLD_SOL, 45, { newer: "GPT-6 Sol" }),
+          pair(OLD_LUNA, 30, { newer: "GPT-6 Luna" }),
+        ],
+      }),
+    ],
+  });
+  renderRoute("/setup", api({}, view));
+  const worker = await openRole("worker");
+  const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
+  expect(steps[0]).toHaveTextContent("Tried first · via Codex · Newer: GPT-6 Luna");
+  await userEvent.click(within(worker).getByRole("button", { name: "Add a fallback model" }));
+  const box = await screen.findByRole("listbox", { name: "Indexed pairs" });
+  expect(within(box).getAllByRole("option")).toHaveLength(1);
+  const older = screen.getByRole("switch", { name: "Show older versions" });
+  expect(older).not.toBeChecked();
+  await userEvent.click(older);
+  expect(within(box).getAllByRole("option")).toHaveLength(2);
+  expect(within(box).getByText(/Newer: GPT-6 Sol/)).toBeInTheDocument();
 });
 
 test("a role with no indexed pair says to sync the catalog", async () => {
