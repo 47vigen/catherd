@@ -10,6 +10,7 @@ const pages = (): [string, string][] => [
   [`/runs/${state().a.id}`, "wallet split"],
   [`/runs/${state().fixture.id}`, "case helpers"],
   ["/questions", "Questions"],
+  ["/models", "Models"],
   ["/setup", "Setup"],
 ];
 

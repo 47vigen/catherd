@@ -2,9 +2,9 @@ import { render, screen } from "@testing-library/react";
 
 import { Shell } from "./Shell";
 
-test("the nav lists Dashboard, Runs, Questions and Setup, and marks the current page", () => {
+test("the nav lists Dashboard, Runs, Questions, Models and Setup, and marks the current page", () => {
   render(<Shell.Nav current="/questions" />);
-  for (const name of ["Dashboard", "Runs", "Questions", "Setup"]) {
+  for (const name of ["Dashboard", "Runs", "Questions", "Models", "Setup"]) {
     expect(screen.getByRole("link", { name })).toBeInTheDocument();
   }
   expect(screen.getByRole("link", { name: "Questions" })).toHaveAttribute("aria-current", "page");
@@ -35,5 +35,5 @@ test("Shell.Nav renders links through the given link component", () => {
       )}
     />,
   );
-  expect(screen.getAllByTestId("custom")).toHaveLength(4);
+  expect(screen.getAllByTestId("custom")).toHaveLength(5);
 });
