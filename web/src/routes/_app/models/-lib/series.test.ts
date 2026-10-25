@@ -1,5 +1,5 @@
 import type { CatalogEntry } from "../../../../client";
-import { logTicks, seriesOf } from "./series";
+import { logTicks, seriesOf, shadesOf } from "./series";
 
 const pt = (effort: string, usd: number | null, intelligence = 50) => ({
   effort,
@@ -12,6 +12,7 @@ const model = (id: string, lab: string | null, points: CatalogEntry["points"]): 
   id,
   name: null,
   lab,
+  superseded: false,
   backends: ["codex"],
   points,
 });
@@ -36,17 +37,29 @@ describe("seriesOf", () => {
     expect(linear.series[0]!.points).toHaveLength(2);
   });
 
-  it("a hidden model has no series; models of one lab get different dashes", () => {
+  it("a hidden model has no series; a lab's stronger model is drawn deeper, and hiding one recolours nothing", () => {
     const m = [
-      model("a", "openai", [pt("low", 1)]),
-      model("b", "openai", [pt("low", 2)]),
-      model("c", "openai", [pt("low", 3)]),
+      model("weak", "openai", [pt("low", 1, 20)]),
+      model("strong", "openai", [pt("low", 2, 60)]),
+      model("mid", "openai", [pt("low", 3, 40)]),
     ];
+    expect(shadesOf(m)).toEqual(
+      new Map([
+        ["strong", 900],
+        ["mid", 600],
+        ["weak", 300],
+      ]),
+    );
     const all = seriesOf(m, NONE, "log").series;
-    expect(new Set(all.map((s) => s.dash)).size).toBe(3);
-    const some = seriesOf(m, new Set(["b"]), "log").series;
-    expect(some.map((s) => s.id)).toEqual(["a", "c"]);
-    expect(some[1]!.dash).toBe(all[2]!.dash);
+    expect(all.find((s) => s.id === "strong")!.color).toBe("var(--brand-openai)");
+    expect(all.find((s) => s.id === "weak")!.color).toContain("color-mix");
+    const some = seriesOf(m, new Set(["mid"]), "log").series;
+    expect(some.map((s) => s.id)).toEqual(["weak", "strong"]);
+    expect(some[0]!.color).toBe(all[0]!.color);
+  });
+
+  it("a lab with one model draws it in the brand itself", () => {
+    expect(shadesOf([model("only", "google", [pt("low", 1)])]).get("only")).toBe(900);
   });
 });
 

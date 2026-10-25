@@ -17,11 +17,13 @@ export const Route = createFileRoute("/_app/models/")({ component: ModelsPage })
 function ModelsPage() {
   const catalog = useQuery(getCatalogOptions());
   const [scale, setScale] = useState<"log" | "linear">("log");
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // the models switched away from where they start: a model a newer version replaces starts off
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
   const models = catalog.data?.models ?? [];
+  const hidden = new Set(models.filter((m) => m.superseded !== flipped.has(m.id)).map((m) => m.id));
   const { series, dropped } = seriesOf(models, hidden, scale);
   const toggle = (id: string) =>
-    setHidden((h) => {
+    setFlipped((h) => {
       const next = new Set(h);
       if (!next.delete(id)) next.add(id);
       return next;
@@ -59,8 +61,8 @@ function ModelsPage() {
           {axis}
         </div>
         <p className="text-muted text-xs">
-          Every model catherd can route to. Up and to the left is better: more intelligence for less money per task.
-          Filled dots are measured, hollow ones estimated from list prices.
+          Every model catherd can route to. Up and to the left is better: more intelligence for less money per task. A
+          lab's stronger models are drawn deeper; the tooltip says whether a cost is measured or estimated.
         </p>
       </header>
       <DataList.State

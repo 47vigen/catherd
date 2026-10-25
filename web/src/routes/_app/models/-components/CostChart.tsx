@@ -13,7 +13,7 @@ import {
 
 import { logTicks, type Series } from "../-lib/series";
 import { AXIS_TICK, ChartTooltip, GRID_STROKE } from "../../../../components/charts/ChartTooltip";
-import { BRAND_BG, brandFill } from "../../../../lib/brand";
+import { BRAND_BG } from "../../../../lib/brand";
 
 type Point = Series["points"][number];
 
@@ -91,8 +91,7 @@ export function CostChart({
               data={s.points}
               name={s.name}
               dataKey="intelligence"
-              stroke={brandFill(s.brand)}
-              strokeDasharray={s.dash || undefined}
+              stroke={s.color}
               strokeWidth={1.5}
               isAnimationActive={false}
               dot={(d: { cx?: number; cy?: number; index?: number; payload?: Point }) => (
@@ -103,14 +102,7 @@ export function CostChart({
                 >
                   {/* a wider transparent ring, so a 3.5 px dot is easy to hit */}
                   <circle cx={d.cx} cy={d.cy} r={8} fill="transparent" />
-                  <circle
-                    cx={d.cx}
-                    cy={d.cy}
-                    r={3.5}
-                    stroke={brandFill(s.brand)}
-                    strokeWidth={1.5}
-                    fill={d.payload?.measured ? brandFill(s.brand) : "var(--surface)"}
-                  />
+                  <circle cx={d.cx} cy={d.cy} r={3.5} stroke={s.color} strokeWidth={1.5} fill="var(--surface)" />
                 </g>
               )}
               activeDot={false}
@@ -136,9 +128,9 @@ export function CostChart({
                 x={hover.point.usd}
                 y={hover.point.intelligence}
                 r={5}
-                stroke={brandFill(hoverSeries.brand)}
+                stroke={hoverSeries.color}
                 strokeWidth={2}
-                fill={hover.point.measured ? brandFill(hoverSeries.brand) : "var(--surface)"}
+                fill="var(--surface)"
               />
             </>
           ) : null}
