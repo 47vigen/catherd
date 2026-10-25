@@ -1,0 +1,5 @@
+{"type":"system","subtype":"task_notification","session_id":"00000000-0000-4000-8000-000000000043"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":0,"result":"","session_id":"00000000-0000-4000-8000-000000000043","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"all done"}],"usage":{"input_tokens":5,"output_tokens":3}},"parent_tool_use_id":null,"session_id":"00000000-0000-4000-8000-000000000043"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"all done"}],"usage":{"input_tokens":5,"output_tokens":3}},"parent_tool_use_id":null,"session_id":"00000000-0000-4000-8000-000000000043"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":4,"result":"all done","session_id":"00000000-0000-4000-8000-000000000043","total_cost_usd":0.2,"usage":{"input_tokens":5,"output_tokens":3}}
