@@ -2,7 +2,14 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, unlinkSync, writ
 import { join } from "node:path";
 import { z } from "zod";
 import { CatherdError } from "../domain/errors.ts";
-import { checkFailLines, checkItems, coveredDir, FAIL_DISPLAY_CAP, newFails } from "../domain/fail-lines.ts";
+import {
+  checkFailLines,
+  checkItems,
+  coveredDir,
+  FAIL_DISPLAY_CAP,
+  failFiles,
+  newFails,
+} from "../domain/fail-lines.ts";
 import { parseLaneHeader } from "../domain/lane.ts";
 import type { RunEvent } from "../domain/run-events.ts";
 import { replay } from "../domain/run-state.ts";
@@ -30,7 +37,7 @@ import { checkEnvFor } from "./preflight.ts";
 import { activeName, readProfileDoc } from "./profile-store.ts";
 import { readEvents } from "./run-events-store.ts";
 import { findRun, readRecords, type Run, runPaths } from "./run-store.ts";
-import { treeOf } from "./tree-path.ts";
+import { composeProjectOf, treeOf } from "./tree-path.ts";
 
 /** One run of a milestone's full check on one commit (spec 2.0 decision 18), or of the base's own (a baseline). */
 export const CheckRecordSchema = z.looseObject({
@@ -43,6 +50,8 @@ export const CheckRecordSchema = z.looseObject({
   exit: z.number(),
   durationMs: z.number(),
   fails: z.array(z.string()),
+  /** each fail line's repo files (plan 43 D2); older records have none */
+  failFiles: z.record(z.string(), z.array(z.string())).optional(),
   log: z.string(),
   baseline: z.literal(true).optional(),
   /** the first run's exit, when a failure with new lines was rerun once */
@@ -116,6 +125,8 @@ export interface CheckJob {
   head: string;
   base: string | null;
   baseline: boolean;
+  /** the tree's compose project (plan 43 D16); the gate env's own COMPOSE_PROJECT_NAME wins */
+  compose?: string | null;
 }
 
 const invalid = (message: string, fix: string) => new CatherdError("E_INPUT_INVALID", message, { fix });
@@ -130,6 +141,7 @@ const TIMED_OUT = 124;
  */
 async function runLogged(job: CheckJob, log: string, tmp: string | null): Promise<number> {
   const env = await checkEnvFor(job.repo);
+  if (job.compose) env.COMPOSE_PROJECT_NAME ??= job.compose;
   const p = Bun.spawn(["sh", "-c", 'exec > "$1" 2>&1; eval "$2"', "sh", log, job.command], {
     cwd: job.cwd,
     env: { ...(tmp ? { ...env, TMPDIR: tmp, GOTMPDIR: tmp } : env), [LOCK_HELD_ENV]: "1" },
@@ -214,12 +226,14 @@ export async function execMilestoneCheck(
       );
     }
     const out = readFileSync(log, "utf8");
+    const fails = checkFailLines(out);
     return {
       exit,
       durationMs: Date.now() - started,
       startedAt: new Date(started).toISOString(),
       waitedMs: started - requested,
-      fails: checkFailLines(out),
+      fails,
+      ...(fails.length ? { failFiles: failFiles(out, job.cwd) } : {}),
       log,
     };
   };
@@ -444,13 +458,14 @@ export async function freshFailures(
   run: Run,
   m: string,
   head: string,
-): Promise<{ item: string; lines: string[] }[]> {
+): Promise<{ item: string; lines: string[]; files: Record<string, string[]> }[]> {
   const start = await checkBase(run, m);
   return latestOnHead(run, m, head)
     .filter((r) => r.exit !== 0)
     .map((r) => ({
       item: r.command,
       lines: newFails(r.fails, baselineFor(run.meta.repo, r.command, start)?.fails ?? null),
+      files: r.failFiles ?? {},
     }));
 }
 
@@ -662,6 +677,7 @@ async function runCheckItem(
     head,
     base,
     baseline,
+    compose: composeProjectOf(run, i.milestone, baseline),
   };
   const file = flightOf(job);
   ensurePrivateDir(checkLogDir(repo));

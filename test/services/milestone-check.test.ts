@@ -327,10 +327,13 @@ describe("the verdict's carry and the base's lines", () => {
   it("freshFailures and missingBaselines name the lines the base lacks", async () => {
     appendCheckRecord(repo, rec({ baseline: true, head: BASE, exit: 1, fails: ["FAIL x"] }));
     appendCheckRecord(repo, rec({ exit: 1, fails: ["FAIL x", "FAIL y"] }));
-    appendCheckRecord(repo, rec({ command: "lint", exit: 1, fails: ["FAIL z"] }));
+    appendCheckRecord(
+      repo,
+      rec({ command: "lint", exit: 1, fails: ["FAIL z"], failFiles: { "FAIL z": ["src/z.ts"] } }),
+    );
     expect(await freshFailures(run, "M1", HEAD)).toEqual([
-      { item: "bun test", lines: ["FAIL y"] },
-      { item: "lint", lines: ["FAIL z"] },
+      { item: "bun test", lines: ["FAIL y"], files: {} },
+      { item: "lint", lines: ["FAIL z"], files: { "FAIL z": ["src/z.ts"] } },
     ]);
     expect(await missingBaselines(run, "M1", HEAD)).toEqual(["lint"]);
   });

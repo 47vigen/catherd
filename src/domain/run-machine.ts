@@ -9,7 +9,7 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
-  dependsOn,
+  siblingMayChange,
   integrateName,
   isFinished,
   type LaneState,
@@ -302,14 +302,7 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
  */
 function waitsForSibling(s: RunState, l: LaneState): boolean {
   if (l.lastReason !== "check_broken" || l.stopRun !== 1) return false;
-  return lanesOf(s, l.milestone).some((o) => {
-    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
-    if (o.status === "running") return true;
-    if (o.status !== "pending") return false;
-    const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
-    const latest = tried.at(-1);
-    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
-  });
+  return siblingMayChange(s, l);
 }
 
 /**

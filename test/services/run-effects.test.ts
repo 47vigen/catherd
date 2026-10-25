@@ -27,7 +27,7 @@ import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
-import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { appendLedger, createRun } from "../../src/services/run-store.ts";
 import { next } from "../../src/domain/run-machine.ts";
 import { branchPusher, claimTree, memoryReader, treeDir, treeOf } from "../../src/services/milestone-tree.ts";
@@ -237,6 +237,31 @@ describe("dispatching", () => {
     });
     expect(types(run)).not.toContain("dispatch.started");
     expect(existsSync(repo)).toBe(true);
+  });
+
+  it("an off-ladder rung is routed again", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max" }), replayRun(run));
+    expect(lastOf(run, "lanes.routed")).toMatchObject({
+      milestone: "M1",
+      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-luna#high" }],
+    });
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "codex:gpt-6-luna#high" });
+    expect(types(run)).not.toContain("dispatch.refused");
+  });
+
+  it("a role off the profile is still refused", async () => {
+    const view = testView();
+    view.roles.worker = { enabled: false, access: "workspace-write", rungs: [] };
+    const { run, fx } = setup(undefined, view);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max" }), replayRun(run));
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ADMIT_RUNG" });
+    expect(types(run)).not.toContain("lanes.routed");
+    expect(types(run)).not.toContain("dispatch.started");
   });
 
   it("refuses with E_ALL_HELD when every rung of the role is on a held quota", async () => {
@@ -1469,6 +1494,35 @@ describe("a run with a base branch (30b)", () => {
     );
   });
 
+  it("integrate updates submodules", async () => {
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const { repo, origin, run, fx } = await baseSetup();
+    const sub = tempRepo();
+    const bump = (name: string): string => {
+      const clone = tempDir("catherd-clone-");
+      git(clone, "clone", "-q", origin, ".");
+      if (existsSync(join(clone, ".gitmodules"))) git(clone, "submodule", "update", "-q", "--init");
+      else git(clone, "submodule", "add", "-q", sub, "libs/sub");
+      git(join(clone, "libs/sub"), "fetch", "-q", "origin");
+      git(join(clone, "libs/sub"), "checkout", "-q", "FETCH_HEAD");
+      git(clone, "add", "-A");
+      git(clone, "commit", "-q", "-m", name);
+      git(clone, "push", "-q", "origin", "HEAD:main");
+      return git(join(clone, "libs/sub"), "rev-parse", "HEAD").trim();
+    };
+    bump("add sub");
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    writeFileSync(join(sub, "next.txt"), "n");
+    git(sub, "add", "-A");
+    git(sub, "commit", "-q", "-m", "next");
+    const moved = bump("move sub");
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(types(run).filter((t) => t === "integrate.done")).toHaveLength(2);
+    expect(git(join(repo, "libs/sub"), "rev-parse", "HEAD").trim()).toBe(moved);
+  });
+
   it("sends conflicts to the integrate worker's files, and commits the resolved merge", async () => {
     const { repo, origin, run, fx } = await baseSetup();
     commitInClone(origin, "theirs", { path: "src/a/x.ts", text: "theirs\n" });
@@ -2123,12 +2177,13 @@ function stubCheck(
   answer: (i: { at?: string; command: string }) => {
     exit: number;
     fails: string[];
+    failFiles?: Record<string, string[]>;
   },
   calls: { at?: string; command: string }[] = [],
 ): void {
   milestoneChecker.run = async (i) => {
     calls.push({ at: i.at, command: i.command });
-    const { exit, fails } = answer(i);
+    const { exit, fails, failFiles } = answer(i);
     const record: CheckRecord = {
       at: new Date().toISOString(),
       run: run.id,
@@ -2138,6 +2193,7 @@ function stubCheck(
       exit,
       durationMs: 1,
       fails,
+      ...(failFiles ? { failFiles } : {}),
       log: "",
       ...(i.at !== undefined ? { baseline: true as const } : { secrets: "clean" }),
     };
@@ -2202,6 +2258,27 @@ describe("the daemon's machine check (plan 40 D1, D4, D13)", () => {
         },
       ],
     });
+  });
+
+  it("a red check's finding names the failing files", async () => {
+    const { repo, run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\nCheck: bun test\n");
+    await seed(run);
+    const head = git(repo, "rev-parse", "HEAD").trim();
+    stubCheck(run, () => ({
+      exit: 1,
+      fails: ["(fail) a > b"],
+      failFiles: { "(fail) a > b": ["test/a.test.ts"] },
+    }));
+    await fx.run({ type: "machineCheck", milestone: "M1", commit: head }, replayRun(run));
+    expect(lastOf(run, "milestone.checked")?.findings).toEqual([
+      {
+        label: "BLOCKER",
+        text: "`bun test` fails: (fail) a > b — in test/a.test.ts",
+        file: "test/a.test.ts",
+      },
+    ]);
   });
 
   it("a failing item with no baseline gets one from the base, on a tree removed after", async () => {

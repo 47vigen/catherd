@@ -59,7 +59,7 @@ import { writeRunReport } from "./run-report.ts";
 import { cheapestRung } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
-import { treeOf } from "./tree-path.ts";
+import { composeProjectOf, treeOf } from "./tree-path.ts";
 import { refreshState } from "./state.ts";
 
 /**
@@ -459,6 +459,29 @@ export function realEffects(deps: Deps, run: Run): Effects {
   const orphanOf = (name: string, s: RunState): Dispatch | undefined =>
     listDispatches(run).find((d) => d.admit.name === name && !s.dispatches[d.admit.dispatchId]);
 
+  /** Plan 43 D10: the lane's rung under the profile as it is now, recorded as routed; null when it is the same rung or none. */
+  async function rerouteLane(
+    lane: string,
+    role: Role,
+    milestone: string,
+    was: string,
+  ): Promise<string | null> {
+    let routed: Awaited<ReturnType<typeof routeLanes>>[number] | undefined;
+    try {
+      [routed] = await routeLanes(deps, { run: run.id, laneFiles: [`lanes/${lane}.md`], role });
+    } catch {
+      return null;
+    }
+    const rung = routed ? headlessRung(routed.rung) : null;
+    if (!routed || !rung || rung === was) return null;
+    await append({
+      type: "lanes.routed",
+      milestone,
+      lanes: [{ lane, rung: routed.rung, ladder: routed.ladder }],
+    });
+    return rung;
+  }
+
   async function start(
     a: {
       unit: string;
@@ -500,18 +523,28 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (orphan) return adopt(orphan);
     const picked = await rungFor(a, s);
     if ("code" in picked) return void (await refuse(picked.code, picked.message));
-    let admitted: Awaited<ReturnType<typeof admit>>;
-    try {
-      admitted = await admit(deps, run, {
+    const tryAdmit = (rung: string) =>
+      admit(deps, run, {
         role: a.role,
         name: a.name,
         brief,
-        rung: picked.rung,
+        rung,
         thread: a.thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
         // plan 35: a base run's milestone works in its own worktree
         cwd: treeOf(run, unitMilestone(a.unit)),
+      });
+    let admitted: Awaited<ReturnType<typeof admit>>;
+    try {
+      admitted = await tryAdmit(picked.rung).catch(async (e: unknown) => {
+        // plan 43 D10: a profile edit can leave a lane's rung off its ladder; route the lane again, admit once more
+        const m = unitMilestone(a.unit);
+        if (!isCatherdError(e) || e.code !== "E_ADMIT_RUNG" || a.failoverFrom || !a.lane || m === null)
+          throw e;
+        const again = await rerouteLane(a.lane, a.role, m, picked.rung);
+        if (!again) throw e;
+        return tryAdmit(again);
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -663,6 +696,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const check = header.fastCheck;
     const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
+    const compose = composeProjectOf(run, unitMilestone(a.lane));
+    if (compose) env.COMPOSE_PROJECT_NAME ??= compose;
     const slots = heavySlots(runProfile(deps, run).heavy);
     const requested = Date.now();
     const { tree, r, startedAt, durationMs, waitedMs } = await withHeavySlot(
@@ -761,12 +796,15 @@ export function realEffects(deps: Deps, run: Run): Effects {
       );
       await runBaselines(a.milestone, a.commit);
       missing = (await machineGate(run, a.milestone, a.commit)).missing;
-      findings = (await freshFailures(run, a.milestone, a.commit)).flatMap(({ item, lines }) =>
-        lines.slice(0, FINDINGS_PER_ITEM).map((line) => ({
-          label: "BLOCKER" as const,
-          text: `\`${item}\` fails: ${line}`,
-          file: fileOf(line),
-        })),
+      findings = (await freshFailures(run, a.milestone, a.commit)).flatMap(({ item, lines, files }) =>
+        lines.slice(0, FINDINGS_PER_ITEM).map((line) => {
+          const of = files[line] ?? [];
+          return {
+            label: "BLOCKER" as const,
+            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.join(", ")}` : ""}`,
+            file: of[0] ?? fileOf(line),
+          };
+        }),
       );
     }
     const verified = milestoneOf(s, a.milestone)?.verifierPassedOn ?? null;
@@ -956,6 +994,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (r.code === 0) {
       const head = await gitRun(repo, ["rev-parse", "HEAD"]);
       if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
+      // a merge can move a submodule pointer; setup runs once per tree, so the checkout follows here (plan 43 D17)
+      const sub = await gitRun(repo, ["submodule", "update", "--init", "--recursive"], effectLimits.commitMs);
+      if (sub.code !== 0)
+        throw new Error(`git submodule update failed: ${tailOf(`${sub.out}\n${sub.err}`, 5)}`);
       return void (await append({
         type: "integrate.done",
         milestone: a.milestone,

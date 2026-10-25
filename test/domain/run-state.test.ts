@@ -11,6 +11,7 @@ import {
   reduce,
   replay,
   softCap,
+  STATUS_ASK,
 } from "../../src/domain/run-state.ts";
 import {
   PLAN,
@@ -1389,5 +1390,185 @@ describe("pending reminder wake scheduling", () => {
       const log = runningLog();
       expect(lane(log)).toMatchObject({ cheapFirst: false, cheapRan: false });
     });
+  });
+});
+
+describe("plan 43 M3: owners, parks and STATUS asks", () => {
+  const lone: MilestonePlan[] = [
+    {
+      id: "M1",
+      title: "t",
+      after: [],
+      lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a.ts"] }],
+    },
+  ];
+  /** two independent lanes owning single files */
+  const files = (a: string, b: string): MilestonePlan[] => [
+    {
+      id: "M1",
+      title: "t",
+      after: [],
+      lanes: [
+        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: [a] },
+        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: [b] },
+      ],
+    },
+  ];
+  const owned = (plan: MilestonePlan[]) => {
+    const log = runningLog(plan);
+    for (const l of plan[0]?.lanes ?? []) finishLane(log, l.id);
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    return log;
+  };
+  const workerNames = (log: ReturnType<typeof makeLog>) =>
+    next(log.state(), log.events.at(-1)!).flatMap((a) => (a.type === "dispatch" ? [a.name] : []));
+
+  it("a check_broken stop with no sibling at work parks at once", () => {
+    const log = runningLog(lone);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "check_broken",
+      why: "test/x.test.ts:12 asserts the old head",
+    });
+    const s = log.state();
+    expect(s.lanes["M1.L1"]?.status).toBe("parked");
+    expect(s.stuck["M1.L1"]?.question).toContain("test/x.test.ts:12 asserts the old head");
+    expect(workerNames(log)).toEqual([]);
+    // a sibling at work: the lane waits, no park
+    const busy = runningLog(independent);
+    startDispatch(busy, { name: "worker-M1.L2", unit: "M1.L2" });
+    const w2 = startDispatch(busy, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(busy, w2, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "check_broken",
+      why: "lint fails",
+    });
+    expect(busy.state().lanes["M1.L1"]?.status).toBe("pending");
+    expect(busy.state().stuck["M1.L1"]).toBeUndefined();
+  });
+
+  it("a reply with no STATUS line is asked once on the same thread", () => {
+    const log = runningLog(lone);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t1" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      thread: "t1",
+      notes: [STATUS_ASK],
+      statusAsked: true,
+      classify: null,
+    });
+    const w2 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t1" });
+    endDispatch(log, w2, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t1" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      thread: null,
+      statusAsked: false,
+    });
+    // an end with a status clears the ask
+    const w3 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w3, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t2" });
+    const w4 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t2" });
+    endDispatch(log, w4, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "complete", thread: "t2" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ statusAsked: false, status: "checking" });
+  });
+
+  it("a relative path finds the lane owning its suffix", () => {
+    const deep = "web/src/components/graph/RunGraph.tsx";
+    const lanes = [
+      { id: "M1.L1", owns: ["src/a/"] },
+      { id: "M1.L2", owns: [deep] },
+    ];
+    expect(ownerOfFile("graph/RunGraph.tsx", lanes)).toBe("M1.L2");
+    expect(ownerOfFile("raph/RunGraph.tsx", lanes)).toBeNull();
+    // an exact owner still beats the suffix rule
+    expect(ownerOfFile("src/a/x.ts", lanes)).toBe("M1.L1");
+    expect(
+      ownerOfFile("graph/RunGraph.tsx", [...lanes, { id: "M1.L3", owns: ["app/graph/RunGraph.tsx"] }]),
+    ).toBeNull();
+    const log = owned(files("src/a.ts", deep));
+    review(log, [bug("BUG (`graph/RunGraph.tsx`) — the node overlaps — fix", null)]);
+    expect(log.state().lanes["M1.L2"]).toMatchObject({
+      status: "pending",
+      notes: ["BUG (`graph/RunGraph.tsx`) — the node overlaps — fix"],
+    });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("done");
+    // two lanes ending in the same path: no owner, the finding stays open for the judge
+    const both = owned(files("web/a/graph/RunGraph.tsx", "web/b/graph/RunGraph.tsx"));
+    review(both, [bug("BUG (`graph/RunGraph.tsx`) — the node overlaps — fix", null)]);
+    expect(both.state().milestones[0]?.open).toHaveLength(1);
+    expect(both.state().lanes["M1.L1"]?.status).toBe("done");
+    expect(both.state().lanes["M1.L2"]?.status).toBe("done");
+  });
+
+  it("a capped BLOCKER that names a lane's file is no dispute", () => {
+    const log = owned(lone);
+    const blocker = bug("BLOCKER src/a.ts:3 — the export is wrong — fix", null, "BLOCKER");
+    review(log, [blocker]);
+    expect(log.state().milestones[0]?.status).toBe("fixing");
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [blocker]);
+    const s = log.state();
+    expect(s.milestones[0]).toMatchObject({ status: "review", disputes: 0, disputing: false });
+    expect(s.stuck.M1).toMatchObject({ reason: "blocker" });
+    expect(next(s, log.events.at(-1)!).some((a) => a.type === "judge")).toBe(false);
+  });
+
+  describe("a land park answered by the owner", () => {
+    const parked = () => {
+      const log = owned(files("src/a.ts", "src/b.ts"));
+      review(log, []);
+      checked(log, "c0", { missing: ["FAIL x"] });
+      log.add("question.parked", { unit: "M1", question: "q", reason: "land" });
+      return log;
+    };
+
+    it("a named fix starts a fix round", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "src/a.ts: drop the stale assertion", by: "owner" });
+      const s = log.state();
+      expect(s.milestones[0]?.status).toBe("fixing");
+      expect(s.lanes["M1.L1"]).toMatchObject({
+        status: "pending",
+        notes: ["src/a.ts: drop the stale assertion"],
+      });
+      expect(s.lanes["M1.L2"]?.status).toBe("done");
+    });
+
+    it("an answer naming no file goes to the triage judge", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "the fixture is stale", by: "owner" });
+      expect(log.state().milestones[0]).toMatchObject({
+        status: "fixing",
+        open: [{ label: "BLOCKER", text: "the fixture is stale" }],
+      });
+    });
+
+    it("retry runs the check again", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+      expect(log.state().milestones[0]?.status).toBe("verifying");
+      expect(next(log.state(), log.events.at(-1)!).filter((a) => a.type === "machineCheck")).toEqual([
+        { type: "machineCheck", milestone: "M1", commit: "c0" },
+      ]);
+    });
+  });
+
+  it("accept on a verifier check_broken park lands on a green check", () => {
+    const log = owned(lone);
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
+    log.add("question.parked", { unit: "M1", question: "q", reason: "check_broken" });
+    log.add("question.answered", { unit: "M1", answer: "accept, the env is flaky", by: "owner" });
+    expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c0" });
   });
 });
