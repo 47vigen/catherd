@@ -101,7 +101,8 @@ export const RunRecordSchema = z.looseObject({
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 
-const STATUS_LINE = /^STATUS:\s*(complete|partial|blocked|refused|flaky)\s*(?:—|–|-)\s*(.*)$/;
+const STATUS_LINE =
+  /^(?:[-*]\s+)?\**STATUS\**:\**\s*(complete|partial|blocked|refused|flaky)\b\.?\**\s*(?:(?:—|–|-)\s*(.*))?$/;
 
 /**
  * Plan 23: what stopped the role, when the environment did: an `ENV: <what>` line of its reply (a VPN, no
@@ -115,10 +116,10 @@ export function parseReplyEnvironment(reply: string): string | null {
   return null;
 }
 
-/** The role's claim about its own work: the reply's last line, `STATUS: <s> — <why>`. */
+/** The role's claim about its own work: the reply's last `STATUS: <s> — <why>` line outside code fences. */
 export function parseReplyStatus(reply: string): { status: ReplyStatus | null; why: string | null } {
-  const last = reply.trimEnd().split("\n").at(-1)?.trim() ?? "";
-  const m = STATUS_LINE.exec(last);
+  let m: RegExpExecArray | null = null;
+  for (const line of unfencedLines(reply)) m = STATUS_LINE.exec(line.trim()) ?? m;
   return m ? { status: m[1] as ReplyStatus, why: (m[2] ?? "").trim() } : { status: null, why: null };
 }
 

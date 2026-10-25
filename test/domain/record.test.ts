@@ -70,12 +70,26 @@ describe("parseReplyStatus", () => {
       why: "all green",
     });
     expect(parseReplyStatus("STATUS: refused - no")).toEqual({ status: "refused", why: "no" });
-    expect(parseReplyStatus("STATUS: complete — x\nmore text")).toEqual({ status: null, why: null });
+    expect(parseReplyStatus("STATUS: complete — x\nmore text")).toEqual({ status: "complete", why: "x" });
     expect(parseReplyStatus("")).toEqual({ status: null, why: null });
     expect(parseReplyStatus("STATUS: flaky — x failed once, passed 3/3 alone")).toEqual({
       status: "flaky",
       why: "x failed once, passed 3/3 alone",
     });
+  });
+
+  it("a STATUS line with a marker, bold or a period parses", () => {
+    expect(parseReplyStatus("work\n- STATUS: complete")).toEqual({ status: "complete", why: "" });
+    expect(parseReplyStatus("**STATUS:** partial — two left.")).toEqual({
+      status: "partial",
+      why: "two left.",
+    });
+    expect(parseReplyStatus("STATUS: complete.\nthanks\nbye")).toEqual({ status: "complete", why: "" });
+  });
+
+  it("an unknown status word is no status", () => {
+    expect(parseReplyStatus("STATUS: done")).toEqual({ status: null, why: null });
+    expect(parseReplyStatus("```\nSTATUS: complete — x\n```")).toEqual({ status: null, why: null });
   });
 
   it("reads an ENV: line outside code fences (plan 23)", () => {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { COORDINATOR_TOOLS } from "../../src/domain/role-scope.ts";
-import { buildServer } from "../../src/entry/mcp/server.ts";
+import { buildServer, startMcpServer } from "../../src/entry/mcp/server.ts";
 import type { Deps } from "../../src/services/ports.ts";
 import { claimRun, readSessionRows, runOwner } from "../../src/services/sessions.ts";
 import { snapshotEnv } from "../helpers.ts";
@@ -74,6 +74,22 @@ describe("a role never owns the run nor reaches the coordinator tools (spec 1.5 
       const e = await codexCall(client, "answer", { run: "nope", unit: "M1", answer: "x" }, ROLE_THREAD);
       expect(e?.code).toBe("E_RUN_NOT_FOUND");
       expect(runOwner(run)?.sessionId).toBe(COORDINATOR);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("the MCP server knows a role by its scratch TMPDIR", async () => {
+    delete process.env.CATHERD_ROLE;
+    process.env.TMPDIR =
+      "/home/u/.local/share/catherd/repos/app-1a2b3c4d/runs/20260925-120000-app/scratch/worker-1";
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await startMcpServer({ transport: serverSide, sync: async () => {}, bootLock: () => null });
+    const client = new Client({ name: "codex-mcp-client", version: "0" });
+    await client.connect(clientSide);
+    try {
+      const e = await codexCall(client, "run_start", { content: "x" }, ROLE_THREAD);
+      expect(e?.code).toBe("E_ROLE_SCOPE");
     } finally {
       await client.close();
     }
