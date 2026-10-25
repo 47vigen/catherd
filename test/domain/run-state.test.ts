@@ -1352,6 +1352,16 @@ describe("pending reminder wake scheduling", () => {
       });
     });
 
+    it("a lone finding the cheap try left gets the lane's own rung, not a no-progress stop", () => {
+      const log = armed([comment]);
+      fixOn(log, CHEAP);
+      log.add("check.ran", { lane: "M1.L1", exit: 0, tail: "", foreign: [] });
+      log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+      review(log, [comment]);
+      expect(lane(log)).toMatchObject({ status: "pending", cheapRan: false, cheapFirst: false });
+      expect(log.state().milestones[0]).toMatchObject({ status: "fixing", knownIssues: [] });
+    });
+
     it("a finding left by an ordinary fix still climbs as same-defect", () => {
       const log = armed([comment, unused]);
       fixOn(log, "codex:gpt-6-sol#medium");

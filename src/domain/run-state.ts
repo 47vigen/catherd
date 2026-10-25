@@ -601,7 +601,14 @@ function completeRound(s: RunState, m: MilestoneState): void {
   const lanes = lanesOf(s, m.id);
   // no progress means not fewer than a round that had findings: a clean review before a verifier FAIL is no baseline
   const before = m.counts[r - 2] ?? 0;
-  const stop = r >= softCap(lanes.length) || (r >= 2 && before > 0 && n >= before);
+  const previous = new Set(m.keys[r - 2] ?? []);
+  // a finding the cheap try left is owed the lane's own rung once (D11) before progress is judged
+  const cheapLeft = found.some(
+    (f) =>
+      previous.has(findingKey(f.text)) &&
+      [...ownersOf(f, lanes)].some((id) => (s.lanes[id] as LaneState).cheapRan),
+  );
+  const stop = r >= softCap(lanes.length) || (r >= 2 && before > 0 && n >= before && !cheapLeft);
   if (stop) {
     m.open = found;
     if (found.some((f) => f.label === "BLOCKER")) {
@@ -625,7 +632,20 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.status = "verifying";
     return;
   }
-  fixRound(s, m, found, new Set(m.keys[r - 2] ?? []));
+  fixRound(s, m, found, previous);
+}
+
+/** The lanes a finding goes to: each lane owning a file it names, else the owner of its file. */
+function ownersOf(f: Finding, lanes: LaneState[]): Set<string> {
+  // a finding naming files of several lanes goes to each of them
+  const owners = new Set<string>();
+  for (const file of filesOf(f.text)) {
+    const o = ownerOfFile(file, lanes);
+    if (o) owners.add(o);
+  }
+  const first = ownerOfFile(f.file, lanes);
+  if (owners.size === 0 && first) owners.add(first);
+  return owners;
 }
 
 /** A fix round: each finding to the lane that owns its file, the rest left open for the judge; `note` to each lane. */
@@ -642,14 +662,7 @@ function fixRound(
   const survived = new Set<string>();
   const fellBack = new Set<string>();
   for (const f of found) {
-    // a finding naming files of several lanes goes to each of them
-    const owners = new Set<string>();
-    for (const file of filesOf(f.text)) {
-      const o = ownerOfFile(file, lanes);
-      if (o) owners.add(o);
-    }
-    const first = ownerOfFile(f.file, lanes);
-    if (owners.size === 0 && first) owners.add(first);
+    const owners = ownersOf(f, lanes);
     if (owners.size === 0) {
       // the triage judge reads only the finding text, so the note rides in it
       unowned.push(note ? { ...f, text: `${f.text}\n${note}` } : f);
