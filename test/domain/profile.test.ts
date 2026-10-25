@@ -71,6 +71,7 @@ describe("the default profile (spec §7.2)", () => {
       "budget",
       "timeouts",
       "preflight",
+      "land",
       "lock",
       "notify",
     ]);
@@ -228,6 +229,19 @@ describe("ProfilePatchSchema", () => {
       notify: ["finish"],
     };
     expect(ProfilePatchSchema.parse(patch)).toEqual(patch as never);
+  });
+});
+
+describe("land.autoMerge", () => {
+  it("land.autoMerge defaults to false", () => {
+    expect(resolveProfile({ schema: 1 }, "bare", "claude-code").land).toEqual({ autoMerge: false });
+    expect(resolveProfile({ schema: 1, land: {} }, "bare", "claude-code").land).toEqual({ autoMerge: false });
+    expect(resolveProfile({ schema: 1, land: { autoMerge: true } }, "t", "claude-code").land).toEqual({
+      autoMerge: true,
+    });
+    expect(ProfilePatchSchema.parse({ land: { autoMerge: true } })).toEqual({ land: { autoMerge: true } });
+    expect(ProfilePatchSchema.safeParse({ land: { autoMerge: "yes" } }).success).toBe(false);
+    expect(patchAt("land.autoMerge", "true")).toEqual({ land: { autoMerge: true } });
   });
 });
 

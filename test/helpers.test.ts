@@ -32,3 +32,19 @@ describe("spawnEnv", () => {
     });
   });
 });
+
+describe("the test preload", () => {
+  it("a suite started in a role's shell runs as no role", () => {
+    const p = Bun.spawnSync(["bun", "test", "test/fixtures/role-probe.test.ts"], {
+      env: {
+        ...(process.env as Record<string, string>),
+        CATHERD_ROLE: "r/worker-M1.L1",
+        CATHERD_DISPATCH_ID: "d1",
+        ANTHROPIC_API_KEY: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect([p.exitCode, p.stderr.toString()]).toEqual([0, expect.stringContaining("1 pass")]);
+  });
+});

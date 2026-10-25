@@ -115,6 +115,9 @@ export function formatProfile(
   lines.push(
     `preflight ${p.preflight.confirm ? "shows its commands and asks first" : "runs the checks without asking"}`,
   );
+  lines.push(
+    `land ${p.land.autoMerge ? "merges each landed milestone into the base itself" : "asks you to merge each landed milestone"}`,
+  );
   return lines;
 }
 

@@ -254,8 +254,16 @@ reserve, and starts one more only when a milestone's share still fits above a fl
 reserve and 3 GB per milestone and floor; set them per profile with `catherd profile set limits.memory.reserveMb
 <MB>` (or `perMilestoneMb`, `floorMb`). A landed milestone asks you to push its branch and merge its merge request;
 answer `push` and catherd pushes the branch and prints the command that opens the MR. catherd never opens an MR and
-never merges; once you answer that it is merged (or origin's base holds it), a clean worktree is removed. A run
-without `base` works in the repo, one milestone at a time.
+never merges; once you answer that it is merged (or origin's base holds it), a clean worktree is removed. With
+`catherd profile set land.autoMerge true`, a base run started afterwards merges each landed milestone into the base
+itself: a `--no-ff` merge commit whose subject is `chore: merge <run> <milestone> <title>` (the run id without its
+date prefix), pushed without force. Any git failure (a conflict, a hook, a rejected push) falls back to the push
+question, which says why. A run without `base` works in the repo, one milestone at a time.
+
+A plan line `Format: <command>` (in a milestone's section, else the preamble) runs that command on the milestone's
+staged owned files before each milestone commit. A pre-commit hook that refuses the commit becomes a fix round; a
+second refusal in the same round parks the milestone. A land or verifier park answered with a fix starts a fix round;
+`retry` runs it again, and `accept` waives it.
 
 ### Coordinating several repositories
 

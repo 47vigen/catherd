@@ -11,7 +11,15 @@ import {
   next,
 } from "../../src/domain/run-machine.ts";
 import type { Finding, MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
-import { activeMilestones, liveDispatches, type RunState } from "../../src/domain/run-state.ts";
+import {
+  activeMilestones,
+  type LaneState,
+  liveDispatches,
+  type RunState,
+  siblingMayChange,
+  SOURCE_PLAN_NOTE,
+  STATUS_ASK,
+} from "../../src/domain/run-state.ts";
 import { memoryLoad } from "../../src/domain/milestone-memory.ts";
 import {
   endDispatch,
@@ -28,6 +36,8 @@ import {
 
 const of = <T extends Action["type"]>(as: Action[], type: T): Extract<Action, { type: T }>[] =>
   as.filter((a): a is Extract<Action, { type: T }> => a.type === type);
+/** the question the machine asks for the architect's plan (D21 note included) */
+const approvalAsk = `${approvalQuestion("r1")} ${SOURCE_PLAN_NOTE}`;
 const names = (as: Action[]): string[] => of(as, "dispatch").map((a) => a.name);
 /** what the machine does after the log's last event */
 const last = (log: Log): Action[] => next(log.state(), log.events.at(-1) as RunEvent);
@@ -862,22 +872,38 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(names(last(log))).toEqual([]);
   });
 
-  it("a transitive dependent never holds a check_broken lane", () => {
+  it("a transitive dependent never holds a check_broken lane: it parks at once", () => {
     const chain = plan(3);
     const [, l2, l3] = (chain[0] as MilestonePlan).lanes;
     (l2 as { after: string[] }).after = ["M1.L1"];
     (l3 as { after: string[] }).after = ["M1.L2"];
     const log = runningLog(chain);
     stop(log, "M1.L1", blocked("check_broken", "lint fails in src/z/y.ts"));
-    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "check_broken" }]);
+    expect(names(last(log))).toEqual([]);
   });
 
-  it("does not hold a check_broken lane for a sibling that tried and stopped", () => {
+  it("does not hold a check_broken lane for a sibling that tried and stopped: it parks at once", () => {
     const log = runningLog(plan(2));
     stop(log, "M1.L2", blocked("no_access"));
     log.add("question.parked", { unit: "M1.L2", question: "q", reason: "no_access" });
     stop(log, "M1.L1", blocked("check_broken"));
-    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "check_broken" }]);
+    expect(names(last(log))).toEqual([]);
+  });
+
+  it("waitsForSibling and the reducer agree", () => {
+    const log = runningLog(plan(2));
+    stop(log, "M1.L1", blocked("check_broken", "lint fails in src/b/y.ts"));
+    const s = log.state();
+    // M1.L2 is pending and untried
+    expect(siblingMayChange(s, s.lanes["M1.L1"] as LaneState)).toBe(true);
+    expect(names(last(log))).toEqual(["worker-M1.L2"]);
+    expect(of(last(log), "park")).toEqual([]);
+    finishLane(log, "M1.L2");
+    const done = log.state();
+    expect(siblingMayChange(done, done.lanes["M1.L1"] as LaneState)).toBe(false);
+    expect(names(next(done, log.events.at(-1) as RunEvent))).toEqual(["worker-M1.L1"]);
   });
 
   it("parks a verifier's first check_broken; BLOCKED: environment also parks first", () => {
@@ -915,12 +941,12 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     classified(t, w2, "provider_error");
     expect(of(last(t), "dispatch").find((d) => d.lane === "M1.L1")).toMatchObject({ thread: null });
     expect(t.state().lanes["M1.L1"]).toMatchObject({ lastReason: "provider_error", attempts: 0 });
-    // an ok end with no STATUS line goes on to its check when Jev says nothing
+    // an ok end with no STATUS line is asked for one, not classified
     const u = runningLog(plan(2));
-    const w3 = stop(u, "M1.L1", { replyStatus: null });
-    expect(of(last(u), "classify")).toEqual([{ type: "classify", dispatchId: w3 }]);
-    classified(u, w3, null);
-    expect(of(last(u), "fastCheck")).toEqual([{ type: "fastCheck", lane: "M1.L1" }]);
+    stop(u, "M1.L1", { replyStatus: null });
+    expect(of(last(u), "classify")).toEqual([]);
+    expect(names(last(u))).toContain("worker-M1.L1");
+    expect(u.state().lanes["M1.L1"]?.notes).toEqual([STATUS_ASK]);
   });
 
   it("handles a stop with no reason as 1.5 does when Jev is off", () => {
@@ -1093,6 +1119,65 @@ describe("the machine: a run with a base branch (spec 2.0, decision 21)", () => 
     out = last(log);
     expect(log.state().questions.M1).toBeUndefined();
     expect(of(out, "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
+  });
+
+  it("a run without autoMerge still asks to push", () => {
+    const log = baseRun();
+    landed(log, "feat/wallet");
+    const out = last(log);
+    expect(of(out, "park")).toMatchObject([{ unit: "M1", reason: "push" }]);
+    expect(of(out, "mergeLanded")).toEqual([]);
+  });
+
+  it("an autoMerge run owes mergeLanded per landed milestone, and holds it while paused", () => {
+    const log = runningLog(plan(1), { ...startedFields, base: "main", autoMerge: true });
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    landed(log, "feat/wallet");
+    expect(of(last(log), "mergeLanded")).toEqual([{ type: "mergeLanded", milestone: "M1" }]);
+    expect(actionKey({ type: "mergeLanded", milestone: "M1" })).toBe("mergeLanded:M1");
+    log.add("run.paused", { by: "owner" });
+    expect(of(last(log), "mergeLanded")).toEqual([]);
+  });
+
+  it("the push question names the merge subject", () => {
+    const mk = () => {
+      const p = plan(1);
+      (p[0] as MilestonePlan).title = "Lanes";
+      const log = runningLog(p, "main");
+      finishLane(log, "M1.L1");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      checked(log, "c0");
+      const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+      endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+      landed(log, "feat/wallet");
+      return log;
+    };
+    const log = mk();
+    expect(of(last(log), "park")[0]?.question).toContain(
+      "with a merge commit whose subject is `chore: merge r1 m1 lanes`",
+    );
+    log.add("branch.pushed", {
+      milestone: "M1",
+      branch: "feat/wallet",
+      remote: "origin",
+      mr: "gh pr create",
+    });
+    expect(of(last(log), "park")[0]?.question).toContain("`chore: merge r1 m1 lanes`");
+  });
+
+  it("the approval question tells the owner to edit the source plan files", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    expect(of(last(log), "park")[0]?.question).toEndWith(
+      "Edit the source plan files, not the run's plan-input copies: catherd copies them again when you answer.",
+    );
   });
 
   it("unblocks a dependant of a squash merge only by the owner's answer", () => {
@@ -1487,7 +1572,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
     return log;
   }
   const ask = (log: Log) =>
-    log.add("question.parked", { unit: "run", question: approvalQuestion("r1"), reason: "approval" });
+    log.add("question.parked", { unit: "run", question: approvalAsk, reason: "approval" });
   const noWork = (as: Action[]) =>
     expect(as.filter((a) => ["route", "dispatch", "fastCheck", "commit", "land"].includes(a.type))).toEqual(
       [],
@@ -1496,9 +1581,7 @@ describe("the machine: the owner's approval of the architect's plan", () => {
   it("waits in approval for the owner, revises on a change request and routes only after the approval", () => {
     const log = planned();
     expect(log.state().phase).toBe("approval");
-    expect(last(log)).toEqual([
-      { type: "park", unit: "run", question: approvalQuestion("r1"), reason: "approval" },
-    ]);
+    expect(last(log)).toEqual([{ type: "park", unit: "run", question: approvalAsk, reason: "approval" }]);
     ask(log);
     expect(last(log).map((a) => a.type)).toEqual(["report", "notify"]);
     log.add("question.answered", { unit: "run", answer: "rename Ledger to Book", by: "owner" });
@@ -1872,7 +1955,7 @@ describe("plan 39 verifier answers and end reports", () => {
     endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
     expect(names(last(log))).toEqual([]);
     log.add("question.parked", { unit: "M1", question: "repair?", reason: "check_broken" });
-    log.add("question.answered", { unit: "M1", answer: "repaired", by: "owner" });
+    log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
     expect(log.state().milestones[0]).toMatchObject({ commit: "c0", verifierFailedOn: null });
     expect(names(last(log))).toEqual(["verifier-M1"]);
   });

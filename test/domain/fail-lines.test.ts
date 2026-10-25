@@ -32,6 +32,50 @@ describe("check failing lines", () => {
     expect(checkFailLines(out)).toHaveLength(90);
     expect(checkFailLines(out)[0]).toHaveLength(300);
   });
+  it("a passing line that names FAIL is no failure", () => {
+    expect(
+      checkFailLines(
+        [
+          "(pass) parseFailLines > lists the FAIL and BUG lines [0.12ms]",
+          "payment-panel test:    ✓ TestNoRefundSectionOnAnUncapturedLeg: FAILED",
+          "ok 3 - FAIL marker",
+          "--- PASS: TestFAIL (0.00s)",
+          "(pass) see (fail) elsewhere",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+    expect(checkFailLines("(fail) a > b\n--- FAIL: TestX\nFAIL x: ok done")).toEqual([
+      "(fail) a > b",
+      "--- FAIL: TestX",
+      "FAIL x: ok done",
+    ]);
+  });
+  it("a fail line carries its block's files", () => {
+    const out = [
+      "test/services/capture.test.ts:",
+      "error: expect(received).toMatchObject(expected)",
+      "      at <anonymous> (/work/tree/test/services/capture.test.ts:127:5)",
+      "      at settle (/work/tree/src/adapters/opencode/index.ts:290:9)",
+      "      at x (/work/tree/node_modules/a/b.js:1:1)",
+      "      at y (/elsewhere/c.ts:2:2)",
+      "(fail) capture-fixtures > records the totals [12.00ms]",
+      "(pass) capture-fixtures > other",
+    ].join("\n");
+    const files = ["test/services/capture.test.ts", "src/adapters/opencode/index.ts"];
+    expect(failLines.failFiles(out, "/work/tree")).toEqual({
+      "error: expect(received).toMatchObject(expected)": files,
+      "(fail) capture-fixtures > records the totals": files,
+    });
+  });
+  it("a header carries to the later blocks of its file, a new one replaces it", () => {
+    const out = ["a/one.test.ts:", "(pass) x", "(fail) y", "b/two.spec.ts:", "(fail) z src/q.ts:3"].join(
+      "\n",
+    );
+    expect(failLines.failFiles(out, "/r")).toEqual({
+      "(fail) y": ["a/one.test.ts"],
+      "(fail) z src/q.ts:3": ["b/two.spec.ts", "src/q.ts"],
+    });
+  });
   it("names the lines the base does not have", () => {
     expect(newFails(["FAIL a", "FAIL b"], ["FAIL a"])).toEqual(["FAIL b"]);
     expect(newFails(["FAIL a"], null)).toEqual(["FAIL a"]);

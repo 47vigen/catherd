@@ -1,5 +1,6 @@
 import { type JudgeInput, type JudgeKind, judgeName, type RuleChange } from "./judge.ts";
 import { overlaps } from "./lane.ts";
+import { mergeSubject } from "./branch.ts";
 import { approvalQuestion } from "./plan-doc.ts";
 import { quotaOf } from "./failover.ts";
 import { tryParseRung } from "./ids.ts";
@@ -9,7 +10,8 @@ import type { ClimbReason } from "./route.ts";
 import { ACTION_TYPES, type ParkReason, type ReportKind, RUN_UNIT, type RunEvent } from "./run-events.ts";
 import {
   activeMilestones,
-  dependsOn,
+  siblingMayChange,
+  SOURCE_PLAN_NOTE,
   integrateName,
   isFinished,
   type LaneState,
@@ -60,6 +62,7 @@ export type Action =
   | { type: "integrate"; milestone: string }
   | { type: "claimTree"; milestone: string }
   | { type: "pushBranch"; milestone: string }
+  | { type: "mergeLanded"; milestone: string }
   | { type: "cancel"; dispatchIds: string[] }
   | { type: "report"; kind: ReportKind; unit: string; text: string }
   | { type: "notify"; unit: string; moment: NotifyMoment }
@@ -86,6 +89,7 @@ export function actionKey(a: Action): string {
     case "integrate":
     case "claimTree":
     case "pushBranch":
+    case "mergeLanded":
       return `${a.type}:${a.milestone}`;
     case "fastCheck":
     case "climb":
@@ -128,6 +132,7 @@ export function unitOf(a: Action, s?: RunState): string {
     case "integrate":
     case "claimTree":
     case "pushBranch":
+    case "mergeLanded":
     case "commit":
       return a.milestone;
     case "fastCheck":
@@ -188,7 +193,9 @@ export function confirms(e: RunEvent): string[] {
     case "integrate.conflict":
       return [`integrate:${e.milestone}`];
     case "milestone.merged":
-      return [`checkMerged:${e.milestone}`];
+      return [`checkMerged:${e.milestone}`, `mergeLanded:${e.milestone}`];
+    case "merge.failed":
+      return [`mergeLanded:${e.milestone}`];
     case "tree.ready":
     case "tree.deferred":
       return [`claimTree:${e.milestone}`];
@@ -302,14 +309,7 @@ export function judgeInputFor(s: RunState, id: string, kind: JudgeKind, unit: st
  */
 function waitsForSibling(s: RunState, l: LaneState): boolean {
   if (l.lastReason !== "check_broken" || l.stopRun !== 1) return false;
-  return lanesOf(s, l.milestone).some((o) => {
-    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
-    if (o.status === "running") return true;
-    if (o.status !== "pending") return false;
-    const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
-    const latest = tried.at(-1);
-    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
-  });
+  return siblingMayChange(s, l);
 }
 
 /**
@@ -499,6 +499,7 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
             role: "verifier",
             brief: "verify",
             notes: m.verifierNotes,
+            thread: m.verdictAsk,
           });
     case "landing":
       return [{ type: "land", milestone: m.id, knownIssues: m.knownIssues }];
@@ -555,7 +556,14 @@ function approvalActions(s: RunState): Action[] {
   if (s.planDirty) return [{ type: "readPlan" }];
   if (hasLive(s, "architect")) return [];
   if (s.revise.length > 0) return architectAgain(s);
-  return [{ type: "park", unit: RUN_UNIT, question: approvalQuestion(s.run), reason: "approval" }];
+  return [
+    {
+      type: "park",
+      unit: RUN_UNIT,
+      question: `${approvalQuestion(s.run)} ${SOURCE_PLAN_NOTE}`,
+      reason: "approval",
+    },
+  ];
 }
 
 /** The check the owner runs right before merging an MR: the branch must contain origin's base. */
@@ -571,10 +579,11 @@ const precheck = (s: RunState, m: MilestoneState): string => {
  */
 function pushQuestion(s: RunState, m: MilestoneState): string {
   const branch = m.branch ?? "the run's branch";
+  const failed = m.mergeError === null ? "" : `catherd could not merge it: ${m.mergeError}. `;
   if (m.mr !== null)
-    return `${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
+    return `${failed}${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
   const tree = m.tree ?? ".";
-  return `${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
+  return `${failed}${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
 }
 
 /**
@@ -603,9 +612,11 @@ function advance(s: RunState): Action[] {
     for (const m of s.milestones)
       if (m.status === "landed" && !s.questions[m.id] && !s.stuck[m.id])
         parks.push(
-          m.pushing
-            ? { type: "pushBranch", milestone: m.id }
-            : { type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" },
+          s.autoMerge && m.mergeError === null
+            ? { type: "mergeLanded", milestone: m.id }
+            : m.pushing
+              ? { type: "pushBranch", milestone: m.id }
+              : { type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" },
         );
   if (s.stuck[RUN_UNIT] || s.questions[RUN_UNIT]) return parks;
   if (s.phase === "planning") return [...parks, ...planningActions(s)];
@@ -701,6 +712,7 @@ const PAUSED_STEPS = new Set<Action["type"]>([
   "machineCheck",
   "land",
   "pushBranch",
+  "mergeLanded",
   "integrate",
   "claimTree",
   "route",
@@ -717,7 +729,7 @@ export function next(state: RunState, e: RunEvent): Action[] {
   return [...react(state, e), ...owedActions(state), ...advance(state)].filter((a) => {
     const key = actionKey(a);
     if (seen.has(key) || sameLine(state, a)) return false;
-    if (state.paused !== null && PAUSED_STEPS.has(a.type)) return false;
+    if ((state.paused !== null || state.held !== null) && PAUSED_STEPS.has(a.type)) return false;
     seen.add(key);
     return true;
   });

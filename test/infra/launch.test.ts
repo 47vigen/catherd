@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { dispatchPaths, readExit } from "../../src/infra/dispatch-dir.ts";
 import {
+  bunBinary,
   daemonEnv,
   CHECK_ENTRY,
   DAEMON_ENTRY,
@@ -108,6 +109,14 @@ it("scrub_every_boundary removes parent identities through actual detached super
 });
 
 describe("launchDetached and the daemon's launch", () => {
+  it("a removed Bun path falls back to the bun on PATH", () => {
+    expect(bunBinary("/nonexistent/bun", () => "/opt/bun/bin/bun")).toBe("/opt/bun/bin/bun");
+  });
+
+  it("an existing Bun path is the one spawned, whatever PATH holds", () => {
+    expect(bunBinary(process.execPath, () => "/opt/bun/bin/bun")).toBe(process.execPath);
+  });
+
   it("starts an entry in its own session, appending its output to the log file, and returns at once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "catherd-launch-"));
     const entry = join(dir, "entry.ts");

@@ -56,6 +56,7 @@ export const ACTION_TYPES = [
   "integrate",
   "claimTree",
   "pushBranch",
+  "mergeLanded",
   "cancel",
   "report",
   "notify",
@@ -87,6 +88,8 @@ export const MilestonePlanSchema = z.object({
       kind: z.string().nullable(),
       after: z.array(z.string()),
       owns: z.array(z.string()),
+      /** plan 43: a hash of the lane file without its Owns line: a replan that changes it re-runs a done lane (absent before) */
+      digest: z.string().optional(),
     }),
   ),
 });
@@ -116,6 +119,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     engine: z.literal("2.0"),
     /** the roles the run's profile turns off, so the machine never waits on one (absent before 2.0.x) */
     rolesOff: z.array(role).optional(),
+    /** plan 43: `land.autoMerge` as the profile had it at the start; catherd merges the run's landed milestones (absent before) */
+    autoMerge: z.boolean().optional(),
   }),
   ev("daemon.started", { pid: z.number().int(), version: z.string() }),
   ev("plan.ready", { milestones: z.array(MilestonePlanSchema) }),
@@ -160,6 +165,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     replyPath: z.string(),
     /** plan 40: the sibling lanes whose files a broken check named; older lines have none */
     siblings: strings.optional(),
+    /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
+    noVerdict: z.literal(true).optional(),
   }),
   ev("check.ran", {
     lane: z.string(),
@@ -189,7 +196,13 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     waitedMs: z.number(),
   }),
   ev("commit.made", { milestone: z.string(), round: z.number().int().min(0), commit: z.string() }),
-  ev("commit.failed", { milestone: z.string(), round: z.number().int().min(0), tail: z.string() }),
+  ev("commit.failed", {
+    milestone: z.string(),
+    round: z.number().int().min(0),
+    tail: z.string(),
+    /** plan 43: the pre-commit hook refused the commit (absent before) */
+    hook: z.boolean().optional(),
+  }),
   ev("lane.climbed", { lane: z.string(), rung: z.string(), top: z.boolean() }),
   ev("stop.classified", { dispatchId: z.string(), reason: z.enum(BLOCKED_REASONS).nullable() }),
   ev("judge.decided", {
@@ -212,7 +225,14 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     branch: z.string().nullable().optional(),
   }),
   ev("land.refused", { milestone: z.string(), code: z.string(), message: z.string(), fix: z.string() }),
-  ev("milestone.merged", { milestone: z.string() }),
+  /** `by: "catherd"`: plan 43's autoMerge merged it (at `commit` on the base); absent: the owner did */
+  ev("milestone.merged", {
+    milestone: z.string(),
+    by: z.literal("catherd").optional(),
+    commit: z.string().optional(),
+  }),
+  /** plan 43: catherd could not merge a landed milestone; the owner is asked to */
+  ev("merge.failed", { milestone: z.string(), error: z.string() }),
   ev("base.behind", { milestone: z.string() }),
   ev("integrate.done", { milestone: z.string(), commit: z.string() }),
   ev("integrate.conflict", { milestone: z.string(), files: strings }),
@@ -250,6 +270,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   /** plan 37: the owner holds one run; live roles finish, nothing new starts until `run.resumed` */
   ev("run.paused", { by: z.literal("owner") }),
   ev("run.resumed", { by: z.literal("owner") }),
+  /** plan 43: no machine pause covers the run any more: what a refused dispatch held is owed again */
+  ev("pause.lifted", {}),
   ev("effect.failed", { action: z.enum(ACTION_TYPES), unit: z.string(), message: z.string() }),
   ev("report.posted", { kind: z.enum(REPORT_KINDS), unit: z.string(), text: z.string() }),
   ev("tick", {}),
@@ -334,7 +356,9 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
     case "land.refused":
       return `${e.milestone} land refused: ${e.code}`;
     case "milestone.merged":
-      return `${e.milestone} merged`;
+      return `${e.milestone} merged${e.by ? ` by ${e.by}` : ""}`;
+    case "merge.failed":
+      return `${e.milestone} could not be merged by catherd: ${e.error}`;
     case "base.behind":
       return `${e.milestone} is behind its base`;
     case "integrate.done":
@@ -353,6 +377,8 @@ export function describeEvent(e: RunEvent, rungOf?: (dispatchId: string) => stri
       return `run paused by the ${e.by}`;
     case "run.resumed":
       return `run resumed by the ${e.by}`;
+    case "pause.lifted":
+      return "the machine pause was lifted";
     case "effect.failed":
       return `${e.action} on ${e.unit} failed: ${one(e.message)}`;
     case "report.posted":

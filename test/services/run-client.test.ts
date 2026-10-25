@@ -12,7 +12,7 @@ import { approvalQuestion } from "../../src/domain/plan-doc.ts";
 import { PLAN, startedFields } from "../domain/run-fixtures.ts";
 import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { git } from "../../src/infra/git.ts";
-import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT } from "./helpers.ts";
+import { fakeDeps, fakeDispatch, freshRun, PLAN_TEXT, testView } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const real = daemonLauncher.launch;
@@ -67,6 +67,17 @@ describe("runStart", () => {
     expect(r.next).toContain("https://ntfy.sh/catherd-test");
   });
 
+  it("run.started pins the profile's autoMerge", async () => {
+    withHome();
+    const repo = tempRepo();
+    const view = testView();
+    view.land = { autoMerge: true };
+    const r = await runStart(fakeDeps({ view }), { repo, title: "w", aLines: ["A1 x"] });
+    expect(readEvents(findRun(r.run))[0]).toMatchObject({ type: "run.started", autoMerge: true });
+    const off = await runStart(fakeDeps(), { repo, title: "w2", aLines: ["A1 x"] });
+    expect(readEvents(findRun(off.run))[0]).toMatchObject({ autoMerge: false });
+  });
+
   it("records base in meta and run.started, after fetching it", async () => {
     withHome();
     const { repo, origin } = repoWithOrigin();
@@ -88,6 +99,21 @@ describe("runStart", () => {
     const before = listRuns().runs.length;
     const e = await refusal(runStart(fakeDeps(), { repo, title: "w", aLines: ["A1 x"], base: "nope" }));
     expect([e.code, listRuns().runs.length]).toEqual(["E_INPUT_INVALID", before]);
+  });
+
+  it("run_start returns the run when the daemon launch fails", async () => {
+    withHome();
+    const repo = tempRepo();
+    daemonLauncher.launch = () => {
+      throw new Error("posix_spawn failed");
+    };
+    const r = await runStart(fakeDeps(), { repo, title: "t", aLines: ["A1 x"] });
+    expect(r).toMatchObject({
+      run: expect.any(String),
+      daemon: "failed",
+      warning: "the run started, its daemon did not: posix_spawn failed; status(run) starts it again",
+    });
+    expect(listRuns().runs.map((x) => x.id)).toEqual([r.run]);
   });
 
   it("a run without base has no meta.base and run.started.base null", async () => {

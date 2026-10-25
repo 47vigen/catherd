@@ -32,13 +32,21 @@ describe("CATHERD_ROLE (spec 1.5 plan 21)", () => {
       "/runs/123/scratch/a",
     ])
       expect(roleScopeOfScratch(other)).toBeNull();
-    expect(roleScopeFromEnv({ TMPDIR: tmp })).toEqual(scope);
+    expect(roleScopeFromEnv({ TMPDIR: tmp }, { scratch: true })).toEqual(scope);
     // CATHERD_ROLE wins over the temp dir
-    expect(roleScopeFromEnv({ CATHERD_ROLE: `${RUN}/worker-M1.L1`, TMPDIR: tmp })).toEqual({
-      run: RUN,
-      name: "worker-M1.L1",
-    });
-    expect(roleScopeFromEnv({ TMPDIR: "/tmp" })).toBeNull();
+    expect(roleScopeFromEnv({ CATHERD_ROLE: `${RUN}/worker-M1.L1`, TMPDIR: tmp }, { scratch: true })).toEqual(
+      {
+        run: RUN,
+        name: "worker-M1.L1",
+      },
+    );
+    expect(roleScopeFromEnv({ TMPDIR: "/tmp" }, { scratch: true })).toBeNull();
+  });
+
+  it("a CLI shell with only a scratch TMPDIR is no role", () => {
+    const tmp = `/home/u/.local/share/catherd/repos/app-1a2b3c4d/runs/${RUN}/scratch/verifier-M1`;
+    expect(roleScopeFromEnv({ TMPDIR: tmp })).toBeNull();
+    expect(roleScopeFromEnv({ TMPDIR: tmp }, { scratch: true })).toEqual(scope);
   });
 
   it("refuses every coordinator tool, and only those", () => {

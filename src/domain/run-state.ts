@@ -131,6 +131,12 @@ export interface LaneState {
   cheapRan: boolean;
   /** plan 41: the lane's cheap try of this round already fell back to its own rung: no second one is armed */
   cheapSpent: boolean;
+  /** plan 43: the lane's last ok reply had no STATUS line and was asked for one; a second one is a failed attempt */
+  statusAsked: boolean;
+  /** plan 43: the digest of the lane file (without its Owns line) the lane last ran against; null before the first plan.ready that gave one */
+  digest: string | null;
+  /** when the lane's unbroken run of transport failures began: it retries its rung until HOLD_MS has passed */
+  transportSince: string | null;
 }
 
 export interface MilestoneState {
@@ -201,6 +207,12 @@ export interface MilestoneState {
   disputes: number;
   /** plan 40: the triage judge is deciding those BLOCKERs */
   disputing: boolean;
+  /** plan 43: pre-commit hook refusals turned into a fix round since the last commit (one is, a second parks) */
+  hookFixes: number;
+  /** plan 43: why catherd's own merge failed; the push question then asks the owner to merge it */
+  mergeError: string | null;
+  /** the thread of a verifier reply that had no VERDICT line, resumed once to ask for it */
+  verdictAsk: string | null;
 }
 
 export interface DispatchView {
@@ -274,6 +286,10 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
+  /** plan 43: when a dispatch was refused for a machine pause; every paused step waits until `pause.lifted` */
+  held: string | null;
+  /** plan 43: `land.autoMerge`, pinned at the run's start: catherd merges a landed milestone itself */
+  autoMerge: boolean;
   /** when the owner paused the run (the pause in force), else null: no dispatch, judge, claim, route, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
@@ -313,6 +329,8 @@ export function emptyState(run: string): RunState {
     failedEffects: {},
     cancelling: false,
     paused: null,
+    held: null,
+    autoMerge: false,
     wakeAt: null,
     planDirty: false,
     revise: [],
@@ -357,7 +375,10 @@ export function activeMilestones(s: RunState): MilestoneState[] {
 
 const bare = (p: string) => p.replace(/\/+$/, "");
 
-/** The lane owning `file` by its longest `Owns:` entry, or null (no file, or none owns it). */
+/**
+ * The lane owning `file` by its longest `Owns:` entry, else the one lane with an entry ending in `/<file>` (a relative
+ * path), or null (no file, none owns it, or two lanes could).
+ */
 export function ownerOfFile(file: string | null, lanes: { id: string; owns: string[] }[]): string | null {
   if (!file) return null;
   let best: { id: string; len: number } | null = null;
@@ -367,7 +388,10 @@ export function ownerOfFile(file: string | null, lanes: { id: string; owns: stri
       if ((file === e || file.startsWith(`${e}/`)) && (best === null || e.length > best.len))
         best = { id: l.id, len: e.length };
     }
-  return best?.id ?? null;
+  if (best) return best.id;
+  const tails = new Set<string>();
+  for (const l of lanes) if (l.owns.some((o) => bare(o).endsWith(`/${file}`))) tails.add(l.id);
+  return tails.size === 1 ? ([...tails][0] as string) : null;
 }
 
 const lastOf = (s: RunState, name: string): DispatchView | undefined =>
@@ -453,6 +477,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       checkOnly: false,
       disputes: 0,
       disputing: false,
+      hookFixes: 0,
+      mergeError: null,
+      verdictAsk: null,
     };
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
@@ -463,6 +490,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     m.checkOnly ??= false;
     m.disputes ??= 0;
     m.disputing ??= false;
+    m.hookFixes ??= 0;
+    m.mergeError ??= null;
+    m.verdictAsk ??= null;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
@@ -480,6 +510,25 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.kind = lp.kind;
         l.after = lp.after;
         l.owns = lp.owns;
+        l.digest ??= null;
+        if (lp.digest !== undefined) {
+          // a lane file the architect changed re-runs a done lane; the Owns line is not in the digest
+          if (l.digest !== null && l.digest !== lp.digest && l.status === "done" && !isDone(m)) {
+            l.status = "pending";
+            l.attempts = 0;
+            l.checkFails = 0;
+            // a milestone past its lanes goes back to them, as a fix round does
+            const past = (st: MilestoneStatus | null) =>
+              st !== null && !["waiting", "routing", "lanes", "fixing"].includes(st);
+            if (m.status === "parked") {
+              if (past(m.parkedFrom)) m.parkedFrom = "fixing";
+            } else if (past(m.status)) m.status = "fixing";
+            l.notes.push(
+              `The architect changed lanes/${l.id}.md: re-read it and make the change it asks for.`,
+            );
+          }
+          l.digest = lp.digest;
+        }
       } else
         s.lanes[lp.id] = {
           id: lp.id,
@@ -513,6 +562,9 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           cheapFirst: false,
           cheapRan: false,
           cheapSpent: false,
+          statusAsked: false,
+          digest: lp.digest ?? null,
+          transportSince: null,
         };
     }
     next.push(m);
@@ -613,7 +665,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.open = found;
     if (found.some((f) => f.label === "BLOCKER")) {
       // BLOCKERs no lane owns dispute the plan, not the code: the triage judge reads them once before the owner does
-      const unowned = found.every((f) => f.label !== "BLOCKER" || ownerOfFile(f.file, lanes) === null);
+      const unowned = found.every((f) => f.label !== "BLOCKER" || ownersOf(f, lanes).size === 0);
       if (unowned && m.disputes === 0) {
         m.disputes += 1;
         m.disputing = true;
@@ -727,10 +779,45 @@ function failRole(
 /** A stop that names no reason (plan 30b Ruling 7): the machine asks Jev, and with Jev off acts as 1.5 did. */
 function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean {
   if (e.reason !== null) return false;
-  if (e.status === "ok")
-    return e.replyStatus === null || e.replyStatus === "blocked" || e.replyStatus === "refused";
+  if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";
   return (e.status === "failed" || e.status === "timeout") && e.environment === null;
 }
+
+/** The provider could not be reached (a proxy, the network, an overloaded server): no fault of the lane or its rung. */
+const TRANSPORT =
+  /ERR_PROXY|couldn't connect|ECONNRESET|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|socket hang up|overloaded|\b(?:502|503|504|529)\b/i;
+
+/** A transport failure retries the lane's rung after a backoff as long as the failures have run; HOLD_MS of them parks it. */
+function transportHold(s: RunState, l: LaneState, e: Extract<RunEvent, { type: "dispatch.ended" }>): void {
+  l.transportSince ??= e.at;
+  const elapsed = Date.parse(e.at) - Date.parse(l.transportSince);
+  l.status = "pending";
+  if (elapsed >= HOLD_MS) {
+    l.status = "parked";
+    l.transportSince = null;
+    s.stuck[l.id] = {
+      reason: "provider_error",
+      question: stopQuestion(
+        l,
+        "provider_error",
+        `the provider was unreachable for ${Math.round(elapsed / 60_000)} min: ${e.why}`,
+      ),
+    };
+    return;
+  }
+  s.waiting[e.name] = isoPlus(e.at, Math.min(REFUSAL_WAIT_MS, Math.max(60_000, elapsed)));
+  recomputeWake(s);
+}
+
+/** plan 43 D21: answerUnit copies the plan inputs from their source again, so an edit of the copy is lost. */
+export const SOURCE_PLAN_NOTE =
+  "Edit the source plan files, not the run's plan-input copies: catherd copies them again when you answer.";
+
+export const STATUS_ASK =
+  "Your last reply had no STATUS: line. If the work is not finished, finish it; then end your reply with STATUS: complete|partial|blocked|refused — <why>.";
+
+export const VERDICT_ASK =
+  "Your last reply had no VERDICT line. Do not check again: reply with your verdict on what you already checked, its first line VERDICT: PASS or VERDICT: FAIL, then the lines that verdict asks for.";
 
 const stopQuestion = (l: LaneState, reason: BlockedReason, why: string): string =>
   `${l.id} stopped (${reason})${why.trim() ? `: ${why.trim()}` : ""}`;
@@ -769,7 +856,8 @@ function laneStopped(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReaso
       if (x.foreign.length > 0) return laneDone(s, l);
       l.thread = x.thread ?? l.thread;
       l.status = "pending";
-      if (l.stopRun >= 2) {
+      // the retry has no new input unless a sibling may still change the tree
+      if (l.stopRun >= 2 || !siblingMayChange(s, l)) {
         l.status = "parked";
         s.stuck[l.id] = { reason, question: stopQuestion(l, reason, x.why) };
       }
@@ -795,6 +883,21 @@ function holdsFor(s: RunState, o: LaneState, id: string, seen = new Set<string>(
   seen.add(o.id);
   const next = o.status === "done" ? o.after : [...o.after, ...o.waitOn];
   return next.some((a) => a === id || (s.lanes[a] !== undefined && holdsFor(s, s.lanes[a], id, seen)));
+}
+
+/**
+ * Whether a sibling of `l`'s milestone is still working or has not tried yet since its last climb: it may be what
+ * breaks (or fixes) the check. A sibling that waits on `l`, or that tried and stopped, never counts.
+ */
+export function siblingMayChange(s: RunState, l: LaneState): boolean {
+  return lanesOf(s, l.milestone).some((o) => {
+    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
+    if (o.status === "running") return true;
+    if (o.status !== "pending") return false;
+    const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
+    const latest = tried.at(-1);
+    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
+  });
 }
 
 /**
@@ -827,6 +930,22 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.thread = x.thread ?? l.thread;
     return;
   }
+  if (x.status === "ok" && x.replyStatus === null && reason === null) {
+    // an ok reply with no STATUS is asked for one on the same thread, once; a second is a failed attempt (D8)
+    if (!l.statusAsked) {
+      l.statusAsked = true;
+      l.thread = x.thread ?? l.thread;
+      l.notes.push(STATUS_ASK);
+    } else {
+      l.statusAsked = false;
+      l.attempts += 1;
+      l.thread = null;
+      if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
+    }
+    l.status = "pending";
+    return;
+  }
+  if (x.replyStatus !== null) l.statusAsked = false;
   if (l.cheapRan && !(x.status === "ok" && (x.replyStatus === null || x.replyStatus === "complete"))) {
     // the cheap try failed: the lane's own rung takes the work once, with no attempt counted
     l.cheapRan = false;
@@ -927,6 +1046,9 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       foreign: e.foreign,
       siblings: e.siblings ?? [],
     };
+    if ((e.status === "failed" || e.status === "timeout") && TRANSPORT.test(e.why))
+      return transportHold(s, lane, e);
+    lane.transportSince = null;
     // a stop that names no reason waits for its classification: nothing else happens to the lane meanwhile
     if (e.status !== "limit" && unexplained(e)) {
       lane.classify = { dispatchId: e.dispatchId, ...x };
@@ -963,12 +1085,14 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     return;
   }
   if (dv.role === "verifier" && m.status === "verifying") {
+    const asked = m.verdictAsk;
+    m.verdictAsk = null;
     // A broken check needs the owner before another verifier can learn anything.
     if (e.status === "ok" && e.reason === "check_broken" && e.verdict !== "blocked") {
       m.verifierFailedOn = m.commit;
       s.stuck[m.id] = {
         reason: "check_broken",
-        question: `${e.name} could not run the check: ${e.why || "no reason given"}`,
+        question: `${e.name} could not run the check: ${e.why || "no reason given"}. Answer accept to land on catherd's green Check, retry to run the verifier again, or name the fix.`,
       };
     } else if (e.status === "ok" && e.verdict === "pass") {
       m.verifierRuns += 1;
@@ -994,6 +1118,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
             question: `${e.name} passed ${e.head ? e.head.slice(0, 12) : "no commit"} twice, and the milestone is at ${at}`,
           };
       }
+    } else if (e.status === "ok" && e.verdict === "fail" && e.noVerdict && asked === null && e.thread) {
+      // a reply that stopped before its VERDICT line is asked for it on the same thread, once (plan 43 D8's rule)
+      m.verdictAsk = e.thread;
+      m.verifierNotes = [VERDICT_ASK];
     } else if (e.status === "ok" && e.verdict === "fail") {
       m.verifierFailedOn = m.commit;
       m.verifierRuns += 1;
@@ -1085,7 +1213,14 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
           m.delta.push(f.text);
         }
       }
-      if (disputing) {
+      // a dismissal of every finding of a verifier FAIL with no fix left to run would recommit the failed commit
+      const overrule =
+        sent.size === 0 &&
+        m.commit !== null &&
+        m.verifierFailedOn === m.commit &&
+        m.delta.length === 0 &&
+        lanes.every((l) => l.status === "done");
+      if (disputing || overrule) {
         // what the judge sends nowhere is dismissed: a known issue of the milestone it lands
         m.open.forEach((f, i) => {
           if (!sent.has(i + 1)) m.knownIssues.push(`dismissed by the judge: ${f.text}`);
@@ -1142,6 +1277,8 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
       s.rulesReview = { changes: d.changes, failed: false };
   }
 }
+
+const RETRY = /^\s*retry\b/i;
 
 function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered" }>): void {
   const q = s.questions[e.unit];
@@ -1202,9 +1339,20 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     m.open = [];
     m.checkedOn = m.commit;
     afterVerdict(m);
+  } else if (q?.reason === "check_broken" && from === "verifying" && isAccept(e.answer)) {
+    // the machine Check is green on this commit: the owner's accept stands for the verifier that could not run
+    if (m.commit !== null && m.checkedOn === m.commit) m.verifierPassedOn = m.commit;
+    afterVerdict(m);
   } else if (q?.reason === "blocker")
     // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
     fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
+  else if (
+    (q?.reason === "land" || q?.reason === "check_broken") &&
+    !isAccept(e.answer) &&
+    !RETRY.test(e.answer)
+  )
+    // anything but accept or retry names the fix: one BLOCKER, routed by the files it names, else to the triage judge
+    fixRound(s, m, [{ label: "BLOCKER", text: e.answer, file: null }], new Set());
   else m.status = from;
 }
 
@@ -1220,6 +1368,7 @@ function apply(s: RunState, e: RunEvent): void {
       s.aLines = e.aLines;
       s.plan = e.plan;
       s.rolesOff = e.rolesOff ?? [];
+      s.autoMerge = e.autoMerge ?? false;
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);
@@ -1306,7 +1455,7 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.name === judgeName("rules") && e.unit === RUN_UNIT) return failRulesReview(s);
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
-      else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
+      else if (e.code === "E_ADMIT_PAUSED") s.held ??= e.at;
       else if (e.code === "E_ALL_HELD") {
         const l = s.lanes[e.unit];
         const heldUntil = Object.values(s.holds)
@@ -1409,7 +1558,7 @@ function apply(s: RunState, e: RunEvent): void {
         m.open = e.missing.map((text) => ({ label: "BUG" as const, text, file: null }));
         s.stuck[m.id] = {
           reason: "land",
-          question: `${m.id}'s check fails on lines with no baseline:\n${e.missing.join("\n")}\nanswer accept to land with these pre-existing failures, or name the fix.`,
+          question: `${m.id}'s check fails on lines with no baseline:\n${e.missing.join("\n")}\nanswer accept to land with these pre-existing failures, retry to run the check again, or name the fix.`,
         };
         return;
       }
@@ -1429,6 +1578,7 @@ function apply(s: RunState, e: RunEvent): void {
       if (!m) return;
       // the commit that finishes a merge of the base: reviews stay (by time), a fresh verifier gates the merge
       if (m.integrateFiles.length > 0) return mergedIn(m, e.commit);
+      m.hookFixes = 0;
       m.status = "review";
       m.round = e.round;
       m.commit = e.commit;
@@ -1441,6 +1591,14 @@ function apply(s: RunState, e: RunEvent): void {
     }
     case "commit.failed": {
       ok(`commit@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (e.hook && m && m.hookFixes === 0) {
+        // the first hook refusal of a round is the lanes' to fix, routed by the files it names
+        m.hookFixes = 1;
+        const text = `The pre-commit hook refused the commit:\n${e.tail}`;
+        fixRound(s, m, [{ label: "BLOCKER", text, file: filesOf(e.tail)[0] ?? null }], new Set());
+        return;
+      }
       s.stuck[e.milestone] = {
         reason: "commit",
         question: `Committing ${e.milestone} failed (round ${e.round}):\n${e.tail}`,
@@ -1544,7 +1702,7 @@ function apply(s: RunState, e: RunEvent): void {
       }
       s.stuck[e.milestone] = {
         reason: "land",
-        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}`,
+        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}\nAnswer accept or retry to land again, or name the fix.`,
       };
       return;
     }
@@ -1553,9 +1711,15 @@ function apply(s: RunState, e: RunEvent): void {
       if (m) {
         m.status = "merged";
         m.mergeDue = null;
+        m.mergeError = null;
       }
       if (s.questions[e.milestone]?.reason === "push") delete s.questions[e.milestone];
       recomputeWake(s);
+      return;
+    }
+    case "merge.failed": {
+      const m = milestoneOf(s, e.milestone);
+      if (m) m.mergeError = e.error;
       return;
     }
     case "tree.ready": {
@@ -1615,6 +1779,10 @@ function apply(s: RunState, e: RunEvent): void {
     case "run.resumed":
       s.paused = null;
       return;
+    case "pause.lifted":
+      s.held = null;
+      recomputeWake(s);
+      return;
     case "effect.failed": {
       if (e.action === "readPlan") s.planDirty = false;
       if (e.action === "classify") {
@@ -1648,7 +1816,10 @@ function apply(s: RunState, e: RunEvent): void {
           if (m.delta.length > 0 && !m.delta.includes(e.message)) m.delta.push(e.message);
       const limit = planning ? PLAN_REVISIONS + 1 : MAX_TRIES;
       if ((s.failedEffects[key] as number) >= limit && e.action !== "report" && e.action !== "notify")
-        s.stuck[e.unit] = { reason: "effect", question: `${e.action} on ${e.unit} failed: ${e.message}` };
+        s.stuck[e.unit] = {
+          reason: "effect",
+          question: `${e.action} on ${e.unit} failed: ${e.message}${e.action === "readPlan" ? `\n${SOURCE_PLAN_NOTE}` : ""}`,
+        };
       return;
     }
     case "tick":

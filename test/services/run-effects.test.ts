@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { mergeSubject } from "../../src/domain/branch.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
 import type { RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
@@ -14,7 +15,13 @@ import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { preflightUser } from "../../src/services/preflight.ts";
-import { endedEvent, milestoneChecker, planOf, realEffects } from "../../src/services/run-effects.ts";
+import {
+  effectLimits,
+  endedEvent,
+  milestoneChecker,
+  planOf,
+  realEffects,
+} from "../../src/services/run-effects.ts";
 import {
   appendCheckRecord,
   type CheckRecord,
@@ -27,7 +34,7 @@ import { reapprovalQuestion } from "../../src/domain/plan-doc.ts";
 import { appendEvent, readEvents, replayRun } from "../../src/services/run-events-store.ts";
 import { writeRunReport } from "../../src/services/run-report.ts";
 import { appendRecord, type Run, runPaths } from "../../src/services/run-store.ts";
-import { commitInClone, repoWithOrigin, snapshotEnv, withHome } from "../helpers.ts";
+import { commitInClone, repoWithOrigin, snapshotEnv, tempDir, tempRepo, withHome } from "../helpers.ts";
 import { appendLedger, createRun } from "../../src/services/run-store.ts";
 import { next } from "../../src/domain/run-machine.ts";
 import { branchPusher, claimTree, memoryReader, treeDir, treeOf } from "../../src/services/milestone-tree.ts";
@@ -237,6 +244,51 @@ describe("dispatching", () => {
     });
     expect(types(run)).not.toContain("dispatch.started");
     expect(existsSync(repo)).toBe(true);
+  });
+
+  it("an off-ladder rung is routed again", async () => {
+    const { run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max" }), replayRun(run));
+    expect(lastOf(run, "lanes.routed")).toMatchObject({
+      milestone: "M1",
+      lanes: [{ lane: "M1.L1", rung: "codex:gpt-6-luna#high" }],
+    });
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "codex:gpt-6-luna#high" });
+    expect(types(run)).not.toContain("dispatch.refused");
+  });
+
+  it("a reroute to another backend drops the old rung's thread", async () => {
+    const view = testView();
+    view.roles.worker = {
+      enabled: true,
+      access: "workspace-write",
+      rungs: ["claude-code:claude-sonnet-5-5#medium"],
+    };
+    const { run, fx } = setup(undefined, view);
+    const sim = withClaudeScenario({ eventsFile: join(FX, "ok.jsonl") });
+    Object.assign(process.env, sim.env);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max", thread: "codex-thread-1" }), replayRun(run));
+    expect(lastOf(run, "lanes.routed")).toMatchObject({
+      lanes: [{ lane: "M1.L1", rung: "claude-code:claude-sonnet-5-5#medium" }],
+    });
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "claude-code:claude-sonnet-5-5#medium" });
+    expect(types(run)).not.toContain("dispatch.refused");
+  });
+
+  it("a role off the profile is still refused", async () => {
+    const view = testView();
+    view.roles.worker = { enabled: false, access: "workspace-write", rungs: [] };
+    const { run, fx } = setup(undefined, view);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max" }), replayRun(run));
+    expect(lastOf(run, "dispatch.refused")).toMatchObject({ code: "E_ADMIT_RUNG" });
+    expect(types(run)).not.toContain("lanes.routed");
+    expect(types(run)).not.toContain("dispatch.started");
   });
 
   it("refuses with E_ALL_HELD when every rung of the role is on a held quota", async () => {
@@ -659,6 +711,19 @@ describe("what a dispatch said", () => {
     });
     expect(ended("", { status: "failed" })).toMatchObject({ verdict: null });
   });
+
+  it("marks a verifier reply that ends on narration as having no verdict, and a FAIL as having one", () => {
+    const { run } = freshRun();
+    const ended = (reply: string) =>
+      endedEvent(run, withReply(run, { role: "verifier", name: "verifier-M1" }, reply), "M1");
+    expect(ended("Now I run the full gate.\nSTATUS: complete — ok")).toMatchObject({
+      verdict: "fail",
+      noVerdict: true,
+    });
+    expect(ended("VERDICT: FAIL\n- FAIL bun test src/a fails\nSTATUS: complete — failed")).not.toHaveProperty(
+      "noVerdict",
+    );
+  });
 });
 
 describe("what a stop says (30b)", () => {
@@ -838,6 +903,7 @@ describe("planning", () => {
       kind: "repo_code",
       after: ["M1.L1"],
       owns: ["src/b/", "src/b2.ts"],
+      digest: expect.stringMatching(/^[0-9a-f]{16}$/),
     });
     expect(plan[1]?.lanes[0]).toMatchObject({ role: "writer", kind: "prose" });
     expect(plan[2]?.lanes[0]).toMatchObject({
@@ -1279,6 +1345,97 @@ describe("routing, checking, committing, landing", () => {
     expect(lastOf(run, "commit.failed")?.tail).toContain("lint says no");
   });
 
+  it("a plan Format line formats the staged files before the commit", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    writeFile(repo, "fmt.sh", 'for f in "$@"; do echo formatted >> "$f"; done\n');
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: sh fmt.sh\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(lastOf(run, "commit.made")).toMatchObject({ milestone: "M1", round: 0 });
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\nformatted\n");
+    expect(git(repo, "status", "--porcelain", "--", "src/a/x.ts")).toBe("");
+  });
+
+  it("a Format command that fails leaves the commit to the hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: no-such-formatter-43\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\n");
+  });
+
+  it("a hook refusal is a commit.failed with hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    const hook = join(repo, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\necho 'src/a/x.ts is not formatted' >&2\nexit 1\n");
+    chmodSync(hook, 0o755);
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.made");
+    expect(lastOf(run, "commit.failed")).toMatchObject({ hook: true });
+    expect(lastOf(run, "commit.failed")?.tail).toContain("src/a/x.ts");
+  });
+
+  it("a staged deletion is not an argument of the Format command", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/old.ts", "old\n");
+    git(repo, "add", "src/a/old.ts");
+    git(repo, "commit", "-m", "old");
+    rmSync(join(repo, "src/a/old.ts"));
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    // like oxfmt and prettier, it formats nothing when one path is missing
+    writeFile(
+      repo,
+      "fmt.sh",
+      'for f in "$@"; do [ -e "$f" ] || exit 1; done\nfor f in "$@"; do echo formatted >> "$f"; done\n',
+    );
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: sh fmt.sh\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\nformatted\n");
+    expect(git(repo, "show", "--name-status", "--format=", "HEAD")).toContain("D\tsrc/a/old.ts");
+  });
+
+  it("a hook that times out is a commit.failed without hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    const hook = join(repo, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nsleep 30\n");
+    chmodSync(hook, 0o755);
+    await seed(run);
+    const was = effectLimits.commitMs;
+    effectLimits.commitMs = 400;
+    try {
+      await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    } finally {
+      effectLimits.commitMs = was;
+    }
+    expect(lastOf(run, "commit.failed")).toMatchObject({ tail: "git timed out" });
+    expect(lastOf(run, "commit.failed")).not.toHaveProperty("hook");
+  });
+
+  it("a failed git add is a commit.failed without hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    writeFile(repo, ".git/index.lock");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(lastOf(run, "commit.failed")).toBeDefined();
+    expect(lastOf(run, "commit.failed")).not.toHaveProperty("hook");
+  });
+
   it("lands through land(), and reports its refusal with code and fix", async () => {
     const { run, repo, fx } = setup();
     writeLane(run, "M1.L1", ["src/a/"]);
@@ -1467,6 +1624,35 @@ describe("a run with a base branch (30b)", () => {
     expect(readFileSync(join(run.dir, "ledger.md"), "utf8")).toContain(
       "fetch of origin/main failed: using the copy from the last fetch",
     );
+  });
+
+  it("integrate updates submodules", async () => {
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+    const { repo, origin, run, fx } = await baseSetup();
+    const sub = tempRepo();
+    const bump = (name: string): string => {
+      const clone = tempDir("catherd-clone-");
+      git(clone, "clone", "-q", origin, ".");
+      if (existsSync(join(clone, ".gitmodules"))) git(clone, "submodule", "update", "-q", "--init");
+      else git(clone, "submodule", "add", "-q", sub, "libs/sub");
+      git(join(clone, "libs/sub"), "fetch", "-q", "origin");
+      git(join(clone, "libs/sub"), "checkout", "-q", "FETCH_HEAD");
+      git(clone, "add", "-A");
+      git(clone, "commit", "-q", "-m", name);
+      git(clone, "push", "-q", "origin", "HEAD:main");
+      return git(join(clone, "libs/sub"), "rev-parse", "HEAD").trim();
+    };
+    bump("add sub");
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    writeFileSync(join(sub, "next.txt"), "n");
+    git(sub, "add", "-A");
+    git(sub, "commit", "-q", "-m", "next");
+    const moved = bump("move sub");
+    await fx.run({ type: "integrate", milestone: "M1" }, replayRun(run));
+    expect(types(run).filter((t) => t === "integrate.done")).toHaveLength(2);
+    expect(git(join(repo, "libs/sub"), "rev-parse", "HEAD").trim()).toBe(moved);
   });
 
   it("sends conflicts to the integrate worker's files, and commits the resolved merge", async () => {
@@ -2055,6 +2241,83 @@ describe("a milestone per branch (plan 35)", () => {
     expect(replayRun(run).milestones.map((m) => m.status)).toEqual(["merged", "merged"]);
   });
 
+  // M1 has its tree and one commit on its branch, landed; returns the commit
+  async function landedOneCommit(run: Run, file: string, text: string): Promise<string> {
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    writeFile(tree, file, text);
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "one");
+    const commit = git(tree, "rev-parse", "HEAD").trim();
+    await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit,
+      knownIssues: [],
+      digestPath: "d",
+    });
+    return commit;
+  }
+
+  it("a landed milestone is merged with a merge commit and pushed", async () => {
+    const { origin, run, fx } = await treesSetup();
+    const commit = await landedOneCommit(run, "one.txt", "1\n");
+    const before = git(origin, "rev-parse", "main").trim();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    const head = git(origin, "rev-parse", "main").trim();
+    expect(git(origin, "log", "-1", "--format=%P", "main").trim().split(" ")).toEqual([before, commit]);
+    expect(git(origin, "log", "-1", "--format=%s", "main").trim()).toBe(
+      mergeSubject(run.id, "M1", "the wallet core"),
+    );
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1", by: "catherd", commit: head });
+    expect(types(run)).not.toContain("merge.failed");
+    expect(existsSync(join(run.dir, "scratch", "merge-M1"))).toBe(false);
+    expect(existsSync(treeDir(run, "M1"))).toBe(false);
+  });
+
+  it("a conflicting merge falls back and leaves origin alone", async () => {
+    const { origin, run, fx } = await treesSetup();
+    await landedOneCommit(run, "f.txt", "mine\n");
+    commitInClone(origin, "theirs", { path: "f.txt", text: "theirs\n" });
+    const before = git(origin, "rev-parse", "main").trim();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "merge.failed")).toMatchObject({ milestone: "M1" });
+    expect((lastOf(run, "merge.failed") as { error: string }).error).toContain("CONFLICT");
+    expect(types(run)).not.toContain("milestone.merged");
+    expect(git(origin, "rev-parse", "main").trim()).toBe(before);
+    expect(existsSync(join(run.dir, "scratch", "merge-M1"))).toBe(false);
+    expect(existsSync(treeDir(run, "M1"))).toBe(true);
+  });
+
+  it("a push that loses the race to another push merges again on the new base and lands", async () => {
+    const { repo, origin, run, fx } = await treesSetup();
+    const commit = await landedOneCommit(run, "one.txt", "1\n");
+    // another clone pushes to origin's main after catherd's merge, before its push: a real non-fast-forward
+    const racer = tempDir("catherd-racer-");
+    execFileSync("git", ["clone", "-q", origin, racer], { stdio: "ignore" });
+    const hook = join(repo, ".git", "hooks", "post-merge");
+    writeFileSync(
+      hook,
+      `#!/bin/sh\n[ -e "${racer}/raced" ] && exit 0\ntouch "${racer}/raced"\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n` +
+        `git -C "${racer}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m racer && git -C "${racer}" push -q origin HEAD:main\n`,
+    );
+    chmodSync(hook, 0o755);
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(types(run)).not.toContain("merge.failed");
+    const raced = git(racer, "rev-parse", "HEAD").trim();
+    expect(git(origin, "log", "-1", "--format=%P", "main").trim().split(" ")).toEqual([raced, commit]);
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1", by: "catherd" });
+  });
+
+  it("a mergeLanded it cannot start is merge.failed, never silent", async () => {
+    const { run, fx } = await treesSetup();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "merge.failed")).toMatchObject({
+      milestone: "M1",
+      error: "no landed commit to merge",
+    });
+  });
+
   it("parks a landed milestone for its push, naming its branch, the push answer, the push command, the digest and the precheck", async () => {
     const { run, fx } = await treesSetup();
     const { tree } = await claimM(run, "M1");
@@ -2099,6 +2362,20 @@ describe("a milestone per branch (plan 35)", () => {
   });
 });
 
+describe("planOf lane digests (plan 43 D6)", () => {
+  it("a lane's digest ignores its Owns line", () => {
+    const { run } = freshRun();
+    const digest = () => planOf(run)[0]?.lanes[0]?.digest;
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const first = digest();
+    expect(first).toMatch(/^[0-9a-f]{16}$/);
+    writeLane(run, "M1.L1", ["src/b.ts", "src/c/"]);
+    expect(digest()).toBe(first);
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nOne more line.\n");
+    expect(digest()).not.toBe(first);
+  });
+});
+
 describe("planOf with milestone dependencies (plan 35)", () => {
   it("lists the milestones a milestone's lanes name, beside its heading's After:", () => {
     const { run } = freshRun();
@@ -2123,12 +2400,13 @@ function stubCheck(
   answer: (i: { at?: string; command: string }) => {
     exit: number;
     fails: string[];
+    failFiles?: Record<string, string[]>;
   },
   calls: { at?: string; command: string }[] = [],
 ): void {
   milestoneChecker.run = async (i) => {
     calls.push({ at: i.at, command: i.command });
-    const { exit, fails } = answer(i);
+    const { exit, fails, failFiles } = answer(i);
     const record: CheckRecord = {
       at: new Date().toISOString(),
       run: run.id,
@@ -2138,6 +2416,7 @@ function stubCheck(
       exit,
       durationMs: 1,
       fails,
+      ...(failFiles ? { failFiles } : {}),
       log: "",
       ...(i.at !== undefined ? { baseline: true as const } : { secrets: "clean" }),
     };
@@ -2202,6 +2481,27 @@ describe("the daemon's machine check (plan 40 D1, D4, D13)", () => {
         },
       ],
     });
+  });
+
+  it("a red check's finding names the failing files", async () => {
+    const { repo, run, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFileSync(runPaths(run.dir).plan, "# P\n## M1 — core\nCheck: bun test\n");
+    await seed(run);
+    const head = git(repo, "rev-parse", "HEAD").trim();
+    stubCheck(run, () => ({
+      exit: 1,
+      fails: ["(fail) a > b"],
+      failFiles: { "(fail) a > b": ["test/a.test.ts"] },
+    }));
+    await fx.run({ type: "machineCheck", milestone: "M1", commit: head }, replayRun(run));
+    expect(lastOf(run, "milestone.checked")?.findings).toEqual([
+      {
+        label: "BLOCKER",
+        text: "`bun test` fails: (fail) a > b — in test/a.test.ts",
+        file: "test/a.test.ts",
+      },
+    ]);
   });
 
   it("a failing item with no baseline gets one from the base, on a tree removed after", async () => {

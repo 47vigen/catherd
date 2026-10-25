@@ -3,6 +3,7 @@ import {
   BaseBranchSchema,
   isPushAnswer,
   milestoneBranch,
+  mergeSubject,
   mrCommand,
   planSetup,
   runSlug,
@@ -23,6 +24,14 @@ describe("branch names", () => {
   it("reads Setup: from plan.md's header block only", () => {
     expect(planSetup("# Plan\nSetup: `pnpm install`\n\n## M1\nSetup: no")).toBe("pnpm install");
     expect(planSetup("# Plan\n\nSetup: body prose")).toBeNull();
+  });
+  it("mergeSubject is a conventional subject of at most 100 characters", () => {
+    expect(mergeSubject("20261024-225710-plans-41-42-cheap-tier", "M33", "Panel Models Page")).toBe(
+      "chore: merge plans-41-42-cheap-tier m33 panel models page",
+    );
+    const long = mergeSubject("20261024-225710-plans-41-42-cheap-tier", "M33", "x".repeat(200));
+    expect(long).toHaveLength(100);
+    expect(long.startsWith("chore: merge ")).toBe(true);
   });
   it("names a unit's milestone", () =>
     expect(["run", "M1", "M1.L2"].map(unitMilestone)).toEqual([null, "M1", "M1"]));

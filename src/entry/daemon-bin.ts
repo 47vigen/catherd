@@ -2,7 +2,7 @@
 // The detached run daemon's entry: like the supervisor's it imports only what driving a run needs, never
 // src/cli.ts.
 import { errorMessage } from "../domain/errors.ts";
-import { runDaemon } from "../services/daemon.ts";
+import { runDaemon, superviseDaemon } from "../services/daemon.ts";
 import { defaultDeps } from "./deps.ts";
 
 const runId = process.argv[2];
@@ -12,7 +12,9 @@ if (!runId) {
 }
 try {
   // nobody's role and no Claude Code session: the daemon answers to the run's events
-  const result = await runDaemon({ ...defaultDeps(), session: null, role: null }, runId);
+  const result = await superviseDaemon(() =>
+    runDaemon({ ...defaultDeps(), session: null, role: null }, runId),
+  );
   if (result === "lost-lock") console.error(`catherd daemon: another daemon holds run ${runId}`);
 } catch (e) {
   console.error(`catherd daemon: ${errorMessage(e)}`);

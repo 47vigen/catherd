@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mrCommand, unitMilestone } from "../domain/branch.ts";
+import { mergeSubject, mrCommand, unitMilestone } from "../domain/branch.ts";
 import { CatherdError, errorMessage, isCatherdError } from "../domain/errors.ts";
 import {
   type BlockedReason,
@@ -15,7 +16,7 @@ import { type JudgeKind, judgeName, parseJudgeReply } from "../domain/judge.ts";
 import { milestoneAfter, onlyAllowedHits, parseLaneHeader } from "../domain/lane.ts";
 import { milestoneProblems } from "../domain/plan-lint.ts";
 import { mayStartMilestone, memoryLimitsOf, memoryLoad, neededMb } from "../domain/milestone-memory.ts";
-import { changedDecisions, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
+import { changedDecisions, formatCommand, milestoneCheck, reapprovalQuestion } from "../domain/plan-doc.ts";
 import type { RunRecord } from "../domain/record.ts";
 import { currentRoute } from "../domain/route.ts";
 import type { Role } from "../domain/roles.ts";
@@ -59,7 +60,7 @@ import { writeRunReport } from "./run-report.ts";
 import { cheapestRung } from "./routing-service.ts";
 import { runProfile } from "./run-pin.ts";
 import { appendRoute, readRecords, readRoutes, type Run, runPaths } from "./run-store.ts";
-import { treeOf } from "./tree-path.ts";
+import { composeProjectOf, treeOf } from "./tree-path.ts";
 import { refreshState } from "./state.ts";
 
 /**
@@ -78,6 +79,9 @@ export const milestoneChecker = { run: runMilestoneCheck };
 
 /** The most failing lines of one item that become findings; the rest stay in its check log. */
 const FINDINGS_PER_ITEM = 20;
+const MERGE_ATTEMPTS = 3;
+/** a push refused only because origin moved since the fetch; a hook refusal or a conflict is not this */
+const LOST_RACE = /\((?:fetch first|non-fast-forward)\)|cannot lock ref|failed to update ref/;
 
 type CheckInput = Parameters<typeof runMilestoneCheck>[0];
 
@@ -142,6 +146,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
+  let noVerdict = false;
   let findings = record.role === "reviewer" || record.role === "ui-reviewer" ? parseFindings(reply) : [];
   if (record.role === "verifier") {
     const first = replyVerdict(run, record) ?? "";
@@ -153,7 +158,10 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
       findings = parseFindings(reply).filter((f) => f.label === "NIT");
     }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
-    else if (record.status === "ok") verdict = "fail";
+    else if (record.status === "ok") {
+      verdict = "fail";
+      noVerdict = !FIRST_LINE.test(first);
+    }
     if (verdict === "fail") {
       findings = parseFailLines(reply);
       // a FAIL that lists no failing line still routes what it said, so the fix round never starts empty
@@ -188,6 +196,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
     siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
+    ...(noVerdict ? { noVerdict: true as const } : {}),
   };
 }
 
@@ -210,7 +219,8 @@ export function planOf(run: Run): MilestonePlan[] {
     .filter((id) => ID.test(id))
     .sort(natural)
     .map((id) => {
-      const h = parseLaneHeader(read(join(dir, `${id}.md`)));
+      const text = read(join(dir, `${id}.md`));
+      const h = parseLaneHeader(text);
       return {
         id,
         milestone: id.slice(0, id.indexOf(".")),
@@ -218,6 +228,11 @@ export function planOf(run: Run): MilestonePlan[] {
         kind: h.kind,
         after: h.after,
         owns: h.owns,
+        // without the Owns: line, which owns_add rewrites while a lane runs (plan 43 D6)
+        digest: createHash("sha256")
+          .update(text.replace(/^Owns:.*(?:\r?\n|$)/gm, ""))
+          .digest("hex")
+          .slice(0, 16),
       };
     });
   if (lanes.length === 0) throw new CatherdError("E_LANE_INVALID", "the architect wrote no lane files");
@@ -459,6 +474,29 @@ export function realEffects(deps: Deps, run: Run): Effects {
   const orphanOf = (name: string, s: RunState): Dispatch | undefined =>
     listDispatches(run).find((d) => d.admit.name === name && !s.dispatches[d.admit.dispatchId]);
 
+  /** Plan 43 D10: the lane's rung under the profile as it is now, recorded as routed; null when it is the same rung or none. */
+  async function rerouteLane(
+    lane: string,
+    role: Role,
+    milestone: string,
+    was: string,
+  ): Promise<string | null> {
+    let routed: Awaited<ReturnType<typeof routeLanes>>[number] | undefined;
+    try {
+      [routed] = await routeLanes(deps, { run: run.id, laneFiles: [`lanes/${lane}.md`], role });
+    } catch {
+      return null;
+    }
+    const rung = routed ? headlessRung(routed.rung) : null;
+    if (!routed || !rung || rung === was) return null;
+    await append({
+      type: "lanes.routed",
+      milestone,
+      lanes: [{ lane, rung: routed.rung, ladder: routed.ladder }],
+    });
+    return rung;
+  }
+
   async function start(
     a: {
       unit: string;
@@ -500,18 +538,30 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (orphan) return adopt(orphan);
     const picked = await rungFor(a, s);
     if ("code" in picked) return void (await refuse(picked.code, picked.message));
-    let admitted: Awaited<ReturnType<typeof admit>>;
-    try {
-      admitted = await admit(deps, run, {
+    const tryAdmit = (rung: string, thread: string | null) =>
+      admit(deps, run, {
         role: a.role,
         name: a.name,
         brief,
-        rung: picked.rung,
-        thread: a.thread,
+        rung,
+        thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
         // plan 35: a base run's milestone works in its own worktree
         cwd: treeOf(run, unitMilestone(a.unit)),
+      });
+    let admitted: Awaited<ReturnType<typeof admit>>;
+    try {
+      admitted = await tryAdmit(picked.rung, a.thread).catch(async (e: unknown) => {
+        // plan 43 D10: a profile edit can leave a lane's rung off its ladder; route the lane again, admit once more
+        const m = unitMilestone(a.unit);
+        if (!isCatherdError(e) || e.code !== "E_ADMIT_RUNG" || a.failoverFrom || !a.lane || m === null)
+          throw e;
+        const again = await rerouteLane(a.lane, a.role, m, picked.rung);
+        if (!again) throw e;
+        // the old rung's thread resumes only on its own backend
+        const same = tryParseRung(again)?.backend === tryParseRung(picked.rung)?.backend;
+        return tryAdmit(again, same ? a.thread : null);
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;
@@ -663,6 +713,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
     const check = header.fastCheck;
     const cwd = treeOf(run, unitMilestone(a.lane));
     const env = await checkEnvFor(run.meta.repo);
+    const compose = composeProjectOf(run, unitMilestone(a.lane));
+    if (compose) env.COMPOSE_PROJECT_NAME ??= compose;
     const slots = heavySlots(runProfile(deps, run).heavy);
     const requested = Date.now();
     const { tree, r, startedAt, durationMs, waitedMs } = await withHeavySlot(
@@ -761,12 +813,15 @@ export function realEffects(deps: Deps, run: Run): Effects {
       );
       await runBaselines(a.milestone, a.commit);
       missing = (await machineGate(run, a.milestone, a.commit)).missing;
-      findings = (await freshFailures(run, a.milestone, a.commit)).flatMap(({ item, lines }) =>
-        lines.slice(0, FINDINGS_PER_ITEM).map((line) => ({
-          label: "BLOCKER" as const,
-          text: `\`${item}\` fails: ${line}`,
-          file: fileOf(line),
-        })),
+      findings = (await freshFailures(run, a.milestone, a.commit)).flatMap(({ item, lines, files }) =>
+        lines.slice(0, FINDINGS_PER_ITEM).map((line) => {
+          const of = files[line] ?? [];
+          return {
+            label: "BLOCKER" as const,
+            text: `\`${item}\` fails: ${line}${of.length ? ` — in ${of.join(", ")}` : ""}`,
+            file: of[0] ?? fileOf(line),
+          };
+        }),
       );
     }
     const verified = milestoneOf(s, a.milestone)?.verifierPassedOn ?? null;
@@ -828,12 +883,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
       if (r.lane && ids.has(r.lane)) for (const p of [...r.changedOwned, ...r.violations]) paths.add(p);
     // plan 35: a base run's milestone is committed in its own worktree, on its own branch
     const repo = treeOf(run, a.milestone);
-    const failed = (r: { out: string; err: string; timedOut: boolean }) =>
+    const failed = (r: { out: string; err: string; timedOut: boolean }, hook = false) =>
       append({
         type: "commit.failed",
         milestone: a.milestone,
         round: a.round,
         tail: r.timedOut ? "git timed out" : tailOf(`${r.out}\n${r.err}`),
+        ...(hook ? { hook: true } : {}),
       });
     // a merge of the base is open: the files it left in conflict are resolved now, and the merge itself is committed
     const merging = (m?.integrateFiles.length ?? 0) > 0;
@@ -857,7 +913,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       }
       // an open merge is committed whole: a partial commit is refused while one is in progress
       const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
-      if (c.code !== 0) return void (await failed(c));
+      if (c.code !== 0) return void (await failed(c, !c.timedOut));
     } else {
       // only what the milestone owns: work staged elsewhere stays staged and out of the commit
       const staged = paths.size
@@ -869,6 +925,27 @@ export function realEffects(deps: Deps, run: Run): Effects {
         : { code: 0, out: "", err: "", timedOut: false };
       if (staged.code !== 0) return void (await failed(staged));
       const files = staged.out.split("\0").filter(Boolean);
+      // a staged deletion is no argument for the formatter: a missing path makes oxfmt or prettier format nothing
+      const present = files.filter((f) => existsSync(join(repo, f)));
+      const format = present.length ? formatCommand(read(runPaths(run.dir).plan), a.milestone) : null;
+      if (format) {
+        // plan 43 D11: the plan's formatter runs on the staged files; a failure is logged and the hook decides
+        const quoted = present.map((f) => `'${f.replaceAll("'", `'\\''`)}'`).join(" ");
+        const r = await runCheck(
+          repo,
+          `${format} ${quoted}`,
+          effectLimits.commitMs,
+          await checkEnvFor(repo),
+        ).catch((e: unknown) => ({ code: null, timedOut: false, tail: [errorMessage(e)] }));
+        if (r.code !== 0)
+          log("warn", "daemon", { run: run.id, action: "format", exit: r.code, tail: r.tail.join("\n") });
+        const added = await gitRun(
+          repo,
+          ["--literal-pathspecs", "add", "--", ...present],
+          effectLimits.commitMs,
+        );
+        if (added.code !== 0) return void (await failed(added));
+      }
       if (files.length) {
         const title = lower(m?.title ?? a.milestone);
         const suffix = a.round === 0 ? "" : `, review round ${a.round}`;
@@ -878,7 +955,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
           effectLimits.commitMs,
         );
-        if (c.code !== 0) return void (await failed(c));
+        if (c.code !== 0) return void (await failed(c, !c.timedOut));
       }
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);
@@ -956,6 +1033,10 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (r.code === 0) {
       const head = await gitRun(repo, ["rev-parse", "HEAD"]);
       if (head.code !== 0) throw new Error(`git rev-parse HEAD failed: ${tailOf(head.err)}`);
+      // a merge can move a submodule pointer; setup runs once per tree, so the checkout follows here (plan 43 D17)
+      const sub = await gitRun(repo, ["submodule", "update", "--init", "--recursive"], effectLimits.commitMs);
+      if (sub.code !== 0)
+        throw new Error(`git submodule update failed: ${tailOf(`${sub.out}\n${sub.err}`, 5)}`);
       return void (await append({
         type: "integrate.done",
         milestone: a.milestone,
@@ -991,6 +1072,70 @@ export function realEffects(deps: Deps, run: Run): Effects {
         hint: gone.hint,
       });
     await append({ type: "milestone.merged", milestone: a.milestone });
+  }
+
+  /**
+   * Plan 43 D20: merges a landed milestone into origin's base from a detached worktree of its own (the owner's checkout
+   * may be dirty or elsewhere), pushes it without force and drops the milestone's tree. Any git failure leaves origin
+   * alone and is `merge.failed`, which turns into the owner's push question.
+   */
+  async function mergeLanded(a: Extract<Action, { type: "mergeLanded" }>, s: RunState): Promise<void> {
+    const m = milestoneOf(s, a.milestone);
+    const commit = m?.commit ?? landedCommitOf(run, a.milestone);
+    if (!m || s.base === null || !commit)
+      return void (await append({
+        type: "merge.failed",
+        milestone: a.milestone,
+        error: s.base === null ? "the run has no base branch" : "no landed commit to merge",
+      }));
+    const repo = run.meta.repo;
+    const wt = join(run.dir, "scratch", `merge-${a.milestone}`);
+    const fail = async (r: { out: string; err: string; timedOut: boolean }): Promise<void> => {
+      await append({
+        type: "merge.failed",
+        milestone: a.milestone,
+        error: r.timedOut ? "git timed out" : tailOf(`${r.out}\n${r.err}`, 5),
+      });
+    };
+    try {
+      for (let attempt = 1; ; attempt++) {
+        const fetched = await gitRun(repo, ["fetch", "-q", "origin", s.base], effectLimits.commitMs);
+        if (fetched.code !== 0) return await fail(fetched);
+        await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs); // left by a crashed try
+        const added = await gitRun(
+          repo,
+          ["worktree", "add", "--detach", wt, `origin/${s.base}`],
+          effectLimits.commitMs,
+        );
+        if (added.code !== 0) return await fail(added);
+        const merged = await gitRun(
+          wt,
+          ["merge", "--no-ff", "-m", mergeSubject(run.id, a.milestone, m.title), commit],
+          effectLimits.commitMs,
+        );
+        if (merged.code !== 0) return await fail(merged);
+        const pushed = await gitRun(
+          wt,
+          ["push", "origin", `HEAD:refs/heads/${s.base}`],
+          effectLimits.commitMs,
+        );
+        if (pushed.code === 0) break;
+        // another push moved the base first (two milestones landing together): merge again on top of it
+        if (attempt >= MERGE_ATTEMPTS || !LOST_RACE.test(`${pushed.out}\n${pushed.err}`))
+          return await fail(pushed);
+      }
+      const head = await gitRun(wt, ["rev-parse", "HEAD"]);
+      const gone = await removeTree(run, a.milestone);
+      if (gone.hint) log("warn", "trees", { run: run.id, milestone: a.milestone, hint: gone.hint });
+      await append({
+        type: "milestone.merged",
+        milestone: a.milestone,
+        by: "catherd",
+        ...(head.code === 0 ? { commit: head.out.trim() } : {}),
+      });
+    } finally {
+      await gitRun(repo, ["worktree", "remove", "--force", wt], effectLimits.commitMs);
+    }
   }
 
   /**
@@ -1186,6 +1331,8 @@ export function realEffects(deps: Deps, run: Run): Effects {
         return claim(a, s);
       case "pushBranch":
         return pushBranch(a, s);
+      case "mergeLanded":
+        return mergeLanded(a, s);
     }
   }
 

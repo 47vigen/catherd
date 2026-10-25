@@ -27,6 +27,7 @@ function oneOfEach(): RunEvent[] {
   log.add("check.ran", { lane: "M1.L1", exit: 1, tail: "boom", foreign: [] });
   log.add("commit.made", { milestone: "M1", round: 0, commit: "abc1234" });
   log.add("commit.failed", { milestone: "M1", round: 1, tail: "hook failed" });
+  log.add("pause.lifted", {});
   log.add("lane.climbed", { lane: "M1.L1", rung: "codex:gpt-6-sol#high", top: false });
   log.add("stop.classified", { dispatchId: id, reason: "needs_user" });
   log.add("judge.decided", {
@@ -195,5 +196,43 @@ describe("run events", () => {
     expect(describeEvent(old)).toBe("M1 preflight passed");
     const withLint = RunEventSchema.parse({ ...base, lint: ["a", "b"] });
     expect(describeEvent(withLint)).toBe("M1 preflight passed · 2 lint warning(s)");
+  });
+});
+
+describe("plan 43 events", () => {
+  it("pause.lifted and the new fields parse and describe", () => {
+    const log = makeLog();
+    const lifted = log.add("pause.lifted", {});
+    const hook = log.add("commit.failed", { milestone: "M1", round: 1, tail: "src/a.ts", hook: true });
+    const plan = log.add("plan.ready", {
+      milestones: [
+        {
+          id: "M1",
+          title: "t",
+          after: [],
+          lanes: [
+            { id: "M1.L1", role: "worker", kind: null, after: [], owns: [], digest: "0123456789abcdef" },
+          ],
+        },
+      ],
+    });
+    for (const e of [lifted, hook, plan]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(RunEventSchema.safeParse({ ...hook, hook: "yes" }).success).toBe(false);
+    expect(describeEvent(lifted)).toBe("the machine pause was lifted");
+    // an old line without the fields still parses
+    const { hook: _h, ...old } = hook;
+    expect(RunEventSchema.parse(old)).toEqual(old);
+  });
+
+  it("merge.failed, autoMerge and a milestone merged by catherd parse and describe", () => {
+    const log = makeLog();
+    const failed = log.add("merge.failed", { milestone: "M1", error: "CONFLICT" });
+    const merged = log.add("milestone.merged", { milestone: "M1", by: "catherd", commit: "e1" });
+    const owner = log.add("milestone.merged", { milestone: "M2" });
+    for (const e of [failed, merged, owner]) expect(RunEventSchema.parse(e)).toEqual(e);
+    expect(RunEventSchema.safeParse({ ...merged, by: "owner" }).success).toBe(false);
+    expect(describeEvent(failed)).toBe("M1 could not be merged by catherd: CONFLICT");
+    expect(describeEvent(merged)).toBe("M1 merged by catherd");
+    expect(describeEvent(owner)).toBe("M2 merged");
   });
 });

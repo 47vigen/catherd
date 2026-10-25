@@ -11,13 +11,18 @@ import {
   reduce,
   replay,
   softCap,
+  SOURCE_PLAN_NOTE,
+  STATUS_ASK,
+  VERDICT_ASK,
 } from "../../src/domain/run-state.ts";
 import {
   PLAN,
   endDispatch,
   finishLane,
   makeLog,
+  routeMilestone,
   runningLog,
+  START,
   startDispatch,
   startedFields,
 } from "./run-fixtures.ts";
@@ -279,6 +284,41 @@ describe("run state", () => {
     });
   });
 
+  it("a transport error holds the lane on its rung with a backoff, never classified or climbed, and parks after the hold window", () => {
+    const log = runningLog();
+    const name = "worker-M1.L1";
+    const why =
+      "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel";
+    const rung = log.state().lanes["M1.L1"]?.rung;
+    const t0 = Date.parse(START) + 3_600_000;
+    for (const min of [0, 4, 12, 25]) {
+      const at = new Date(t0 + min * 60_000).toISOString();
+      const w = startDispatch(log, { name, unit: "M1.L1" });
+      endDispatch(log, w, { name, unit: "M1.L1", status: "failed", replyStatus: null, why, at });
+      const s = log.state();
+      expect(s.lanes["M1.L1"]).toMatchObject({
+        status: "pending",
+        classify: null,
+        attempts: 0,
+        climbReason: null,
+        rung,
+      });
+      expect(s.waiting[name]! > at).toBe(true);
+      expect(s.stuck["M1.L1"]).toBeUndefined();
+    }
+    const w = startDispatch(log, { name, unit: "M1.L1" });
+    endDispatch(log, w, {
+      name,
+      unit: "M1.L1",
+      status: "failed",
+      replyStatus: null,
+      why: "connect ECONNRESET 10.0.0.1:443",
+      at: new Date(t0 + HOLD_MS).toISOString(),
+    });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("parked");
+    expect(log.state().stuck["M1.L1"]).toMatchObject({ reason: "provider_error" });
+  });
+
   it("checks a lane after an ok end, and counts a failed check on the lane", () => {
     const log = runningLog();
     const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
@@ -376,7 +416,7 @@ describe("run state", () => {
     expect(activeMilestones(log.state()).map((m) => m.id)).toEqual(["M2"]);
   });
 
-  it("lists live dispatches, and a refusal waits", () => {
+  it("lists live dispatches, and a paused refusal holds the run", () => {
     const log = runningLog();
     startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
     expect(liveDispatches(log.state()).map((d) => d.name)).toEqual(["worker-M1.L1"]);
@@ -385,8 +425,9 @@ describe("run state", () => {
       { name: "worker-M1.L2", unit: "M1.L2", code: "E_ADMIT_PAUSED", message: "paused" },
       "2026-10-21T10:00:00.000Z",
     );
-    expect(log.state().waiting["worker-M1.L2"]).toBe("2026-10-21T10:05:00.000Z");
-    expect(log.state().wakeAt).toBe("2026-10-21T10:05:00.000Z");
+    // a machine pause holds the run until `pause.lifted`: no timed wait
+    expect(log.state().waiting["worker-M1.L2"]).toBeUndefined();
+    expect(log.state().held).toBe("2026-10-21T10:00:00.000Z");
   });
 
   it("parks a unit whose name is refused as a duplicate again and again", () => {
@@ -821,6 +862,70 @@ describe("plan 40: the verifying flow", () => {
     expect(out.some((a) => a.type === "dispatch")).toBe(false);
     checked(log, "c0");
     expect(log.state().milestones[0]).toMatchObject({ status: "landing" });
+  });
+
+  it("a verifier reply with no VERDICT line is asked for one on its thread once, and a second is a FAIL", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const noVerdict = (thread: string) => {
+      const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+      endDispatch(log, v, {
+        name: "verifier-M1",
+        unit: "M1",
+        verdict: "fail",
+        findings: [bug("no VERDICT line: Now I run the gate.", null, "BLOCKER")],
+        noVerdict: true,
+        thread,
+      });
+    };
+    noVerdict("tv-1");
+    expect(log.state().milestones[0]).toMatchObject({ status: "verifying", verifierFailedOn: null });
+    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
+      expect.objectContaining({ type: "dispatch", role: "verifier", thread: "tv-1", notes: [VERDICT_ASK] }),
+    );
+    noVerdict("tv-1");
+    expect(log.state().milestones[0]).toMatchObject({ status: "fixing", verifierFailedOn: "c0" });
+  });
+
+  it("a triage judge that dismisses every finding of a verifier FAIL passes that commit", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "fail",
+      findings: [bug("BLOCKER A8 is not met", null, "BLOCKER")],
+    });
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "fixing",
+      disputing: false,
+      verifierFailedOn: "c0",
+    });
+    triaged(log, "7", []);
+    expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c0" });
+    expect(log.state().milestones[0]?.knownIssues).toEqual(["dismissed by the judge: BLOCKER A8 is not met"]);
+  });
+
+  it("a second land refusal parks a question that says retry lands again", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    const refuse = () =>
+      log.add("land.refused", { milestone: "M1", code: "E_LAND_DISK", message: "disk full", fix: "free it" });
+    refuse();
+    checked(log, "c0");
+    refuse();
+    const q = log.state().stuck.M1;
+    expect(q).toMatchObject({ reason: "land" });
+    expect(q?.question).toContain("retry to land again, or name the fix");
+    log.add("question.parked", { unit: "M1", question: q?.question ?? "", reason: "land" });
+    log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+    expect(log.state().milestones[0]?.status).toBe("landing");
   });
 
   it("a carried verdict lands the merge commit", () => {
@@ -1389,5 +1494,402 @@ describe("pending reminder wake scheduling", () => {
       const log = runningLog();
       expect(lane(log)).toMatchObject({ cheapFirst: false, cheapRan: false });
     });
+  });
+});
+
+describe("plan 43 M3: owners, parks and STATUS asks", () => {
+  const lone: MilestonePlan[] = [
+    {
+      id: "M1",
+      title: "t",
+      after: [],
+      lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a.ts"] }],
+    },
+  ];
+  /** two independent lanes owning single files */
+  const files = (a: string, b: string): MilestonePlan[] => [
+    {
+      id: "M1",
+      title: "t",
+      after: [],
+      lanes: [
+        { id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: [a] },
+        { id: "M1.L2", role: "worker", kind: "repo_code", after: [], owns: [b] },
+      ],
+    },
+  ];
+  const owned = (plan: MilestonePlan[]) => {
+    const log = runningLog(plan);
+    for (const l of plan[0]?.lanes ?? []) finishLane(log, l.id);
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    return log;
+  };
+  const workerNames = (log: ReturnType<typeof makeLog>) =>
+    next(log.state(), log.events.at(-1)!).flatMap((a) => (a.type === "dispatch" ? [a.name] : []));
+
+  it("a check_broken stop with no sibling at work parks at once", () => {
+    const log = runningLog(lone);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "check_broken",
+      why: "test/x.test.ts:12 asserts the old head",
+    });
+    const s = log.state();
+    expect(s.lanes["M1.L1"]?.status).toBe("parked");
+    expect(s.stuck["M1.L1"]?.question).toContain("test/x.test.ts:12 asserts the old head");
+    expect(workerNames(log)).toEqual([]);
+    // a sibling at work: the lane waits, no park
+    const busy = runningLog(independent);
+    startDispatch(busy, { name: "worker-M1.L2", unit: "M1.L2" });
+    const w2 = startDispatch(busy, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(busy, w2, {
+      name: "worker-M1.L1",
+      unit: "M1.L1",
+      replyStatus: "blocked",
+      reason: "check_broken",
+      why: "lint fails",
+    });
+    expect(busy.state().lanes["M1.L1"]?.status).toBe("pending");
+    expect(busy.state().stuck["M1.L1"]).toBeUndefined();
+  });
+
+  it("a reply with no STATUS line is asked once on the same thread", () => {
+    const log = runningLog(lone);
+    const w = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t1" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      thread: "t1",
+      notes: [STATUS_ASK],
+      statusAsked: true,
+      classify: null,
+    });
+    const w2 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t1" });
+    endDispatch(log, w2, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t1" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      thread: null,
+      statusAsked: false,
+    });
+    // an end with a status clears the ask
+    const w3 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1" });
+    endDispatch(log, w3, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: null, thread: "t2" });
+    const w4 = startDispatch(log, { name: "worker-M1.L1", unit: "M1.L1", thread: "t2" });
+    endDispatch(log, w4, { name: "worker-M1.L1", unit: "M1.L1", replyStatus: "complete", thread: "t2" });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ statusAsked: false, status: "checking" });
+  });
+
+  it("a relative path finds the lane owning its suffix", () => {
+    const deep = "web/src/components/graph/RunGraph.tsx";
+    const lanes = [
+      { id: "M1.L1", owns: ["src/a/"] },
+      { id: "M1.L2", owns: [deep] },
+    ];
+    expect(ownerOfFile("graph/RunGraph.tsx", lanes)).toBe("M1.L2");
+    expect(ownerOfFile("raph/RunGraph.tsx", lanes)).toBeNull();
+    // an exact owner still beats the suffix rule
+    expect(ownerOfFile("src/a/x.ts", lanes)).toBe("M1.L1");
+    expect(
+      ownerOfFile("graph/RunGraph.tsx", [...lanes, { id: "M1.L3", owns: ["app/graph/RunGraph.tsx"] }]),
+    ).toBeNull();
+    const log = owned(files("src/a.ts", deep));
+    review(log, [bug("BUG (`graph/RunGraph.tsx`) — the node overlaps — fix", null)]);
+    expect(log.state().lanes["M1.L2"]).toMatchObject({
+      status: "pending",
+      notes: ["BUG (`graph/RunGraph.tsx`) — the node overlaps — fix"],
+    });
+    expect(log.state().lanes["M1.L1"]?.status).toBe("done");
+    // two lanes ending in the same path: no owner, the finding stays open for the judge
+    const both = owned(files("web/a/graph/RunGraph.tsx", "web/b/graph/RunGraph.tsx"));
+    review(both, [bug("BUG (`graph/RunGraph.tsx`) — the node overlaps — fix", null)]);
+    expect(both.state().milestones[0]?.open).toHaveLength(1);
+    expect(both.state().lanes["M1.L1"]?.status).toBe("done");
+    expect(both.state().lanes["M1.L2"]?.status).toBe("done");
+  });
+
+  it("a capped BLOCKER that names a lane's file is no dispute", () => {
+    const log = owned(lone);
+    const blocker = bug("BLOCKER src/a.ts:3 — the export is wrong — fix", null, "BLOCKER");
+    review(log, [blocker]);
+    expect(log.state().milestones[0]?.status).toBe("fixing");
+    finishLane(log, "M1.L1");
+    log.add("commit.made", { milestone: "M1", round: 1, commit: "c1" });
+    review(log, [blocker]);
+    const s = log.state();
+    expect(s.milestones[0]).toMatchObject({ status: "review", disputes: 0, disputing: false });
+    expect(s.stuck.M1).toMatchObject({ reason: "blocker" });
+    expect(next(s, log.events.at(-1)!).some((a) => a.type === "judge")).toBe(false);
+  });
+
+  describe("a land park answered by the owner", () => {
+    const parked = () => {
+      const log = owned(files("src/a.ts", "src/b.ts"));
+      review(log, []);
+      checked(log, "c0", { missing: ["FAIL x"] });
+      log.add("question.parked", { unit: "M1", question: "q", reason: "land" });
+      return log;
+    };
+
+    it("a named fix starts a fix round", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "src/a.ts: drop the stale assertion", by: "owner" });
+      const s = log.state();
+      expect(s.milestones[0]?.status).toBe("fixing");
+      expect(s.lanes["M1.L1"]).toMatchObject({
+        status: "pending",
+        notes: ["src/a.ts: drop the stale assertion"],
+      });
+      expect(s.lanes["M1.L2"]?.status).toBe("done");
+    });
+
+    it("an answer naming no file goes to the triage judge", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "the fixture is stale", by: "owner" });
+      expect(log.state().milestones[0]).toMatchObject({
+        status: "fixing",
+        open: [{ label: "BLOCKER", text: "the fixture is stale" }],
+      });
+    });
+
+    it("retry runs the check again", () => {
+      const log = parked();
+      log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+      expect(log.state().milestones[0]?.status).toBe("verifying");
+      expect(next(log.state(), log.events.at(-1)!).filter((a) => a.type === "machineCheck")).toEqual([
+        { type: "machineCheck", milestone: "M1", commit: "c0" },
+      ]);
+    });
+  });
+
+  it("accept on a verifier check_broken park lands on a green check", () => {
+    const log = owned(lone);
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
+    log.add("question.parked", { unit: "M1", question: "q", reason: "check_broken" });
+    log.add("question.answered", { unit: "M1", answer: "accept, the env is flaky", by: "owner" });
+    expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c0" });
+  });
+});
+
+describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
+  const digested = (l1: string, l2: string): MilestonePlan[] =>
+    PLAN.map((m) =>
+      m.id === "M1" ? { ...m, lanes: m.lanes.map((l) => ({ ...l, digest: l.id === "M1.L1" ? l1 : l2 })) } : m,
+    );
+
+  it("a replan that edits a done lane's file re-runs it", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    log.add("plan.approved", { by: "owner" });
+    routeMilestone(log, PLAN[0] as MilestonePlan);
+    finishLane(log, "M1.L1", { thread: "t1" });
+    finishLane(log, "M1.L2");
+    log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+    review(log, [bug("BLOCKER nowhere/x.ts:1 — unowned", "nowhere/x.ts", "BLOCKER")]);
+    expect(log.state().milestones[0]?.status).toBe("fixing");
+    log.add("plan.ready", { milestones: digested("c", "b") });
+    const s = log.state();
+    expect(s.lanes["M1.L1"]).toMatchObject({
+      status: "pending",
+      thread: "t1",
+      digest: "c",
+      notes: ["The architect changed lanes/M1.L1.md: re-read it and make the change it asks for."],
+    });
+    expect(s.lanes["M1.L2"]).toMatchObject({ status: "done", digest: "b" });
+    const out = next(s, log.events.at(-1)!);
+    expect(out).toContainEqual(expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }));
+    expect(out.some((a) => a.type === "commit")).toBe(false);
+  });
+
+  it("a replan that edits a done lane sends a landing or parked milestone back to fixing", () => {
+    const done = () => {
+      const log = makeLog();
+      log.add("run.started", startedFields);
+      log.add("plan.ready", { milestones: digested("a", "b") });
+      log.add("plan.approved", { by: "owner" });
+      routeMilestone(log, PLAN[0] as MilestonePlan);
+      finishLane(log, "M1.L1", { thread: "t1" });
+      finishLane(log, "M1.L2");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      return log;
+    };
+    const landing = done();
+    checked(landing, "c0");
+    const v = startDispatch(landing, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(landing, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    expect(landing.state().milestones[0]?.status).toBe("landing");
+    landing.add("plan.ready", { milestones: digested("c", "b") });
+    expect(landing.state().milestones[0]?.status).toBe("fixing");
+    expect(landing.state().lanes["M1.L1"]).toMatchObject({ status: "pending", thread: "t1" });
+
+    const parked = done();
+    parked.add("question.parked", { unit: "M1", question: "q", reason: "blocker" });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "verifying" });
+    parked.add("plan.ready", { milestones: digested("c", "b") });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "fixing" });
+    parked.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+    expect(parked.state().milestones[0]?.status).toBe("fixing");
+  });
+
+  it("a replan with no digest, the same digest or a first digest re-runs nothing", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    routeMilestone(log, PLAN[0] as MilestonePlan);
+    finishLane(log, "M1.L1");
+    // no stored digest: the first one is taken, nothing re-runs
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a" });
+    log.add("plan.ready", { milestones: digested("a", "b") });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a", notes: [] });
+    // a plan without digests keeps the stored one
+    log.add("plan.ready", { milestones: PLAN });
+    expect(log.state().lanes["M1.L1"]).toMatchObject({ status: "done", digest: "a" });
+  });
+
+  describe("a pre-commit hook refusal", () => {
+    const committing = () => {
+      const log = runningLog(lone);
+      finishLane(log, "M1.L1", { thread: "t1" });
+      return log;
+    };
+    const lone: MilestonePlan[] = [
+      {
+        id: "M1",
+        title: "t",
+        after: [],
+        lanes: [{ id: "M1.L1", role: "worker", kind: "repo_code", after: [], owns: ["src/a.ts"] }],
+      },
+    ];
+
+    it("goes to the owning lane once", () => {
+      const log = committing();
+      expect(log.state().milestones[0]?.status).toBe("committing");
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts: not formatted", hook: true });
+      let s = log.state();
+      expect(s.stuck.M1).toBeUndefined();
+      expect(s.milestones[0]).toMatchObject({ status: "fixing", hookFixes: 1 });
+      expect(s.lanes["M1.L1"]).toMatchObject({ status: "pending", thread: "t1" });
+      expect(s.lanes["M1.L1"]?.notes).toEqual([
+        "The pre-commit hook refused the commit:\nsrc/a.ts: not formatted",
+      ]);
+      // a second refusal before a commit parks as it always did
+      finishLane(log, "M1.L1");
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts: still not", hook: true });
+      s = log.state();
+      expect(s.stuck.M1).toMatchObject({ reason: "commit" });
+    });
+
+    it("a refusal without hook, or a commit.made, behaves as before", () => {
+      const log = committing();
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts" });
+      expect(log.state().stuck.M1).toMatchObject({ reason: "commit" });
+      const again = committing();
+      again.add("commit.failed", { milestone: "M1", round: 0, tail: "src/a.ts", hook: true });
+      finishLane(again, "M1.L1");
+      again.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      expect(again.state().milestones[0]?.hookFixes).toBe(0);
+    });
+
+    it("a refusal naming no lane's file goes to the triage judge", () => {
+      const log = committing();
+      log.add("commit.failed", { milestone: "M1", round: 0, tail: "lefthook failed", hook: true });
+      expect(log.state().milestones[0]).toMatchObject({
+        status: "fixing",
+        open: [{ label: "BLOCKER", file: null }],
+      });
+    });
+  });
+
+  it("a paused machine holds the run with one refusal", () => {
+    const log = runningLog();
+    const refuse = (name: string) =>
+      log.add("dispatch.refused", { name, unit: name.slice(7), code: "E_ADMIT_PAUSED", message: "paused" });
+    refuse("worker-M1.L1");
+    refuse("worker-M1.L1");
+    const s = log.state();
+    expect(s.held).toBe(log.events.find((e) => e.type === "dispatch.refused")?.at ?? null);
+    expect(s.waiting).toEqual({});
+    const tick = log.add("tick", {});
+    const out = next(log.state(), tick);
+    expect(out.filter((a) => a.type === "dispatch" || a.type === "judge")).toEqual([]);
+    const lifted = log.add("pause.lifted", {});
+    expect(log.state().held).toBeNull();
+    expect(next(log.state(), lifted)).toContainEqual(
+      expect.objectContaining({ type: "dispatch", name: "worker-M1.L1" }),
+    );
+  });
+
+  it("a plan-check park tells the owner to edit the source plan files", () => {
+    const log = makeLog();
+    log.add("run.started", startedFields);
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    for (let i = 0; i < 3; i++)
+      log.add("effect.failed", { action: "readPlan", unit: "run", message: "lane M1.L1 owns nothing" });
+    expect(log.state().stuck.run?.question).toBe(
+      `readPlan on run failed: lane M1.L1 owns nothing\n${SOURCE_PLAN_NOTE}`,
+    );
+  });
+});
+
+describe("plan 43 M5: catherd merges its own landed milestones", () => {
+  const landedLog = (autoMerge: boolean) => {
+    const log = makeLog();
+    log.add("run.started", { ...startedFields, base: "main", autoMerge });
+    log.add("plan.ready", { milestones: PLAN });
+    log.add("plan.approved", { by: "owner" });
+    log.add("milestone.landed", {
+      milestone: "M1",
+      commit: "c0abcdef0123",
+      knownIssues: [],
+      digestPath: "d",
+      branch: "feat/wallet",
+    });
+    return log;
+  };
+  const last = (log: ReturnType<typeof makeLog>) => next(log.state(), log.events.at(-1) as never);
+
+  it("an autoMerge run's landed milestone is merged by catherd", () => {
+    const log = landedLog(true);
+    expect(log.state().autoMerge).toBe(true);
+    let out = last(log);
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([{ type: "mergeLanded", milestone: "M1" }]);
+    expect(out.filter((a) => a.type === "park" || a.type === "pushBranch")).toEqual([]);
+    log.add("milestone.merged", { milestone: "M1", by: "catherd", commit: "e1" });
+    out = last(log);
+    expect(log.state().milestones[0]?.status).toBe("merged");
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([]);
+    expect(out.filter((a) => a.type === "claimTree")).toEqual([{ type: "claimTree", milestone: "M2" }]);
+    expect(confirms(log.events.at(-1) as never)).toContain("mergeLanded:M1");
+  });
+
+  it("a failed merge falls back to the push question", () => {
+    const log = landedLog(true);
+    log.add("merge.failed", { milestone: "M1", error: "CONFLICT (content): src/a.ts" });
+    expect(confirms(log.events.at(-1) as never)).toContain("mergeLanded:M1");
+    const out = last(log);
+    expect(out.filter((a) => a.type === "mergeLanded")).toEqual([]);
+    const park = out.find((a) => a.type === "park");
+    expect(park).toMatchObject({ unit: "M1", reason: "push" });
+    const question = (park as { question: string }).question;
+    expect(question).toContain("catherd could not merge it: CONFLICT (content): src/a.ts.");
+    expect(question).toContain("chore: merge");
+  });
+
+  it("autoMerge turned on later does not change a run that started without it", () => {
+    const log = landedLog(false);
+    expect(log.state().autoMerge).toBe(false);
+    expect(last(log).filter((a) => a.type === "mergeLanded")).toEqual([]);
+    expect(last(log).filter((a) => a.type === "park")).toHaveLength(1);
   });
 });

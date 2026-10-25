@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CatherdError } from "../domain/errors.ts";
+import { CatherdError, errorMessage } from "../domain/errors.ts";
 import type { ProfilePatch } from "../domain/profile.ts";
 import { isApproval } from "../domain/plan-doc.ts";
 import { ROLES } from "../domain/roles.ts";
@@ -49,7 +49,8 @@ async function assertBase(repo: string, base: string): Promise<void> {
 
 /**
  * Starts a 2.0 run: its folder, its pin, `run.started`, and its daemon. The owner's plan files (`plan`, and any
- * `plan:` A-line) are checked before the run exists, copied into it, and approved as input.
+ * `plan:` A-line) are checked before the run exists, copied into it, and approved as input. A daemon that does
+ * not start is reported, not thrown: the run exists, and `status(run)` starts its daemon again.
  */
 export async function runStart(
   deps: Deps,
@@ -57,7 +58,8 @@ export async function runStart(
 ): Promise<{
   run: string;
   dir: string;
-  daemon: "revived" | "alive";
+  daemon: "revived" | "alive" | "failed";
+  warning?: string;
   notifyUrl: string;
   plan: string[];
   next: string;
@@ -80,17 +82,26 @@ export async function runStart(
       plan,
       base: i.base ?? null,
       engine: "2.0",
+      autoMerge: runProfile(deps, run).land.autoMerge,
       rolesOff: ROLES.filter((r) => !runProfile(deps, run).roles[r]?.enabled),
     },
     new Date(deps.now()),
   );
   if (plan.length) await appendEvent(run, { type: "plan.approved", by: "input" }, new Date(deps.now()));
   const notifyUrl = deps.profiles.notifyUrl();
-  const daemon = ensureDaemon(run) === "alive" ? "alive" : "revived";
+  let daemon: "revived" | "alive" | "failed";
+  let warning: string | undefined;
+  try {
+    daemon = ensureDaemon(run) === "alive" ? "alive" : "revived";
+  } catch (e) {
+    daemon = "failed";
+    warning = `the run started, its daemon did not: ${errorMessage(e)}; status(run) starts it again`;
+  }
   return {
     run: run.id,
     dir: run.dir,
     daemon,
+    ...(warning === undefined ? {} : { warning }),
     notifyUrl,
     plan,
     next: plan.length

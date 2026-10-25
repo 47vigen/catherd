@@ -261,6 +261,13 @@ describe("the time a check takes", () => {
     expect(Date.parse(r.startedAt ?? "")).toBeGreaterThanOrEqual(released);
   });
 
+  it("a failing record keeps its lines' files", async () => {
+    const r = await execMilestoneCheck(job("printf 'test/a.test.ts:\\nerror: x\\n(fail) a > b\\n'; exit 1"));
+    expect(r.exit).toBe(1);
+    expect(r.fails.length).toBeGreaterThan(0);
+    expect(r.failFiles).toEqual(Object.fromEntries(r.fails.map((l) => [l, ["test/a.test.ts"]])));
+  });
+
   it("an item past itemMs is recorded timed out", async () => {
     checkLimits.itemMs = 200;
     const r = await execMilestoneCheck(job("sleep 5"));
@@ -283,6 +290,22 @@ describe("runMilestoneCheck in a base run (plan 35)", () => {
     expect(r).toMatchObject({ running: false, record: { exit: 0, head } });
     expect(head).not.toBe(git(b.repo, "rev-parse", "HEAD"));
     expect(await checkBase(b.run, "M1")).toBe(originMain);
+  });
+
+  it("a milestone check runs in its tree's compose project", async () => {
+    const b = branchRun();
+    const { tree } = await claimTree(fakeDeps(), b.run, "M1", { known: false });
+    writeFileSync(join(tree, "work.txt"), "w");
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "work");
+    const r = await runMilestoneCheck({
+      run: b.run.id,
+      milestone: "M1",
+      command: "printenv COMPOSE_PROJECT_NAME",
+    });
+    const log = r.running === false ? readFileSync(r.record.log, "utf8") : "";
+    expect(log).toBe(`catherd-${b.run.id.slice(0, 15).replace("-", "")}-m1\n`);
+    expect(log).toMatch(/^catherd-\d{14}-m1\n$/);
   });
 
   it("checkBase is the start HEAD in a run without base", async () => {

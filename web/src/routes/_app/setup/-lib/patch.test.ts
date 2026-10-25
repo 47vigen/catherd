@@ -91,6 +91,12 @@ test("the other sections map one to one", () => {
   });
 });
 
+test("the land section patches land.autoMerge", () => {
+  expect(patchFor("land", { autoMerge: true })).toEqual({
+    land: { autoMerge: true },
+  });
+});
+
 test("an amount is empty, a positive number, or invalid", () => {
   expect(parseAmount("")).toBeNull();
   expect(parseAmount(" 12.5 ")).toBe(12.5);

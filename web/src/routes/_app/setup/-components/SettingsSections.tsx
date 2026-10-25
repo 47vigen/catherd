@@ -54,6 +54,7 @@ export function SettingsSections({ view, issues, propose, disabled }: Props) {
       <BarsSection key={`d${JSON.stringify(s.bars)}`} value={s.bars} {...p} />
       <LimitsSection key={`l${JSON.stringify([s.heavy, s.memory])}`} value={s} {...p} />
       <PreflightSection key={`p${s.preflightConfirm}`} value={s.preflightConfirm} {...p} />
+      <LandSection key={`m${s.landAutoMerge}`} value={s.landAutoMerge} {...p} />
       <NotificationsSection key={`n${JSON.stringify(s.notify)}`} value={s.notify} url={view.notifyUrl} {...p} />
       <BillingSection key={`i${JSON.stringify(s.billing)}`} value={s.billing} {...p} />
       <IsolationSection key={`s${JSON.stringify(s.isolated)}`} value={s.isolated} {...p} />
@@ -565,6 +566,31 @@ function PreflightSection({ value, issues, propose, disabled }: SectionProps<boo
       <SwitchRow
         label="Ask me to confirm the preflight"
         hint={draft ? "A run waits for your yes before any worker starts." : "A run starts its workers on its own."}
+        isSelected={draft}
+        onChange={setDraft}
+        disabled={disabled}
+      />
+    </SettingSection>
+  );
+}
+
+function LandSection({ value, issues, propose, disabled }: SectionProps<boolean>) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <SettingSection
+      id="land"
+      title="Landing"
+      meaning="Merge each landed milestone into the run's base branch with a merge commit, instead of asking you to."
+      issues={issuesAt(issues, "land")}
+      dirty={draft !== value}
+      disabled={disabled}
+      onReview={() => propose(patchFor("land", { autoMerge: draft }))}
+    >
+      <SwitchRow
+        label="Let catherd merge landed milestones"
+        hint={
+          draft ? "catherd merges and pushes each landed milestone." : "A landed milestone waits for you to merge it."
+        }
         isSelected={draft}
         onChange={setDraft}
         disabled={disabled}

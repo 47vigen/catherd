@@ -14,6 +14,7 @@ import {
   readHeartbeat,
   runDaemon,
 } from "../../src/services/daemon.ts";
+import { pauseMachine, resumeMachine } from "../../src/services/pause.ts";
 import { appendEvent, readEvents } from "../../src/services/run-events-store.ts";
 import type { MilestonePlan, RunEventInput } from "../../src/domain/run-events.ts";
 import type { Action } from "../../src/domain/run-machine.ts";
@@ -25,7 +26,7 @@ import type { Deps } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { runProfile } from "../../src/services/run-pin.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
-import { fakeDeps, freshRun, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const realCheck = milestoneChecker.run;
@@ -198,6 +199,106 @@ describe("runDaemon", () => {
     writeFileSync(heartbeatFile(run), "{");
     expect(readHeartbeat(run)).toBeNull();
     expect(readFileSync(heartbeatFile(run), "utf8")).toBe("{");
+  });
+
+  it("a lifted machine pause appends one pause.lifted", async () => {
+    const { run } = freshRun();
+    let now = Date.parse("2026-10-21T10:00:00.000Z");
+    pauseMachine(now, "vpn");
+    await appendEvent(run, started, new Date(now));
+    await appendEvent(
+      run,
+      {
+        type: "dispatch.refused",
+        name: "worker-M1.L1",
+        unit: "M1.L1",
+        code: "E_ADMIT_PAUSED",
+        message: "paused",
+      },
+      new Date(now),
+    );
+    const lifted = () => readEvents(run).filter((e) => e.type === "pause.lifted").length;
+    let sleeps = 0;
+    let liftedBeforeResume = -1;
+    await runDaemon(fakeDeps({ now: () => now }), run.id, {
+      effects: { async run() {} },
+      clock: {
+        now: () => now,
+        async sleep() {
+          sleeps++;
+          now += 5_000;
+          if (sleeps === 5) {
+            liftedBeforeResume = lifted();
+            resumeMachine(now);
+          }
+        },
+      },
+      until: () => sleeps >= 12,
+    });
+    expect(liftedBeforeResume).toBe(0);
+    expect(lifted()).toBe(1);
+  });
+
+  it("an effect that hits ENOSPC stops the loop", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    let slept = 0;
+    const err = new Error("ENOSPC: no space left on device, write");
+    await expect(
+      runDaemon(fakeDeps(), run.id, {
+        effects: {
+          async run() {
+            throw err;
+          },
+        },
+        clock: {
+          now: () => Date.now(),
+          async sleep() {
+            slept++;
+          },
+        },
+        until: () => slept > 50,
+      }),
+    ).rejects.toBe(err);
+    expect(daemonAlive(run)).toBe(false);
+  });
+
+  it("a beat that hits ENOSPC keeps the lock until the effect in flight settles", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    let open: () => void = () => {};
+    const gate = new Promise<void>((r) => (open = r));
+    let entered = false;
+    let threw = false;
+    let t = Date.now();
+    const err = new Error("ENOSPC: no space left on device, write");
+    const now = (): number => {
+      if (!entered) return t;
+      threw = true;
+      throw err;
+    };
+    const done = runDaemon(fakeDeps({ now }), run.id, {
+      effects: {
+        async run() {
+          entered = true;
+          await gate;
+        },
+      },
+      clock: {
+        now: () => t,
+        async sleep(ms) {
+          t += ms;
+        },
+      },
+    }).catch((e: unknown) => e);
+    await waitFor(() => threw);
+    expect(daemonAlive(run)).toBe(true);
+    expect(await runDaemon(fakeDeps(), run.id, { until: () => true })).toBe("lost-lock");
+    open();
+    expect(await done).toBe(err);
+    expect(daemonAlive(run)).toBe(false);
   });
 
   it("frees the lock when it returns", async () => {

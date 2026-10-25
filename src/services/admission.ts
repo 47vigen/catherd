@@ -48,6 +48,7 @@ import { runProfile } from "./run-pin.ts";
 import type { Deps } from "./ports.ts";
 import { readRecords, recordsOnThread, type Run, runPaths, supersededBy } from "./run-store.ts";
 import { currentSession } from "./sessions.ts";
+import { composeProjectOf } from "./tree-path.ts";
 import { milestoneOfName, verifierBrief } from "./verifier-brief.ts";
 import { withRunAdmission } from "./workspace-admission.ts";
 
@@ -352,6 +353,8 @@ export async function admit(
       i.role === "verifier" ? gateEnvParts(await readGateEnv(run.meta.repo)) : { values: {}, refs: {} };
     // spec 1.1 §6: every brief ends with its role's reply contract, failover stand-ins' included; spec 1.5 plan 21:
     // before it, the lane file as it stands now, and who the role is, its scratch and its catherd tools; plan 23:
+    // plan 43: each milestone tree its own compose project; a gate env value wins (it spreads after)
+    const compose = composeProjectOf(run, milestoneOfName(i.lane ?? i.name));
     // a verifier's brief also carries the gate's rules and the run's recorded items
     const briefCtx: BriefContext = {
       run: run.id,
@@ -387,6 +390,7 @@ export async function admit(
         // plan 23: each dispatch its own testcontainers session, so parallel lanes never share a reaper;
         // the gate env never overrides the role's identity, scratch, dispatch id, PWD or isolated home
         env: {
+          ...(compose ? { COMPOSE_PROJECT_NAME: compose } : {}),
           ...gate.values,
           ...plan.env,
           [ROLE_ENV]: formatRoleScope({ run: run.id, name: i.name }),

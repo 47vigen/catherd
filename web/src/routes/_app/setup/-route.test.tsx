@@ -56,6 +56,7 @@ const setup = (over: object = {}) => ({
     heavy: "cpus/2",
     memory: { reserveMb: 2048, perMilestoneMb: 1024, floorMb: 512 },
     preflightConfirm: false,
+    landAutoMerge: false,
     notify: ["milestone", "finish", "blocked"],
     jev: "auto",
     billing: { codex: "chatgpt-plan", opencode: "metered" },
@@ -184,6 +185,15 @@ test("shows every role on one line with its models in the order tried, and the b
   expect(within(worker).queryByText("40.2")).not.toBeInTheDocument();
   expect(within(roleLine("architect")).getByText("Picked by the app that runs catherd")).toBeInTheDocument();
   expect(screen.getByText("Checked 3m ago")).toBeInTheDocument();
+});
+
+test("the folded settings say who merges a landed milestone", async () => {
+  const land = async () => (await screen.findByText("Land", { selector: "dt" })).parentElement;
+  const { unmount } = renderRoute("/setup", api());
+  expect(await land()).toHaveTextContent("Owner");
+  unmount();
+  renderRoute("/setup", api({}, setup({ settings: { ...setup().settings, landAutoMerge: true } })));
+  expect(await land()).toHaveTextContent("catherd");
 });
 
 test("a role's drawer lists its models in the order tried, with its problems", async () => {
