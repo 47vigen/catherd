@@ -54,4 +54,8 @@ describe("logTicks", () => {
   it("covers the range in powers of ten", () => {
     expect(logTicks(0.02, 5.9)).toEqual([0.01, 0.1, 1, 10]);
   });
+
+  it("spans at least one decade when the costs sit on one boundary", () => {
+    expect(logTicks(1, 1)).toEqual([1, 10]);
+  });
 });

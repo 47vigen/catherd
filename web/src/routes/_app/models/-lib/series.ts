@@ -44,6 +44,6 @@ export function seriesOf(
 /** Powers of ten covering [min, max]. */
 export function logTicks(min: number, max: number): number[] {
   const lo = Math.floor(Math.log10(min));
-  const hi = Math.ceil(Math.log10(max));
+  const hi = Math.max(Math.ceil(Math.log10(max)), lo + 1);
   return Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i));
 }

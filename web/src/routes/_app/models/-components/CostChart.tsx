@@ -50,7 +50,7 @@ export function CostChart({ series, scale }: { series: Series[]; scale: "log" | 
               return (
                 <ChartTooltip title={s.name}>
                   <ChartTooltip.Row swatch={BRAND_BG[s.brand]} label="Effort" value={p.effort} />
-                  <ChartTooltip.Row swatch={BRAND_BG[s.brand]} label="Intelligence" value={p.intelligence} />
+                  <ChartTooltip.Row swatch={BRAND_BG[s.brand]} label="Intelligence" value={p.intelligence.toFixed(1)} />
                   <ChartTooltip.Row
                     swatch={BRAND_BG[s.brand]}
                     label={`$${Number(p.usd.toPrecision(3))} per task`}
