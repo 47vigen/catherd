@@ -26,7 +26,7 @@ import type { Deps } from "../../src/services/ports.ts";
 import { profileService } from "../../src/services/profile-service.ts";
 import { runProfile } from "../../src/services/run-pin.ts";
 import { createRun, type Run, runPaths } from "../../src/services/run-store.ts";
-import { fakeDeps, freshRun, writeLane } from "./helpers.ts";
+import { fakeDeps, freshRun, waitFor, writeLane } from "./helpers.ts";
 
 afterEach(snapshotEnv());
 const realCheck = milestoneChecker.run;
@@ -261,6 +261,43 @@ describe("runDaemon", () => {
         until: () => slept > 50,
       }),
     ).rejects.toBe(err);
+    expect(daemonAlive(run)).toBe(false);
+  });
+
+  it("a beat that hits ENOSPC keeps the lock until the effect in flight settles", async () => {
+    const { run } = freshRun();
+    await appendEvent(run, { ...started, plan: [] });
+    await appendEvent(run, { type: "question.parked", unit: "run", question: "q", reason: "needs_user" });
+    let open: () => void = () => {};
+    const gate = new Promise<void>((r) => (open = r));
+    let entered = false;
+    let threw = false;
+    let t = Date.now();
+    const err = new Error("ENOSPC: no space left on device, write");
+    const now = (): number => {
+      if (!entered) return t;
+      threw = true;
+      throw err;
+    };
+    const done = runDaemon(fakeDeps({ now }), run.id, {
+      effects: {
+        async run() {
+          entered = true;
+          await gate;
+        },
+      },
+      clock: {
+        now: () => t,
+        async sleep(ms) {
+          t += ms;
+        },
+      },
+    }).catch((e: unknown) => e);
+    await waitFor(() => threw);
+    expect(daemonAlive(run)).toBe(true);
+    expect(await runDaemon(fakeDeps(), run.id, { until: () => true })).toBe("lost-lock");
+    open();
+    expect(await done).toBe(err);
     expect(daemonAlive(run)).toBe(false);
   });
 

@@ -23,8 +23,11 @@ export const daemonLockTarget = (run: Run): string => join(run.dir, "daemon");
 export const heartbeatFile = (run: Run): string => join(run.dir, "daemon.json");
 export const launchStamp = (run: Run): string => join(run.dir, "daemon.launched");
 
-/** `beatMs`: heartbeat interval; `pollMs`: event poll interval; `reviveMs`: minimum time between launches. */
-export const daemonLimits = { beatMs: 5_000, pollMs: 500, reviveMs: 30_000 };
+/**
+ * `beatMs`: heartbeat interval; `pollMs`: event poll interval; `reviveMs`: minimum time between launches;
+ * `drainMs`: how long a stopping daemon waits for its effects before it gives up the lock.
+ */
+export const daemonLimits = { beatMs: 5_000, pollMs: 500, reviveMs: 30_000, drainMs: 900_000 };
 
 export interface Heartbeat {
   schema: 1;
@@ -126,6 +129,19 @@ export interface DaemonOptions {
 const isEnospc = (e: unknown): boolean =>
   (e as { code?: unknown } | null)?.code === "ENOSPC" || errorMessage(e).startsWith("ENOSPC");
 
+/**
+ * Waits for the effects in flight, at most `drainMs`: their git and check runs are killed by their own timeouts
+ * (`effectLimits`) well within it, so a daemon started after this one never overlaps them.
+ */
+async function drain(inFlight: Set<Promise<void>>): Promise<void> {
+  if (inFlight.size === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<boolean>((r) => (timer = setTimeout(() => r(true), daemonLimits.drainMs)));
+  const timedOut = await Promise.race([Promise.allSettled(inFlight).then(() => false), late]);
+  clearTimeout(timer);
+  if (timedOut) log("warn", "daemon", { drain: "timed out", inFlight: inFlight.size });
+}
+
 const REAL_CLOCK: SuperviseClock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
 
 /**
@@ -145,6 +161,7 @@ export async function runDaemon(
   const deps = daemonDeps(daemonSide, run);
   const release = tryLock(daemonLockTarget(run));
   if (!release) return "lost-lock";
+  const inFlight = new Set<Promise<void>>();
   try {
     if (!isDaemonRun(run) || hasEnded(run)) return "ended";
     const clock = o.clock ?? REAL_CLOCK;
@@ -159,8 +176,7 @@ export async function runDaemon(
     beat(run, deps, hello.seq);
     /** action key → the key `effect.failed` frees it by */
     const issued = new Map<string, string>();
-    const inFlight = new Set<Promise<void>>();
-    /** the full-disk error that stops the loop once the effects in flight have settled */
+    /** the full-disk error that stops the loop; the effects in flight settle before the lock is released */
     let stopError: unknown = null;
     const issue = (a: Action): void => {
       const key = actionKey(a);
@@ -187,10 +203,7 @@ export async function runDaemon(
     };
     let beatAt = clock.now();
     while (!o.until?.()) {
-      if (stopError !== null) {
-        await Promise.allSettled(inFlight);
-        throw stopError;
-      }
+      if (stopError !== null) throw stopError;
       const fresh = readEvents(run, state.seq + 1);
       for (const e of fresh) take(e);
       if (fresh.length > 0) continue;
@@ -216,6 +229,7 @@ export async function runDaemon(
     log("error", "daemon", { run: runId, error: errorMessage(e) });
     throw e;
   } finally {
+    await drain(inFlight);
     release();
   }
 }
