@@ -523,13 +523,13 @@ export function realEffects(deps: Deps, run: Run): Effects {
     if (orphan) return adopt(orphan);
     const picked = await rungFor(a, s);
     if ("code" in picked) return void (await refuse(picked.code, picked.message));
-    const tryAdmit = (rung: string) =>
+    const tryAdmit = (rung: string, thread: string | null) =>
       admit(deps, run, {
         role: a.role,
         name: a.name,
         brief,
         rung,
-        thread: a.thread,
+        thread,
         lane: a.lane,
         failoverFrom: a.failoverFrom,
         // plan 35: a base run's milestone works in its own worktree
@@ -537,14 +537,16 @@ export function realEffects(deps: Deps, run: Run): Effects {
       });
     let admitted: Awaited<ReturnType<typeof admit>>;
     try {
-      admitted = await tryAdmit(picked.rung).catch(async (e: unknown) => {
+      admitted = await tryAdmit(picked.rung, a.thread).catch(async (e: unknown) => {
         // plan 43 D10: a profile edit can leave a lane's rung off its ladder; route the lane again, admit once more
         const m = unitMilestone(a.unit);
         if (!isCatherdError(e) || e.code !== "E_ADMIT_RUNG" || a.failoverFrom || !a.lane || m === null)
           throw e;
         const again = await rerouteLane(a.lane, a.role, m, picked.rung);
         if (!again) throw e;
-        return tryAdmit(again);
+        // the old rung's thread resumes only on its own backend
+        const same = tryParseRung(again)?.backend === tryParseRung(picked.rung)?.backend;
+        return tryAdmit(again, same ? a.thread : null);
       });
     } catch (e) {
       if (!isCatherdError(e)) throw e;

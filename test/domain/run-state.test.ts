@@ -824,6 +824,25 @@ describe("plan 40: the verifying flow", () => {
     expect(log.state().milestones[0]).toMatchObject({ status: "landing" });
   });
 
+  it("a second land refusal parks a question that says retry lands again", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    const refuse = () =>
+      log.add("land.refused", { milestone: "M1", code: "E_LAND_DISK", message: "disk full", fix: "free it" });
+    refuse();
+    checked(log, "c0");
+    refuse();
+    const q = log.state().stuck.M1;
+    expect(q).toMatchObject({ reason: "land" });
+    expect(q?.question).toContain("retry to land again, or name the fix");
+    log.add("question.parked", { unit: "M1", question: q?.question ?? "", reason: "land" });
+    log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+    expect(log.state().milestones[0]?.status).toBe("landing");
+  });
+
   it("a carried verdict lands the merge commit", () => {
     const log = runningLog(PLAN, "main");
     finishLane(log, "M1.L1");

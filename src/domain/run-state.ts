@@ -1600,7 +1600,7 @@ function apply(s: RunState, e: RunEvent): void {
       }
       s.stuck[e.milestone] = {
         reason: "land",
-        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}`,
+        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}\nAnswer accept or retry to land again, or name the fix.`,
       };
       return;
     }

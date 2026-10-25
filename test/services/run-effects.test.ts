@@ -252,6 +252,26 @@ describe("dispatching", () => {
     expect(types(run)).not.toContain("dispatch.refused");
   });
 
+  it("a reroute to another backend drops the old rung's thread", async () => {
+    const view = testView();
+    view.roles.worker = {
+      enabled: true,
+      access: "workspace-write",
+      rungs: ["claude-code:claude-sonnet-5-5#medium"],
+    };
+    const { run, fx } = setup(undefined, view);
+    const sim = withClaudeScenario({ eventsFile: join(FX, "ok.jsonl") });
+    Object.assign(process.env, sim.env);
+    writeLane(run, "M1.L1", ["src/a/"]);
+    await seed(run);
+    await fx.run(dispatchAction({ rung: "codex:gpt-6-terra#max", thread: "codex-thread-1" }), replayRun(run));
+    expect(lastOf(run, "lanes.routed")).toMatchObject({
+      lanes: [{ lane: "M1.L1", rung: "claude-code:claude-sonnet-5-5#medium" }],
+    });
+    expect(lastOf(run, "dispatch.started")).toMatchObject({ rung: "claude-code:claude-sonnet-5-5#medium" });
+    expect(types(run)).not.toContain("dispatch.refused");
+  });
+
   it("a role off the profile is still refused", async () => {
     const view = testView();
     view.roles.worker = { enabled: false, access: "workspace-write", rungs: [] };
