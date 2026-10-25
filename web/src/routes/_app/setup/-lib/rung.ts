@@ -48,10 +48,20 @@ export function dropAt(list: string[], dragged: Iterable<string>, target: string
   return at < 0 ? list : [...rest.slice(0, at), ...moving, ...rest.slice(at)];
 }
 
-/** Every rung any role is offered, once each. */
+/** Every rung any role is offered, once each; a model a newer version replaces is left out. */
 export const offeredRungs = (roles: { offered: IndexedPair[] }[]): string[] => [
-  ...new Set(roles.flatMap((r) => r.offered.map((p) => p.rung))),
+  ...new Set(roles.flatMap((r) => r.offered.filter((p) => p.newer === null).map((p) => p.rung))),
 ];
+
+/** The newer version that replaces the backend and model of `rung`, by name; null when it is current or unknown. */
+export function newerOf(rung: string, offered: IndexedPair[]): string | null {
+  const { backend, model } = parseRung(rung);
+  const same = offered.find((p) => {
+    const x = parseRung(p.rung);
+    return x.backend === backend && x.model === model;
+  });
+  return same?.newer ?? null;
+}
 
 const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "default"];
 
@@ -82,4 +92,33 @@ export function providerGroups(pairs: IndexedPair[]): { backend: string; pairs: 
     groups.set(backend, [...(groups.get(backend) ?? []), p]);
   }
   return [...groups].map(([backend, list]) => ({ backend, pairs: list }));
+}
+
+/** One model on one backend, as the picker shows it: its efforts lowest first and its best pair. */
+export interface ModelChoice {
+  backend: string;
+  model: string;
+  newer: string | null;
+  best: IndexedPair;
+  efforts: IndexedPair[];
+}
+
+/** The pairs as models: one per backend and model, the strongest (by its best effort) first. */
+export function modelChoices(pairs: IndexedPair[]): ModelChoice[] {
+  const by = new Map<string, IndexedPair[]>();
+  for (const p of pairs) {
+    const { backend, model } = parseRung(p.rung);
+    by.set(`${backend}:${model}`, [...(by.get(`${backend}:${model}`) ?? []), p]);
+  }
+  const rank = (p: IndexedPair) => {
+    const e = parseRung(p.rung).effort ?? "default";
+    return EFFORT_ORDER.includes(e) ? EFFORT_ORDER.indexOf(e) : EFFORT_ORDER.length;
+  };
+  return [...by.values()]
+    .map((list) => {
+      const { backend, model } = parseRung(list[0]!.rung);
+      const best = list.reduce((a, b) => (b.intelligence > a.intelligence ? b : a));
+      return { backend, model, newer: list[0]!.newer, best, efforts: list.toSorted((a, b) => rank(a) - rank(b)) };
+    })
+    .sort((a, b) => b.best.intelligence - a.best.intelligence);
 }

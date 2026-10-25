@@ -1,4 +1,15 @@
-import { dropAt, effortsOf, modelName, moveBy, pairLine, parseRung, providerGroups, withEffort } from "./rung";
+import {
+  dropAt,
+  effortsOf,
+  modelName,
+  moveBy,
+  newerOf,
+  offeredRungs,
+  pairLine,
+  parseRung,
+  providerGroups,
+  withEffort,
+} from "./rung";
 
 test("a rung splits into backend, model and effort", () => {
   expect(parseRung("codex:gpt-6-sol#xhigh")).toEqual({
@@ -27,6 +38,7 @@ test("a pair line shows only what the index knows", () => {
     context: null,
     cost: { tier: 0 as const, value: 0, mode: "chatgpt-plan" as const },
     evidence: null,
+    newer: null,
   };
   expect(pairLine(pair)).toBe("benchmark 50.0 · $1.25/$10 per M · 80 tok/s · plan");
   expect(
@@ -79,4 +91,22 @@ test("pairs group by provider in first-seen order", () => {
     ["codex", 2],
     ["claude-code", 1],
   ]);
+});
+
+test("an older version names its newer one at any effort, and stays out of the offered rungs", () => {
+  const p = (rung: string, newer: string | null) => ({
+    rung,
+    intelligence: 1,
+    price: null,
+    speed: null,
+    context: null,
+    cost: { tier: 0 as const, value: 0, mode: "chatgpt-plan" as const },
+    evidence: null,
+    newer,
+  });
+  const offered = [p("codex:old#high", "New"), p("codex:new#high", null)];
+  expect(newerOf("codex:old#low", offered)).toBe("New");
+  expect(newerOf("codex:new#high", offered)).toBeNull();
+  expect(newerOf("opencode:old#high", offered)).toBeNull();
+  expect(offeredRungs([{ offered }])).toEqual(["codex:new#high"]);
 });

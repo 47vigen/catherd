@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-21",
+  "version": "2026-10-25",
   "backends": {
     "codex": {
       "imageGen": {
@@ -38,6 +38,7 @@
     {
       "id": "gpt-6-sol",
       "name": "GPT-6 Sol",
+      "supersededBy": "gpt-6.1-sol",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "planWeight": 20,
       "on": {
@@ -64,6 +65,7 @@
     {
       "id": "gpt-5.6-sol",
       "name": "GPT-5.6 Sol",
+      "supersededBy": "gpt-6-sol",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "planWeight": 30,
       "on": {
@@ -90,6 +92,7 @@
     {
       "id": "gpt-5.6-luna",
       "name": "GPT-5.6 Luna",
+      "supersededBy": "gpt-6-luna",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "planWeight": 1.5,
       "on": {
@@ -139,6 +142,7 @@
     {
       "id": "claude-sonnet-5",
       "name": "Claude Sonnet 5",
+      "supersededBy": "claude-sonnet-5-5",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "claude-code": { "id": "claude-sonnet-5" },
@@ -156,6 +160,7 @@
     {
       "id": "claude-4-5-haiku",
       "name": "Claude Haiku 4.5",
+      "supersededBy": "claude-haiku-5-5",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "claude-code": { "id": "claude-haiku-4-5-20251001" },
@@ -179,6 +184,7 @@
     {
       "id": "grok-4-6",
       "name": "Grok 4.6",
+      "supersededBy": "grok-4-7",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "cursor": { "id": "cursor-grok-4.6" }
@@ -190,6 +196,7 @@
     {
       "id": "grok-4-5",
       "name": "Grok 4.5",
+      "supersededBy": "grok-4-7",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "cursor": { "id": "cursor-grok-4.5" }
@@ -209,6 +216,7 @@
     {
       "id": "gemini-3-7-flash",
       "name": "Gemini 3.7 Flash",
+      "supersededBy": "gemini-3-8-flash",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "cursor": { "id": "gemini-3.7-flash" }
@@ -217,6 +225,7 @@
     {
       "id": "gemini-3-6-flash",
       "name": "Gemini 3.6 Flash",
+      "supersededBy": "gemini-3-8-flash",
       "capabilities": { "toolUse": true, "imageIn": true, "reasoning": true },
       "on": {
         "cursor": { "id": "gemini-3.6-flash" }

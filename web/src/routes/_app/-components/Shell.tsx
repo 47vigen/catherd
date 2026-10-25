@@ -138,9 +138,16 @@ function MobileBar({ children }: { children: ReactNode }) {
   );
 }
 
-function Content({ children }: { children: ReactNode }) {
+/** The page column; a `full` page (the Models chart) takes all of it, edge to edge. */
+function Content({ children, full = false }: { children: ReactNode; full?: boolean }) {
   return (
-    <main className="mx-auto flex w-full max-w-[1320px] min-w-0 flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
+    <main
+      className={
+        full
+          ? "flex w-full min-w-0 flex-1 flex-col"
+          : "mx-auto flex w-full max-w-[1320px] min-w-0 flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8"
+      }
+    >
       {children}
     </main>
   );

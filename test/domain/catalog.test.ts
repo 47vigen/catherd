@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { IndexFileSchema } from "../../src/domain/slopalytics.ts";
-import { capableFor, pairOf, rungInfo } from "../../src/domain/catalog.ts";
+import { capableFor, pairOf, rungInfo, successorOf } from "../../src/domain/catalog.ts";
 import { fixtureIndex, indexOf, shipped, shippedModels } from "./shipped.ts";
 
 describe("catalog/models.json", () => {
@@ -224,5 +224,57 @@ describe("capableFor", () => {
   it("an index file without cost parses", () => {
     const old = indexOf({ "gpt-6-sol#high": 42 });
     expect(() => IndexFileSchema.parse(old)).not.toThrow();
+  });
+});
+
+describe("successorOf", () => {
+  const id = (c: ReturnType<typeof shipped>, rung: string) => successorOf(c, rung)?.id ?? null;
+  const listing = (...ids: string[]) => ({
+    fetchedAt: "2026-10-25T00:00:00.000Z",
+    models: ids.map((x) => ({ id: x, efforts: ["high"], context: 1, imageIn: false })),
+  });
+
+  it("names the newer family offered on the same backend, following the chain", () => {
+    const c = shipped();
+    expect(id(c, "codex:gpt-6-sol#high")).toBe("gpt-6.1-sol");
+    // GPT-5.6 Sol → GPT-6 Sol is on codex, the nearest offered successor wins
+    expect(id(c, "codex:gpt-5.6-sol#high")).toBe("gpt-6-sol");
+    expect(id(c, "opencode:opencode-go/gpt-5.6-luna#high")).toBe("gpt-6-luna");
+    expect(id(c, "claude:claude-sonnet-5#high")).toBe("claude-sonnet-5-5");
+    expect(id(c, "claude-code:claude-haiku-4-5-20251001#default")).toBe("claude-haiku-5-5");
+    expect(id(c, "cursor:cursor-grok-4.5#default")).toBe("grok-4-7");
+  });
+
+  it("keeps a model current on a backend its successor is not on", () => {
+    const c = shipped();
+    // GPT-6.1 Sol runs only on codex
+    expect(id(c, "opencode:opencode/gpt-6-sol#high")).toBeNull();
+    expect(id(c, "cursor:gpt-6-sol#high")).toBeNull();
+    // GPT-5.6 Sol on opencode skips nothing: GPT-6 Sol is there
+    expect(id(c, "opencode:opencode/gpt-5.6-sol#high")).toBe("gpt-6-sol");
+    // Claude Haiku 5.5 runs only on claude-code
+    expect(id(c, "opencode:opencode/claude-haiku-4-5#default")).toBeNull();
+  });
+
+  it("follows the chain past a successor the backend does not offer", () => {
+    const c = shipped();
+    const sol6 = c.families.find((f) => f.id === "gpt-6-sol");
+    if (!sol6) throw new Error("fixture");
+    const families = c.families.map((f) => (f === sol6 ? { ...f, on: { opencode: f.on.opencode } } : f));
+    expect(id({ ...c, families }, "codex:gpt-5.6-sol#high")).toBe("gpt-6.1-sol");
+  });
+
+  it("keeps a model current when its successor's backend listing lacks the successor", () => {
+    const c = shipped({ listed: { codex: listing("gpt-6-sol", "gpt-6-luna") } });
+    expect(id(c, "codex:gpt-6-sol#high")).toBeNull();
+    expect(id(c, "codex:gpt-5.6-luna#high")).toBe("gpt-6-luna");
+  });
+
+  it("is null for a current model, a model with no family, and a rung that does not parse", () => {
+    const c = shipped();
+    expect(id(c, "codex:gpt-6.1-sol#high")).toBeNull();
+    expect(id(c, "codex:gpt-5.6-terra#high")).toBeNull();
+    expect(id(c, "opencode:opencode-go/kimi-k3#max")).toBeNull();
+    expect(id(c, "nope")).toBeNull();
   });
 });

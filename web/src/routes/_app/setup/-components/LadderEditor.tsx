@@ -3,7 +3,7 @@ import { Button, Dropdown, Label, ListBox, Select } from "@heroui/react";
 import { useState } from "react";
 import { GridList, GridListItem, useDragAndDrop } from "react-aria-components";
 
-import { dropAt, effortsOf, modelName, moveBy, parseRung, withEffort } from "../-lib/rung";
+import { dropAt, effortsOf, modelName, moveBy, newerOf, parseRung, withEffort } from "../-lib/rung";
 import type { IndexedPair } from "../../../../client";
 import { ProviderIcon, backendName } from "../../../../components/provider-icon/ProviderIcon";
 import { PairPicker } from "./PairPicker";
@@ -99,6 +99,7 @@ export function LadderEditor({
         >
           {rungs.map((rung, i) => {
             const r = parseRung(rung);
+            const newer = newerOf(rung, offered);
             return (
               <GridListItem
                 key={rung}
@@ -134,6 +135,7 @@ export function LadderEditor({
                     </span>
                     <span className="text-muted truncate text-xs">
                       {i === 0 ? "Tried first" : `Fallback ${i}`} · via {backendName(r.backend)}
+                      {newer ? ` · Newer: ${newer}` : null}
                     </span>
                   </span>
                   <EffortPick

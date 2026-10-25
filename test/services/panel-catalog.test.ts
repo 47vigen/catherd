@@ -45,6 +45,18 @@ describe("catalogView", () => {
     expect(entry("gpt-6-sol")).toBeDefined();
   });
 
+  it("keeps a model a newer version replaces, marked superseded only when it is replaced everywhere it is offered", () => {
+    withHome();
+    expect(entry("gpt-5.6-luna")?.superseded).toBe(true);
+    expect(entry("gpt-6-luna")?.superseded).toBe(false);
+    // GPT-6.1 Sol replaces GPT-6 Sol on codex only
+    expect(entry("gpt-6-sol")?.superseded).toBe(false);
+    expect(entry("grok-4-6")?.superseded).toBe(true);
+    // Grok 4.7 missing from cursor's listing: Grok 4.6 is current again
+    writeDiscovery("cursor", [{ id: "cursor-grok-4.6", efforts: ["high"], context: null, imageIn: false }]);
+    expect(entry("grok-4-6")?.superseded).toBe(false);
+  });
+
   it("indexedAt is null when nothing was fetched", () => {
     withHome();
     rmSync(indexPath());

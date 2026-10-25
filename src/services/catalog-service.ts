@@ -13,6 +13,7 @@ import {
   ModelsFileSchema,
   type Pair,
   rungInfo,
+  successorOf,
 } from "../domain/catalog.ts";
 import { type BillingMode, type Cost, costOf, DEFAULT_BILLING } from "../domain/cost.ts";
 import { errorMessage } from "../domain/errors.ts";
@@ -192,6 +193,8 @@ export interface CatalogModel {
   roles: Role[];
   listed: boolean | null;
   notes: Record<string, string>;
+  /** the newer family offered on this backend that hides the model by default; null when it is current */
+  supersededBy: string | null;
   rungs: IndexedPair[];
 }
 
@@ -228,7 +231,8 @@ function pairsOf(
 /**
  * Spec §4.8 `catalog_query`: the indexed pairs of the shipped families on each backend, and of the listed models
  * catherd has no family for; a model with no indexed pair is not listed. A backend listed per repository as it
- * is listed in `f.repo` (a git toplevel), as `route` reads it.
+ * is listed in `f.repo` (a git toplevel), as `route` reads it. A model a newer version replaces on its backend
+ * is left out unless `f.older`.
  */
 export function catalogQuery(
   f: CatalogFilter,
@@ -253,6 +257,7 @@ export function catalogQuery(
       roles: ROLES.filter((r) => capableFor(c, probe, r)),
       listed: probe.listed,
       notes: fam?.notes ?? {},
+      supersededBy: successorOf(c, probe.rung)?.id ?? null,
       rungs,
     });
   };
@@ -268,6 +273,7 @@ export function catalogQuery(
   const kept = rows
     .filter(
       (m) =>
+        (f.older || m.supersededBy === null) &&
         (!f.role || m.roles.includes(f.role)) &&
         (!f.backend || m.backend === f.backend || m.billing === f.backend) &&
         (!needle || `${m.id} ${m.model} ${m.name ?? ""}`.toLowerCase().includes(needle)),

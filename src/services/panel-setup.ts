@@ -7,7 +7,7 @@ import { effectiveBars } from "../domain/bars.ts";
 import { NOTIFY, roleTimeouts } from "../domain/profile.ts";
 import { ACCESS } from "../domain/record.ts";
 import { DEFAULT_ACCESS, ROLES, type Role } from "../domain/roles.ts";
-import { catalogQuery, loadCatalog, type IndexedPair } from "./catalog-service.ts";
+import { catalogQuery, loadCatalog, shippedModels } from "./catalog-service.ts";
 import { adapterFor } from "../adapters/registry.ts";
 import { ADAPTER_IDS } from "../domain/ids.ts";
 import { backendChecks, usedBackends } from "./doctor-backends.ts";
@@ -40,6 +40,8 @@ export const IndexedPairSchema = z.object({
     mode: z.enum(BILLING_MODES),
   }),
   evidence: z.string().nullable(),
+  /** the name of the newer version that hides this model on its backend by default; null when it is current */
+  newer: z.string().nullable(),
 });
 export const ProfileSavedSchema = z.object({
   saved: z.boolean(),
@@ -221,9 +223,13 @@ export async function setupView(
     issues: { errors: issues.errors, warnings: issues.warnings },
     roles: ROLES.map((role) => {
       const r = g.profile.roles[role];
-      const offered = new Map<string, IndexedPair>();
-      for (const m of catalogQuery({ role, limit: 1000, repo: repo ?? undefined }, g.profile.billing).models)
-        for (const x of m.rungs) offered.set(x.rung, x);
+      const offered = new Map<string, z.infer<typeof IndexedPairSchema>>();
+      const query = { role, older: true, limit: 1000, repo: repo ?? undefined };
+      for (const m of catalogQuery(query, g.profile.billing).models) {
+        const by = m.supersededBy;
+        const newer = by === null ? null : (shippedModels().families.find((f) => f.id === by)?.name ?? by);
+        for (const x of m.rungs) offered.set(x.rung, { ...x, newer });
+      }
       return {
         role,
         enabled: r?.enabled ?? false,

@@ -13,7 +13,12 @@ const PROVIDER: Record<string, Provider> = {
   cursor: "cursor",
 };
 
-const MARK = { anthropic: MARKS.anthropic, openai: MARKS.openai, opencode: MARKS["opencode-go"] };
+const MARK = {
+  anthropic: MARKS.anthropic,
+  openai: MARKS.openai,
+  opencode: MARKS["opencode-go"],
+  cursor: MARKS.cursor,
+};
 
 const NAME: Record<string, string> = {
   "claude-code": "Claude Code",
@@ -53,7 +58,7 @@ export function ProviderIcon({
   className?: string;
 }) {
   const provider = providerOf(backend);
-  const Mark = provider && provider !== "cursor" ? MARK[provider] : null;
+  const Mark = provider ? MARK[provider] : null;
   const { px, box } = SIZE[size];
   return (
     <span aria-hidden="true" className={cn("text-foreground inline-flex shrink-0", className)}>

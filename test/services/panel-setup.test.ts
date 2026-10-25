@@ -37,6 +37,16 @@ describe("the panel's Setup view", () => {
     );
   });
 
+  it("offers older versions too, each naming the newer one that hides it by default", async () => {
+    const v = SetupViewSchema.parse(await setupView(deps, repo));
+    const newer = (rung: string) =>
+      v.roles.find((r) => r.role === "worker")!.offered.find((o) => o.rung === rung)?.newer;
+    expect(newer("codex:gpt-6-sol#high")).toBe("GPT-6.1 Sol");
+    expect(newer("codex:gpt-5.6-luna#high")).toBe("GPT-6 Luna");
+    expect(newer("opencode:opencode/gpt-6-sol#high")).toBeNull();
+    expect(newer("codex:gpt-6.1-sol#high")).toBeNull();
+  });
+
   it("names the host, the repos bound, the resolved settings and the stored document", async () => {
     activate("default", repo, "codex");
     const v = SetupViewSchema.parse(await setupView(deps, repo));

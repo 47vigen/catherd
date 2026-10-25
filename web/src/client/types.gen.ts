@@ -618,6 +618,7 @@ export type CatalogEntry = {
     name: string | null;
     lab: string | null;
     backends: Array<string>;
+    superseded: boolean;
     points: Array<ModelPoint>;
 };
 
@@ -659,6 +660,7 @@ export type IndexedPair = {
         mode: 'chatgpt-plan' | 'claude-plan' | 'subscription' | 'metered';
     };
     evidence: string | null;
+    newer: string | null;
 };
 
 export type ProfileSaved = {

@@ -13,11 +13,12 @@ const pt = (effort: string, usd: number | null, measured: boolean) => ({
   usd,
   measured,
 });
-const model = (id: string, points: ReturnType<typeof pt>[], lab = "openai") => ({
+const model = (id: string, points: ReturnType<typeof pt>[], lab = "openai", superseded = false) => ({
   id,
   name: null,
   lab,
   backends: ["codex"],
+  superseded,
   points,
 });
 const THREE = [
@@ -46,6 +47,16 @@ describe("the Models page", () => {
     expect(await screen.findByRole("img", { name: "Cost vs intelligence of 2 models" })).toBeInTheDocument();
     await userEvent.click(sw);
     expect(await screen.findByRole("img", { name: "Cost vs intelligence of 3 models" })).toBeInTheDocument();
+  });
+
+  it("a model a newer version replaces starts switched off, and can be switched on", async () => {
+    page([...THREE, model("gpt-5.6-sol", [pt("low", 0.2, true), pt("high", 0.6, true)], "openai", true)]);
+    expect(await screen.findByRole("img", { name: "Cost vs intelligence of 3 models" })).toBeInTheDocument();
+    const sw = screen.getAllByRole("switch")[3]!;
+    expect(sw).not.toBeChecked();
+    await userEvent.click(sw);
+    expect(await screen.findByRole("img", { name: "Cost vs intelligence of 4 models" })).toBeInTheDocument();
+    expect(sw).toBeChecked();
   });
 
   it("Log is the default and Linear switches the axis", async () => {

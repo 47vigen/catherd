@@ -34,20 +34,21 @@ const PAD = 24;
 
 /** The zoom the buttons step through: each press multiplies or divides by `step`. */
 export const ZOOM = { min: 0.25, max: 2, step: 1.25 } as const;
+/** The overlay toolbar's buttons: smaller than HeroUI's sm, so the bar stays a small chip over the graph. */
+const TOOL = "size-7 min-w-7";
 const clampZoom = (z: number) => Math.min(ZOOM.max, Math.max(ZOOM.min, z));
 
 // The canvas is the size of the graph at the chosen zoom inside a frame that scrolls natively: a wide run is swiped or
 // scrolled sideways like a CI pipeline, the page keeps its own vertical scroll, and it opens at full scale.
 const FRAME = [
-  "bg-background w-full overflow-auto overscroll-x-contain",
+  "bg-background w-full overflow-auto overscroll-x-contain cursor-grab data-panning:cursor-grabbing data-panning:select-none",
   "bg-[radial-gradient(color-mix(in_oklab,var(--muted)_22%,transparent)_1px,transparent_1px)] bg-size-[20px_20px]",
 ].join(" ");
 const CANVAS = [
   // React Flow's own sheet sets `position: relative` outside any layer, so these must win with `!`.
   "absolute! inset-0",
   "[--xy-background-color:transparent]",
-  "[--xy-attribution-background-color:transparent]",
-  "[&_.react-flow\\_\\_attribution]:opacity-40",
+  "[&_.react-flow\\_\\_pane]:cursor-[inherit]",
   "motion-reduce:[&_.animated_path]:animate-none",
 ].join(" ");
 
@@ -79,8 +80,11 @@ export function RunGraph({
   const [laid, setLaid] = useState<Laid>();
   const frame = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
-  // The point at the frame's centre, in unscaled pixels, to hold still across a zoom change.
-  const anchor = useRef<{ x: number; y: number }>(null);
+  // A point of the graph, in unscaled pixels, and where it sits in the frame, to hold still across a zoom change.
+  const anchor = useRef<{ x: number; y: number; left: number; top: number }>(null);
+  // A mouse drag on the frame scrolls it; past a few pixels it is a pan, not a click on the card under it.
+  const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean }>(null);
+  const [panning, setPanning] = useState(false);
   const latest = useEffectEvent(() => model);
 
   useEffect(() => {
@@ -104,22 +108,38 @@ export function RunGraph({
   });
   useLayoutEffect(() => scrollToActive(), [laid?.key]);
 
-  const zoomTo = (next: number) => {
+  /** Zooms around `at`, a point in the frame (its centre by default). */
+  const zoomTo = (next: number, at?: { left: number; top: number }) => {
     const el = frame.current;
-    if (el)
-      anchor.current = {
-        x: (el.scrollLeft + el.clientWidth / 2) / zoom,
-        y: (el.scrollTop + el.clientHeight / 2) / zoom,
-      };
+    if (el) {
+      const { left, top } = at ?? { left: el.clientWidth / 2, top: el.clientHeight / 2 };
+      anchor.current = { x: (el.scrollLeft + left) / zoom, y: (el.scrollTop + top) / zoom, left, top };
+    }
     setZoom(clampZoom(next));
   };
+  // A trackpad pinch arrives as a wheel event with ctrlKey; in full screen it zooms around the pointer, not the page.
+  const pinch = useEffectEvent((e: WheelEvent) => {
+    if (!fill || !e.ctrlKey || !frame.current) return;
+    e.preventDefault();
+    const box = frame.current.getBoundingClientRect();
+    zoomTo(zoom * Math.exp(-e.deltaY * 0.01), { left: e.clientX - box.left, top: e.clientY - box.top });
+  });
+  const ready = laid !== undefined;
+  useEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    // React's onWheel is passive, and only a non-passive listener can stop the browser zooming the page.
+    const on = (e: WheelEvent) => pinch(e);
+    el.addEventListener("wheel", on, { passive: false });
+    return () => el.removeEventListener("wheel", on);
+  }, [ready]);
   useLayoutEffect(() => {
     const el = frame.current;
     const at = anchor.current;
     anchor.current = null;
     if (!el || !at) return;
-    el.scrollLeft = Math.max(0, at.x * zoom - el.clientWidth / 2);
-    el.scrollTop = Math.max(0, at.y * zoom - el.clientHeight / 2);
+    el.scrollLeft = Math.max(0, at.x * zoom - at.left);
+    el.scrollTop = Math.max(0, at.y * zoom - at.top);
   }, [zoom]);
 
   // Positions come from the layout; everything a status change touches is read from the model on each render.
@@ -159,46 +179,91 @@ export function RunGraph({
     zoomTo(el ? Math.min(el.clientWidth / w, el.clientHeight / h, 1) : 1);
   };
   return (
-    <div className={fill ? "flex min-h-0 flex-1 flex-col" : undefined}>
+    <div className={fill ? "relative flex min-h-0 flex-1 flex-col" : "relative"}>
+      {/* Floats over the frame's top right, outside the scroller; full screen leaves the corner to the close button. */}
       <div
         role="toolbar"
         aria-label="Graph view"
-        className="border-border bg-surface flex shrink-0 items-center justify-end gap-1 border-b px-2 py-1"
+        className={`border-border bg-surface/90 absolute z-10 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-sm backdrop-blur ${fill ? "top-3 right-13" : "top-2 right-3"}`}
       >
-        <Button
-          isIconOnly
-          size="sm"
-          variant="secondary"
-          aria-label="Zoom out"
-          isDisabled={zoom <= ZOOM.min}
-          onPress={() => zoomTo(zoom / ZOOM.step)}
-        >
-          <MagnifierMinus />
-        </Button>
-        <output aria-label="Zoom" className="text-muted w-10 text-center font-mono text-xs tabular-nums">
-          {Math.round(zoom * 100)}%
-        </output>
-        <Button
-          isIconOnly
-          size="sm"
-          variant="secondary"
-          aria-label="Zoom in"
-          isDisabled={zoom >= ZOOM.max}
-          onPress={() => zoomTo(zoom * ZOOM.step)}
-        >
-          <MagnifierPlus />
-        </Button>
-        <Button isIconOnly size="sm" variant="secondary" aria-label="Fit to view" onPress={fit}>
-          <Frame />
-        </Button>
+        {/* Zoom lives in full screen only; the page keeps the graph at full scale. */}
+        {fill ? (
+          <>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              className={TOOL}
+              aria-label="Zoom out"
+              isDisabled={zoom <= ZOOM.min}
+              onPress={() => zoomTo(zoom / ZOOM.step)}
+            >
+              <MagnifierMinus />
+            </Button>
+            <output aria-label="Zoom" className="text-muted w-9 text-center font-mono text-[11px] tabular-nums">
+              {Math.round(zoom * 100)}%
+            </output>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              className={TOOL}
+              aria-label="Zoom in"
+              isDisabled={zoom >= ZOOM.max}
+              onPress={() => zoomTo(zoom * ZOOM.step)}
+            >
+              <MagnifierPlus />
+            </Button>
+            <Button isIconOnly size="sm" variant="ghost" className={TOOL} aria-label="Fit to view" onPress={fit}>
+              <Frame />
+            </Button>
+          </>
+        ) : null}
         {onExpand ? (
-          <Button isIconOnly size="sm" variant="secondary" aria-label="Full screen" onPress={onExpand}>
+          <Button isIconOnly size="sm" variant="ghost" className={TOOL} aria-label="Full screen" onPress={onExpand}>
             <ArrowsExpand />
           </Button>
         ) : null}
       </div>
-      <div ref={frame} className={`${FRAME} ${fill ? "min-h-0 flex-1" : "max-h-[72vh]"}`}>
-        <div className="relative mx-auto w-fit">
+      <div
+        ref={frame}
+        className={`${FRAME} ${fill ? "flex min-h-0 flex-1" : "max-h-[72vh]"}`}
+        data-panning={panning || undefined}
+        onPointerDown={(e) => {
+          if (e.pointerType !== "mouse" || e.button !== 0) return;
+          const el = e.currentTarget;
+          pan.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, moved: false };
+        }}
+        onPointerMove={(e) => {
+          const p = pan.current;
+          if (!p) return;
+          const dx = e.clientX - p.x;
+          const dy = e.clientY - p.y;
+          if (!p.moved && Math.hypot(dx, dy) < 4) return;
+          if (!p.moved) {
+            p.moved = true;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setPanning(true);
+          }
+          e.currentTarget.scrollTo(p.left - dx, p.top - dy);
+        }}
+        onPointerUp={() => {
+          // the click that ends a pan must not open the card under the pointer
+          if (pan.current?.moved) setTimeout(() => (pan.current = null));
+          else pan.current = null;
+          setPanning(false);
+        }}
+        onPointerCancel={() => {
+          pan.current = null;
+          setPanning(false);
+        }}
+        onClickCapture={(e) => {
+          if (pan.current?.moved) e.stopPropagation();
+        }}
+      >
+        {/* Full screen centres the graph both ways, clear of the overlays in the corners; auto margins drop to 0 once
+            it overflows, so it still scrolls from its edge. */}
+        <div className={`relative w-fit ${fill ? "m-auto" : "mx-auto"}`}>
           {/* Sizes the canvas to the graph; an svg's own width and height are attributes, not styles. */}
           <svg aria-hidden="true" width={w * zoom} height={h * zoom} className="block" />
           <ReactFlow
@@ -224,7 +289,8 @@ export function RunGraph({
             // Selectable only so React Flow lets pointer events reach the card, which is a button.
             elementsSelectable
             aria-label="Graph of the run"
-            attributionPosition="bottom-left"
+            // React Flow is MIT; its badge is a courtesy the owner chose to drop (2026-10-25).
+            proOptions={{ hideAttribution: true }}
           />
         </div>
       </div>

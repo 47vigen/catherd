@@ -18,7 +18,15 @@ export default defineConfig({
   ],
   build: { outDir: "dist", emptyOutDir: true, assetsDir: "assets", target: "es2022" },
   server: {
-    proxy: { "/api": { target: "http://127.0.0.1:4317", ws: true } },
+    // the panel answers only its own Host and Origin, so the proxy speaks as the panel's page
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:4317",
+        ws: true,
+        changeOrigin: true,
+        headers: { origin: "http://127.0.0.1:4317" },
+      },
+    },
   },
   test: {
     environment: "jsdom",

@@ -54,13 +54,14 @@ describe("formatModel", () => {
       roles: ["worker" as const],
       listed: null,
       notes: {},
+      supersededBy: "gpt-6.1-sol",
       rungs: [
         pair("codex:gpt-6-sol#medium", 41.234, 81.234, null),
         pair("codex:gpt-6-sol#high", 47, null, "12 lanes, 2 climbed, 1 partial"),
       ],
     };
     expect(formatModel(m).split("\n")).toEqual([
-      "codex:gpt-6-sol  2 pairs  roles worker",
+      "codex:gpt-6-sol  2 pairs  roles worker  newer: gpt-6.1-sol",
       "  #medium  intelligence 41.2 · $2/$10 per M · 81.2 tok/s",
       "  #high  intelligence 47.0 · $2/$10 per M",
       "    runs: 12 lanes, 2 climbed, 1 partial",
@@ -103,9 +104,11 @@ describe("catherd catalog", () => {
 
   it("lists models with their indexed pairs, as text or JSON", () => {
     withHome();
-    const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol");
+    // GPT-6.1 Sol replaces GPT-6 Sol on codex: it is listed only with --older
+    expect(catherd("list", "--backend", "codex", "--text", "gpt-6-sol")).toMatchObject({ code: 0, out: "" });
+    const text = catherd("list", "--backend", "codex", "--text", "gpt-6-sol", "--older");
     expect(text.code).toBe(0);
-    expect(text.out).toContain("codex:gpt-6-sol  6 pairs  roles ");
+    expect(text.out).toMatch(/^codex:gpt-6-sol {2}6 pairs {2}roles \S+ {2}newer: gpt-6\.1-sol$/m);
     expect(text.out).toMatch(/\n {2}#high {2}intelligence [\d.]+ · \$2\/\$10 per M/);
     const json = JSON.parse(catherd("list", "--role", "artist", "--json").out);
     expect(json.models.every((m: { backend: string }) => m.backend === "codex")).toBe(true);

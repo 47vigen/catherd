@@ -1,23 +1,47 @@
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceDot,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { logTicks, type Series } from "../-lib/series";
 import { AXIS_TICK, ChartTooltip, GRID_STROKE } from "../../../../components/charts/ChartTooltip";
-import { BRAND_BG, brandFill } from "../../../../lib/brand";
+import { BRAND_BG } from "../../../../lib/brand";
 
 type Point = Series["points"][number];
+
+const CROSSHAIR = "color-mix(in oklab, var(--muted) 60%, transparent)";
 
 const money = (v: number) => (v >= 100 ? `$${Math.round(v)}` : `$${Number(v.toPrecision(2))}`);
 
 /** Intelligence against cost per task, one line per model and one dot per effort. */
-export function CostChart({ series, scale }: { series: Series[]; scale: "log" | "linear" }) {
+export function CostChart({
+  series,
+  scale,
+  className = "h-96 min-h-72 w-full p-4 max-sm:h-80",
+}: {
+  series: Series[];
+  scale: "log" | "linear";
+  className?: string;
+}) {
   const costs = series.flatMap((s) => s.points.map((p) => p.usd));
+  // The dot under the pointer, not recharts' nearest x: two models at one cost would otherwise share a tooltip.
+  const [hover, setHover] = useState<{ id: string; point: Point }>();
+  const hoverSeries = series.find((x) => x.id === hover?.id);
   const ticks = scale === "log" && costs.length > 0 ? logTicks(Math.min(...costs), Math.max(...costs)) : undefined;
   return (
     <div
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a chart is not an image file
       role="img"
       aria-label={`Cost vs intelligence of ${series.length} models`}
-      className="h-96 min-h-72 w-full p-4 max-sm:h-80"
+      className={className}
     >
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 1, height: 1 }}>
         <LineChart margin={{ top: 4, right: 12, left: 0, bottom: 16 }}>
@@ -43,9 +67,10 @@ export function CostChart({ series, scale }: { series: Series[]; scale: "log" | 
           />
           <Tooltip
             shared={false}
-            content={({ active, payload }) => {
-              const p = active ? (payload?.[0]?.payload as Point | undefined) : undefined;
-              const s = series.find((x) => x.points.includes(p as Point));
+            cursor={false}
+            content={() => {
+              const p = hover?.point;
+              const s = series.find((x) => x.id === hover?.id);
               if (!p || !s) return null;
               return (
                 <ChartTooltip title={s.name}>
@@ -66,24 +91,49 @@ export function CostChart({ series, scale }: { series: Series[]; scale: "log" | 
               data={s.points}
               name={s.name}
               dataKey="intelligence"
-              stroke={brandFill(s.brand)}
-              strokeDasharray={s.dash || undefined}
+              stroke={s.color}
               strokeWidth={1.5}
               isAnimationActive={false}
               dot={(d: { cx?: number; cy?: number; index?: number; payload?: Point }) => (
-                <circle
+                <g
                   key={d.index}
-                  cx={d.cx}
-                  cy={d.cy}
-                  r={3.5}
-                  stroke={brandFill(s.brand)}
-                  strokeWidth={1.5}
-                  fill={d.payload?.measured ? brandFill(s.brand) : "var(--surface)"}
-                />
+                  onMouseEnter={() => d.payload && setHover({ id: s.id, point: d.payload })}
+                  onMouseLeave={() => setHover(undefined)}
+                >
+                  {/* a wider transparent ring, so a 3.5 px dot is easy to hit */}
+                  <circle cx={d.cx} cy={d.cy} r={8} fill="transparent" />
+                  <circle cx={d.cx} cy={d.cy} r={3.5} stroke={s.color} strokeWidth={1.5} fill="var(--surface)" />
+                </g>
               )}
-              activeDot={{ r: 5 }}
+              activeDot={false}
             />
           ))}
+          {/* the hovered point: a crosshair to both axes and its dot drawn over every line */}
+          {hover && hoverSeries ? (
+            <>
+              <ReferenceLine
+                x={hover.point.usd}
+                className="pointer-events-none"
+                stroke={CROSSHAIR}
+                strokeDasharray="3 3"
+              />
+              <ReferenceLine
+                y={hover.point.intelligence}
+                className="pointer-events-none"
+                stroke={CROSSHAIR}
+                strokeDasharray="3 3"
+              />
+              <ReferenceDot
+                className="pointer-events-none"
+                x={hover.point.usd}
+                y={hover.point.intelligence}
+                r={5}
+                stroke={hoverSeries.color}
+                strokeWidth={2}
+                fill="var(--surface)"
+              />
+            </>
+          ) : null}
         </LineChart>
       </ResponsiveContainer>
     </div>

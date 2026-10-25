@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Rung, parseRung } from "./ids.ts";
+import { type Rung, parseRung, tryParseRung } from "./ids.ts";
 import type { Role } from "./roles.ts";
 import { type IndexFile, slopKey } from "./slopalytics.ts";
 
@@ -33,6 +33,8 @@ const FamilySchema = z.looseObject({
   capabilities: z.object({ toolUse: z.boolean(), imageIn: z.boolean(), reasoning: z.boolean() }),
   /** chatgpt-plan: messages per 5 hours relative to GPT-6 Luna (spec §5.3) */
   planWeight: z.number().positive().optional(),
+  /** the family id of the newer version that replaces this one where that version is offered */
+  supersededBy: z.string().min(1).optional(),
   /** claude-plan: billed as usage credits, not from the plan's limits */
   meteredOnPlan: z.boolean().default(false),
   on: z.partialRecord(z.enum(MODEL_KEYS), BackendModelSchema),
@@ -179,6 +181,26 @@ export function pairOf(c: Catalog, rung: string): Pair | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The newer family that hides a rung's model: its successor, following `supersededBy` down the chain, that is
+ * offered on the same backend (has a model there that the backend's last listing does not lack). Null when the
+ * model is current there, has no family, or `rung` does not parse.
+ */
+export function successorOf(c: Catalog, rung: string): Family | null {
+  const r = tryParseRung(rung);
+  const fam = r ? familyOf(c, r) : null;
+  if (!r || !fam) return null;
+  const mk = modelKeyOf(billingKeyOf(r));
+  const byId = (id: string | undefined) => c.families.find((f) => f.id === id);
+  const seen = new Set([fam.id]);
+  for (let next = byId(fam.supersededBy); next && !seen.has(next.id); next = byId(next.supersededBy)) {
+    seen.add(next.id);
+    const model = next.on[mk]?.id;
+    if (model !== undefined && rungInfo(c, `${r.backend}:${model}#default`).listed !== false) return next;
+  }
+  return null;
 }
 
 /** Spec §4 roles: what a rung must offer to be placed on a role. */

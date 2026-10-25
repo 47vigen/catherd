@@ -51,8 +51,9 @@ export function formatRefreshed(r: Refreshed, plain = false): string {
 /** One model: its indexed pairs and roles, then each pair's intelligence, price, speed and the runs catherd has made on it. */
 export function formatModel(m: CatalogModel): string {
   const listed = m.listed === false ? "  not offered by this account" : "";
+  const newer = m.supersededBy ? `  newer: ${m.supersededBy}` : "";
   const lines = [
-    `${m.backend}:${m.model}  ${m.rungs.length} ${m.rungs.length === 1 ? "pair" : "pairs"}  roles ${m.roles.join(",") || "none"}${listed}`,
+    `${m.backend}:${m.model}  ${m.rungs.length} ${m.rungs.length === 1 ? "pair" : "pairs"}  roles ${m.roles.join(",") || "none"}${listed}${newer}`,
   ];
   for (const r of m.rungs) {
     const parts = [
@@ -92,6 +93,7 @@ const list = defineCommand({
     backend: { type: "string", description: "only this backend or billing key" },
     role: { type: "string", description: `only models for this role (${ROLES.join(", ")})` },
     text: { type: "string", description: "only ids containing this" },
+    older: { type: "boolean", description: "include models a newer version replaces" },
     ...JSON_ARG,
   },
   async run({ args }) {
@@ -106,6 +108,7 @@ const list = defineCommand({
         backend: args.backend,
         role: args.role as Role | undefined,
         text: args.text,
+        older: args.older,
         limit: 10_000,
         repo: await hereRepo(),
       });

@@ -355,7 +355,10 @@ const graphWidth = () => Number(document.querySelector("svg[aria-hidden='true'].
 test("Zoom in and Zoom out scale the graph and stop at the limits", async () => {
   renderRoute("/runs/r1", api);
   await nodeButton(LANE);
-  const toolbar = screen.getByRole("toolbar", { name: "Graph view" });
+  await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
+  const dialog = await screen.findByRole("dialog", { name: "Steps of the run" });
+  await within(dialog).findByLabelText("Graph of the run");
+  const toolbar = within(dialog).getByRole("toolbar", { name: "Graph view" });
   const percent = () => within(toolbar).getByRole("status").textContent;
   const base = graphWidth();
   expect(percent()).toBe("100%");
@@ -373,7 +376,10 @@ test("Zoom in and Zoom out scale the graph and stop at the limits", async () => 
 test("Fit to view never zooms past 100%", async () => {
   renderRoute("/runs/r1", api);
   await nodeButton(LANE);
-  const toolbar = screen.getByRole("toolbar", { name: "Graph view" });
+  await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
+  const dialog = await screen.findByRole("dialog", { name: "Steps of the run" });
+  await within(dialog).findByLabelText("Graph of the run");
+  const toolbar = within(dialog).getByRole("toolbar", { name: "Graph view" });
   const fit = () => userEvent.click(within(toolbar).getByRole("button", { name: "Fit to view" }));
   const frame = document.querySelector("svg[aria-hidden='true'].block")!.parentElement!.parentElement!;
   await userEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
@@ -392,6 +398,8 @@ test("Fit to view never zooms past 100%", async () => {
 test("Full screen shows one graph in a dialog and closes back to the page", async () => {
   renderRoute("/runs/r1", api);
   await nodeButton(LANE);
+  // zoom is a full-screen tool; the page shows only the way in
+  expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Full screen" }));
   const dialog = await screen.findByRole("dialog", { name: "Steps of the run" });
   expect(await within(dialog).findByLabelText("Graph of the run")).toBeInTheDocument();

@@ -4722,6 +4722,9 @@
               "type": "string"
             }
           },
+          "superseded": {
+            "type": "boolean"
+          },
           "points": {
             "type": "array",
             "items": {
@@ -4734,6 +4737,7 @@
           "name",
           "lab",
           "backends",
+          "superseded",
           "points"
         ],
         "additionalProperties": false
@@ -4913,6 +4917,12 @@
               "string",
               "null"
             ]
+          },
+          "newer": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4922,7 +4932,8 @@
           "speed",
           "context",
           "cost",
-          "evidence"
+          "evidence",
+          "newer"
         ],
         "additionalProperties": false
       },

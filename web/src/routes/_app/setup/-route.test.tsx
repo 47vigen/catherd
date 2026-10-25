@@ -14,6 +14,7 @@ const pair = (rung: string, intelligence: number, over: object = {}) => ({
   context: null,
   cost: { tier: 0, value: 0, mode: "chatgpt-plan" },
   evidence: null,
+  newer: null,
   ...over,
 });
 const LUNA = "codex:gpt-6-luna#high";
@@ -431,22 +432,51 @@ test("Remove takes a model off the list", async () => {
   expect(within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row")).toHaveLength(2);
 });
 
-test("Add a fallback model picks a pair grouped by provider", async () => {
+test("Add a fallback model lists models strongest first, and an effort plus Add puts it last", async () => {
   renderRoute("/setup", api());
   const worker = await openRole("worker");
   await userEvent.click(within(worker).getByRole("button", { name: "Add a fallback model" }));
-  const box = await screen.findByRole("listbox", { name: "Indexed pairs" });
-  const groups = within(box).getAllByRole("group");
-  expect(groups.map((g) => g.getAttribute("aria-label") ?? g.textContent)).toEqual([
-    expect.stringContaining("Codex"),
-    expect.stringContaining("Claude Code"),
-  ]);
-  expect(within(box).getAllByRole("option")).toHaveLength(2);
-  expect(within(box).getByText(/benchmark 55\.0 · \$1\.25\/\$10 per M · 80 tok\/s · plan/)).toBeInTheDocument();
-  await userEvent.click(within(box).getByRole("option", { name: /Claude Opus 5\.5/ }));
+  const list = await screen.findByRole("list", { name: "Models" });
+  expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  expect(within(list).getAllByText(/\$1\.25\/\$10 per M · 80 tok\/s · on your plan/).length).toBeGreaterThan(0);
+  expect(screen.getByRole("radiogroup", { name: "Provider" })).toBeInTheDocument();
+  const add = screen.getByRole("button", { name: "Add" });
+  expect(add).toBeDisabled();
+  const opus = screen.getByRole("radiogroup", { name: /Claude Opus 5\.5 via Claude Code, effort/ });
+  await userEvent.click(within(opus).getAllByRole("radio")[0]!);
+  await userEvent.click(add);
   const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
   expect(steps).toHaveLength(3);
   expect(steps[2]).toHaveTextContent("Claude Opus 5.5");
+});
+
+test("older versions stay out of the picker until asked for, and a rung on the role names its newer version", async () => {
+  const OLD_LUNA = "codex:gpt-5.6-luna#high";
+  const OLD_SOL = "codex:gpt-5.6-sol#high";
+  const view = setup({
+    roles: [
+      role("worker", {
+        rungs: [{ rung: OLD_LUNA, intelligence: 30 }],
+        offered: [
+          pair(SOL, 50),
+          pair(OLD_SOL, 45, { newer: "GPT-6 Sol" }),
+          pair(OLD_LUNA, 30, { newer: "GPT-6 Luna" }),
+        ],
+      }),
+    ],
+  });
+  renderRoute("/setup", api({}, view));
+  const worker = await openRole("worker");
+  const steps = within(within(worker).getByRole("grid", { name: "Worker models" })).getAllByRole("row");
+  expect(steps[0]).toHaveTextContent("Tried first · via Codex · Newer: GPT-6 Luna");
+  await userEvent.click(within(worker).getByRole("button", { name: "Add a fallback model" }));
+  const list = await screen.findByRole("list", { name: "Models" });
+  expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+  const older = screen.getByRole("switch", { name: "Older versions" });
+  expect(older).not.toBeChecked();
+  await userEvent.click(older);
+  expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  expect(within(list).getByText(/Newer: GPT-6 Sol/)).toBeInTheDocument();
 });
 
 test("a role with no indexed pair says to sync the catalog", async () => {
