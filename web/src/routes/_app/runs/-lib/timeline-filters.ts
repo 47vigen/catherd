@@ -6,7 +6,7 @@ export const TIMELINE_FILTERS = [
     id: "commits",
     label: "Commits and landing",
     types:
-      "commit.made,commit.failed,milestone.landed,milestone.merged,integrate.done,integrate.conflict,branch.pushed",
+      "commit.made,commit.failed,milestone.landed,milestone.merged,merge.failed,integrate.done,integrate.conflict,branch.pushed",
   },
   { id: "questions", label: "Questions", types: "question.parked,question.answered" },
   { id: "control", label: "Pause and cancel", types: "run.paused,run.resumed,cancel.requested" },
