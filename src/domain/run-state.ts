@@ -211,6 +211,8 @@ export interface MilestoneState {
   hookFixes: number;
   /** plan 43: why catherd's own merge failed; the push question then asks the owner to merge it */
   mergeError: string | null;
+  /** the thread of a verifier reply that had no VERDICT line, resumed once to ask for it */
+  verdictAsk: string | null;
 }
 
 export interface DispatchView {
@@ -477,6 +479,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       disputing: false,
       hookFixes: 0,
       mergeError: null,
+      verdictAsk: null,
     };
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
@@ -489,6 +492,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     m.disputing ??= false;
     m.hookFixes ??= 0;
     m.mergeError ??= null;
+    m.verdictAsk ??= null;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
@@ -812,6 +816,9 @@ export const SOURCE_PLAN_NOTE =
 export const STATUS_ASK =
   "Your last reply had no STATUS: line. If the work is not finished, finish it; then end your reply with STATUS: complete|partial|blocked|refused — <why>.";
 
+export const VERDICT_ASK =
+  "Your last reply had no VERDICT line. Do not check again: reply with your verdict on what you already checked, its first line VERDICT: PASS or VERDICT: FAIL, then the lines that verdict asks for.";
+
 const stopQuestion = (l: LaneState, reason: BlockedReason, why: string): string =>
   `${l.id} stopped (${reason})${why.trim() ? `: ${why.trim()}` : ""}`;
 
@@ -1078,6 +1085,8 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
     return;
   }
   if (dv.role === "verifier" && m.status === "verifying") {
+    const asked = m.verdictAsk;
+    m.verdictAsk = null;
     // A broken check needs the owner before another verifier can learn anything.
     if (e.status === "ok" && e.reason === "check_broken" && e.verdict !== "blocked") {
       m.verifierFailedOn = m.commit;
@@ -1109,6 +1118,10 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
             question: `${e.name} passed ${e.head ? e.head.slice(0, 12) : "no commit"} twice, and the milestone is at ${at}`,
           };
       }
+    } else if (e.status === "ok" && e.verdict === "fail" && e.noVerdict && asked === null && e.thread) {
+      // a reply that stopped before its VERDICT line is asked for it on the same thread, once (plan 43 D8's rule)
+      m.verdictAsk = e.thread;
+      m.verifierNotes = [VERDICT_ASK];
     } else if (e.status === "ok" && e.verdict === "fail") {
       m.verifierFailedOn = m.commit;
       m.verifierRuns += 1;
@@ -1200,7 +1213,14 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
           m.delta.push(f.text);
         }
       }
-      if (disputing) {
+      // a dismissal of every finding of a verifier FAIL with no fix left to run would recommit the failed commit
+      const overrule =
+        sent.size === 0 &&
+        m.commit !== null &&
+        m.verifierFailedOn === m.commit &&
+        m.delta.length === 0 &&
+        lanes.every((l) => l.status === "done");
+      if (disputing || overrule) {
         // what the judge sends nowhere is dismissed: a known issue of the milestone it lands
         m.open.forEach((f, i) => {
           if (!sent.has(i + 1)) m.knownIssues.push(`dismissed by the judge: ${f.text}`);

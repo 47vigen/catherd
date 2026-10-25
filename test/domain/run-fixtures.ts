@@ -104,6 +104,7 @@ export function endDispatch(
     reason?: BlockedReason | null;
     head?: string | null;
     foreign?: string[];
+    noVerdict?: boolean;
     at?: string;
   },
 ) {
@@ -124,6 +125,7 @@ export function endDispatch(
       findings: o.findings ?? [],
       foreign: o.foreign ?? [],
       replyPath: `roles/${o.name}/${dispatchId}/reply.md`,
+      ...(o.noVerdict ? { noVerdict: true } : {}),
     },
     o.at,
   );

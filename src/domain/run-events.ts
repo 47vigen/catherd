@@ -165,6 +165,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     replyPath: z.string(),
     /** plan 40: the sibling lanes whose files a broken check named; older lines have none */
     siblings: strings.optional(),
+    /** a verifier's ok reply whose first line is no verdict: its `fail` is catherd's reading, not the verifier's */
+    noVerdict: z.literal(true).optional(),
   }),
   ev("check.ran", {
     lane: z.string(),

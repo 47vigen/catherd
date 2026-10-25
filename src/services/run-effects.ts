@@ -146,6 +146,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
   const reply = record.replyPath ? read(join(run.dir, record.replyPath)) : "";
   let verdict: "pass" | "fail" | "blocked" | null = null;
   let probe: string | null = null;
+  let noVerdict = false;
   let findings = record.role === "reviewer" || record.role === "ui-reviewer" ? parseFindings(reply) : [];
   if (record.role === "verifier") {
     const first = replyVerdict(run, record) ?? "";
@@ -157,7 +158,10 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
       findings = parseFindings(reply).filter((f) => f.label === "NIT");
     }
     // a reply with no readable verdict is not a pass: the next fix round starts from what it said
-    else if (record.status === "ok") verdict = "fail";
+    else if (record.status === "ok") {
+      verdict = "fail";
+      noVerdict = !FIRST_LINE.test(first);
+    }
     if (verdict === "fail") {
       findings = parseFailLines(reply);
       // a FAIL that lists no failing line still routes what it said, so the fix round never starts empty
@@ -192,6 +196,7 @@ export function endedEvent(run: Run, record: RunRecord, unit: string): RunEventI
     foreign: reason === "check_broken" && record.lane ? foreignOf(run, record.lane, reply) : [],
     siblings: reason === "check_broken" && record.lane ? siblingsOf(run, record.lane, reply) : [],
     replyPath: record.replyPath,
+    ...(noVerdict ? { noVerdict: true as const } : {}),
   };
 }
 

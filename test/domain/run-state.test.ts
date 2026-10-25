@@ -13,6 +13,7 @@ import {
   softCap,
   SOURCE_PLAN_NOTE,
   STATUS_ASK,
+  VERDICT_ASK,
 } from "../../src/domain/run-state.ts";
 import {
   PLAN,
@@ -861,6 +862,51 @@ describe("plan 40: the verifying flow", () => {
     expect(out.some((a) => a.type === "dispatch")).toBe(false);
     checked(log, "c0");
     expect(log.state().milestones[0]).toMatchObject({ status: "landing" });
+  });
+
+  it("a verifier reply with no VERDICT line is asked for one on its thread once, and a second is a FAIL", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const noVerdict = (thread: string) => {
+      const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+      endDispatch(log, v, {
+        name: "verifier-M1",
+        unit: "M1",
+        verdict: "fail",
+        findings: [bug("no VERDICT line: Now I run the gate.", null, "BLOCKER")],
+        noVerdict: true,
+        thread,
+      });
+    };
+    noVerdict("tv-1");
+    expect(log.state().milestones[0]).toMatchObject({ status: "verifying", verifierFailedOn: null });
+    expect(next(log.state(), log.events.at(-1)!)).toContainEqual(
+      expect.objectContaining({ type: "dispatch", role: "verifier", thread: "tv-1", notes: [VERDICT_ASK] }),
+    );
+    noVerdict("tv-1");
+    expect(log.state().milestones[0]).toMatchObject({ status: "fixing", verifierFailedOn: "c0" });
+  });
+
+  it("a triage judge that dismisses every finding of a verifier FAIL passes that commit", () => {
+    const log = reviewing();
+    review(log, []);
+    checked(log, "c0");
+    const v = startDispatch(log, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(log, v, {
+      name: "verifier-M1",
+      unit: "M1",
+      verdict: "fail",
+      findings: [bug("BLOCKER A8 is not met", null, "BLOCKER")],
+    });
+    expect(log.state().milestones[0]).toMatchObject({
+      status: "fixing",
+      disputing: false,
+      verifierFailedOn: "c0",
+    });
+    triaged(log, "7", []);
+    expect(log.state().milestones[0]).toMatchObject({ status: "landing", verifierPassedOn: "c0" });
+    expect(log.state().milestones[0]?.knownIssues).toEqual(["dismissed by the judge: BLOCKER A8 is not met"]);
   });
 
   it("a second land refusal parks a question that says retry lands again", () => {

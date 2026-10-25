@@ -711,6 +711,19 @@ describe("what a dispatch said", () => {
     });
     expect(ended("", { status: "failed" })).toMatchObject({ verdict: null });
   });
+
+  it("marks a verifier reply that ends on narration as having no verdict, and a FAIL as having one", () => {
+    const { run } = freshRun();
+    const ended = (reply: string) =>
+      endedEvent(run, withReply(run, { role: "verifier", name: "verifier-M1" }, reply), "M1");
+    expect(ended("Now I run the full gate.\nSTATUS: complete — ok")).toMatchObject({
+      verdict: "fail",
+      noVerdict: true,
+    });
+    expect(ended("VERDICT: FAIL\n- FAIL bun test src/a fails\nSTATUS: complete — failed")).not.toHaveProperty(
+      "noVerdict",
+    );
+  });
 });
 
 describe("what a stop says (30b)", () => {

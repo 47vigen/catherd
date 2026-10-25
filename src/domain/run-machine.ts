@@ -499,6 +499,7 @@ function milestoneActions(s: RunState, m: MilestoneState): Action[] {
             role: "verifier",
             brief: "verify",
             notes: m.verifierNotes,
+            thread: m.verdictAsk,
           });
     case "landing":
       return [{ type: "land", milestone: m.id, knownIssues: m.knownIssues }];
