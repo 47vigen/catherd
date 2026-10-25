@@ -326,13 +326,14 @@ function RunDetail({ runId }: { runId: string }) {
       {is2 && model.data ? (
         <Modal.Backdrop isOpen={full} onOpenChange={setFull}>
           <Modal.Container size="full">
-            <Modal.Dialog aria-label="Steps of the run">
-              <Modal.Header>
-                <Modal.Heading>Steps</Modal.Heading>
+            {/* The graph takes the whole dialog; the title and the close button float over its corners. */}
+            <Modal.Dialog aria-label="Steps of the run" className="relative overflow-hidden p-0!">
+              <Modal.Header className="border-border bg-surface/90 pointer-events-none absolute top-3 left-3 z-10 flex-row! items-center gap-4 rounded-lg border px-3 py-1.5 shadow-sm backdrop-blur">
+                <Modal.Heading className="text-sm!">Steps</Modal.Heading>
                 {stepsAside}
               </Modal.Header>
-              <Modal.CloseTrigger />
-              <Modal.Body className="flex min-h-0 flex-1 flex-col p-0">
+              <Modal.CloseTrigger className="border-border bg-surface/90 top-3! right-3! z-10 size-8.5! rounded-lg! border shadow-sm backdrop-blur" />
+              <Modal.Body className="m-0! flex min-h-0 flex-1 flex-col p-0!">
                 <RunGraph
                   model={model.data}
                   milestones={r.milestones}
