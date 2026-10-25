@@ -49,7 +49,7 @@ function ModelsPage() {
     </ToggleButtonGroup>
   );
 
-  // The chart is the page, edge to edge; the title with the axis switch, the source and the model list float over it.
+  // The chart is the page, edge to edge; the title (with the axis switch and the source) and the model list float over it.
   // On a wide screen the plot leaves room on the right for the list, so no line ever sits under it.
   return (
     <div className="bg-background relative flex flex-col lg:h-dvh lg:overflow-hidden">
@@ -62,7 +62,9 @@ function ModelsPage() {
         </div>
         <p className="text-muted text-xs">
           Every model catherd can route to. Up and to the left is better: more intelligence for less money per task. A
-          lab's stronger models are drawn deeper; the tooltip says whether a cost is measured or estimated.
+          lab's stronger models are drawn deeper; the tooltip says whether a cost is measured or estimated. Data:
+          Slopalytics (Artificial Analysis), {indexedAt ? `fetched ${indexedAt.slice(0, 10)}` : "not fetched yet"}.
+          {dropped > 0 ? ` ${dropped} points have no known cost and are not drawn.` : null}
         </p>
       </header>
       <DataList.State
@@ -74,15 +76,8 @@ function ModelsPage() {
         <CostChart
           series={series}
           scale={scale}
-          className="h-[60dvh] min-h-80 w-full px-2 pt-2 pb-4 lg:absolute lg:inset-0 lg:h-auto lg:pt-32 lg:pr-[23rem] lg:pb-14 lg:pl-4"
+          className="h-[60dvh] min-h-80 w-full px-2 pt-2 pb-4 lg:absolute lg:inset-0 lg:h-auto lg:pt-32 lg:pr-[23rem] lg:pb-4 lg:pl-4"
         />
-        <div className="text-muted flex flex-col gap-1 px-4 pb-4 text-xs lg:absolute lg:bottom-4 lg:left-4 lg:z-10 lg:p-0">
-          {dropped > 0 ? <p>{dropped} points have no known cost and are not drawn.</p> : null}
-          <p>
-            Intelligence and measured cost per task: Slopalytics (Artificial Analysis data),{" "}
-            {indexedAt ? `fetched ${indexedAt.slice(0, 10)}` : "not fetched yet"}.
-          </p>
-        </div>
         <section
           aria-label="Available to us"
           className={`${OVERLAY} mx-4 mb-4 flex min-h-0 flex-col overflow-hidden lg:absolute lg:top-4 lg:right-4 lg:bottom-4 lg:z-10 lg:m-0 lg:w-84`}
