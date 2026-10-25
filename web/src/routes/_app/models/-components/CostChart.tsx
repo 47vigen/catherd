@@ -9,7 +9,15 @@ type Point = Series["points"][number];
 const money = (v: number) => (v >= 100 ? `$${Math.round(v)}` : `$${Number(v.toPrecision(2))}`);
 
 /** Intelligence against cost per task, one line per model and one dot per effort. */
-export function CostChart({ series, scale }: { series: Series[]; scale: "log" | "linear" }) {
+export function CostChart({
+  series,
+  scale,
+  className = "h-96 min-h-72 w-full p-4 max-sm:h-80",
+}: {
+  series: Series[];
+  scale: "log" | "linear";
+  className?: string;
+}) {
   const costs = series.flatMap((s) => s.points.map((p) => p.usd));
   const ticks = scale === "log" && costs.length > 0 ? logTicks(Math.min(...costs), Math.max(...costs)) : undefined;
   return (
@@ -17,7 +25,7 @@ export function CostChart({ series, scale }: { series: Series[]; scale: "log" | 
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a chart is not an image file
       role="img"
       aria-label={`Cost vs intelligence of ${series.length} models`}
-      className="h-96 min-h-72 w-full p-4 max-sm:h-80"
+      className={className}
     >
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 1, height: 1 }}>
         <LineChart margin={{ top: 4, right: 12, left: 0, bottom: 16 }}>

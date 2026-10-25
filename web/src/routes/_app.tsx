@@ -107,7 +107,7 @@ function AppLayout() {
               <Bars aria-hidden="true" />
             </Button>
           </Shell.MobileBar>
-          <Shell.Content>
+          <Shell.Content full={/^\/models\/?$/.test(pathname)}>
             <HostPrompt />
             <div key={pathname} className="page-enter flex flex-col gap-6">
               <Outlet />
