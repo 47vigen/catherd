@@ -23,6 +23,7 @@ export interface SectionValues {
     floorMb: number | null;
   };
   preflight: { confirm: boolean };
+  land: { autoMerge: boolean };
   notifications: { notify: Settings["notify"] };
   jev: { use: "auto" | "off" };
   billing: Record<string, Billing>;
@@ -99,6 +100,8 @@ function fullPatch<S extends keyof SectionValues>(section: S, values: SectionVal
       return {
         preflight: { confirm: (v as SectionValues["preflight"]).confirm },
       };
+    case "land":
+      return { land: { autoMerge: (v as SectionValues["land"]).autoMerge } };
     case "notifications":
       return { notify: [...(v as SectionValues["notifications"]).notify] };
     case "jev":

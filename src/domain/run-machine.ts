@@ -62,6 +62,7 @@ export type Action =
   | { type: "integrate"; milestone: string }
   | { type: "claimTree"; milestone: string }
   | { type: "pushBranch"; milestone: string }
+  | { type: "mergeLanded"; milestone: string }
   | { type: "cancel"; dispatchIds: string[] }
   | { type: "report"; kind: ReportKind; unit: string; text: string }
   | { type: "notify"; unit: string; moment: NotifyMoment }
@@ -88,6 +89,7 @@ export function actionKey(a: Action): string {
     case "integrate":
     case "claimTree":
     case "pushBranch":
+    case "mergeLanded":
       return `${a.type}:${a.milestone}`;
     case "fastCheck":
     case "climb":
@@ -130,6 +132,7 @@ export function unitOf(a: Action, s?: RunState): string {
     case "integrate":
     case "claimTree":
     case "pushBranch":
+    case "mergeLanded":
     case "commit":
       return a.milestone;
     case "fastCheck":
@@ -190,7 +193,9 @@ export function confirms(e: RunEvent): string[] {
     case "integrate.conflict":
       return [`integrate:${e.milestone}`];
     case "milestone.merged":
-      return [`checkMerged:${e.milestone}`];
+      return [`checkMerged:${e.milestone}`, `mergeLanded:${e.milestone}`];
+    case "merge.failed":
+      return [`mergeLanded:${e.milestone}`];
     case "tree.ready":
     case "tree.deferred":
       return [`claimTree:${e.milestone}`];
@@ -573,10 +578,11 @@ const precheck = (s: RunState, m: MilestoneState): string => {
  */
 function pushQuestion(s: RunState, m: MilestoneState): string {
   const branch = m.branch ?? "the run's branch";
+  const failed = m.mergeError === null ? "" : `catherd could not merge it: ${m.mergeError}. `;
   if (m.mr !== null)
-    return `${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
+    return `${failed}${m.id}'s branch ${branch} is pushed to origin. Open its MR: ${m.mr}, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged.`;
   const tree = m.tree ?? ".";
-  return `${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
+  return `${failed}${m.id} landed on ${branch} at ${(m.commit ?? "").slice(0, 12)}. Answer push and catherd pushes it (git -C ${tree} push -u origin ${branch}); or push it yourself. Then open its MR with ${m.digestPath ?? "its digest"} as the body, and merge it with a merge commit whose subject is \`${mergeSubject(s.run, m.id, m.title)}\`; right before the merge run ${precheck(s, m)}. Answer once it is merged; in a repo that squash-merges, catherd cannot see the merge, so your answer is what unblocks the milestones after it.`;
 }
 
 /**
@@ -605,9 +611,11 @@ function advance(s: RunState): Action[] {
     for (const m of s.milestones)
       if (m.status === "landed" && !s.questions[m.id] && !s.stuck[m.id])
         parks.push(
-          m.pushing
-            ? { type: "pushBranch", milestone: m.id }
-            : { type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" },
+          s.autoMerge && m.mergeError === null
+            ? { type: "mergeLanded", milestone: m.id }
+            : m.pushing
+              ? { type: "pushBranch", milestone: m.id }
+              : { type: "park", unit: m.id, question: pushQuestion(s, m), reason: "push" },
         );
   if (s.stuck[RUN_UNIT] || s.questions[RUN_UNIT]) return parks;
   if (s.phase === "planning") return [...parks, ...planningActions(s)];
@@ -703,6 +711,7 @@ const PAUSED_STEPS = new Set<Action["type"]>([
   "machineCheck",
   "land",
   "pushBranch",
+  "mergeLanded",
   "integrate",
   "claimTree",
   "route",

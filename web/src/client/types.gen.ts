@@ -434,6 +434,9 @@ export type ProfilePatch = {
     preflight?: {
         confirm: boolean;
     };
+    land?: {
+        autoMerge: boolean;
+    };
     lock?: {
         heavy: number | 'cpus/2';
     };
@@ -493,6 +496,7 @@ export type Settings = {
         floorMb: number;
     };
     preflightConfirm: boolean;
+    landAutoMerge: boolean;
     notify: Array<'milestone' | 'finish' | 'blocked'>;
     jev: 'auto' | 'off';
     billing: {

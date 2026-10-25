@@ -37,6 +37,13 @@ describe("catherd profile show", () => {
     expect(r.out).toContain("harness codex native · claude-code native · opencode native · cursor native\n");
   });
 
+  it("profile show prints who merges", () => {
+    withHome();
+    expect(catherd(["show"]).out).toContain("\nland asks you to merge each landed milestone\n");
+    expect(catherd(["set", "land.autoMerge", "true"]).code).toBe(0);
+    expect(catherd(["show"]).out).toContain("\nland merges each landed milestone into the base itself\n");
+  });
+
   it("marks a role whose network is off (spec §5)", () => {
     withHome();
     expect(catherd(["set", "roles.writer.network", "false"]).code).toBe(0);

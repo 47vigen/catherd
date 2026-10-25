@@ -3868,6 +3868,18 @@
             ],
             "additionalProperties": false
           },
+          "land": {
+            "type": "object",
+            "properties": {
+              "autoMerge": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "autoMerge"
+            ],
+            "additionalProperties": false
+          },
           "lock": {
             "type": "object",
             "properties": {
@@ -4142,6 +4154,9 @@
           "preflightConfirm": {
             "type": "boolean"
           },
+          "landAutoMerge": {
+            "type": "boolean"
+          },
           "notify": {
             "type": "array",
             "items": {
@@ -4195,6 +4210,7 @@
           "heavy",
           "memory",
           "preflightConfirm",
+          "landAutoMerge",
           "notify",
           "jev",
           "billing",

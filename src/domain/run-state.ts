@@ -207,6 +207,8 @@ export interface MilestoneState {
   disputing: boolean;
   /** plan 43: pre-commit hook refusals turned into a fix round since the last commit (one is, a second parks) */
   hookFixes: number;
+  /** plan 43: why catherd's own merge failed; the push question then asks the owner to merge it */
+  mergeError: string | null;
 }
 
 export interface DispatchView {
@@ -282,6 +284,8 @@ export interface RunState {
   cancelling: boolean;
   /** plan 43: when a dispatch was refused for a machine pause; every paused step waits until `pause.lifted` */
   held: string | null;
+  /** plan 43: `land.autoMerge`, pinned at the run's start: catherd merges a landed milestone itself */
+  autoMerge: boolean;
   /** when the owner paused the run (the pause in force), else null: no dispatch, judge, claim, route, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
@@ -322,6 +326,7 @@ export function emptyState(run: string): RunState {
     cancelling: false,
     paused: null,
     held: null,
+    autoMerge: false,
     wakeAt: null,
     planDirty: false,
     revise: [],
@@ -469,6 +474,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       disputes: 0,
       disputing: false,
       hookFixes: 0,
+      mergeError: null,
     };
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
@@ -480,6 +486,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     m.disputes ??= 0;
     m.disputing ??= false;
     m.hookFixes ??= 0;
+    m.mergeError ??= null;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
@@ -1309,6 +1316,7 @@ function apply(s: RunState, e: RunEvent): void {
       s.aLines = e.aLines;
       s.plan = e.plan;
       s.rolesOff = e.rolesOff ?? [];
+      s.autoMerge = e.autoMerge ?? false;
       return;
     case "plan.ready":
       mergePlan(s, e.milestones);
@@ -1651,9 +1659,15 @@ function apply(s: RunState, e: RunEvent): void {
       if (m) {
         m.status = "merged";
         m.mergeDue = null;
+        m.mergeError = null;
       }
       if (s.questions[e.milestone]?.reason === "push") delete s.questions[e.milestone];
       recomputeWake(s);
+      return;
+    }
+    case "merge.failed": {
+      const m = milestoneOf(s, e.milestone);
+      if (m) m.mergeError = e.error;
       return;
     }
     case "tree.ready": {

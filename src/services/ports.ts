@@ -52,6 +52,7 @@ export interface ProfileView {
   budget: Budget;
   timeouts: { idleMin: number; wallMin: number };
   preflight: { confirm: boolean };
+  land: { autoMerge: boolean };
   heavy: number | "cpus/2";
   notify: string[];
   /** plan 35: the memory numbers that cap milestones side by side, defaults filled */

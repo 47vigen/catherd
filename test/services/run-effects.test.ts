@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { mergeSubject } from "../../src/domain/branch.ts";
 import { newDispatchId } from "../../src/domain/ids.ts";
 import type { RunRecord } from "../../src/domain/record.ts";
 import type { RunEvent, RunEventInput } from "../../src/domain/run-events.ts";
@@ -2225,6 +2226,54 @@ describe("a milestone per branch (plan 35)", () => {
     expect(existsSync(join(m2.tree, "unsaved.txt"))).toBe(true);
     expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M2" });
     expect(replayRun(run).milestones.map((m) => m.status)).toEqual(["merged", "merged"]);
+  });
+
+  // M1 has its tree and one commit on its branch, landed; returns the commit
+  async function landedOneCommit(run: Run, file: string, text: string): Promise<string> {
+    const { tree } = await claimM(run, "M1");
+    await treeReady(run, "M1");
+    writeFile(tree, file, text);
+    git(tree, "add", "-A");
+    git(tree, "commit", "-q", "-m", "one");
+    const commit = git(tree, "rev-parse", "HEAD").trim();
+    await appendEvent(run, {
+      type: "milestone.landed",
+      milestone: "M1",
+      commit,
+      knownIssues: [],
+      digestPath: "d",
+    });
+    return commit;
+  }
+
+  it("a landed milestone is merged with a merge commit and pushed", async () => {
+    const { origin, run, fx } = await treesSetup();
+    const commit = await landedOneCommit(run, "one.txt", "1\n");
+    const before = git(origin, "rev-parse", "main").trim();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    const head = git(origin, "rev-parse", "main").trim();
+    expect(git(origin, "log", "-1", "--format=%P", "main").trim().split(" ")).toEqual([before, commit]);
+    expect(git(origin, "log", "-1", "--format=%s", "main").trim()).toBe(
+      mergeSubject(run.id, "M1", "the wallet core"),
+    );
+    expect(lastOf(run, "milestone.merged")).toMatchObject({ milestone: "M1", by: "catherd", commit: head });
+    expect(types(run)).not.toContain("merge.failed");
+    expect(existsSync(join(run.dir, "scratch", "merge-M1"))).toBe(false);
+    expect(existsSync(treeDir(run, "M1"))).toBe(false);
+  });
+
+  it("a conflicting merge falls back and leaves origin alone", async () => {
+    const { origin, run, fx } = await treesSetup();
+    await landedOneCommit(run, "f.txt", "mine\n");
+    commitInClone(origin, "theirs", { path: "f.txt", text: "theirs\n" });
+    const before = git(origin, "rev-parse", "main").trim();
+    await fx.run({ type: "mergeLanded", milestone: "M1" }, replayRun(run));
+    expect(lastOf(run, "merge.failed")).toMatchObject({ milestone: "M1" });
+    expect((lastOf(run, "merge.failed") as { error: string }).error).toContain("CONFLICT");
+    expect(types(run)).not.toContain("milestone.merged");
+    expect(git(origin, "rev-parse", "main").trim()).toBe(before);
+    expect(existsSync(join(run.dir, "scratch", "merge-M1"))).toBe(false);
+    expect(existsSync(treeDir(run, "M1"))).toBe(true);
   });
 
   it("parks a landed milestone for its push, naming its branch, the push answer, the push command, the digest and the precheck", async () => {
