@@ -20,12 +20,6 @@ the cheapest rung that clears the bar; once spent, `E_RUN_BUDGET` pauses the run
 
 Defects the run's lanes and reviews reported, which plan 40 did not fix:
 
-- **A verifier's scratch `TMPDIR` makes the CLI read its shell as a role's.** With the verifier's scratch folder as
-  `TMPDIR`, 48 CLI tests fail (pause, init, profile, knowledge, supersede and similar); with a normal temp directory
-  the full suite is green. The verifier could not tell whether the path alone causes it, since `CATHERD_ROLE` and
-  `CATHERD_DISPATCH_ID` were unset in that run. Evidence: verifier-M3 NIT, `milestone.landed` seq 68. Fix: settle which
-  signal the CLI's role check reads, and let the shared test helper of "Spawned-CLI tests inherit the worker's role"
-  cover it.
 - **The plan lint warns twice for one A-line.** `lintPlan` (`src/domain/plan-lint.ts`) scans the milestone section and
   the run's `aLines`, so an A-line in both gets the commit-history warning twice. Input that shows it:
   `lintPlan("## M1\nCheck: x\nA1 — list the commit history\n", "M1", ["A1 — list the commit history"])`. Warnings
@@ -41,22 +35,6 @@ Defects the run's lanes and reviews reported, which plan 40 did not fix:
 - **A resumed dispatch's full brief has no test.** Round 3 of plan 40's M6 writes `brief-full.md` and points the
   stand-in brief at it (`src/services/dispatch-service.ts:648`); no test reads the file or the path. Evidence:
   reviewer-M6 NIT, seq 353. Fix: one assertion in the resumed-dispatch test.
-- **A routed rung off the worker ladder parks the lane as `effect`.** After the judge routed a finding to M4.L3 (seq
-  183), its dispatch with `claude-code:claude-haiku-5-5#max` was refused `E_ADMIT_RUNG` ("not on the worker ladder of
-  profile default") and parked as `effect` (seq 185–186). The owner had to answer a question about the profile. Fix: a
-  route to an off-ladder rung is refused with a fix that names the ladder, or the route picks a rung the ladder has.
-- **`run_start` reports a failure after the run started.** A host's MCP server still bound to a removed Bun binary
-  answered `E_IO_UNEXPECTED` (`posix_spawn` of the old Bun path), yet the run and its daemon were already created; the
-  retry made a duplicate run (`20261024-133032`, cancelled). Fix: return the run id once the run exists, and have the
-  daemon spawn use the `bun` on `PATH` when `process.execPath` is gone.
-- **A lane routed before a profile edit keeps its old rung.** Answering the parked lane only retries the same rung, so
-  the owner's ladder change cannot reach it; the coordinator had to append a `lane.climbed` event by hand (seq 188).
-  Fix: on `E_ADMIT_RUNG`, route the lane again against the current ladder.
-- **The commit fails on the repo's format hook.** M5's round-0 commit was refused by lefthook's `oxfmt --check` on four
-  worker-edited files (seq 294). Fix: run the repo's formatter on the lane's owned files before committing, or tell
-  workers the format command in the brief.
-- **The push question's merge commit fails commitlint.** The question says "merge it with a merge commit", and git's
-  default `Merge branch …` subject fails this repo's commitlint. Fix: the question gives a conventional subject.
 
 Ideas the plan leaves for this file. The evidence is the event or code cited; where this run shows nothing, it is the
 2026-10-24 run-efficiency studies that plan 40 names as its source.
@@ -64,27 +42,13 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
 - **The ui-reviewer runs with no way to log in, or on screens that are stubs.** A review of a login page or a
   placeholder cannot show the screen the milestone changed. Evidence: the 2026-10-24 studies; plan 40 changed no UI.
   Fix: the ui-reviewer's brief names how to log in, and a stub screen is reported as not reviewed.
-- **A missing `STATUS:` line reads as clean.** Two worker replies in this run had no `STATUS:` line and were recorded
-  `ok` with an empty `why`: worker-M1.L2 (seq 31) and worker-M1.L4 (seq 44). Fix: a reply without the line is a parse
-  failure that asks again, as the plan 38 audit proposes (`docs/dev/reports/2026-10-23-plan-38-run-audit.md`).
 - **A retry when idle for load-induced timeouts.** The retry after a timeout under host load does not wait for the host
   to go idle. Evidence: the 2026-10-24 studies. Fix: wait for the load to drop before the retry, and count that wait
   apart from the tries.
-- **`git submodule update` runs only at tree setup.** `setUp` (`src/services/milestone-tree.ts:70–92`) runs
-  `git submodule update --init --recursive` once, when a milestone tree is set up. `integrate` merges the base into the
-  milestone's branch without it, so a base change that moves a submodule pointer can leave the tree's submodules stale.
-  Evidence: the code (`src/services/milestone-tree.ts:73–82`); no event in this run shows it. Fix: run it again after
-  `integrate`, in the same heavy slot.
-- **A judge refused `E_ADMIT_PAUSED` that never comes back.** The refusal repeats on a timer until the owner resumes
-  the machine. In this run a reviewer, which takes the same admission path as a judge, was refused 37 times, one every
-  five minutes from 17:11 to 21:39 UTC (seq 194–266), all `E_ADMIT_PAUSED`. Fix: a paused refusal parks the question
-  once and waits for the owner's answer, as other parks do.
 - **A squash merge does not advance the base for dependants.** Dependants of a squash-merged milestone stay blocked until
   the owner answers the push question, because catherd does not count a squash as a merge. The rulings are
   `docs/plans/2026-10-21-35-milestone-branches.md` (Ruling 13) and `docs/plans/drafts-1.6/2026-10-12-33-milestone-branches.md`
   (Ruling 9). Fix: treat a squash whose tree matches the landed commit as merged.
-- **One push and merge answer per milestone.** The same as "A push takes two parked round trips per milestone" above,
-  which carries this run's evidence.
 - **A per-run `pause --run` scope.** `catherd pause` is machine-wide: the refusals name "the machine is paused" (seq 194),
   not the run. Fix: `pause --run <id>` stops one run's admissions, and the machine pause stays for every run.
 - **Milestones start by remaining critical path.** This run started each milestone when a predecessor landed, in ID
@@ -92,14 +56,16 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   274 and 309). Whether a path-length order starts them sooner is not measured. Fix: order the ready milestones by the
   work left on the critical path, and record the order.
 - **Tearing down compose stacks a gate started.** A gate that starts compose stacks leaves them running after it ends.
-  Evidence: the 2026-10-24 studies; no compose stack ran in this run. Fix: the gate runs `compose down` for each stack it
-  started, as its last step.
+  Each milestone tree now has its own compose project name (plan 43, D16), so stacks of two trees no longer collide;
+  nothing stops them. Evidence: the 2026-10-24 studies; no compose stack ran in this run. Fix: the gate runs
+  `compose down` for each stack it started, as its last step. A `compose down` on land is not the fix: catherd cannot
+  tell which stacks a gate started.
 - **An owner ruling never reaches later lane briefs.** The owner's answer at seq 81, that M1.L4's no-Check warning is
   intended, is recorded against M1.L3 only, the lane parked on it. No event shows it reaching another lane. Fix: write
   a ruling into the run's ledger and into the brief of each later lane it touches.
-- **The daemon does not alert or restart after ENOSPC.** The disk reserve in plan 40 (D14) makes heavy slots wait for
-  free space; it does not alert or restart the daemon. Evidence: the 2026-10-24 studies. Fix: notify through the run's
-  notify url on ENOSPC, and restart the daemon's loop after a write succeeds.
+- **The daemon does not alert after ENOSPC.** After a full disk the daemon loop stops; the daemon then waits until the
+  disk has its reserve again and runs once more, replaying the run (plan 43, D18). Nothing tells the owner. Evidence:
+  the 2026-10-24 studies. Fix: notify through the run's notify url on ENOSPC.
 - **`status` prints one collected line per dispatch.** A run with many dispatches prints a long list where one line per
   unit would do. Evidence: the 2026-10-24 studies. Fix: print one line per unit, with its last dispatch.
 - **A merge that deletes the run's base branch.** A merge that deletes the branch a run started from leaves its
@@ -148,10 +114,8 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   the run's `A<n>`, and a one-milestone mapping does not apply to six milestones. The same digest said "Reviewer:
   reviewer-M1 · 0 finding(s)" after three review rounds, so rounds 1-2's findings are invisible. Fix: the architect
   maps the A-lines onto milestones when it turns a plan into `plan.md`; the digest sums findings over every round.
-- **A push takes two parked round trips per milestone.** M1 parked for the push, then again for the MR. With the
-  owner's standing approval for a run's base branch, both could be one answer (`push+merge`) or a profile setting.
-  Plan 40's run parked a push question for every landed milestone (run `20261024-133108-plan-40-run-efficiency`, seq
-  70, 111, 125, 274, 309 and 355) and a second, MR question for M3 (seq 85).
+- **A push takes two parked round trips per milestone.** M1 parked for the push, then again for the MR. With
+  `land.autoMerge` off it still does.
 - **A gate recorded in a broken env cannot be re-recorded.** The gate cache is keyed by HEAD only, not by the env it
   ran in: a verifier's second and third `gate run` on M6's head returned the same cached failed record, `land` reads
   it, and that head can never land without a new commit. Fix: let a verifier re-run a gate (a `fresh` flag), or key
@@ -191,10 +155,6 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
   - **The step summary truncates on a narrow screen.** At 390px, “Steps” appears as “ST…”. Evidence: M5 UI review
     screenshot `shots/M5-r2-waiting-mobile-dark.png`, with the summary at
     `web/src/routes/_app/runs/$runId.tsx:171`.
-  - **Passing tests can be reported as failures when their names contain `FAIL`.** The verifier's failure list
-    includes `(pass) the verifier's prompt (spec 1.1 §7) > records HEAD first, puts file:line in FAIL lines and calls
-    a minor issue a NIT`. Evidence: the verifier gate output recorded in the run events (seq 66); the passing test is
-    `test/domain/verifier-prompt.test.ts:47`.
 
 - **Coordinator findings from the plan 39 run** (run `20261023-105527-run-audit-fixes-plan-39`; seq numbers are its
   `events.jsonl`):
@@ -205,23 +165,9 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
     `E_RUN_CORRUPT … restore events.jsonl from a backup`, while every line validates against the daemon's schema.
     Fix: an unknown newer event is a version error ("restart your host session"), never "corrupt"; the server compares
     its version with the daemon's on each read.
-  - **Spawned-CLI tests inherit the worker's role.** A worker's fast check runs in its own shell, so tests that
-    spread `process.env` into a spawned `catherd` (or derive temp paths under `runs/<run>/scratch/`) run as the
-    worker and fail `E_ROLE_SCOPE`: M3.L2 (seq 185, `test/entry/runs-command.test.ts:15`), M1.L4 (seq 298,
-    `test/services/milestone-check.test.ts:115`), M1.L3 (seq 316 and 321, `test/entry/role-cli-command.test.ts:70`).
-    Each passed with no role; each lane called it an environment block. Plan 39 fixed those three helpers. Fix: one
-    shared test helper that strips `CATHERD_ROLE`, `CATHERD_DISPATCH_ID` and the scratch `TMPDIR`, plus a test that
-    every spawn under `test/` uses it.
   - **A fresh milestone tree has no dependencies.** M5.L2's preflight ran the web typecheck before anything installed
     `web/node_modules` and parked `preflight` (seq 240, `tsc: No such file or directory`, exit 127). Fix: the tree
     setup runs the repo's install for each package a lane's check touches, before preflight.
-  - **A pre-commit hook failure parks the milestone with no way forward.** The lefthook format check rejected a web/
-    test (`commit.failed` seq 260); the park's answer only retries the same commit (`commit.failed` → `stuck`, then
-    back to `committing`), so the owner had to run the formatter in the tree. Fix: a commit failure goes back to the
-    lane that owns the file with the hook output, and a lane's fast check runs the format check on its files (the
-    run's rules review proposed the latter).
-    Plan 40's M5 hit it again: the format hook rejected its commit (seq 292), and the owner's formatter run on four
-    files reflowed about 100 unrelated lines of `src/services/run-effects.ts` (verifier-M5 NIT, seq 307).
   - **Lanes still break callers no lane owns (run audit 11).** M1.L2 (seq 37, four `gatePass` callers), M1.L1 (seq
     44), M3.L1 (seq 91, `Tokens.cacheWrite` fixtures in three adapter tests and `src/adapters/opencode/index.ts`) and
     M5.L2 (seq 253, nullable `costUsd` in `web/`) each parked until the owner widened the lane. The run's rules review
@@ -242,6 +188,39 @@ Ideas the plan leaves for this file. The evidence is the event or code cited; wh
 
 - **A public panel URL for phone links.** The panel binds to `127.0.0.1`, so phone notices cannot open it from
   another device. Evidence: `CLAUDE.md:17` and plan 39 decision D16; choosing a public URL is a product decision.
+
+### Found while hardening 2.0 (plan 43)
+
+Found by the plans 41–42 audit, the platform run and the credit run. Plan 43 does not fix these.
+
+- **A memory deferral does not say how its need is computed.** The platform run's message read `6266 MB available,
+  8192 MB needed`, with no account of the 8192. `neededMb` (`src/domain/milestone-memory.ts:44`) computes it, and the
+  message (`src/domain/run-state.ts:1704`) prints only the result. Fix: the message names the reserve, the share per
+  milestone and the count it covers.
+- **A land refusal's fix text names `gate_pass` but not `gate_check`.** `gate_pass` needs a matching `gate_check` step
+  first (`src/services/gate-service.ts:491`), so a fix that names only the first leaves out the step it needs. Fix:
+  the land refusal's fix names both calls, in order.
+- **A dispatch shows "ended failed … fast check green", with its cause only in `runs.jsonl`.** The credit run's
+  `Step interrupted` cause is in the runs log and nowhere the owner reads a status line. Fix: the status line names the
+  dispatch's recorded cause.
+- **A second landed sibling whose base moves before the owner's merge answer is not re-integrated.** Credit run, M31
+  and M33. Fix: integrate a landed milestone again when the base it was cut from moves, before its merge is asked.
+- **A Check's 177 s stall has no wait recorded.** M20's Check in the plans 41–42 run stalled for 177 s, and no wait was
+  recorded, so the report does not say where the time went (audit C5). Fix: record the time a Check waits as a wait.
+- **`execMilestoneCheck run by a verifier role` is flaky under load** (audit C6). Fix: find the timing the test depends
+  on, and remove it.
+- **The report's minutes are the time since the previous landing.** A milestone's minutes start when the one before it
+  landed, not when it started (audit C7). Fix: count each milestone's minutes from its own start.
+- **Round counters skip numbers** (audit C8). Fix: number a milestone's rounds in order, with no gap.
+- **A worker's screenshots keep a milestone tree** (audit C9). Fix: keep screenshots out of the tree, or remove them
+  with it.
+- **A fix round waits for every reviewer of its round** (audit C10). Fix: start the fix round once the blocking
+  reviewers have reported.
+- **The no-verifier path is unreachable when A1 is "as written"** (audit C11). Fix: decide whether a run without a
+  verifier exists, then either make the path reachable or remove it.
+- **The memory `tree.deferred` carries no `resource`.** The disk deferral sets `resource: "disk"`
+  (`src/services/run-effects.ts:1141`); the memory one (`:1129`) leaves it out, so the event does not name the resource
+  it waited for (audit C13). Fix: set `resource: "memory"` there too.
 
 ### From the plan 28–35 reviews (2026-10-21)
 
