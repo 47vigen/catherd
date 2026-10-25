@@ -905,7 +905,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
       }
       // an open merge is committed whole: a partial commit is refused while one is in progress
       const c = await gitRun(repo, ["commit", "--no-edit"], effectLimits.commitMs);
-      if (c.code !== 0) return void (await failed(c, true));
+      if (c.code !== 0) return void (await failed(c, !c.timedOut));
     } else {
       // only what the milestone owns: work staged elsewhere stays staged and out of the commit
       const staged = paths.size
@@ -917,10 +917,12 @@ export function realEffects(deps: Deps, run: Run): Effects {
         : { code: 0, out: "", err: "", timedOut: false };
       if (staged.code !== 0) return void (await failed(staged));
       const files = staged.out.split("\0").filter(Boolean);
-      const format = files.length ? formatCommand(read(runPaths(run.dir).plan), a.milestone) : null;
+      // a staged deletion is no argument for the formatter: a missing path makes oxfmt or prettier format nothing
+      const present = files.filter((f) => existsSync(join(repo, f)));
+      const format = present.length ? formatCommand(read(runPaths(run.dir).plan), a.milestone) : null;
       if (format) {
         // plan 43 D11: the plan's formatter runs on the staged files; a failure is logged and the hook decides
-        const quoted = files.map((f) => `'${f.replaceAll("'", `'\\''`)}'`).join(" ");
+        const quoted = present.map((f) => `'${f.replaceAll("'", `'\\''`)}'`).join(" ");
         const r = await runCheck(
           repo,
           `${format} ${quoted}`,
@@ -931,7 +933,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           log("warn", "daemon", { run: run.id, action: "format", exit: r.code, tail: r.tail.join("\n") });
         const added = await gitRun(
           repo,
-          ["--literal-pathspecs", "add", "--", ...files],
+          ["--literal-pathspecs", "add", "--", ...present],
           effectLimits.commitMs,
         );
         if (added.code !== 0) return void (await failed(added));
@@ -945,7 +947,7 @@ export function realEffects(deps: Deps, run: Run): Effects {
           ["--literal-pathspecs", "commit", "--only", "-m", subject, "--", ...files],
           effectLimits.commitMs,
         );
-        if (c.code !== 0) return void (await failed(c, true));
+        if (c.code !== 0) return void (await failed(c, !c.timedOut));
       }
     }
     const head = await gitRun(repo, ["rev-parse", "HEAD"]);

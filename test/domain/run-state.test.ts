@@ -1626,6 +1626,37 @@ describe("plan 43 M4: digests, hook refusals, the pause hold", () => {
     expect(out.some((a) => a.type === "commit")).toBe(false);
   });
 
+  it("a replan that edits a done lane sends a landing or parked milestone back to fixing", () => {
+    const done = () => {
+      const log = makeLog();
+      log.add("run.started", startedFields);
+      log.add("plan.ready", { milestones: digested("a", "b") });
+      log.add("plan.approved", { by: "owner" });
+      routeMilestone(log, PLAN[0] as MilestonePlan);
+      finishLane(log, "M1.L1", { thread: "t1" });
+      finishLane(log, "M1.L2");
+      log.add("commit.made", { milestone: "M1", round: 0, commit: "c0" });
+      review(log, []);
+      return log;
+    };
+    const landing = done();
+    checked(landing, "c0");
+    const v = startDispatch(landing, { name: "verifier-M1", role: "verifier", unit: "M1", lane: null });
+    endDispatch(landing, v, { name: "verifier-M1", unit: "M1", verdict: "pass", head: "c0" });
+    expect(landing.state().milestones[0]?.status).toBe("landing");
+    landing.add("plan.ready", { milestones: digested("c", "b") });
+    expect(landing.state().milestones[0]?.status).toBe("fixing");
+    expect(landing.state().lanes["M1.L1"]).toMatchObject({ status: "pending", thread: "t1" });
+
+    const parked = done();
+    parked.add("question.parked", { unit: "M1", question: "q", reason: "blocker" });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "verifying" });
+    parked.add("plan.ready", { milestones: digested("c", "b") });
+    expect(parked.state().milestones[0]).toMatchObject({ status: "parked", parkedFrom: "fixing" });
+    parked.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
+    expect(parked.state().milestones[0]?.status).toBe("fixing");
+  });
+
   it("a replan with no digest, the same digest or a first digest re-runs nothing", () => {
     const log = makeLog();
     log.add("run.started", startedFields);

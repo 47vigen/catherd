@@ -505,8 +505,11 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
             l.attempts = 0;
             l.checkFails = 0;
             // a milestone past its lanes goes back to them, as a fix round does
-            if (m.status === "committing") m.status = "lanes";
-            else if (m.status === "review" || m.status === "verifying") m.status = "fixing";
+            const past = (st: MilestoneStatus | null) =>
+              st !== null && !["waiting", "routing", "lanes", "fixing"].includes(st);
+            if (m.status === "parked") {
+              if (past(m.parkedFrom)) m.parkedFrom = "fixing";
+            } else if (past(m.status)) m.status = "fixing";
             l.notes.push(
               `The architect changed lanes/${l.id}.md: re-read it and make the change it asks for.`,
             );

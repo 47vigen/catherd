@@ -14,7 +14,13 @@ import { liveDispatches } from "../../src/services/dispatches.ts";
 import * as failoverRungs from "../../src/services/failover-rungs.ts";
 import { openQuestions } from "../../src/services/questions.ts";
 import { preflightUser } from "../../src/services/preflight.ts";
-import { endedEvent, milestoneChecker, planOf, realEffects } from "../../src/services/run-effects.ts";
+import {
+  effectLimits,
+  endedEvent,
+  milestoneChecker,
+  planOf,
+  realEffects,
+} from "../../src/services/run-effects.ts";
 import {
   appendCheckRecord,
   type CheckRecord,
@@ -1362,6 +1368,47 @@ describe("routing, checking, committing, landing", () => {
     expect(types(run)).not.toContain("commit.made");
     expect(lastOf(run, "commit.failed")).toMatchObject({ hook: true });
     expect(lastOf(run, "commit.failed")?.tail).toContain("src/a/x.ts");
+  });
+
+  it("a staged deletion is not an argument of the Format command", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/old.ts", "old\n");
+    git(repo, "add", "src/a/old.ts");
+    git(repo, "commit", "-m", "old");
+    rmSync(join(repo, "src/a/old.ts"));
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    // like oxfmt and prettier, it formats nothing when one path is missing
+    writeFile(
+      repo,
+      "fmt.sh",
+      'for f in "$@"; do [ -e "$f" ] || exit 1; done\nfor f in "$@"; do echo formatted >> "$f"; done\n',
+    );
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: sh fmt.sh\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\nformatted\n");
+    expect(git(repo, "show", "--name-status", "--format=", "HEAD")).toContain("D\tsrc/a/old.ts");
+  });
+
+  it("a hook that times out is a commit.failed without hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    const hook = join(repo, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nsleep 30\n");
+    chmodSync(hook, 0o755);
+    await seed(run);
+    const was = effectLimits.commitMs;
+    effectLimits.commitMs = 400;
+    try {
+      await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    } finally {
+      effectLimits.commitMs = was;
+    }
+    expect(lastOf(run, "commit.failed")).toMatchObject({ tail: "git timed out" });
+    expect(lastOf(run, "commit.failed")).not.toHaveProperty("hook");
   });
 
   it("a failed git add is a commit.failed without hook", async () => {
