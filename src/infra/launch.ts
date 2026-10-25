@@ -1,4 +1,4 @@
-import { closeSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROLE_ENV } from "../domain/role-scope.ts";
@@ -15,6 +15,11 @@ export const DAEMON_ENTRY = fileURLToPath(new URL("../entry/daemon-bin.ts", impo
 /** The thin executable that runs one milestone check (plan 30b); like the others it never loads src/cli.ts. */
 export const CHECK_ENTRY = fileURLToPath(new URL("../entry/check-bin.ts", import.meta.url));
 
+/** This process's Bun while it exists (an upgrade can remove it), else `bun` on PATH. */
+export function bunBinary(execPath = process.execPath, which = Bun.which): string {
+  return existsSync(execPath) ? execPath : (which("bun") ?? execPath);
+}
+
 /**
  * Starts `entry args` in its own session, its output appended to `logFile`, and returns at once: the process
  * outlives this one.
@@ -26,7 +31,7 @@ export function launchDetached(
   env: Record<string, string>,
 ): number {
   const log = openSync(logFile, "a", PRIVATE_FILE);
-  const p = Bun.spawn([process.execPath, entry, ...args], {
+  const p = Bun.spawn([bunBinary(), entry, ...args], {
     stdin: "ignore",
     stdout: log,
     stderr: log,

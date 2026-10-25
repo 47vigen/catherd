@@ -210,6 +210,20 @@ describe("briefs", () => {
     expect(text).not.toContain("style");
   });
 
+  it("a verifier brief lists the owner's known issues", () => {
+    const { run } = freshRun();
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const s = runningLog().state();
+    const m = s.milestones.find((x) => x.id === "M1") as MilestoneState;
+    const verify = act({ brief: "verify", role: "verifier", name: "verifier-M1", unit: "M1", lane: null });
+    m.knownIssues = ["A8 red-first: accepted by the owner"];
+    expect(briefFor(run, s, verify)).toContain(
+      "The owner accepted these; do not FAIL on them:\n- A8 red-first: accepted by the owner\n",
+    );
+    m.knownIssues = [];
+    expect(briefFor(run, s, verify)).not.toContain("do not FAIL on them");
+  });
+
   it("gives a verifier the verdict contract and what the last one said failed", () => {
     const { run } = freshRun();
     writeLane(run, "M1.L1", ["src/a.ts"]);

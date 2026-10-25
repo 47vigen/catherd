@@ -11,6 +11,7 @@ import {
   type Outcome,
   type Probe,
   type RunRequest,
+  type Spent,
   type SpawnPlan,
 } from "../backend.ts";
 import { readFileSync } from "node:fs";
@@ -332,6 +333,12 @@ function finalize(run: FinishedRun): Outcome {
   };
 }
 
+/** plan 43: claude's `total_cost_usd` is the session's total, so a resumed dispatch records only its own part. */
+async function settle(o: Outcome, run: FinishedRun, prior: Spent): Promise<Outcome> {
+  if (run.request.thread === null || o.costUsd === null) return o;
+  return { ...o, costUsd: Math.max(0, o.costUsd - prior.costUsd) };
+}
+
 const EDIT_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 /** Spec §3.7: the main thread's last tool call (a command, a file edit, another tool) or its text. */
@@ -365,7 +372,8 @@ function parse(line: string): EventDelta {
     d.requestInput = claudeTokens(e.message.usage).input;
   if (e.type === "result") {
     const f = foldClaudeEvents([line]);
-    d.final = true;
+    // a result with no turns is a resumed thread's orphaned background task, not the reply
+    if (e.num_turns !== 0) d.final = true;
     d.tokens = f.result?.tokens;
     if (typeof e.total_cost_usd === "number") d.costUsd = e.total_cost_usd;
     if (e.is_error === true) d.failure = String(e.result ?? "error");
@@ -423,6 +431,7 @@ export const claudeCodeAdapter: BackendAdapter = {
   parse,
   transcript: claudeTranscript,
   finalize,
+  settle,
   enforcement: { "read-only": "advisory", "workspace-write": "advisory", full: "advisory" },
   errors: { limit: CLAUDE_LIMIT, tooOld: CLAUDE_TOO_OLD },
   resume: { supported: true, sameAccessOnly: false, threadPattern: THREAD },
