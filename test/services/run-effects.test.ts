@@ -883,6 +883,7 @@ describe("planning", () => {
       kind: "repo_code",
       after: ["M1.L1"],
       owns: ["src/b/", "src/b2.ts"],
+      digest: expect.stringMatching(/^[0-9a-f]{16}$/),
     });
     expect(plan[1]?.lanes[0]).toMatchObject({ role: "writer", kind: "prose" });
     expect(plan[2]?.lanes[0]).toMatchObject({
@@ -1322,6 +1323,56 @@ describe("routing, checking, committing, landing", () => {
     await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
     expect(types(run)).not.toContain("commit.made");
     expect(lastOf(run, "commit.failed")?.tail).toContain("lint says no");
+  });
+
+  it("a plan Format line formats the staged files before the commit", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    writeFile(repo, "fmt.sh", 'for f in "$@"; do echo formatted >> "$f"; done\n');
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: sh fmt.sh\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(lastOf(run, "commit.made")).toMatchObject({ milestone: "M1", round: 0 });
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\nformatted\n");
+    expect(git(repo, "status", "--porcelain", "--", "src/a/x.ts")).toBe("");
+  });
+
+  it("a Format command that fails leaves the commit to the hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts", "const a = 1;\n");
+    writeFileSync(runPaths(run.dir).plan, "# P\n\nFormat: no-such-formatter-43\n\n## M1 — the wallet core\n");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.failed");
+    expect(git(repo, "show", "HEAD:src/a/x.ts")).toBe("const a = 1;\n");
+  });
+
+  it("a hook refusal is a commit.failed with hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    const hook = join(repo, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\necho 'src/a/x.ts is not formatted' >&2\nexit 1\n");
+    chmodSync(hook, 0o755);
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(types(run)).not.toContain("commit.made");
+    expect(lastOf(run, "commit.failed")).toMatchObject({ hook: true });
+    expect(lastOf(run, "commit.failed")?.tail).toContain("src/a/x.ts");
+  });
+
+  it("a failed git add is a commit.failed without hook", async () => {
+    const { run, repo, fx } = setup();
+    writeLane(run, "M1.L1", ["src/a/"]);
+    writeFile(repo, "src/a/x.ts");
+    writeFile(repo, ".git/index.lock");
+    await seed(run);
+    await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
+    expect(lastOf(run, "commit.failed")).toBeDefined();
+    expect(lastOf(run, "commit.failed")).not.toHaveProperty("hook");
   });
 
   it("lands through land(), and reports its refusal with code and fix", async () => {
@@ -2170,6 +2221,20 @@ describe("a milestone per branch (plan 35)", () => {
     await fx.run({ type: "commit", milestone: "M1", round: 0 }, replayRun(run));
     expect(lastOf(run, "commit.made")?.commit).toBe(git(repo, "rev-parse", "HEAD").trim());
     expect(existsSync(join(run.dir, "trees"))).toBe(false);
+  });
+});
+
+describe("planOf lane digests (plan 43 D6)", () => {
+  it("a lane's digest ignores its Owns line", () => {
+    const { run } = freshRun();
+    const digest = () => planOf(run)[0]?.lanes[0]?.digest;
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const first = digest();
+    expect(first).toMatch(/^[0-9a-f]{16}$/);
+    writeLane(run, "M1.L1", ["src/b.ts", "src/c/"]);
+    expect(digest()).toBe(first);
+    writeLane(run, "M1.L1", ["src/a.ts"], "true", "Kind: repo_code\nDifficulty: build\nOne more line.\n");
+    expect(digest()).not.toBe(first);
   });
 });
 

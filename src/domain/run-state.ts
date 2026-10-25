@@ -133,6 +133,8 @@ export interface LaneState {
   cheapSpent: boolean;
   /** plan 43: the lane's last ok reply had no STATUS line and was asked for one; a second one is a failed attempt */
   statusAsked: boolean;
+  /** plan 43: the digest of the lane file (without its Owns line) the lane last ran against; null before the first plan.ready that gave one */
+  digest: string | null;
 }
 
 export interface MilestoneState {
@@ -203,6 +205,8 @@ export interface MilestoneState {
   disputes: number;
   /** plan 40: the triage judge is deciding those BLOCKERs */
   disputing: boolean;
+  /** plan 43: pre-commit hook refusals turned into a fix round since the last commit (one is, a second parks) */
+  hookFixes: number;
 }
 
 export interface DispatchView {
@@ -276,6 +280,8 @@ export interface RunState {
   rulesReview: { changes: RuleChange[]; failed: boolean } | null;
   failedEffects: Record<string, number>;
   cancelling: boolean;
+  /** plan 43: when a dispatch was refused for a machine pause; every paused step waits until `pause.lifted` */
+  held: string | null;
   /** when the owner paused the run (the pause in force), else null: no dispatch, judge, claim, route, land, push or integrate starts meanwhile */
   paused: string | null;
   wakeAt: string | null;
@@ -315,6 +321,7 @@ export function emptyState(run: string): RunState {
     failedEffects: {},
     cancelling: false,
     paused: null,
+    held: null,
     wakeAt: null,
     planDirty: false,
     revise: [],
@@ -461,6 +468,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
       checkOnly: false,
       disputes: 0,
       disputing: false,
+      hookFixes: 0,
     };
     m.verifierFailedOn ??= null;
     m.checkedOn ??= null;
@@ -471,6 +479,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
     m.checkOnly ??= false;
     m.disputes ??= 0;
     m.disputing ??= false;
+    m.hookFixes ??= 0;
     m.title = mp.title;
     m.after = mp.after;
     m.delta = [];
@@ -488,6 +497,22 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
         l.kind = lp.kind;
         l.after = lp.after;
         l.owns = lp.owns;
+        l.digest ??= null;
+        if (lp.digest !== undefined) {
+          // a lane file the architect changed re-runs a done lane; the Owns line is not in the digest
+          if (l.digest !== null && l.digest !== lp.digest && l.status === "done" && !isDone(m)) {
+            l.status = "pending";
+            l.attempts = 0;
+            l.checkFails = 0;
+            // a milestone past its lanes goes back to them, as a fix round does
+            if (m.status === "committing") m.status = "lanes";
+            else if (m.status === "review" || m.status === "verifying") m.status = "fixing";
+            l.notes.push(
+              `The architect changed lanes/${l.id}.md: re-read it and make the change it asks for.`,
+            );
+          }
+          l.digest = lp.digest;
+        }
       } else
         s.lanes[lp.id] = {
           id: lp.id,
@@ -522,6 +547,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           cheapRan: false,
           cheapSpent: false,
           statusAsked: false,
+          digest: lp.digest ?? null,
         };
     }
     next.push(m);
@@ -739,6 +765,10 @@ function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean 
   if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";
   return (e.status === "failed" || e.status === "timeout") && e.environment === null;
 }
+
+/** plan 43 D21: answerUnit copies the plan inputs from their source again, so an edit of the copy is lost. */
+export const SOURCE_PLAN_NOTE =
+  "Edit the source plan files, not the run's plan-input copies: catherd copies them again when you answer.";
 
 export const STATUS_ASK =
   "Your last reply had no STATUS: line. If the work is not finished, finish it; then end your reply with STATUS: complete|partial|blocked|refused — <why>.";
@@ -1362,7 +1392,7 @@ function apply(s: RunState, e: RunEvent): void {
       if (e.name === judgeName("rules") && e.unit === RUN_UNIT) return failRulesReview(s);
       if (e.code === "E_RUN_BUDGET")
         s.stuck[RUN_UNIT] = { reason: "budget", question: `The run budget is spent: ${e.message}` };
-      else if (e.code === "E_ADMIT_PAUSED") wait(isoPlus(e.at, REFUSAL_WAIT_MS));
+      else if (e.code === "E_ADMIT_PAUSED") s.held ??= e.at;
       else if (e.code === "E_ALL_HELD") {
         const l = s.lanes[e.unit];
         const heldUntil = Object.values(s.holds)
@@ -1485,6 +1515,7 @@ function apply(s: RunState, e: RunEvent): void {
       if (!m) return;
       // the commit that finishes a merge of the base: reviews stay (by time), a fresh verifier gates the merge
       if (m.integrateFiles.length > 0) return mergedIn(m, e.commit);
+      m.hookFixes = 0;
       m.status = "review";
       m.round = e.round;
       m.commit = e.commit;
@@ -1497,6 +1528,14 @@ function apply(s: RunState, e: RunEvent): void {
     }
     case "commit.failed": {
       ok(`commit@${e.milestone}`);
+      const m = milestoneOf(s, e.milestone);
+      if (e.hook && m && m.hookFixes === 0) {
+        // the first hook refusal of a round is the lanes' to fix, routed by the files it names
+        m.hookFixes = 1;
+        const text = `The pre-commit hook refused the commit:\n${e.tail}`;
+        fixRound(s, m, [{ label: "BLOCKER", text, file: filesOf(e.tail)[0] ?? null }], new Set());
+        return;
+      }
       s.stuck[e.milestone] = {
         reason: "commit",
         question: `Committing ${e.milestone} failed (round ${e.round}):\n${e.tail}`,
@@ -1671,6 +1710,10 @@ function apply(s: RunState, e: RunEvent): void {
     case "run.resumed":
       s.paused = null;
       return;
+    case "pause.lifted":
+      s.held = null;
+      recomputeWake(s);
+      return;
     case "effect.failed": {
       if (e.action === "readPlan") s.planDirty = false;
       if (e.action === "classify") {
@@ -1704,7 +1747,10 @@ function apply(s: RunState, e: RunEvent): void {
           if (m.delta.length > 0 && !m.delta.includes(e.message)) m.delta.push(e.message);
       const limit = planning ? PLAN_REVISIONS + 1 : MAX_TRIES;
       if ((s.failedEffects[key] as number) >= limit && e.action !== "report" && e.action !== "notify")
-        s.stuck[e.unit] = { reason: "effect", question: `${e.action} on ${e.unit} failed: ${e.message}` };
+        s.stuck[e.unit] = {
+          reason: "effect",
+          question: `${e.action} on ${e.unit} failed: ${e.message}${e.action === "readPlan" ? `\n${SOURCE_PLAN_NOTE}` : ""}`,
+        };
       return;
     }
     case "tick":
