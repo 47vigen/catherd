@@ -11,7 +11,14 @@ import {
   next,
 } from "../../src/domain/run-machine.ts";
 import type { Finding, MilestonePlan, RunEvent } from "../../src/domain/run-events.ts";
-import { activeMilestones, liveDispatches, type RunState } from "../../src/domain/run-state.ts";
+import {
+  activeMilestones,
+  type LaneState,
+  liveDispatches,
+  type RunState,
+  siblingMayChange,
+  STATUS_ASK,
+} from "../../src/domain/run-state.ts";
 import { memoryLoad } from "../../src/domain/milestone-memory.ts";
 import {
   endDispatch,
@@ -862,22 +869,38 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     expect(names(last(log))).toEqual([]);
   });
 
-  it("a transitive dependent never holds a check_broken lane", () => {
+  it("a transitive dependent never holds a check_broken lane: it parks at once", () => {
     const chain = plan(3);
     const [, l2, l3] = (chain[0] as MilestonePlan).lanes;
     (l2 as { after: string[] }).after = ["M1.L1"];
     (l3 as { after: string[] }).after = ["M1.L2"];
     const log = runningLog(chain);
     stop(log, "M1.L1", blocked("check_broken", "lint fails in src/z/y.ts"));
-    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "check_broken" }]);
+    expect(names(last(log))).toEqual([]);
   });
 
-  it("does not hold a check_broken lane for a sibling that tried and stopped", () => {
+  it("does not hold a check_broken lane for a sibling that tried and stopped: it parks at once", () => {
     const log = runningLog(plan(2));
     stop(log, "M1.L2", blocked("no_access"));
     log.add("question.parked", { unit: "M1.L2", question: "q", reason: "no_access" });
     stop(log, "M1.L1", blocked("check_broken"));
-    expect(names(last(log))).toEqual(["worker-M1.L1"]);
+    expect(of(last(log), "park")).toMatchObject([{ unit: "M1.L1", reason: "check_broken" }]);
+    expect(names(last(log))).toEqual([]);
+  });
+
+  it("waitsForSibling and the reducer agree", () => {
+    const log = runningLog(plan(2));
+    stop(log, "M1.L1", blocked("check_broken", "lint fails in src/b/y.ts"));
+    const s = log.state();
+    // M1.L2 is pending and untried
+    expect(siblingMayChange(s, s.lanes["M1.L1"] as LaneState)).toBe(true);
+    expect(names(last(log))).toEqual(["worker-M1.L2"]);
+    expect(of(last(log), "park")).toEqual([]);
+    finishLane(log, "M1.L2");
+    const done = log.state();
+    expect(siblingMayChange(done, done.lanes["M1.L1"] as LaneState)).toBe(false);
+    expect(names(next(done, log.events.at(-1) as RunEvent))).toEqual(["worker-M1.L1"]);
   });
 
   it("parks a verifier's first check_broken; BLOCKED: environment also parks first", () => {
@@ -915,12 +938,12 @@ describe("the machine: stop reasons (spec 2.0 decision 8)", () => {
     classified(t, w2, "provider_error");
     expect(of(last(t), "dispatch").find((d) => d.lane === "M1.L1")).toMatchObject({ thread: null });
     expect(t.state().lanes["M1.L1"]).toMatchObject({ lastReason: "provider_error", attempts: 0 });
-    // an ok end with no STATUS line goes on to its check when Jev says nothing
+    // an ok end with no STATUS line is asked for one, not classified
     const u = runningLog(plan(2));
-    const w3 = stop(u, "M1.L1", { replyStatus: null });
-    expect(of(last(u), "classify")).toEqual([{ type: "classify", dispatchId: w3 }]);
-    classified(u, w3, null);
-    expect(of(last(u), "fastCheck")).toEqual([{ type: "fastCheck", lane: "M1.L1" }]);
+    stop(u, "M1.L1", { replyStatus: null });
+    expect(of(last(u), "classify")).toEqual([]);
+    expect(names(last(u))).toContain("worker-M1.L1");
+    expect(u.state().lanes["M1.L1"]?.notes).toEqual([STATUS_ASK]);
   });
 
   it("handles a stop with no reason as 1.5 does when Jev is off", () => {
@@ -1872,7 +1895,7 @@ describe("plan 39 verifier answers and end reports", () => {
     endDispatch(log, v, { name: "verifier-M1", unit: "M1", verdict: "fail", reason: "check_broken" });
     expect(names(last(log))).toEqual([]);
     log.add("question.parked", { unit: "M1", question: "repair?", reason: "check_broken" });
-    log.add("question.answered", { unit: "M1", answer: "repaired", by: "owner" });
+    log.add("question.answered", { unit: "M1", answer: "retry", by: "owner" });
     expect(log.state().milestones[0]).toMatchObject({ commit: "c0", verifierFailedOn: null });
     expect(names(last(log))).toEqual(["verifier-M1"]);
   });

@@ -9,6 +9,7 @@ import { isCatherdError } from "../../src/domain/errors.ts";
 import { dispatchPaths } from "../../src/infra/dispatch-dir.ts";
 import { type AdmitInput, admit } from "../../src/services/admission.ts";
 import { resetReadiness } from "../../src/services/backends.ts";
+import { setGateEnv } from "../../src/services/gate-env.ts";
 import { latestDispatch } from "../../src/services/dispatches.ts";
 import { ownsAdd } from "../../src/services/lane-edit.ts";
 import { copyPlanInputs, planContext } from "../../src/services/plan-input.ts";
@@ -26,6 +27,7 @@ import {
   fakeDispatch,
   fakeGit,
   freshRun,
+  LADDER,
   makeRecord,
   PLAN_TEXT,
   testView,
@@ -85,6 +87,31 @@ describe("admission in a worktree (plan 35)", () => {
       tree,
       [],
     ]);
+  });
+
+  it("a role's env names its tree's compose project", async () => {
+    const { repo, run } = branchRun();
+    process.env.PATH = simPath();
+    Object.assign(process.env, withScenario({}).env, { TYPESAFE_API_KEY: "secret" });
+    writeLane(run, "M1.L1", ["src/a.ts"]);
+    const base = testView();
+    const deps = fakeDeps({
+      view: testView({
+        roles: { ...base.roles, verifier: { enabled: true, access: "read-only", rungs: [LADDER[0]!] } },
+      }),
+    });
+    const envOf = async (over: Partial<AdmitInput>) =>
+      JSON.parse(readFileSync((await admit(deps, run, input(over))).specPath, "utf8")).env;
+    const name = `catherd-${run.id.slice(0, 15).replace("-", "")}-m1`;
+    expect((await envOf({})).COMPOSE_PROJECT_NAME).toBe(name);
+    await setGateEnv(repo, "COMPOSE_PROJECT_NAME", { value: "mine" });
+    const verifier = {
+      role: "verifier" as const,
+      name: "verifier-M1",
+      lane: null,
+      rung: "codex:gpt-6-luna#high",
+    };
+    expect((await envOf(verifier)).COMPOSE_PROJECT_NAME).toBe("mine");
   });
 
   it("without cwd, admits in the repo as 1.5", async () => {

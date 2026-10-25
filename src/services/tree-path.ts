@@ -25,3 +25,9 @@ export function treeOf(run: Run, m: string | null): string {
     });
   return run.meta.repo;
 }
+
+/** The compose project of milestone `m`'s tree in a base run (`-base` for its baseline tree): one stack per tree. */
+export const composeProjectOf = (run: Run, m: string | null, baseline = false): string | null =>
+  !run.meta.base || m === null
+    ? null
+    : `catherd-${run.id.slice(0, 15).replace("-", "")}-${m.toLowerCase()}${baseline ? "-base" : ""}`;

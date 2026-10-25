@@ -131,6 +131,8 @@ export interface LaneState {
   cheapRan: boolean;
   /** plan 41: the lane's cheap try of this round already fell back to its own rung: no second one is armed */
   cheapSpent: boolean;
+  /** plan 43: the lane's last ok reply had no STATUS line and was asked for one; a second one is a failed attempt */
+  statusAsked: boolean;
 }
 
 export interface MilestoneState {
@@ -357,7 +359,10 @@ export function activeMilestones(s: RunState): MilestoneState[] {
 
 const bare = (p: string) => p.replace(/\/+$/, "");
 
-/** The lane owning `file` by its longest `Owns:` entry, or null (no file, or none owns it). */
+/**
+ * The lane owning `file` by its longest `Owns:` entry, else the one lane with an entry ending in `/<file>` (a relative
+ * path), or null (no file, none owns it, or two lanes could).
+ */
 export function ownerOfFile(file: string | null, lanes: { id: string; owns: string[] }[]): string | null {
   if (!file) return null;
   let best: { id: string; len: number } | null = null;
@@ -367,7 +372,10 @@ export function ownerOfFile(file: string | null, lanes: { id: string; owns: stri
       if ((file === e || file.startsWith(`${e}/`)) && (best === null || e.length > best.len))
         best = { id: l.id, len: e.length };
     }
-  return best?.id ?? null;
+  if (best) return best.id;
+  const tails = new Set<string>();
+  for (const l of lanes) if (l.owns.some((o) => bare(o).endsWith(`/${file}`))) tails.add(l.id);
+  return tails.size === 1 ? ([...tails][0] as string) : null;
 }
 
 const lastOf = (s: RunState, name: string): DispatchView | undefined =>
@@ -513,6 +521,7 @@ function mergePlan(s: RunState, plan: MilestonePlan[]): void {
           cheapFirst: false,
           cheapRan: false,
           cheapSpent: false,
+          statusAsked: false,
         };
     }
     next.push(m);
@@ -613,7 +622,7 @@ function completeRound(s: RunState, m: MilestoneState): void {
     m.open = found;
     if (found.some((f) => f.label === "BLOCKER")) {
       // BLOCKERs no lane owns dispute the plan, not the code: the triage judge reads them once before the owner does
-      const unowned = found.every((f) => f.label !== "BLOCKER" || ownerOfFile(f.file, lanes) === null);
+      const unowned = found.every((f) => f.label !== "BLOCKER" || ownersOf(f, lanes).size === 0);
       if (unowned && m.disputes === 0) {
         m.disputes += 1;
         m.disputing = true;
@@ -727,10 +736,12 @@ function failRole(
 /** A stop that names no reason (plan 30b Ruling 7): the machine asks Jev, and with Jev off acts as 1.5 did. */
 function unexplained(e: Extract<RunEvent, { type: "dispatch.ended" }>): boolean {
   if (e.reason !== null) return false;
-  if (e.status === "ok")
-    return e.replyStatus === null || e.replyStatus === "blocked" || e.replyStatus === "refused";
+  if (e.status === "ok") return e.replyStatus === "blocked" || e.replyStatus === "refused";
   return (e.status === "failed" || e.status === "timeout") && e.environment === null;
 }
+
+export const STATUS_ASK =
+  "Your last reply had no STATUS: line. If the work is not finished, finish it; then end your reply with STATUS: complete|partial|blocked|refused — <why>.";
 
 const stopQuestion = (l: LaneState, reason: BlockedReason, why: string): string =>
   `${l.id} stopped (${reason})${why.trim() ? `: ${why.trim()}` : ""}`;
@@ -769,7 +780,8 @@ function laneStopped(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReaso
       if (x.foreign.length > 0) return laneDone(s, l);
       l.thread = x.thread ?? l.thread;
       l.status = "pending";
-      if (l.stopRun >= 2) {
+      // the retry has no new input unless a sibling may still change the tree
+      if (l.stopRun >= 2 || !siblingMayChange(s, l)) {
         l.status = "parked";
         s.stuck[l.id] = { reason, question: stopQuestion(l, reason, x.why) };
       }
@@ -795,6 +807,21 @@ function holdsFor(s: RunState, o: LaneState, id: string, seen = new Set<string>(
   seen.add(o.id);
   const next = o.status === "done" ? o.after : [...o.after, ...o.waitOn];
   return next.some((a) => a === id || (s.lanes[a] !== undefined && holdsFor(s, s.lanes[a], id, seen)));
+}
+
+/**
+ * Whether a sibling of `l`'s milestone is still working or has not tried yet since its last climb: it may be what
+ * breaks (or fixes) the check. A sibling that waits on `l`, or that tried and stopped, never counts.
+ */
+export function siblingMayChange(s: RunState, l: LaneState): boolean {
+  return lanesOf(s, l.milestone).some((o) => {
+    if (o.id === l.id || dependsOn(s, o, l.id)) return false;
+    if (o.status === "running") return true;
+    if (o.status !== "pending") return false;
+    const tried = Object.values(s.dispatches).filter((d) => d.lane === o.id);
+    const latest = tried.at(-1);
+    return latest === undefined || (o.climbedAt !== null && latest.startedAt < o.climbedAt);
+  });
 }
 
 /**
@@ -827,6 +854,22 @@ function laneEnded(s: RunState, l: LaneState, x: LaneEnd, reason: BlockedReason 
     l.thread = x.thread ?? l.thread;
     return;
   }
+  if (x.status === "ok" && x.replyStatus === null && reason === null) {
+    // an ok reply with no STATUS is asked for one on the same thread, once; a second is a failed attempt (D8)
+    if (!l.statusAsked) {
+      l.statusAsked = true;
+      l.thread = x.thread ?? l.thread;
+      l.notes.push(STATUS_ASK);
+    } else {
+      l.statusAsked = false;
+      l.attempts += 1;
+      l.thread = null;
+      if (l.attempts >= MAX_TRIES) l.climbReason = "unchanged";
+    }
+    l.status = "pending";
+    return;
+  }
+  if (x.replyStatus !== null) l.statusAsked = false;
   if (l.cheapRan && !(x.status === "ok" && (x.replyStatus === null || x.replyStatus === "complete"))) {
     // the cheap try failed: the lane's own rung takes the work once, with no attempt counted
     l.cheapRan = false;
@@ -968,7 +1011,7 @@ function onEnded(s: RunState, e: Extract<RunEvent, { type: "dispatch.ended" }>):
       m.verifierFailedOn = m.commit;
       s.stuck[m.id] = {
         reason: "check_broken",
-        question: `${e.name} could not run the check: ${e.why || "no reason given"}`,
+        question: `${e.name} could not run the check: ${e.why || "no reason given"}. Answer accept to land on catherd's green Check, retry to run the verifier again, or name the fix.`,
       };
     } else if (e.status === "ok" && e.verdict === "pass") {
       m.verifierRuns += 1;
@@ -1143,6 +1186,8 @@ function onJudged(s: RunState, e: Extract<RunEvent, { type: "judge.decided" }>):
   }
 }
 
+const RETRY = /^\s*retry\b/i;
+
 function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered" }>): void {
   const q = s.questions[e.unit];
   delete s.questions[e.unit];
@@ -1202,9 +1247,20 @@ function onAnswered(s: RunState, e: Extract<RunEvent, { type: "question.answered
     m.open = [];
     m.checkedOn = m.commit;
     afterVerdict(m);
+  } else if (q?.reason === "check_broken" && from === "verifying" && isAccept(e.answer)) {
+    // the machine Check is green on this commit: the owner's accept stands for the verifier that could not run
+    if (m.commit !== null && m.checkedOn === m.commit) m.verifierPassedOn = m.commit;
+    afterVerdict(m);
   } else if (q?.reason === "blocker")
     // the owner's answer is the fix: one more round, no climb; the cap applies again only at its review's end
     fixRound(s, m, m.open, new Set(), `The owner answered: ${e.answer}`);
+  else if (
+    (q?.reason === "land" || q?.reason === "check_broken") &&
+    !isAccept(e.answer) &&
+    !RETRY.test(e.answer)
+  )
+    // anything but accept or retry names the fix: one BLOCKER, routed by the files it names, else to the triage judge
+    fixRound(s, m, [{ label: "BLOCKER", text: e.answer, file: null }], new Set());
   else m.status = from;
 }
 
@@ -1409,7 +1465,7 @@ function apply(s: RunState, e: RunEvent): void {
         m.open = e.missing.map((text) => ({ label: "BUG" as const, text, file: null }));
         s.stuck[m.id] = {
           reason: "land",
-          question: `${m.id}'s check fails on lines with no baseline:\n${e.missing.join("\n")}\nanswer accept to land with these pre-existing failures, or name the fix.`,
+          question: `${m.id}'s check fails on lines with no baseline:\n${e.missing.join("\n")}\nanswer accept to land with these pre-existing failures, retry to run the check again, or name the fix.`,
         };
         return;
       }
@@ -1544,7 +1600,7 @@ function apply(s: RunState, e: RunEvent): void {
       }
       s.stuck[e.milestone] = {
         reason: "land",
-        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}`,
+        question: `Landing ${e.milestone} was refused (${e.code}): ${e.message}\nFix: ${e.fix}\nAnswer accept or retry to land again, or name the fix.`,
       };
       return;
     }
