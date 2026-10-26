@@ -18,7 +18,7 @@ export function dispatchHints(r: RunRecord, owns: string[], dir: string): string
     h.push(
       `flaky: ${r.replyWhy || "a check failed, then passed alone"}; rerun it alone, accept it, or climb: your call`,
     );
-  else if (r.replyStatus === "refused" || r.replyStatus === "blocked") h.push(`climb: ${r.replyStatus}`);
+  else if (r.replyStatus === "refused" || r.replyStatus === "blocked") h.push(`floor: ${r.replyStatus}`);
   else if (
     r.status === "ok" &&
     !r.gitUnavailable &&
@@ -26,7 +26,7 @@ export function dispatchHints(r: RunRecord, owns: string[], dir: string): string
     owns.length > 0 &&
     r.changedOwned.length === 0
   )
-    h.push("climb: unchanged");
+    h.push("floor: unchanged");
   if (r.violations.length > 0) h.push(`violation: ${r.violations.join(", ")}`);
   if (r.threadHeavy) h.push("thread-heavy");
   return h;

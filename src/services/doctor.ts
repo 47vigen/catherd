@@ -5,6 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { adapterFor } from "../adapters/registry.ts";
 import "../adapters/all.ts";
 import { BUILTIN_ROLES, DECISION_UNSET_FIX, type Profile } from "../domain/profile.ts";
+import { backendOf } from "../domain/ids.ts";
 import { DEFAULT_ACCESS, ROLES } from "../domain/roles.ts";
 import { bunTooOld, MIN_BUN } from "../domain/runtime.ts";
 import type { DecisionTransport } from "../infra/decision-client.ts";
@@ -349,7 +350,6 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
   // spec 1.1 §13: what the shipped defaults do is info; a warning only for what a profile changed
   const full = { changed: [] as string[], shipped: [] as string[] };
   const advisory = { changed: [] as string[], shipped: [] as string[] };
-  const backendOf = (r: string) => r.slice(0, r.indexOf(":"));
   for (const p of profiles)
     for (const role of ROLES) {
       const rc = p.roles[role];
@@ -357,9 +357,11 @@ export async function doctor(d: DoctorDeps): Promise<DoctorReport> {
       const asShipped = rc.access === DEFAULT_ACCESS[role];
       if (rc.access === "full") (asShipped ? full.shipped : full.changed).push(`${role} (${p.name})`);
       const soft = [
-        ...new Set(rc.rungs.filter((r) => enforcementOf(r, rc.access) === "advisory").map(backendOf)),
+        ...new Set(
+          rc.rungs.filter((r) => enforcementOf(r, rc.access) === "advisory").map((r) => backendOf(r) ?? ""),
+        ),
       ];
-      const shippedOn = new Set(BUILTIN_ROLES[role].rungs.map(backendOf));
+      const shippedOn = new Set(BUILTIN_ROLES[role].rungs.map((r) => backendOf(r) ?? ""));
       const ours = soft.filter((b) => asShipped && shippedOn.has(b));
       const theirs = soft.filter((b) => !ours.includes(b));
       if (ours.length) advisory.shipped.push(`${role} on ${ours.join(", ")} (${p.name})`);

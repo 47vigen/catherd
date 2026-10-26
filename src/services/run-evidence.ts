@@ -27,7 +27,7 @@ const zero = (): Evidence => ({ lanes: 0, climbed: 0, partial: 0, blocked: 0, re
  * Spec 1.2 §8: for each rung and kind, from the run records of every repo on this machine: the lanes routed or
  * climbed onto it, the climbs off it, its `partial`, `blocked` and `refused` replies (under the kind its lane
  * was routed as when the dispatch started), and the verifier FAILs it gave. Every count also goes under `*`.
- * It never changes scores, bars or routing (1.3's, once there is data).
+ * It never changes scores or routing (1.3's, once there is data).
  */
 export function runEvidence(c: Catalog): EvidenceTable {
   const out: EvidenceTable = {};

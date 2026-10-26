@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun ≥ 1.4, TypeScript, zod 4, citty, `@modelcontextprotocol/sdk`. No new dependency.
 
-**Spec:** `docs/specs/2026-10-12-catherd-1.6-design.md`, "Plan 32: knowledge, lanes and the digest", "Owner rulings needed" (2) and "Not in 1.6". t3herd sources (read-only, `/Users/vigen/agora/lab/t3herd`): `src/brief.ts:27-38` `rulesFor` and commit d33dce4 (the skill's constraints review); `src/step.ts:178-183` `answer`/`top` and `:349-359`, commit 5b9090e; `src/step.ts:927-982` `mrBody`, commit 7eec821; `src/plan.ts:122-205` `lintPlan`/`lintMilestones`.
+**Spec:** `docs/specs/2026-10-12-catherd-1.6-design.md`, "Plan 32: knowledge, lanes and the digest", "Owner rulings needed" (2) and "Not in 1.6". t3herd sources (read-only, `<the t3herd clone>`): `src/brief.ts:27-38` `rulesFor` and commit d33dce4 (the skill's constraints review); `src/step.ts:178-183` `answer`/`top` and `:349-359`, commit 5b9090e; `src/step.ts:927-982` `mrBody`, commit 7eec821; `src/plan.ts:122-205` `lintPlan`/`lintMilestones`.
 
 **Pre-validation:** spiked `rulesFor`'s tag regex and `lintLanes` (cycles, research exclusion, critical path) against the worktree's `parseLaneHeader`/`headerBlock` in `.superpowers/plan32-spike/`, targeted tests only; the full gate runs at execution.
 

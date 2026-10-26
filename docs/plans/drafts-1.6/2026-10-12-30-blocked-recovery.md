@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun ≥ 1.4, TypeScript, zod 4, `@modelcontextprotocol/sdk`. No new dependency.
 
-**Spec:** `docs/specs/2026-10-12-catherd-1.6-design.md`, "Plan 30: blocked reasons, recovery and answers", with "Owner rulings needed" (1: `roundCall` not ported) and "Not in 1.6". t3herd sources (read-only, `/Users/vigen/agora/lab/t3herd` at 71cbb6a): `src/state.ts:96-111` (`BLOCKED_REASONS`, `blockedReason`), `src/step.ts:88-95` (`REASON_CAUSE`), `src/step.ts:389-505` (`recover`), `src/step.ts:507-534` (the answer path), `prompts/_no_questions.md`, `src/jev.ts:108-132` (`jevCause`), `catalog/jev-attention.json`, `src/check.ts:70-93` (`foreignFailure`), `src/step.ts:201-212` (`findingKey`); commits 7487854, dc3dbcf, 50820ef, 0b8b1e1, c514130, a488471.
+**Spec:** `docs/specs/2026-10-12-catherd-1.6-design.md`, "Plan 30: blocked reasons, recovery and answers", with "Owner rulings needed" (1: `roundCall` not ported) and "Not in 1.6". t3herd sources (read-only, `<the t3herd clone>` at 71cbb6a): `src/state.ts:96-111` (`BLOCKED_REASONS`, `blockedReason`), `src/step.ts:88-95` (`REASON_CAUSE`), `src/step.ts:389-505` (`recover`), `src/step.ts:507-534` (the answer path), `prompts/_no_questions.md`, `src/jev.ts:108-132` (`jevCause`), `catalog/jev-attention.json`, `src/check.ts:70-93` (`foreignFailure`), `src/step.ts:201-212` (`findingKey`); commits 7487854, dc3dbcf, 50820ef, 0b8b1e1, c514130, a488471.
 
 **Pre-validation: spiked the reason parser, `foreignFailure` and `findingKey` (the `src/domain/blocked.ts` and `findingKey` assertions of Tasks 1 and 3), targeted tests only; the full gate runs at execution.** Written against `main` at 2061e6e (1.5.0); plans 28 and 29 land first, so refresh every line number at execution (the spec says so).
 

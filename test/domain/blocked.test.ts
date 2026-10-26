@@ -5,7 +5,6 @@ import {
   foreignFailure,
   siblingLanesNamed,
   parseBlockedReason,
-  REASON_ACTION,
 } from "../../src/domain/blocked.ts";
 
 describe("blocked reasons", () => {
@@ -20,14 +19,6 @@ describe("blocked reasons", () => {
     });
     expect(parseBlockedReason("the tests do not pass")).toBeNull();
     expect(parseBlockedReason(null)).toBeNull();
-  });
-
-  it("maps every reason to one action", () => {
-    expect(Object.keys(REASON_ACTION)).toEqual([...BLOCKED_REASONS]);
-    expect(REASON_ACTION.out_of_scope).toBe("park");
-    expect(REASON_ACTION.too_hard).toBe("climb");
-    expect(REASON_ACTION.provider_error).toBe("failover");
-    expect(REASON_ACTION.check_broken).toBe("wait");
   });
 
   it("names only sibling files, from two path segments", () => {

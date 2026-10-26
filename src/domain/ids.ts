@@ -56,6 +56,15 @@ export function tryParseRung(s: string): Rung | null {
   }
 }
 
+/**
+ * A rung's backend; null for a malformed rung. With `claudeCode`, a native Claude rung reads as `claude-code`:
+ * its headless twin is what the daemon runs, so both are one backend.
+ */
+export function backendOf(rung: string, o: { claudeCode?: boolean } = {}): string | null {
+  const b = tryParseRung(rung)?.backend ?? null;
+  return o.claudeCode && b === "claude" ? "claude-code" : b;
+}
+
 /** Reasoning efforts from least to most; a rung's effort that is none of these (`default`) cannot be ranked. */
 export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export type EffortWord = (typeof EFFORT_ORDER)[number];

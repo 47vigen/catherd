@@ -7,7 +7,7 @@ import {
   rankStandIns,
 } from "../domain/failover.ts";
 import { pairOf } from "../domain/catalog.ts";
-import { tryParseRung } from "../domain/ids.ts";
+import { backendOf as rungBackend, tryParseRung } from "../domain/ids.ts";
 import type { Role } from "../domain/roles.ts";
 import { effortAllowed } from "../domain/select.ts";
 import { standInFor } from "./backends.ts";
@@ -18,10 +18,7 @@ import { runProfile } from "./run-pin.ts";
 import type { Run } from "./run-store.ts";
 
 /** The headless twin of a native Claude rung is what the daemon runs: one backend name for both. */
-const backendOf = (rung: string): string | null => {
-  const b = tryParseRung(rung)?.backend ?? null;
-  return b === "claude" ? "claude-code" : b;
-};
+const backendOf = (rung: string): string | null => rungBackend(rung, { claudeCode: true });
 
 /**
  * Every backend the user configured (spec 2.0 decision 6): those of every rung in every saved profile, and of
@@ -66,14 +63,6 @@ const pairsOf = (c: ReturnType<typeof loadCatalog>): { rung: string; intelligenc
     rung,
     intelligence: (pairOf(c, rung) as { intelligence: number }).intelligence,
   }));
-
-/** Plan 29's index through one adapter, so plan 33 may rank on something else: every indexed rung and its index. */
-export function indexedPairs(
-  _deps: Deps,
-  o: { repo?: string; runDir?: string } = {},
-): { rung: string; intelligence: number }[] {
-  return pairsOf(loadCatalog(o));
-}
 
 /**
  * Where a unit goes when `rung`'s quota hit a limit (spec 2.0 decision 6): the profile's stand-in when its quota

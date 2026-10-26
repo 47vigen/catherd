@@ -63,10 +63,10 @@ describe("dispatchHints", () => {
 
   it("flags a refusal, a block, and an ok run that left its owned files unchanged", () => {
     expect(dispatchHints(makeRecord({ replyStatus: "refused" }), ["src/a.ts"], dir)).toEqual([
-      "climb: refused",
+      "floor: refused",
     ]);
-    expect(dispatchHints(makeRecord({ replyStatus: "blocked" }), [], dir)).toEqual(["climb: blocked"]);
-    expect(dispatchHints(makeRecord({ changedOwned: [] }), ["src/a.ts"], dir)).toEqual(["climb: unchanged"]);
+    expect(dispatchHints(makeRecord({ replyStatus: "blocked" }), [], dir)).toEqual(["floor: blocked"]);
+    expect(dispatchHints(makeRecord({ changedOwned: [] }), ["src/a.ts"], dir)).toEqual(["floor: unchanged"]);
     expect(dispatchHints(makeRecord({ changedOwned: [] }), [], dir)).toEqual([]);
   });
 

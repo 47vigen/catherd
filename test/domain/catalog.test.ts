@@ -165,13 +165,11 @@ describe("buildCatalog", () => {
         },
       },
     });
-    expect(c.pool).toEqual([33, 42]);
     expect(c.indexedAt).toBe("2026-10-13T20:47:14.735Z");
   });
 
-  it("has no pair and an empty pool with no index", () => {
+  it("has no pair with no index", () => {
     const c = shipped({ index: null });
-    expect(c.pool).toEqual([]);
     expect(c.indexedAt).toBeNull();
     expect(pairOf(c, "codex:gpt-6-sol#high")).toBeNull();
   });

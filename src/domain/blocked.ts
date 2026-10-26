@@ -9,18 +9,6 @@ export const BLOCKED_REASONS = [
 ] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
-export type StopAction = "climb" | "failover" | "park" | "wait";
-
-/** What the machine does with each reason (spec 2.0 decision 8): climb, retry then fail over, park, or wait. */
-export const REASON_ACTION: Readonly<Record<BlockedReason, StopAction>> = {
-  needs_user: "park",
-  too_hard: "climb",
-  provider_error: "failover",
-  no_access: "park",
-  check_broken: "wait",
-  out_of_scope: "park",
-};
-
 const REASON_AT_START = /^[`*\s]*([a-z][a-z_-]*)[`*]*\s*(?:[:—–-]\s*)?([\s\S]*)$/i;
 
 /** The reason a `STATUS: blocked — <reason>: <why>` line names, and its why; null when it names none. */

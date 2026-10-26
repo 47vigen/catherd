@@ -13,6 +13,7 @@ import { join, relative } from "node:path";
 import { CatherdError } from "../../src/domain/errors.ts";
 import { indexPath, runsDir } from "../../src/infra/paths.ts";
 import { readIndexFile, writeIndexFile } from "../../src/infra/slopalytics.ts";
+import { pairOf } from "../../src/domain/catalog.ts";
 import { loadCatalog } from "../../src/services/catalog-service.ts";
 import { landedCommitOf } from "../../src/services/milestones.ts";
 import { appendRecord, createRun, listRuns, runPaths } from "../../src/services/run-store.ts";
@@ -112,8 +113,10 @@ it("pins the machine's index into a child run, so a pair dropped later never bre
   const child = await startWorkspaceChild(deps, { workspace: workspace.id, step: "api" });
   expect(readIndexFile(join(child.dir, "slopalytics.json"))).toEqual(machine);
   writeIndexFile(indexPath(), indexOf({ "gpt-6-luna#high": 33 }));
-  expect(loadCatalog({ runDir: child.dir }).pool).toEqual([42]);
-  expect(loadCatalog().pool).toEqual([33]);
+  const pinned = loadCatalog({ runDir: child.dir });
+  expect(pairOf(pinned, "codex:gpt-6-sol#high")?.intelligence).toBe(42);
+  expect(pairOf(pinned, "codex:gpt-6-luna#high")).toBeNull();
+  expect(pairOf(loadCatalog(), "codex:gpt-6-luna#high")?.intelligence).toBe(33);
 });
 
 it("rejects invalid graphs and unordered steps owning the same repo", async () => {

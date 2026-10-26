@@ -63,4 +63,11 @@ describe("scorecard fixtures", () => {
         for (const word of words) expect([f, text.includes(word)]).toEqual([f, false]);
       }
   });
+
+  it("holds no absolute home path in any doc", () => {
+    // `/Users/a/` and `/Users/me/` are the placeholder users of test examples
+    const home = /\/Users\/(?!a\/|me\/)\w+/;
+    for (const f of files(join(REPO, "docs")))
+      expect([f, home.test(readFileSync(f, "utf8"))]).toEqual([f, false]);
+  });
 });
